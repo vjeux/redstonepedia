@@ -2229,6 +2229,9 @@ pub struct LoopTiming {
     pub verbose_tail: bool,
     /// Every cart in the tail's cells each tick over cycles C0..=C1 (`--tail-trace C0,C1`).
     pub tail_trace: Option<(i64, i64)>,
+    /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
+    /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
+    pub arrivals: bool,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -2373,7 +2376,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, start_random: false }
     }
 }
 
@@ -3159,6 +3162,22 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // 3 ticks or more, its rider not seated in it; and the latch's sets after +55 (T2 going out:
     // D1's set, or C's), each a slot offset)
     let mut rail_watch = crate::flight::RailWatch::new(merge_flights(lay.flights.clone(), &hdr.flights));
+    // (the arrival stream and backward ticks on P: see the stand-strip block)
+    let mut arr_stream: Vec<String> = Vec::new();
+    let mut arr_prev_x = vec![f64::MIN; 21];
+    let mut p_back: Vec<String> = Vec::new();
+    let mut p_back_ticks = 0usize;
+    // (admission control's margins: the fastest front at a G0 opening (speed, distance short,
+    // when); the launched cart's rider against the next admitted cart: the closest gap between
+    // the rider's box and a cart on P (blocks, when), and per admission the ticks between the
+    // rider's box leaving G_P's plane and the admitted cart's front reaching P's end)
+    let mut g0_open_vmax: (f64, f64, String) = (-1.0, 0.0, String::new());
+    let mut rider_gap_min: (f64, String) = (f64::MAX, String::new());
+    let mut rider_clear_t: Option<i64> = None;
+    let mut rider_ticks_min: (i64, String) = (i64::MAX, String::new());
+    let mut rider_back_prev = vec![f64::MIN; 21];
+    let mut front_prev = vec![f64::MIN; 21];
+    let mut arrivals_now: Vec<(usize, String)> = Vec::new();
     let mut unseated: Vec<bool> = vec![false; 21];
     let mut unseat_log: Vec<String> = Vec::new();
     let mut latch_sets: Vec<i64> = Vec::new();
@@ -4051,6 +4070,19 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 if let Ok(blk) = Block::parse(&s)
                     && run.world.get(g0) != blk
                 {
+                    // (G0 opening: the queue's front cart then, its distance short of G0's box and
+                    // its speed, the worst kept: the fastest arrival an admission must survive)
+                    if want {
+                        let near = g0.z as f64 + 0.375 - fz;
+                        let front = run.world.entities.list.iter().filter(|e| matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && (e.pos.x - fx - (g0.x as f64 + 0.5)).abs() < 0.3 && e.pos.z - fz + 0.49 <= near + 0.02 && e.pos.z - fz > near - 6.0).max_by(|a, b| a.pos.z.total_cmp(&b.pos.z));
+                        if let Some(f) = front {
+                            let v = f.delta_movement.horizontal_distance();
+                            let short = near - (f.pos.z - fz + 0.49);
+                            if v > g0_open_vmax.0 {
+                                g0_open_vmax = (v, short, format!("slot {c} +{dt}"));
+                            }
+                        }
+                    }
                     run.world.set_block(g0, blk, redsim::world::flags::ALL);
                     drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, g0.x, g0.y, g0.z, s));
                 }
@@ -4190,6 +4222,69 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // also each cart off the rails, a rider not seated, and the latch's sets)
             for (k, id) in carts.iter().enumerate().take(21) {
                 let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id) else { continue };
+                // (the arrival stream, `arrivals`: each cart crossing x 8.5 westward on the
+                // escapement tail's return run, as tail-bench `--arrivals` replays it; and a cart
+                // moving backward on admission control's P while P is powered)
+                if o.tail_esc > 0 {
+                    let (x, y, z) = (e.pos.x - fx, e.pos.y, e.pos.z - fz);
+                    if tm.arrivals && (y - esc_ye(o) as f64).abs() < 0.6 && (z - 20.5).abs() < 0.4 && arr_prev_x[k] > 8.5 && x <= 8.5 {
+                        arr_stream.push(format!("arrival c{c} +{dt} x{x:.4} v{:.4}", e.delta_movement.horizontal_distance()));
+                    }
+                    arr_prev_x[k] = x;
+                    if let Some(a1) = lay.esc_adm_a1
+                        && x.floor() as i32 == a1[0]
+                        && z.floor() as i32 == a1[2]
+                        && y >= a1[1] as f64
+                        && y < a1[1] as f64 + 1.3
+                        && e.delta_movement.z < -0.01
+                        && run.world.get(BlockPos::new(a1[0] + fx as i32, a1[1], a1[2] + fz as i32)).to_string().contains("powered=true")
+                    {
+                        if p_back.len() < 6 {
+                            // (who pushed it: the non-cart entities within 1.6 blocks)
+                            let near: Vec<String> = run.world.entities.list.iter().filter(|o| o.id != *id && !matches!(o.kind, redsim::entity::EntityKind::Minecart(_)) && (o.pos.x - e.pos.x).abs() < 1.6 && (o.pos.z - e.pos.z).abs() < 1.6 && (o.pos.y - e.pos.y).abs() < 2.5).map(|o| format!("{}#{} at {:.2},{:.2},{:.2}{}", match &o.kind { redsim::entity::EntityKind::Mob(m) => format!("{:?}", m.ty), k => format!("{k:?}").chars().take(12).collect() }, o.id, o.pos.x - fx, o.pos.y, o.pos.z - fz, match o.vehicle { Some(v) => format!(" riding #{v}"), None => String::new() })).collect();
+                            p_back.push(format!("slot {c} +{dt}: cart {k} at z {z:.2} vz {:.3}; near: {}", e.delta_movement.z, if near.is_empty() { "none".to_string() } else { near.join(", ") }));
+                        }
+                        p_back_ticks += 1;
+                    }
+                    // (the rider margin: this cart on P against every rider ahead of it; this
+                    // cart's rider leaving G_P's plane; this cart's front reaching P's end)
+                    if let Some(a1) = lay.esc_adm_a1 {
+                        let z_gp = (a1[2] + 1) as f64 + 0.375;
+                        let tnow = run.world.time - t_origin;
+                        if let Some(r) = run.world.entities.list.iter().find(|r| r.id == riders[k]) {
+                            let back = r.pos.z - fz - 0.3;
+                            if rider_back_prev[k] != f64::MIN && rider_back_prev[k] <= z_gp && back > z_gp {
+                                rider_clear_t = Some(tnow);
+                            }
+                            rider_back_prev[k] = back;
+                        }
+                        let on_p = x.floor() as i32 == a1[0] && z.floor() as i32 == a1[2] && y >= a1[1] as f64 && y < a1[1] as f64 + 1.3;
+                        let front = z + 0.49;
+                        if on_p {
+                            for (k2, id2) in carts.iter().enumerate().take(21) {
+                                if k2 == k {
+                                    continue;
+                                }
+                                let Some(b) = run.world.entities.list.iter().find(|b| b.id == *id2) else { continue };
+                                if b.pos.z - fz <= z {
+                                    continue;
+                                }
+                                let Some(r) = run.world.entities.list.iter().find(|r| r.id == riders[k2]) else { continue };
+                                if r.pos.y + 1.95 > y && r.pos.y < y + 0.7 && (r.pos.x - e.pos.x).abs() < 0.79 {
+                                    let gap = (r.pos.z - fz - 0.3) - front;
+                                    if gap < rider_gap_min.0 {
+                                        rider_gap_min = (gap, format!("slot {c} +{dt} (cart {k} on P, cart {k2}'s rider)"));
+                                    }
+                                }
+                            }
+                        }
+                        if on_p && front_prev[k] != f64::MIN && front_prev[k] < z_gp - 0.075 && front >= z_gp - 0.075 {
+                            // (judged after every cart's rider this tick: see below the loop)
+                            arrivals_now.push((k, format!("slot {c} +{dt} (cart {k})")));
+                        }
+                        front_prev[k] = front;
+                    }
+                }
                 // (off the rails, with the design's declared flights: `crate::flight`)
                 rail_watch.observe(&run.world, k, *id, Some(riders[k]), &format!("slot {c} +{dt}"));
                 let seated = e.passengers.contains(&riders[k]);
@@ -4197,6 +4292,16 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     unseat_log.push(format!("slot {c} +{dt}: cart {k}'s rider not seated (cart at {:.2},{:.2},{:.2})", e.pos.x - fx, e.pos.y, e.pos.z - fz));
                 }
                 unseated[k] = !seated;
+            }
+            // (admission control's rider ticks: each cart that reached P's end this tick, against
+            // the last launched rider to leave G_P's plane, this tick's included)
+            for (_, when) in arrivals_now.drain(..) {
+                if let Some(tc) = rider_clear_t {
+                    let m = run.world.time - t_origin - tc;
+                    if m < rider_ticks_min.0 {
+                        rider_ticks_min = (m, when);
+                    }
+                }
             }
             if o.stand_wired {
                 let lit = run.world.get(BlockPos::new(-o.row_gap + 9 + o.shift[0], 0, 2 + o.shift[1])).to_string().contains("lit=true");
@@ -5172,6 +5277,19 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             problems.push(format!("the count: {c_end} of {} carts and {r_end} of {} riders at the end", carts.len(), riders.len()));
         }
         out.push(merges.line());
+        if lay.esc_adm_a1.is_some() {
+            out.push(format!("backward on P while it is powered (admission control): {p_back_ticks} ticks{}", if p_back.is_empty() { String::new() } else { format!(" ({})", p_back.join("; ")) }));
+            out.push(format!(
+                "admission margins: the fastest front at a G0 opening {:.3} b/t, {:.3} short of G0's box ({}); the launched cart's rider and the next cart on P at least {} apart ({}); the admitted cart's front reached P's end at least {} gt after the launched cart's rider left G_P's plane ({})",
+                g0_open_vmax.0, g0_open_vmax.1, g0_open_vmax.2,
+                if rider_gap_min.0 == f64::MAX { "-".to_string() } else { format!("{:.3}", rider_gap_min.0) }, rider_gap_min.1,
+                if rider_ticks_min.0 == i64::MAX { "-".to_string() } else { rider_ticks_min.0.to_string() }, rider_ticks_min.1
+            ));
+            if p_back_ticks > 0 {
+                problems.push(format!("backward on P while powered: {p_back_ticks} ticks ({})", p_back.first().cloned().unwrap_or_default()));
+            }
+        }
+        out.extend(arr_stream.iter().cloned());
         out.push(format!("declared states (rails, gates, boosters as the options declare them; tick 0 and boosters at t 20): {} mismatches{}", declared_bad.len(), if declared_bad.is_empty() { String::new() } else { format!(" ({})", declared_bad.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
         if !declared_bad.is_empty() {
             problems.push(format!("declared states: {} mismatches ({})", declared_bad.len(), declared_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")));
