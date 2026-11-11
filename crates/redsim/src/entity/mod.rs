@@ -723,6 +723,16 @@ pub fn index_of(w: &World, id: u32) -> Option<usize> {
     w.entities.list.iter().position(|e| e.id == id)
 }
 
+/// (tickexact 2026-11-11, ironspec's walker rule) Whether entity `id`'s box touches a minecart's
+/// box, its own vehicle aside: `AABB.intersects`, what `Entity.pushEntities` asks of a walking
+/// rider's box (the push needs contact whatever the path: scenes rider-push and cart-merge); with
+/// `margin` > 0, whether one is within that gap of it sideways. A diagnostic (no model state).
+pub fn touching_cart(w: &World, id: u32, margin: f64) -> bool {
+    let Some(r) = w.entities.list.iter().find(|e| e.id == id && !e.removed) else { return false };
+    let bb = r.bb.inflate(margin, 0.0, margin);
+    w.entities.list.iter().any(|c| c.id != id && !c.removed && Some(c.id) != r.vehicle && matches!(c.kind, EntityKind::Minecart(_)) && c.bb.intersects(bb))
+}
+
 /// `ServerLevel.tickPassenger(vehicle, entity)`: a passenger that left (removed, or riding something
 /// else) stops riding; otherwise its `commonTick` and `rideTick`, then its own passengers.
 fn tick_passenger(w: &mut World, vehicle: u32, rider: u32) {

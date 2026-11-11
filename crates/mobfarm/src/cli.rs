@@ -787,6 +787,14 @@ pub enum MobfarmCmd {
         /// from each G_P opening.
         #[arg(long, default_value_t = 0)]
         adm_rpulse: i64,
+        /// The rider-space check's positive control: stones at X,Y,Z;... (the design's frame)
+        /// placed before the check.
+        #[arg(long)]
+        rider_space_control: Option<String>,
+        /// Declared sight stretches added to the design's `sight:` (X0,Y0,Z0..X1,Y1,Z1;...): their
+        /// riders keep every zombie within 8 in sight.
+        #[arg(long)]
+        sight: Option<String>,
         /// Every cart's position each tick in the log.
         #[arg(long)]
         trace: bool,
@@ -1197,6 +1205,12 @@ pub enum MobfarmCmd {
         /// from each G_P opening.
         #[arg(long, default_value_t = 0)]
         adm_rpulse: i64,
+        /// The rider-space check's positive control: stones at X,Y,Z;... placed before the check.
+        #[arg(long)]
+        rider_space_control: Option<String>,
+        /// Declared sight stretches added to the design's `sight:` (X0,Y0,Z0..X1,Y1,Z1;...).
+        #[arg(long)]
+        sight: Option<String>,
         /// Admission control: P always on from the first gate opening.
         #[arg(long)]
         p_always: bool,
@@ -1214,6 +1228,19 @@ pub enum MobfarmCmd {
         /// The cart-evidence landing latch's strand threshold (gt set).
         #[arg(long, default_value_t = 40)]
         hold_strand_t: i64,
+        /// The entry hold's progress input: REL only if a cart left slot 0 forward since the
+        /// last release.
+        #[arg(long)]
+        hold_progress: bool,
+        /// The register's cart interlock, ideal sensors (bench-driven): an advance moves a cart
+        /// only into an empty slot, the head releases only into an empty stand, the tail launches
+        /// only into an empty slot 0 (the advance spacing is --advance-every).
+        #[arg(long)]
+        reg_interlock: bool,
+        /// A level-33 freeze of the tail's chunk: its controls delayed by the freeze (a pure
+        /// delay) instead of snapping to their schedule on the resume tick (the burst, default).
+        #[arg(long)]
+        l33_delay: bool,
         /// Admission control's skip requests, SLOT,DT (up to 8): each sets the latch; the next
         /// G0 opening after it is skipped.
         #[arg(long)]
@@ -1228,11 +1255,14 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 1)]
         jobs: usize,
         /// (ironspec's reload-order rule, farmopt 2026-11-11) The run again under each of these
-        /// load orders for every whole-part `--act ...,unload,N` (`all` = save, reverse, seed:1 ..
-        /// seed:8; or a list: `save,reverse,seed:3`), on `--jobs` threads: one line each (its
+        /// load orders for every whole-part `--act ...,unload,N`: `all:N` = N orders (save,
+        /// reverse, then seed:1 .. seed:N-2); `all` = `all:40` (ironspec 2026-11-11 05:12:
+        /// wherever a sensor phase cannot be forced, a reload row runs at least 40 samples with 0
+        /// failures; each order is one sample of the game's random reload, tick-exact), or a list
+        /// (`save,reverse,seed:3`, ranges `seed:1-30`); on `--jobs` threads: one line each (its
         /// problems and first problem, the visits, night 1, the lap order, and the visits spanning
-        /// the unload: each one's rest slot and tick), then the row's verdict: a failure under any
-        /// order fails it.
+        /// the unload: each one's rest slot and tick), then the row's verdict (a failure under any
+        /// order fails it) with its miss rate and Wilson 95% interval.
         #[arg(long, value_delimiter = ',')]
         reload_orders: Vec<String>,
         #[arg(long)]
@@ -2451,7 +2481,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, adm_k2, adm_rpulse, trace, shift, from_climb, unload, drive_out, scene_out, flights, arrivals, scene_at } => {
+        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, adm_k2, adm_rpulse, rider_space_control, sight, trace, shift, from_climb, unload, drive_out, scene_out, flights, arrivals, scene_at } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let pat = crate::tail_bench::parse_pattern(&pattern).map_err(|e| anyhow::anyhow!(e))?;
@@ -2462,7 +2492,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 unloads: unload.chunks(7).map(|u| (u[0], u[1], [u[2] as i32, u[3] as i32, u[4] as i32, u[5] as i32], u[6])).collect(),
                 drive_out: drive_out.clone(),
                 flights: match &flights { Some(s) => Some(crate::flight::parse(s).map_err(|e| anyhow::anyhow!(e))?), None => None },
-                hdr: crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?,
+                hdr: {
+                    let mut h = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+                    if let Some(s) = &rider_space_control {
+                        h.rider_space_control = crate::declared::parse_cells(s).map_err(|e| anyhow::anyhow!("--rider-space-control: {e}"))?;
+                    }
+                    if let Some(s) = &sight {
+                        h.sight.extend(crate::declared::parse_boxes(s).map_err(|e| anyhow::anyhow!("--sight: {e}"))?);
+                    }
+                    h
+                },
                 arrivals: match &arrivals {
                     Some(f) => std::fs::read_to_string(f)?
                         .lines()
@@ -2594,12 +2633,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
             // turned as its blocks)
             let mut hdr = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            if let Some(s) = &rider_space_control {
+                hdr.rider_space_control = crate::declared::parse_cells(s).map_err(|e| anyhow::anyhow!("--rider-space-control: {e}"))?;
+            }
+            if let Some(s) = &sight {
+                hdr.sight.extend(crate::declared::parse_boxes(s).map_err(|e| anyhow::anyhow!("--sight: {e}"))?);
+            }
             if let Some(sf) = &siding {
                 // (a part pasted into the loop: farmopt's bed siding, inside its box)
                 let (pc, part) = load(version, sf)?;
@@ -2617,6 +2662,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 for f in ph.flights {
                     hdr.flights.push(crate::flight::Flight { take_off: mv(f.take_off), landing: f.landing.iter().map(|l| mv(*l)).collect(), max_air: f.max_air });
+                }
+                for c in ph.rider_space_ok {
+                    hdr.rider_space_ok.push(mv(c));
                 }
                 let bx = match siding_box.as_slice() { [a, b, c, d, e, f] => ([*a, *b, *c], [*d, *e, *f]), [] => ([-7, -4, -3], [6, 4, 9]), _ => anyhow::bail!("--siding-box takes x0,y0,z0,x1,y1,z1 in the part's own frame") };
                 let n = crate::queue::paste_part(&mut spec, &part, at, siding_turn, bx).map_err(|e| anyhow::anyhow!(e))?;
@@ -2681,7 +2729,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some(crate::queue::parse_rider("--watch-mob", s).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 v
-            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, p_always, adm_faults: {
+            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, p_always, adm_faults: {
                 anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
                 let mut a = [None; 8];
                 for (i, s) in adm_fault.iter().enumerate() {
@@ -4651,15 +4699,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 fn reload_orders_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, names: &[String], cycles: i64, seed: i64, jobs: usize) -> Result<()> {
     use redsim::reload::Order;
-    let mut orders: Vec<Order> = Vec::new();
-    for n in names {
-        if n == "all" {
-            orders.extend([Order::Save, Order::Reverse]);
-            orders.extend((1..=8).map(Order::Seed));
-        } else {
-            orders.push(Order::parse(n).ok_or_else(|| anyhow::anyhow!("--reload-orders {n}: save, reverse, seed:K (K < 1000) or all"))?);
-        }
-    }
+    let orders: Vec<Order> = crate::queue::parse_reload_orders(names).map_err(|e| anyhow::anyhow!(e))?;
     let unloads: Vec<crate::queue::Act> = tm.acts.iter().flatten().filter(|a| a.unload == Some(None)).copied().collect();
     anyhow::ensure!(!unloads.is_empty(), "--reload-orders: no whole-part unload act (--act SLOT,DT,unload,N)");
     let spans = |l: &str| -> bool {
@@ -4706,7 +4746,11 @@ fn reload_orders_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queu
         }
     }
     let acts: Vec<String> = unloads.iter().map(|a| format!("{},{},unload,{}", a.slot, a.dt, a.hold.unwrap_or(1))).collect();
-    println!("row {} (seed {seed}, {cycles} slots): {}", acts.join(" + "), if failed.is_empty() { format!("PASS under all {} orders", orders.len()) } else { format!("FAIL under {}", failed.join(", ")) });
+    // (tick-exact 2026-11-11: each order is one sample of the game's random reload, so the row's
+    // miss rate with its Wilson 95% interval)
+    let (lo, hi) = crate::queue::wilson95(failed.len(), orders.len());
+    let rate = format!("{} of {} orders missed ({:.0}%, Wilson 95% {:.0}-{:.0}%)", failed.len(), orders.len(), 100.0 * failed.len() as f64 / orders.len().max(1) as f64, 100.0 * lo, 100.0 * hi);
+    println!("row {} (seed {seed}, {cycles} slots): {}; {rate}", acts.join(" + "), if failed.is_empty() { format!("PASS under all {} orders", orders.len()) } else { format!("FAIL under {}", failed.join(", ")) });
     Ok(())
 }
 

@@ -161,11 +161,16 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     };
     let (declared, mut bad) = crate::queue::merge_declared(crate::queue::declared_states(o).into_iter().map(sh).collect(), &bo.hdr.declared.iter().cloned().map(sh).collect::<Vec<_>>());
     bad.extend(crate::declared::check(&run.world, &declared, false));
+    // (the rider space: no block with a collision box in the two cells over a rail)
+    bad.extend(crate::queue::rider_space_check(&mut run.world, spec, &declared, &bo.hdr, o, dx, dz));
     if !bad.is_empty() {
         return Err(format!("declared states: {} mismatches ({})", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
     }
     let mut runtime_bad: Vec<String> = Vec::new();
     let mut walk_kinds = [0usize; 3];
+    let mut walk_touch = 0usize;
+    let mut touch_idle = 0usize;
+    let mut walk_touch_log: Vec<String> = Vec::new();
     let mut walking_log: Vec<String> = Vec::new();
     // (every detector rail of the design: its on-edges against the carts entering it)
     let mut det_edges = crate::queue::DetectorEdges::new(lay.path.iter().filter(|(_, k)| matches!(k, crate::queue::Cell::Detector)).map(|(c, _)| BlockPos::new(c[0] + dx, c[1], c[2] + dz)).collect());
@@ -690,16 +695,28 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
                 runtime_bad.push(format!("{b} (slot {c} +{dt})"));
             }
         }
-        // (riders in the buffer's pressed queue with a walk target, by path: reaching (they push
-        // the cart beside them; must be 0), partial, none)
+        // (riders in the buffer's pressed queue: walk targets by path (reaching, partial, none), and
+        // every rider whose box touches another cart's, walking or not: contact alone pushes)
         for (k, id) in carts.iter().enumerate() {
             if let (Some(p), Some(Some(r))) = (pos_of(&run.world, *id), riders.get(k))
                 && in_tail(&p)
-                && let Some(kind) = crate::queue::rider_walk_kind(&run.world, *r)
             {
-                walk_kinds[kind as usize] += 1;
-                if walking_log.iter().filter(|l| l.ends_with(["reaching", "partial", "no path"][kind as usize])).count() < 3 {
-                    walking_log.push(format!("slot {c} +{dt}: cart {k} at z {:.2} {}", p.z - fz, ["reaching", "partial", "no path"][kind as usize]));
+                let kind = crate::queue::rider_walk_kind(&run.world, *r);
+                let kname = kind.map_or("not walking", |kd| ["reaching", "partial", "no path"][kd as usize]);
+                if let Some(kd) = kind {
+                    walk_kinds[kd as usize] += 1;
+                    if walking_log.iter().filter(|l| l.ends_with(kname)).count() < 3 {
+                        walking_log.push(format!("slot {c} +{dt}: cart {k} at z {:.2} {kname}", p.z - fz));
+                    }
+                }
+                if let Some((tz, ov)) = crate::queue::rider_touch(&run.world, *r, *id) {
+                    walk_touch += 1;
+                    if kind.is_none() {
+                        touch_idle += 1;
+                    }
+                    if walk_touch_log.len() < 3 {
+                        walk_touch_log.push(format!("slot {c} +{dt}: cart {k} at z {:.2} ({kname}) touching a cart at z {:.3} by {ov:.3}", p.z - fz, tz - fz));
+                    }
                 }
             }
         }
@@ -980,7 +997,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     s += &format!("the tail's most carts at once: {max_tail}\n");
     s += &format!("{}\n", merges.line());
     s += &format!("{}\n", rails.line());
-    s += &format!("riders in the buffer with a walk target, rider-ticks by path: reaching {} (they push the cart beside them; must be 0), partial {}, no path {}{}\n", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) });
+    s += &format!("riders in the buffer with a walk target, rider-ticks by path: reaching {}, partial {}, no path {}{}; riders whose box touches another cart's, walking or not (contact alone pushes; must be 0): {walk_touch} (not walking {touch_idle}){}\n", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }, if walk_touch_log.is_empty() { String::new() } else { format!(" ({})", walk_touch_log.join("; ")) });
     s += &format!("{}\n", det_edges.line(dx, dz));
     if land_det.is_some() {
         s += &format!("landing detector (the entry hold's strand input by level): longest unbroken on {} gt ({}); per cycle {:?}\n", land_on_max.0, land_on_max.1, land_cycle_max);

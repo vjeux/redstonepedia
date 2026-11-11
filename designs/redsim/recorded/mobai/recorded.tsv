@@ -46,7 +46,7 @@ freeze-cantreach.rec	3b3c3a7db04c6d75		26.3	2026-11-11T10:20Z on 6debd3974	mctas
 gate-admit-rev.rec	11c7a719c8e97209		26.3	2026-11-11T09:50Z on be8fb13bf	mctas mobai record gate-admit-rev --seed 1 --ticks 900 --dir designs/redsim/recorded/mobai
 gate-admit-s1.rec	fba34a82cf8ef79e		26.3	2026-11-11T09:49Z on be8fb13bf	mctas mobai record gate-admit-s1 --seed 1 --ticks 900 --dir designs/redsim/recorded/mobai
 gate-admit.rec	2a4e3ffd8db913d0		26.3	2026-11-11T09:23Z on ad0b401dd	mctas mobai record gate-admit --seed 1 --ticks 900 --dir designs/redsim/recorded/mobai
-gate-escg6l-v3.rec	ba91bfec5f0f1f86		26.3	2026-11-11T10:20Z on 6debd3974	mctas mobai record gate-escg6l-v3 --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
+gate-escg6l-v3.rec	18c8b884d4d14dad		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record gate-escg6l-v3 --seed 1 --ticks 500 --dir designs/redsim/recorded/mobai
 gate-escg6l-v4.rec	e4bbd48cd962c77a		26.3	2026-11-11T11:13Z on a7485adf5	mctas mobai record gate-escg6l-v4 --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 gate-escg6l.rec	ae5a4517902540cd		26.3	2026-11-11T09:24Z on ad0b401dd	mctas mobai record gate-escg6l --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 golem-summon.rec	9211d49a03edc4b0		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record golem-summon --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
@@ -54,11 +54,15 @@ golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mob
 home-reach-open.rec	f272ae2768c14aa9		26.3	2026-11-11T11:13Z on a7485adf5	mctas mobai record home-reach-open --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 horses.rec	0d4fd5510c0f2f5f		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 level32.rec	0ee4f1cd919d8aad		26.3	2026-11-11T03:34Z on 2a49ff7aa	mctas mobai record level32 --seed 1 --ticks 400 --dir designs/redsim/recorded/mobai
+level33-set.rec	564e605c5463249e		26.3	2026-11-11T12:25Z on f6d0a622a	mctas mobai record level33-set --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 loot-pickup.rec	399481169aa92c26		26.3	2026-11-10T15:13Z on 15717973b	mctas mobai record loot-pickup --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
+pane-connect.rec	8106ec4b73502113		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record pane-connect --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 reclaim-backoff-1.rec	5bb1341f0fe9a2bb		26.3	2026-11-11T11:42Z on 388d91c58	mctas mobai record reclaim-backoff-1 --seed 1 --ticks 2500 --dir designs/redsim/recorded/mobai
+reclaim-backoff-day.rec	12ca16f30fb96ca3		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record reclaim-backoff-day --seed 1 --ticks 4700 --dir designs/redsim/recorded/mobai
+reclaim-backoff.rec	e8db94bea2811d7e		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record reclaim-backoff --seed 1 --ticks 4700 --dir designs/redsim/recorded/mobai
 recover-occupied.rec	9459a35cd221c296		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-occupied --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 recover-shared.rec	ab8f7b683acc91d6		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 recover-single.rec	b3e69998f7c7bb39		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record recover-single --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai

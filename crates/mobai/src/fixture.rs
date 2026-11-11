@@ -212,6 +212,19 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             v
         }
+        // (tickexact 2026-11-11) the panes' neighbours changed
+        "pane-connect" => vec![
+            (10, vec![s([6, 64, 4], "minecraft:air")]),
+            (20, vec![s([5, 64, 7], "minecraft:stone")]),
+            (30, vec![s([6, 64, 12], "minecraft:air")]),
+        ],
+        // (tickexact 2026-11-11) level 33: the east chunks' tickets dropped, the three redstone
+        // blocks set at t60, the tickets back at t240
+        "level33-set" => vec![
+            (40, vec![s([0, 0, 0], "unload:0,0,1,0")]),
+            (60, vec![s([18, 64, 2], "minecraft:redstone_block"), s([18, 64, 6], "minecraft:redstone_block"), s([2, 64, 10], "minecraft:redstone_block")]),
+            (240, vec![s([0, 0, 0], "load:0,0,1,0")]),
+        ],
         // (tickexact 2026-11-10) level 32: the top chest filled, the repeater loop started by a
         // one-tick pulse, the east chunk's forced ticket dropped from t40 to t240
         "level32" => vec![
@@ -2669,6 +2682,67 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, d1u-drop-side run 25's refusal: a village window's pane lost its east
+    // neighbour and turned to glass_pane[west=true], a state the natural table lacked) panes whose
+    // connections change, every starting state one the table had: A between two stones, the east
+    // one removed at t10 (west only); B alone, a stone set north of it at t20 (north only); C one of
+    // two panes between stones, the other removed at t30 (west only) (scene_actions: "pane-connect")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 63, stone);
+        b.push(([4, 64, 4], stone.to_string()));
+        b.push(([5, 64, 4], "minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=true]".to_string()));
+        b.push(([6, 64, 4], stone.to_string()));
+        b.push(([5, 64, 8], "minecraft:glass_pane[east=false,north=false,south=false,waterlogged=false,west=false]".to_string()));
+        b.push(([4, 64, 12], stone.to_string()));
+        b.push(([5, 64, 12], "minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=true]".to_string()));
+        b.push(([6, 64, 12], "minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=true]".to_string()));
+        b.push(([7, 64, 12], stone.to_string()));
+        v.push(Scene {
+            name: "pane-connect".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 66, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, farmopt: does a block a bench sets inside a level-33 chunk still drive
+    // its redstone?) three chunks x -1..1, the east two's forced tickets dropped t40..t240 (chunk
+    // (0, 0) at level 32, (1, 0) at level 33); at t60 a redstone block set by the drive: A in the
+    // level-33 chunk feeding dust into a fence gate (neighbour updates only), B in the level-33
+    // chunk feeding a repeater into a fence gate (a scheduled tick), C the same as B in the
+    // level-32 chunk (scene_actions: "level33-set")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, -16, 32, 0, 16, 63, stone);
+        let gate = "minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]";
+        b.push(([19, 64, 2], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]".to_string()));
+        b.push(([20, 64, 2], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]".to_string()));
+        b.push(([21, 64, 2], gate.to_string()));
+        for (x0, z) in [(19, 6), (3, 10)] {
+            b.push(([x0, 64, z], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]".to_string()));
+            b.push(([x0 + 1, 64, z], gate.to_string()));
+        }
+        v.push(Scene {
+            name: "level33-set".into(),
+            chunks: [-1, 0, 1, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([-16, 62, 0], [31, 68, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-10, the reviewer's question on a partial unload) level 32: two chunks,
     // the west one forced throughout, the east one's forced ticket dropped from t40 to t240
     // (simulation level 32: block ticking, not entity ticking). In each chunk a randomly ticking
@@ -3988,6 +4062,10 @@ pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full
 #[allow(clippy::too_many_arguments)]
 pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch: u32, full: bool, probe: bool, trace: Option<(i64, Option<u32>)>) -> Result<Compare> {
     let mut ours = redsim_world(s, seed)?;
+    // (tickexact probe: MOBAI_SHOW_PUSHES: the mob-on-cart pushes logged from the first tick)
+    if std::env::var("MOBAI_SHOW_PUSHES").is_ok() {
+        redsim::entity::minecart::log_cart_pushes(&mut ours);
+    }
     if let Some(h) = game.poi_hashes() {
         ours.mob.ai.poi_hashes = Some(h);
     }
@@ -4194,6 +4272,37 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
             if show && o.t % 100 == 0 {
                 for e in &o.entities {
                     eprintln!("t {} #{} {} pos {:?} goals {:?} path {:?} target {:?} no_action {:?}", o.t, e.n, e.ty, e.pos, e.goals, e.path, e.target, e.no_action);
+                }
+            }
+            // (tickexact probe: MOBAI_SHOW_PUSHES="T0:T1": every push a mob's pushEntities gave a
+            // minecart in redsim at each tick of T0..=T1, counted at the push (ironspec's rule))
+            if let Ok(v) = std::env::var("MOBAI_SHOW_PUSHES") {
+                let parts: Vec<i64> = v.split(':').filter_map(|x| x.parse().ok()).collect();
+                redsim::entity::minecart::log_cart_pushes(&mut ours);
+                let now = redsim::entity::minecart::take_cart_pushes(&mut ours);
+                if parts.len() == 2 && o.t >= parts[0] && o.t <= parts[1] {
+                    for p in now {
+                        eprintln!("t {} push #{} pushed cart #{} by {:.4} {:.4} ({:.3} apart)", o.t, p.mob, p.cart, p.push[0], p.push[1], p.dist);
+                    }
+                }
+            }
+            // (tickexact probe: MOBAI_SHOW_TOUCH="T0:T1": at each tick of T0..=T1, each of redsim's
+            // riders whose box touches another minecart's box (`redsim::entity::touching_cart`, the
+            // walker rule's contact) or is within 0.2 of one, with its walk target)
+            if let Ok(v) = std::env::var("MOBAI_SHOW_TOUCH") {
+                let parts: Vec<i64> = v.split(':').filter_map(|x| x.parse().ok()).collect();
+                if parts.len() == 2 && o.t >= parts[0] && o.t <= parts[1] {
+                    for e in ours.entities.list.iter().filter(|e| !e.removed && e.vehicle.is_some()) {
+                        let touch = redsim::entity::touching_cart(&ours, e.id, 0.0);
+                        let near = redsim::entity::touching_cart(&ours, e.id, 0.2);
+                        if touch || near {
+                            let walk = match &e.kind {
+                                redsim::entity::EntityKind::Mob(m) => m.brain.as_ref().and_then(|b| b.ex.as_ref()).map(|x| format!("walk_target {:?} path {}", x.mem.walk_target.as_ref().map(|w| format!("{:?}", w.target)), match &x.mem.path { Some(p) if p.can_reach() => "reach", Some(_) => "partial", None => "none" })).unwrap_or_default(),
+                                _ => String::new(),
+                            };
+                            eprintln!("t {} touch #{} at {:.3} {:.3} {:.3} riding {:?}: {} {walk}", o.t, e.id, e.pos.x, e.pos.y, e.pos.z, e.vehicle, if touch { "TOUCHING a cart" } else { "within 0.2 of a cart" });
+                        }
+                    }
                 }
             }
             // (tickexact probe: MOBAI_SHOW_RIDERS="T": at tick T, each of the game's villagers: its
