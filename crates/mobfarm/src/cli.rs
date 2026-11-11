@@ -3799,6 +3799,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let ed = oks.iter().fold([0u32; 4], |a, r| [a[0] + r.edges[0], a[1] + r.edges[1], a[2] + r.carts_in_out[0], a[3] + r.carts_in_out[1]]);
                 println!("villagers dropped while the bed was taken: {dbt}");
                 {
+                    // (ironspec 08:40, the self-retrying kick, per visit: bumps, retries, the wake to
+                    // the boarding; the napper's position at every bump)
+                    let vs: Vec<&crate::siding::VisitRec> = oks.iter().flat_map(|r| r.visits.iter()).collect();
+                    let bumped = vs.iter().filter(|v| v.bumps > 0).count();
+                    let bumps: u32 = vs.iter().map(|v| v.bumps).sum();
+                    let retries: u32 = vs.iter().map(|v| v.retries).sum();
+                    let maxb = vs.iter().map(|v| v.bumps).max().unwrap_or(0);
+                    let mut wb: Vec<i64> = vs.iter().filter_map(|v| Some(v.reboarded? - v.woken?)).collect();
+                    wb.sort();
+                    let pts: Vec<[f64; 3]> = vs.iter().flat_map(|v| v.bump_at.iter().copied()).collect();
+                    let rng = |k: usize| pts.iter().map(|p| p[k]).fold((f64::INFINITY, f64::NEG_INFINITY), |a, x| (a.0.min(x), a.1.max(x)));
+                    let (xr, zr) = (rng(0), rng(2));
+                    println!(
+                        "retry kick: visits with a bump {bumped} of {}; bumps {bumps} (at most {maxb} in a visit); retries {retries}; the wake to the boarding min {} p50 {} p99 {} max {} gt{}",
+                        vs.len(),
+                        wb.first().copied().unwrap_or(-1),
+                        wb.get(wb.len() / 2).copied().unwrap_or(-1),
+                        wb.get(wb.len() * 99 / 100).copied().unwrap_or(-1),
+                        wb.last().copied().unwrap_or(-1),
+                        if pts.is_empty() { String::new() } else { format!("; the napper at every bump: x {:.2}..{:.2}, z {:.2}..{:.2} (the free cell x 1..2, z 2..3)", xr.0, xr.1, zr.0, zr.1) }
+                    );
+                }
+                {
                     let mut wk = [[0u64; 4]; 3];
                     for r in &oks {
                         for g in 0..3 {

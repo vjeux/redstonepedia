@@ -1558,6 +1558,13 @@ pub struct VisitRec {
     /// (farmopt 06:08, a standard line) The cart reached the slot without its napper: the tick,
     /// the napper's position (local) and whether it slept then.
     pub riderless: Option<(i64, [f64; 3], bool)>,
+    /// (ironspec 08:40, the self-retrying kick) The kicked cart's bumps (moving north, it stopped short
+    /// on the slope with its napper not aboard), its retries (kicked again from the park after a
+    /// bump), the napper's position (local) at each bump, and the cart's last local z speed.
+    pub bumps: u32,
+    pub retries: u32,
+    pub bump_at: Vec<[f64; 3]>,
+    pub last_vz: f64,
 }
 
 /// What the bench measured.
@@ -2740,6 +2747,24 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                             rep.audit_off.push(format!("visit {k} villager {villager} at {:.2} {:.2} {:.2} (local) t0+{}", l.x, l.y, l.z, t - t0));
                         }
                     }
+                }
+                // (ironspec 08:40, the self-retrying kick: bumps and retries, the napper at each bump)
+                if vr.dropped.is_some() && vr.reboarded.is_none() && riding.is_none()
+                    && let Some(c) = w.entities.list.iter().find(|x| x.id == cart && !x.removed)
+                {
+                    let lp = fr.local(c.pos);
+                    let vz = fr.local(c.pos.add(c.delta_movement.x, 0.0, c.delta_movement.z)).z - lp.z;
+                    if vr.last_vz < -0.05 && vz >= -0.005 && lp.z < 4.2 {
+                        vr.bumps += 1;
+                        if vr.bump_at.len() < 8 {
+                            let l = fr.local(e.pos);
+                            vr.bump_at.push([l.x, l.y, l.z]);
+                        }
+                    }
+                    if vr.bumps > 0 && vr.last_vz >= -0.005 && vz < -0.01 && lp.z > 4.5 {
+                        vr.retries += 1;
+                    }
+                    vr.last_vz = vz;
                 }
                 // (traced: the first visit's cart and napper every 3 gt until the re-board)
                 if bo.trace && vr.reboarded.is_none() && t % 3 == 0 && t - vr.arrived < 400 && t - t0 >= bo.trace_window.0 && t - t0 < bo.trace_window.1 {
