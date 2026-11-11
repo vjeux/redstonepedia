@@ -3367,7 +3367,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let touch = r.lines().find_map(|l| l.split("H closes, gt until a cart touches its face ").nth(1)).and_then(|x| x.split(';').next()).unwrap_or("-");
                         let merges = r.lines().find(|l| l.contains("merged carts:")).map(|l| l.trim().chars().take(60).collect::<String>()).unwrap_or_default();
                         let back = r.lines().find_map(|l| l.split("back travel up to ").nth(1)).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
-                        println!("L {w} S {d:+}: {} | shuts: {} | clear..follower window: {} | shut to the next cart at H's face: {touch} | back: {back} | {probs}{}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), r.lines().find_map(|l| l.split("common window ").nth(1)).unwrap_or("-"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
+                        let contact = r.lines().find_map(|l| l.strip_prefix("meter arrivals at a waiting cart (first box contact on the hold's column): ")).unwrap_or("-");
+                        println!("L {w} S {d:+}: {} | shuts: {} | clear..follower window: {} | shut to the next cart at H's face: {touch} | back: {back} | contact: {contact} | {probs}{}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), r.lines().find_map(|l| l.split("common window ").nth(1)).unwrap_or("-"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
                     }
                 }
                 return Ok(());
@@ -3409,7 +3410,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
                         let merges = r.lines().find(|l| l.contains("merged carts:")).map(|l| l.trim().chars().take(60).collect::<String>()).unwrap_or_default();
                         let back = r.lines().find_map(|l| l.split("back travel up to ").nth(1)).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
-                        println!("freeze at +{dt}: {} | shuts: {} | on a cart: {} | back: {back} | {probs}{}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
+                        let contact = r.lines().find_map(|l| l.strip_prefix("meter arrivals at a waiting cart (first box contact on the hold's column): ")).unwrap_or("-");
+                        println!("freeze at +{dt}: {} | shuts: {} | on a cart: {} | back: {back} | contact: {contact} | {probs}{}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
                     }
                 }
                 return Ok(());

@@ -3774,6 +3774,12 @@ pub struct MeterState {
     /// per cart, a reversal in progress at the hold: (stored speed, visible speed, contact z, max z)
     bounce: Vec<Option<(f64, f64, f64, f64)>>,
     rows: Vec<(f64, f64, f64, f64)>,
+    /// (cc767b78) per arrival at a waiting cart on the hold's column: (stored speed the tick before
+    /// its first box contact, the closest centres after, when); the pairs in progress; the carts'
+    /// stored speeds last tick
+    contact_rows: Vec<(f64, f64, String)>,
+    contacts: std::collections::HashMap<(usize, usize), (i64, f64, f64, String)>,
+    prev_v: Vec<f64>,
     /// per slot (the REL that opened it): the metered train's openings and Dh edges
     events: Vec<String>,
     done_at: Vec<i64>,
@@ -4136,6 +4142,43 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             w.set_block(hcell, b, redsim::world::flags::ALL);
         }
     }
+    // (cc767b78, the speed rule for every waiting point: each arrival at its first box contact with
+    // a waiting cart on the hold's column (a moving cart's centre within 1.0 of a cart at rest,
+    // horizontally): its stored speed the tick before (the merge threshold is ~1.0, bridged), then
+    // the closest the two centres come over the next 20 gt (under 0.01: merged))
+    let on_col = |p: &(f64, f64, f64, f64)| (p.0 - (xb as f64 + 0.5)).abs() < 0.45 && p.2 > -0.5 && p.2 < 6.0 && p.1 > 1.5;
+    if s.prev_v.len() != pos.len() {
+        s.prev_v = vec![0.0; pos.len()];
+    }
+    for (i, pi) in pos.iter().enumerate() {
+        let Some(pi) = pi.filter(|p| on_col(p) && p.3 >= 0.01) else { continue };
+        for (j, pj) in pos.iter().enumerate() {
+            let Some(pj) = pj.filter(|p| j != i && on_col(p) && p.3 < 0.01) else { continue };
+            let d = (pi.0 - pj.0).hypot(pi.2 - pj.2);
+            if d < 1.0 && !s.contacts.contains_key(&(i, j)) && !s.contacts.contains_key(&(j, i)) {
+                s.contacts.insert((i, j), (t, s.prev_v[i], d, format!("slot {c} +{dt}")));
+            }
+        }
+    }
+    let mut done: Vec<(usize, usize)> = Vec::new();
+    for (&(i, j), rec) in s.contacts.iter_mut() {
+        if let (Some(Some(a)), Some(Some(b))) = (pos.get(i), pos.get(j)) {
+            rec.2 = rec.2.min((a.0 - b.0).hypot(a.2 - b.2));
+        }
+        if t - rec.0 >= 20 {
+            done.push((i, j));
+        }
+    }
+    for k in done {
+        if let Some(r) = s.contacts.remove(&k) {
+            s.contact_rows.push((r.1, r.2, r.3));
+        }
+    }
+    for (k, p) in pos.iter().enumerate() {
+        if let Some(p) = p {
+            s.prev_v[k] = p.3;
+        }
+    }
     // (the hold's arrivals: a cart on the descent (x xb, z 0.5..5) reversing toward T; its stored
     // and visible speed when it reversed, the contact point and the farthest it went back)
     for (k, p) in pos.iter().enumerate() {
@@ -4212,6 +4255,20 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let t_z = 3.0;
     let into_t = s.rows.iter().filter(|r| r.3 >= t_z).count();
     out.push(format!("meter hold arrivals (reversals toward T on the descent): {} rows; stored speed at the reversal up to {:.3}, visible up to {:.3}; contact z {:.2}..{:.2}; back travel up to {:.3} blocks, the farthest back z {:.2} ({} rows reach z {t_z}); cell crossings back up to {}", s.rows.len(), worst(&|r| r.0), worst(&|r| r.1), s.rows.iter().map(|r| r.2).fold(f64::MAX, f64::min).min(99.0), worst(&|r| r.2), back.iter().cloned().fold(0.0f64, f64::max), worst(&|r| r.3), into_t, s.rows.iter().map(|r| (r.3.floor() - r.2.floor()) as i64).max().unwrap_or(0)));
+    // (cc767b78, the speed rule: each arrival's stored speed at its first box contact with a
+    // waiting cart, the closest centres after, merges)
+    {
+        let mut rows = s.contact_rows.clone();
+        rows.extend(s.contacts.values().map(|r| (r.1, r.2, r.3.clone())));
+        let vmax = rows.iter().map(|r| r.0).fold(0.0f64, f64::max);
+        let worst_at = rows.iter().max_by(|a, b| a.0.total_cmp(&b.0)).map(|r| r.2.clone()).unwrap_or_default();
+        let dmin = rows.iter().map(|r| r.1).fold(f64::MAX, f64::min);
+        let merges = rows.iter().filter(|r| r.1 < 0.01).count();
+        out.push(format!("meter arrivals at a waiting cart (first box contact on the hold's column): {} rows; stored speed the tick before contact up to {vmax:.3} ({worst_at}) (merge threshold ~1.0, bridged); closest centres {}; merged {merges}", rows.len(), if rows.is_empty() { "-".to_string() } else { format!("{dmin:.3}") }));
+        if merges > 0 {
+            problems.push(format!("meter: {merges} arrivals merged into a waiting cart"));
+        }
+    }
     if !s.shut_on_cart.is_empty() {
         out.push(format!("meter: gates shut on a cart: {} ({})", s.shut_on_cart.len(), s.shut_on_cart.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
         problems.push(format!("meter: {} gate closes on a cart", s.shut_on_cart.len()));
@@ -5224,7 +5281,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (S2's comb: its bench state, `crate::comb`)
     let mut comb_run = lay.comb.clone().map(crate::comb::CombRun::new);
     // (S3(ii)'s per-stand head permissions, `crate::headperm`)
-    let mut head_perm = tm.head_perm.map(|(a, d, g, r, bh)| crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, lay.stand_rel, g, r, bh));
+    let mut head_perm = tm.head_perm.map(|(a, d, g, r, bh)| {
+        let mut h = crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, lay.stand_rel, g, r, bh);
+        h.b_physical = tm.meter.is_some_and(|m| m.vb);
+        h
+    });
     let mut stripped: Vec<String> = Vec::new();
     let (mut strip_seen, mut strip_now): (Vec<u32>, Vec<u32>) = (Vec::new(), Vec::new());
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)

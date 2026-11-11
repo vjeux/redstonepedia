@@ -77,6 +77,9 @@ pub struct HeadPerm {
     tracks: Vec<Track>,
     /// The router (A = this stand, B = virtual), B's held cycles, and its log.
     pub router: bool,
+    /// With the meter's VB: B's launches are real (parked by the bench), not virtual.
+    pub b_physical: bool,
+    skip_next_launch: bool,
     b_hold: Option<(i64, i64)>,
     router_log: Vec<String>,
     holds: usize,
@@ -104,6 +107,8 @@ impl HeadPerm {
             binds: Vec::new(),
             tracks: Vec::new(),
             router,
+            b_physical: false,
+            skip_next_launch: false,
             b_hold,
             router_log: Vec::new(),
             holds: 0,
@@ -122,7 +127,16 @@ impl HeadPerm {
         let (who, d) = if c.rem_euclid(2) == 0 {
             ("A", if !self.gate || self.permit() { Go::Launch } else { Go::Hold })
         } else {
-            ("B", if self.b_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + n) { Go::Hold } else { Go::VirtualB })
+            ("B", if self.b_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + n) {
+                Go::Hold
+            } else if self.b_physical {
+                // (7b90c3f1's VB: B's train is launched for real and parked; this stand's latches
+                // don't see that launch)
+                self.skip_next_launch = true;
+                Go::Launch
+            } else {
+                Go::VirtualB
+            })
         };
         if d == Go::Hold {
             self.holds += 1;
@@ -140,6 +154,10 @@ impl HeadPerm {
     /// The head's launch for this stand: the latches read (a bind if either is unset), then both
     /// reset.
     pub fn on_launch(&mut self, t: i64, slot: i64) {
+        if self.skip_next_launch {
+            self.skip_next_launch = false;
+            return;
+        }
         if !self.permit() {
             self.binds.push(format!("slot {slot} (ARR {} EMP {})", self.arr, self.emp));
         }
