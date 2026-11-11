@@ -3150,6 +3150,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut late_raw_was = false;
     let mut late_holds: Vec<i64> = vec![0; 3];
     let mut late_was_holding: Vec<bool> = vec![false; 3];
+    let mut late_win_before: Vec<Option<i64>> = vec![None; 3];
+    let mut late_win_after: Vec<Option<i64>> = vec![None; 3];
+    let mut late_first_after: Vec<bool> = vec![false; 3];
     // (`acts`' restores due: (gt, cell, the block the act replaced)); the bench's own REL state
     let mut act_restores: Vec<(i64, BlockPos, Block)> = Vec::new();
     let mut pending_loads: Vec<(i64, Option<[i32; 4]>)> = Vec::new();
@@ -4204,6 +4207,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             if raw_on && !late_raw_was {
                 late_rise_at = Some(t);
                 late_edge_at_rise = late_edge_at.clone();
+                // (the crossing windows: each held gate's cell, its latest crossing before this
+                // rise and, below, its first crossing after it)
+                for gk in 0..3 {
+                    if let Some(e) = late_edge_at[gk] {
+                        let d = t - e;
+                        late_win_before[gk] = Some(late_win_before[gk].map_or(d, |m: i64| m.min(d)));
+                    }
+                    late_first_after[gk] = true;
+                }
             }
             late_raw_was = raw_on;
             let ps: Vec<Option<redsim::entity::Vec3>> = carts.iter().map(|id| pos_of(&run.world, *id)).collect();
@@ -4214,6 +4226,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     let inside = p.is_some_and(|p| p.x.floor() as i32 == cx && p.y.floor() as i32 == cy && p.z.floor() as i32 == cz);
                     if inside && !late_in[gk][k] {
                         late_edge_at[gk] = Some(t);
+                        if late_first_after[gk] && let Some(r) = late_rise_at {
+                            let d = t - r;
+                            late_win_after[gk] = Some(late_win_after[gk].map_or(d, |m: i64| m.min(d)));
+                            late_first_after[gk] = false;
+                        }
                     }
                     late_in[gk][k] = inside;
                 }
@@ -5367,6 +5384,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         if tm.late_hold.iter().any(|h| h.is_some()) {
             out.push(format!("late hold: {}", tm.late_hold.iter().flatten().map(|h| format!("G{} held shut {} gt", h.3, late_holds[h.3.min(2)])).collect::<Vec<_>>().join(", ")));
+            out.push(format!("late hold windows (each REL rise): {}", tm.late_hold.iter().flatten().map(|h| { let g = h.3.min(2); format!("G{}'s cell {},{},{}: latest crossing before a rise >= {} gt before it, first crossing after a rise >= {} gt after it", h.3, h.0[0], h.0[1], h.0[2], late_win_before[g].map_or("-".to_string(), |v| v.to_string()), late_win_after[g].map_or("-".to_string(), |v| v.to_string())) }).collect::<Vec<_>>().join("; ")));
         }
         out.push(format!("carts off the rails: {}{}; riders not seated: {}{}", derails.len(), if derails.is_empty() { String::new() } else { format!(" ({})", derails.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }, unseat_log.len(), if unseat_log.is_empty() { String::new() } else { format!(" ({})", unseat_log.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }));
         if o.stand_wired && !latch_sets.is_empty() {
