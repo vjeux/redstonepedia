@@ -1374,6 +1374,10 @@ pub struct LoopTiming {
     pub rel_on: i64,
     /// With `--watch`: these cells' block states printed too (up to 8).
     pub watch_cells: [Option<[i32; 3]>; 8],
+    /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
+    /// (an ideal-input lab for a wired trigger): G1, then G2, shut this many gt after the first
+    /// cart's centre passes this x (a detector rail at cell x0 fires at x0 - 0.29).
+    pub pocket_trigger: Option<[(f64, i64); 2]>,
     /// A nap visit to the bed siding (see `Visit`).
     pub visit: Option<Visit>,
     /// A design's `build: last x,y,z ...` cells (up to 16), placed after every other in the
@@ -1449,7 +1453,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 16], watch_cells: [None; 8] }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 16], watch_cells: [None; 8], pocket_trigger: None }
     }
 }
 
@@ -2803,7 +2807,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             // (the pocket stand: each gate open or shut, G2 G1 G0, and the wired stand's REL and
             // detector D1)
             let gates: String = lay.pockets.iter().rev().map(|(g, _)| if matches!(run.world.get(*g), Block::FenceGate { open: true, .. }) { 'o' } else { '-' }).collect();
-            let wired_cells = lay.stand_rel.map(|r| format!(" REL {} D1 {}", if matches!(run.world.get(r), Block::RedstoneBlock) { "on" } else { "-" }, if lay.path.iter().any(|(c, k)| *k == Cell::Detector && c[2] == 0 && matches!(run.world.get(BlockPos::new(c[0], c[1], c[2])), Block::DetectorRail { powered: true, .. })) { "on" } else { "-" })).unwrap_or_default();
+            let wired_cells = lay.stand_rel.map(|r| format!(" REL {} D1 {}", if matches!(run.world.get(r), Block::RedstoneBlock) || run.world.has_neighbor_signal(r) { "on" } else { "-" }, if lay.path.iter().any(|(c, k)| *k == Cell::Detector && c[2] == 0 && matches!(run.world.get(BlockPos::new(c[0], c[1], c[2])), Block::DetectorRail { powered: true, .. })) { "on" } else { "-" })).unwrap_or_default();
             let stand = if o.stand_stop { format!(" | gates {gates}{wired_cells}") } else { String::new() };
             // (`--watch-cells`: those cells' block states too, e.g. a wiring join's line)
             let cells: String = tm.watch_cells.iter().flatten().map(|c| format!(" | {},{},{} {}", c[0], c[1], c[2], run.world.get(BlockPos::new(c[0], c[1], c[2])))).collect();
@@ -2847,6 +2851,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 for k in 1..lay.pockets.len() {
                     let (g, cell) = lay.pockets[k];
                     for id in &carts {
+                        // (`pocket_trigger`: the first cart past the trigger position, whatever
+                        // count)
+                        if let (Some(trg), Some(p)) = (tm.pocket_trigger, pos_of(&run.world, *id)) {
+                            let (x, d) = trg[k - 1];
+                            if pocket_close_at[k].is_none() && (p.z - (cell[2] as f64 + 0.5)).abs() < 0.6 && p.x >= x && p.x < x + 2.0 && p.y < 1.5 {
+                                pocket_close_at[k] = Some(t + d);
+                            }
+                            continue;
+                        }
                         if let Some(p) = pos_of(&run.world, *id)
                             && (p.z - (cell[2] as f64 + 0.5)).abs() < 0.6
                             && p.x >= cell[0] as f64 + 1.29
