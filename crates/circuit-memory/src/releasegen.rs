@@ -166,7 +166,10 @@ fn core(b: &mut B, chain: &[It], group_to: i32) -> Result<(Vec<(i32, u8)>, i32)>
     let far = stones.iter().filter(|s| s.1 & RS != 0).map(|s| s.0).min().unwrap_or(-1);
     // (with MCTAS_CHAIN_HEAD_RT below 3 every stone comes that many rt earlier against REL; the
     // restore takes the same rt back, so the bulb sees the reset window at main's time)
-    let rs_rt: u8 = 1 + 3u8.saturating_sub(std::env::var("MCTAS_CHAIN_HEAD_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(3u8));
+    let rs_rt: u8 = 1 + 3u8.saturating_sub(std::env::var("MCTAS_CHAIN_HEAD_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(3u8))
+        // (MCTAS_REL_EXIT: the bulb's own repeater (7,0) goes (the reset reaches the bulb over its
+        // top, by dust), so the restore takes its 1 rt)
+        + if std::env::var("MCTAS_REL_EXIT").is_ok() { 1 } else { 0 };
     for zz in far..=-1 {
         if zz == -5 {
             b.on([9, y, zz], &rep("north", rs_rt))?;
@@ -221,6 +224,356 @@ fn lay_link(b: &mut B, from: P3, cells: &[P3], reps: &[(usize, u8)]) -> Result<(
     Ok(())
 }
 
+/// MCTAS_C24 (see its call): slot 15's window cut by A1: the line read at z 23 through a subtract
+/// comparator (-5, -1, 24) (its rear the line's own weak dust, so a cut at ~9 empties it), its
+/// output dust (-5, -1, 25) into the tap, now 3 rt (2 + 6: the 8-gt stagger kept); its east side
+/// (-4, -1, 24) A1 off the feeder line through 4 rt.
+fn q15_cut(b: &mut B, yy: i32) -> Result<()> {
+    use crate::autoroute::{find, rider_space, Limits};
+    let tap = [-4, yy, 25];
+    let cmp = [-5, yy, 24];
+    let out = [-5, yy, 25];
+    let side = [-4, yy, 24];
+    if !b.blocks.get(&tap).is_some_and(|s| s.contains("repeater")) {
+        bail!("q15 cut: the tap {tap:?} is {:?}", b.blocks.get(&tap));
+    }
+    for p in [cmp, out, [cmp[0], cmp[1] - 1, cmp[2]], [out[0], out[1] - 1, out[2]]] {
+        if b.blocks.get(&p).is_some_and(|s| !s.ends_with(":air") && s != STONE) {
+            bail!("q15 cut: {p:?} holds {:?}", b.blocks.get(&p));
+        }
+    }
+    b.blocks.insert(tap, rep("west", 3));
+    b.blocks.insert([cmp[0], cmp[1] - 1, cmp[2]], STONE.into());
+    b.blocks.insert(cmp, "minecraft:comparator[facing=north,mode=subtract,powered=false]".into());
+    b.blocks.insert([out[0], out[1] - 1, out[2]], STONE.into());
+    b.blocks.insert(out, DUST.into());
+    let rp = cmp;
+    let rear = out;
+    if b.blocks.get(&side).is_some_and(|s| !s.ends_with(":air")) {
+        bail!("q15 cut: the comparator's side {side:?} holds {:?}", b.blocks.get(&side));
+    }
+    // (the feeder line: x -1, y yy + 1, z 19..26, its dust run from the repeater (-3, yy - 1, 27):
+    // (-2, yy - 1, 27), (-1, yy, 27), then z 26 down)
+    let avoid = rider_space(&b.blocks);
+    let mut why: Vec<String> = Vec::new();
+    for z in (19..=26).rev() {
+        let f = [-1, yy + 1, z];
+        if !b.blocks.get(&f).is_some_and(|s| s.contains("redstone_wire")) {
+            continue;
+        }
+        let run0 = (29 - z) as usize;
+        for d in [[1, 0, 0], [0, 0, -1], [-1, 0, 0]] {
+            let s = [f[0] + d[0], f[1] + d[1], f[2] + d[2]];
+            if b.blocks.get(&s).is_some_and(|x| !x.ends_with(":air")) {
+                continue;
+            }
+            // (x <= 0: the x 0 lane's feeders (x 1, y yy + 2, on stones at y yy + 1) are laid later)
+            let lim = Limits { lo: [-6, yy - 3, 17], hi: [0, yy + 1, 28], avoid: avoid.clone(), near_ok: [f, cmp, tap].into_iter().collect() };
+            let p = match find(b, s, side, &lim) {
+                Ok(p) => p,
+                Err(e) => {
+                    why.push(format!("from {s:?}: {e}"));
+                    continue;
+                }
+            };
+            let mut t = new_b();
+            t.blocks = b.blocks.clone();
+            t.ports = b.ports.clone();
+            t.nbt = b.nbt.clone();
+            match crate::sidinggen::lay_exact(&mut t, f, &p, run0, 4) {
+                Ok(reps) => {
+                    eprintln!("q15 cut: the comparator {cmp:?} (rear the line at z 23, out {rear:?} into the tap {tap:?} at 3 rt, {rp:?}); A1 from the feeder line {f:?} by {} cells, 4 rt ({reps:?}) into its side {side:?}", p.len());
+                    *b = t;
+                    return Ok(());
+                }
+                Err(e) => why.push(format!("from {s:?} ({} cells): {e}", p.len())),
+            }
+        }
+    }
+    bail!("q15 cut: no path from the feeder line into the comparator's side ({})", why.iter().take(8).cloned().collect::<Vec<_>>().join("; "))
+}
+
+/// MCTAS_C24 (see its call): A1's own path, from a dust on its tapless stone (own (5, 1, a1z)) to a
+/// cell beside the advance link `al` between its two repeaters, through a 2-rt diode placed where
+/// the strength before and after it holds (the run after it to the link's second repeater within 15).
+fn a1_path(b: &mut B, at: fn(P3) -> P3, a1z: i32, al: &[P3]) -> Result<()> {
+    use crate::autoroute::{find, rider_space, Limits};
+    let stone = at([5, 1, a1z]);
+    if !b.blocks.get(&stone).is_some_and(|s| s == STONE) {
+        bail!("C24: A1's stone {stone:?} is {:?}", b.blocks.get(&stone));
+    }
+    let top = [stone[0], stone[1] + 1, stone[2]];
+    if b.blocks.get(&top).is_some_and(|s| !s.ends_with(":air")) {
+        bail!("C24: A1's stone's top {top:?} holds {:?}", b.blocks.get(&top));
+    }
+    let r1 = 3usize;
+    let r2 = al.len() - 5;
+    let avoid = rider_space(&b.blocks);
+    let mut why: Vec<String> = Vec::new();
+    for ci in (r1 + 1..r2).rev() {
+        let c = al[ci];
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]] {
+            let n = [c[0] + d[0], c[1] + d[1], c[2] + d[2]];
+            if b.blocks.get(&n).is_some_and(|x| !x.ends_with(":air")) || al.contains(&n) {
+                continue;
+            }
+            let lim = Limits { lo: [-11, -6, 28], hi: [4, 0, 58], avoid: avoid.clone(), near_ok: [stone, top, c].into_iter().collect() };
+            // (the dust on the stone is the source by design (the router refuses a dust on a
+            // powered support): routed from each of its neighbours, the top dust put first)
+            let mut found = None;
+            let mut errs: Vec<String> = Vec::new();
+            for s in [[top[0] + 1, top[1], top[2]], [top[0] - 1, top[1], top[2]], [top[0] + 1, top[1] + 1, top[2]], [top[0] - 1, top[1] + 1, top[2]], [top[0], top[1] + 1, top[2] + 1], [top[0], top[1] + 1, top[2] - 1]] {
+                if b.blocks.get(&s).is_some_and(|x| !x.ends_with(":air")) {
+                    continue;
+                }
+                match find(b, s, n, &lim) {
+                    Ok(q) => {
+                        let mut p = vec![top];
+                        p.extend(q);
+                        found = Some(p);
+                        break;
+                    }
+                    Err(e) => errs.push(format!("from {s:?}: {e}")),
+                }
+            }
+            let Some(p) = found else {
+                why.push(format!("to {n:?} (beside link cell {ci}): {}", errs.join(", ")));
+                continue;
+            };
+            let mut lay_errs: Vec<String> = Vec::new();
+            for i in (2..p.len()).rev() {
+                if i > 15 || p.len() - i - 1 + (r2 - ci) > 15 {
+                    continue;
+                }
+                let mut t = new_b();
+                t.blocks = b.blocks.clone();
+                t.ports = b.ports.clone();
+                t.nbt = b.nbt.clone();
+                t.blocks.insert(top, DUST.to_string());
+                match lay_link(&mut t, top, &p[1..], &[(i - 1, 2)]) {
+                    Ok(()) => {
+                        eprintln!("C24: A1's path {} cells from its stone {stone:?} (diode 2 rt at {:?}) into the advance link's cell {ci} {c:?} ({} to its second repeater {:?})", p.len(), p[i], p.len() - i - 1 + (r2 - ci), al[r2]);
+                        *b = t;
+                        return Ok(());
+                    }
+                    Err(e) => lay_errs.push(format!("at {i}: {e}")),
+                }
+            }
+            why.push(format!("to {n:?}: path {p:?}: {}", lay_errs.join(", ")));
+        }
+    }
+    bail!("C24: A1's path finds no way into the advance link ({})", why.iter().take(8).cloned().collect::<Vec<_>>().join("; "))
+}
+
+/// MCTAS_REL_EXIT (see its call in `release_gen_loop`): R_g moved beside GO with REL's own dust
+/// line into the release group's line, the reset tail over the bulb's top, the group taps' link
+/// into the REL line. `at` places the core's own cells; `g0` is the core's group line take-off.
+fn rel_exit(b: &mut B, at: fn(P3) -> P3, g0: P3) -> Result<()> {
+    use crate::autoroute::{find, rider_space, Limits};
+    let clone = |b: &B| {
+        let mut t = new_b();
+        t.blocks = b.blocks.clone();
+        t.ports = b.ports.clone();
+        t.nbt = b.nbt.clone();
+        t
+    };
+    // (out: R_g on the core's group line, the reset line past its restore (own (9, -4..-1)) and
+    // along own z -1, and the bulb's repeater)
+    for p in [[3, 1, -4], [9, 1, -4], [9, 1, -3], [9, 1, -2], [9, 1, -1], [8, 1, -1], [7, 1, -1], [7, 1, 0]] {
+        let q = at(p);
+        if b.blocks.remove(&q).is_none() {
+            bail!("REL exit: nothing at own {p:?} = {q:?} to take out");
+        }
+    }
+    let rel0 = at([5, 1, -1]); // REL's first dust, north of GO
+    let rg = at([6, 1, -1]); // R_g's new cell
+    let out0 = at([7, 1, -1]); // the REL line's first cell
+    if !b.blocks.get(&rel0).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("REL exit: REL's first dust {rel0:?} is {:?}", b.blocks.get(&rel0));
+    }
+    let facing = match (rel0[0] - rg[0], rel0[2] - rg[2]) {
+        (1, 0) => "east",
+        (-1, 0) => "west",
+        (0, 1) => "south",
+        _ => "north",
+    };
+    b.put(rg, &rep(facing, 1))?;
+    let rg_sup = [rg[0], rg[1] - 1, rg[2]];
+    if b.blocks.get(&rg_sup).is_some_and(|s| !s.ends_with(":air")) && !b.blocks.get(&rg_sup).is_some_and(|s| s == STONE) {
+        bail!("REL exit: R_g's support {rg_sup:?} holds {:?}", b.blocks.get(&rg_sup));
+    }
+    b.blocks.insert(rg_sup, STONE.to_string());
+    let bulb = at([7, 1, 1]);
+    let top = [bulb[0], bulb[1] + 1, bulb[2]];
+    if b.blocks.get(&top).is_some_and(|s| s.contains("glass")) {
+        b.blocks.remove(&top);
+    }
+    // (the reset now starts at its restore: own (9, 1, -5), facing on toward own -z... its output
+    // cell is own (9, 1, -4); the bulb takes it through a stone at its own +z... side: the reset's
+    // last dust on that stone, (bulb + own (0, 1, 2))... in the world, the bulb's z-1 side)
+    let rs_src = at([9, 1, -5]);
+    let rs_out = at([9, 1, -4]);
+    let rs_ends: Vec<P3> = vec![[bulb[0], bulb[1] + 1, bulb[2] - 1], [bulb[0], bulb[1] + 1, bulb[2] + 1]];
+    // (cells the REL line and the group link must not use: around the bulb (a powered support there
+    // toggles it), GO's west side and E's and the readback comparator's sides)
+    let mut avoid_rel: std::collections::BTreeSet<P3> = std::collections::BTreeSet::new();
+    for dx in -1..=1 {
+        for dy in 0..=1 {
+            for dz in -1..=1 {
+                avoid_rel.insert([bulb[0] + dx, bulb[1] + dy, bulb[2] + dz]);
+            }
+        }
+    }
+    for p in [[6, 1, 0], [6, 1, 2], [8, 1, 0], [8, 1, 2]] {
+        avoid_rel.insert(at(p));
+    }
+    // (the release group's line: x -5, y -1, z 19..25, its taps at z 19, 22, 25; the REL line ends
+    // beside its west side; the spread is the line's cells from the entry to the farthest tap. With
+    // MCTAS_C24 slot 15 reads the line at z 23 through its own repeater (-5, -1, 24): the REL line
+    // ends at z 23 or north, the farthest cells z 19 and 23)
+    let last = if std::env::var("MCTAS_C24").is_ok() { 23 } else { 25 };
+    let mut ends: Vec<(P3, P3, usize)> = (15..=last).map(|z| ([-6, -1, z], [-5, -1, z], ((z - 19).max(last - z) + 1) as usize)).collect();
+    ends.sort_by_key(|e| e.2);
+    let avoid = rider_space(&b.blocks);
+    let lim = |near: &[P3]| Limits { lo: [-9, -6, 17], hi: [3, 0, 34], avoid: avoid.union(&avoid_rel).copied().collect(), near_ok: near.iter().copied().collect() };
+    let lim_rs = |near: &[P3]| Limits { lo: [-10, -8, 17], hi: [3, 0, 36], avoid: avoid.clone(), near_ok: near.iter().copied().collect() };
+    let mut why: Vec<String> = Vec::new();
+    for (end, entry, spread) in ends {
+        let path = match find(b, out0, end, &lim(&[rg, entry])) {
+            Ok(p) => p,
+            Err(e) => {
+                why.push(format!("REL line to {end:?}: {e}"));
+                continue;
+            }
+        };
+        if path.len() + spread > 15 {
+            why.push(format!("REL line to {end:?}: {} cells + {spread} on the line > 15", path.len()));
+            continue;
+        }
+        let mut t = clone(b);
+        if let Err(e) = crate::sidinggen::lay_exact(&mut t, rg, &path, 0, 0) {
+            why.push(format!("REL line to {end:?}: {e}"));
+            continue;
+        }
+        // the reset tail: from its restore's output onto a stone beside the bulb (k rt in the tail
+        // come off the restore, the total the same)
+        let mut rs_done = None;
+        let mut rs_why: Vec<String> = Vec::new();
+        'rs: for &e in &rs_ends {
+            let rp = match find(&t, rs_out, e, &lim_rs(&[rs_src, bulb, at([7, 1, 3]), at([6, 1, 2])])) {
+                Ok(p) => p,
+                Err(err) => {
+                    rs_why.push(format!("to {e:?}: {err}"));
+                    continue;
+                }
+            };
+            for k in 0..=1u8 {
+                let mut u = clone(&t);
+                match crate::sidinggen::lay_exact(&mut u, rs_src, &rp, 0, k) {
+                    Ok(_) => {
+                        if k > 0 {
+                            let s = u.blocks.get(&rs_src).cloned().unwrap_or_default();
+                            let d: u8 = s.split("delay=").nth(1).and_then(|r| r.split([',', ']']).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
+                            if d <= k {
+                                rs_why.push(format!("to {e:?}: the restore {rs_src:?} has {d} rt, the tail needs {k}"));
+                                continue;
+                            }
+                            u.blocks.insert(rs_src, s.replace(&format!("delay={d}"), &format!("delay={}", d - k)));
+                        }
+                        rs_done = Some((u, rp));
+                        break 'rs;
+                    }
+                    Err(err) => rs_why.push(format!("to {e:?} with {k} rt: {err}")),
+                }
+            }
+        }
+        let Some((u, rp)) = rs_done else {
+            why.push(format!("REL line to {end:?} ({path:?}): the reset tail finds no way to the bulb ({})", rs_why.join(", ")));
+            continue;
+        };
+        // the group taps' link: from the take-off's east cell into a cell beside the REL line
+        // (past R_g's first two cells), one repeater, the merged run within 15 to the far tap
+        let gs = [g0[0] + 1, g0[1], g0[2]];
+        let mut g_done = None;
+        let mut g_why: Vec<String> = Vec::new();
+        // (candidates: a cell beside the REL line past R_g's first two cells (a merge; the REL
+        // line's rest then carries the window), or a cell beside the group line of its own (its
+        // own entry, the spread from there))
+        let mut cands: Vec<(P3, P3, usize)> = Vec::new();
+        for ci in (2..path.len()).rev() {
+            let c = path[ci];
+            for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]] {
+                let n = [c[0] + d[0], c[1] + d[1], c[2] + d[2]];
+                if u.blocks.get(&n).is_some_and(|x| !x.ends_with(":air")) || path.contains(&n) {
+                    continue;
+                }
+                cands.push((n, c, path.len() - ci + spread));
+            }
+        }
+        for z in 19..=last {
+            let n = [-6, -1, z];
+            if u.blocks.get(&n).is_some_and(|x| !x.ends_with(":air")) || path.contains(&n) {
+                continue;
+            }
+            cands.push((n, [-5, -1, z], ((z - 19).max(last - z) + 1) as usize));
+        }
+        'merge: for (n, c, tail) in cands {
+            {
+                let ci = path.iter().position(|q| *q == c).unwrap_or(path.len());
+                let gp = match find(&u, gs, n, &lim(&[g0, c])) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        g_why.push(format!("to {n:?}: {e}"));
+                        continue;
+                    }
+                };
+                // (the repeater as late as the strength before it allows: the core's restore puts 15
+                // on own z -7, the take-off 14, the path's cell k 13 - k, so the repeater at i reads
+                // 14 - i: i <= 13)
+                let mut fit = false;
+                for i in (0..gp.len()).rev() {
+                    if i > 13 {
+                        continue;
+                    }
+                    let run = gp.len() - i - 1 + tail;
+                    if run > 15 {
+                        g_why.push(format!("to {n:?}: the repeater at {i} leaves {run} to the far tap"));
+                        break;
+                    }
+                    let mut v = clone(&u);
+                    if lay_link(&mut v, g0, &gp, &[(i, 1)]).is_ok() {
+                        g_done = Some((v, gp.clone(), vec![gp[i]], ci, run));
+                        fit = true;
+                        break;
+                    }
+                }
+                if fit {
+                    break 'merge;
+                }
+            }
+        }
+        let Some((v, gp, reps, ci, grun)) = g_done else {
+            why.push(format!("REL line to {end:?}: the group link finds no merge within 15 ({})", g_why.iter().take(6).cloned().collect::<Vec<_>>().join(", ")));
+            continue;
+        };
+        eprintln!(
+            "REL exit: R_g at {rg:?} (from REL's first dust {rel0:?}); the REL line {} cells to {end:?}, {spread} on the group line: the farthest tap at strength {}; the reset tail {} cells from its restore {rs_src:?} to {:?} (the bulb {bulb:?} beside its support); the group link {} cells (repeater at {reps:?}) {}: the window at the farthest tap at strength {}",
+            path.len(),
+            16 - path.len() - spread,
+            rp.len(),
+            rp.last(),
+            gp.len(),
+            if ci < path.len() { format!("into the REL line's cell {ci} {:?}", path[ci]) } else { format!("into the group line by its own entry {:?}", gp.last()) },
+            16 - grun
+        );
+        let _ = top;
+        *b = v;
+        let _ = u;
+        return Ok(());
+    }
+    bail!("REL exit: no layout ({})", why.join("; "))
+}
+
 /// The module alone (designs/farms/iron/parts/carousel-release/carousel-release-v0.txt): stones
 /// at REL + 8, 16, 24 (group), 32, 38 (A1), 46, 54, 58 (A2), 66, 74, 78 (A3).
 pub fn generate(out: &Path, _offdelay: &Path) -> Result<()> {
@@ -268,8 +621,15 @@ pub(crate) fn settle(design: &Path, cells: &[P3]) -> Result<(BTreeMap<P3, String
         }
         true
     });
-    if let Err((_, why)) = res {
-        bail!("settle: {why}");
+    match res {
+        Err((_, why)) => bail!("settle: {why}"),
+        // (a tick that fails inside the run ends it early with its reason: a silent empty settle
+        // otherwise, the file written raw)
+        Ok(Some((t, why))) if !why.is_empty() => bail!("settle: tick {t}: {why}"),
+        _ => {}
+    }
+    if states.is_empty() && !cells.is_empty() {
+        bail!("settle: the run ended before tick 40 ({} cells unread)", cells.len());
     }
     Ok((states, outs))
 }
@@ -366,11 +726,35 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // 2 moves every chain stone (the group, the resets, the advances) 2 gt earlier against REL, the
     // arrival side's outputs back to main's time)
     let head: u8 = std::env::var("MCTAS_CHAIN_HEAD_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
-    let mut chain = vec![
-        R(head), S(G | RS), // +8 (after the shortener C at z -5)
-        R(4), S(G | RS), // +16
-        R(4), S(G | RS), // +24
-    ];
+    // (MCTAS_C24, ironspec 06:04 item 1: the advances 24 gt apart with A1 = L+28, A2 = L+52, A3 =
+    // L+76 at the controls: A1 10 gt, A2 6 gt and A3 2 gt earlier than on main. A1 comes between
+    // the second and third group taps, so its stone has no tap of its own (its west side would
+    // feed the group line): `a1_path` takes it off the stone's top by its own route into the
+    // advance link. The group taps (+8/16/24, the fourth at +30), the reset taps (the merge
+    // window) and the cell count (the group line to own z -15, the advance line from A2's z, the
+    // advance link's take-off at own z -23 on it) as before)
+    let c24 = far && std::env::var("MCTAS_C24").is_ok();
+    let mut chain = if c24 {
+        vec![
+            R(head), S(G | RS), // G1
+            R(4), S(G | RS),    // G2 (+8)
+            R(1), S(0),         // A1 (+10: its own path)
+            R(3), S(G | RS),    // G3 (+16)
+            R(2), S(G | RS),    // G4 (+20, the window's end)
+            R(4), S(RS),        // +28
+            R(3), S(A),         // A2 (+34)
+            R(1), S(RS),        // +36
+            R(1), S(RS),        // +38 (the merge window's last copies)
+            R(4), R(4), R(2), S(A), // A3 (+58)
+        ]
+    } else {
+        vec![
+            R(head), S(G | RS), // +8 (after the shortener C at z -5)
+            R(4), S(G | RS), // +16
+            R(4), S(G | RS), // +24
+        ]
+    };
+    if !c24 {
     chain.extend(a1_run); // +30 (A1; zero skew pads every slot to row A's path)
     chain.extend([
         R(4), S(RS), // +38
@@ -379,6 +763,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         R(1), S(A), // +50 (A2)
         R(4), R(4), R(2), S(A), // +70 (A3)
     ]);
+    }
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
     if far {
@@ -549,10 +934,32 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         if std::env::var("MCTAS_GROUP_LINK_REPS").ok().as_deref() == Some("0") {
             eprintln!("group link: {} cells, no repeater", gl.len());
             lay_link(&mut b, g0, &gl, &[])?;
-        } else {
+        } else if std::env::var("MCTAS_REL_EXIT").is_err() {
             lay_link(&mut b, g0, &gl, &[(8, 1)])?;
         }
         lay_link(&mut b, a0, &al, &[(3, 1), (al.len() - 5, 1)])?;
+        // (MCTAS_REL_EXIT, ironspec 06:04 item 2: the release group's launch edge free of any
+        // refresh. R_g leaves the core's group line for the REL dust beside GO: at (-3, -5, 26),
+        // fed by REL's first dust (-2, -5, 26), its output a dust line straight to the release
+        // group's line (all dust, within 15 to the farthest tap), so REL reaches the controls
+        // through R_g alone, as on main. The reset tail that sat there (own (9..7, -1) and the
+        // bulb's repeater (7, 0)) goes: the reset reaches the bulb over its top by dust (its
+        // restore takes the repeater's rt). The group taps' link joins the REL line past R_g
+        // with its one repeater (the window's end as before). Each route is the autorouter's;
+        // the REL line's end is tried in turn until the other two lay)
+        if c24 && stagger {
+            q15_cut(&mut b, yy)?;
+        }
+        if std::env::var("MCTAS_REL_EXIT").is_ok() {
+            rel_exit(&mut b, core_place, g0)?;
+        }
+        // (MCTAS_C24: A1 off its stone's top by its own route into the advance link between the
+        // link's two repeaters, through a 2-rt diode (the tap and the link's first repeater it
+        // skips), so it reaches the controls through 3 rt like A2 and A3)
+        if c24 {
+            let a1z = stones.iter().find(|s| s.1 == 0).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("C24: no A1 stone in the chain"))?;
+            a1_path(&mut b, core_place, a1z, &al)?;
+        }
         // (MCTAS_REL_FEED, ironspec 06:02 item 1: R_g moved: REL by its own path from its dust
         // beside GO, one 1-rt repeater as both the diode and the refresh, into the release group's
         // line (x -5, y -1, z 19..25); the core's group line keeps only the taps. Tried from each REL
@@ -578,6 +985,9 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
                 for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]] {
                     let start = [src[0] + d[0], src[1] + d[1], src[2] + d[2]];
                     if b.blocks.get(&start).is_some_and(|s| !s.ends_with(":air")) {
+                        if std::env::var("MCTAS_REL_FEED_WHY").is_ok() {
+                            eprintln!("REL feed: {src:?} side {d:?}: {start:?} holds {:?}", b.blocks.get(&start));
+                        }
                         continue;
                     }
                     for &end in &ends {
@@ -585,8 +995,19 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
                             continue;
                         }
                         let lim = crate::autoroute::Limits { lo: [-7, -6, 17], hi: [2, 0, 32], avoid: crate::autoroute::rider_space(&b.blocks), near_ok: [src].into_iter().collect() };
-                        let Ok(path) = crate::autoroute::find(&b, start, end, &lim) else { continue };
+                        let path = match crate::autoroute::find(&b, start, end, &lim) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                if std::env::var("MCTAS_REL_FEED_WHY").is_ok() {
+                                    eprintln!("REL feed: {start:?} -> {end:?}: {e}");
+                                }
+                                continue;
+                            }
+                        };
                         if path.len() + run0 > 24 {
+                            if std::env::var("MCTAS_REL_FEED_WHY").is_ok() {
+                                eprintln!("REL feed: {start:?} -> {end:?}: {} cells + {run0}", path.len());
+                            }
                             continue;
                         }
                         let mut t = new_b();
@@ -610,8 +1031,18 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             b.nbt = t.nbt;
         }
         for z in 19..=25 {
+            if c24 && stagger && z >= 24 {
+                continue; // (the q15 cut's repeater and rear stone, laid before)
+            }
             b.on([-5, yy, z], DUST)?;
         }
+        // (MCTAS_C24: slot 15's release window closes with A1's pulse (+42 at the control, 30 gt):
+        // its tap becomes a subtract comparator (-4, -1, 25) facing the line, its rear a stone
+        // (-5, -1, 25) powered by a 3-rt repeater (-5, -1, 24) off the line (3 rt + the
+        // comparator's 1: the 8-gt stagger kept), its side (-4, -1, 24) A1 off the advance's feeder
+        // line (x -1, 6 gt before the rails) through 7 rt: the cut +40..+50 at the comparator,
+        // q15 off at +42; A2 and A3 cut only when the window is off. Laid before the REL exit's
+        // routes, which go round it)
     }
     let adv0 = if far { 27 } else { a3[2] + 1 };
     for z in adv0..=46 {
