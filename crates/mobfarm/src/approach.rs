@@ -23,6 +23,8 @@ pub struct Summary {
     pub tail_group_max: usize,
     /// The most carts out of the stand in one release window (the bar is 3).
     pub window_max: usize,
+    /// Departure gaps of 4..6 gt at the take-off stand-in (R1's ledge band).
+    pub takeoff_bad: usize,
     pub problems: usize,
     /// gap12, G2 in (after cart 2's front), G2 before cart 3: each (min, max).
     pub margins: Option<[i64; 6]>,
@@ -67,6 +69,8 @@ pub fn summarize(out: &str) -> Summary {
             starts.push((slot, l.contains("pockets S1 1 S2 1 S3 1, 0 more")));
         } else if let Some(r) = l.strip_prefix("back through a gate: ") {
             s.back = r.split(' ').next().and_then(|t| t.parse().ok()).unwrap_or(0);
+        } else if l.starts_with("departures at the take-off ") {
+            s.takeoff_bad = num_after(l, "4..6 gt: ").map_or(0, |v| v.max(0) as usize);
         } else if l.starts_with("stand departures: ") {
             s.dep_min = num_after(l, "gap min ");
             s.dep_contact = l.split("gt (gaps under 60 gt), ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
@@ -334,7 +338,11 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let mm: Vec<String> = (0..3).map(|i| ss.iter().filter_map(|s| s.meet_min[i]).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.min(v)))).map_or("-".into(), |v| format!("{v:.3}"))).collect();
         let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv} | met climb {} (slowest {}) T {} (slowest {}) descent {} (slowest {})", tc[0], tc[1], tc[2], tc[3], tc[4], mn[0], mm[0], mn[1], mm[1], mn[2], mm[2]) } else { pad };
         let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || window > 3 || merges > 0 || derails > 0 || dbad > 0 || oot > 0 { " <--" } else { "" };
-        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | out per window {window} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
+        // (seeds breaking a hard line: back-crossings, merges, derails, a departure under 5 gt, more
+        // than 3 out in one window)
+        let hard = ss.iter().filter(|s| s.back > 0 || s.merges > 0 || s.derails > 0 || s.dep_min.is_some_and(|g| g < 5) || s.window_max > 3).count();
+        let tko: usize = ss.iter().map(|s| s.takeoff_bad).sum();
+        out.push(format!("{name:24} clean from {:>2} | hard {hard}/{} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | take-off 4..6 gt {tko} | tail min {} ({touch}) group {group} | out per window {window} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), ss.len(), opt(dep), opt(tail), probs.join("/")));
     }
     Ok(out.join("\n"))
 }
