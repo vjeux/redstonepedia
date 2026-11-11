@@ -3632,6 +3632,10 @@ pub struct MeterHold {
     /// The guard (`--meter-hold ...,GUARD` 1): a chained opening waits for the previous cart's
     /// L1/L2 edge (the cart counted in the stand), not only Dh + D12.
     pub guard: bool,
+    /// At REL, G2 (pocket 3's gate) and G1 open this many gt after G0 (`--meter-hold` fields 14
+    /// and 15; G2 default 6, ironspec's nominal with corners 4..8): the departure gaps.
+    pub g2_delay: i64,
+    pub g1_delay: i64,
 }
 
 /// The metered stand's state and measurements (`meter_tick`).
@@ -4266,7 +4270,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         // (`MCTAS_METER_G2_DELAY` k / `MCTAS_METER_G1_DELAY` k: at REL, G2 (pocket 3's gate) or G1
         // opens k gt after G0, widening the departure gaps P2 -> P3 / P1 -> P2)
         let gdel = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
-        let (g1d, g2d) = (gdel("MCTAS_METER_G1_DELAY"), gdel("MCTAS_METER_G2_DELAY"));
+        let (g1d, g2d) = (gdel("MCTAS_METER_G1_DELAY").max(if std::env::var("MCTAS_METER_G1_DELAY").is_ok() { 0 } else { m.g1_delay }), if std::env::var("MCTAS_METER_G2_DELAY").is_ok() { gdel("MCTAS_METER_G2_DELAY") } else { m.g2_delay });
         let since_rel = s.rel_t.map_or(i64::MAX, |r| t - r);
         let want = [
             s.rel_open,
