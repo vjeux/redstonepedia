@@ -2265,6 +2265,10 @@ pub struct LoopTiming {
     /// start, so the riders stay calm (the `cant-reach:` line's positive control: a calm rider in
     /// REST builds its streak and releases HOME past 1200 gt).
     pub calm: bool,
+    /// (tickexact 2026-11-11) A diagnostic: each exposed rider-tick (`freeze exposure:`) also
+    /// computes, on a copy of the rider's navigation, whether a path from its cart reaches within 1
+    /// of its bed (an open bed top's counterfactual).
+    pub reach_probe: bool,
     /// Every villager's block position each tick, printed at the end (`--record-positions`: the
     /// golem-spots check's positions over a full bench night).
     pub record_positions: bool,
@@ -2440,7 +2444,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, start_random: false }
     }
 }
 
@@ -3105,7 +3109,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut expose_max: (usize, String) = (0, String::new());
     let mut expose_multi = 0u64;
     let mut last_panic = vec![i64::MIN / 2; riders.len()];
-    let mut expose_map: std::collections::BTreeMap<[i32; 3], (u64, i64, u64)> = std::collections::BTreeMap::new();
+    let mut expose_map: std::collections::BTreeMap<[i32; 3], (u64, i64, u64, u64)> = std::collections::BTreeMap::new();
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
     // the loop's places in travel order: slot 0 .. slot q-1, S3, S2, S1
     let q = o.slots as usize;
@@ -3307,6 +3311,32 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut reach_worst: Option<(i64, String)> = None;
     let mut home_releases: Vec<String> = Vec::new();
     let mut homes_prev: Option<Vec<Option<BlockPos>>> = None;
+    let n_riders = riders.len();
+    let (mut stamp_prev, mut wt_prev) = (vec![None::<i64>; n_riders], vec![None::<redsim::entity::mob::ai::brain::WalkTarget>; n_riders]);
+    let (mut act_prev, mut home_prev) = (vec![redsim::entity::mob::ai::brain::Act::Idle; n_riders], vec![None::<BlockPos>; n_riders]);
+    let mut erase_by: std::collections::BTreeMap<String, (u64, i64)> = std::collections::BTreeMap::new();
+    let mut erase_at: std::collections::BTreeMap<[i32; 3], std::collections::BTreeMap<String, u64>> = std::collections::BTreeMap::new();
+    let mut stamp_oldest: Vec<(i64, String)> = vec![(0, String::new()); n_riders];
+    let mut stamp_set_by: std::collections::BTreeMap<&'static str, u64> = std::collections::BTreeMap::new();
+    let mut near_ticks = vec![0u64; n_riders];
+    let mut near_max: (usize, String) = (0, String::new());
+    // (the design's beds, each bed's free tickets logged at the start and at every change)
+    let bed_cells: Vec<BlockPos> = {
+        let w = &run.world;
+        let mut v = Vec::new();
+        for x in w.min.x..w.min.x + w.size[0] {
+            for y in w.min.y..w.min.y + w.size[1] {
+                for z in w.min.z..w.min.z + w.size[2] {
+                    if matches!(w.get(BlockPos::new(x, y, z)), redsim::block::Block::Bed { head: true, .. }) {
+                        v.push(BlockPos::new(x, y, z));
+                    }
+                }
+            }
+        }
+        v
+    };
+    let mut bed_free: Vec<Option<u32>> = bed_cells.iter().map(|p| redsim::entity::mob::ai::poi::free_tickets(&mut run.world, *p)).collect();
+    let mut ticket_log: Vec<String> = bed_cells.iter().zip(&bed_free).map(|(p, f)| format!("{},{},{} {} at the start", p.x, p.y, p.z, f.map_or("gone".to_string(), |n| format!("{n} free")))).collect();
     let mut home_log: Vec<String> = Vec::new();
     let mut rel_seen = run.world.mob.events.len();
     if tm.calm {
@@ -4759,6 +4789,74 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
             rel_seen = n_ev;
+            // (tickexact 2026-11-11, ironspec: what erases the riders' CANT_REACH stamps) each
+            // rider's stamp against the last tick's: gone (MoveToTargetSink: a path that can reach,
+            // or its target reached) or set; the walk target and activity of the tick before say
+            // which walk did it. And the near-release line: REST, HOME held, a stamp >= 1,000 gt,
+            // with or without a WALK_TARGET
+            let mut near: Vec<String> = Vec::new();
+            for (k, r) in riders.iter().enumerate() {
+                let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+                let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { continue };
+                let (Some(b), Some(x)) = (m.brain.as_deref(), m.brain.as_deref().and_then(|b| b.ex.as_deref())) else { continue };
+                let p = run.world.entities.list[i].pos;
+                let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+                let stamp = x.mem.cant_reach_since;
+                if let Some(old) = stamp_prev[k] {
+                    if stamp.is_none() {
+                        use redsim::entity::mob::ai::brain::Tracker;
+                        let what = match wt_prev[k] {
+                            // (SleepInBed.start erases WALK_TARGET and the stamp: a napper lying down)
+                            _ if m.sleeping_pos.is_some() => "lying down (SleepInBed)",
+                            Some(w) => match w.target {
+                                Tracker::Block(t) if Some(t) == home_prev[k] => "the HOME walk",
+                                Tracker::Entity { .. } => "a walk to an entity",
+                                _ => "another walk",
+                            },
+                            None => "no walk target",
+                        };
+                        let key = format!("{what} in {}", act_prev[k].name());
+                        let age = run.world.time - old;
+                        let e = erase_by.entry(key.clone()).or_insert((0, 0));
+                        e.0 += 1;
+                        e.1 = e.1.max(age);
+                        *erase_at.entry(cell).or_default().entry(key).or_insert(0) += 1;
+                    }
+                } else if stamp.is_some() {
+                    *stamp_set_by.entry(x.active.name()).or_insert(0) += 1;
+                }
+                // (each rider's oldest stamp at any tick, whatever it does: one that never clears
+                // shows here)
+                if let Some(since) = stamp {
+                    let age = run.world.time - since;
+                    if age > stamp_oldest[k].0 {
+                        stamp_oldest[k] = (age, format!("at {:.1},{:.1},{:.1} slot {c} +{dt} in {}", p.x, p.y, p.z, x.active.name()));
+                    }
+                }
+                if x.active == redsim::entity::mob::ai::brain::Act::Rest
+                    && b.home.is_some()
+                    && let Some(since) = stamp
+                    && run.world.time - since >= 1000
+                {
+                    near_ticks[k] += 1;
+                    near.push(format!("e{k} at {:.1},{:.1},{:.1} ({} gt{})", p.x, p.y, p.z, run.world.time - since, if x.mem.walk_target.is_some() { ", walk target set" } else { "" }));
+                }
+                stamp_prev[k] = stamp;
+                wt_prev[k] = x.mem.walk_target;
+                act_prev[k] = x.active;
+                home_prev[k] = b.home;
+            }
+            if near.len() > near_max.0 {
+                near_max = (near.len(), format!("slot {c} +{dt}: {}", near.join(", ")));
+            }
+            // (ironspec: the bed's free tickets at the start and at every change)
+            for (bi, bp) in bed_cells.iter().enumerate() {
+                let f = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, *bp);
+                if f != bed_free[bi] {
+                    ticket_log.push(format!("{},{},{} {} at slot {c} +{dt}", bp.x, bp.y, bp.z, f.map_or("gone".to_string(), |n| format!("{n} free"))));
+                    bed_free[bi] = f;
+                }
+            }
             if home_at_start.is_none() {
                 home_at_start = Some(homes_now.clone());
             }
@@ -4891,6 +4989,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // it together leave one homeless (the ticket caps at 1)
         if (13670..22330).contains(&tod) {
             let mut exposed: Vec<String> = Vec::new();
+            let mut probe: Vec<(usize, BlockPos, [i32; 3])> = Vec::new();
             for (k, r) in riders.iter().enumerate() {
                 let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
                 expose_night[k] += 1;
@@ -4899,7 +4998,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 if x.active == redsim::entity::mob::ai::brain::Act::Panic {
                     last_panic[k] = run.world.time;
                 }
-                if let (Some(_), redsim::entity::mob::ai::brain::Act::Rest, Some(since)) = (b.home, x.active, x.mem.cant_reach_since) {
+                if let (Some(home), redsim::entity::mob::ai::brain::Act::Rest, Some(since)) = (b.home, x.active, x.mem.cant_reach_since) {
                     expose_ticks[k] += 1;
                     let p = run.world.entities.list[i].pos;
                     let streak = run.world.time - since;
@@ -4907,12 +5006,27 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     // (the position map: per block cell, the exposed rider-ticks, the longest
                     // streak, and how many of those ticks the rider had panicked within 20 gt)
                     let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
-                    let e = expose_map.entry(cell).or_insert((0, 0, 0));
+                    let e = expose_map.entry(cell).or_insert((0, 0, 0, 0));
                     e.0 += 1;
                     e.1 = e.1.max(streak);
                     if run.world.time - last_panic[k] <= 20 {
                         e.2 += 1;
                     }
+                    if tm.reach_probe {
+                        probe.push((i, home, cell));
+                    }
+                }
+            }
+            // (`--reach-probe`, ironspec's open-top question as a counterfactual: does an exposed
+            // rider have a path from its cart to within 1 of its bed (AcquirePoi's reach), on a copy
+            // of its navigation: no side effect)
+            for (i, home, cell) in probe {
+                let reach = redsim::entity::mob::ai::with_nav(&mut run.world, i, |w, nm, nav, arena| {
+                    let mut copy = nav.clone();
+                    copy.create_path_positions(w, nm, &[home], 1, arena).is_some_and(|p| p.reached)
+                });
+                if reach && let Some(e) = expose_map.get_mut(&cell) {
+                    e.3 += 1;
                 }
             }
             if exposed.len() >= 2 {
@@ -5396,6 +5510,42 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if home_releases.is_empty() { "none".to_string() } else { format!("{} ({})", home_releases.len(), home_releases.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }
     ));
     out.push(format!("home log: {}", if home_log.is_empty() { "no HOME changed".to_string() } else { format!("{} changes: {}", home_log.len(), home_log.iter().take(40).cloned().collect::<Vec<_>>().join("; ")) }));
+    out.push(format!("bed tickets: {}", if ticket_log.is_empty() { "no bed".to_string() } else { ticket_log.iter().take(40).cloned().collect::<Vec<_>>().join("; ") }));
+    {
+        let mut by: Vec<(&String, &(u64, i64))> = erase_by.iter().collect();
+        by.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        let mut cells: Vec<(&[i32; 3], u64, &std::collections::BTreeMap<String, u64>)> = erase_at.iter().map(|(c, m)| (c, m.values().sum::<u64>(), m)).collect();
+        cells.sort_by(|a, b| b.1.cmp(&a.1));
+        out.push(format!(
+            "stamp erasures (a rider's CANT_REACH gone: the walk it had the tick before): {} ({}); stamps set: {}",
+            erase_by.values().map(|v| v.0).sum::<u64>(),
+            by.iter().map(|(k, (n, a))| format!("{k}: {n}, the oldest {a} gt")).collect::<Vec<_>>().join("; "),
+            stamp_set_by.iter().map(|(k, n)| format!("in {k} {n}")).collect::<Vec<_>>().join(", ")
+        ));
+        out.push(format!(
+            "stamp erasures by cell, the 16 most: {}",
+            cells.iter().take(16).map(|(c, n, m)| format!("{} {} {}: {n} ({})", c[0], c[1], c[2], m.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join("; ")
+        ));
+        let mut old: Vec<(usize, &(i64, String))> = stamp_oldest.iter().enumerate().filter(|(_, s)| s.0 > 0).collect();
+        old.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        // (ironspec's bar: every rider's oldest stamp in normal running at most 1,000 gt)
+        let worst = old.first().map_or(0, |(_, (a, _))| *a);
+        out.push(format!(
+            "stamps' oldest age per rider (any activity): the oldest {worst} gt ({}: the bar is 1,000); the 8 oldest: {}",
+            if worst <= 1000 { "within the bar" } else { "OVER the bar" },
+            old.iter().take(8).map(|(k, (a, w))| format!("e{k} {a} gt ({w})")).collect::<Vec<_>>().join("; ")
+        ));
+        let mut per: Vec<(usize, u64)> = near_ticks.iter().copied().enumerate().filter(|(_, n)| *n > 0).collect();
+        per.sort_by(|a, b| b.1.cmp(&a.1));
+        out.push(format!(
+            "near release (REST, HOME held, a CANT_REACH stamp >= 1,000 gt, a WALK_TARGET or not): {} rider-ticks, at most {} at once{}; by rider: {}; HOME releases: {}",
+            near_ticks.iter().sum::<u64>(),
+            near_max.0,
+            if near_max.0 > 0 { format!(" ({})", near_max.1) } else { String::new() },
+            if per.is_empty() { "-".to_string() } else { per.iter().take(8).map(|(k, n)| format!("e{k} {n}")).collect::<Vec<_>>().join(", ") },
+            home_releases.len()
+        ));
+    }
     {
         let mut fr: Vec<(usize, f64)> = expose_night.iter().zip(&expose_ticks).enumerate().filter(|(_, (n, _))| **n > 0).map(|(k, (n, e))| (k, *e as f64 / *n as f64)).collect();
         fr.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -5405,12 +5555,18 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if expose_max.0 > 0 { format!(" ({})", expose_max.1) } else { String::new() },
             fr.iter().take(6).map(|(k, f)| format!("e{k} {:.2}%", 100.0 * f)).collect::<Vec<_>>().join(", ")
         ));
-        let mut cells: Vec<([i32; 3], (u64, i64, u64))> = expose_map.into_iter().collect();
+        let mut cells: Vec<([i32; 3], (u64, i64, u64, u64))> = expose_map.into_iter().collect();
         cells.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        let total: u64 = cells.iter().map(|(_, v)| v.0).sum();
+        let reachable: u64 = cells.iter().map(|(_, v)| v.3).sum();
         out.push(format!(
-            "freeze exposure map (block cell: exposed rider-ticks, the longest streak, the share panicking within 20 gt before), the 16 most: {}",
-            if cells.is_empty() { "-".to_string() } else { cells.iter().take(16).map(|(c, (n, s, p))| format!("{} {} {}: {n} ticks, {s} gt, {:.0}%", c[0], c[1], c[2], 100.0 * *p as f64 / *n as f64)).collect::<Vec<_>>().join("; ") }
+            "freeze exposure map (block cell: exposed rider-ticks, the longest streak, the share panicking within 20 gt before{}), the 16 most: {}",
+            if tm.reach_probe { ", the share with a path to within 1 of the bed (--reach-probe)" } else { "" },
+            if cells.is_empty() { "-".to_string() } else { cells.iter().take(16).map(|(c, (n, s, p, r))| format!("{} {} {}: {n} ticks, {s} gt, {:.0}%{}", c[0], c[1], c[2], 100.0 * *p as f64 / *n as f64, if tm.reach_probe { format!(", {:.0}% reachable", 100.0 * *r as f64 / *n as f64) } else { String::new() })).collect::<Vec<_>>().join("; ") }
         ));
+        if tm.reach_probe {
+            out.push(format!("reach probe: of {total} exposed rider-ticks, {reachable} ({:.1}%) had a path from the cart to within 1 of the bed (an open bed top would clear their stamps on the next HOME walk); the rest only panic coverage clears", if total > 0 { 100.0 * reachable as f64 / total as f64 } else { 0.0 }));
+        }
     }
     if let Some(v) = tm.visit {
         out.extend(visit_lines.iter().cloned());

@@ -108,6 +108,7 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             let open = |x: i32| vec![s([x - 1, 64, 6], "minecraft:air"), s([x - 1, 65, 6], "minecraft:air")];
             vec![(300, open(6)), (1500, open(16)), (4000, open(26))]
         }
+        "reclaim-backoff-1" => vec![(300, vec![s([5, 64, 6], "minecraft:air"), s([5, 65, 6], "minecraft:air")])],
         // (tickexact 2026-11-11) the recoverability scenes: HOME and tickets at t1-t3, the freeze
         // 900..2400, the pens opened at t2500
         "recover-single" | "recover-shared" | "recover-occupied" => {
@@ -2458,11 +2459,12 @@ fn scenes_raw() -> Vec<Scene> {
     // each homeless and penned in glass 3 blocks east of its own bed (the path never reaches: every
     // AcquirePoi attempt fails, its retry interval to that bed growing, JitteredLinearRetry: +40..80
     // gt a failure up to 400), each pen opened at its own time (V0 t300, V1 t1500, V2 t4000); night
-    for name in ["reclaim-backoff", "reclaim-backoff-day"] {
+    for name in ["reclaim-backoff", "reclaim-backoff-day", "reclaim-backoff-1"] {
         let mut b = Vec::new();
         floor(&mut b, 0, 32, 0, 16, 63, stone);
         let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
-        for k in 0..3 {
+        // ("-1": V0 and its bed only, the one-bed control)
+        for k in 0..(if name == "reclaim-backoff-1" { 1 } else { 3 }) {
             let (bx, px) = (3 + 10 * k, 6 + 10 * k);
             b.push(([bx, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
             b.push(([bx, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
@@ -2481,6 +2483,47 @@ fn scenes_raw() -> Vec<Scene> {
             mobs,
             // ("-day": in the day, IDLE: AcquirePoi(HOME) runs in CORE all day)
             day_time: if name.ends_with("-day") { 1000 } else { 13000 },
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec / ironfarm's merges: AbstractMinecart.push skips a pair
+    // closer than 0.01 horizontally, dist² < 1e-4) four lines of flat rail between two stones
+    // (x 3..20), two minecarts each, summoned moving east at 0.2: A (z 2) at the identical spot with
+    // villagers riding; B (z 5) 0.005 apart (dist² 2.5e-5) with riders; C (z 8) 0.02 apart (dist²
+    // 4e-4: the positive control, pushed apart) with riders; D (z 11) empty at the identical spot;
+    // a zombie in a boat in the riders' sight (they panic)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        for z in [2, 5, 8, 11] {
+            for x in 3..=20 {
+                b.push(([x, 64, z], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            }
+            b.push(([2, 64, z], stone.to_string()));
+            b.push(([21, 64, z], stone.to_string()));
+        }
+        let rider = "{Motion:[0.2d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let rider_rest = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let empty_rest = "{}";
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        // A: moving together into the stop (the merge forms there); B: at rest 0.005 apart; C: at
+        // rest 0.02 apart with riders; D: at rest 0.02 apart, empty
+        for (z, dx, data) in [(2.5, 0.0, rider), (5.5, 0.005, rider_rest), (8.5, 0.02, rider_rest), (11.5, 0.02, empty_rest)] {
+            mobs.push(("minecraft:minecart".into(), [10.5, 64.0, z], Some(data.into())));
+            mobs.push(("minecraft:minecart".into(), [10.5 + dx, 64.0, z], Some(data.into())));
+        }
+        mobs.push(("minecraft:oak_boat".into(), [12.5, 64.0, 14.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        v.push(Scene {
+            name: "cart-merge".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 18000,
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [31, 67, 15]),

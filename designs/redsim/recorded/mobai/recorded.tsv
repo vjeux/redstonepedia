@@ -27,6 +27,7 @@ carousel-wired-v2.rec	9cf3237b64e905ab		26.3	2026-11-10T20:10Z on 22a810e385	mct
 carousel-wired-v3-built.rec	e9c3fccfbcdfa78f		26.3	2026-11-11T00:53Z on 4effc3db21	mctas mobai record carousel-wired-v3-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 carousel-wired-v3.rec	0afa7e25d26f42f6		26.3	2026-11-11T00:53Z on 4effc3db21	mctas mobai record carousel-wired-v3 --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
 carousel-wired.rec	63b26c96584877e3		26.3	2026-11-10T19:31Z on ea79604008	mctas mobai record carousel-wired --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
+cart-merge.rec	40f99e6f21c43b4d		26.3	2026-11-11T11:42Z on 388d91c58	mctas mobai record cart-merge --seed 1 --ticks 900 --dir designs/redsim/recorded/mobai
 cart-queue-bend.rec	777599cc15248ab8		26.3	2026-11-10T14:22Z on cf641f4683	mctas mobai record cart-queue-bend --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-queue-slope.rec	ec9ecf71f00527e3		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue-slope --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-queue.rec	03e88b32b3410e96		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
@@ -57,6 +58,7 @@ loot-pickup.rec	399481169aa92c26		26.3	2026-11-10T15:13Z on 15717973b	mctas moba
 loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+reclaim-backoff-1.rec	5bb1341f0fe9a2bb		26.3	2026-11-11T11:42Z on 388d91c58	mctas mobai record reclaim-backoff-1 --seed 1 --ticks 2500 --dir designs/redsim/recorded/mobai
 recover-occupied.rec	9459a35cd221c296		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-occupied --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 recover-shared.rec	ab8f7b683acc91d6		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 recover-single.rec	b3e69998f7c7bb39		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record recover-single --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
