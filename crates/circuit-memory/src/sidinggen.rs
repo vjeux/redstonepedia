@@ -37,7 +37,11 @@ const RBLOCK: &str = "minecraft:redstone_block";
 /// chunk line through it (was [-20, 2, 10]); 2 higher than before, so its east side's redstone
 /// (siding y -3..-2) keeps a clear layer over the release controller's lines (y -2..-1 along
 /// x -11..-9).
-pub(crate) const SIDING_AT: P3 = [-15, 3, 13];
+/// Column 3 (c) (ironspec 2026-11-11: the shared bed >= 16 + margin from every rider: the siding
+/// past the loop's far end, chunk z 58..73, 58f770cc's offset (2, 4, 64)); false: the side-by-side
+/// fold (the siding west of the loop at (-15, 3, 13))
+pub(crate) const FAR: bool = false;
+pub(crate) const SIDING_AT: P3 = if FAR { [2, 4, 64] } else { [-15, 3, 13] };
 pub(crate) const DIVERT: P3 = [9, -4, 0];
 pub(crate) const T1: P3 = [-15, 0, 28];
 pub(crate) const T2: P3 = [-16, 0, 31];
@@ -148,61 +152,16 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
         other => bail!("the departure corner (9, -3, 0) is {other:?}, not a south_west rail: the loop file changed"),
     }
     lay(&mut b, [9, -3, -1], &rail("north_south"), false)?;
-    // ---- the entry route (west along z -2 to the climb's column ex, two cells west of the siding's
-    // box, the climb south up to y 2, south along ex to the siding's z, east into its entry)
-    let (ex, ez) = (SIDING_AT[0] - 9, SIDING_AT[2]);
-    lay(&mut b, [9, -3, -2], &rail("south_west"), false)?;
-    for x in ex + 1..=8 {
-        lay(&mut b, [x, -3, -2], &rail("east_west"), false)?;
+    if FAR {
+        far_entry(&mut b)?;
+    } else {
+        side_entry(&mut b)?;
     }
-    // (B2: boosters on the branch, held on by redstone blocks for supports: the stand's front cart
-    // (k0) leaves the corner slowest and reached the siding last, +204 against k1 +182 and k2 +192;
-    // boosted, all three arrive sooner and closer together, so the force-re-board F (one time for
-    // every k: the latest arrival + 112) can come earlier)
-    for &x in &BRANCH_BOOSTERS {
-        b.blocks.insert([x, -3, -2], booster("east_west"));
-        b.blocks.insert([x, -4, -2], RBLOCK.into());
+    if FAR {
+        far_exit(&mut b)?;
+    } else {
+        side_exit(&mut b)?;
     }
-    lay(&mut b, [ex, -3, -2], &rail("south_east"), false)?;
-    lay(&mut b, [ex, -3, -1], &rail("north_south"), false)?;
-    // the climb: boosters ascending south from the branch (y -3) to the siding's entry level, the
-    // first one's support a redstone block (it powers them all through the rail line, up to 8)
-    let climb = SIDING_AT[1] + 3;
-    for k in 0..climb {
-        let p = [ex, -3 + k, k];
-        b.put(p, &booster("ascending_south"))?;
-        b.put([p[0], p[1] - 1, p[2]], if k == 0 { RBLOCK } else { STONE })?;
-    }
-    for z in climb..ez {
-        lay(&mut b, [ex, SIDING_AT[1], z], &rail("north_south"), false)?;
-    }
-    lay(&mut b, [ex, SIDING_AT[1], ez], &rail("north_east"), false)?;
-    lay(&mut b, [ex + 1, SIDING_AT[1], ez], &rail("east_west"), false)?;
-    // ---- the exit route to T1: the exit's corner, slopes down south to y 1 (the cart leaves the
-    // exit slot at 0.28-0.44 and would crawl on the flat: ironfarm 13:57; the slopes replace the old
-    // booster on a redstone block), south along the exit's column (over the release controller's
-    // chain: its cells there are y -2..-1, the rails' supports at y 0 touch none of its dust) to
-    // z 25, west along z 26 to x -15, south into T1 (the tree sits west of the release
-    // controller's taps, so the cells under the T's and the holds are free for their drivers)
-    let (xx, xz) = (SIDING_AT[0] + 7, SIDING_AT[2]);
-    let xy = SIDING_AT[1] - 1;
-    lay(&mut b, [xx, xy, xz], &rail("south_west"), false)?;
-    // (slopes down to y 1, then flat rails to the tree. A booster on its redstone block after the
-    // slopes, or before them, left k0 slower at its drop end (0.06 b/t at +555, 600 problems in 70
-    // slots), so none; k0's margin to the escapement's first advance is being restored (ironspec
-    // 23:34))
-    for k in 1..xy {
-        lay(&mut b, [xx, xy - k, xz + k], &rail("ascending_north"), false)?;
-    }
-    for z in xz + xy..=25 {
-        lay(&mut b, [xx, 1, z], &rail("north_south"), false)?;
-    }
-    lay(&mut b, [xx, 1, 26], &rail("north_west"), false)?;
-    for x in -14..xx {
-        lay(&mut b, [x, 1, 26], &rail("east_west"), false)?;
-    }
-    lay(&mut b, [-15, 1, 26], &rail("south_east"), false)?;
-    lay(&mut b, [-15, 1, 27], &rail("north_south"), false)?;
     // T1: stem north, unpowered north_east (east: slot 14's line), powered north_west (T2)
     b.put([-15, 1, 28], &rail("north_east"))?;
     b.put(T1, GLASS)?;
@@ -286,6 +245,83 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     cells.dedup();
     d.meta.insert("build".into(), format!("last {}{}", cells.join(" "), if fills_last { " fills-last" } else { "" }));
     Ok(added)
+}
+
+/// The side-by-side entry: west along z -2 to the climb's column ex, two cells west of the siding's
+/// box, the climb south up to the siding's level, south along ex to the siding's z, east into its
+/// entry.
+fn side_entry(b: &mut B) -> Result<()> {
+    let (ex, ez) = (SIDING_AT[0] - 9, SIDING_AT[2]);
+    lay(b, [9, -3, -2], &rail("south_west"), false)?;
+    for x in ex + 1..=8 {
+        lay(b, [x, -3, -2], &rail("east_west"), false)?;
+    }
+    // (B2: boosters on the branch, held on by redstone blocks for supports: the stand's front cart
+    // (k0) leaves the corner slowest and reached the siding last, +204 against k1 +182 and k2 +192;
+    // boosted, all three arrive sooner and closer together, so the force-re-board F (one time for
+    // every k: the latest arrival + 112) can come earlier)
+    for &x in &BRANCH_BOOSTERS {
+        b.blocks.insert([x, -3, -2], booster("east_west"));
+        b.blocks.insert([x, -4, -2], RBLOCK.into());
+    }
+    lay(b, [ex, -3, -2], &rail("south_east"), false)?;
+    lay(b, [ex, -3, -1], &rail("north_south"), false)?;
+    // the climb: boosters ascending south from the branch (y -3) to the siding's entry level, the
+    // first one's support a redstone block (it powers them all through the rail line, up to 8)
+    let climb = SIDING_AT[1] + 3;
+    for k in 0..climb {
+        let p = [ex, -3 + k, k];
+        b.put(p, &booster("ascending_south"))?;
+        b.put([p[0], p[1] - 1, p[2]], if k == 0 { RBLOCK } else { STONE })?;
+    }
+    for z in climb..ez {
+        lay(b, [ex, SIDING_AT[1], z], &rail("north_south"), false)?;
+    }
+    lay(b, [ex, SIDING_AT[1], ez], &rail("north_east"), false)?;
+    lay(b, [ex + 1, SIDING_AT[1], ez], &rail("east_west"), false)?;
+    Ok(())
+}
+
+/// The side-by-side exit to T1: the exit's corner, slopes down south to y 1 (the cart leaves the
+/// exit slot at 0.28-0.44 and would crawl on the flat: ironfarm 13:57), south along the exit's
+/// column (over the release controller's chain: its cells there are y -2..-1, the rails' supports
+/// at y 0 touch none of its dust) to z 25, west along z 26 to x -15, south into T1's stem.
+fn side_exit(b: &mut B) -> Result<()> {
+    let (xx, xz) = (SIDING_AT[0] + 7, SIDING_AT[2]);
+    let xy = SIDING_AT[1] - 1;
+    lay(b, [xx, xy, xz], &rail("south_west"), false)?;
+    // (slopes down to y 1, then flat rails to the tree. A booster on its redstone block after the
+    // slopes, or before them, left k0 slower at its drop end (0.06 b/t at +555, 600 problems in 70
+    // slots), so none)
+    for k in 1..xy {
+        lay(b, [xx, xy - k, xz + k], &rail("ascending_north"), false)?;
+    }
+    for z in xz + xy..=25 {
+        lay(b, [xx, 1, z], &rail("north_south"), false)?;
+    }
+    lay(b, [xx, 1, 26], &rail("north_west"), false)?;
+    for x in -14..xx {
+        lay(b, [x, 1, 26], &rail("east_west"), false)?;
+    }
+    lay(b, [-15, 1, 26], &rail("south_east"), false)?;
+    lay(b, [-15, 1, 27], &rail("north_south"), false)?;
+    Ok(())
+}
+
+/// Column 3 (c)'s entry, from the divert branch (9, -3, -1) to the siding past the far end: east
+/// at z -2 to x 11, a booster climb south along x 11 to the siding's level, flat along x 11 (a
+/// booster every 30) to z 60, west along z 60 (outside the siding's box, z >= 61) to x -6, south
+/// into the bench approach at z 64 (local x -8: its corner). WIP.
+fn far_entry(b: &mut B) -> Result<()> {
+    let _ = b;
+    bail!("column 3 (c)'s entry is not written yet")
+}
+
+/// Column 3 (c)'s exit, from the siding's exit (8, oy - 1, 64) north along x 9, west across the
+/// loop above the register lanes (3 clear above their rails), to the top-fed tree on x -6..-4. WIP.
+fn far_exit(b: &mut B) -> Result<()> {
+    let _ = b;
+    bail!("column 3 (c)'s exit is not written yet")
 }
 
 /// `mctas circuit memory siding-ctl-gen --out F`: the siding's control module, in the nightly
