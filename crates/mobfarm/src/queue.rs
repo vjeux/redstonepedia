@@ -1021,7 +1021,9 @@ pub struct TailWatch {
     roll_min: f64,
     roll_max: f64,
     closing_max: (f64, String),
-    by_state: [usize; 4],
+    by_state: [usize; 6],
+    /// The highest closing speed of the arrivals of each kind.
+    closing_by_state: [f64; 6],
     arrival_log: Vec<String>,
     impacts: usize,
     back_cross: usize,
@@ -1038,6 +1040,17 @@ pub struct TailWatch {
     /// At each G0 shut, the follower's distance short of G0's rest along the track (and its
     /// speed): the third opening's (the slot's last), the others'.
     end_third: Option<(f64, f64, String)>,
+    /// The declared take-off (cell, travel direction x, z), each cart's last position, and every
+    /// crossing of the take-off plane (the cell's far edge) as an interpolated time in gt.
+    takeoff: Option<([i32; 3], f64, f64)>,
+    prev_xyz: std::collections::HashMap<u32, (f64, f64, f64)>,
+    cross_ts: Vec<(f64, String)>,
+    /// A landed cart reaching G0's rest without meeting another: its landing to pressed, in gt
+    /// (least, most).
+    lone_roll: Option<(i64, i64)>,
+    /// The register's schedule (the first advance's gt in the slot, the advances' period), to
+    /// tell a G0 opening's advance.
+    pub sched: Option<(i64, i64)>,
     end_other: Option<(f64, f64, String)>,
     /// Every arrival printed (`--arrival-log`).
     pub verbose: bool,
@@ -1063,6 +1076,9 @@ impl TailWatch {
         }).map_or(0, |k| k + 2);
         w.g0 = Some(g0);
         w.g0_rest = [g0.x as f64 + 0.5, g0.y as f64 + 0.18, g0.z as f64 - 0.12];
+        // (the declared take-off: its cell and the travel direction, toward the landing)
+        let (ddx, ddz) = ((fl.landing[0][0] - fl.take_off[0]).signum() as f64, (fl.landing[0][2] - fl.take_off[2]).signum() as f64);
+        w.takeoff = Some((fl.take_off, ddx, if ddx != 0.0 { 0.0 } else { ddz }));
         w
     }
 
@@ -1082,6 +1098,25 @@ impl TailWatch {
         self.impacted.clear();
         if self.cells.is_empty() {
             return;
+        }
+        // (the take-off plane: each cart crossing it, on the take-off's row and level, timed by
+        // interpolating its last two positions)
+        if let Some((tc, dx, dz)) = self.takeoff {
+            let (dir, along_x) = if dx != 0.0 { (dx, true) } else { (dz, false) };
+            let plane = if along_x { tc[0] as f64 + if dx > 0.0 { 1.0 } else { 0.0 } } else { tc[2] as f64 + if dz > 0.0 { 1.0 } else { 0.0 } };
+            for id in carts {
+                let Some(e) = w.entities.list.iter().find(|e| e.id == *id) else { continue };
+                let (x, y, z) = (e.pos.x, e.pos.y, e.pos.z);
+                if let Some((px, py, pz)) = self.prev_xyz.insert(*id, (x, y, z)) {
+                    let (pc, nc) = if along_x { (px, x) } else { (pz, z) };
+                    let row_ok = if along_x { (pz - (tc[2] as f64 + 0.5)).abs() < 0.6 } else { (px - (tc[0] as f64 + 0.5)).abs() < 0.6 };
+                    let lvl_ok = py - tc[1] as f64 > -0.6 && py - (tc[1] as f64) < 1.6;
+                    if row_ok && lvl_ok && (pc - plane) * dir < 0.0 && (nc - plane) * dir >= 0.0 && nc != pc {
+                        let f = (plane - pc) / (nc - pc);
+                        self.cross_ts.push(((t - 1) as f64 + f, format!("slot {c} +{dt}")));
+                    }
+                }
+            }
         }
         let n = self.cells.len();
         let p_idx = n - 1;
@@ -1116,6 +1151,12 @@ impl TailWatch {
             let e = w.entities.list.iter().find(|e| e.id == q.0).unwrap();
             let at = (e.pos.x - g[0]).abs() < 0.3 && (e.pos.z - g[2]).abs() < 0.06 && (e.pos.y - g[1]).abs() < 0.3;
             if at && q.5 < 0.01 {
+                if !self.pressed_since.contains_key(&q.0)
+                    && let Some((lt, _)) = self.landed.get(&q.0)
+                {
+                    let r = t - lt;
+                    self.lone_roll = Some(self.lone_roll.map_or((r, r), |(a, b)| (a.min(r), b.max(r))));
+                }
                 self.pressed_since.entry(q.0).or_insert(t);
             } else {
                 self.pressed_since.remove(&q.0);
@@ -1242,12 +1283,21 @@ impl TailWatch {
                                 let roll = s - s_land;
                                 self.roll_min = self.roll_min.min(roll);
                                 self.roll_max = self.roll_max.max(roll);
-                                let st = if self.pressed_since.contains_key(&b.0) { 0 } else if b.2 == p_idx { 3 } else if b.4 > 0.01 { 1 } else { 2 };
+                                // (the met cart rolling: the queue's front (no tail cart ahead of it
+                                // short of P) still rolling to G0, state 1, or a cart behind
+                                // another, settling, state 4)
+                                let is_front = !now.iter().any(|o| o.0 != b.0 && o.2 < p_idx && o.3 > b.3);
+                                // (the front rolling: with G0 open (being admitted, state 1) or shut
+                                // (still settling against the gate, state 5))
+                                let st = if self.pressed_since.contains_key(&b.0) { 0 } else if b.2 == p_idx { 3 } else if b.4 > 0.01 { if !is_front { 4 } else if self.g0_was_open { 1 } else { 5 } } else { 2 };
                                 self.by_state[st] += 1;
+                                if closing > self.closing_by_state[st] {
+                                    self.closing_by_state[st] = closing;
+                                }
                                 if self.verbose {
                                     self.arrival_log.push(format!(
                                         "arrival slot {c} +{dt}: cart {k} (landed {} gt before) met cart {} at {:?} after a free roll of {roll:.2} cells, closing {closing:.3} b/t; the met cart {}; the queue {} downstream, {} upstream",
-                                        t - t_land, b.1, self.cells[i], ["pressed at G0", "rolling", "at rest short of G0", "on P"][st], down, up
+                                        t - t_land, b.1, self.cells[i], ["pressed at G0", "the front, rolling with G0 open", "at rest short of G0", "on P", "behind another, rolling", "the front, rolling with G0 shut"][st], down, up
                                     ));
                                 }
                             }
@@ -1278,6 +1328,12 @@ impl TailWatch {
         }
     }
 
+    /// How long the queue's front has been pressed at G0 (at its rest, under 0.01 b/t) by tick t,
+    /// if one is (the evidence G0 keys on with `adm_evidence`).
+    pub fn pressed_for(&self, t: i64) -> Option<i64> {
+        self.pressed_since.values().map(|s| t - s).max()
+    }
+
     pub fn lines(&self) -> Vec<String> {
         if self.cells.is_empty() {
             return Vec::new();
@@ -1287,25 +1343,37 @@ impl TailWatch {
         let under = gaps.iter().filter(|g| **g < 5).count();
         let mut out = vec![
             format!(
-                "the jump onto the landing (the bar: 5 gt apart): {} landings, the closest {gmin} gt apart, {under} under 5 gt; landings with a cart at rest on the landing cells: {}{}",
+                "the jump onto the landing (landing ticks; the gap bar is the take-off plane line's): {} landings, the closest {gmin} gt apart, {under} under 5 gt; landings with a cart at rest on the landing cells: {}{}",
                 self.jumps.len(), self.landing_busy, if self.landing_log.is_empty() { String::new() } else { format!(" ({})", self.landing_log.join(", ")) }
             ),
             format!(
-                "arrivals (a landed cart's first impact): {} (met a cart pressed at G0 {}, rolling {}, at rest short of G0 {}, on P {}); the free roll {:.2}..{:.2} cells; the hardest impact {:.3} b/t closing{}; impacts in all {}",
-                self.arrivals, self.by_state[0], self.by_state[1], self.by_state[2], self.by_state[3],
+                "arrivals (a landed cart's first impact): {} (met a cart pressed at G0 {}, the front still rolling with G0 shut {} (the downhill queue's meetings; the hardest {:.3} b/t closing), the front still rolling with G0 open {} (the bar: 0), a cart behind another still rolling {}, at rest short of G0 {}, on P {}); the free roll {:.2}..{:.2} cells; the hardest impact {:.3} b/t closing{}; impacts in all {}",
+                self.arrivals, self.by_state[0], self.by_state[5], self.closing_by_state[5], self.by_state[1], self.by_state[4], self.by_state[2], self.by_state[3],
                 if self.arrivals > 0 { self.roll_min } else { 0.0 }, self.roll_max, self.closing_max.0,
                 if self.closing_max.1.is_empty() { String::new() } else { format!(" ({})", self.closing_max.1) }, self.impacts
             ),
             format!("carts pushed back across a cell boundary in the tail (the bar: 0, whatever the cause): {}{}", self.back_cross, if self.back_log.is_empty() { String::new() } else { format!(" ({})", self.back_log.join(", ")) }),
             format!(
-                "the front at each G0 opening (gt pressed at G0 before it opens, negative when it reached G0 after; the bar: 2): {} openings, the least {}; {} under 2{}{}; {} with the queue empty, {} whose front never reached G0 within 40 gt",
+                "the front at each G0 opening (gt pressed at G0 before it opens, negative when it reached G0 after; the bar: 2): {} openings, the least {}; {} under 2{}{}; {} with the queue empty, {} whose front never reached G0 within 40 gt; per opening of the slot (after the 1st, 2nd, 3rd advance) the least {}",
                 self.openings,
                 self.front_min.as_ref().map_or("-".to_string(), |f| format!("{} gt ({})", f.0, f.1)),
                 self.front_short_n,
                 if self.front_short.is_empty() { String::new() } else { format!(" ({})", self.front_short.join(", ")) },
                 if self.pending.is_empty() { String::new() } else { format!("; {} pending at the end", self.pending.len()) },
                 self.empty_openings,
-                self.not_admitted
+                self.not_admitted,
+                {
+                    // (each opening's advance from its tick in the slot: before the first advance
+                    // it is the last slot's third, spilled)
+                    let (aa, ae) = self.sched.unwrap_or((41, 20));
+                    let mut by_k: [Option<i64>; 3] = [None; 3];
+                    for a in &self.admits {
+                        let dto = a.1.rem_euclid(100);
+                        let k = if dto < aa { 2 } else { (((dto - aa) / ae.max(1)) as usize).min(2) };
+                        by_k[k] = Some(by_k[k].map_or(a.2, |m| m.min(a.2)));
+                    }
+                    by_k.iter().map(|m| m.map_or("-".to_string(), |v| format!("{v}"))).collect::<Vec<_>>().join("/") + " gt"
+                }
             ),
             format!(
                 "the queue's occupancy: at most {} carts downstream of the curve ({}) and {} upstream ({})",
@@ -1316,6 +1384,25 @@ impl TailWatch {
                 self.end_third.as_ref().map_or("-".to_string(), |e| format!("{:.2} cells at {:.3} b/t ({})", e.0, e.1, e.2)),
                 self.end_other.as_ref().map_or("-".to_string(), |e| format!("{:.2} cells at {:.3} b/t ({})", e.0, e.1, e.2))
             ),
+            {
+                // (the gaps at the take-off plane, fractional gt; tick-exact's quarter-tick bridge
+                // aec62262a: 3.75 or less lands clean (a pushed pair), 4 to 6.75 sticks or merges,
+                // 7 or more clean, 8 or more a lone cart's landing)
+                let mut ts: Vec<&(f64, String)> = self.cross_ts.iter().collect();
+                ts.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let gaps: Vec<(f64, &String)> = ts.windows(2).map(|p| (p[1].0 - p[0].0, &p[1].1)).collect();
+                let bad: Vec<String> = gaps.iter().filter(|g| g.0 >= 3.875 && g.0 < 6.875).map(|g| format!("{:.2} gt at {}", g.0, g.1)).collect();
+                let least = gaps.iter().min_by(|a, b| a.0.total_cmp(&b.0)).map_or("-".to_string(), |g| format!("{:.2} gt ({})", g.0, g.1));
+                format!(
+                    "the take-off plane{} (each cart's crossing interpolated between ticks): {} crossings, gaps the least {least}; {} pushed pairs (3.75 gt or less), {} in the bad band 4-6.75 gt{}; the lone carts' landing to pressed at G0: {}",
+                    self.takeoff.map_or(String::new(), |(tc, _, _)| format!(" at ({},{},{})", tc[0], tc[1], tc[2])),
+                    ts.len(),
+                    gaps.iter().filter(|g| g.0 < 3.875).count(),
+                    bad.len(),
+                    if bad.is_empty() { String::new() } else { format!(" ({})", bad.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) },
+                    self.lone_roll.map_or("-".to_string(), |(a, b)| format!("{a}..{b} gt"))
+                )
+            },
         ];
         // (each batch against the openings that admit its carts, ironspec 06:14: every cart of a
         // batch pressed at G0 at least 2 gt before the first opening that can admit it, the one
@@ -1399,6 +1486,9 @@ pub fn emulated_signals(o: &LoopOpts, tm: &LoopTiming) -> (String, bool) {
     }
     if o.esc_adm {
         add("the escapement's G_P, G0 and P", false, "no wired version yet (day-1's new core builds them at step 3)");
+        if tm.adm_evidence.is_some() {
+            add("G0's front-rest evidence (--adm-evidence)", false, "an ideal sensor: a detector rail under the pressed front would touch G0 and power it, so this is a reference, not a buildable input");
+        }
     }
     if tm.entry_hold || tm.hold_progress {
         add("the entry hold's inputs", false, "ideal sensors");
@@ -3349,6 +3439,10 @@ pub struct LoopTiming {
     /// Admission control: G0's delay after the gate opens for the third advance of each cycle (the
     /// next G_P is 60 gt away there, so its window can open later); −1: as the others.
     pub adm_k2: i64,
+    /// G0 keyed to arrival evidence (lever (b′)): armed from P's clearing (G_P's opening plus the
+    /// G0 delay) to the next G_P opening, it opens once the queue's front has been pressed at G0
+    /// this many gt, for its window, once per arm (the timed windows and `adm_k2` unused).
+    pub adm_evidence: Option<i64>,
     /// Admission faults (bench-driven): (slot, advance 0..2, kind, offset): kind 0 skips the
     /// advance's G_P and G0 pulses (the divert's hole), 1 misses its G0 pulse, 2 misses its G_P
     /// pulse, 3 adds a G0 pulse `offset` gt after G_P's opening, 4 adds a G_P pulse there.
@@ -3649,7 +3743,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -4505,6 +4599,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut arrivals_now: Vec<(usize, String)> = Vec::new();
     // (admission control's skip-request latch)
     let mut skip_latch = false;
+    // (`adm_evidence`: G0's evidence-keyed opening, the arm already used and the open's end)
+    let mut ev_used: Option<(i64, i64)> = None;
+    let mut ev_open_until: i64 = -1;
+    let mut ev_opens: usize = 0;
     let mut skip_active = false;
     // (`reg_interlock`: the advance's allowed slots, the tail's launches held, the record)
     let mut reg_allow: Vec<bool> = Vec::new();
@@ -4592,6 +4690,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the tail's arrivals, impacts, backward crossings, the front's readiness at each G0 opening,
     // the jump's spacing and the landing's clearance, the queue's occupancy: escapement designs)
     let mut tail_watch = TailWatch::new(&lay);
+    tail_watch.sched = Some((tm.advance_at, tm.advance_every));
     let mut cart_count = CartCount::new(&lay);
     tail_watch.verbose = tm.arrival_log;
     let mut held_back: Option<(u32, redsim::entity::Vec3, i64)> = None;
@@ -4612,6 +4711,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
     let mut order_dep2: Option<Vec<u32>> = None;
     let mut order_ok = 0;
+    // (the physical slot bar: per cart the tick it came to rest (under 0.01 b/t), and at each
+    // register slot's move pulse the margin of the cart in it)
+    let mut slot_rest: std::collections::HashMap<u32, i64> = std::collections::HashMap::new();
+    let mut slot_bar_n = 0usize;
+    let mut slot_bar_bad = 0usize;
+    let mut slot_info_low = 0usize;
+    let mut slot_bar_min: Option<(i64, String)> = None;
+    let mut slot_bar_log: Vec<String> = Vec::new();
+    let mut order_snap_off: Vec<String> = Vec::new();
     // (the pocket stand's measured margins, per slot: [cart 1 at D2 (x 2), cart 2 at D2, cart 2's
     // tail past G2 (x 1.29), cart 3 at G2 (x -0.2), G2 shut]; then (cart 1->2 spacing at D2, G2
     // shut after cart 2 cleared it, G2 shut before cart 3 reached it))
@@ -5205,7 +5313,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         bad.push(format!("the stand holds {dep:?}, not the train {prel:?}"));
                     }
                     if !bad.is_empty() {
-                        problems.push(format!("slot {c}: order: {}", bad.join("; ")));
+                        // (the boundary snapshot is information, not a check (ironspec Nov 11
+                        // 07:53: the physical slot bar replaces it): a launch landing a few gt
+                        // after the boundary misses the snapshot without missing anything)
+                        order_snap_off.push(format!("slot {c}: {}", bad.join("; ")));
                     } else {
                         order_ok += 1;
                     }
@@ -5688,6 +5799,34 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
                 for s in 0..q {
                     let sk = tm.skew.get(s).copied().unwrap_or(0);
+                    // (the physical slot bar, ironspec Nov 11 07:53: the cart in a slot at rest
+                    // there at least 2 gt before the slot's move pulse; a cart still moving into
+                    // it, or arrived later, misses its move)
+                    if dt == a + sk && c < cycles {
+                        let cell = lay.slot_cells[s];
+                        if let Some(id) = carts.iter().copied().find(|id| pos_of(&run.world, *id).is_some_and(|p| p.x.floor() as i32 == cell[0] && p.z.floor() as i32 == cell[2] && p.y < cell[1] as f64 + 1.5 && p.y > cell[1] as f64 - 0.6)) {
+                            let m = slot_rest.get(&id).map_or(-1, |since| t - since);
+                            slot_bar_n += 1;
+                            if slot_bar_min.as_ref().is_none_or(|x| m < x.0) {
+                                slot_bar_min = Some((m, format!("slot {c} +{dt}: queue slot {s}")));
+                            }
+                            // (information since ironspec's 08:17 ruling: a cart still moving
+                            // inside its cell is carried on by the pulse; the bar is the corner
+                            // rule, the slot empty at its pulse)
+                            if m < 2 {
+                                slot_info_low += 1;
+                            }
+                        } else if c >= 1 && s + 3 < q && (o.esc_adm || s >= 3) {
+                            // (no cart in the slot at its move pulse: the cart due there missed
+                            // the move, arriving later or never; the release group's 3 slots
+                            // empty by design once they release, and so do a returning train's
+                            // tail slots 0..2 outside an escapement design)
+                            slot_bar_bad += 1;
+                            if slot_bar_log.len() < 6 {
+                                slot_bar_log.push(format!("slot {c} +{dt}: queue slot {s} empty at its move pulse"));
+                            }
+                        }
+                    }
                     if dt == a + sk && (!tm.reg_interlock || reg_allow.get(s).copied().unwrap_or(true)) {
                         set(&mut run.world, &lay.slots[s..s + 1], true);
                     }
@@ -5822,11 +5961,43 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     let pf = tm.adm_faults.iter().flatten().find(|f| f.0 == c - 1 && f.1 == k).map(|f| (f.2, f.3));
                     dt + 100 >= a + d + dk && dt + 100 < a + d + dk + wl && !matches!(pf, Some((0, _)) | Some((1, _)))
                 });
-                let base_now = spill || c < cycles && (0..3).any(|k| {
+                let base_now = if let Some(press) = tm.adm_evidence {
+                    // (`adm_evidence`, lever (b′): G0 keyed to arrival evidence: armed from P's
+                    // clearing (G_P's opening plus the G0 delay) until the next G_P opening, it
+                    // opens once the queue's front has been pressed at G0 for PRESS gt, for its
+                    // W gt, once per arm)
+                    let gp_at = |cs: i64, k: i64| cs * 100 + tm.advance_at + (k % 3) * tm.advance_every + tm.adv_shift[(k % 3) as usize] + (k / 3) * 100 + d;
+                    let mut arm: Option<(i64, i64)> = None;
+                    for cs in [c - 1, c] {
+                        if cs < 0 || cs >= cycles {
+                            continue;
+                        }
+                        for k in 0..3 {
+                            if t >= gp_at(cs, k) + dl && t < gp_at(cs, k + 1) {
+                                arm = Some((cs, k));
+                            }
+                        }
+                    }
+                    if t < ev_open_until {
+                        true
+                    } else if let Some(a) = arm
+                        && ev_used != Some(a)
+                        && tail_watch.pressed_for(t).is_some_and(|p| p >= press)
+                    {
+                        ev_used = Some(a);
+                        ev_open_until = t + wl;
+                        ev_opens += 1;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    spill || c < cycles && (0..3).any(|k| {
                     let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize] + if tm.reg_interlock { il_delay[k as usize].unwrap_or(0) } else { 0 };
                     let dk = if k == 2 && tm.adm_k2 >= 0 { tm.adm_k2 } else { dl };
                     dt >= a + d + dk && dt < a + d + dk + wl && !matches!(fault(k), Some((0, _)) | Some((1, _))) && !(tm.reg_interlock && (il_skip[k as usize] || il_delay[k as usize].is_none()))
-                });
+                    })
+                };
                 // (the skip request, `adm_skip_req`: a latch set by a request; the next G0 opening
                 // after it is skipped, which clears it)
                 if tm.adm_skip_req.iter().flatten().any(|r| r.0 == c && r.1 == dt) {
@@ -6021,6 +6192,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // (every detector rail: on-edges against carts entering)
         if build_start.is_none() {
             det_edges.observe(&run.world, &carts);
+            for e in run.world.entities.list.iter().filter(|e| carts.contains(&e.id)) {
+                if e.delta_movement.horizontal_distance() < 0.01 {
+                    slot_rest.entry(e.id).or_insert(t + 1);
+                } else {
+                    slot_rest.remove(&e.id);
+                }
+            }
             plane_gaps.observe(&run.world, &carts, c as i64);
             stand_panic.observe(&run.world, &riders, c as i64, dt as i64);
             // (the tail's lines over the run's own slots: after them the bench drives nothing and
@@ -7330,7 +7508,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     out.push(format!("{} settled snapshots, {} clean 3-place moves", snaps.len(), moves));
     if o.stand_stop {
-        out.push(format!("slot-boundary order: {order_ok} clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)"));
+        out.push(format!("slot-boundary order: {order_ok} clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train; information, the slot bar below is the check){}", if order_snap_off.is_empty() { String::new() } else { format!("; {} slots off the snapshot, first {}", order_snap_off.len(), order_snap_off[0]) }));
+        out.push(format!(
+            "the slot bar (ironspec's corner rule: no register slot outside the release group empty at its move pulse, the cart due there not yet in it; run it at nominal and with the pulses and G_P/G0 each shifted 2 gt): {slot_bar_bad} empty at their pulses{}; information: {slot_bar_n} pulses with a cart, the least rest before the pulse {}, {slot_info_low} under 2 gt",
+            if slot_bar_log.is_empty() { String::new() } else { format!(" ({})", slot_bar_log.join(", ")) },
+            slot_bar_min.as_ref().map_or("-".to_string(), |x| format!("{} gt ({})", x.0, x.1))
+        ));
+        if slot_bar_bad > 0 {
+            problems.push(format!("the slot bar: {slot_bar_bad} register slots empty at their move pulses ({})", slot_bar_log.first().cloned().unwrap_or_default()));
+        }
         // the lap order: the last 21 departures the same cycle as the first 21 (a swap or a lost
         // cart changes it for good: a phase inversion)
         let n = carts.len();
@@ -7339,6 +7525,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let distinct = |v: &[usize]| v.iter().collect::<std::collections::BTreeSet<_>>().len() == n;
             let kept = distinct(first) && distinct(last) && first.iter().position(|k| *k == last[0]).is_some_and(|p0| (0..n).all(|i| last[i] == first[(p0 + i) % n]));
             out.push(format!("lap order: {} ({} departures; the last {n} {} the first {n}'s cycle)", if kept { "kept" } else { "CHANGED" }, laps.len(), if kept { "are" } else { "are not" }));
+            if !kept {
+                problems.push("lap order: CHANGED (a swap or a lost cart: the last 21 departures not the first 21's cycle)".to_string());
+            }
         }
         if fifo_on {
             let mut hist = [0usize; 8];
