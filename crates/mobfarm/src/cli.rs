@@ -450,6 +450,21 @@ pub enum MobfarmCmd {
         #[arg(long)]
         list: bool,
     },
+    /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
+    /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
+    /// position the flee check tries (three points along each rail cell, the cart's y: `fleecheck`)
+    /// and the resting riders `--rest` (x,y,z,...): the nearest rider position (bar > 6), the
+    /// farthest resting rider (bar <= 8), and whether a straight line from each resting rider's eye to
+    /// the zombie's head crosses only see-through blocks. The best `--top` printed.
+    ZombieCells {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        region: Vec<i32>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        rest: Vec<f64>,
+        #[arg(long, default_value_t = 12)]
+        top: usize,
+    },
     /// A part made of straight runs, to price a route before it is designed: each option a list of
     /// segments `x0,y0,z0>x1,y1,z1` (`;`-separated; along x or z, y moving one block per cell toward
     /// y1 until it gets there) laid as plain rails on glass (`--rail`), boosters on redstone blocks
@@ -2759,6 +2774,69 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for (c, s) in cs {
                     println!("{} {} {} {}", c[0], c[1], c[2], s.trim_start_matches("minecraft:"));
                 }
+            }
+        }
+        MobfarmCmd::ZombieCells { design, region, rest, top } => {
+            anyhow::ensure!(region.len() == 6, "--region X0,Y0,Z0,X1,Y1,Z1");
+            anyhow::ensure!(rest.len() % 3 == 0 && !rest.is_empty(), "--rest x,y,z,...");
+            let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            // (the rider positions: three points along each rail cell's axis, at the cart's y)
+            let mut riders: Vec<[f64; 3]> = Vec::new();
+            for (c, s) in &d.blocks {
+                if !s.contains("rail") {
+                    continue;
+                }
+                let (x, y, z) = (c[0] as f64, c[1] as f64 + 0.0625, c[2] as f64);
+                for t in [0.1, 0.5, 0.9] {
+                    riders.push(if s.contains("east_west") || s.contains("ascending_east") || s.contains("ascending_west") {
+                        [x + t, y, z + 0.5]
+                    } else if s.contains("north_south") || s.contains("ascending_north") || s.contains("ascending_south") {
+                        [x + 0.5, y, z + t]
+                    } else {
+                        [x + 0.5, y, z + 0.5]
+                    });
+                }
+            }
+            let rests: Vec<[f64; 3]> = rest.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
+            let dist = |a: [f64; 3], b: [f64; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+            // (sight: sample the segment every 0.1; a mob's line of sight is clipped by every block
+            // with a collision shape (ClipContext.Block.COLLIDER: glass and leaves block it), so only
+            // air, rails, dust, torches, tripwire, buttons, levers and plates let it through)
+            let clear = |s: &str| {
+                let n = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("");
+                n == "air" || n.contains("rail") || n == "redstone_wire" || n.contains("torch") || n.contains("tripwire") || n.contains("button") || n.contains("lever") || n.contains("pressure_plate") || (n.contains("fence_gate") && s.contains("open=true"))
+            };
+            let sees = |eye: [f64; 3], head: [f64; 3]| -> bool {
+                let n = (dist(eye, head) / 0.1).ceil() as usize;
+                (1..n).all(|k| {
+                    let f = k as f64 / n as f64;
+                    let p = [eye[0] + (head[0] - eye[0]) * f, eye[1] + (head[1] - eye[1]) * f, eye[2] + (head[2] - eye[2]) * f];
+                    let c = [p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32];
+                    d.blocks.get(&c).is_none_or(|s| clear(s))
+                })
+            };
+            let r = &region;
+            let mut rows: Vec<(f64, f64, [i32; 3], usize)> = Vec::new();
+            for x in r[0].min(r[3])..=r[0].max(r[3]) {
+                for y in r[1].min(r[4])..=r[1].max(r[4]) {
+                    for z in r[2].min(r[5])..=r[2].max(r[5]) {
+                        if d.blocks.get(&[x, y, z]).is_some_and(|s| !clear(s)) {
+                            continue;
+                        }
+                        let f = [x as f64 + 0.5, y as f64, z as f64 + 0.5];
+                        let near = riders.iter().map(|p| dist(*p, f)).fold(f64::MAX, f64::min);
+                        let far = rests.iter().map(|p| dist(*p, f)).fold(0.0, f64::max);
+                        if near > 6.0 && far <= 8.0 {
+                            let seen = rests.iter().filter(|p| sees([p[0], p[1] + 1.62, p[2]], [f[0], f[1] + 1.74, f[2]])).count();
+                            rows.push((near, far, [x, y, z], seen));
+                        }
+                    }
+                }
+            }
+            rows.sort_by(|a, b| (b.3, (b.0 - 6.0).min(8.0 - b.1)).partial_cmp(&(a.3, (a.0 - 6.0).min(8.0 - a.1))).unwrap_or(std::cmp::Ordering::Equal));
+            println!("{}: {} rider positions, {} resting riders; {} candidate cells meet > 6 from every rider position and <= 8 from every resting rider", design.display(), riders.len(), rests.len(), rows.len());
+            for (near, far, c, seen) in rows.iter().take(top) {
+                println!("  zombie feet at {:.1},{},{:.1}: nearest rider position {:.2} (margin {:.2}), farthest resting rider {:.2} (margin {:.2}), sight to {seen} of {} resting riders", c[0] as f64 + 0.5, c[1], c[2] as f64 + 0.5, near, near - 6.0, far, 8.0 - far, rests.len());
             }
         }
         MobfarmCmd::Lines { rail, booster, wire, block, out } => {
