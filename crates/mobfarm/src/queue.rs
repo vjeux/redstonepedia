@@ -3690,6 +3690,8 @@ pub struct LoopTiming {
     pub emp_snapshot: bool,
     /// (cc767b78) a fault: a stray DEP_X pulse at SLOT +DT (no cart).
     pub dep_pulse: Option<(i64, i64)>,
+    /// (cc767b78) a junction cell watched while carts sit in it (loop frame).
+    pub t_watch: Option<[i32; 3]>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -5457,7 +5459,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, t_watch: None, meter: None }
     }
 }
 
@@ -6302,6 +6304,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut stalls: Vec<(bool, String)> = Vec::new();
     let mut prev_v: std::collections::HashMap<u32, (f64, f64)> = std::collections::HashMap::new();
     let mut t_end_run: i64 = 0;
+    let mut t_watch_log: Vec<(i64, String, String, Option<(f64, u32, bool, f64)>)> = Vec::new();
     if tm.trace_pair.is_some() || tm.meter.is_some() || n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) {
         redsim::entity::minecart::log_cart_cart_pushes(&mut run.world);
     }
@@ -10614,6 +10617,31 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // at rest (stored under 0.01) >= 10 gt inside a listed box: where, the rail there, the
             // powered rails beside it, and how it moved again (a cart-cart push this tick or the
             // last, or by itself), or never)
+            // (`t_watch` X,Y,Z: a junction watched while any cart's box is in its cell: the cell's
+            // state each such tick (a re-settle under the cart), the carts in it (ridden or empty,
+            // where, how fast), and the closest other cart then (a meeting before it clears))
+            if let Some(tc) = tm.t_watch {
+                let inside = |e: &redsim::entity::Entity| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && (lx - (tc[0] as f64 + 0.5)).abs() < 0.99 && (lz - (tc[2] as f64 + 0.5)).abs() < 0.99 && e.pos.y < tc[1] as f64 + 1.0 && e.pos.y + 0.7 > tc[1] as f64 - 0.5
+                };
+                let ins: Vec<(u32, f64, f64, f64, bool)> = run.world.entities.list.iter().filter(|e| inside(e)).map(|e| (e.id, e.pos.x, e.pos.z, e.delta_movement.x.hypot(e.delta_movement.z), !e.passengers.is_empty())).collect();
+                if !ins.is_empty() {
+                    let cell = BlockPos::new(tc[0] + fx as i32, tc[1], tc[2] + fz as i32);
+                    let st = run.world.get(cell).to_string();
+                    let closest = run
+                        .world
+                        .entities
+                        .list
+                        .iter()
+                        .filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && !ins.iter().any(|x| x.0 == e.id))
+                        .map(|e| (ins.iter().map(|x| (x.1 - e.pos.x).hypot(x.2 - e.pos.z)).fold(f64::MAX, f64::min), e.id, !e.passengers.is_empty(), e.delta_movement.x.hypot(e.delta_movement.z)))
+                        .min_by(|a, b| a.0.total_cmp(&b.0));
+                    if t_watch_log.len() < 400 {
+                        t_watch_log.push((t, st, ins.iter().map(|x| format!("e{} {} z {:.2} v {:.3}", x.0, if x.4 { "ridden" } else { "empty" }, x.2 - fz, x.3)).collect::<Vec<_>>().join(", "), closest));
+                    }
+                }
+            }
             if n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) {
                 t_end_run = t;
                 let cells: Vec<[i32; 3]> = tm.cell_log.iter().flatten().copied().collect();
@@ -11957,6 +11985,38 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         out.push(format!("register census at each slot's start (queue cells holding a cart / cells, r the release group, s the stand): {}", census.join(" | ")));
         out.push(format!("A slots by cause: held by the head {}; launched short (the register's release group under 3) {}; launched full, the stand not 3 at the next A slot (the stand's side, or the train itself held up by a freeze) {}", if by_head.is_empty() { "none".to_string() } else { by_head.join(",") }, if by_reg.is_empty() { "none".to_string() } else { by_reg.join(", ") }, if by_stand.is_empty() { "none".to_string() } else { by_stand.join(", ") }));
+    }
+    // (`t_watch`: the junction's occupied ticks: its states then (more than one: it re-settled
+    // under a cart), the occupants, the closest other cart)
+    if let Some(tc) = tm.t_watch {
+        let mut states: Vec<String> = Vec::new();
+        for r in &t_watch_log {
+            let s = r.1.split('[').nth(1).unwrap_or(&r.1).trim_end_matches(']').to_string();
+            if states.last() != Some(&s) {
+                states.push(s);
+            }
+        }
+        let closest = t_watch_log.iter().filter_map(|r| r.3.map(|c| (c, r.0))).min_by(|a, b| a.0.0.total_cmp(&b.0.0));
+        let spans: Vec<String> = {
+            let mut v: Vec<(i64, i64)> = Vec::new();
+            for r in &t_watch_log {
+                match v.last_mut() {
+                    Some(last) if r.0 == last.1 + 1 => last.1 = r.0,
+                    _ => v.push((r.0, r.0)),
+                }
+            }
+            v.iter().map(|(a, b)| format!("t {a}..{b}")).collect()
+        };
+        let firsts: Vec<String> = t_watch_log.iter().enumerate().filter(|(i, r)| *i == 0 || t_watch_log[i - 1].0 + 1 != r.0).map(|(_, r)| format!("t {}: {}", r.0, r.2)).take(12).collect();
+        out.push(format!(
+            "junction watch ({},{},{}): occupied {} ticks ({}); its states while occupied, in order: {}{}; the closest other cart then: {}; occupants at each entry: {}",
+            tc[0], tc[1], tc[2], t_watch_log.len(), spans.join(", "), if states.is_empty() { "-".to_string() } else { states.join(" -> ") }, if states.len() > 1 { " (RE-SETTLED under a cart)" } else { "" },
+            closest.map_or("-".to_string(), |((d, id, ridden, v), t)| format!("{d:.2} at t {t} (e{id}, {}, {:.3} b/gt)", if ridden { "ridden" } else { "empty" }, v)),
+            if firsts.is_empty() { "-".to_string() } else { firsts.join("; ") }
+        ));
+        if states.len() > 1 {
+            problems.push(format!("the junction ({},{},{}) re-settled under a cart", tc[0], tc[1], tc[2]));
+        }
     }
     if tm.vanish.is_some() || tm.vanish_box.is_some() {
         out.push(format!("carts removed after DEP (a train that never arrives): {}{}", vanished.len(), if vanished.is_empty() { String::new() } else { format!(" ({})", vanished.join(", ")) }));
