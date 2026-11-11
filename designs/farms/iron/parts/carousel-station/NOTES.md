@@ -171,18 +171,23 @@ that always re-packs, so the stand's own share shows; the bench's timed tail bre
 faults: the queue's share).
 - Back to a clean 3 by slot 7, 0 back-crossings: extra REL 40 gt at +66/+79/+85/+92; 2 gt REL glitch at
   +66/+79; D1 missed (45 or 65 gt) at REL 10..50 and 0..44; C missed; C extra at +79/+92; the whole
-  part unloaded 3/40/240 gt in 6 states (54 of 54).
+  part unloaded 3/40/240 gt in 6 states (54 of 54; re-run on main's reload fix 2cb90d3c7: unchanged,
+  save order only; a whole unload pauses the part and its controls together, only world time runs on).
 - Drains forward but leaves stragglers (no clean 3 within 8 slots, 0 back-crossings in the fault's
   slots): REL missed (a 4-cart group at 10/4/9 gt, the minimum departure gap); D1 extra (+50, +66);
   C extra (+50, +66); the 2 gt glitch at +92.
 - D1 missed at the late REL corner (REL 16..76): C fires at +113, too late; 3–5 carts back through the
   gates, a 5-cart group at 3 gt.
-- Partial unloads at the aligned chunk line z 9|10 (`--shift 6,6`, stage 32/33): departure gaps down to
-  3 gt with the stand's chunk frozen, groups ≤ 5; tail entry ≥ 5 gt, never touching, except one 4-cart
-  group at 4 gt. With z 10..25 frozen (the run north's upper part): 0–3 touching pairs at the
-  departure, 0 carts off the rails, 0 riders unseated or hurt, 0–7 carts back through G0 from the climb
-  (departing carts meet the frozen ones at z 10 and roll back down during REL), clean from slot 7–8 in
-  6 of 36 runs, from slot 14–15 in 2 more.
+- Partial unloads at the aligned chunk line z 9|10 (`--shift 6,6`, the pad pasted, perfect tail; the
+  stand's chunk at stage 32 or the stand's two chunks at 33, or the queue's chunk z 10..25 at 32, for
+  40 or 240 gt in each of 6 states; 36 rows, re-run on main's reload fix 2cb90d3c7 with the same
+  result, save order only): departure gaps down to 2 gt (two rows) and 3 gt (ten), groups ≤ 4; tail entry ≥ 5 gt
+  except one 4-cart group at 3 gt (the stand's chunks at 33 for 240 gt at REL's end), never touching;
+  0 carts off the rails, every rider seated. Merged pairs (the shared check, `crate::merge`) in 9 of the
+  36 rows, 8 at pocket 3's flat (-2,1,0), where an arriving cart slides into a straggler resting there,
+  and 1 on pocket 3's rest slope: open item 1. Back through a gate in 8 rows, 7 of them with the
+  queue's chunk frozen (departing carts meet the frozen ones at z 10 and roll back down during REL):
+  open item 3. A frozen chunk's carts are not saved, so the reload fix does not reach these runs.
 
 **Open:**
 1. stragglers on the approach flats don't clear after REL missed, D1 extra, C extra (+50/+66) and most
