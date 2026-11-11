@@ -43,6 +43,7 @@ door-halves.rec	b527d9b71d4e4c0f		26.3	2026-11-11T05:09Z on b799dde74	mctas moba
 drowned-trident.rec	37b7967c66fa587d		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-flower.rec	380b5c44d8b814db		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-golem.rec	03bed56814f1516a		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+flee-stone.rec	128bfd38929e236f		26.3	2026-11-11T16:29Z on aec62262a5	mctas mobai record flee-stone --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 freeze-cantreach-zombie.rec	f7ef27d97e2ba9b9		26.3	2026-11-11T10:20Z on 6debd3974	mctas mobai record freeze-cantreach-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 freeze-cantreach.rec	3b3c3a7db04c6d75		26.3	2026-11-11T10:20Z on 6debd3974	mctas mobai record freeze-cantreach --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 gate-admit-rev.rec	11c7a719c8e97209		26.3	2026-11-11T09:50Z on be8fb13bf	mctas mobai record gate-admit-rev --seed 1 --ticks 900 --dir designs/redsim/recorded/mobai

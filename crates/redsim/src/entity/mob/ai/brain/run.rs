@@ -495,6 +495,13 @@ fn sleep_extra(w: &World, i: usize) -> bool {
 
 // ------------------------------------------------------------------------ MoveToTargetSink
 
+fn reach_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MCTAS_REACH_TRACE").is_some())
+}
+
+static REACH_SEEN: std::sync::Mutex<std::collections::BTreeMap<u32, String>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
 fn move_state(w: &mut World, i: usize, n: usize) -> (&mut i32, &mut Option<crate::entity::mob::ai::path::Path>, &mut Option<BlockPos>, &mut f32) {
     match kind_mut(w, i, n) {
         Kind::MoveToTargetSink { remaining_cooldown, path, last_target, speed, .. } => (remaining_cooldown, path, last_target, speed),
@@ -535,6 +542,23 @@ fn move_extra(w: &mut World, i: usize, n: usize) -> bool {
 fn try_compute_path(w: &mut World, i: usize, n: usize, wt: &WalkTarget) -> bool {
     let Some(target) = tracker_block(w, &wt.target) else { return false };
     let path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, target, 0, arena));
+    // (tickexact probe: MCTAS_REACH_TRACE=1: each villager's walk-target path result, printed when it
+    // changes: reaching, partial or none, and the stamp)
+    if reach_trace() {
+        let id = w.entities.list[i].id;
+        let res = match &path {
+            Some(p) if p.reached => "reaching".to_string(),
+            Some(p) => format!("partial (ends {:?})", p.nodes.last().map(|q| (q.x, q.y, q.z))),
+            None => "none".to_string(),
+        };
+        let key = format!("{target:?} {}", res.split(' ').next().unwrap_or(""));
+        let mut seen = REACH_SEEN.lock().unwrap_or_else(|e| e.into_inner());
+        if seen.get(&id) != Some(&key) {
+            let p = w.entities.list[i].pos;
+            eprintln!("reach t {} villager #{id} at {:.2},{:.2},{:.2} riding {:?} -> {target:?}: {res}; stamp {:?}", w.time, p.x, p.y, p.z, w.entities.list[i].vehicle, ex(w, i).mem.cant_reach_since);
+            seen.insert(id, key);
+        }
+    }
     *move_state(w, i, n).1 = path.clone();
     *move_state(w, i, n).3 = wt.speed;
     if reached(w, i, wt) {

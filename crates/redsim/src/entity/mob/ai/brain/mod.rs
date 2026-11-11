@@ -82,10 +82,26 @@ pub struct WalkTarget {
 }
 
 impl WalkTarget {
-    /// `new WalkTarget(Vec3, ...)`: the block containing the point.
+    /// `new WalkTarget(Vec3, ...)`: the block containing the point. (tickexact probe:
+    /// MCTAS_WALK_TRACE=x,y,z: who sets a walk target on that block, by its source line)
+    #[track_caller]
     pub fn at_point(p: Vec3, speed: f32, close: i32) -> WalkTarget {
-        WalkTarget { target: Tracker::Block(containing(p)), speed, close }
+        let b = containing(p);
+        if let Some(want) = walk_trace()
+            && want == [b.x, b.y, b.z]
+        {
+            eprintln!("walk target {},{},{} set at {}", b.x, b.y, b.z, std::panic::Location::caller());
+        }
+        WalkTarget { target: Tracker::Block(b), speed, close }
     }
+}
+
+fn walk_trace() -> Option<[i32; 3]> {
+    static W: std::sync::OnceLock<Option<[i32; 3]>> = std::sync::OnceLock::new();
+    *W.get_or_init(|| {
+        let v: Vec<i32> = std::env::var("MCTAS_WALK_TRACE").ok()?.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        (v.len() == 3).then(|| [v[0], v[1], v[2]])
+    })
 }
 
 /// `BlockPos.containing(v)`.

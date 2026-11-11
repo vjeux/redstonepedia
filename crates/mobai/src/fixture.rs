@@ -2780,6 +2780,38 @@ fn scenes_raw() -> Vec<Scene> {
     }
     v.push(ledge_scene_row("ledge-r1n-182", 1.82, true, &LEDGE_ROWS));
     v.push(ledge_scene_row("ledge-r1s-182", 1.82, false, &ledge_sweep_rows()));
+    // (tickexact 2026-11-11, 58f770cc's HOME finding: a panicking rider's flee target) two lanes in a
+    // void (no floor; the sandbox's edge walls kept beyond 16 of every rider, the lanes 24 apart): a
+    // villager in a cart on a rail on glass, a zombie in a boat on glass 3 blocks north of it
+    // (VillagerPanicTrigger; PANIC's SetWalkTargetAwayFrom(NEAREST_HOSTILE): LandRandomPos.getPosAway
+    // (16, 7), each offset at most 16 a side), and one stone 4 below the rider's level to the south:
+    // lane A 15 blocks off (in the flee's reach), lane B 17 (out of it); lane C as A with the zombie
+    // moved south of the rider, between it and the stone (the flee runs north: the stone not "away")
+    {
+        let mut b = Vec::new();
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for (x, z, dz, zombie_dz) in [(20, 24, 15, -3), (44, 24, 17, -3), (20, 60, 15, 3)] {
+            b.push(([x, 63, z], "minecraft:glass".to_string()));
+            b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([x, 63, z + zombie_dz], "minecraft:glass".to_string()));
+            b.push(([x, 60, z + dz], "minecraft:stone".to_string()));
+            mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, 64.0, z as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string())));
+            mobs.push(("minecraft:oak_boat".to_string(), [x as f64 + 0.5, 64.0, (z + zombie_dz) as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".to_string())));
+        }
+        v.push(Scene {
+            name: "flee-stone".into(),
+            chunks: [0, 0, 5, 5],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 56, 0], [95, 70, 95]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's ticket accounting) one bed (head (5,64,6)) in a glass-walled
     // room (x 3..9, z 3..10) with A (e0) and B (e1) on foot beside it, day (AcquirePoi(HOME) runs in
     // CORE all day): the acts give HOME up and erase it (see `actions`)
