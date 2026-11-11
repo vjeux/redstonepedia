@@ -3616,9 +3616,9 @@ pub struct LoopTiming {
     /// The "train arrived since launch" latch: (K, the arrival cell); the head launches only
     /// once the K-th cart since its last launch has entered the cell.
     pub head_latch: Option<(usize, [i32; 3])>,
-    /// S3(ii)'s per-stand head-launch permissions (`crate::headperm`): D_arr, Dh (loop frame) and
-    /// whether they gate the head (else only observed).
-    pub head_perm: Option<([i32; 3], [i32; 3], bool)>,
+    /// S3(ii)'s per-stand head-launch permissions (`crate::headperm`): D_arr, Dh (loop frame),
+    /// whether they gate the head, the router emulated (A here, B virtual), B held (C0, N).
+    pub head_perm: Option<([i32; 3], [i32; 3], bool, u8, Option<(i64, i64)>)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -4677,7 +4677,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (S2's comb: its bench state, `crate::comb`)
     let mut comb_run = lay.comb.clone().map(crate::comb::CombRun::new);
     // (S3(ii)'s per-stand head permissions, `crate::headperm`)
-    let mut head_perm = tm.head_perm.map(|(a, d, g)| crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, g));
+    let mut head_perm = tm.head_perm.map(|(a, d, g, r, bh)| crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, lay.stand_rel, g, r, bh));
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)
     let (fx, fz) = (o.shift[0] as f64, o.shift[1] as f64);
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -5889,7 +5889,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 hl_in[k] = inside;
             }
         }
-        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set) || head_perm.as_ref().is_some_and(|h| h.gate && !h.permit());
+        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set) || head_perm.as_ref().is_some_and(|h| h.gate && h.router == 0 && !h.permit());
         if head_pending && !dep_busy {
             if let Some(cr) = comb_run.as_mut() {
                 cr.on_launch(t, c);
@@ -5916,6 +5916,19 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if c < cycles && dt == tm.release_start && stand_has_carts {
             reg_held.push(format!("slot {c}: release held (the stand holds carts)"));
         }
+        // (`head_perm` with its router: at each GO the stand the router points to is launched if
+        // ready (the router toggles), else held; the virtual stand B's launches send no train)
+        let router_skip = c < cycles
+            && dt == tm.release_start
+            && !stand_has_carts
+            && head_perm.as_mut().is_some_and(|h| h.router > 0 && {
+                let g = h.go(c);
+                if g != crate::headperm::Go::Launch {
+                    reg_held.push(format!("slot {c}: release {}", if g == crate::headperm::Go::Hold { "held (router)" } else { "to the virtual stand B" }));
+                }
+                g != crate::headperm::Go::Launch
+            });
+        let stand_has_carts = stand_has_carts || router_skip;
         if c < cycles && dt == tm.release_start && !stand_has_carts && dep_busy {
             head_pending = true;
             head_held.push(c);
@@ -7368,7 +7381,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         if let Some(h) = head_perm.as_mut() {
             let cp: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
-            h.pre_tick(&run.world, &cp, t, c);
+            h.pre_tick(&run.world, &cp, t);
         }
         run.tick();
         merges.observe(&run.world, &format!("t {t}"));
@@ -9758,9 +9771,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         problems.extend(cr.problems.iter().cloned());
     }
     if let Some(h) = head_perm.as_ref() {
-        let (lines, probs) = h.report(100);
+        let (lines, probs) = h.report();
         out.extend(lines);
-        out.push(h.tracks_line());
         if verbose {
             out.extend(h.detail());
         }
