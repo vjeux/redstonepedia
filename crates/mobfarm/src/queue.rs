@@ -4309,8 +4309,16 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             // departure does: B's carts come by B's own track)
             let dest = redsim::entity::Vec3::new(ox as f64 + 9.5 + fx, (dc - 4) as f64 + 0.0625, dc as f64 + 0.5 + fz);
             let frozen = w.chunk_level((dest.x.floor() as i32).div_euclid(16), (dest.z.floor() as i32).div_euclid(16)) > 31;
+            // (and the departure ahead clear: no cart stopped within 8 cells past the crest, A's
+            // batch stalled at a frozen border included; B's real carts never reach A's crest)
+            let blocked = carts.iter().any(|cid| {
+                w.entities.list.iter().find(|e| e.id == *cid && !e.removed).is_some_and(|e| {
+                    let (dx, dz) = (e.pos.x - dest.x, e.pos.z - dest.z);
+                    dx.abs() < 0.6 && dz > -0.6 && dz < 8.0 && e.delta_movement.x.abs() + e.delta_movement.z.abs() < 0.05
+                })
+            });
             let spaced = s.vb_back_t.is_none_or(|b| t - b >= 11);
-            if t >= (c_go + 2) * 100 + rel_dt + o && !frozen && spaced {
+            if t >= (c_go + 2) * 100 + rel_dt + o && !frozen && !blocked && spaced {
                 tp(w, id, dest, redsim::entity::Vec3::new(0.0, 0.0, v.max(0.05)));
                 s.vb_back_t = Some(t);
                 back.push(n);
