@@ -72,6 +72,31 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-10) the contact queue: the stone at the slope's foot a rail for 12 gt
+        // every 200 gt from t100; the unload variant adds the whole part away 30 gt at t250 (the
+        // queue pressed), 5 gt at t702 (mid-release), N = 0 at t900, and the west chunk (the run
+        // and the released carts) at 32 from t1000 for 200 gt, the east chunk (the slope's top) at
+        // 32 from t1250 for 40 gt
+        "contact6" | "contact6-unload" => {
+            let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
+            for k in 0..6u32 {
+                let t = 100 + 200 * k;
+                v.push((t, vec![s([3, 64, 2], "minecraft:rail[shape=east_west,waterlogged=false]")]));
+                v.push((t + 12, vec![s([3, 64, 2], "minecraft:stone")]));
+            }
+            if name == "contact6-unload" {
+                let acts: [(u32, &str); 10] =
+                    [(250, "unload"), (280, "load"), (702, "unload"), (707, "load"), (900, "unload"), (900, "load"), (1000, "unload:-1,0,-1,0"), (1200, "load:-1,0,-1,0"), (1250, "unload:1,0,1,0"), (1290, "load:1,0,1,0")];
+                for (t, a) in acts {
+                    match v.iter_mut().find(|(at, _)| *at == t) {
+                        Some((_, b)) => b.push(s([0, 0, 0], a)),
+                        None => v.push((t, vec![s([0, 0, 0], a)])),
+                    }
+                }
+                v.sort_by_key(|(t, _)| *t);
+            }
+            v
+        }
         // (tickexact 2026-11-10) level 32: the top chest filled, the repeater loop started by a
         // one-tick pulse, the east chunk's forced ticket dropped from t40 to t240
         "level32" => vec![
@@ -1817,6 +1842,48 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-10, ironspec's contact request) a gravity queue of six minecarts, each
+    // with a villager, pressed together down a rail slope against a stone at its foot, the riders
+    // panicking at a zombie in a boat in sight (their travel pushes the carts); every 200 gt from
+    // t100 the stone turns to a rail for 12 gt and back, letting the front carts roll west onto a
+    // flat run (scene_actions: "contact6"; "contact6-unload" adds the whole part's and partial
+    // unloads)
+    for name in ["contact6", "contact6-unload"] {
+        let mut b = Vec::new();
+        floor(&mut b, -12, 17, 0, 9, 63, stone);
+        b.push(([-11, 64, 2], stone.to_string()));
+        for x in -10..=2 {
+            b.push(([x, 64, 2], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+        }
+        b.push(([3, 64, 2], stone.to_string()));
+        b.push(([4, 64, 2], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+        for x in 5..=10 {
+            let y = 64 + (x - 5);
+            if y > 64 {
+                b.push(([x, y - 1, 2], stone.to_string()));
+            }
+            b.push(([x, y, 2], "minecraft:rail[shape=ascending_east,waterlogged=false]".to_string()));
+        }
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = vec![("minecraft:minecart".into(), [4.5, 64.0, 2.5], Some(rider.into()))];
+        for x in 5..=9 {
+            mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, 64.5 + (x - 5) as f64, 2.5], Some(rider.into())));
+        }
+        mobs.push(("minecraft:oak_boat".into(), [7.5, 64.0, 7.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        v.push(Scene {
+            name: name.into(),
+            chunks: [-1, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([-12, 62, 0], [16, 72, 8]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-10, the reviewer's question on a partial unload) level 32: two chunks,
     // the west one forced throughout, the east one's forced ticket dropped from t40 to t240
     // (simulation level 32: block ticking, not entity ticking). In each chunk a randomly ticking
@@ -3234,8 +3301,8 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 for (g, e) in f.entities.iter().zip(o.entities.iter()) {
                     eprintln!("t {} #{} game: yaw {} head {:?} body {:?} pitch {} goals {:?} path {:?} pos {:?} | redsim: yaw {} head {:?} body {:?} pitch {} goals {:?} path {:?} pos {:?}", o.t, e.n, g.yaw, g.head, g.body, g.pitch, g.goals, g.path, g.pos, e.yaw, e.head, e.body, e.pitch, e.goals, e.path, e.pos);
                     if std::env::var_os("MOBAI_SHOW_MEM").is_some() {
-                        eprintln!("    game behaviors {:?} memories {:?}", g.behaviors, g.memories);
-                        eprintln!("    redsim behaviors {:?} memories {:?}", e.behaviors, e.memories);
+                        eprintln!("    game activities {:?} behaviors {:?} memories {:?}", g.activities, g.behaviors, g.memories);
+                        eprintln!("    redsim activities {:?} behaviors {:?} memories {:?}", e.activities, e.behaviors, e.memories);
                     }
                 }
             }
