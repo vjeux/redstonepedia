@@ -85,6 +85,15 @@ pub enum FarmoptCmd {
     PartMembers {
         #[arg(long, default_value = "designs/farms/iron/parts")]
         out: PathBuf,
+        /// Only these parts' catalogs (`kill,cage`...; default: transport, storage, access, kill
+        /// and cage).
+        #[arg(long, value_delimiter = ',')]
+        parts: Vec<String>,
+        /// Write again the kill and cage rows this command wrote (its own metrics, `blocks N,
+        /// blocks dug N, build seconds N`) from their reference farms; rows in other formats (the
+        /// part fronts') stay. Without it a kill or cage member already listed is kept as it is.
+        #[arg(long)]
+        refresh: bool,
         /// `stage:key` reference farms.
         refs: Vec<String>,
     },
@@ -202,7 +211,7 @@ pub fn run(cmd: FarmoptCmd) -> Result<()> {
             std::fs::write(&out, &text)?;
             print!("{text}");
         }
-        FarmoptCmd::PartMembers { out, refs } => {
+        FarmoptCmd::PartMembers { out, parts, refresh, refs } => {
             let mut rs = Vec::new();
             for r in &refs {
                 let (stage, key) = r.split_once(':').ok_or_else(|| anyhow::anyhow!("{r}: expected stage:key"))?;
@@ -228,7 +237,7 @@ pub fn run(cmd: FarmoptCmd) -> Result<()> {
                     }
                 }
             }
-            for l in crate::split::write_members(&out, &rs, &used)? {
+            for l in crate::split::write_members(&out, &rs, &used, &crate::split::MembersOpts { parts, refresh })? {
                 println!("{l}");
             }
         }
