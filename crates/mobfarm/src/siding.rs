@@ -1356,6 +1356,89 @@ fn declared_of(b: &Builder, s: &Siding, wired: bool) -> Vec<crate::declared::Dec
 
 /// The static check: every rider and napper cell's golem search: any spot is a stray. `turn`: the
 /// design's quarter turns (its `turn:` meta line).
+/// (ironspec 09:57, the cage proof) Every standing position a villager (0.6 x 1.95) reaches from the
+/// corridor cells (the T, the booster, the free cell): from a cell centre to each of the 8
+/// neighbouring cell centres, up at most 1.25 (a jump; fences and walls are 1.5 in their collision
+/// boxes, so they stop it) or down any fall, the box free at the start height raised to the target
+/// height and at the target, landing on the first floor below. `toggle`: every trapdoor's open
+/// state flipped first (the hatch and the trapdoor caps in their other state); `remove`: cells set
+/// to air first (a positive control). Returns every reached position, local, with its floor.
+pub fn cage(spec: &FarmSpec, toggle: bool, remove: &[[i32; 3]]) -> Result<Vec<([i32; 3], f64)>, String> {
+    let fr = Frame { turn: 0, dx: 0, dz: 0 };
+    let mut run = crate::station::world_of(spec, 1)?;
+    let w = &mut run.world;
+    for c in remove {
+        let p = fr.blk(c[0], c[1], c[2]);
+        w.set_block(p, Block::Air, 2);
+    }
+    if toggle {
+        let o = fr.blk(-8, -8, -6);
+        for y in 0..14 {
+            for z in 0..17 {
+                for x in 0..16 {
+                    let p = BlockPos::new(o.x + x, o.y + y, o.z + z);
+                    let st = w.get(p).to_string();
+                    if st.contains("trapdoor") {
+                        let t = if st.contains("open=true") { st.replace("open=true", "open=false") } else { st.replace("open=false", "open=true") };
+                        if let Ok(b) = Block::parse(t.trim_start_matches("minecraft:")) {
+                            w.set_block(p, b, 2);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let half = 0.3;
+    let bx = |x: f64, y: f64, z: f64| redsim::entity::vec3::Aabb { min_x: x - half, min_y: y, min_z: z - half, max_x: x + half, max_y: y + 1.95, max_z: z + half };
+    let free = |w: &World, x: f64, y: f64, z: f64| !redsim::entity::collide::collides_with_blocks(w, bx(x, y + 1.0e-4, z));
+    // (the landing floor under (x, from, z): the box dropped until it meets a block, at most 24 down)
+    let land = |w: &World, x: f64, from: f64, z: f64| -> Option<f64> {
+        let mut y = from;
+        if !free(w, x, y, z) {
+            return None;
+        }
+        for _ in 0..(24 * 16) {
+            if !free(w, x, y - 1.0 / 16.0, z) {
+                return Some(y);
+            }
+            y -= 1.0 / 16.0;
+        }
+        None
+    };
+    let mut seen: std::collections::BTreeMap<[i32; 3], f64> = Default::default();
+    let mut todo: Vec<(f64, f64, f64)> = Vec::new();
+    for c in [[1, 0, 0], [1, 0, 1], [1, 0, 2]] {
+        let p = fr.blk(c[0], c[1], c[2]);
+        if let Some(y) = land(w, p.x as f64 + 0.5, p.y as f64 + 0.5, p.z as f64 + 0.5) {
+            todo.push((p.x as f64 + 0.5, y, p.z as f64 + 0.5));
+        }
+    }
+    while let Some((x, y, z)) = todo.pop() {
+        let l = fr.local(redsim::entity::vec3::Vec3::new(x, y, z));
+        let key = [l.x.floor() as i32, l.y.floor() as i32, l.z.floor() as i32];
+        if seen.get(&key).is_some_and(|&h| h <= y + 1.0e-6) || seen.len() > 4000 {
+            continue;
+        }
+        seen.insert(key, y);
+        for (dx, dz) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+            let (tx, tz) = (x + dx, z + dz);
+            // (try every start height from the jump's top down to the current floor: the box must be
+            // free there at the start and the target column)
+            let mut top = y + 1.25;
+            while top >= y - 1.0e-6 {
+                if free(w, x, top, z) && free(w, tx, top, tz) && (dx == 0.0 || dz == 0.0 || (free(w, tx, top, z) && free(w, x, top, tz))) {
+                    if let Some(h) = land(w, tx, top, tz) {
+                        todo.push((tx, h, tz));
+                    }
+                    break;
+                }
+                top -= 1.0 / 16.0;
+            }
+        }
+    }
+    Ok(seen.into_iter().map(|(k, v)| (k, v - fr.blk(0, 0, 0).y as f64)).collect())
+}
+
 pub fn check(spec: &FarmSpec, turn: i32) -> Result<Vec<String>, String> {
     let fr = Frame { turn, dx: 0, dz: 0 };
     let s = layout_fr(&fr);

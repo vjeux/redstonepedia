@@ -1681,6 +1681,14 @@ pub enum MobfarmCmd {
     /// The bed siding's static check: every rider and napper cell's golem search (any spot is a
     /// stray).
     SidingCheck { design: PathBuf },
+    /// The bed siding's cage proof (ironspec 09:57): every standing position a villager reaches from
+    /// the corridor cells (step, jump 1.25, any fall), in the design's trapdoor states and flipped;
+    /// `--remove x,y,z` (repeatable) sets cells to air first, a positive control.
+    SidingCage {
+        design: PathBuf,
+        #[arg(long)]
+        remove: Vec<String>,
+    },
     /// The bed siding's bench: visits through the nights (the villager napped longest ago, its cart
     /// teleported to the approach moving +x at a drawn speed), the controls driven ideally, the
     /// release a drawn time after the arrival: re-board rate, ready times, naps, panic while
@@ -3341,6 +3349,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", out.display());
+        }
+        MobfarmCmd::SidingCage { design, remove } => {
+            let (_c, spec) = load(version, &design)?;
+            let rm: Vec<[i32; 3]> = remove.iter().map(|s| {
+                let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                anyhow::ensure!(v.len() == 3, "--remove x,y,z");
+                Ok([v[0], v[1], v[2]])
+            }).collect::<anyhow::Result<_>>()?;
+            for toggle in [false, true] {
+                let r = crate::siding::cage(&spec, toggle, &rm).map_err(|e| anyhow::anyhow!(e))?;
+                let corridor = |c: &[i32; 3]| c[0] == 1 && c[1] == 0 && (0..=2).contains(&c[2]);
+                let out: Vec<String> = r.iter().filter(|(c, _)| !corridor(c)).map(|(c, h)| format!("({},{},{}) floor {h:.3}", c[0], c[1], c[2])).collect();
+                println!("cage, trapdoors {}: {} standing positions reached; outside the corridor (the T, the booster, the free cell): {}", if toggle { "flipped" } else { "as built" }, r.len(), if out.is_empty() { "none".to_string() } else { format!("{} [{}]", out.len(), out.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) });
+            }
         }
         MobfarmCmd::SidingCheck { design } => {
             let (c, spec) = load(version, &design)?;
