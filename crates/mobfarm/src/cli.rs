@@ -421,6 +421,10 @@ pub enum MobfarmCmd {
         /// or flights lines (a copy that shares the base's controls and Nether side).
         #[arg(long)]
         overworld_only: bool,
+        /// The part mirrored in z (z to -z, then moved by --at), its blocks' north/south
+        /// properties swapped (facing, rail shapes, wire sides): a stand copied facing the other way.
+        #[arg(long)]
+        mirror_z: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -2485,7 +2489,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Paste { base, part, at, r#box, overworld_only, out } => {
+        MobfarmCmd::Paste { base, part, at, r#box, overworld_only, mirror_z, out } => {
             let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(o.len() == 3, "--at x,y,z");
             anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
@@ -2507,6 +2511,42 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 p.nether_ports.clear();
                 for k in ["build", "station", "declared", "flights"] {
                     p.meta.remove(k);
+                }
+            }
+            // (`--mirror-z`: z to -z in the part's frame, north and south swapped in each state)
+            if mirror_z {
+                let flip = |s: &str| -> String {
+                    let Some((name, rest)) = s.split_once('[') else { return s.to_string() };
+                    let props = rest.trim_end_matches(']');
+                    let swap = |v: &str| match v {
+                        "north" => "south".to_string(),
+                        "south" => "north".to_string(),
+                        "ascending_north" => "ascending_south".to_string(),
+                        "ascending_south" => "ascending_north".to_string(),
+                        "north_east" => "south_east".to_string(),
+                        "south_east" => "north_east".to_string(),
+                        "north_west" => "south_west".to_string(),
+                        "south_west" => "north_west".to_string(),
+                        v => v.to_string(),
+                    };
+                    let kv: Vec<(String, String)> = props.split(',').filter_map(|p| p.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+                    let get = |k: &str| kv.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone());
+                    let (n, so) = (get("north"), get("south"));
+                    let out: Vec<String> = kv.iter().map(|(k, v)| match k.as_str() {
+                        "north" => format!("north={}", so.clone().unwrap_or_else(|| v.clone())),
+                        "south" => format!("south={}", n.clone().unwrap_or_else(|| v.clone())),
+                        "facing" | "shape" | "axis" => format!("{k}={}", swap(v)),
+                        _ => format!("{k}={v}"),
+                    }).collect();
+                    format!("{name}[{}]", out.join(","))
+                };
+                p.blocks = p.blocks.iter().map(|(c, s)| ([c[0], c[1], -c[2]], flip(s))).collect();
+                p.block_entities = p.block_entities.iter().map(|(c, s)| ([c[0], c[1], -c[2]], s.clone())).collect();
+                for e in &mut p.entities {
+                    e.pos[2] = -e.pos[2];
+                }
+                for c in p.ports.values_mut() {
+                    c[2] = -c[2];
                 }
             }
             let mv = |c: &[i32; 3]| [c[0] + o[0], c[1] + o[1], c[2] + o[2]];
