@@ -7,13 +7,10 @@ use super::finder;
 use super::node::Arena;
 use super::path::Path;
 use super::path_type::{Malus, PathType};
-use super::walk::{EvalFlags, MIN_Y, PathMob, WalkEval};
+use super::walk::{EvalFlags, PathMob, WalkEval};
 use crate::entity::{Aabb, Vec3, mth};
 use crate::pos::BlockPos;
 use crate::world::World;
-
-/// `Level.getMaxY()` of the overworld type.
-pub const MAX_Y: i32 = 319;
 
 /// What a navigation reads of its mob each call (the `Mob` getters), filled by the caller.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -195,18 +192,21 @@ impl Navigation {
         Vec3::new(m.pos.x, self.surface_y(w, m) as f64, m.pos.z)
     }
 
-    /// `GroundPathNavigation.findSurfacePosition` (the target's column in its chunk).
+    /// `GroundPathNavigation.findSurfacePosition` (the target's column in its chunk; the level's
+    /// own height: tickexact 2026-11-10, a Nether golem's path to an overworld zombie below the
+    /// Nether's floor ends at its ceiling, 256).
     fn find_surface_position(&self, w: &World, mut pos: BlockPos) -> BlockPos {
+        let (min_y, max_y) = (w.level_min_y(), w.level_max_y());
         if w.get(pos).is_air() {
             let mut c = pos.below();
-            while c.y >= MIN_Y && w.get(c).is_air() {
+            while c.y >= min_y && w.get(c).is_air() {
                 c = c.below();
             }
-            if c.y >= MIN_Y {
+            if c.y >= min_y {
                 return c.above();
             }
             c = BlockPos::new(pos.x, pos.y + 1, pos.z);
-            while c.y <= MAX_Y && w.get(c).is_air() {
+            while c.y <= max_y && w.get(c).is_air() {
                 c = c.above();
             }
             pos = c;
@@ -215,7 +215,7 @@ impl Navigation {
             return pos;
         }
         let mut c = pos.above();
-        while c.y <= MAX_Y && crate::behavior::is_solid(&w.get(c)) {
+        while c.y <= max_y && crate::behavior::is_solid(&w.get(c)) {
             c = c.above();
         }
         c
@@ -224,6 +224,12 @@ impl Navigation {
     /// The target's chunk is loaded (`getChunkNow` != null): it meets the world's box.
     fn chunk_loaded(w: &World, p: BlockPos) -> bool {
         let (cx, cz) = (p.x >> 4, p.z >> 4);
+        // (mob-AI 2026-11-10) `getChunkNow`: the game's chunks at full status, when the bridge
+        // reported them (a terrain world's sandbox loads void superflat chunks past the sample:
+        // a wolf at the box's edge paths into one; forest build 1 t13035)
+        if let Some(c) = w.mob.custom.as_ref().filter(|c| !c.full_chunks.is_empty()) {
+            return c.full_chunks.contains(&[cx, cz]);
+        }
         let (x0, z0) = (w.min.x >> 4, w.min.z >> 4);
         let (x1, z1) = ((w.min.x + w.size[0] - 1) >> 4, (w.min.z + w.size[2] - 1) >> 4);
         cx >= x0 && cx <= x1 && cz >= z0 && cz <= z1
@@ -268,7 +274,7 @@ impl Navigation {
     /// `createPath(Set, radiusOffset, above, reach, maxPathLength)`.
     #[allow(clippy::too_many_arguments)]
     pub fn create_path_set(&mut self, w: &World, m: &NavMob, targets: &[BlockPos], _radius_offset: i32, _above: bool, reach: i32, max_path_length: f32, arena: &mut Arena) -> Option<Path> {
-        if targets.is_empty() || m.pos.y < MIN_Y as f64 || !self.can_update_path(m) {
+        if targets.is_empty() || m.pos.y < w.level_min_y() as f64 || !self.can_update_path(m) {
             return None;
         }
         if let (Some(p), Some(tp)) = (&self.path, self.target_pos)

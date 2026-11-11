@@ -69,6 +69,9 @@ pub fn can_use(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
     let tb = target_block(w, t);
     g.path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, tb, 0, arena));
     let ok = if g.path.is_some() { true } else { within_melee_range(w, i, t) };
+    if std::env::var("MCTAS_TRACE_MELEE").ok().and_then(|v| v.parse::<u32>().ok()) == Some(w.entities.list[i].id) {
+        eprintln!("melee t{}: #{} canUse target {:?} at {:?} path {:?} ok {ok}", w.time, w.entities.list[i].id, t, tb, g.path.as_ref().map(|p| (p.nodes.len(), p.reached)));
+    }
     // DrownedAttackGoal: and a target it may hunt
     if ok && g.kind == MeleeKind::Drowned && !drowned_ok(w, t) {
         return false;
@@ -81,6 +84,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
 fn drowned_ok(w: &World, t: Who) -> bool {
     let in_water = match t {
         Who::Entity(j) => w.entities.list[j].was_touching_water,
+        Who::Foreign(f) => w.foreign[f].in_water,
         Who::Player(_) => {
             let p = target::pos_of(w, t);
             let c = crate::pos::BlockPos::new(crate::entity::mth::floor(p.x), crate::entity::mth::floor(p.y), crate::entity::mth::floor(p.z));
@@ -131,7 +135,7 @@ pub fn stop(w: &mut World, i: usize, _g: &mut MeleeAttack) {
     // EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(target): a null target fails it too
     let keep = target::get_target(w, i).and_then(|id| target::who(w, id)).is_some_and(|t| match t {
         Who::Player(k) => w.mob.ai.players[k].mode == super::super::GameMode::Survival,
-        Who::Entity(_) => true,
+        Who::Entity(_) | Who::Foreign(_) => true,
     });
     if !keep {
         target::set_target(w, i, None);

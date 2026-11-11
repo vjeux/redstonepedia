@@ -913,18 +913,27 @@ fn die(w: &mut World, i: usize, src: Damage) {
     if w.entities.list[i].removed || mob(w, i).dead {
         return;
     }
+    // (mob-AI 2026-11-10) Villager.die: releaseAllPois before LivingEntity.die (the witnesses'
+    // gossip about the murderer moves nothing)
+    if mob(w, i).ty == super::types::MobType::Villager && mob(w, i).brain.as_deref().is_some_and(|b| b.ex.is_some()) {
+        super::ai::brain::run::release_all_pois(w, i);
+    }
     if mob(w, i).sleeping_pos.is_some() {
         super::villager::stop_sleeping(w, i);
     }
+    // (mob-AI 2026-11-10) LivingEntity.die: stopUsingItem (a dying spear zombie stabs no more;
+    // forest build 1 t11260)
+    super::ai::goal::skeleton::stop_using_item(w, i);
     mob_mut(w, i).dead = true;
     let (t, id, ty, pos) = {
         let e = &w.entities.list[i];
         (w.time, e.id, mob(w, i).ty, e.pos)
     };
     w.mob.events.push(MobEvent::Death { t, id, ty, src, pos: [pos.x, pos.y, pos.z] });
-    // ---- mob AI (the mob-AI lane): the killer's `killedEntity` (a zombie's villager conversion) ----
-    if w.mob.ai.on {
-        super::ai::attack::killed_entity(w, i, src);
+    // ---- mob AI (the mob-AI lane): the killer's `killedEntity` (a zombie's villager conversion:
+    // then no ENTITY_DIE game event and no loot) ----
+    if w.mob.ai.on && !super::ai::attack::killed_entity(w, i, src) {
+        return;
     }
     w.game_event_at("entity_die", [pos.x, pos.y, pos.z], None, false);
     drop_loot(w, i, src);

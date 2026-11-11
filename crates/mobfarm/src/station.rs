@@ -52,17 +52,23 @@ pub struct PadOpts {
     pub h: i32,
     /// Trench rows left out (z): the assembly's row -1 gives its cells to the stand's wiring.
     pub skip: Vec<i32>,
+    /// Trench floor cells written as top slabs (x,y,z): a golem floor (solid, its top full) that
+    /// does not suffocate (not a full block). The pocket stand's riders leave the release curve
+    /// with the cart thrown to z 0.12..0.19 for a tick at x -1.7, their eye at y 2.68: its box
+    /// meets the floor cell (-2,2,-1), one damage a pass.
+    pub slabs: Vec<[i32; 3]>,
 }
 
 impl Default for PadOpts {
     fn default() -> PadOpts {
-        PadOpts { x0: -3, x1: 12, planes: vec![-5, -2], by: 0, h: 3, skip: Vec::new() }
+        PadOpts { x0: -3, x1: 12, planes: vec![-5, -2], by: 0, h: 3, skip: Vec::new(), slabs: Vec::new() }
     }
 }
 
 const PORTAL: &str = "minecraft:nether_portal[axis=x]";
 const OBSIDIAN: &str = "minecraft:obsidian";
 const FLOOR: &str = "minecraft:cobblestone";
+const SLAB_FLOOR: &str = "minecraft:cobblestone_slab[type=top,waterlogged=false]";
 const GLASS: &str = "minecraft:glass";
 const STRING: &str = "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]";
 const DUST: &str = "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]";
@@ -100,6 +106,10 @@ impl PadOpts {
             let skip: Vec<String> = self.skip.iter().map(|p| p.to_string()).collect();
             s.push_str(&format!(" skip={}", skip.join(",")));
         }
+        if !self.slabs.is_empty() {
+            let slabs: Vec<String> = self.slabs.iter().map(|p| format!("{},{},{}", p[0], p[1], p[2])).collect();
+            s.push_str(&format!(" slabs={}", slabs.join(";")));
+        }
         s
     }
 
@@ -116,6 +126,7 @@ impl PadOpts {
                 "by" => o.by = v.parse()?,
                 "h" => o.h = v.parse()?,
                 "skip" => o.skip = v.split(',').map(|p| p.parse()).collect::<Result<_, _>>()?,
+                "slabs" => o.slabs = parse_cells(v)?,
                 _ => anyhow::bail!("unknown `station:` entry {k:?}"),
             }
         }
@@ -135,6 +146,15 @@ impl PadOpts {
     }
 }
 
+/// Cells as `x,y,z;x,y,z` (the `station:` line's `slabs=`, `mobfarm linear --slab-floor`).
+pub fn parse_cells(v: &str) -> Result<Vec<[i32; 3]>> {
+    v.split(';').filter(|c| !c.trim().is_empty()).map(|c| {
+        let n: Vec<i32> = c.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+        anyhow::ensure!(n.len() == 3, "a cell is x,y,z (not {c:?})");
+        Ok([n[0], n[1], n[2]])
+    }).collect()
+}
+
 /// The pad's blocks.
 pub fn pad(o: &PadOpts) -> Result<Vec<([i32; 3], String)>> {
     o.validate()?;
@@ -142,7 +162,9 @@ pub fn pad(o: &PadOpts) -> Result<Vec<([i32; 3], String)>> {
     let (fy, wy) = (o.floor_y(), o.wire_y());
     for z in o.rows() {
         for x in o.x0..=o.x1 {
-            out.push(([x, fy, z], FLOOR.into()));
+            // (a `slabs` cell: a top slab, a floor for the golems that does not suffocate a
+            // rider whose eye passes through it)
+            out.push(([x, fy, z], if o.slabs.contains(&[x, fy, z]) { SLAB_FLOOR.into() } else { FLOOR.into() }));
         }
     }
     for &z in &o.planes {

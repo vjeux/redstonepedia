@@ -373,6 +373,10 @@ pub struct LevelTicks<K: TickKey = Kind> {
     to_run: HashSet<(BlockPos, K)>,
 }
 
+/// (tickexact 2026-11-10) Chunks' ticks as their chunks saved them ([`LevelTicks::unload`]): by
+/// chunk, in sub-tick order, (trigger, priority, cell, kind).
+pub type SavedTicks<K> = HashMap<(i32, i32), Vec<(i64, Priority, BlockPos, K)>>;
+
 impl<K: TickKey> Default for LevelTicks<K> {
     fn default() -> Self {
         LevelTicks { containers: HashMap::new(), next: LongMap::default(), to_run: HashSet::new() }
@@ -428,25 +432,40 @@ impl<K: TickKey> LevelTicks<K> {
     /// saved order with sub-tick orders -N..-1, its head put in `nextTickForContainer`. A chunk
     /// left out of `load` keeps its ticks saved (`pending` until it loads).
     pub fn reload(&mut self, unload: &[(i32, i32)], load: &[(i32, i32)], delta: i64) {
-        let mut saved: HashMap<(i32, i32), Vec<(i64, Priority, BlockPos, K)>> = HashMap::new();
-        for ch in unload {
+        let mut saved = self.unload(unload);
+        self.load(load, &mut saved, delta);
+        // chunks not loaded again: their saved ticks wait (not modeled: every reload loads back
+        // the chunks it unloads)
+        debug_assert!(saved.is_empty(), "a reload left chunks unloaded");
+    }
+
+    /// (tickexact 2026-11-10) The first half of a reload: `chunks`' ticks taken out as their chunks
+    /// save them (`LevelChunkTicks.pack`: in sub-tick order, with their trigger times; [`Self::load`]
+    /// gives them back shifted by the time away).
+    pub fn unload(&mut self, chunks: &[(i32, i32)]) -> SavedTicks<K> {
+        let mut saved: SavedTicks<K> = HashMap::new();
+        for ch in chunks {
             self.next.remove(chunk_key(*ch));
             if let Some(c) = self.containers.remove(ch) {
                 let mut ticks: Vec<_> = c.queue.into_iter().collect();
                 ticks.sort_by_key(|t| t.2);
-                saved.insert(*ch, ticks.into_iter().map(|(t, p, _, pos, k)| (t + delta, p, pos, k)).collect());
+                saved.insert(*ch, ticks.into_iter().map(|(t, p, _, pos, k)| (t, p, pos, k)).collect());
             }
         }
-        for ch in load {
+        saved
+    }
+
+    /// (tickexact 2026-11-10) The second half: each of `chunks` (in load order) gets its saved
+    /// ticks back, each delay kept (`unpack`: the trigger moved by `delta`, the time away),
+    /// numbered -N..-1 in its saved order.
+    pub fn load(&mut self, chunks: &[(i32, i32)], saved: &mut SavedTicks<K>, delta: i64) {
+        for ch in chunks {
             let Some(ticks) = saved.remove(ch) else { continue };
             let n = ticks.len() as i64;
             for (i, (trigger, priority, pos, kind)) in ticks.into_iter().enumerate() {
-                self.schedule(kind, pos, trigger, priority, i as i64 - n);
+                self.schedule(kind, pos, trigger + delta, priority, i as i64 - n);
             }
         }
-        // chunks not loaded again: their saved ticks wait (not modeled: every reload loads back
-        // the chunks it unloads)
-        debug_assert!(saved.is_empty(), "a reload left chunks unloaded");
     }
 
     /// Every pending tick, for debugging and comparisons.
@@ -463,6 +482,14 @@ impl<K: TickKey> LevelTicks<K> {
     /// Collect the ticks due at `now`, in run order (`collectTicks`: `sortContainersToTick`,
     /// `drainContainers`).
     pub fn collect(&mut self, now: i64) -> Vec<Tick<K>> {
+        self.collect_if(now, |_| true)
+    }
+
+    /// (tickexact 2026-11-10, a partial unload) [`Self::collect`] where only the chunks `ticking`
+    /// accepts tick (`LevelTicks`' tick check, `isPositionTickingWithEntitiesLoaded`): the others'
+    /// due ticks stay where they are (their next tick unchanged) and come due when they tick
+    /// again.
+    pub fn collect_if(&mut self, now: i64, ticking: impl Fn((i32, i32)) -> bool) -> Vec<Tick<K>> {
         let mut out = Vec::new();
         let containers = &mut self.containers;
         // sortContainersToTick: the map's walk, each due container into the heap
@@ -479,6 +506,7 @@ impl<K: TickKey> LevelTicks<K> {
                 match cs.get(&chunk_of_key(k)).and_then(|c| c.queue.first()) {
                     None => Walk::Remove,
                     Some(h) if h.0 > now => Walk::Set(h.0),
+                    Some(_) if !ticking(chunk_of_key(k)) => Walk::Keep,
                     Some(_) => {
                         due.push(k);
                         Walk::Remove

@@ -129,6 +129,8 @@ pub enum TargetType {
     WolfPrey,
     /// `AbstractSkeleton` (skeletons, strays, bogged, parched, wither skeletons): the wolf's.
     Skeleton,
+    /// `Rabbit` (the cat's prey).
+    Rabbit,
 }
 
 /// `NearestAttackableTargetGoal`.
@@ -161,7 +163,7 @@ impl NearestAttackableTarget {
 pub fn non_tame_can_continue(w: &mut World, i: usize, g: &mut NearestAttackableTarget) -> bool {
     let Some(t) = g.found.and_then(|id| target::who(w, id)) else { return false };
     let selected = match t {
-        Who::Entity(_) => target::type_of(w, t).is_some_and(|ty| selects(g.target_type, ty)),
+        Who::Entity(_) | Who::Foreign(_) => target::type_of(w, t).is_some_and(|ty| selects(g.target_type, ty)),
         Who::Player(_) => false,
     };
     let d = follow_range(w, i);
@@ -178,6 +180,7 @@ fn selects(t: TargetType, ty: MobType) -> bool {
         TargetType::EnemyNotCreeper => is_enemy(ty),
         TargetType::WolfPrey => matches!(ty.game_id(), "minecraft:sheep" | "minecraft:rabbit" | "minecraft:fox"),
         TargetType::Skeleton => matches!(ty.game_id(), "minecraft:skeleton" | "minecraft:stray" | "minecraft:bogged" | "minecraft:parched" | "minecraft:wither_skeleton"),
+        TargetType::Rabbit => ty.game_id() == "minecraft:rabbit",
         TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer | TargetType::SlimePlayer => false,
     }
 }
@@ -282,8 +285,15 @@ fn alert_others(w: &mut World, i: usize) {
     let p = w.entities.list[i].pos;
     let area = Aabb::new(p.x, p.y, p.z, p.x + 1.0, p.y + 1.0, p.z + 1.0).inflate(within, 10.0, within);
     let ty = mob(w, i).ty;
-    // (a zombified piglin's alertOthers is its class's: both sizes)
-    let family = |t: MobType| t == ty || (ty == MobType::Zombie && matches!(t.def().id, "zombie_villager" | "drowned" | "baby_zombie" | "baby_zombie_villager" | "baby_drowned")) || (super::zombie::is_piglin_type(ty) && super::zombie::is_piglin_type(t));
+    // getEntitiesOfClass(this.mob.getClass()): its Java class and the subclasses (a zombie's, a
+    // baby's too: husks, drowned, zombie villagers, zombified piglins), less `toIgnoreAlert` by
+    // exact class (the Zombie family's setAlertOthers(ZombifiedPiglin.class))
+    let class = java_class(ty.def().id);
+    let zombie_alert = matches!(class, "zombie" | "husk" | "drowned" | "zombie_villager");
+    let family = |t: MobType| {
+        let c = java_class(t.def().id);
+        (c == class || (class == "zombie" && matches!(c, "husk" | "drowned" | "zombie_villager" | "zombified_piglin"))) && !(zombie_alert && c == "zombified_piglin")
+    };
     let Some(by) = ai(w, i).last_hurt_by_mob else { return };
     for t in target::mobs_in(w, area, family) {
         let Who::Entity(j) = t else { continue };
@@ -297,4 +307,10 @@ fn alert_others(w: &mut World, i: usize) {
 #[allow(dead_code)]
 fn _a(w: &mut World, i: usize) {
     let _ = ai_mut(w, i);
+}
+
+/// A mob row's Java class, by its adult row (a baby's class is its adult's: `baby_zombie` is a
+/// `Zombie`).
+fn java_class(id: &str) -> &str {
+    id.strip_prefix("baby_").unwrap_or(id)
 }

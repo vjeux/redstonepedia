@@ -108,6 +108,10 @@ pub struct Env {
     /// The weather's levels (0..1): the client darkens the fog's sky colour with them too.
     pub rain: f32,
     pub thunder: f32,
+    /// The game's Brightness option (0 Moody .. 1 Bright; the game's default 0.5): how far the
+    /// lightmap goes to its brightened curve (`lightmap.fsh`). A film of a night may be drawn
+    /// at Bright (`web framecost --brightness 1`), as a player with that setting sees it.
+    pub brightness: f32,
 }
 
 impl Env {
@@ -268,7 +272,7 @@ pub fn at(day_time: i64, rain: f32, thunder: f32) -> Env {
         star_brightness = lerp(level, star_brightness, 0.0);
         sunrise = lerp4(level, sunrise, mul4(sunrise, sunrise_mul));
     }
-    Env { sky_color, fog_color, sky_light_color, sky_light_factor, ambient: AMBIENT_LIGHT_COLOR, block_tint: BLOCK_LIGHT_TINT, sun_angle, moon_angle, star_brightness, sunrise, rain, thunder }
+    Env { sky_color, fog_color, sky_light_color, sky_light_factor, ambient: AMBIENT_LIGHT_COLOR, block_tint: BLOCK_LIGHT_TINT, sun_angle, moon_angle, star_brightness, sunrise, rain, thunder, brightness: 0.5 }
 }
 
 /// `AtmosphericFogEnvironment.getBaseColor`: the horizon's colour for a camera looking along
@@ -334,7 +338,7 @@ fn texel(env: &Env, sky: f32, block: f32) -> [f32; 3] {
     }
     let inv = 1.0 - max;
     let scaled = 1.0 - inv * inv * inv * inv;
-    c.map(|v| v + (v * scaled / max - v) * 0.5)
+    c.map(|v| v + (v * scaled / max - v) * env.brightness)
 }
 
 #[cfg(test)]

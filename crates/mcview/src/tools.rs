@@ -858,7 +858,7 @@ pub struct FrameCost {
 /// degrees, framed as a page's `data-yaw` / `data-pitch` frame it (None: the live camera); `zoom`:
 /// the camera that many times closer.
 #[allow(clippy::too_many_arguments)]
-pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>, png_dir: Option<&std::path::Path>, view: (Option<f32>, Option<f32>), zoom: Option<f32>, look_at: Option<[f32; 3]>) -> Result<FrameCost, String> {
+pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>, png_dir: Option<&std::path::Path>, view: (Option<f32>, Option<f32>), zoom: Option<f32>, look_at: Option<[f32; 3]>, follow: Option<redsim::entity::mob::drive::Who>, brightness: Option<f32>, fit: Option<([f32; 3], [f32; 3])>) -> Result<FrameCost, String> {
     let mut p = crate::player::Player::new_web(text, width as f32 / height as f32)?;
     p.frame_live(atlas, width as f32 / dpr.max(0.5), height as f32 / dpr.max(0.5));
     if view.0.is_some() || view.1.is_some() {
@@ -873,6 +873,15 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         p.camera.fit(lo, hi, width as f32 / height as f32, 0.85);
         p.home = p.camera;
     }
+    if let Some((lo, hi)) = fit {
+        // (a film's subject box, its cells: the camera aimed at its centre and fitted to it at its
+        // yaw and pitch, as the view fits a design's bounds; the loop of a long design, not its
+        // far wires; `Camera::fit` keeps the target, so the centre first)
+        let hi = [hi[0] + 1.0, hi[1] + 1.0, hi[2] + 1.0];
+        p.camera.target = std::array::from_fn(|k| (lo[k] + hi[k]) / 2.0);
+        p.camera.fit(lo, hi, width as f32 / height as f32, 0.85);
+        p.home = p.camera;
+    }
     if let Some(z) = zoom.filter(|z| *z > 0.0) {
         // (closer by that factor: the distance divided)
         p.camera.dist /= z;
@@ -883,6 +892,13 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         p.camera.target = [t[0] + 0.5, t[1] + 0.5, t[2] + 0.5];
         p.home = p.camera;
     }
+    // (`follow`'s entity, by its id: found as the drive names it once its lines are spawned, at the
+    // session's start, before the warm ticks: a napper leaves its cart for the bed later)
+    let followed: Option<u32> = follow.and_then(|who| {
+        let dv = p.session.mob.as_ref().and_then(|m| m.drive.as_ref())?;
+        let i = redsim::entity::mob::drive::index_of(&p.session.world, &dv.lines, who)?;
+        Some(p.session.world.entities.list[i].id)
+    });
     for _ in 0..warm {
         p.session.step();
     }
@@ -906,6 +922,13 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         for _ in 0..ticks {
             p.session.step();
         }
+        // (a film's subject that moves: the camera aimed at that entity of the part's bench drive
+        // each frame, eN or eN.pK as the drive names them, by its id: a napper leaving its cart
+        // for the bed is no longer the cart's passenger; its framing kept)
+        if let Some(e) = followed.and_then(|id| p.session.world.entities.list.iter().find(|e| e.id == id && !e.removed)) {
+            let o = p.session.view_offset();
+            p.camera.target = [e.pos.x as f32 - o[0] as f32, e.pos.y as f32 + 0.9 - o[1] as f32, e.pos.z as f32 - o[2] as f32];
+        }
         let t0 = std::time::Instant::now();
         let mut oot = || budget.is_some_and(|b| k > 0 && t0.elapsed().as_secs_f64() * 1000.0 > b);
         let before = p.fixed_key();
@@ -919,6 +942,12 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         }
         let t1 = std::time::Instant::now();
         off.r.env = p.daylight();
+        // (a film's Brightness option: the game's slider, 0.5 its default)
+        if let Some(b) = brightness {
+            let mut e = off.r.env.unwrap_or_else(crate::daylight::Env::noon);
+            e.brightness = b;
+            off.r.env = Some(e);
+        }
         off.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
         off.r.set_fixed_blend(blend.as_ref().map(|(k, v)| (*k, v.as_slice())));
         // an update in place: the last cull carried over at once (`Renderer::carry_cull`), its

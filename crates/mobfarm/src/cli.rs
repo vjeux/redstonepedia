@@ -1222,6 +1222,11 @@ pub enum MobfarmCmd {
         /// The stand's track along z (default: along x, parallel to the pad).
         #[arg(long)]
         along_z: bool,
+        /// The stand carts' spacing along the track (1: back to back) and each next cart's drop.
+        #[arg(long, default_value_t = 1)]
+        pitch: i32,
+        #[arg(long, default_value_t = 0)]
+        drop: i32,
         #[arg(long)]
         out: PathBuf,
         /// Write the cells as the generator writes them, not settled (the default writes every
@@ -1229,6 +1234,15 @@ pub enum MobfarmCmd {
         /// as block entities: "settled as placed", mobfarm::placing::settle_design).
         #[arg(long)]
         unsettled: bool,
+        /// The pad and its Nether part alone (no stand track, zombies, hold or bed): the part
+        /// another design pastes, with its ports (the golem pulse `output.pulse`, the Nether's
+        /// anchor, axis and output) and its build steps.
+        #[arg(long)]
+        alone: bool,
+        /// Trench floor cells written as top slabs ("x,y,z;x,y,z"): a golem floor that does not
+        /// suffocate a rider whose eye passes through it (the pocket stand's: "-2,2,-1;-1,2,-1").
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        slab_floor: String,
     },
     /// The linear stand's static check: each of the 3 stand riders' golem search (the judge's
     /// function), the held riders' searches, the boxes near the portals, success per slot.
@@ -1288,10 +1302,12 @@ pub enum MobfarmCmd {
         /// Close the bed's open north front: the bed reachable by path only from the cage.
         #[arg(long)]
         cage_only: bool,
-        /// Leave out the give-up (with --wired it is in: an arrival latch, a 220 gt comparator
-        /// timer, and on timeout the visit latch set, so a napper that cannot sleep still leaves).
-        #[arg(long)]
-        no_give_up: bool,
+        /// Which give-up the wired siding has: `scheduler` (default: day-1's scheduler pulses the
+        /// force input (-5,-3,-4) 150-170 gt after each arrival; the siding gates it with a copper
+        /// bulb lit from the arrival to the return), `timer` (its own arrival latch and 220 gt
+        /// comparator timer) or `none`.
+        #[arg(long, default_value = "scheduler")]
+        give_up: String,
         /// Write the cells as the judge's placement leaves them (the generator's own states), not
         /// settled (the default writes every cell as the bench finds it after the settle, comparator
         /// outputs as block entities: "settled as placed", mobfarm::placing::settle_design).
@@ -1373,6 +1389,24 @@ pub enum MobfarmCmd {
         /// arrival, every villager still holding HOME at each check.
         #[arg(long)]
         day_visits: bool,
+        /// The force input's pulse (day-1's scheduler: its visit register's D3 gating REL+20, a 12
+        /// gt pulse on at visit +328..+340, 118-150 gt after the arrival), gt after each arrival,
+        /// spread over the range; driven on every visit when the design has the scheduler give-up
+        /// (`--no-force`: never).
+        #[arg(long, default_value = "118,150")]
+        force_at: String,
+        #[arg(long)]
+        no_force: bool,
+        /// Fault injection (ironspec): on this visit (its index in each run, from 0) the napper
+        /// cannot sleep and F is not pulsed; the next visits are sent on schedule all the same.
+        /// Prints what the dropped visit's cart does and what the next visits do.
+        #[arg(long)]
+        drop_force: Option<usize>,
+        /// Fault injection at a stateful element, KIND:K (K the visit index): arr-miss, arr-extra,
+        /// r-miss, r-extra, f-double (siding::BenchOpts::fault). Prints the visits after it and
+        /// how many until one is clean again.
+        #[arg(long)]
+        fault: Option<String>,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -2255,7 +2289,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(s) => s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?,
                 None => Vec::new(),
             };
-            let o = crate::station::PadOpts { x0, x1, planes, by, h, skip };
+            let o = crate::station::PadOpts { x0, x1, planes, by, h, skip, slabs: Vec::new() };
             let text = if part { crate::station::part(&o, &crate::hold::LaneOpts::default())? } else { crate::station::design(&o, &crate::hold::LaneOpts::default())? };
             std::fs::write(&out, text)?;
             println!("{}", out.display());
@@ -2370,11 +2404,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let ok = r.crosstalk_count == 0 && r.stuck_count == 0 && r.two_lines == 0 && r.order_faults == 0 && r.delays.len() == ends;
             println!("{}", if ok { "PASS" } else { "FAIL" });
         }
-        MobfarmCmd::Linear { x0, x1, stand, along_z, out, unsettled } => {
+        MobfarmCmd::Linear { x0, x1, stand, along_z, pitch, drop, out, unsettled, alone, slab_floor } => {
             let p: Vec<i32> = stand.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(p.len() == 3, "--stand x,y,z");
-            let pad = crate::station::PadOpts { x0, x1, ..Default::default() };
-            let o = crate::linear::LinearOpts { x0: p[0], y: p[1], z: p[2], along_x: !along_z, ..Default::default() };
+            let pad = crate::station::PadOpts { x0, x1, slabs: crate::station::parse_cells(&slab_floor)?, ..Default::default() };
+            let o = crate::linear::LinearOpts { x0: p[0], y: p[1], z: p[2], along_x: !along_z, pitch, drop, ..Default::default() };
             std::fs::write(&out, crate::linear::design(&pad, &o)?)?;
             if !unsettled {
                 let changes = crate::placing::settle_file(&out)?;
@@ -2382,6 +2416,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for c in &changes {
                     println!("  {c}");
                 }
+            }
+            if alone {
+                let text = std::fs::read_to_string(&out)?;
+                std::fs::write(&out, crate::linear::alone(&text, &pad)?)?;
+                let d = mctas::design::Design::parse(&std::fs::read_to_string(&out)?)?;
+                println!("alone: {} pad blocks, {} Nether blocks, the golem pulse at {:?}", d.blocks.len(), d.nether_blocks.len(), d.ports.get("output.pulse"));
             }
             println!("{}", out.display());
         }
@@ -2535,8 +2575,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("golems touching no portal: {strays}; Nether: {deaths} dead, {alive} alive at the end, {back} back in the overworld");
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, no_give_up, unsettled } => {
-            std::fs::write(&out, crate::siding::design_full(wired, alone, exit_brake, cage_only, wired && !no_give_up)?)?;
+        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, give_up, unsettled } => {
+            let g = match (wired, give_up.as_str()) {
+                (false, _) | (_, "none") => crate::siding::GiveUp::None,
+                (true, "timer") => crate::siding::GiveUp::Timer,
+                (true, "scheduler") => crate::siding::GiveUp::Scheduler,
+                (_, other) => anyhow::bail!("--give-up {other}: scheduler, timer or none"),
+            };
+            std::fs::write(&out, crate::siding::design_full(wired, alone, exit_brake, cage_only, g)?)?;
             if !unsettled {
                 let changes = crate::placing::settle_file(&out)?;
                 println!("settled: {} cells written as the settle leaves them", changes.len());
@@ -2552,13 +2598,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             let two_i = |s: &str| -> Result<(i64, i64)> {
                 let v: Vec<i64> = s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 2, "two numbers a,b");
                 Ok((v[0], v[1]))
+            };
+            let force = if no_force { None } else { Some(two_i(&force_at)?) };
+            let fault_opt: Option<(String, usize)> = match &fault {
+                Some(f) => {
+                    let (k, n) = f.split_once(':').ok_or_else(|| anyhow::anyhow!("--fault KIND:K"))?;
+                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra or f-double");
+                    Some((k.to_string(), n.parse()?))
+                }
+                None => None,
             };
             let sp: Vec<f64> = speed.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(sp.len() == 2, "--speed a,b");
@@ -2575,7 +2630,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone() });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -2762,6 +2817,97 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("speed leaving the exit cell (b/t, stored): min {:.3} median {:.3} max {:.3}; over 0.36: {over} of {}", leaves[0], leaves[leaves.len() / 2], leaves[leaves.len() - 1], leaves.len());
             }
             println!("problems: {problems:?}");
+            // (the force input: when the bench pulsed it, and for the visits whose villager had
+            // not slept by then, the pulse to ready on the slot)
+            {
+                let oks: Vec<&crate::siding::BenchReport> = rows.iter().filter_map(|r| r.1.as_ref().ok()).collect();
+                let forced: Vec<&crate::siding::VisitRec> = oks.iter().flat_map(|r| r.visits.iter()).filter(|v| v.forced.is_some()).collect();
+                if !forced.is_empty() {
+                    let mut after: Vec<i64> = forced.iter().map(|v| v.forced.unwrap() - v.arrived).collect();
+                    after.sort();
+                    let mut to_ready: Vec<i64> = forced.iter().filter(|v| v.slept.is_none_or(|s| s > v.forced.unwrap())).filter_map(|v| v.ready.map(|r| r - v.forced.unwrap())).collect();
+                    to_ready.sort();
+                    let cut = forced.iter().filter(|v| !v.failed && v.slept.is_none()).count();
+                    println!("force input (day-1's scheduler, driven by the bench): {} pulses, {}..{} gt after the arrival; visits not asleep by it: {} (pulse to ready on the slot: min {:?} median {:?} max {:?} gt); normal visits it cut short: {cut}", forced.len(), after[0], after[after.len() - 1], to_ready.len(), to_ready.first(), to_ready.get(to_ready.len() / 2), to_ready.last());
+                    // (F's tolerance, ironspec: the napped visits' sleep onset after the arrival,
+                    // the earliest F's bound; and the visits F sent out, the pulse to leaving the
+                    // exit, the latest F's)
+                    let mut onset: Vec<i64> = oks.iter().flat_map(|r| r.visits.iter()).filter_map(|v| v.slept.map(|s| s - v.arrived)).collect();
+                    onset.sort();
+                    if !onset.is_empty() {
+                        let q = |p: f64| onset[((onset.len() as f64 - 1.0) * p) as usize];
+                        let over = |x: i64| onset.iter().filter(|&&o| o > x).count();
+                        println!("  sleep onset after the arrival ({} napped visits): p50 {} p99 {} p99.9 {} p99.99 {} max {} gt; over 60: {}, over 80: {}, over 100: {}; the 8 slowest: {:?}", onset.len(), q(0.5), q(0.99), q(0.999), q(0.9999), onset[onset.len() - 1], over(60), over(80), over(100), &onset[onset.len().saturating_sub(8)..]);
+                    }
+                    let mut to_exit: Vec<i64> = forced.iter().filter(|v| v.slept.is_none_or(|s| s > v.forced.unwrap())).filter_map(|v| v.exited.map(|x| x - v.forced.unwrap())).collect();
+                    to_exit.sort();
+                    if !to_exit.is_empty() {
+                        println!("  sent out by F: the pulse to leaving the exit cell: min {} median {} max {} gt ({} visits)", to_exit[0], to_exit[to_exit.len() / 2], to_exit[to_exit.len() - 1], to_exit.len());
+                    }
+                }
+                // (the fault injection at a stateful element: the faulted visit, the next ones,
+                // and the visits until one is clean again, per seed)
+                if let Some((kind, fk)) = &fault_opt {
+                    let clean = |v: &crate::siding::VisitRec| v.slept.is_some() && v.own_cart && v.released.is_some() && v.problem.is_none();
+                    let mut worst = 0usize;
+                    let mut lost_naps = 0usize;
+                    for (_seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))) {
+                        // (the window: the faulted visit and the 5 after it; recovered = the
+                        // first clean visit after the last unclean one in the window)
+                        let after = &r.visits[(*fk).min(r.visits.len())..];
+                        let window = &after[..after.len().min(6)];
+                        let last_bad = window.iter().rposition(|v| !clean(v)).map_or(0, |i| i + 1);
+                        worst = worst.max(last_bad);
+                        lost_naps += window.iter().filter(|v| v.slept.is_none()).count();
+                    }
+                    println!("fault {kind} on visit {fk}: visits until a clean one (napped, own cart, released), worst over the seeds: {worst} (0 = the faulted visit itself clean); naps lost in those: {lost_naps}");
+                    for (seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))).take(4) {
+                        for (j, v) in r.visits.iter().enumerate().skip(*fk).take(3) {
+                            println!("  seed {seed} visit {j} (+{}): V before {:?}; slept {:?} re-boarded {:?} own cart {} ready {:?} released {:?} F {:?}{}", v.arrived - r.visits[*fk].arrived, v.v_before, v.slept.map(|x| x - v.arrived), v.reboarded.map(|x| x - v.arrived), v.own_cart, v.ready.map(|x| x - v.arrived), v.released.map(|x| x - v.arrived), v.forced.map(|x| x - v.arrived), v.problem.as_ref().map(|p| format!("; problem: {p}")).unwrap_or_default());
+                        }
+                    }
+                }
+                // (the fault injection: the dropped visit and the next ones, per seed; first a
+                // one-line summary over every seed)
+                {
+                    let clean = |v: &crate::siding::VisitRec| v.slept.is_some() && v.own_cart && v.released.is_some() && v.problem.is_none();
+                    let mut lines = Vec::new();
+                    for (seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))) {
+                        let Some(k) = r.visits.iter().position(|v| v.force_dropped) else { continue };
+                        let d = &r.visits[k];
+                        let out = d.exited.map(|x| x - d.arrived);
+                        let after = &r.visits[k + 1..];
+                        let window = &after[..after.len().min(5)];
+                        let last_bad = window.iter().rposition(|v| !clean(v)).map_or(0, |i| i + 1);
+                        let later_bad = after.iter().skip(5).filter(|v| !clean(v)).count();
+                        lines.push(format!("seed {seed}: stuck cart out {}; unclean visits after it: the next {last_bad} (later: {later_bad})", out.map_or("never".to_string(), |x| format!("{x} gt after its arrival"))));
+                    }
+                    if !lines.is_empty() {
+                        println!("drop-force summary:\n  {}", lines.join("\n  "));
+                    }
+                }
+                for (seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))).take(8) {
+                    let Some(k) = r.visits.iter().position(|v| v.force_dropped) else { continue };
+                    let d = &r.visits[k];
+                    let fate = if d.slept.is_some() {
+                        format!("the napper slept anyway (the fault did not take); ready {:?} released {:?}", d.ready.map(|x| x - d.arrived), d.released.map(|x| x - d.arrived))
+                    } else {
+                        match (d.unstuck, d.exited) {
+                            (Some(u), Some(x)) => format!("its cart came onto the exit branch {} gt after its arrival, left past the exit {} gt after (ready on the slot: {:?}, released {:?}; with its villager: {})", u - d.arrived, x - d.arrived, d.ready.map(|x| x - d.arrived), d.released.map(|x| x - d.arrived), d.ready.is_some()),
+                            (Some(u), None) => format!("its cart came onto the exit branch {} gt after its arrival and never left past the exit (ready on the slot: {:?}, released {:?})", u - d.arrived, d.ready.map(|x| x - d.arrived), d.released.map(|x| x - d.arrived)),
+                            (None, _) => format!("its cart stayed in the siding to the end of the run ({} gt)", r.visits.last().map_or(0, |v| v.arrived - d.arrived)),
+                        }
+                    };
+                    println!("drop-force seed {seed}: visit {k} (villager {}, arrived {}): napper dropped {:?} slept {:?}; {fate}", d.villager, d.arrived, d.dropped.map(|x| x - d.arrived), d.slept.map(|x| x - d.arrived));
+                    for (j, v) in r.visits.iter().enumerate().skip(k + 1).take(4) {
+                        println!("  next visit {j} (villager {}, +{} gt): V lit before it {:?}; dropped {:?} slept {:?} re-boarded {:?} own cart {} ready {:?} released {:?} F {:?}{}", v.villager, v.arrived - d.arrived, v.v_before, v.dropped.map(|x| x - v.arrived), v.slept.map(|x| x - v.arrived), v.reboarded.map(|x| x - v.arrived), v.own_cart, v.ready.map(|x| x - v.arrived), v.released.map(|x| x - v.arrived), v.forced.map(|x| x - v.arrived), v.problem.as_ref().map(|p| format!("; problem: {p}")).unwrap_or_default());
+                    }
+                    let later = &r.visits[(k + 5).min(r.visits.len())..];
+                    let ok = later.iter().filter(|v| v.slept.is_some() && v.own_cart && v.released.is_some()).count();
+                    let inverted = later.iter().filter(|v| v.v_before == Some(true)).count();
+                    println!("  the {} visits after those: {ok} napped, back in their own cart and released; V lit before {inverted} of them (the bulb's phase inverted)", later.len());
+                }
+            }
             // ironspec's check, every seed: HOME at every dawn and midday, naps per villager-night
             {
                 let oks: Vec<&crate::siding::BenchReport> = rows.iter().filter_map(|r| r.1.as_ref().ok()).collect();

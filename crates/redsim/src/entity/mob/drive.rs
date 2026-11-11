@@ -43,6 +43,15 @@ pub enum Act {
     Home(Who, BlockPos),
     LastSlept(Who, i64),
     PoiTake(BlockPos),
+    /// (tickexact 2026-11-10, ironspec's fault rule) `unload` / `load`: every chunk of the world
+    /// saved and unloaded (a player leaving) / loaded again (`reload::unload_all` / `load_all`;
+    /// the bridge's `unload` / `load`).
+    Unload,
+    Load,
+    /// `unload <box>` / `load <box>` (the brief's partial form: the chunk box [x0, z0, x1, z1]'s
+    /// forced tickets dropped / back: `reload::unload_some` / `load_some`).
+    UnloadSome([i32; 4]),
+    LoadSome([i32; 4]),
 }
 
 /// A parsed drive.
@@ -79,6 +88,12 @@ fn int(s: Option<&&str>, line: &str) -> Result<i32, String> {
 
 fn num(s: Option<&&str>, line: &str) -> Result<f64, String> {
     s.and_then(|v| v.parse().ok()).ok_or_else(|| format!("{line:?}: expected a number"))
+}
+
+/// A chunk box `x0,z0,x1,z1` (chunk coordinates).
+pub fn chunk_box(s: &str) -> Option<[i32; 4]> {
+    let v: Vec<i32> = s.split(',').map(|x| x.trim().parse().ok()).collect::<Option<Vec<i32>>>()?;
+    (v.len() == 4).then(|| [v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])])
 }
 
 impl Drive {
@@ -137,6 +152,28 @@ impl Drive {
                         Some("home") => Act::Home(who(w.get(3).copied().unwrap_or(""))?, pos(4)?),
                         Some("last-slept") => Act::LastSlept(who(w.get(3).copied().unwrap_or(""))?, w.get(4).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: last-slept eN.pK <t>"))?),
                         Some("poi-take") => Act::PoiTake(pos(3)?),
+                        // (tickexact 2026-11-10, the brief's shared act) `unload all <N>`: every
+                        // chunk unloaded now and loaded again N ticks later; bare `unload` / `load`
+                        // the two halves
+                        Some("unload") if w.len() == 5 && w[3] == "all" => {
+                            let n: i64 = w[4].parse().map_err(|_| format!("{l:?}: unload all <N>"))?;
+                            d.acts.push((t, Act::Unload));
+                            d.acts.push((t + n, Act::Load));
+                            continue;
+                        }
+                        Some("unload") if w.len() == 3 => Act::Unload,
+                        Some("load") if w.len() == 3 => Act::Load,
+                        // `unload x0,z0,x1,z1 <N>` (a chunk box), or its halves
+                        Some("unload") if w.len() == 5 => {
+                            let b = chunk_box(w[3]).ok_or_else(|| format!("{l:?}: unload x0,z0,x1,z1 <N>"))?;
+                            let n: i64 = w[4].parse().map_err(|_| format!("{l:?}: unload x0,z0,x1,z1 <N>"))?;
+                            d.acts.push((t, Act::UnloadSome(b)));
+                            d.acts.push((t + n, Act::LoadSome(b)));
+                            continue;
+                        }
+                        Some("unload") if w.len() == 4 => Act::UnloadSome(chunk_box(w[3]).ok_or_else(|| format!("{l:?}: unload x0,z0,x1,z1"))?),
+                        Some("load") if w.len() == 4 => Act::LoadSome(chunk_box(w[3]).ok_or_else(|| format!("{l:?}: load x0,z0,x1,z1"))?),
+                        Some("unload") => return Err(format!("{l:?}: unload all <N> or unload x0,z0,x1,z1 <N>")),
                         _ => return Err(format!("{l:?}: an act this replay does not know")),
                     };
                     d.acts.push((t, a));
@@ -170,6 +207,9 @@ impl Drive {
 /// The design's entity lines spawned in file order after the settle, as the benches do: each
 /// line's entity id (its vehicle's), and the run's own mobs set to all of them.
 pub fn spawn_lines(run: &mut Run, spec: &FarmSpec) -> Result<Vec<u32>, String> {
+    // (the daylight detectors first, as `Run::arrive` and the benches' starts place them: a
+    // night scheduler's inverted detector, day-1's siding junctions)
+    run.place_detectors();
     let first = run.world.entities.next_id;
     let mut lines = Vec::with_capacity(spec.entities.len());
     for (ty, pos, nbt) in &spec.entities {
@@ -181,7 +221,9 @@ pub fn spawn_lines(run: &mut Run, spec: &FarmSpec) -> Result<Vec<u32>, String> {
 
 /// The world index of a drive's entity (None: gone).
 pub fn index_of(w: &World, lines: &[u32], who: Who) -> Option<usize> {
-    let alive = |id: u32| w.entities.list.iter().position(|e| e.id == id && !e.removed);
+    // (an entity a chunk reload brought back has a new id: `World::renumbered`)
+    let now = |id: u32| w.renumbered.get(&id).copied().unwrap_or(id);
+    let alive = |id: u32| w.entities.list.iter().position(|e| e.id == now(id) && !e.removed);
     match who {
         Who::Line(n) => alive(*lines.get(n)?),
         Who::Rider(n, k) => {
@@ -220,6 +262,10 @@ pub fn apply(w: &mut World, lines: &[u32], t0: i64, a: &Act) {
             }
         }
         Act::PoiTake(p) => super::ai::poi::take(w, *p),
+        Act::Unload => crate::reload::unload_all(w),
+        Act::Load => crate::reload::load_all(w),
+        Act::UnloadSome(b) => crate::reload::unload_some(w, *b),
+        Act::LoadSome(b) => crate::reload::load_some(w, *b),
     }
 }
 
