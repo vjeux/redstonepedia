@@ -545,6 +545,16 @@ station needs no drop and no overworld kill.
   (a shared dormitory keeps its claims through the nightly HOME release of iteration 14, judged
   over many nights, not only through a save and load), and the farm restarts after days away (a
   stalled advance recovers: a fallback pulse when no golem has come for a full cycle).
+- **Shared bed radius.** While a napper sleeps, the shared bed is OCCUPIED, and any other villager
+  in REST within 16 blocks of it (Euclidean, from the bed block's center to the villager's
+  position) has its HOME erased (ValidateNearbyPoi). Because the occupied POI isn't released, it can
+  never re-claim the bed, so its naps stop for good. Every position a non-sleeping villager can
+  occupy at night (loop riders anywhere on the loop, the queue, the tail, the stand, the pad, and
+  the siding's waiting and free cells) lies at least 16 blocks plus a stated margin (≥ 1, for rider
+  position spread) from the bed's center. The assembly prints the minimum distance and where it
+  occurs. Panic is not a protection: a reload drops the hostile memory, and riders stay calm until
+  their sensor re-scans. Why: a stacked placement put the bed about 12 from the stand's riders; the
+  current side-by-side layout has only about 18.
 - **No merged carts.** Merged carts (two carts within 0.01 of each other, which the game's cart push
   never separates) are a hard fail anywhere in the loop; every runner checks for them. "Within
   0.01" is the horizontal distance between two carts whose boxes the push would pair (they overlap
