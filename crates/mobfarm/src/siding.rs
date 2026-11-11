@@ -1571,6 +1571,10 @@ pub struct BenchReport {
     /// (0,0,0) and the return detector (3,0,0), against the carts that entered and went out.
     pub edges: [u32; 2],
     pub carts_in_out: [u32; 2],
+    /// (ironspec 07:00 item 1(a)) Design (b): ticks the bulb B disagreed with the bed for more than
+    /// 20 gt running (lit with the bed free, or unlit with it occupied), how many such runs, and
+    /// the first run's start (t - t0) and kind.
+    pub b_wrong: (u32, i64, Option<(i64, bool)>),
     /// The off-the-rails watch's derails and its report line.
     pub derails: Vec<String>,
     pub rail_line: String,
@@ -1827,6 +1831,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     }
     let mut probe_last: Vec<String> = Vec::new();
     let mut det_prev = [false; 2];
+    let mut b_wrong_since: Option<i64> = None;
     while run.world.time < end {
         let now = run.world.time;
         let day = run.world.day_time().rem_euclid(24000);
@@ -2091,6 +2096,24 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     }
                 }
                 _ => {}
+            }
+        }
+        // (ironspec 07:00 item 1(a): design (b)'s bulb against the bed, a run of disagreement over
+        // 20 gt counted once; the bulb and the bed change a few ticks apart at every sleep and wake)
+        if bo.resync.is_some() && run.world.away.is_none() {
+            let lit = matches!(run.world.get(fr.blk(-2, 0, 2)), Block::Bulb { lit: true, .. });
+            let occ = matches!(run.world.get(bed), Block::Bed { occupied: true, .. });
+            if lit != occ {
+                let since = *b_wrong_since.get_or_insert(now);
+                if now - since == 20 {
+                    rep.b_wrong.0 += 1;
+                    rep.b_wrong.2.get_or_insert((since - t0, lit));
+                }
+                if now - since >= 20 {
+                    rep.b_wrong.1 += 1;
+                }
+            } else {
+                b_wrong_since = None;
             }
         }
         // (the dawn/dusk resync, bench-driven as day-1's daylight-stair pulse: P a redstone block

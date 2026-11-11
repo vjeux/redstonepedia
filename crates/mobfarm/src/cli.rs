@@ -3529,6 +3529,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for (c, (name, u)) in cfgs.iter().enumerate() {
                     let (mut worst, mut lost, mut jams, mut later, mut missed, mut left_without) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
                     let mut merged = 0usize;
+                    let (mut riderless_n, mut bwrong, mut dbt, mut probs) = (0usize, 0u32, 0u32, 0usize);
+                    let mut first_prob: Option<String> = None;
                     let mut hit: Vec<i64> = Vec::new();
                     let mut errs: Vec<String> = Vec::new();
                     for (_, seed, r) in out.iter().filter(|x| x.0 == c) {
@@ -3551,12 +3553,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 later += after.iter().skip(6).filter(|v| !clean(v)).count();
                                 left_without += window.iter().filter(|v| v.slept.is_some() && v.exited.is_some() && v.reboarded.is_none()).count();
                                 merged += r.merged.len();
+                                riderless_n += r.visits.iter().filter(|v| v.riderless.is_some()).count();
+                                bwrong += r.b_wrong.0;
+                                dbt += r.dropped_bed_taken;
+                                for (vk, v) in r.visits.iter().enumerate() {
+                                    if let Some(p) = &v.problem {
+                                        probs += 1;
+                                        first_prob.get_or_insert(format!("seed {seed} visit {vk}: {p}"));
+                                    }
+                                }
                             }
                         }
                     }
                     hit.sort();
                     let hit_s = if hit.is_empty() { "never".to_string() } else { format!("{}..{}", hit[0], hit[hit.len() - 1]) };
-                    println!("  {name}: until clean {worst}; naps lost {lost}; out without the napper {left_without}; jams {jams}; merged carts {merged}; unclean after {later}; hit +{hit_s}{}{}", if missed > 0 { format!(" (not hit on {missed} seeds)") } else { String::new() }, if errs.is_empty() { String::new() } else { format!("; errors: {}", errs[0]) });
+                    println!("  {name}: until clean {worst}; naps lost {lost}; out without the napper {left_without}; riderless {riderless_n}; jams {jams}; merged carts {merged}; unclean after {later}; B wrong {bwrong}; dropped with the bed taken {dbt}; problems {probs}{}; hit +{hit_s}{}{}", first_prob.map(|p| format!(" (first: {p})")).unwrap_or_default(), if missed > 0 { format!(" (not hit on {missed} seeds)") } else { String::new() }, if errs.is_empty() { String::new() } else { format!("; errors: {}", errs[0]) });
                 }
                 return Ok(());
             }
@@ -3783,6 +3794,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let dbt: u32 = oks.iter().map(|r| r.dropped_bed_taken).sum();
                 let ed = oks.iter().fold([0u32; 4], |a, r| [a[0] + r.edges[0], a[1] + r.edges[1], a[2] + r.carts_in_out[0], a[3] + r.carts_in_out[1]]);
                 println!("villagers dropped while the bed was taken: {dbt}");
+                {
+                    let runs: u32 = oks.iter().map(|r| r.b_wrong.0).sum();
+                    let ticks: i64 = oks.iter().map(|r| r.b_wrong.1).sum();
+                    let first: Vec<String> = oks.iter().enumerate().filter_map(|(i, r)| r.b_wrong.2.map(|(t, lit)| format!("run {} at t0+{t} ({})", i + 1, if lit { "lit, the bed free" } else { "unlit, the bed occupied" }))).take(4).collect();
+                    println!("B's bulb against the bed (design (b)): {runs} runs of disagreement over 20 gt, {ticks} ticks{}", if first.is_empty() { String::new() } else { format!(" ({})", first.join("; ")) });
+                }
                 println!("detector edges: arrival (0,0,0) {} against {} carts in; return (3,0,0) {} against {} carts out{}", ed[0], ed[2], ed[1], ed[3], if ed[0] == ed[2] && ed[1] == ed[3] { "" } else { " (MISMATCH)" });
                 // (farmopt 03:55: per napped visit, the wake, the napper's first step off the free
                 // cell after it, the kicked cart's arrival at the free cell, and their margin)
@@ -3905,6 +3922,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         lost_naps += window.iter().filter(|v| v.slept.is_none()).count();
                     }
                     println!("fault {kind} on visit {fk}: visits until a clean one (napped, own cart, released), worst over the seeds: {worst} (0 = the faulted visit itself clean); naps lost in those: {lost_naps}");
+                    // (ironspec 05:47 item 1(a), the no-drop wait: the faulted visit's arrival to its
+                    // cart out past the exit, over the seeds)
+                    let mut leave: Vec<i64> = rows.iter().filter_map(|(_, r)| r.as_ref().ok()).filter_map(|r| r.visits.get(*fk)).filter_map(|v| v.exited.map(|e| e - v.arrived)).collect();
+                    leave.sort();
+                    if !leave.is_empty() {
+                        println!("  the faulted visit's cart out after its arrival: min {} median {} max {} gt ({} seeds)", leave[0], leave[leave.len() / 2], leave[leave.len() - 1], leave.len());
+                    }
                     for (seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))).take(4) {
                         for (j, v) in r.visits.iter().enumerate().skip(*fk).take(3) {
                             println!("  seed {seed} visit {j} (+{}): V before {:?}; slept {:?} re-boarded {:?} own cart {} ready {:?} released {:?} F {:?}{}", v.arrived - r.visits[*fk].arrived, v.v_before, v.slept.map(|x| x - v.arrived), v.reboarded.map(|x| x - v.arrived), v.own_cart, v.ready.map(|x| x - v.arrived), v.released.map(|x| x - v.arrived), v.forced.map(|x| x - v.arrived), v.problem.as_ref().map(|p| format!("; problem: {p}")).unwrap_or_default());
