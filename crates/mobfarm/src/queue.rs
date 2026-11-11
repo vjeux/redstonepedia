@@ -3621,6 +3621,14 @@ pub struct MeterState {
     l1: bool,
     l2: bool,
     dep_at: Option<i64>,
+    /// E, the stand known empty: set by pocket 3's departure edge at D2 (the stand open), reset by
+    /// the next train's first Dh edge
+    empty: bool,
+    /// per opening: the follower's distance short of H's plane when H shut (blocks; negative:
+    /// past it), and the released cart's Dh edge after the opening (gt)
+    short_at_shut: Vec<f64>,
+    open_to_dh: Vec<i64>,
+    last_open_t: Option<i64>,
     phase: u8,
     h_open: bool,
     h_close_at: Option<i64>,
@@ -3719,18 +3727,25 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.rel_open = true;
         s.l1 = false;
         s.l2 = false;
-        s.dep_at = None;
-        s.phase = 0;
-        s.open_at = None;
+        if s.phase != 0 && s.phase != 6 {
+            log(s, format!("{c}+{dt} REL mid-metering (phase {})", s.phase));
+        }
+        // (H open awaiting its cart's Dh edge: that edge still closes it; otherwise a new cycle)
+        if s.phase % 2 == 0 {
+            s.phase = 0;
+            s.open_at = None;
+        }
         s.miss_used = false;
         s.last_dep_clear = None;
         s.rel_count += 1;
         log(s, format!("{c}+{dt} REL"));
     }
     s.rel_was = rel_on;
-    // (pocket 3's departing cart, the first D2 edge with the stand open)
-    if rise[3] && s.rel_open && s.dep_at.is_none() {
+    // (E: pocket 3's departing cart, the first D2 edge with the stand open)
+    if rise[3] && s.rel_open && !s.empty {
+        s.empty = true;
         s.dep_at = Some(t);
+        log(s, format!("{c}+{dt} E"));
     }
     // (the departing carts clearing G0: each centre past x ox + 9.12 eastward with the stand open;
     // the first cart at each shut gate's face after it shut: G0 x 7.8, G1 3.8, G2 -0.2, crossed
@@ -3755,14 +3770,18 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             }
         }
     }
-    if s.phase == 0 && s.open_at.is_none() && s.dep_at.is_some_and(|d| t >= d + m.dep) && det_on[1] && s.det_on_since[1].is_some_and(|x| t - x >= m.hold_on) {
+    if s.phase == 0 && s.open_at.is_none() && s.empty && s.dep_at.is_some_and(|d| t >= d + m.dep) && det_on[1] && s.det_on_since[1].is_some_and(|x| t - x >= m.hold_on) {
         s.open_at = Some(t);
     }
     if rise[0] && s.phase % 2 == 1 {
         s.h_close_at = Some(t + m.close);
         s.dh_off_margin.push(s.det_off[0].map_or(999, |x| t - x));
+        if let Some(o) = s.last_open_t {
+            s.open_to_dh.push(t - o);
+        }
         if s.phase == 1 {
             s.rel_open = false;
+            s.empty = false;
             if let Some(l) = s.last_dep_clear {
                 s.g0_dep.push(t - l);
             }
@@ -3777,6 +3796,11 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             s.open_at = Some(t + if s.phase == 1 { m.d12 } else { m.d23 });
         }
         s.phase += 1;
+        // (a REL came while H was open: this edge closed H; the next cycle starts from E)
+        if s.phase > 2 && s.rel_open {
+            s.phase = 0;
+            s.open_at = None;
+        }
     }
     if rise[2] && !s.rel_open {
         if m.miss_d1 == c && !s.miss_used {
@@ -3809,6 +3833,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.h_open = true;
         s.phase += 1;
         s.last_open = Some(t);
+        s.last_open_t = Some(t);
         log(s, format!("{c}+{dt} H{}", s.phase.div_ceil(2)));
     }
     if s.h_close_at.is_some_and(|a| t >= a) {
@@ -3816,6 +3841,12 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.h_open = false;
         if let Some(p) = pos.iter().flatten().find(|p| in_h(p, 0.0)) {
             s.shut_on_cart.push(format!("H at slot {c} +{dt} (a cart at {:.2},{:.2},{:.2})", p.0, p.1, p.2));
+        }
+        // (the follower: the nearest cart on the descent's hold side, its box front's distance
+        // short of H's plane (the gate's south face, z 0.625); negative: it is past the face)
+        let short = pos.iter().flatten().filter(|p| (p.0 - (xb as f64 + 0.5)).abs() < 0.3 && p.2 > 0.0 && p.2 < 5.0 && p.1 > 2.0).map(|p| p.2 - 0.49 - 0.625).fold(f64::MAX, f64::min);
+        if short < 9.0 {
+            s.short_at_shut.push(short);
         }
         s.h_pending = Some(t);
     }
@@ -3895,6 +3926,8 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let mut problems = Vec::new();
     out.push(format!("meter (S3(ii)'s hold, emulated): {} releases, {} trains metered in; events: {}", s.rel_count, s.done_at.len(), s.events.iter().take(40).cloned().collect::<Vec<_>>().join(", ")));
     out.push(format!("meter margins: H closes, gt until a cart touches its face {}; Dh edges, gt since Dh was last off {}; G0 shut after the last departing cart cleared it {}; the first cart at G0's face after G0 shut {}, at G1's after G1 shut {}, at G2's after G2 shut {}", span(&s.h_touch), span(&s.dh_off_margin), span(&s.g0_dep), span(&s.face[0]), span(&s.face[1]), span(&s.face[2])));
+    let fspan = |v: &[f64]| if v.is_empty() { "-".to_string() } else { format!("{:.2}..{:.2} (n {})", v.iter().cloned().fold(f64::MAX, f64::min), v.iter().cloned().fold(f64::MIN, f64::max), v.len()) };
+    out.push(format!("meter H per opening: the released cart's Dh edge after the opening {} gt; the follower short of H's plane when H shut {} blocks (ironfarm's escapement: >= 0.66)", span(&s.open_to_dh), fspan(&s.short_at_shut)));
     out.push(format!("meter spacing (consecutive rising edges under 100 gt): Dh {}, Darr {}, D1 {}, D2 {}", span(&s.spacing[0]), span(&s.spacing[1]), span(&s.spacing[2]), span(&s.spacing[3])));
     let worst = |f: &dyn Fn(&(f64, f64, f64, f64)) -> f64| s.rows.iter().map(f).fold(0.0f64, f64::max);
     let back: Vec<f64> = s.rows.iter().map(|r| r.3 - r.2).collect();
