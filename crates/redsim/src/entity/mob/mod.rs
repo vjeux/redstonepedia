@@ -1320,6 +1320,8 @@ pub fn rider_seat(v: &EntityKind, rider: &MobState) -> Option<(f64, f64)> {
         EntityKind::Mob(m) if m.ty.def().id == "spider" => 0.765f32 as f64,
         // an adult horse's (`passengerAttachments`; its stand shift: `ride_tick`)
         EntityKind::Mob(m) if matches!(m.ty.def().id, "zombie_horse" | "skeleton_horse") => 1.31875f32 as f64,
+        // a baby zombie horse's (ZombieHorse.BABY_DIMENSIONS: height - 0.25, then x 0.7)
+        EntityKind::Mob(m) if m.ty.def().id == "baby_zombie_horse" => ((1.6f32 - 0.25f32) * 0.7f32) as f64,
         EntityKind::Mob(m) if m.ty.def().id == "horse" => 1.44375f32 as f64,
         EntityKind::Mob(m) if m.ty.def().id == "donkey" => 1.1125f32 as f64,
         // a chicken's new Vec3(0, 0.7, -0.1) (its -0.1 turned with its yaw: `ride_tick`); a

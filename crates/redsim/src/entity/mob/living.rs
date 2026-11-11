@@ -1207,8 +1207,8 @@ fn root_vehicle(w: &World, id: u32) -> u32 {
     cur
 }
 
-/// `Entity.isPushable` of the entities a mob can push.
-fn pushable(e: &entity::Entity) -> bool {
+/// `Entity.isPushable` of the entities a mob (or the AFK player) can push.
+pub(crate) fn pushable(e: &entity::Entity) -> bool {
     match &e.kind {
         // (tickexact 2026-11-10) AbstractHorse.isPushable: not while it carries a rider, nothing
         // else (a zombie jockey's horse: a creeper pushing it got the push back, d1u-deep t7324)

@@ -188,8 +188,9 @@ fn leave_block(w: &mut World, i: usize) {
     // Block.updateFromNeighbourShapes and canSurvive: a block without its own canSurvive survives
     // anywhere (a snowy one takes its snowy flag from the cell above); a small flower needs
     // #supports_vegetation under it (VegetationBlock), a mushroom #overrides_mushroom_light_
-    // requirement or raw light below 13 over a solid-render block (MushroomBlock); their shape
-    // update keeps them once they survive
+    // requirement or raw light below 13 over a solid-render block (MushroomBlock). One that
+    // cannot survive there turns to air in its shape update (VegetationBlock.updateShape), and
+    // air survives: the enderman "places" air on the air and holds nothing (its block is gone)
     let name = carried.to_string();
     let base = name.split('[').next().unwrap_or("").to_string();
     let Some(cp) = props_at_name(&name) else {
@@ -208,10 +209,9 @@ fn leave_block(w: &mut World, i: usize) {
         refuse(w, format!("an enderman placing {base} (its canSurvive and shape update) is not modeled"));
         return;
     };
-    if !survives {
-        return;
-    }
-    let placed = if name.contains("snowy=") {
+    let placed = if !survives {
+        Block::Air
+    } else if name.contains("snowy=") {
         let above = w.get(pos.above()).to_string();
         let snowy = above.starts_with("minecraft:snow[") || above == "minecraft:snow_block" || above.starts_with("minecraft:snow ");
         let s = name.replace("snowy=true", "snowy=false").replace("snowy=false", if snowy { "snowy=true" } else { "snowy=false" });

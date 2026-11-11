@@ -144,7 +144,7 @@ fn root_vehicle(w: &World, i: usize) -> usize {
 /// `Mob.chargeSpeedModifier()`: a zombie horse's 1.4, every other mob's 1.
 fn charge_speed_modifier(w: &World, k: usize) -> f32 {
     match &w.entities.list[k].kind {
-        EntityKind::Mob(m) if m.ty.def().id == "zombie_horse" => 1.4,
+        EntityKind::Mob(m) if matches!(m.ty.def().id, "zombie_horse" | "baby_zombie_horse") => 1.4,
         _ => 1.0,
     }
 }

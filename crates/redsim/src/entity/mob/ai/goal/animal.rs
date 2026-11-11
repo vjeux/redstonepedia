@@ -174,7 +174,9 @@ pub fn horse_seat_shift(w: &World, vi: usize) -> crate::entity::Vec3 {
     if s == 0.0 {
         return crate::entity::Vec3::ZERO;
     }
-    let (y, z) = (0.15 * s, -0.7 * s);
+    // x the scale: getScale() x getAgeScale() (a baby's 0.5)
+    let scale = if is_baby(mob(w, vi).ty.def().id) { 0.5f32 } else { 1.0f32 } as f64;
+    let (y, z) = (0.15 * s * scale, -0.7 * s * scale);
     let a = -w.entities.list[vi].y_rot * (std::f32::consts::PI / 180.0);
     let (c, sn) = (crate::entity::mth::cos(a as f64) as f64, crate::entity::mth::sin(a as f64) as f64);
     crate::entity::Vec3::new(z * sn, y, z * c)
@@ -189,10 +191,10 @@ pub fn adult_of(id: &str) -> Option<&'static str> {
         "sheep" | "baby_sheep" => Some("sheep"),
         "horse" | "baby_horse" => Some("horse"),
         "donkey" | "baby_donkey" => Some("donkey"),
-        "zombie_horse" => Some("zombie_horse"),
+        "zombie_horse" | "baby_zombie_horse" => Some("zombie_horse"),
         "skeleton_horse" => Some("skeleton_horse"),
         // (mob-AI 2026-11-10) the wolf (a TamableAnimal: an Animal; natural wolves are adults)
-        "wolf" => Some("wolf"),
+        "wolf" | "baby_wolf" => Some("wolf"),
         _ => None,
     }
 }

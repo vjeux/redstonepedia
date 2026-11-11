@@ -55,8 +55,9 @@ fn push_pair(w: &mut World, k: usize, j: usize, player_first: bool) {
     z *= power;
     x *= 0.05f32 as f64;
     z *= 0.05f32 as f64;
-    // `this` takes (-x, -z), the other (x, z); a mob carrying a rider is not pushed
-    let mob_pushable = w.entities.list[j].passengers.is_empty() && crate::entity::minecart::is_pushable(&w.entities.list[j]);
+    // `this` takes (-x, -z), the other (x, z); a mob carrying a rider is not pushed (isVehicle),
+    // nor one that is not pushable (a ridden horse, a bat, a climbing spider)
+    let mob_pushable = w.entities.list[j].passengers.is_empty() && crate::entity::mob::living::pushable(&w.entities.list[j]);
     let (pk, pe) = if player_first { ((-x, -z), (x, z)) } else { ((x, z), (-x, -z)) };
     let b = body(w, k);
     b.delta = b.delta.add(pk.0, 0.0, pk.1);
@@ -140,8 +141,9 @@ pub fn tick(w: &mut World) {
             }
         }
         *body(w, k) = b;
-        // pushEntities: each mob its box meets, `mob.push(player)`
-        let others = w.get_entities(bb(np), |e| matches!(e.kind, EntityKind::Mob(_)) && !e.removed && crate::entity::minecart::is_pushable(e));
+        // pushEntities: each mob its box meets that is pushable (EntitySelector.pushableBy:
+        // isPushable, so not a ridden horse, a bat or a climbing spider), `mob.push(player)`
+        let others = w.get_entities(bb(np), |e| matches!(e.kind, EntityKind::Mob(_)) && !e.removed && crate::entity::mob::living::pushable(e));
         for j in others {
             push_pair(w, k, j, false);
         }

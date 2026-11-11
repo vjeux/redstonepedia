@@ -1263,6 +1263,64 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (mob-AI 2026-11-10) a zombie horse and its baby (Age -24000: ZombieHorse.BABY_DIMENSIONS,
+    // the zombie horse's x 0.7) at night: the baby's box and its FollowParentGoal, both strolls
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "zombie-horse-baby".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:zombie_horse", [20.5, 64.0, 20.5], "{PersistenceRequired:1b}"),
+                p("minecraft:zombie_horse", [28.5, 64.0, 26.5], "{PersistenceRequired:1b,Age:-24000}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) an enderman by a patch of dandelions on grass in a stone arena at night:
+    // it takes a dandelion (EndermanTakeBlockGoal) and, off the grass, its EndermanLeaveBlockGoal
+    // finds the flower cannot survive on stone (VegetationBlock.updateShape: air), so it "places"
+    // air and holds nothing
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 4, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 4, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 4, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 4, stone);
+        for x in 22..=24 {
+            for z in 22..=24 {
+                b.push(([x, 63, z], "minecraft:grass_block[snowy=false]".to_string()));
+                b.push(([x, 64, z], "minecraft:dandelion".to_string()));
+            }
+        }
+        v.push(Scene {
+            name: "enderman-flower".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:enderman".into(), [23.5, 64.0, 26.5], Some("{PersistenceRequired:1b}".into()))],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 72, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // a skeleton alone at night: strolls, looks around (RestrictSunGoal idle in the dark)
     {
         let mut b = Vec::new();

@@ -25,6 +25,7 @@ cart-train.rec	17ec81151bf10b6f		26.3	2026-11-10T07:00Z on d811d6f2a	mctas mobai
 chicken-jockey-flag.rec	8fa3fe767611d11e		26.3	2026-11-09T09:18Z on 05e0d74842	mctas mobai record chicken-jockey-flag --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 drowned-trident.rec	37b7967c66fa587d		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+enderman-flower.rec	380b5c44d8b814db		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-golem.rec	03bed56814f1516a		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 golem-summon.rec	9211d49a03edc4b0		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record golem-summon --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
@@ -48,6 +49,7 @@ wolf-pack.rec	77cfb2718f101e56		26.3	uncommitted	recorded before manifests: see 
 wolf-skeleton.rec	1cbf8fae6aa1722b		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-door.rec	ab5e3e201b44edd3		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-door --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-drowning.rec	8bacb3c82b85ce5c		26.3	2026-11-09T12:30Z on d445b48fa6	mctas mobai record zombie-drowning --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-horse-baby.rec	631ad2ea616df98c		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-obstacles.rec	26fc66de4a19d6ae		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-obstacles --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-spear.rec	28b890397c1c4153		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-stroll.rec	3fda981d2947ddc8		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-stroll --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

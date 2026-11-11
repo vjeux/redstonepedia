@@ -122,6 +122,9 @@ pub static DEFS: &[TypeDef] = &[
     // 2; its baby's BABY_DIMENSIONS 0.49 x 0.98, eye 0.78)
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(47, "zombified_piglin", "minecraft:zombified_piglin", 0.6, 1.95, 1.79, 20.0, 0.23f32 as f64, true, false, 0.6) },
     TypeDef { follow_range: 35.0, armor: 2.0, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(48, "baby_zombified_piglin", "minecraft:zombified_piglin", 0.49, 0.98, 0.78, 20.0, 0.23f32 as f64 * 1.5, true, false, 0.6) },
+    // (mob-AI 2026-11-10) a baby zombie horse (AbstractHorse.finalizeSpawn: 1 in 5):
+    // ZombieHorse.BABY_DIMENSIONS, the zombie horse's x 0.7 (its passenger seat: `rider_seat`)
+    row(49, "baby_zombie_horse", "minecraft:zombie_horse", 1.3964844 * 0.7, 1.6 * 0.7, 1.52 * 0.7, 25.0, 0.2f32 as f64, false, true, 1.0),
 ];
 
 // ------------------------------------------------------------------------- the categories
@@ -310,7 +313,7 @@ pub static KINDS: &[Kind] = &[
     kind("minecraft:zombie", MobType::Zombie, C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(25)), F::Zombie, false, W::Monster),
     kind("minecraft:zombie_villager", MobType::Natural(2), C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(26)), F::Zombie, false, W::Monster),
     kind("minecraft:drowned", MobType::Natural(8), C::Monster, P::InWater, Rule::Drowned, 4, true, Some(MobType::Natural(27)), F::Drowned, true, W::Monster),
-    kind("minecraft:zombie_horse", MobType::Natural(3), C::Monster, P::OnGround, Rule::Monster, 6, true, None, F::ZombieHorse, false, W::Animal),
+    kind("minecraft:zombie_horse", MobType::Natural(3), C::Monster, P::OnGround, Rule::Monster, 6, true, Some(MobType::Natural(49)), F::ZombieHorse, false, W::Animal),
     kind("minecraft:skeleton", MobType::Natural(4), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Skeleton, false, W::Monster),
     kind("minecraft:creeper", MobType::Natural(5), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Mob, false, W::Monster),
     kind("minecraft:spider", MobType::Natural(0), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Spider, false, W::Monster),
@@ -2369,10 +2372,11 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
             {
                 set_chicken_jockey(w, c);
             }
-            if w.mob.ai.on && f.jockey == Jockey::HorseZombie {
+            if w.mob.ai.on {
                 // with the mob AI on, the zombie horseman really rides (ZombieHorse.finalizeSpawn:
                 // snapTo(the horse's x, y, z, yRot, 0), an iron spear in its hand, startRiding);
-                // it steers the horse (the horse's MOVE, JUMP and LOOK goals off)
+                // it steers the horse (the horse's MOVE, JUMP and LOOK goals off). A baby zombie
+                // rides the same way (the same code; its seat: its own vehicle attachment 0.1875)
                 let r = super::add(w, rty, pos, false);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
@@ -2393,9 +2397,6 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 }
                 rider = Some(r);
             } else {
-                if w.mob.ai.on {
-                    w.mob.ai.legacy.insert("a baby zombie horseman's riding");
-                }
                 let r = super::add(w, rty, pos, true);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
