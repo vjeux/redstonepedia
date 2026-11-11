@@ -888,6 +888,84 @@ pub fn stair_lint(designs: &[std::path::PathBuf], plants: &[String], climbs: boo
     Ok(())
 }
 
+/// The powered check (ironspec 10:11: a moved dust powers nothing it didn't before): the blocks the
+/// dust of each file powers (the block under each dust, and each block a dust's shape points into:
+/// a side or up connection, or all four for a dot), compared. Prints the blocks powered only in `b`
+/// and only in `a`, each with what reads it (a diode whose input it is, a comparator side, a
+/// mechanism beside it, a torch on it); PASS (exit 0) iff no block newly powered in `b` has a reader.
+pub fn power_diff(a: &Path, b: &Path) -> Result<()> {
+    use std::collections::BTreeSet;
+    let powered = |d: &mctas::design::Design| -> BTreeSet<[i32; 3]> {
+        let mut out = BTreeSet::new();
+        for (p, s) in &d.blocks {
+            if !s.starts_with("minecraft:redstone_wire") {
+                continue;
+            }
+            out.insert([p[0], p[1] - 1, p[2]]);
+            let conn = |dir: &str| s.split(&format!("{dir}=")).nth(1).and_then(|r| r.split([',', ']']).next()).is_some_and(|v| v == "side" || v == "up");
+            let dirs = [("north", [0, 0, -1]), ("south", [0, 0, 1]), ("east", [1, 0, 0]), ("west", [-1, 0, 0])];
+            let dot = dirs.iter().all(|(n, _)| !conn(n));
+            for (n, dv) in dirs {
+                if dot || conn(n) {
+                    out.insert([p[0] + dv[0], p[1], p[2] + dv[2]]);
+                }
+            }
+        }
+        // (only blocks that are there and are not dust: a dust "powered" by dust is the net, not a block)
+        out.into_iter().filter(|q| d.blocks.get(q).is_some_and(|s| !s.ends_with(":air") && !s.starts_with("minecraft:redstone_wire"))).collect()
+    };
+    let readers = |d: &mctas::design::Design, q: [i32; 3]| -> Vec<String> {
+        let mut v = Vec::new();
+        for dv in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]] {
+            let c = [q[0] + dv[0], q[1] + dv[1], q[2] + dv[2]];
+            let Some(s) = d.blocks.get(&c) else { continue };
+            let n = s.split('[').next().unwrap_or(s);
+            let facing = s.split("facing=").nth(1).and_then(|r| r.split([',', ']']).next()).unwrap_or("");
+            let f = match facing {
+                "north" => [0, 0, -1],
+                "south" => [0, 0, 1],
+                "east" => [1, 0, 0],
+                "west" => [-1, 0, 0],
+                _ => [0, 0, 0],
+            };
+            if n.ends_with("repeater") || n.ends_with("comparator") {
+                if [c[0] + f[0], c[1], c[2] + f[2]] == q {
+                    v.push(format!("{n} at {c:?} (input)"));
+                } else if n.ends_with("comparator") && dv[1] == 0 && f != [0, 0, 0] && (f[0] == 0) != (dv[0] == 0) {
+                    v.push(format!("{n} at {c:?} (side)"));
+                }
+            } else if n == "minecraft:redstone_torch" && dv == [0, 1, 0] {
+                v.push(format!("torch at {c:?} (on it)"));
+            } else if n == "minecraft:redstone_wall_torch" && [c[0] - f[0], c[1], c[2] - f[2]] == q {
+                v.push(format!("wall torch at {c:?} (on it)"));
+            } else if ["piston", "powered_rail", "activator_rail", "redstone_lamp", "dropper", "dispenser", "hopper", "copper_bulb", "door", "fence_gate", "note_block", "tnt"].iter().any(|m| n.contains(m)) {
+                v.push(format!("{n} at {c:?} (beside)"));
+            }
+        }
+        v
+    };
+    let da = mctas::design::Design::load(a)?;
+    let db = mctas::design::Design::load(b)?;
+    let (pa, pb) = (powered(&da), powered(&db));
+    let mut bad = 0usize;
+    println!("powered only in {}:", b.display());
+    for q in pb.difference(&pa) {
+        let r = readers(&db, *q);
+        if !r.is_empty() {
+            bad += 1;
+        }
+        println!("  {q:?} {} -> {}", db.blocks.get(q).map(|s| s.as_str()).unwrap_or("?"), if r.is_empty() { "read by nothing".to_string() } else { format!("READ BY {}", r.join(", ")) });
+    }
+    println!("powered only in {}:", a.display());
+    for q in pa.difference(&pb) {
+        let r = readers(&da, *q);
+        println!("  {q:?} {} -> {}", da.blocks.get(q).map(|s| s.as_str()).unwrap_or("?"), if r.is_empty() { "read by nothing".to_string() } else { format!("read by {}", r.join(", ")) });
+    }
+    println!("{} newly powered block(s) with a reader", bad);
+    anyhow::ensure!(bad == 0, "a block newly powered by dust has a reader");
+    Ok(())
+}
+
 /// `trace-diff` (the fold's check: which control lines moved, and by how much): two `release-trace`
 /// outputs, per port: identical, every edge shifted by the same gt (and that shift), or the first
 /// edge that differs.

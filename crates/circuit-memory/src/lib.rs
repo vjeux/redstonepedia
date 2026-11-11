@@ -260,6 +260,9 @@ enum Cmd {
         #[arg(long)]
         climbs: bool,
     },
+    /// The powered check (a moved dust powers nothing it didn't before): the blocks each file's dust
+    /// powers (under it, pointed into), compared; fails iff a block newly powered in B has a reader.
+    PowerDiff { a: PathBuf, b: PathBuf },
     /// The shared bed's nearest rider (ironspec 2026-11-11: a calm villager within 16 of an
     /// occupied bed loses HOME for good): the least distance from a bed block's centre to a
     /// rider's place on a rail inside the riders' box (the loop's: its carts carry the riders
@@ -614,6 +617,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::NapReport { log } => releasebench::nap_report(&log)?,
         Cmd::TraceDiff { a, b } => releasebench::trace_diff(&a, &b)?,
         Cmd::StairLint { designs, plant, climbs } => releasebench::stair_lint(&designs, &plant, climbs)?,
+        Cmd::PowerDiff { a, b } => releasebench::power_diff(&a, &b)?,
         Cmd::BedDistance { design, riders } => releasebench::bed_distance(&design, &riders)?,
         Cmd::Price { designs, ground, stage } => releasebench::price(&designs, ground, &stage)?,
         Cmd::DesignEdit { file, out, move_block, move_entity } => releasebench::design_edit(&file, &out, &move_block, &move_entity)?,

@@ -88,7 +88,12 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     let before: std::collections::BTreeSet<P3> = d.blocks.keys().copied().collect();
     // ---- the siding
     let s = Design::load(siding)?;
-    let inbox = |q: &P3| (-7..=6).contains(&q[0]) && (-4..=4).contains(&q[1]) && (-3..=9).contains(&q[2]);
+    // (the siding's documented box is y -4..4; a build that wires below it (58f770cc's FC build
+    // f4896c497: y -7) is pasted whole with MCTAS_SIDING_YLO)
+    let ylo: i32 = std::env::var("MCTAS_SIDING_YLO").ok().and_then(|v| v.parse().ok()).unwrap_or(-4);
+    // (and z -4 for that build: F's tap; 58f770cc 10:19: the box x -7..6, y -7..4, z -4..9)
+    let zlo: i32 = std::env::var("MCTAS_SIDING_ZLO").ok().and_then(|v| v.parse().ok()).unwrap_or(-3);
+    let inbox = |q: &P3| (-7..=6).contains(&q[0]) && (ylo..=4).contains(&q[1]) && (zlo..=9).contains(&q[2]);
     let at = |q: &P3| siding_at(*q);
     let srot = |s: &str| clock::canon::rotate_state(s, SIDING_TURNS);
     // (measurement only, ironspec 2026-11-11: the integration gate's second night, every napper
@@ -237,7 +242,7 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     }
     // the always-on redstone blocks (the climbs', the boosters') must touch nothing that carries a
     // signal besides their own rail: every redstone block this part added
-    let in_siding = |p: &P3| (-7..=6).contains(&(p[0] - SIDING_AT[0])) && (-4..=4).contains(&(p[1] - SIDING_AT[1])) && (-3..=9).contains(&(p[2] - SIDING_AT[2]));
+    let in_siding = |p: &P3| (-7..=6).contains(&(p[0] - SIDING_AT[0])) && (ylo..=4).contains(&(p[1] - SIDING_AT[1])) && (zlo..=9).contains(&(p[2] - SIDING_AT[2]));
     let always_on: Vec<P3> = b.blocks.iter().filter(|(p, s)| !before.contains(*p) && s.as_str() == RBLOCK && !in_siding(p)).map(|(p, _)| *p).collect();
     for rb in always_on {
         for dlt in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]] {

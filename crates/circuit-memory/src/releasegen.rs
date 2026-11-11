@@ -260,9 +260,14 @@ fn feed(b: &mut B, srcs: &[(P3, usize)], end: P3, total: u8, near: &[P3], lo: P3
         if run0 >= 13 {
             continue;
         }
-        for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1]] {
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
             let s = [src[0] + d[0], src[1] + d[1], src[2] + d[2]];
             if b.blocks.get(&s).is_some_and(|x| !x.ends_with(":air")) {
+                continue;
+            }
+            // (a start down a stair from the source (tried last: every earlier layout found an
+            // earlier start): the cell beside the source over it must be transparent)
+            if d[1] == -1 && b.blocks.get(&[src[0] + d[0], src[1], src[2] + d[2]]).is_some_and(|x| !x.ends_with(":air") && !x.contains("glass")) {
                 continue;
             }
             let mut n: Vec<P3> = near.to_vec();
@@ -690,8 +695,8 @@ fn and_gadget(b: &mut B, ys: &[i32], xs: std::ops::RangeInclusive<i32>, zs: std:
         ([0, 0, -1], "minecraft:comparator[facing=west,mode=subtract,powered=false]".into()),
         ([1, 0, -1], DUST.into()),
     ];
-    let inputs = [[-2, 0, 0], [-1, 0, -1]];
-    let v = place_gadget(b, &gad, &inputs, ys, xs, zs, what)?;
+    let inputs = [[-2, 0, 0], [-1, 0, -1], [2, 0, -1], [-3, 0, 0], [-1, 0, -2]];
+    let v = place_gadget_in(b, &gad, &inputs, ys, xs, zs, &in_go_chunk, what)?;
     let at = |d: [i32; 3]| [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
     Ok((at([-2, 0, 0]), at([-1, 0, -1]), at([1, 0, -1])))
 }
@@ -700,6 +705,12 @@ fn and_gadget(b: &mut B, ys: &[i32], xs: std::ops::RangeInclusive<i32>, zs: std:
 /// in the ranges where every cell and support is free and no foreign conductor touches a cell (at
 /// its level, above, or on a diagonal a dust could join).
 fn place_gadget(b: &mut B, gad: &[([i32; 3], String)], inputs: &[[i32; 3]], ys: &[i32], xs: std::ops::RangeInclusive<i32>, zs: std::ops::RangeInclusive<i32>, what: &str) -> Result<P3> {
+    place_gadget_in(b, gad, inputs, ys, xs, zs, &|_| true, what)
+}
+
+/// `place_gadget` with every cell (and input) kept where `inside` says (GO's chunk for the head).
+#[allow(clippy::too_many_arguments)]
+fn place_gadget_in(b: &mut B, gad: &[([i32; 3], String)], inputs: &[[i32; 3]], ys: &[i32], xs: std::ops::RangeInclusive<i32>, zs: std::ops::RangeInclusive<i32>, inside: &dyn Fn(P3) -> bool, what: &str) -> Result<P3> {
     let own: std::collections::BTreeSet<[i32; 3]> = gad.iter().map(|(d, _)| *d).chain(inputs.iter().copied()).collect();
     let free = |b: &B, q: P3| b.blocks.get(&q).is_none_or(|s| s.ends_with(":air"));
     for &y in ys {
@@ -708,6 +719,9 @@ fn place_gadget(b: &mut B, gad: &[([i32; 3], String)], inputs: &[[i32; 3]], ys: 
                 let v = [vx, y, vz];
                 for d in &own {
                     let c = [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
+                    if !inside(c) {
+                        continue 'v;
+                    }
                     let sup = [c[0], c[1] - 1, c[2]];
                     if !free(b, c) || (!free(b, sup) && b.blocks.get(&sup).map(|s| s.as_str()) != Some(STONE)) {
                         continue 'v;
@@ -811,12 +825,320 @@ fn cancel_source(b: &mut B) -> Result<()> {
     Ok(())
 }
 
+/// GO's chunk (x -6..9, z 10..25 at loop 0,0, every y): the S3 head's state and wiring stay in it
+/// (ironspec 09:09: permission state head-side in GO's chunk; only edges cross the chunk line).
+fn in_go_chunk(p: P3) -> bool {
+    (-6..=9).contains(&p[0]) && (10..=25).contains(&p[2])
+}
+
+/// The head's free levels under the core, in GO's chunk (a gadget on y, its supports on y - 1).
+const HEAD_YS: [i32; 6] = [-11, -13, -15, -17, -19, -21];
+
+/// An edge-cleared latch's cells: where its inputs land and its Q leaves.
+struct Latch {
+    clear_in: P3,
+    set_in: P3,
+    gate_in: Option<P3>,
+    q: P3,
+    /// (the components each landing feeds, for the router's `near`)
+    clear_near: [P3; 2],
+    set_near: P3,
+    gate_near: Option<P3>,
+}
+
+/// An edge-cleared loop latch (permit_fixed's latch with an edge detector on its clear): Rl (0,0,0)
+/// a repeater facing south refreshing the loop o+(0..2, 0, -1..2); Cl (2,0,0) a subtract comparator
+/// the clear breaks; the clear repeater (3,0,0) (4 rt: a clear lasts 8 gt) from the edge comparator
+/// Ce (4,0,0) = A - (A delayed 8 gt) (the input landing A (5,0,0); the delay (5,0,1) 2 rt, the dusts
+/// (5,0,2) (4,0,2), (4,0,1) 2 rt into Ce's side): a rising input clears once and a held one holds no
+/// clear, so a re-arm after the clear's 8 gt wins (ironspec 09:09). Set through (1,0,4) 4 rt and
+/// (1,0,3) 2 rt into the loop from the landing (1,0,5) or, gated (EMP: set = launch AND NOT E), from
+/// Cg (1,0,5) = launch (1,0,6) - E (its side repeater (2,0,5) from the landing (3,0,5)). Q: the
+/// repeater (-1,0,-1) out to the dust (-2,0,-1).
+fn latch_gadget(b: &mut B, gated: bool, what: &str) -> Result<Latch> {
+    let cmp = |f: &str| format!("minecraft:comparator[facing={f},mode=subtract,powered=false]");
+    let mut gad: Vec<([i32; 3], String)> = vec![([0, 0, 0], rep("south", 1))];
+    for d in [[0, 0, -1], [1, 0, -1], [2, 0, -1], [2, 0, 1], [2, 0, 2], [1, 0, 2], [0, 0, 2], [0, 0, 1]] {
+        gad.push((d, DUST.into()));
+    }
+    gad.push(([2, 0, 0], cmp("north")));
+    gad.push(([3, 0, 0], rep("east", 4)));
+    gad.push(([4, 0, 0], cmp("east")));
+    gad.push(([5, 0, 1], rep("north", 2)));
+    gad.push(([5, 0, 2], DUST.into()));
+    gad.push(([4, 0, 2], DUST.into()));
+    gad.push(([4, 0, 1], rep("south", 2)));
+    gad.push(([1, 0, 3], rep("south", 2)));
+    gad.push(([1, 0, 4], rep("south", 4)));
+    gad.push(([-1, 0, -1], rep("east", 1)));
+    gad.push(([-2, 0, -1], DUST.into()));
+    if gated {
+        gad.push(([1, 0, 5], cmp("south")));
+        gad.push(([2, 0, 5], rep("east", 1)));
+    }
+    // (the landings are left empty, reserved: each route lays its own end dust there; and each
+    // landing's outward cell kept clear: its route arrives there)
+    let mut clear: Vec<[i32; 3]> = vec![[5, 0, 0], [6, 0, 0], [-3, 0, -1]];
+    if gated {
+        clear.extend([[1, 0, 6], [1, 0, 7], [3, 0, 5], [4, 0, 5]]);
+    } else {
+        clear.extend([[1, 0, 5], [1, 0, 6]]);
+    }
+    let v = place_gadget_in(b, &gad, &clear, &HEAD_YS, -6..=9, 10..=25, &in_go_chunk, what)?;
+    let at = |d: [i32; 3]| [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
+    Ok(Latch {
+        clear_in: at([5, 0, 0]),
+        set_in: if gated { at([1, 0, 6]) } else { at([1, 0, 5]) },
+        gate_in: gated.then(|| at([3, 0, 5])),
+        q: at([-2, 0, -1]),
+        clear_near: [at([4, 0, 0]), at([5, 0, 1])],
+        set_near: if gated { at([1, 0, 5]) } else { at([1, 0, 4]) },
+        gate_near: gated.then(|| at([2, 0, 5])),
+    })
+}
+
+/// RETRY's shaper gadget (retry_source's cells: I = 15 - SIDE, C = REAR - I, an edge on C's rise, a
+/// 4-rt extender and two copies 6 gt apart: one 14-gt pulse per rise), placed in GO's chunk. Returns
+/// (rear input, side input, output N, rear's near, side's near).
+fn shaper_gadget(b: &mut B, what: &str) -> Result<(P3, P3, P3, [P3; 2], P3)> {
+    let gad: Vec<([i32; 3], String)> = vec![
+        ([0, 0, 0], "minecraft:comparator[facing=south,mode=subtract,powered=false]".into()),
+        ([0, 0, 1], rep("south", 1)),
+        ([0, 0, 2], "minecraft:redstone_block".into()),
+        ([-1, 0, 0], rep("west", 1)),
+        ([0, 0, -1], "minecraft:comparator[facing=west,mode=subtract,powered=false]".into()),
+        ([1, 0, -1], DUST.into()),
+        ([2, 0, -1], "minecraft:comparator[facing=west,mode=subtract,powered=false]".into()),
+        ([1, 0, -2], rep("south", 1)),
+        ([2, 0, -2], rep("north", 1)),
+        ([1, 0, -3], DUST.into()),
+        ([2, 0, -3], DUST.into()),
+        ([3, 0, -1], rep("west", 4)),
+        ([4, 0, -1], DUST.into()),
+        ([5, 0, -1], rep("west", 1)),
+        ([4, 0, -2], rep("south", 3)),
+        ([4, 0, -3], DUST.into()),
+        ([5, 0, -3], DUST.into()),
+        ([6, 0, -3], DUST.into()),
+        ([6, 0, -2], rep("north", 1)),
+        ([6, 0, -1], DUST.into()),
+    ];
+    let inputs = [[-2, 0, 0], [-1, 0, -1], [7, 0, -1], [-3, 0, 0], [-1, 0, -2]];
+    let v = place_gadget_in(b, &gad, &inputs, &HEAD_YS, -6..=9, 10..=25, &in_go_chunk, what)?;
+    let at = |d: [i32; 3]| [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
+    Ok((at([-1, 0, -1]), at([-2, 0, 0]), at([6, 0, -1]), [at([0, 0, -1]), at([-1, 0, 0])], at([-1, 0, 0])))
+}
+
+/// A port: a dust landing on a stone at a free cell of GO's chunk, nothing foreign beside it, the
+/// bench's (or S3's) drive. With `delay` > 0 a repeater of that many rt follows it into a second dust
+/// (the delayed source). Returns (port, the source routes start from).
+fn head_port(b: &mut B, name: &str, delay: u8) -> Result<(P3, P3)> {
+    let mut gad: Vec<([i32; 3], String)> = vec![([0, 0, 0], DUST.into())];
+    if delay > 0 {
+        gad.push(([1, 0, 0], rep("west", delay)));
+        gad.push(([2, 0, 0], DUST.into()));
+    }
+    // (a clear ring round the source cell: the routes start beside it)
+    let src = if delay > 0 { [2, 0, 0] } else { [0, 0, 0] };
+    let mut ring: Vec<[i32; 3]> = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].iter().map(|d| [src[0] + d[0], 0, src[2] + d[2]]).filter(|c| !gad.iter().any(|(g, _)| g == c)).collect();
+    if delay > 0 {
+        ring.retain(|c| *c != [1, 0, 0]);
+    }
+    let v = place_gadget_in(b, &gad, &ring, &HEAD_YS, -6..=9, 10..=25, &in_go_chunk, &format!("S3 head: port {name}"))?;
+    b.ports.insert(name.into(), v);
+    Ok((v, if delay > 0 { [v[0] + 2, v[1], v[2]] } else { v }))
+}
+
+/// A route that may end on any of `ends` (the first that lays), each with its own near cells.
+fn feed_any(b: &mut B, srcs: &[(P3, usize)], ends: &[(P3, Vec<P3>)], what: &str) -> Result<Vec<(P3, usize)>> {
+    let none = std::collections::BTreeSet::new();
+    let (lo, hi) = ([-6, -24, 10], [9, -2, 25]);
+    let mut why = Vec::new();
+    for (e, near) in ends {
+        // (every source cell is the same net: a start or path cell may join any of them)
+        let mut nn = near.clone();
+        nn.extend(srcs.iter().map(|(c, _)| *c));
+        match feed(b, srcs, *e, 4, &nn, lo, hi, what, &none) {
+            Ok(p) => return Ok(p),
+            Err(err) => why.push(format!("{e:?}: {err}")),
+        }
+    }
+    bail!("{what}: no route ({})", why.join("; "))
+}
+
+/// The REQ readback re-lay (ironspec 10:11, option 1; MCTAS_REQ_RELAY): the readback line (the
+/// comparator (-5,-5,24) reading the bulb, out west into (-6,-5,24), north along x -6 to (-6,-5,22),
+/// east to (-5,-5,22), the repeater (-4,-5,22) into X) runs along GO's chunk edge with no free side.
+/// Its middle two dusts drop one level: (-6,-5,23) and (-6,-5,22) go, dusts at (-6,-6,23) and
+/// (-6,-6,22) (their old supports) on new supports (-6,-7,23) and (-6,-7,22): (-6,-5,24) steps down
+/// to (-6,-6,23) and (-6,-6,22) climbs back to (-5,-5,22) (each stair's cap cell left air). Dust
+/// carries no delay and the repeater still reads >= 10, so REQ reaches X as before; (-6,-6,23) gets a
+/// free side (-5,-6,23) inside GO's chunk, the cancel's REQ tap.
+fn req_relay(b: &mut B) -> Result<()> {
+    let is = |b: &B, p: P3, what: &str| b.blocks.get(&p).is_some_and(|s| s.starts_with(what));
+    let free = |b: &B, p: P3| b.blocks.get(&p).is_none_or(|s| s.ends_with(":air"));
+    for p in [[-6, -5, 24], [-6, -5, 23], [-6, -5, 22], [-5, -5, 22]] {
+        anyhow::ensure!(is(b, p, "minecraft:redstone_wire"), "REQ re-lay: the readback dust {p:?} holds {:?}", b.blocks.get(&p));
+    }
+    for p in [[-6, -6, 23], [-6, -6, 22]] {
+        anyhow::ensure!(b.blocks.get(&p).map(|s| s.as_str()) == Some(STONE), "REQ re-lay: {p:?} holds {:?}, not the readback's support", b.blocks.get(&p));
+    }
+    for p in [[-6, -7, 23], [-6, -7, 22], [-5, -6, 23], [-6, -6, 21]] {
+        anyhow::ensure!(free(b, p), "REQ re-lay: {p:?} is taken ({:?})", b.blocks.get(&p));
+    }
+    b.blocks.remove(&[-6, -5, 23]);
+    b.blocks.remove(&[-6, -5, 22]);
+    b.blocks.insert([-6, -7, 23], STONE.into());
+    b.blocks.insert([-6, -7, 22], STONE.into());
+    b.blocks.insert([-6, -6, 23], DUST.into());
+    b.blocks.insert([-6, -6, 22], DUST.into());
+    eprintln!("REQ re-lay: the readback's (-6,-5,23) (-6,-5,22) down to (-6,-6,23) (-6,-6,22); the REQ tap side (-5,-6,23)");
+    Ok(())
+}
+
+/// The S3 head's per-stand module (ironspec 09:42/09:45, S3 (a), pad gating to follow), for stands A
+/// and B, in GO's chunk under the core. Per stand X:
+/// - EMP_X: set by launch_X AND NOT E_X, cleared on SE_X's edge (8 gt);
+/// - E_X: set by SE_X, cleared on Dh1_X's edge;
+/// - ARR_X: set by launch_X, cleared on Dh3_X's edge 4 gt late (a 2-rt repeater at the port: the
+///   cancel's ring restart beats the permit rise);
+/// - RETRY_X = EXPIRE AND EMP_X through the shaper: one 14-gt pulse per rise into the ring entry
+///   (R_i's landing (5,-4,25)) and out to S3's X REL line (the port output.retry_rel_X);
+/// - CANCEL_X: Dh3_X AND (REQ OR EXPIRE) into the ring through its own entry, a landing dust on top of
+///   I2 (3,-4,25) (a stone (3,-4,24) cuts its diagonal to the ring's dust); Dh3_X AND REQ into the
+///   reset tail's end beside (-4,-4,23) (its rising edge toggles REQ off). Unshaped: Dh3 is a short
+///   edge pulse, the ring takes any pulse, the bulb only the rising edge.
+/// Ports (one dust each, the bench's or S3's drive): input.launch_X (until the pad gating derives it
+/// from REL AND R = X), input.SE_X, input.Dh1_X, input.Dh3_X; outputs output.retry_rel_X and the
+/// latches' Qs head.emp_X / head.e_X / head.arr_X. Both stands' ring, I2-top and tail routes join at
+/// their landing (all driven by diodes: an OR).
+fn s3_head_module(b: &mut B) -> Result<()> {
+    // I2's top: the cancel's ring entry
+    if b.blocks.get(&[3, -4, 25]).is_some_and(|s| !s.ends_with(":air") && !s.contains("glass")) {
+        bail!("S3 head: I2's top (3,-4,25) holds {:?}", b.blocks.get(&[3, -4, 25]));
+    }
+    b.blocks.remove(&[3, -4, 25]);
+    b.blocks.insert([3, -4, 24], STONE.into());
+    // R_i's landing: routes end on it (or beside it once the first has)
+    b.blocks.remove(&[5, -4, 25]);
+    let mut expire: Vec<(P3, usize)> = vec![([4, -5, 22], 1), ([0, -5, 22], 1)];
+    let mut req: Vec<(P3, usize)> = if b.blocks.get(&[-6, -6, 23]).is_some_and(|s| s.starts_with("minecraft:redstone_wire")) {
+        // (the re-laid readback's tap: a repeater (-5,-6,23) reading the lowered dust (-6,-6,23),
+        // out east into the dust (-4,-6,23) the routes start from (a diode: the routes never touch
+        // the readback net, whose diagonals (D4 at (-5,-5,22)) a dust there would join))
+        for (p, s) in [([-5, -7, 23], STONE.to_string()), ([-5, -6, 23], rep("west", 1)), ([-4, -7, 23], STONE.to_string()), ([-4, -6, 23], DUST.to_string())] {
+            anyhow::ensure!(b.blocks.get(&p).is_none_or(|x| x.ends_with(":air")), "S3 head: the REQ tap cell {p:?} holds {:?}", b.blocks.get(&p));
+            b.blocks.insert(p, s);
+        }
+        vec![([-4, -6, 23], 0)]
+    } else {
+        vec![([-6, -5, 24], 1), ([-6, -5, 23], 2), ([-6, -5, 22], 3), ([-5, -5, 22], 4)]
+    };
+    // REQ OR EXPIRE, shared by both stands' ring cancels
+    let or_gad: Vec<([i32; 3], String)> = vec![([0, 0, 0], DUST.into()), ([-1, 0, 0], rep("west", 1)), ([0, 0, 1], rep("south", 1))];
+    let ov = place_gadget_in(b, &or_gad, &[[-2, 0, 0], [0, 0, 2]], &HEAD_YS, -6..=9, 10..=25, &in_go_chunk, "S3 head: REQ OR EXPIRE")?;
+    let p = feed_any(b, &req, &[([ov[0] - 2, ov[1], ov[2]], vec![[ov[0] - 1, ov[1], ov[2]]])], "S3 head: REQ to the OR")?;
+    req.extend(p);
+    let p = feed_any(b, &expire, &[([ov[0], ov[1], ov[2] + 2], vec![[ov[0], ov[1], ov[2] + 1]])], "S3 head: EXPIRE to the OR")?;
+    expire.extend(p);
+    let mut or_net: Vec<(P3, usize)> = vec![(ov, 1)];
+    let mut ring_net: Vec<P3> = Vec::new();
+    let mut top_net: Vec<P3> = Vec::new();
+    let mut tail_net: Vec<P3> = Vec::new();
+    let ends_beside = |b: &B, net: &[P3], first: P3, first_near: Vec<P3>| -> Vec<(P3, Vec<P3>)> {
+        if net.is_empty() {
+            return vec![(first, first_near)];
+        }
+        let mut v = Vec::new();
+        for c in net {
+            for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]] {
+                let e = [c[0] + d[0], c[1] + d[1], c[2] + d[2]];
+                if b.blocks.get(&e).is_none_or(|s| s.ends_with(":air")) && in_go_chunk(e) {
+                    v.push((e, vec![*c]));
+                }
+            }
+        }
+        v
+    };
+    for x in ["A", "B"] {
+        let emp = latch_gadget(b, true, &format!("S3 head: EMP_{x}"))?;
+        let e = latch_gadget(b, false, &format!("S3 head: E_{x}"))?;
+        let arr = latch_gadget(b, false, &format!("S3 head: ARR_{x}"))?;
+        b.ports.insert(format!("output.emp_{x}"), emp.q);
+        b.ports.insert(format!("output.e_{x}"), e.q);
+        b.ports.insert(format!("output.arr_{x}"), arr.q);
+        let (rt_rear, rt_side, rt_out, rt_rear_near, rt_side_near) = shaper_gadget(b, &format!("S3 head: RETRY_{x}"))?;
+        let (c1_side, c1_rear, c1_out) = and_gadget(b, &HEAD_YS, -6..=9, 10..=25, &format!("S3 head: CANCEL_{x} ring AND"))?;
+        let (c2_side, c2_rear, c2_out) = and_gadget(b, &HEAD_YS, -6..=9, 10..=25, &format!("S3 head: CANCEL_{x} reset AND"))?;
+        // (DEP_X, a cart actually left toward X (ironspec 10:47, farmopt's (b); 7b90c3f1's detector on
+        // each branch after the router's switch): the launch both latches re-arm on, EMP's gated set
+        // (DEP AND NOT E) and ARR's set; an empty launch re-arms neither)
+        let (_, dep) = head_port(b, &format!("input.DEP_{x}"), 0)?;
+        let (_, se) = head_port(b, &format!("input.SE_{x}"), 0)?;
+        let (_, dh1) = head_port(b, &format!("input.Dh1_{x}"), 0)?;
+        let (dh3, dh3_late) = head_port(b, &format!("input.Dh3_{x}"), 2)?;
+        let (retry_out, _) = head_port(b, &format!("output.retry_rel_{x}"), 0)?;
+        let mut dnet0 = vec![(dep, 0)];
+        let p = feed_any(b, &dnet0, &[(emp.set_in, vec![emp.set_near])], &format!("S3 head: DEP_{x} to EMP_{x}'s gate"))?;
+        dnet0.extend(p);
+        feed_any(b, &dnet0, &[(arr.set_in, vec![arr.set_near])], &format!("S3 head: DEP_{x} to ARR_{x}"))?;
+        // SE_X: EMP's clear, E's set
+        let mut snet = vec![(se, 0)];
+        let p = feed_any(b, &snet, &[(emp.clear_in, emp.clear_near.to_vec())], &format!("S3 head: SE_{x} to EMP_{x}'s clear"))?;
+        snet.extend(p);
+        feed_any(b, &snet, &[(e.set_in, vec![e.set_near])], &format!("S3 head: SE_{x} to E_{x}'s set"))?;
+        // Dh1_X: E's clear; Dh3_X (4 gt late): ARR's clear
+        feed_any(b, &[(dh1, 0)], &[(e.clear_in, e.clear_near.to_vec())], &format!("S3 head: Dh1_{x} to E_{x}'s clear"))?;
+        feed_any(b, &[(dh3_late, 0)], &[(arr.clear_in, arr.clear_near.to_vec())], &format!("S3 head: Dh3_{x} (+4 gt) to ARR_{x}'s clear"))?;
+        // E's Q into EMP's gate
+        feed_any(b, &[(e.q, 0)], &[(emp.gate_in.expect("gated"), vec![emp.gate_near.expect("gated")])], &format!("S3 head: E_{x} into EMP_{x}'s gate"))?;
+        // RETRY_X = EXPIRE AND EMP_X
+        feed_any(b, &[(emp.q, 0)], &[(rt_side, vec![rt_side_near])], &format!("S3 head: EMP_{x} to RETRY_{x}"))?;
+        let p = feed_any(b, &expire, &[(rt_rear, rt_rear_near.to_vec())], &format!("S3 head: EXPIRE to RETRY_{x}"))?;
+        expire.extend(p);
+        let mut rnet = vec![(rt_out, 1)];
+        let ends = ends_beside(b, &ring_net, [5, -4, 25], vec![[5, -5, 25]]);
+        let p = feed_any(b, &rnet, &ends, &format!("S3 head: RETRY_{x} to the ring entry"))?;
+        if ring_net.is_empty() {
+            ring_net.push([5, -4, 25]);
+        }
+        ring_net.extend(p.iter().map(|(c, _)| *c));
+        rnet.extend(p);
+        // (the output port's own cell is the route's end)
+        b.blocks.remove(&retry_out);
+        feed_any(b, &rnet, &[(retry_out, vec![])], &format!("S3 head: RETRY_{x} out to S3's {x} REL line"))?;
+        // CANCEL_X
+        let mut dnet = vec![(dh3, 0)];
+        let p = feed_any(b, &dnet, &[(c1_side, vec![[c1_side[0] + 1, c1_side[1], c1_side[2]]])], &format!("S3 head: Dh3_{x} to CANCEL_{x}'s ring AND"))?;
+        dnet.extend(p);
+        feed_any(b, &dnet, &[(c2_side, vec![[c2_side[0] + 1, c2_side[1], c2_side[2]]])], &format!("S3 head: Dh3_{x} to CANCEL_{x}'s reset AND"))?;
+        let p = feed_any(b, &or_net, &[(c1_rear, vec![[c1_rear[0] + 1, c1_rear[1], c1_rear[2]], [c1_rear[0], c1_rear[1], c1_rear[2] + 1]])], &format!("S3 head: the OR to CANCEL_{x}'s ring AND"))?;
+        or_net.extend(p);
+        let p = feed_any(b, &req, &[(c2_rear, vec![[c2_rear[0] + 1, c2_rear[1], c2_rear[2]], [c2_rear[0], c2_rear[1], c2_rear[2] + 1]])], &format!("S3 head: REQ to CANCEL_{x}'s reset AND"))?;
+        req.extend(p);
+        let ends = ends_beside(b, &top_net, [3, -4, 25], vec![[3, -5, 25]]);
+        let p = feed_any(b, &[(c1_out, 1)], &ends, &format!("S3 head: CANCEL_{x} to I2's top"))?;
+        if top_net.is_empty() {
+            top_net.push([3, -4, 25]);
+        }
+        top_net.extend(p.iter().map(|(c, _)| *c));
+        let tail_end = [-4, -4, 23];
+        let ends: Vec<(P3, Vec<P3>)> = if tail_net.is_empty() {
+            [[-5, -4, 23], [-3, -4, 23], [-4, -4, 22]].iter().map(|e| (*e, vec![tail_end])).collect()
+        } else {
+            ends_beside(b, &tail_net, tail_end, vec![])
+        };
+        let p = feed_any(b, &[(c2_out, 1)], &ends, &format!("S3 head: CANCEL_{x} to the reset tail"))?;
+        tail_net.extend(p.iter().map(|(c, _)| *c));
+    }
+    Ok(())
+}
+
 /// The stand entry, laid on the merged file once the stand REL line exists: R_s (8,-5,26) into the
 /// line's first dust (7,-5,26), the tap's output (the line's route beyond it is the router's).
-fn retry_stand_entry(d: &mut Design) -> Result<()> {
-    let ports = retry_entry_cells(&mut d.blocks, &[([8, -5, 26], [9, -5, 26], None, "head.retry_stand")])?;
-    d.ports.extend(ports);
-    Ok(())
+fn retry_stand_entry(d: &mut Design) -> Result<Vec<(String, P3)>> {
+    // (its drive port goes to the probe only: a mob-farm design carries no input port)
+    retry_entry_cells(&mut d.blocks, &[([8, -5, 26], [9, -5, 26], None, "input.retry_stand")])
 }
 
 /// Each entry: a repeater facing east (input east, output west) at `rep_at`, reading a stone that a
@@ -1474,6 +1796,9 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // staggered, see the release group below)
     let base_meta = Design::load(loop_file)?.meta;
     let stagger = base_meta.get("queue").is_some_and(|q| q.contains("stand_wired=1"));
+    // (ports of the added head parts (RETRY's stand entry, the S3 module): the siding probe's only;
+    // the mob-farm file carries none, a runner refuses its input ports)
+    let mut extra_ports: Vec<(String, P3)> = Vec::new();
     // the chain, stretched so the group line (x -5, z 15..25) and the advance line (z 27..) do not
     // touch; the advance taps 2 gt early for the feeder repeaters (+36/56/76 -> +38/58/78 at the
     // controls); reset taps 8..44 keep the merge window to ~+58. With the stagger a fourth group
@@ -1716,6 +2041,11 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         }
         let mut rel_line: Vec<(P3, usize)> = Vec::new();
         let mut reset_tail: Vec<(P3, usize)> = Vec::new();
+        // (MCTAS_REQ_RELAY, ironspec 10:11 option 1: the readback line re-laid so a REQ dust has a
+        // free side in GO's chunk; before every route, which lays around it)
+        if std::env::var("MCTAS_REQ_RELAY").is_ok() {
+            req_relay(&mut b)?;
+        }
         if std::env::var("MCTAS_REL_EXIT").is_ok() {
             (rel_line, reset_tail) = rel_exit(&mut b, core_place, g0)?;
         }
@@ -2150,7 +2480,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         println!("the wired pocket stand's REL (8,-2,2): {} cells, golem +10..+50 off the controller's REL", cells.len());
         siding_cells.extend(cells);
         if std::env::var("MCTAS_RETRY").is_ok() {
-            retry_stand_entry(&mut d)?;
+            extra_ports.extend(retry_stand_entry(&mut d)?);
         }
     }
     if let Some(sp) = siding {
@@ -2192,6 +2522,29 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
                 added.push(k);
             }
         }
+        siding_cells.extend(added);
+    }
+    // ---- the S3 head's per-stand module (MCTAS_S3HEAD): laid last on the merged file too, in GO's
+    // chunk under the core (its routes see every line); needs the RETRY entries (MCTAS_RETRY)
+    if std::env::var("MCTAS_S3HEAD").is_ok() {
+        anyhow::ensure!(std::env::var("MCTAS_RETRY").is_ok(), "MCTAS_S3HEAD needs MCTAS_RETRY (R_i's ring entry)");
+        let mut tb = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+        s3_head_module(&mut tb)?;
+        let tb_keys: std::collections::BTreeSet<P3> = tb.blocks.keys().copied().collect();
+        let mut added = Vec::new();
+        for (k, v) in tb.blocks {
+            if d.blocks.get(&k) != Some(&v) {
+                d.blocks.insert(k, v);
+                added.push(k);
+            }
+        }
+        // (cells the module emptied, e.g. a glass cover over I2 no route re-laid)
+        let gone: Vec<P3> = d.blocks.keys().copied().filter(|k| !tb_keys.contains(k)).collect();
+        for k in &gone {
+            d.blocks.remove(k);
+        }
+        extra_ports.extend(tb.ports);
+        eprintln!("S3 head: {} cells laid, {} emptied", added.len(), gone.len());
         siding_cells.extend(added);
     }
     // ---- golem spawn cells (the brief, part 1: none off the pad wherever villagers ride who may
@@ -2277,6 +2630,19 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         let m = crate::sidinggen::module_at;
         let u = crate::sidinggen::unit_at;
         sp.ports.insert("input.golem".into(), golem);
+        for (n, q) in &extra_ports {
+            sp.ports.insert(n.clone(), *q);
+        }
+        if crate::sidinggen::FAR {
+            // (the head's readouts: GO's output dust +2..+14, the 1-rt tap off the refill dust
+            // +4..+18 (a stand demux), G_e's output ~100 gt after a launch with no golem)
+            sp.ports.insert("output.head_go".into(), core_place([5, 1, -1]));
+            sp.ports.insert("output.head_stand_rel".into(), core_place([-4, 1, -1]));
+            sp.ports.insert("output.head_expire".into(), core_place([4, 1, 3]));
+            if let Some(p) = b.ports.get("input.permit") {
+                sp.ports.insert("input.permit".into(), *p);
+            }
+        }
         let far = crate::sidinggen::FAR;
         let rel_port = if far { core_place([0, 1, -3]) } else { [-2, -1, 13] };
         let dt = crate::sidinggen::DETECTOR;
@@ -2426,17 +2792,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // (the head's declared ports (ironspec 08:48: S3's router wires against them; day-1's port list
     // 2026-11-11, times from input.golem's rise): head.golem (REQ in, any pulse >= 2 gt), head.hold
     // (PERMIT in, powered = hold: GO blocked 14 gt after it rises, REL 20 gt after it falls), head.go
-    // (GO's output dust: REL +2..+14), head.stand_rel (the 1-rt tap off the refill dust: +4..+18, for
-    // a stand demux), head.expire (G_e's output: ~100 gt after a launch with no golem))
-    if crate::sidinggen::FAR {
-        d.ports.insert("head.golem".into(), golem);
-        d.ports.insert("head.go".into(), core_place([5, 1, -1]));
-        d.ports.insert("head.stand_rel".into(), core_place([-4, 1, -1]));
-        d.ports.insert("head.expire".into(), core_place([4, 1, 3]));
-        if let Some(p) = b.ports.get("input.permit") {
-            d.ports.insert("head.permit".into(), *p);
-        }
-    }
+    // (the head's ports live in the siding probe; this file is a mob-farm design: no ports)
     d.name = "carousel-release-loop-wired".into();
     d.save(out)?;
     println!("{}: {} blocks ({} the controller's), golem input at {:?}, stand reset at {:?}", out.display(), d.blocks.len(), b.blocks.len(), golem, reset);
