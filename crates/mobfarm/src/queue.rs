@@ -3545,6 +3545,9 @@ pub struct LoopTiming {
     /// Each release slope's off time (q15, q16, q17: the last 3 queue slots, gt into the slot),
     /// overriding the computed windows (day-1's new core at 24 gt: q15 closes with A1's pulse).
     pub release_offs: Option<[i64; 3]>,
+    /// With `--bench-release`: the first slot the bench drives the release group in (a design
+    /// whose pad gives its first pulse in slot 1 releases nothing in slot 0).
+    pub release_from: i64,
     /// Added to the stand's departure times (with `wired`, the release starts after the golem
     /// pulse: day-1's GO at +4).
     pub stand_offset: i64,
@@ -3663,6 +3666,8 @@ pub struct LoopTiming {
     /// `--takeoff-list`: every take-off crossing listed (time, cart, gap, stored and visible
     /// speed), for a trace-diff of a departure's arrivals.
     pub takeoff_list: bool,
+    /// `--calm-list`: every cell's calm rider-ticks at night printed.
+    pub calm_list: bool,
     /// `--start-random`: the run starts at a day time drawn from the seed (the power-on sweep).
     pub start_random: bool,
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
@@ -4058,7 +4063,7 @@ impl LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -4759,6 +4764,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut harm_cross_log: Vec<String> = Vec::new();
     let mut expose_map: std::collections::BTreeMap<[i32; 3], (u64, i64, u64, u64)> = std::collections::BTreeMap::new();
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
+    let mut blind_at: std::collections::BTreeMap<[i32; 3], (u64, u64)> = std::collections::BTreeMap::new();
     // the loop's places in travel order: slot 0 .. slot q-1, S3, S2, S1
     let q = o.slots as usize;
     let mut places: Vec<[i32; 3]> = lay.slot_cells.clone();
@@ -5018,7 +5024,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the release trace, MCTAS_RELEASE_TRACE: the release group's rails and the release run's
     // cells, from the release group's first slot on)
     let rel_rails: Vec<BlockPos> = if lay.slot_cells.len() >= 3 { lay.slot_cells[lay.slot_cells.len() - 3..].iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect() } else { Vec::new() };
-    let rel_run: Vec<[i32; 3]> = lay.slot_cells.len().checked_sub(3).and_then(|i| lay.path.iter().position(|(c, _)| *c == lay.slot_cells[i])).map(|i0| lay.path.iter().skip(i0).take(30).map(|(c, _)| *c).collect()).unwrap_or_default();
+    // (`MCTAS_RELEASE_TRACE_CELLS` N: the release run's first N cells traced (default 30); 80 reach
+    // the stand and its departure on the pocket loops, for the stand REL's trace-diff)
+    let trace_cells: usize = std::env::var("MCTAS_RELEASE_TRACE_CELLS").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
+    let rel_run: Vec<[i32; 3]> = lay.slot_cells.len().checked_sub(3).and_then(|i| lay.path.iter().position(|(c, _)| *c == lay.slot_cells[i])).map(|i0| lay.path.iter().skip(i0).take(trace_cells).map(|(c, _)| *c).collect()).unwrap_or_default();
     let mut rel_trace: Option<std::io::BufWriter<std::fs::File>> = match std::env::var("MCTAS_RELEASE_TRACE") {
         Ok(p) if !p.is_empty() => Some(std::io::BufWriter::new(std::fs::File::create(&p).map_err(|e| format!("MCTAS_RELEASE_TRACE {p}: {e}"))?)),
         _ => None,
@@ -5755,10 +5764,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // entry hold); a held release leaves the head's carts in place, and the register's
         // advances then stop behind them)
         let stand_has_carts = tm.reg_interlock && stand_held;
-        if c < cycles && dt == tm.release_start && stand_has_carts {
+        if c < cycles && c >= tm.release_from && dt == tm.release_start && stand_has_carts {
             reg_held.push(format!("slot {c}: release held (the stand holds carts)"));
         }
-        if c < cycles && dt == tm.release_start && !stand_has_carts {
+        if c < cycles && c >= tm.release_from && dt == tm.release_start && !stand_has_carts {
             set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
             // (`entry_speed`: a speed kick along each release cart's slope, the tolerance probe)
             if tm.entry_speed != 0.0 {
@@ -5934,8 +5943,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
             intake_trains.retain(|(c0, _, st)| *c0 + lag > c || (*st < 2 || (o.plain && *st != 9) || (tm.tail_check_rest && *st == 2)));
         }
-        if c < cycles {
-            // the release group's window per slot (k: 0 = slot q-3, 2 = the head): on from the
+        if c < cycles && c >= tm.release_from {
             // release start (with `release_stagger`, the head first and the others that many gt
             // apart), off at `release_for` (with `stagger_off`, each as late as it went on). A
             // control is the OR of its lines: the release's off waits for an advance pulse in
@@ -7523,6 +7531,39 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
         }
+        // (the blind rider-ticks, ironspec Nov 11 12:12: a rider whose eye box meets a collision
+        // shape as the blocks stand this tick (a gate shut or open) sees no hostile; counted per
+        // cell, all day and at night)
+        for (k, r) in riders.iter().enumerate() {
+            let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+            let e = &run.world.entities.list[i];
+            if e.vehicle.is_none() {
+                continue;
+            }
+            let eye = e.pos.y + 1.62;
+            let bb = redsim::entity::Aabb::new(e.pos.x - 0.24, eye - 5.0e-7, e.pos.z - 0.24, e.pos.x + 0.24, eye + 5.0e-7, e.pos.z + 0.24);
+            let mut blind = false;
+            'cells: for y in bb.min_y.floor() as i32 - 1..=bb.max_y.floor() as i32 {
+                for z in bb.min_z.floor() as i32..=bb.max_z.floor() as i32 {
+                    for x in bb.min_x.floor() as i32..=bb.max_x.floor() as i32 {
+                        let p = BlockPos::new(x, y, z);
+                        let s = run.world.get(p);
+                        if !s.is_air() && redsim::entity::collide::boxes_at(&run.world, &s, p).iter().any(|b| b.intersects(bb)) {
+                            blind = true;
+                            break 'cells;
+                        }
+                    }
+                }
+            }
+            if blind && let Some(p) = pos_of(&run.world, carts[k]) {
+                let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+                let ent = blind_at.entry(cell).or_insert((0u64, 0u64));
+                ent.0 += 1;
+                if (13670..22330).contains(&tod) {
+                    ent.1 += 1;
+                }
+            }
+        }
         if let Some((c0, c1)) = tm.tail_trace {
             if c >= c0 && c <= c1 && (lay.esc.is_some() || !lay.fifo.is_empty()) {
                 // (`--tail-trace`: every cart in the tail's cells, x 0, z 20..slot 0, each tick, with
@@ -7960,6 +8001,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         calm.sort_by(|a, b| b.1.cmp(&a.1));
         let top: Vec<String> = calm.iter().take(6).map(|(c, n)| format!("{} {} {} ({n})", c[0], c[1], c[2])).collect();
         out.push(format!("PANIC at night (day time 13,670..22,330, {} rider-ticks): {:.2}% of rider-ticks, the least-panicking rider {:.2}%; calm most at {}", nights, 100.0 * mean, 100.0 * min, if top.is_empty() { "-".to_string() } else { top.join(", ") }));
+        // (`--calm-list`: every cell's calm rider-ticks at night, the places a blind or out-of-sight
+        // rider calms)
+        if tm.calm_list {
+            out.push(format!("  calm rider-ticks at night, every cell: {}", calm.iter().map(|(c, n)| format!("{},{},{} {n}", c[0], c[1], c[2])).collect::<Vec<_>>().join("; ")));
+        }
     }
     if let Some(path) = drive_out {
         let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# t0 {t_spawn}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; the daylight detectors placed (raw, then updates), as Run::arrive does; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t0 = the time right after that spawn; act t applied when the time is t0 + t, before the next tick\n", run.world.time - t_origin, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
@@ -8032,6 +8078,17 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     if !rider_hurt.is_empty() {
         out.push(format!("riders hurt: {}", rider_hurt.join("; ")));
+    }
+    // (the blind rider-ticks: the eye inside a collision shape as the blocks stood)
+    {
+        let all: u64 = blind_at.values().map(|v| v.0).sum();
+        let night: u64 = blind_at.values().map(|v| v.1).sum();
+        let mut by: Vec<(&[i32; 3], &(u64, u64))> = blind_at.iter().collect();
+        by.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        out.push(format!(
+            "blind rider-ticks (a seated rider's eye inside a collision shape, the gates as they stood; it sees no hostile): {all}, at night {night}{}",
+            if by.is_empty() { String::new() } else { format!(" ({})", by.iter().take(10).map(|(c, (a, n))| format!("{},{},{} {a}/{n}", c[0], c[1], c[2])).collect::<Vec<_>>().join(", ")) }
+        ));
     }
     out.push(format!(
         "cant-reach: {}; HOME releases: {}",
