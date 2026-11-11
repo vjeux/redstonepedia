@@ -218,6 +218,32 @@ Both station files carry the lines `mobfarm::declared` and `mobfarm::flight` rea
   and after the warm-up; a hold rail removed (no declared line) gives 41 derails, one per cart
   parked there.
 
+## The stand-fix options, in emulation (Nov 11; `queue-loop-run` on approach 5 + crest + C′, aligned frame `--shift 6,6`)
+
+None of these is built; each is a bench emulation (`queue-loop-run` flags on
+explore/farmopt-stand-faults) measured against the brief's fault rows.
+- **(a) the two-part release** (`--split X,Y,Z,B`: G2 shut behind pocket 3's departing cart until
+  REL goes off or B gt from its rise), with ironfarm's escapement tail (escG6L, 14 slots): after a
+  missed REL only B = 42 passes the hard lines (40 and 44 each fail a stagger), and the batches
+  wobble (groups of 0, 2, 3) to slot 18. Recorded as measured, not pursued. A missed REL absorbs its
+  own surplus: a skip request after it changes only its own log line, while the same request in a
+  normal run (the positive control) makes the 2-cart release it should.
+- **The interlock** (`--interlock 0`, ideal edge latches): on the gates' launches it keeps normal
+  timing but closes nothing; on the gates it cascades the release (departures 16..18 gt, divert
+  envelope +5/+11) and the stand stops capturing whole batches. On arrivals only, keyed on a resting
+  cart (the pocket past the gate occupied and the gate beyond it shut; `--interlock-arrivals`), it
+  leaves normal flow unchanged at 3 REL corners x staggers 2/3/4/6.
+- **The entry hold** (`--entry-hold X,Y,Z[,H]`: while pocket 3 holds a resting cart, a train is held
+  before the stand). On the flat top (-3,6,4) it fails: the carts behind the held one stall on the
+  climb's last slope and roll back onto the boosters. On the last descending slope (-3,3,1), against
+  the drop turn, the held train rests: front z 1.49, cart 2 z 2.29, cart 3 z 3.17 (below the flat
+  top), all at speed 0.00, in contact, pressed by gravity; 0 merges, 0 rider-ticks walking with a
+  reachable path, the HOME stamp never set; it restarts by gravity. Normal flow never meets it (slack
+  >= 21 gt at every corner and stagger). Opened as soon as pocket 3 clears, the held train runs
+  through the stand while REL still holds G0 open (4..6-cart bursts after a missed REL); an added
+  "shut for H gt after REL's rise" passes the missed-REL rows only at H = 15, a single
+  non-monotonic point, so it is no design.
+
 ## What did not work
 
 - A 2-long pit with an end wall 1 over the frame's row: a golem pushed by the pit's crowd stepped
