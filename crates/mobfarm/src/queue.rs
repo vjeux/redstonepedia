@@ -3816,8 +3816,10 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     // (xb+2,0,16) the bench sets: a redstone block at each even cycle's GO (north_west: the train
     // runs on to A), glass at each odd one (south_west: it turns down B's branch); a repeater, so
     // the junction gets its update from a signal source both ways)
+    // (S's z on the approach: 16 on C's approach, 12 on approach 5's h0 (`MCTAS_ROUTER_Z`))
+    let rz = std::env::var("MCTAS_ROUTER_Z").ok().and_then(|v| v.parse::<i32>().ok()).unwrap_or(16);
     if m.wired_b && !s.stand_b && dt == 0 {
-        let p = at(xb + 2, 0, 16);
+        let p = at(xb + 2, 0, rz);
         let want = if c % 2 == 0 { "minecraft:redstone_block" } else { "minecraft:glass" };
         if w.get(p).to_string() != want
             && let Ok(b) = Block::parse(want)
@@ -3828,7 +3830,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     // (S's shape as the world holds it, logged at each change: the junction settles by its own
     // neighbour update from the repeater, never set by the bench)
     if m.wired_b && !s.stand_b {
-        let st = w.get(at(xb, 1, 16)).to_string();
+        let st = w.get(at(xb, 1, rz)).to_string();
         let shape = st.split("shape=").nth(1).map(|r| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
         if shape != s.s_shape {
             if (c < 4 || s.s_shape.is_empty()) && s.events.len() < 60 {
@@ -3836,7 +3838,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             }
             // (the switch rule: S never flips with a cart in its cell, ridden or empty)
             if !s.s_shape.is_empty() {
-                let cell = at(xb, 1, 16);
+                let cell = at(xb, 1, rz);
                 let (lx, ly, lz) = (cell.x as f64, cell.y as f64, cell.z as f64);
                 for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))) {
                     if e.bb.max_x > lx && e.bb.min_x < lx + 1.0 && e.bb.max_y > ly && e.bb.min_y < ly + 1.0 && e.bb.max_z > lz && e.bb.min_z < lz + 1.0 {
@@ -4848,7 +4850,7 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
         // rest place (the resting cart's z: place 1 at 1.12, 2 at 1.91, 3 at 2.70) and by the
         // pair (R ridden, E empty: mover then resting cart), the mover's stored speed)
         {
-            let mut cells: std::collections::BTreeMap<(usize, &str), (usize, f64, f64)> = std::collections::BTreeMap::new();
+            let mut cells: std::collections::BTreeMap<(usize, &str), (usize, f64, f64, f64)> = std::collections::BTreeMap::new();
             for (k, c) in s.contacts.iter().enumerate() {
                 if !c.4 {
                     continue;
@@ -4861,12 +4863,13 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
                     (true, false) => "R->E",
                     (false, false) => "E->E",
                 };
-                let e = cells.entry((place, pair)).or_insert((0, f64::MAX, 0.0));
+                let e = cells.entry((place, pair)).or_insert((0, f64::MAX, 0.0, f64::MAX));
                 e.0 += 1;
                 e.1 = e.1.min(c.1);
                 e.2 = e.2.max(c.1);
+                e.3 = e.3.min(c.2);
             }
-            let txt: Vec<String> = cells.iter().map(|((p, pair), (n, lo, hi))| format!("place {p} {pair}: {n} arrivals, stored {lo:.3}..{hi:.3}")).collect();
+            let txt: Vec<String> = cells.iter().map(|((p, pair), (n, lo, hi, cl))| format!("place {p} {pair}: {n} arrivals, stored {lo:.3}..{hi:.3}, closest centres {cl:.3}")).collect();
             out.push(format!("meter H arrivals (stored speed the gt before contact, by rest place and pair; R ridden, E empty, mover then resting cart): {}", if txt.is_empty() { "-".to_string() } else { txt.join("; ") }));
         }
         if let Some(c) = cs.iter().find(|c| c.0 .1 >= bar(c.2)) {
