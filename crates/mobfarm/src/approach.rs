@@ -53,6 +53,10 @@ pub struct Summary {
     pub d_rev: usize,
     pub d_rise: usize,
     pub d_rise_min: Option<f64>,
+    /// Meetings by the met cart's place (the flat run below the climb, the climb, T, the descent).
+    pub cls: [usize; 4],
+    /// The most carts on the release run upstream of the line at once.
+    pub upstream: usize,
 }
 
 fn num_after(l: &str, key: &str) -> Option<i64> {
@@ -105,6 +109,12 @@ pub fn summarize(out: &str) -> Summary {
             s.t_rests = v.first().copied().unwrap_or(0);
             for i in 0..5 {
                 s.t_causes[i] = v.get(i + 1).copied().unwrap_or(0);
+            }
+        } else if let Some(r) = l.strip_prefix("carts on the release run upstream of the line z 9|10 at once: at most ") {
+            s.upstream = r.trim().parse().unwrap_or(0);
+        } else if let Some(r) = l.strip_prefix("meetings by the met cart's place: ") {
+            for (i, key) in ["flat run below the climb ", "climb ", "T ", "descent "].iter().enumerate() {
+                s.cls[i] = r.split_once(key).and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|t| t.parse().ok()).unwrap_or(0);
             }
         } else if let Some(r) = l.strip_prefix("departure: meetings in the dip: ") {
             s.d_meet = r.split(|c: char| !c.is_ascii_digit()).next().and_then(|t| t.parse().ok()).unwrap_or(0);
@@ -216,6 +226,13 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
     // (the departure crest's plain dip: the queue head's cart set in the dip 30 gt after slot 5's
     // REL rises (before the departing batch reaches it), at rest or crawling 0.02, at the dip's
     // first three cells' centres; farmopt 2026-11-11, the allowed cells from push-in rows)
+    if partial && o.approach > 0 && o.approach_climb_boost {
+        // (the stand chunk frozen 240 gt from every gt of the train's arrival window, slot 5 +40
+        // ..= +75: farmopt's (d) sweep on C with the head's arrival latch)
+        for t in 40..=75 {
+            v.push((format!("stand freeze 240 +{t}"), vec![format!("5,{t},unload,0,0,0,0,240")]));
+        }
+    }
     if o.depart_crest > 0 && o.crest_plain_dip {
         let d = o.depart_crest as i32;
         let zc = 9 - d;
@@ -349,7 +366,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let rv: usize = ss.iter().map(|s| s.climb_rev).sum();
         let mn: Vec<usize> = (0..3).map(|i| ss.iter().map(|s| s.meet_n[i]).sum()).collect();
         let mm: Vec<String> = (0..3).map(|i| ss.iter().filter_map(|s| s.meet_min[i]).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.min(v)))).map_or("-".into(), |v| format!("{v:.3}"))).collect();
-        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv} | met climb {} (slowest {}) T {} (slowest {}) descent {} (slowest {})", tc[0], tc[1], tc[2], tc[3], tc[4], mn[0], mm[0], mn[1], mm[1], mn[2], mm[2]) } else { pad };
+        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv} | met climb {} (slowest {}) T {} (slowest {}) descent {} (slowest {}) | by place flat/climb/T/descent {}/{}/{}/{} | upstream max {}", tc[0], tc[1], tc[2], tc[3], tc[4], mn[0], mm[0], mn[1], mm[1], mn[2], mm[2], ss.iter().map(|s| s.cls[0]).sum::<usize>(), ss.iter().map(|s| s.cls[1]).sum::<usize>(), ss.iter().map(|s| s.cls[2]).sum::<usize>(), ss.iter().map(|s| s.cls[3]).sum::<usize>(), ss.iter().map(|s| s.upstream).max().unwrap_or(0)) } else { pad };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
             let dr: usize = ss.iter().map(|s| s.d_rev).sum();

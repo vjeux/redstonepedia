@@ -2559,6 +2559,9 @@ pub struct LoopTiming {
     pub rel_clear: Option<[i32; 3]>,
     /// With `rel_clear`: the queue head's release waits on the same input (farmopt's hand-off).
     pub head_wait: bool,
+    /// The "train arrived since launch" latch: (K, the arrival cell); the head launches only
+    /// once the K-th cart since its last launch has entered the cell.
+    pub head_latch: Option<(usize, [i32; 3])>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -2719,7 +2722,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, bed_at: None, approach_trace: None, rel_clear: None, head_wait: false, start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, bed_at: None, approach_trace: None, rel_clear: None, head_wait: false, head_latch: None, start_random: false, calm: false }
     }
 }
 
@@ -3647,6 +3650,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut approach_log: Vec<String> = Vec::new();
     let (mut head_pending, mut head_off_at, mut head_held): (bool, Option<i64>, Vec<i64>) = (false, None, Vec::new());
     let mut stand_emptied = true;
+    let (mut latch_set, mut latch_count, mut latch_in) = (true, 0usize, [false; 21]);
     let (mut clear_last_busy, mut clear_raw_was, mut clear_eff, mut clear_held): (Option<i64>, bool, bool, i64) = (None, false, false, 0);
     let mut clear_rises: Vec<(i64, i64, Option<i64>)> = Vec::new();
     let mut t_still = [0u32; 21];
@@ -3662,6 +3666,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut t_prev_v = [0f64; 21];
     let mut meet_n = [0usize; 3];
     let mut meet_min: [Option<(f64, String)>; 3] = [None, None, None];
+    let mut meet_cls = [0usize; 4];
+    let mut meet_cls_min: [Option<f64>; 4] = [None; 4];
+    let mut meet_cls_log: Vec<String> = Vec::new();
+    let mut upstream_max = 0usize;
     let mut d_prev_vz = [0f64; 21];
     let mut d_prev_v = [0f64; 21];
     let mut d_pairs: Vec<(usize, usize)> = Vec::new();
@@ -4274,11 +4282,32 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 stand_emptied = true;
             }
         }
-        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied);
+        // (`head_latch` K,X,Y,Z: the "train arrived since launch" latch (ironspec 2026-11-11): set
+        // when the K-th cart since the head's last launch enters the arrival cell X,Y,Z (loop frame;
+        // K 1 = the first cart's edge, 3 = the last's), reset by the launch; the head launches
+        // only while it is set)
+        if let Some((k_need, cell)) = tm.head_latch {
+            for (k, id) in carts.iter().enumerate().take(21) {
+                let inside = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                });
+                if inside && !latch_in[k] {
+                    latch_count += 1;
+                    if latch_count >= k_need {
+                        latch_set = true;
+                    }
+                }
+                latch_in[k] = inside;
+            }
+        }
+        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !latch_set);
         if head_pending && !dep_busy {
             set(&mut run.world, &release_group[..], true);
             head_pending = false;
             stand_emptied = false;
+            latch_set = false;
+            latch_count = 0;
             head_off_at = Some(t + (tm.release_for - tm.release_start).max(1));
         }
         if head_off_at == Some(t) {
@@ -4290,6 +4319,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             head_held.push(c);
         } else if c < cycles && dt == tm.release_start {
             stand_emptied = false;
+            latch_set = false;
+            latch_count = 0;
             set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
             // (`entry_speed`: a speed kick along each release cart's slope, the tolerance probe)
             if tm.entry_speed != 0.0 {
@@ -5085,6 +5116,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // stopped one does); the slowest met cart on the climb and on T is kept)
                 let in_t = |z: f64, y: f64| z >= n - 1.0 && z < n && (y - ty).abs() < 0.3;
                 let in_climb = |z: f64| z >= n && z < 2.0 * n;
+                // (carts on the release run between the head and the line z 9|10: the most at once)
+                let up = col.iter().filter(|&&(_, z, ..)| (10.0..19.0).contains(&z)).count();
+                upstream_max = upstream_max.max(up);
+                // (the run's flat below the climb's foot: farmopt's border flat for `approach` 4)
+                let in_flat = |z: f64| z >= 2.0 * n && z < 2.0 * n + 3.0;
                 let mut pairs: Vec<(usize, usize)> = Vec::new();
                 for a in 0..col.len() {
                     for b in a + 1..col.len() {
@@ -5094,9 +5130,23 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         if (za - zb).abs() < 1.2 && (ya - yb).abs() < 1.2 {
                             let pr = (ka.min(kb), ka.max(kb));
                             pairs.push(pr);
-                            if !t_pairs.contains(&pr) && (in_t(za, ya) || in_t(zb, yb) || in_climb(za) || in_climb(zb)) {
+                            if !t_pairs.contains(&pr) && (in_t(za, ya) || in_t(zb, yb) || in_climb(za) || in_climb(zb) || in_flat(za) || in_flat(zb)) {
                                 let (va, vb) = (t_prev_v[ka], t_prev_v[kb]);
                                 let (met, by, mz, my, mv) = if va <= vb { (ka, kb, za, ya, va) } else { (kb, ka, zb, yb, vb) };
+                                let pz = if met == ka { zb } else { za };
+                                // (the class by where the met cart is: the flat run below the climb,
+                                // the climb's slopes, T, the descent)
+                                let cls = if in_t(mz, my) { 2 } else if mz < n - 1.0 { 3 } else if in_climb(mz) { 1 } else { 0 };
+                                meet_cls[cls] += 1;
+                                if meet_cls_min[cls].is_none_or(|v| mv < v) {
+                                    meet_cls_min[cls] = Some(mv);
+                                }
+                                if meet_cls_log.len() < 6 {
+                                    meet_cls_log.push(format!("{} slot {c} +{dt}: cart {met} at z {mz:.2} y {my:.2} v {mv:.3}, pusher cart {by} at z {pz:.2}", ["flat", "climb", "T", "descent"][cls]));
+                                }
+                                if in_flat(mz) && !in_climb(za) && !in_climb(zb) && !in_t(za, ya) && !in_t(zb, yb) {
+                                    continue;
+                                }
                                 // (where the met cart is: the climb's slopes, T, or the descent below T)
                                 let slot = if in_t(mz, my) { 1 } else if mz < n - 1.0 { 2 } else { 0 };
                                 meet_n[slot] += 1;
@@ -6343,8 +6393,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 min.map_or("- (never occupied)".to_string(), |(m, c, d)| format!("{m} gt (slot {c} +{d})"))
             ));
         }
-        if tm.head_wait {
-            out.push(format!("head release waited (departure-clear, the stand emptied since its last launch) in {} slots{}", head_held.len(), if head_held.is_empty() { String::new() } else { format!(" ({})", head_held.iter().take(8).map(|c| format!("slot {c}")).collect::<Vec<_>>().join(", ")) }));
+        if tm.head_wait || tm.head_latch.is_some() {
+            out.push(format!("head release waited (departure-clear, the stand emptied since its last launch, the arrival latch) in {} slots{}", head_held.len(), if head_held.is_empty() { String::new() } else { format!(" ({})", head_held.iter().take(8).map(|c| format!("slot {c}")).collect::<Vec<_>>().join(", ")) }));
         }
         if o.approach > 0 {
             let [ca, cb, cc, ck, co] = t_causes;
@@ -6352,6 +6402,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             out.push(format!("climb reversals: {climb_rev}{}", if climb_rev_log.is_empty() { String::new() } else { format!(" ({})", climb_rev_log.join("; ")) }));
             let m = |i: usize| meet_min[i].as_ref().map_or("-".to_string(), |(v, at)| format!("{v:.3} ({at})"));
             out.push(format!("meetings on the climb: {} (slowest met {}); on T: {} (slowest met {}); below T on the descent: {} (slowest met {})", meet_n[0], m(0), meet_n[1], m(1), meet_n[2], m(2)));
+            let cm = |i: usize| meet_cls_min[i].map_or("-".to_string(), |v| format!("{v:.3}"));
+            out.push(format!(
+                "meetings by the met cart's place: flat run below the climb {} (slowest {}), climb {} (slowest {}), T {} (slowest {}), descent {} (slowest {}){}",
+                meet_cls[0], cm(0), meet_cls[1], cm(1), meet_cls[2], cm(2), meet_cls[3], cm(3),
+                if meet_cls_log.is_empty() { String::new() } else { format!(" ({})", meet_cls_log.join("; ")) }
+            ));
+            out.push(format!("carts on the release run upstream of the line z 9|10 at once: at most {upstream_max}"));
             if o.depart_crest > 0 {
                 out.push(format!(
                     "departure: meetings in the dip: {d_meet} (slowest met {}); reversals onto a slope: {d_rev}{}; meetings on the rise: {d_rise} (slowest met {})",
