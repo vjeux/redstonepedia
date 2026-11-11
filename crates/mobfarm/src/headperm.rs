@@ -149,6 +149,8 @@ pub struct HeadPerm {
     /// (ironspec's ruling, (i)) GO toward X also requires D_arr_X low; the GOs it held
     pub darr_gate: bool,
     pub darr_holds: Vec<String>,
+    /// (a fix candidate for (i)'s drain) RETRY also while D_arr is on
+    pub retry_darr: bool,
     pub expire_since_dep: u32,
     pub dh3_since_dep: bool,
     pub branch_occupied: bool,
@@ -232,6 +234,7 @@ impl HeadPerm {
             branch_frozen: false,
             darr_gate: false,
             darr_holds: Vec::new(),
+            retry_darr: false,
             expire_since_dep: 0,
             dh3_since_dep: false,
             branch_occupied: false,
@@ -383,7 +386,7 @@ impl HeadPerm {
         if d == Go::Hold {
             self.holds += 1;
         }
-        if self.router_log.len() < 60 {
+        if self.router_log.len() < 200 {
             self.router_log.push(format!("{c}:{who}{}{}", match d {
                 Go::Launch => "+",
                 Go::VirtualB => "+",
@@ -395,6 +398,11 @@ impl HeadPerm {
 
     /// The head's launch for this stand: the latches read (a bind if either is unset), then both
     /// reset.
+    /// Whether A's D_arr reads on (its last read).
+    pub fn darr_on(&self) -> bool {
+        self.prev[0]
+    }
+
     /// Whether the next launch is B's (VB's real launch, unseen by A's latches).
     pub fn launching_b(&self) -> bool {
         self.skip_next_launch
