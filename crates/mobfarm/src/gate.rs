@@ -87,21 +87,8 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
         }
     }
     println!("redsim: {} runs of the same schedule", rep.sim_runs);
-    // the game's own spread per window (the parent's noise question: enough runs that the 95%
-    // interval on a difference of two gates' means is narrow): mean, standard deviation, runs, and
-    // the 95% half-width of the mean
-    if let Some(n_windows) = rep.builds.iter().map(|b| b.windows.len()).max() {
-        for k in 0..n_windows {
-            let v: Vec<f64> = rep.builds.iter().filter_map(|b| b.windows.get(k)).map(|w| w.golems_per_hour()).collect();
-            if v.len() < 2 {
-                continue;
-            }
-            let n = v.len() as f64;
-            let m = v.iter().sum::<f64>() / n;
-            let sd = (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (n - 1.0)).sqrt();
-            let name = rep.builds.iter().find_map(|b| b.windows.get(k)).map(|w| w.name.clone()).unwrap_or_default();
-            println!("the game's {name}: mean {m:.2} golems/h, sd {sd:.2} over {} runs, the mean's 95% half-width {:.2}", v.len(), 1.96 * sd / n.sqrt());
-        }
+    for (name, m, sd, n, hw) in rep.game_spread() {
+        println!("the game's {name}: mean {m:.2} golems/h, sd {sd:.2} over {n} runs, the mean's 95% half-width {hw:.2}");
     }
     println!("{}: {}", if rep.passed() { "PASS" } else { "FAIL" }, rep.line());
     for f in &rep.failures {
