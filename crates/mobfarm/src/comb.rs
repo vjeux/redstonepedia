@@ -251,6 +251,13 @@ pub struct CombRun {
     ws_count: usize,
     ws_log: Vec<String>,
     ws_open: HashMap<(u32, usize), f64>,
+    /// The switches (T, S_y): occupied last tick, the last exit, the flips awaiting the next
+    /// entry, and the smallest margins either side of a flip.
+    sw_occ: [bool; 2],
+    sw_last_exit: [Option<i64>; 2],
+    sw_pending: [Vec<(i64, String)>; 2],
+    flip_before_min: Option<(i64, String)>,
+    flip_after_min: Option<(i64, String)>,
 }
 
 impl CombRun {
@@ -296,6 +303,11 @@ impl CombRun {
             ws_count: 0,
             ws_log: Vec::new(),
             ws_open: HashMap::new(),
+            sw_occ: [false; 2],
+            sw_last_exit: [None; 2],
+            sw_pending: [Vec::new(), Vec::new()],
+            flip_before_min: None,
+            flip_after_min: None,
         }
     }
 
@@ -312,8 +324,41 @@ impl CombRun {
         if !occ.is_empty() {
             self.flips_occupied += 1;
         }
+        // (the flip's margins: since the last cart's box left the switch's cell, and, filled in
+        // at the next entry, until the next cart's box enters it)
+        let i = usize::from(name != "T");
+        let rec = format!("slot {slot} +{} {name}", t - slot * 100);
+        if occ.is_empty()
+            && let Some(x) = self.sw_last_exit[i]
+        {
+            let m = t - x;
+            if self.flip_before_min.as_ref().is_none_or(|(b, _)| m < *b) {
+                self.flip_before_min = Some((m, rec.clone()));
+            }
+        }
+        self.sw_pending[i].push((t, rec));
         if self.flips.len() < 400 {
             self.flips.push(format!("slot {slot} +{}: {name} -> {shape}{}", t - slot * 100, if occ.is_empty() { String::from(" (empty)") } else { format!(" WITH {}", occ.join(", ")) }));
+        }
+    }
+
+    /// The switches' occupancy this tick: an exit (the last cart's box left the cell) or an
+    /// entry (the next cart's box reached it) closes the margins of the flips between them.
+    fn switch_occupancy(&mut self, carts: &[(u32, Vec3, Vec3)], t: i64) {
+        for (i, cell) in [self.c.t, self.c.sy].into_iter().enumerate() {
+            let occ = carts.iter().any(|(_, p, _)| in_cell(*p, cell));
+            if self.sw_occ[i] && !occ {
+                self.sw_last_exit[i] = Some(t);
+            }
+            if !self.sw_occ[i] && occ {
+                for (f, rec) in std::mem::take(&mut self.sw_pending[i]) {
+                    let m = t - f;
+                    if self.flip_after_min.as_ref().is_none_or(|(a, _)| m < *a) {
+                        self.flip_after_min = Some((m, rec));
+                    }
+                }
+            }
+            self.sw_occ[i] = occ;
         }
     }
 
@@ -357,6 +402,7 @@ impl CombRun {
     /// latches, every due junction and gate change.
     pub fn pre_tick(&mut self, w: &mut World, t: i64, slot: i64, dt: i64, pockets: &[(BlockPos, [i32; 3])], stand_cells: &[[i32; 3]]) {
         let carts: Vec<(u32, Vec3, Vec3)> = w.entities.list.iter().filter(|e| matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
+        self.switch_occupancy(&carts, t);
         // (speeds: stored |v| and the distance moved last gt)
         for (id, p, v) in &carts {
             let moved = self.prev.get(id).map_or(0.0, |q| ((p.x - q.x).powi(2) + (p.z - q.z).powi(2)).sqrt());
@@ -584,6 +630,7 @@ impl CombRun {
         out.push(format!("comb: batch at rest (last of 3) over {} slots: min +{} median +{} max +{}; margin to +98 (the summon tick - 2): {}", rl.len(), rl.first().copied().unwrap_or(-1), rl.get(rl.len() / 2).copied().unwrap_or(-1), rl.last().copied().unwrap_or(-1), rl.last().map_or(String::from("-"), |m| format!("{}", 98 - m))));
         out.push(format!("comb: peak impact into a rest {:.2} stored / {:.2} visible ({})", self.impact_max.0, self.impact_max.1, self.impact_max.2));
         out.push(format!("comb: switch flips {} ({} with a cart in the switch's cell)", self.flips.len(), self.flips_occupied));
+        out.push(format!("comb: flip margins: since the last cart left the switch min {} ; until the next cart enters min {} (bar 2 gt each side)", self.flip_before_min.as_ref().map_or(String::from("-"), |x| format!("{} gt ({})", x.0, x.1)), self.flip_after_min.as_ref().map_or(String::from("-"), |x| format!("{} gt ({})", x.0, x.1))));
         out.push(format!("comb: E edge to G shut, before the arrival reached G: min {} gt ({})", self.gate_margin_min.as_ref().map_or(String::from("-"), |x| x.0.to_string()), self.gate_margin_min.as_ref().map_or("", |x| x.1.as_str())));
         out.push(format!("comb: last departure clear of G to the next E edge: min {} gt ({})", self.clear_margin_min.as_ref().map_or(String::from("-"), |x| x.0.to_string()), self.clear_margin_min.as_ref().map_or("", |x| x.1.as_str())));
         out.push(format!("comb: largest group per departure window: {} (bar 3)", self.group_max));
