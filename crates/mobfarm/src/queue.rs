@@ -3787,6 +3787,31 @@ pub struct LoopTiming {
     pub retry_darr: bool,
     /// (cc767b78) a fault: the head's D_arr read stuck at a level from a slot on (SLOT, LEVEL).
     pub darr_stuck: Option<(i64, bool)>,
+    /// (cc767b78) a cart lost in transit: SLOT,DT,X0,X1,Z0,Z1,K (the first K carts in that loop box
+    /// from SLOT +DT removed with their riders).
+    pub vanish_box: Option<(i64, i64, f64, f64, f64, f64, i64)>,
+    /// (cc767b78) a slow transit: SLOT,DT,X0,X1,Z0,Z1,N (the first cart in that loop box from SLOT
+    /// +DT held in place N gt).
+    pub hold_box: Option<(i64, i64, f64, f64, f64, f64, i64)>,
+    /// (cc767b78) the head's summon tick S as this bench saw it (one tick after the slot +93
+    /// line), the opt-out of day-1's count.
+    pub summon_raw: bool,
+    /// (cc767b78) `--cell-log`: up to 8 cells (loop frame) whose passages are logged (each cart's
+    /// box entry and exit, ridden or empty, stored speed in and least inside; consecutive carts'
+    /// corner gaps).
+    pub cell_log: [Option<[i32; 3]>; 8],
+    /// (cc767b78) `--stall-box`: up to 4 loop boxes (X0,X1,Z0,Z1) where any empty cart at rest
+    /// >= 10 gt is logged (its cell, the rail there, powered neighbours, how it started again).
+    pub stall_box: [Option<(f64, f64, f64, f64)>; 4],
+    /// (cc767b78) day-1's one-shot ARR SET off: every DEP_X pulse arms ARR_X (the old model).
+    pub lx_off: bool,
+    /// (cc767b78) a fault: L_X stuck at a level from a slot on (SLOT, LEVEL).
+    pub lx_stuck: Option<(i64, bool, i64)>,
+    /// (cc767b78) the old EMP_X read at DEP_X: the stand's occupancy snapshot of the last REL (a
+    /// positive control for 9fc3155f's fix, which reads the meter's live E_X).
+    pub emp_snapshot: bool,
+    /// (cc767b78) a fault: a stray DEP_X pulse at SLOT +DT (no cart).
+    pub dep_pulse: Option<(i64, i64)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -3908,6 +3933,9 @@ pub struct MeterState {
     mirror: bool,
     /// the pending opening is a retry (the guard doesn't hold it)
     retry_open: bool,
+    /// router S's shape last seen, and its changes
+    s_shape: String,
+    s_flips: usize,
     /// the opening in progress (or the last one) came from a retry
     cur_open_retry: bool,
     init: bool,
@@ -4089,6 +4117,19 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             && let Ok(b) = Block::parse(want)
         {
             w.set_block(p, b, redsim::world::flags::ALL);
+        }
+    }
+    // (S's shape as the world holds it, logged at each change: the junction settles by its own
+    // neighbour update from the repeater, never set by the bench)
+    if m.wired_b && !s.stand_b {
+        let st = w.get(at(xb, 1, 16)).to_string();
+        let shape = st.split("shape=").nth(1).map(|r| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
+        if shape != s.s_shape {
+            if (c < 4 || s.s_shape.is_empty()) && s.events.len() < 60 {
+                s.events.push(format!("{c}+{dt} S {shape}"));
+            }
+            s.s_flips += 1;
+            s.s_shape = shape;
         }
     }
     let hcell = at(xb, 3, 0);
@@ -4300,9 +4341,19 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.crest_seen = 0;
         s.rel_open = true;
         // (the occupancy latched at REL: P1 = L1, P2 = L2, P3 = a Dh edge while L2 was set; SE armed
-        // for the rearmost occupied pocket's departure edge: P3 by D2, P2 by D1, P1 by the crest)
-        s.occ = [s.l1, s.l2, s.p3];
-        s.se_armed = s.occ.iter().any(|x| *x);
+        // for the rearmost occupied pocket's departure edge: P3 by D2, P2 by D1, P1 by the crest; a
+        // REL while the previous departure's SE is still pending (a freeze between REL and SE) keeps
+        // that departure's occupancy and arming, so its edge fires SE after the thaw)
+        let new_occ = [s.l1, s.l2, s.p3];
+        if s.se_armed {
+            for k in 0..3 {
+                s.occ[k] = s.occ[k] || new_occ[k];
+            }
+            log(s, format!("{c}+{dt} REL with SE pending: occupancy kept"));
+        } else {
+            s.occ = new_occ;
+            s.se_armed = s.occ.iter().any(|x| *x);
+        }
         s.l1 = false;
         s.l2 = false;
         s.p3 = false;
@@ -4967,6 +5018,106 @@ fn meter_trace(w: &redsim::world::World, s: &mut MeterState, lay: &LoopLayout, o
 }
 
 /// The metered stand's report lines (`meter_tick`'s measurements), and its problems.
+/// Each curve's passages, for tick-exact's curve-pair rule (a follower must not enter a curve
+/// before the leader's centre is 0.98 past the curve's centre): per plain curve rail, each cart's
+/// entry (its centre within 0.5 of the cell's centre, within 1 in height) and clear (0.98 past the
+/// centre after entering), and the least margin, follower entry minus leader clear, over
+/// consecutive passages, with the leader's speed at its entry.
+#[derive(Default)]
+struct CurveSpacing {
+    cells: Vec<BlockPos>,
+    open: std::collections::HashMap<(usize, u32), (i64, f64)>,
+    passes: Vec<Vec<(i64, i64, u32, f64)>>,
+    /// (cc767b78) the passages whose cart was empty at its entry: (curve, cart, entry tick)
+    empty_at: std::collections::HashSet<(usize, u32, i64)>,
+}
+
+impl CurveSpacing {
+    fn init(&mut self, w: &redsim::world::World) {
+        let (mn, sz) = (w.min, w.size);
+        for x in mn.x..mn.x + sz[0] {
+            for y in mn.y..mn.y + sz[1] {
+                for z in mn.z..mn.z + sz[2] {
+                    let p = BlockPos::new(x, y, z);
+                    let s = w.get(p).to_string();
+                    // (plain curves, and plain rails with 3+ rail neighbours: a junction that
+                    // settles to a curve by its power, router S included)
+                    let rail = |q: BlockPos| w.get(q).to_string().contains("rail[");
+                    let arms = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().filter(|(dx, dz)| (-1..=1).any(|dy| rail(BlockPos::new(x + dx, y + dy, z + dz)))).count();
+                    if s.starts_with("minecraft:rail[") && (arms >= 3 || ["north_east", "north_west", "south_east", "south_west"].iter().any(|c| s.contains(&format!("shape={c}")))) {
+                        self.cells.push(p);
+                    }
+                }
+            }
+        }
+        self.passes = vec![Vec::new(); self.cells.len()];
+    }
+    fn observe(&mut self, w: &redsim::world::World, t: i64) {
+        for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))) {
+            let v = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
+            for (i, p) in self.cells.iter().enumerate() {
+                if (e.pos.y - p.y as f64).abs() > 1.0 {
+                    continue;
+                }
+                let d = ((e.pos.x - (p.x as f64 + 0.5)).powi(2) + (e.pos.z - (p.z as f64 + 0.5)).powi(2)).sqrt();
+                let key = (i, e.id);
+                match self.open.get(&key).copied() {
+                    None if d < 0.5 => {
+                        self.open.insert(key, (t, v));
+                        if e.passengers.is_empty() {
+                            self.empty_at.insert((i, e.id, t));
+                        }
+                    }
+                    Some((t0, v0)) if d > 0.98 => {
+                        self.passes[i].push((t0, t, e.id, v0));
+                        self.open.remove(&key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    /// One line per curve passed by two or more carts (loop cells: the design frame less
+    /// (6,0,6)), the least margin first; a negative margin is a follower entering before the
+    /// leader cleared.
+    fn report(&self) -> Vec<String> {
+        let mut rows: Vec<(i64, String)> = Vec::new();
+        for (i, p) in self.cells.iter().enumerate() {
+            let mut ps = self.passes[i].clone();
+            if ps.len() < 2 {
+                continue;
+            }
+            ps.sort_by_key(|x| x.0);
+            let worst = ps.windows(2).map(|w| (w[1].0 - w[0].1, w[0].1, w[0].3, w[1].3)).min_by_key(|x| x.0);
+            if let Some((m, at, vl, vf)) = worst {
+                rows.push((m, format!("({},{},{}) {} passes, least margin {m} gt at t {at} (leader {vl:.2}, follower {vf:.2} b/gt)", p.x - 6, p.y, p.z - 6, ps.len())));
+            }
+        }
+        rows.sort_by_key(|r| r.0);
+        rows.into_iter().map(|r| r.1).collect()
+    }
+    /// (cc767b78) per curve with an empty cart in a pair: the least margin with an empty leader
+    /// and with an empty follower (the riderless rows), least first.
+    fn report_empty(&self) -> Vec<String> {
+        let mut rows: Vec<(i64, String)> = Vec::new();
+        for (i, p) in self.cells.iter().enumerate() {
+            let mut ps = self.passes[i].clone();
+            ps.sort_by_key(|x| x.0);
+            let empty = |x: &(i64, i64, u32, f64)| self.empty_at.contains(&(i, x.2, x.0));
+            let least = |lead_empty: bool| ps.windows(2).filter(|w| if lead_empty { empty(&w[0]) } else { empty(&w[1]) }).map(|w| (w[1].0 - w[0].1, w[0].1, w[0].3, w[1].3)).min_by_key(|x| x.0);
+            let (le, fe) = (least(true), least(false));
+            if le.is_none() && fe.is_none() {
+                continue;
+            }
+            let txt = |x: Option<(i64, i64, f64, f64)>| x.map_or("-".to_string(), |(m, at, vl, vf)| format!("{m} gt at t {at} (leader {vl:.2}, follower {vf:.2} b/gt)"));
+            let m = le.map(|x| x.0).into_iter().chain(fe.map(|x| x.0)).min().unwrap_or(0);
+            rows.push((m, format!("({},{},{}) empty leader: {}; empty follower: {}", p.x - 6, p.y, p.z - 6, txt(le), txt(fe))));
+        }
+        rows.sort_by_key(|r| r.0);
+        rows.into_iter().map(|r| r.1).collect()
+    }
+}
+
 fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let span = |v: &[i64]| if v.is_empty() { "-".to_string() } else { format!("{}..{} (n {})", v.iter().min().unwrap(), v.iter().max().unwrap(), v.len()) };
     let mut out = Vec::new();
@@ -5442,7 +5593,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, takeoff_z: 11, s_cell: None, meter: None }
     }
 }
 
@@ -6200,6 +6351,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             h.darr_gate = tm.darr_gate;
             h.retry_darr = tm.retry_darr;
             h.darr_stuck = tm.darr_stuck;
+            h.lx_gate = !tm.lx_off;
+            h.lx_stuck = tm.lx_stuck;
         }
         if let Some(rp) = tm.router_pulses {
             h.pulse_router = true;
@@ -6230,6 +6383,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut held_carts: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = Vec::new();
     let mut held_until: i64 = i64::MIN;
     let mut held_log: Vec<String> = Vec::new();
+    let mut vbox_done: usize = 0;
+    let mut hbox: Option<(u32, redsim::entity::Vec3, redsim::entity::Vec3, i64)> = None;
     let (mut strip_seen, mut strip_now): (Vec<u32>, Vec<u32>) = (Vec::new(), Vec::new());
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)
     let (fx, fz) = (o.shift[0] as f64, o.shift[1] as f64);
@@ -6277,7 +6432,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut pair_lines: Vec<String> = Vec::new();
     let mut pair_prev: std::collections::HashMap<u32, redsim::entity::Vec3> = std::collections::HashMap::new();
     let mut cc_last: Vec<redsim::entity::mob::CartCartPush> = Vec::new();
-    if tm.trace_pair.is_some() || tm.meter.is_some() {
+    // (`cell_log` / `stall_box` state: per cell its passages (cart, ridden, t in, t out, stored
+    // speed in, least speed inside); per empty cart at rest in a stall box since when and where)
+    let n_cells = tm.cell_log.iter().flatten().count();
+    let mut cell_pass: Vec<Vec<(u32, bool, i64, Option<i64>, f64, f64)>> = vec![Vec::new(); n_cells];
+    let mut stall_at: std::collections::HashMap<u32, (i64, f64, f64, f64, f64, f64)> = std::collections::HashMap::new();
+    let mut stalls: Vec<(bool, String)> = Vec::new();
+    let mut prev_v: std::collections::HashMap<u32, (f64, f64)> = std::collections::HashMap::new();
+    let mut t_end_run: i64 = 0;
+    if tm.trace_pair.is_some() || tm.meter.is_some() || n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) {
         redsim::entity::minecart::log_cart_cart_pushes(&mut run.world);
     }
     let mut pushes = [0u64; 4];
@@ -6978,6 +7141,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut bed_near: Option<(f64, String)> = None;
     // (merged carts: the shared check, `crate::merge`, every tick; a hard fail)
     let mut merges = crate::merge::MergeTally::default();
+    let mut curves = CurveSpacing::default();
+    curves.init(&run.world);
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
     // (slots from a departure to the slot whose advance must find that batch in the queue's
     // tail: the line loop's long return takes two)
@@ -8670,8 +8835,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 h.a_pulse(t);
             }
             // (ironspec: every margin against a summoning moment from the run's own summon
-            // events: each summon tick, A's riders at rest in its pockets and whether it pulsed)
-            h.summon_checks.push((t, in_pockets, pulsed));
+            // events: each summon tick, A's riders at rest in its pockets and whether it pulsed;
+            // S counted as day-1 and ironfarm count it, the slot +93 line (the tick that ticks
+            // gameTime to a multiple of 100), one tick before this check's bench tick, unless
+            // `--summon-raw`)
+            h.summon_checks.push((t - if tm.summon_raw { 0 } else { 1 }, in_pockets, pulsed));
         }
         if run.world.time % 100 == 0 {
             for r in riders.iter() {
@@ -9251,11 +9419,18 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 && let Some(zp) = h.dep_x
             {
                 let xb = -o.row_gap as f64;
-                // (the stand holds a batch: from its first Dh edge to its SE, the meter's live
-                // E_X; the occupancy snapshot taken at the last REL stays set after the batch's SE,
-                // and re-armed EMP_X on a DEP_X crossing after the SE (h5's, +41 after the launch
-                // against SE at +30), holding A at the next GO with nothing in the stand)
-                let occupied = !meter_state.empty;
+                // (the stand holds a batch: the meter's live E_X (9fc3155f's fix: the batch's
+                // first Dh edge to its SE), not the occupancy snapshot of the last REL, which stays
+                // set after SE; `--emp-snapshot` reproduces the old read)
+                let occupied = if tm.emp_snapshot { meter_state.occ.iter().any(|x| *x) } else { !meter_state.empty };
+                // (`dep_pulse` SLOT,DT: a stray DEP_X pulse at that tick, no cart: a fault row)
+                if let Some((ps, pdt)) = tm.dep_pulse
+                    && c == ps
+                    && dt == pdt
+                {
+                    h.day1_dep(t, occupied);
+                    h.stray_deps.push(t);
+                }
                 let mut on_branch = false;
                 for id in carts.iter() {
                     let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
@@ -9398,6 +9573,53 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
         }
+        // (`vanish_box` SLOT,DT,X0,X1,Z0,Z1,K: from SLOT +DT, the first K carts found in that loop
+        // box (any height) removed with their riders: a cart lost in transit, e.g. between H and its
+        // count edge; `hold_box` SLOT,DT,X0,X1,Z0,Z1,N: the first cart found in the box from SLOT
+        // +DT held in place N gt (position and stored motion): a slow transit)
+        let in_box = |e: &redsim::entity::Entity, b: (f64, f64, f64, f64)| {
+            let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+            !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && lx >= b.0 && lx <= b.1 && lz >= b.2 && lz <= b.3
+        };
+        if let Some((vs, vdt, x0, x1, z0, z1, vk)) = tm.vanish_box
+            && c == vs
+            && dt >= vdt
+            && vbox_done < vk.max(1) as usize
+        {
+            let gone: Vec<usize> = run.world.entities.list.iter().enumerate().filter(|(_, e)| in_box(e, (x0, x1, z0, z1))).map(|(i, _)| i).take(vk.max(1) as usize - vbox_done).collect();
+            for i in gone {
+                for p in run.world.entities.list[i].passengers.clone() {
+                    if let Some(pi) = redsim::entity::index_of(&run.world, p) {
+                        run.world.entities.list[pi].removed = true;
+                        redsim::entity::stop_riding(&mut run.world, pi);
+                    }
+                }
+                let e = &run.world.entities.list[i];
+                vanished.push(format!("slot {c} +{dt}: cart e{} at loop {:.2},{:.2},{:.2} (lost in the box)", e.id, e.pos.x - fx, e.pos.y, e.pos.z - fz));
+                run.world.entities.list[i].removed = true;
+                vbox_done += 1;
+            }
+        }
+        if let Some((hs, hdt, x0, x1, z0, z1, hn)) = tm.hold_box {
+            if hbox.is_none() && c == hs && dt >= hdt {
+                if let Some(e) = run.world.entities.list.iter().find(|e| in_box(e, (x0, x1, z0, z1))) {
+                    hbox = Some((e.id, e.pos, e.delta_movement, t + hn));
+                    held_log.push(format!("slot {c} +{dt}: e{} held in the box for {hn} gt at loop {:.2},{:.2},{:.2} (stored {:.3})", e.id, e.pos.x - fx, e.pos.y, e.pos.z - fz, e.delta_movement.x.hypot(e.delta_movement.z)));
+                }
+            }
+            if let Some((id, p, v, until)) = hbox
+                && t < until
+                && let Some(i) = redsim::entity::index_of(&run.world, id)
+            {
+                run.world.entities.set_pos(i, p);
+                run.world.entities.list[i].delta_movement = v;
+                for r in run.world.entities.list[i].passengers.clone() {
+                    if let Some(j) = redsim::entity::index_of(&run.world, r) {
+                        run.world.entities.set_pos(j, p);
+                    }
+                }
+            }
+        }
         if let Some((cell, s0, s1, k_only)) = tm.strip_riders
             && c >= s0
             && c <= s1
@@ -9442,6 +9664,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             meter_trace(&run.world, &mut meter_state, &lay, o, &carts, t, c, dt);
         }
         merges.observe(&run.world, &format!("t {t}"));
+        curves.observe(&run.world, t);
         // (the boosters still powered after the warm-up)
         if t == 20 && build_start.is_none() {
             for b in crate::declared::check(&run.world, &declared, true) {
@@ -10815,7 +11038,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // (`trace_pair`: the two carts per tick, their gap, stored and visible motion, and every
             // push on either (a mob's on a cart; a cart's on a cart with the alignment test): the
             // riderless merge, for tick-exact's bridge)
-            let cc = if tm.trace_pair.is_some() || tm.meter.is_some() { redsim::entity::minecart::take_cart_cart_pushes(&mut run.world) } else { Vec::new() };
+            let cc = if tm.trace_pair.is_some() || tm.meter.is_some() || n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) { redsim::entity::minecart::take_cart_cart_pushes(&mut run.world) } else { Vec::new() };
             if let Some((a, b, t0, t1)) = tm.trace_pair {
                 if t >= t0 && t <= t1 {
                     let get = |id: u32| redsim::entity::index_of(&run.world, id).map(|i| {
@@ -10842,6 +11065,69 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         pair_prev.insert(a, pa);
                         pair_prev.insert(b, pb);
                     }
+                }
+            }
+            // (`cell_log`: each listed cell's passages, a cart's box overlapping the cell: entry,
+            // exit, ridden or empty, stored speed at entry, least inside; `stall_box`: an empty cart
+            // at rest (stored under 0.01) >= 10 gt inside a listed box: where, the rail there, the
+            // powered rails beside it, and how it moved again (a cart-cart push this tick or the
+            // last, or by itself), or never)
+            if n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) {
+                t_end_run = t;
+                let cells: Vec<[i32; 3]> = tm.cell_log.iter().flatten().copied().collect();
+                let boxes: Vec<(f64, f64, f64, f64)> = tm.stall_box.iter().flatten().copied().collect();
+                let carts_now: Vec<(u32, f64, f64, f64, f64, f64, f64, bool)> = run
+                    .world
+                    .entities
+                    .list
+                    .iter()
+                    .filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)))
+                    .map(|e| (e.id, e.pos.x - fx, e.pos.y, e.pos.z - fz, e.delta_movement.x, e.delta_movement.z, e.delta_movement.x.hypot(e.delta_movement.z), !e.passengers.is_empty()))
+                    .collect();
+                for &(id, lx, ly, lz, vx, vz, v, ridden) in &carts_now {
+                    for (ci, cell) in cells.iter().enumerate() {
+                        let inside = (lx - (cell[0] as f64 + 0.5)).abs() < 0.99 && (lz - (cell[2] as f64 + 0.5)).abs() < 0.99 && ly < cell[1] as f64 + 1.0 && ly + 0.7 > cell[1] as f64;
+                        let open = cell_pass[ci].iter().rposition(|p| p.0 == id && p.3.is_none());
+                        match (inside, open) {
+                            (true, None) => cell_pass[ci].push((id, ridden, t, None, v, v)),
+                            (true, Some(k)) => cell_pass[ci][k].5 = cell_pass[ci][k].5.min(v),
+                            (false, Some(k)) => cell_pass[ci][k].3 = Some(t),
+                            _ => {}
+                        }
+                    }
+                    let in_box = boxes.iter().any(|b| lx >= b.0 && lx <= b.1 && lz >= b.2 && lz <= b.3);
+                    if !ridden && in_box && v < 0.01 {
+                        let (pvx, pvz) = prev_v.get(&id).copied().unwrap_or((0.0, 0.0));
+                        stall_at.entry(id).or_insert((t, lx, ly, lz, pvx, pvz));
+                    } else if let Some(st) = stall_at.remove(&id)
+                        && t - st.0 >= 10
+                    {
+                        let pushed = cc.iter().chain(cc_last.iter()).any(|p| p.this == id || p.other == id);
+                        let cell = BlockPos::new((st.1 + fx).floor() as i32, (st.2 + 0.01).floor() as i32, (st.3 + fz).floor() as i32);
+                        let rail = run.world.get(cell).to_string();
+                        let powered_by: Vec<String> = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                            .iter()
+                            .filter_map(|(dx, dz)| {
+                                let n = BlockPos::new(cell.x + dx, cell.y, cell.z + dz);
+                                let s = run.world.get(n).to_string();
+                                (s.contains("powered_rail") && s.contains("powered=true")).then(|| format!("{},{},{}", n.x - fx as i32, n.y, n.z - fz as i32))
+                            })
+                            .collect();
+                        let climb = rail.contains("ascending");
+                        let powered = rail.contains("powered_rail") && rail.contains("powered=true");
+                        stalls.push((
+                            !pushed || climb || powered || !powered_by.is_empty(),
+                            format!(
+                                "e{id} at loop {:.2},{:.2},{:.2} (cell {},{},{}: {}{}{}{}) from t {} to {t} ({} gt), arriving at ({:.3},{:.3}); moved again {}",
+                                st.1, st.2, st.3, cell.x - fx as i32, cell.y, cell.z - fz as i32, rail.split('[').next().unwrap_or(""), if climb { ", a climb" } else { "" }, if powered { ", powered" } else { "" }, if powered_by.is_empty() { String::new() } else { format!(", powered rails beside at {}", powered_by.join(" ")) },
+                                st.0, t - st.0, st.4, st.5,
+                                if pushed { "by a cart-cart push (the next cart pushed it through)" } else { "by itself (no cart-cart push)" }
+                            ),
+                        ));
+                    } else if v >= 0.01 || ridden || !in_box {
+                        stall_at.remove(&id);
+                    }
+                    prev_v.insert(id, (vx, vz));
                 }
             }
             cc_last = cc;
@@ -11733,6 +12019,14 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             problems.push(format!("the count: {c_end} of {} carts and {r_end} of {} riders at the end", carts.len(), riders.len()));
         }
         out.push(merges.line());
+        {
+            let cr = curves.report();
+            out.push(format!("curve spacing (each curve's passages: the follower's entry, its centre within 0.5 of the curve's centre, minus the leader's clear, 0.98 past it; tick-exact's curve-pair rule, least first): {}", if cr.is_empty() { "no curve passed twice".to_string() } else { cr.join("; ") }));
+            let ce = curves.report_empty();
+            if !ce.is_empty() {
+                out.push(format!("curve spacing with an empty cart (the least margin with an empty leader, and with an empty follower; least first): {}", ce.join("; ")));
+            }
+        }
         if lay.esc_adm_a1.is_some() {
             out.push(format!("riders in the pressed queue (landing to P) with a walk target, rider-ticks by path: reaching {}, partial {}, no path {}{}; riders whose box touches another cart's, walking or not (contact alone pushes: LivingEntity.pushEntities, bridged in gate-escg6l-v3; must be 0): {walk_touch} (not walking {touch_idle}){}", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }, if walk_touch_log.is_empty() { String::new() } else { format!(" ({})", walk_touch_log.join("; ")) }));
             if !hold_cells.is_empty() {
@@ -12212,7 +12506,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     }
                 })
                 .collect();
-            out.push(format!("head-perm edges vs the summon tick S before each A launch (bench ticks; day-1 wired: GO S+9, core REL S+11, stand REL S+21; frame {}): {}", h.frame, rows.join("; ")));
+            out.push(format!("head-perm edges vs the summon tick S before each A launch (bench ticks; S {}; day-1 wired: GO S+9, core REL S+11, stand REL S+21; frame {}): {}", if tm.summon_raw { "as the bench sees it, one tick after the slot +93 line (--summon-raw)" } else { "the slot +93 line, day-1's count" }, h.frame, rows.join("; ")));
         }
         // (never two stand RELs in one A-cycle (200 gt))
         if h.retry {
@@ -12237,11 +12531,36 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     if let Some((sc, _)) = tm.s_cell {
         out.push(format!("router S at {},{},{}: {s_flips} flips; with a cart's centre in S's cell at the flip: ridden {s_ridden} (the rider string sees each), empty {s_empty}{}", sc[0], sc[1], sc[2], if s_hits.is_empty() { String::new() } else { format!(" ({})", s_hits.join("; ")) }));
     }
-    if tm.vanish.is_some() {
+    if tm.vanish.is_some() || tm.vanish_box.is_some() {
         out.push(format!("carts removed after DEP (a train that never arrives): {}{}", vanished.len(), if vanished.is_empty() { String::new() } else { format!(" ({})", vanished.join(", ")) }));
     }
-    if tm.hold_cart.is_some() {
+    if tm.hold_cart.is_some() || tm.hold_box.is_some() {
         out.push(format!("carts held in place (an emulated freeze of those carts alone): {}", if held_log.is_empty() { "none found".to_string() } else { held_log.join("; ") }));
+    }
+    // (`cell_log`: per cell its passages and the corner gaps (the follower's box entry after the
+    // leader's box exit), the least gap for empty and for ridden followers; `stall_box`: the empty
+    // carts at rest >= 10 gt, how each moved again)
+    for (ci, cell) in tm.cell_log.iter().flatten().enumerate() {
+        let ps = &cell_pass[ci];
+        let n_empty = ps.iter().filter(|p| !p.1).count();
+        let rows: Vec<String> = ps.iter().map(|p| format!("e{} {} in {} (slot {} +{}) stored {:.3} least {:.3} out {}", p.0, if p.1 { "ridden" } else { "empty" }, p.2, p.2.div_euclid(100), p.2.rem_euclid(100), p.4, p.5, p.3.map_or("-".to_string(), |x| x.to_string()))).collect();
+        let mut gaps: Vec<(i64, bool, f64, String)> = Vec::new();
+        for w2 in ps.windows(2) {
+            if let Some(out_t) = w2[0].3 {
+                let g = w2[1].2 - out_t;
+                gaps.push((g, w2[1].1, w2[1].4, format!("e{}->e{} {g} gt (follower {} at {:.3})", w2[0].0, w2[1].0, if w2[1].1 { "ridden" } else { "empty" }, w2[1].4)));
+            }
+        }
+        let least = |ridden: bool| gaps.iter().filter(|g| g.1 == ridden && g.0 < 100).min_by_key(|g| g.0).map_or("-".to_string(), |g| g.3.clone());
+        out.push(format!("cell-log ({},{},{}): {} passages ({} empty); the least corner gap under 100 gt, empty follower: {}; ridden follower: {}; passages: {}", cell[0], cell[1], cell[2], ps.len(), n_empty, least(false), least(true), rows.join(" | ")));
+    }
+    if tm.stall_box.iter().any(|b| b.is_some()) {
+        let open: Vec<String> = stall_at.iter().filter(|(_, st)| t_end_run - st.0 >= 10).map(|(id, st)| format!("e{id} at loop {:.2},{:.2},{:.2} from t {} to the run's end (never moved again)", st.1, st.2, st.3, st.0)).collect();
+        let bad = stalls.iter().filter(|s| s.0).count() + open.len();
+        out.push(format!("empty carts at rest >= 10 gt in the stall boxes: {} ({} where the no-meetings rule bars a stop (a climb, a powered cell or beside one) or not pushed on by the next cart, or never moved again){}", stalls.len() + open.len(), bad, if stalls.is_empty() && open.is_empty() { String::new() } else { format!(": {}", stalls.iter().map(|s| s.1.clone()).chain(open.iter().cloned()).collect::<Vec<_>>().join(" | ")) }));
+        if bad > 0 {
+            problems.push(format!("empty carts stopped where the rule bars it, or not pushed on: {bad}"));
+        }
     }
     out.extend(pair_lines);
     if !problems.is_empty() {
