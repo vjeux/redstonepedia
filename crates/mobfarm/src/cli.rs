@@ -2612,7 +2612,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 let hurt = r.matches(" hurt at slot ").count();
                                 // (the faults' reach: which slots had a problem, and the lap order)
                                 let reach: String = r.lines().filter(|l| l.starts_with("problem slots: ") || l.starts_with("lap order: CHANGED")).map(|l| format!(" | {}", l.split(" (").next().unwrap_or(l))).collect();
-                                println!("{label}, seed {s}: {probs} {first}{}{reach}", if hurt > 0 { format!(" (riders hurt {hurt} times)") } else { String::new() });
+                                // (admission control's margins, compact: the fastest front at a G0
+                                // opening, the closest rider gap, the fewest rider ticks)
+                                let margins: String = r.lines().find_map(|l| l.strip_prefix("admission margins: ")).map(|l| {
+                                    let num_after = |key: &str| l.split(key).nth(1).and_then(|t| t.split_whitespace().next()).unwrap_or("-").to_string();
+                                    format!(" | G0 front vmax {} rider gap {} rider gt {}", num_after("opening "), num_after("at least "), l.split("reached P's end at least ").nth(1).and_then(|t| t.split_whitespace().next()).unwrap_or("-"))
+                                }).unwrap_or_default();
+                                println!("{label}, seed {s}: {probs} {first}{}{reach}{margins}", if hurt > 0 { format!(" (riders hurt {hurt} times)") } else { String::new() });
                                 use std::io::Write;
                                 let _ = std::io::stdout().flush();
                             }
