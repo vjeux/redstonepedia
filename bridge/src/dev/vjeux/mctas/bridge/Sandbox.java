@@ -326,6 +326,11 @@ final class Sandbox {
     /** Which constructor made the item entering now, and whether its drift stayed (Exact.ItemPath). */
     private static Exact.ItemPath itemPath() {
         return StackWalker.getInstance().walk(frames -> {
+            // (tickexact 2026-11-10) Block.popResource(level, pos, stack): the 5-argument
+            // constructor's drift stays (a block's drop); popResourceFromFace passes its own motion
+            // to the 8-argument one (no drift drawn). Both reach the private popResource(level,
+            // supplier, stack), so the frame under it decides
+            boolean pop = false;
             for (StackWalker.StackFrame f : (Iterable<StackWalker.StackFrame>) frames::iterator) {
                 String c = f.getClassName();
                 String m = f.getMethodName();
@@ -336,8 +341,20 @@ final class Sandbox {
                         || (c.equals("net.minecraft.world.Containers") && m.equals("dropItemStack"))) {
                     return Exact.ItemPath.DRIFT_REPLACED;
                 }
+                if (c.equals("net.minecraft.world.level.block.Block")) {
+                    if (m.equals("popResourceFromFace")) {
+                        return Exact.ItemPath.NO_DRIFT;
+                    }
+                    if (m.equals("popResource")) {
+                        pop = true;
+                        continue;
+                    }
+                }
+                if (pop) {
+                    return Exact.ItemPath.DRIFT_KEPT;
+                }
             }
-            return Exact.ItemPath.NO_DRIFT;
+            return pop ? Exact.ItemPath.DRIFT_KEPT : Exact.ItemPath.NO_DRIFT;
         });
     }
 
@@ -485,6 +502,45 @@ final class Sandbox {
                 r.nextDouble();
             } else if (preSeeded.remove(e)) {
                 // a design mob: summonSeeded seeded it before its data loaded
+            } else if (ticking && e instanceof net.minecraft.world.entity.projectile.arrow.AbstractArrow arrow
+                    && arrow.getOwner() instanceof net.minecraft.world.entity.monster.skeleton.AbstractSkeleton shooter
+                    && shooter.getTarget() != null) {
+                // (mob-AI 2026-11-10) a skeleton's arrow (AbstractSkeleton.performRangedAttack): its
+                // constructor's draw (the UUID) and the shot's (setBaseDamageFromMob's triangle,
+                // shoot's three) came from its unseeded random before it entered. Reseeded as
+                // entity n and all redone in that order from it: the power is 1 (the bow goal
+                // shoots at a pull of 20 or more), the direction toward the shooter's target as
+                // performRangedAttack aimed it a moment ago (nothing moved since), which redsim
+                // mirrors (entity::arrow::shoot_from_mob)
+                java.util.UUID old = e.getUUID();
+                Exact.Seeded info = Exact.seed(e, seed, n, false, true, Exact.ItemPath.NONE, ctor);
+                renameUuid(old, e.getUUID());
+                seeded.put(e, info);
+                net.minecraft.world.entity.LivingEntity target = shooter.getTarget();
+                arrow.setBaseDamageFromMob(1.0F);
+                double xd = target.getX() - shooter.getX();
+                double yd = target.getY(0.3333333333333333) - arrow.getY();
+                double zd = target.getZ() - shooter.getZ();
+                double dist = Math.sqrt(xd * xd + zd * zd);
+                arrow.shoot(xd, yd + dist * 0.2F, zd, 1.6F, shooter.rangedAttackUncertainty(Sandbox.this.level));
+            } else if (ticking && e instanceof net.minecraft.world.entity.projectile.arrow.ThrownTrident trident
+                    && trident.getOwner() instanceof net.minecraft.world.entity.monster.zombie.Drowned thrower
+                    && thrower.getTarget() != null) {
+                // (mob-AI 2026-11-10) a drowned's trident (Drowned.performRangedAttack): its
+                // constructor's draw (the UUID) and spawnProjectileUsingShoot's (shoot's three)
+                // came from its unseeded random before it entered. Reseeded as entity n and the
+                // shot redone from it toward the thrower's target (nothing moved since), which
+                // redsim mirrors (entity::arrow::throw_trident_from_mob)
+                java.util.UUID old = e.getUUID();
+                Exact.Seeded info = Exact.seed(e, seed, n, false, true, Exact.ItemPath.NONE, ctor);
+                renameUuid(old, e.getUUID());
+                seeded.put(e, info);
+                net.minecraft.world.entity.LivingEntity target = thrower.getTarget();
+                double xd = target.getX() - thrower.getX();
+                double yd = target.getY(0.3333333333333333) - trident.getY();
+                double zd = target.getZ() - thrower.getZ();
+                double dist = Math.sqrt(xd * xd + zd * zd);
+                trident.shoot(xd, yd + dist * 0.2F, zd, 1.6F, thrower.rangedAttackUncertainty(Sandbox.this.level));
             } else if (!e.entityTags().contains(DESIGN_TAG) || (ticking && ctor != null)) {
                 // (tickexact 2026-11-08) every other entity: its own random from the sandbox seed
                 // and its number, the constructor's draws redone (Exact); (mob-AI 2026-11-09) a

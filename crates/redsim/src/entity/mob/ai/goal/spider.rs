@@ -17,7 +17,7 @@ use crate::world::World;
 /// `Spider.registerGoals()`.
 pub fn register(ai: &mut MobAi) {
     ai.goals.add(1, Goal::Float);
-    ai.goals.add(2, Goal::AvoidEntity);
+    ai.goals.add(2, Goal::AvoidEntity(super::avoid::AvoidEntity::new(super::avoid::AvoidClass::Armadillo, 6.0, 1.0, 1.2)));
     ai.goals.add(3, Goal::LeapAtTarget);
     ai.goals.add(4, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Spider, 1.0, true)));
     ai.goals.add(5, Goal::RandomStroll(RandomStroll::water_avoiding(0.8)));

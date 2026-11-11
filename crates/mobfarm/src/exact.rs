@@ -1185,8 +1185,18 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     game.arrive(&c, &spec, &run.world, &bonus)?;
     let mut tally = Tally::default();
     let mut left = opts.ticks;
+    // (a probe: MCTAS_EXACT_MOBSTATE=T: right after the run's tick T, the game's mobs with a path,
+    // each node (the bridge's `mobstate`), to set beside MCTAS_PATH_DUMP's redsim paths; the batch
+    // is cut to end there)
+    let mobstate_at: Option<i64> = std::env::var("MCTAS_EXACT_MOBSTATE").ok().and_then(|v| v.parse().ok());
     while left > 0 {
-        let n = left.min(opts.batch);
+        let mut n = left.min(opts.batch);
+        if let Some(ms) = mobstate_at
+            && t < ms
+            && t + n as i64 > ms
+        {
+            n = (ms - t) as u32;
+        }
         for f in game.trace(n, window(t, n))? {
             print(&f);
             trace_start(&mut run.world, f.t);
@@ -1222,6 +1232,27 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         }
         t += n as i64;
         left -= n;
+        if mobstate_at == Some(t) {
+            let v = game.w.call(json!({"op": "mobstate", "sandbox": game.sb}))?;
+            for m in v["mobs"].as_array().into_iter().flatten() {
+                if let Some(p) = m["path"].as_str() {
+                    eprintln!("mobstate t{t}: {} at {} {} {}: path {p}", m["type"].as_str().unwrap_or("?"), m["x"].as_str().unwrap_or("?"), m["y"].as_str().unwrap_or("?"), m["z"].as_str().unwrap_or("?"));
+                }
+            }
+            // MCTAS_EXACT_PATHNODES="N:X,Y,Z:REACH": entity #N's search toward the cell again, every
+            // node the game's evaluator made (the bridge's `path_nodes`)
+            if let Ok(spec) = std::env::var("MCTAS_EXACT_PATHNODES") {
+                let parts: Vec<&str> = spec.split(':').collect();
+                if let [n, xyz, reach] = parts[..] {
+                    let c: Vec<i64> = xyz.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                    let v = game.w.call(json!({"op": "path_nodes", "sandbox": game.sb, "entity": n.parse::<i64>().unwrap_or(0), "target": c, "reach": reach.parse::<i64>().unwrap_or(0)}))?;
+                    eprintln!("game path t{t}: {} (max {})", v["path"].as_str().unwrap_or("none"), v["max_path_length"].as_str().unwrap_or("?"));
+                    for node in v["nodes"].as_array().into_iter().flatten() {
+                        eprintln!("game node t{t}: {}", node.as_str().unwrap_or(""));
+                    }
+                }
+            }
+        }
         if cmp.first.is_some() && !opts.full && opts.draws_at.is_none_or(|d| d < t) {
             break;
         }
@@ -1339,6 +1370,32 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
                 eprintln!("block box {a:?}..{c:?}: {differ} cells differ");
             }
         }
+    }
+    // (a probe: MCTAS_TRACE_TICKS_AT=T: at the end, each random-tick position redsim picked at
+    // game time T (and the cell above) whose block or light differs between the game and redsim)
+    let traced: Vec<[i32; 3]> = redsim::crops::TRACED_TICKS.lock().unwrap().clone();
+    if !traced.is_empty() {
+        use base64::Engine as _;
+        let mut differ = 0;
+        for p in &traced {
+            let (from, to) = (*p, [p[0], p[1] + 1, p[2]]);
+            let region = game.w.get_region(game.sb, from, to).ok();
+            let r = game.w.call(json!({"op": "light_box", "sandbox": game.sb, "from": from, "to": to}))?;
+            let dec = |k: &str| base64::engine::general_purpose::STANDARD.decode(r[k].as_str().unwrap_or("")).unwrap_or_default();
+            let (sky, block) = (dec("sky"), dec("block"));
+            for (i, y) in [p[1], p[1] + 1].into_iter().enumerate() {
+                let q = redsim::BlockPos::new(p[0], y, p[2]);
+                let gs = region.as_ref().and_then(|g| g.get([p[0], y, p[2]])).map(|s| s.to_string()).unwrap_or_default();
+                let rs = run.world.get(q).to_string();
+                let gl = (sky.get(i).copied().unwrap_or(0) as i32, block.get(i).copied().unwrap_or(0) as i32);
+                let rl = (run.world.sky_light(q).unwrap_or(-1), run.world.block_light(q).unwrap_or(-1));
+                if gs != rs || gl != rl {
+                    differ += 1;
+                    eprintln!("traced tick {} {} {}{}: the game {gs} light {gl:?} | redsim {rs} light {rl:?}", p[0], p[1], p[2], if i == 1 { " (above)" } else { "" });
+                }
+            }
+        }
+        eprintln!("traced random ticks: {} positions, {differ} cells differ", traced.len());
     }
     // (a probe: MCTAS_EXACT_LIGHT="x0,y0,z0,x1,y1,z1": each cell of the box whose sky or block light
     // differs at the end, the game's against redsim's)

@@ -1,4 +1,5 @@
 file	name	stage	metrics	used_by
+carousel-loop-scheduler-v0.txt	single-lane loop nightly scheduler v0: one 7-state ring of pointer minus release index, a visit at its zero inside the deep night (3 extra steps from a delay chain), a latch window and a 3-state slot ring ANDed with it	middle	slots lost 0 in 120 days, second naps 2.4%, v = T+10..T+88, blocks 290, box 15x3x26, build minutes 30.3	
 carousel-scheduler-core3.txt	carousel nightly scheduler, core v3: pointer and level rings, 7 lane gates on an OR bus, the night-gated arm, a 220-gt hump window up from before the line's fall, the rings stepped at its end	middle	slots lost 0 in 120 days, second naps 2.4%, window 147..178 gt past the fall, blocks 456, box 29x5x26, build minutes 45.7	
 carousel-scheduler-core2.txt	carousel nightly scheduler, core v2 (superseded: its window starts 12 gt after the line's fall)	middle	slots lost 0 in 120 days, second naps 2.4%, blocks 396, box 23x5x25, build minutes 40.3	
 carousel-scheduler-core0.txt	carousel nightly scheduler, core v0 (the first circuit, judged on the contract)	middle	slots lost 0 in 120 days, second naps 2.4%, blocks 605, box 54x3x27, build minutes 52.6	

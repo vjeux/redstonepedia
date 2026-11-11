@@ -123,6 +123,44 @@ line falls, and checks every slot's willingness (gameTime - LAST_SLEPT < 24,000)
 range and worst gap window, plus the blocks, box and build minutes; `--game N` replays the run's
 first N days' input actions in the real game, every output probe compared every tick
 (designs/farms/iron/parts/carousel-scheduler/NOTES.md).
+The single-lane loop's scheduler (vjeux's one queue of 21 carts): `mctas circuit memory loop-model
+[--policy pring|every|k0|first-unvisited] [--rejoin exact|tail|place|batch] [--every 4] [--days N]
+[--miss p] [--visit A..B]` models the queue (the front 3 released per release, a napper's way back)
+and prints lost slots, napless villager-nights and second naps; `mctas circuit memory loop-gen --out
+F` generates the scheduler (one 7-state ring of D = pointer - release index, the visit gate, the
+delay chain, the window latch and the slot-out module); `mctas circuit memory loop-bench <design>
+[--days 60] [--seed S] [--miss 0.01] [--game N]` drives its `release` (a 10-gt pulse per release)
+and `win` cells, reads each visit's napper slot off `s0..s2`, checks every slot's willingness, the
+ring's token against the policy at every release, the window `v` (from the release, >= 85 gt) and
+the slot lines, and prints per villager its naps and gap windows; `--game N` as for sched-bench;
+`--weather clear|rain|thunder|cycle` drives the window from a normal daylight detector reading 0
+under that weather (redsim's sensor model; `cycle`: random spells, the levels ramping 0.01 a tick)
+instead of the ideal [dusk, end]; `--restarts R` repeats the run with R chunk reloads at random
+ticks and requires the same output changes tick for tick; `--placed-raw` places the design raw (its
+written states and block entities, no shape or neighbour updates, no settle).
+The single-lane loop's release controller: `mctas circuit memory release-gen --out F` generates it
+(golem input; a 3-comparator countdown ring with a busy threshold and an empty-ring torch for the
+fallback; GO = (golem or held request or fallback) minus busy, a self-timed ~10-gt release pulse;
+the held request in a waxed copper bulb set by the input's rising edge, with a merge window from
+the delay chain; the release group window and the advance pulses off the same chain);
+`mctas circuit memory release-bench <design> [--pulses 1000] [--seed S] [--miss 0.05] [--early
+0.05] [--double 0.1] [--restarts R] [--game N]` drives its `golem` cell (golems in time, early ones
+to hold, missed slots, double detections to merge), checks every `group` window's start against an
+exact model and its length, the three `adv` pulses after it (start + 38/58/78, 7..12 gt, identical)
+and that nothing else lights; `--restarts`/`--game` as for loop-bench, `--turns 1,2,3` repeats it
+turned, `--placed-raw` places the design raw (its written states and block entities, no shape or
+neighbour updates, no settle: "works as placed"). `release-gen --out F --loop <ironfarm's loop file>` builds the controller into a copy of
+the single-lane loop (work in progress): turned west of row B, its lines wired to the 21 controls
+(the release group, the 18 queue slots on one tick, the tail's close-off windows, the stand's three
+latches and their brake from the release run's detector rail), and writes `F.probe.txt` beside it
+(the controller alone, the controls as ports); `mctas circuit memory release-trace <design> --at
+<golem ticks> [--det <detector ticks>] [--ticks N]` drives the golem cell (and a stand-in for the
+loop's detector rail) and prints each output port's on and off ticks from the first golem
+(`output.lvl_*` ports: the analog level at each change); queue-loop-run's `--wired` runs carts on F.
+A design's Nether part as a design of its own: `mctas mobfarm nether-part <design> --out F` writes
+its `nether layer` blocks, `nether nbt:` data and `port nether-<name>` ports as the blocks, data and
+ports of F, so `web shot F` pictures the Nether side (the kill, the collection); the viewer draws a
+design's overworld blocks only.
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick
@@ -179,6 +217,41 @@ slot for slot). `mctas mobfarm station-bench <design> --from S --to S --timeline
 station + portal pad part (regions `station`, `pad` and `hold`, signal `pulse`; the timeline reads
 the world's mob events through `observe`, which the bench reads too, and its output is the same with
 or without the flag).
+The brief's two placement checks on a part's bench (farm-iron-carousel, "settled as placed" and
+"built in order"; ironfarm's queue-loop-run flags on explore/ironfarm): `mctas mobfarm siding-bench`
+and `linear-bench` take `--placed-raw` (the design file pasted raw, its `nbt:` lines merged, no shape
+or neighbour update and no settle, a Nether part too), `--placed-in-order [GAP]` (the worlds empty,
+each build step placed with the game's updates, a Nether part first, its world ticking through its
+build and the player's 80 gt in the portal back, then the overworld's; each cell's priced gap, 20 gt
+or 40 gt at a cell the bill charges place:edge, or GAP gt for every step; then the entities; the
+cells the build leaves unlike the file fail the run), `--placed-all` (the judge's, the raw paste and
+built in order, each reported) and `--build-gap-sweep` (built in order at every gap from 1 to 40 gt,
+to the first that fails); `--drive-out F` with them writes the build into the drive (ironfarm's
+`build:` header and `spawn S`, `act t set|nbt ...` per placement and fill, a Nether part's as `act t
+nether-set|nether-nbt ...`, every time from the build's start). The order is
+`mobfarm::placing::build_steps_of`: ironfarm's `build_order_of` (supports bottom up, containers
+filled as placed, rails, redstone from its sources outward), each lit portal's cells at one tick
+after every other block, fluid sources poured last, and the design's listed steps, its `build:` line:
+`last x,y,z ...` (cells placed after everything else, in order: a latch's torch that is off at rest)
+and `fills-last` (every container's contents a step of its own after every placement, no comparator
+output merged: a sorter whose locks come with its redstone). `mctas mobfarm siding --out F` and
+`linear --out F` write their files settled (`placing::settle_design`: every cell as the bench finds
+it after the settle, flowing fluids included, comparator outputs as `nbt:` lines; `--unsettled` for
+the generator's own states); `siding --alone` writes the siding by itself (no launcher, approach,
+run-out, hold or carts), `--exit-brake` puts a braked powered rail past its exit cell and
+`--cage-only` closes the bed's open north front (the bed reachable only from the cage);
+`--wired` includes the give-up (an arrival latch, day-1's 220 gt comparator timer, and on timeout
+the visit latch set: a napper that cannot sleep still leaves; `--no-give-up` leaves it out);
+`siding-bench --day-visits` (every visit by day: no napper sleeps) and `--fail-no-home N` (the
+first N villagers' HOME erased before each of their visits) are its forced failures: every cart
+must still be on the slot with its villager within 500 gt of its arrival;
+`siding-bench --release-held` holds the release input on all run (each napped cart leaves the slot
+as it reaches it). The siding bench sets no villager memory (HOME = the bed comes from the design's
+`port home:`, R1's state), gives each of the 21 villagers one visit a night (the full nights after
+the spawn) and prints ironspec's check: every villager's HOME at every dawn and midday, naps per
+villager-night, and each HOME loss and its reclaim. A design with `port home:` pays R1's N - 1
+break-and-replace steps in its bill (prices.tsv's `bed_reclaim`). `MCTAS_BUILD_WATCH="x,y,z n1,59,0 ..."` prints the watched cells (`n`: the
+Nether's) on stderr whenever one changes during a build.
 The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
 --threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
 level (static, quick for the first `--quick` passing static, full for the first `--full` passing

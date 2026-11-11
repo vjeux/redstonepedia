@@ -16,9 +16,11 @@ pub mod bat;
 pub mod brain;
 pub mod cube;
 pub mod squid;
+pub mod fish;
 pub mod control;
 pub mod goal;
 pub mod path;
+pub mod loot;
 pub mod player_body;
 pub mod poi;
 pub mod target;
@@ -63,6 +65,9 @@ pub struct MobAi {
     pub ambient_sound_time: i32,
     /// `Mob.isAggressive()` (`DATA_MOB_FLAGS` bit 4).
     pub aggressive: bool,
+    /// `LivingEntity.isUsingItem()` and `useItemRemaining` (a skeleton drawing its bow).
+    pub using_item: bool,
+    pub use_item_remaining: i32,
     /// `getPathfindingMalus` overrides.
     pub malus: Malus,
     /// The search buffers (reused between searches).
@@ -91,6 +96,10 @@ pub struct MobAi {
     pub cube: Option<cube::CubeState>,
     /// A squid's tentacles and swim direction ([`squid`]).
     pub squid: Option<squid::SquidState>,
+    /// A fish's school ([`fish`]).
+    pub fish: Option<fish::FishState>,
+    /// A wolf's shake ([`goal::wolf`]).
+    pub wolf: Option<goal::wolf::WolfState>,
     /// An enderman's carried block and target change time.
     pub enderman: Option<goal::enderman::EndermanState>,
     /// (tickexact 2026-11-10) A drowned's `searchingForLand` (its swim up's) and the entity's
@@ -106,9 +115,8 @@ pub struct MobAi {
     /// A horse's state (`AbstractHorse`: attributes, eating, standing).
     pub horse: Option<goal::animal::Horse>,
     /// A zombie holding an iron spear (a zombie horseman's, or 1 in 6 of the rare weapons).
-    pub spear: bool,
-    /// A drowned holding a trident (its own spawn's 10 in 16 of 1 in 10).
-    pub trident: bool,
+    /// `LivingEntity.recentKineticEnemies` (a spear in use: each entity it stabbed and when).
+    pub stabbed: Vec<(u32, i64)>,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
 }
@@ -173,6 +181,8 @@ impl MobAi {
             y_body_rot_o: y_rot,
             ambient_sound_time: 0,
             aggressive: false,
+            using_item: false,
+            use_item_remaining: 0,
             malus,
             arena: Arena::default(),
             last_hurt_by_mob: None,
@@ -189,14 +199,15 @@ impl MobAi {
             swell_target: None,
             cube: None,
             squid: None,
+            fish: None,
+            wolf: None,
             enderman: None,
             searching_for_land: false,
             swimming: false,
             piglin: None,
             witch_drink: None,
             horse: None,
-            spear: false,
-            trident: false,
+            stabbed: Vec::new(),
             age: 0,
         };
         goal::register_goals(&mut ai, ty);
@@ -205,6 +216,9 @@ impl MobAi {
         }
         if squid::is_squid_id(d.id) {
             squid::register(&mut ai, d.id);
+        }
+        if fish::is_fish_id(d.id) {
+            fish::register(&mut ai, d.id);
         }
         ai
     }
@@ -336,6 +350,9 @@ pub struct AiWorld {
     pub mob_griefing: bool,
     /// The attacker of the hit `living::hurt` is dealing (set by [`attack::do_hurt_target`]).
     pub attacker: Option<u32>,
+    /// The motion of the arrow whose hit `living::hurt` is dealing (`arrow::hit_entity`): the
+    /// knockback's direction (`Projectile.calculateHorizontalHurtKnockbackDirection`).
+    pub projectile_motion: Option<crate::entity::Vec3>,
     /// The POI index (`poi::index`; `None`: to rebuild).
     pub pois: Option<Vec<(crate::pos::BlockPos, poi::PoiKind)>>,
     /// The order POIs were added (`PoiManager.add` on a POI block placed: a section's record set
@@ -376,7 +393,7 @@ pub fn unmodeled(ty: MobType, a: &MobAi) -> bool {
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, projectile_motion: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false }
     }
 }
 
@@ -498,6 +515,10 @@ fn custom_server_ai_step(w: &mut World, i: usize) {
 pub fn move_control_tick(w: &mut World, i: usize) {
     if ai(w, i).cube.is_some() {
         return cube::move_control_tick(w, i);
+    }
+    // AbstractFish.FishMoveControl
+    if ai(w, i).fish.is_some() {
+        return fish::move_control_tick(w, i);
     }
     // DrownedMoveControl.tick: swimming (it wants to and is in water) replaces MoveControl's tick;
     // else 0.008 more fall off the ground first
@@ -747,6 +768,8 @@ pub fn after_ai_step(w: &mut World, i: usize) {
     // inside aiStep, before tickHeadTurn: AgeableMob.aiStep's age (a grown baby's box and its
     // fudge move, which the body's turn sees), Chicken.aiStep's tail (the slow fall, the egg)
     goal::animal::after_ai_step(w, i);
+    // Wolf.aiStep's tail (after Animal's): the shake starts, the persistent anger
+    goal::wolf::after_ai_step(w, i);
     // AgeableMob.aiStep's age (a baby squid's), then Squid.aiStep's tail (after
     // LivingEntity.aiStep): the tentacles, the swim impulse, the turns
     squid::age_step(w, i);
@@ -981,11 +1004,15 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
         ai_mut(w, i).ambient_sound_time = -interval;
         if bat::is_bat(w, i) {
             bat::ambient_sound(w, i);
-        } else if has_ambient_sound(w, i)
-            && let Some(r) = w.entities.list[i].random.as_mut()
-        {
-            r.next_float();
-            r.next_float();
+        } else if has_ambient_sound(w, i) {
+            // a wolf's sound is picked with its own draw first (not angry: nextInt(3))
+            if goal::wolf::is_wolf(w, i) {
+                goal::wolf::ambient_draw(w, i);
+            }
+            if let Some(r) = w.entities.list[i].random.as_mut() {
+                r.next_float();
+                r.next_float();
+            }
         }
     }
 }
@@ -998,7 +1025,8 @@ pub fn ambient_interval(w: &World, i: usize) -> i32 {
     if goal::animal::is_horse(id) {
         return 400;
     }
-    if goal::animal::is_animal(id) || squid::is_squid_id(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 }
+    // WaterAnimal.getAmbientSoundInterval: 120 (the fish)
+    if goal::animal::is_animal(id) || squid::is_squid_id(id) || fish::is_fish_id(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 }
 }
 
 /// `getAmbientSound() != null`: zombies, creepers? (no: `Creeper` has none), skeletons, spiders;
@@ -1024,6 +1052,25 @@ impl NavMob {
 pub fn eye_pos(w: &World, j: usize) -> Vec3 {
     let e = &w.entities.list[j];
     Vec3::new(e.pos.x, e.pos.y + e.kind.eye_height() as f64, e.pos.z)
+}
+
+/// `Mob.lookAt(entity, yMax, xMax)` of mob `i` at living entity `j`: the yaw and pitch toward
+/// its eye, each turned at most by its maximum (`Mob.rotlerp`).
+pub fn mob_look_at(w: &mut World, i: usize, j: usize, y_max: f32, x_max: f32) {
+    let (me, it) = (eye_pos(w, i), eye_pos(w, j));
+    let (xd, yd, zd) = (it.x - me.x, it.y - me.y, it.z - me.z);
+    let sd = (xd * xd + zd * zd).sqrt();
+    let y_rot_d = control::atan2_degrees(zd, xd) - 90.0f32;
+    let x_rot_d = -control::atan2_degrees(yd, sd);
+    let e = &mut w.entities.list[i];
+    e.x_rot = mob_rotlerp(e.x_rot, x_rot_d, x_max);
+    e.y_rot = mob_rotlerp(e.y_rot, y_rot_d, y_max);
+}
+
+/// `Mob.rotlerp(a, b, max)` (not wrapped into [0, 360], unlike `MoveControl.rotlerp`).
+fn mob_rotlerp(a: f32, b: f32, max: f32) -> f32 {
+    let diff = crate::entity::mth::wrap_degrees(b - a).clamp(-max, max);
+    a + diff
 }
 
 // ------------------------------------------------------------------ the exact compare's fields

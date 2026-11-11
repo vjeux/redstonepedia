@@ -660,7 +660,7 @@ pub fn run_steps(dir: &Path, remote: Option<&str>, page: &str, size: (u32, u32),
 /// previous frame and since the first, and the page's console. `click`: press the buttons with
 /// these labels first, in order (a viewer's input button: `INP` turns a shulker machine's start
 /// lever on; `20×` picks that speed in the speed dropdown; `css:<selector>`: any element).
-pub fn film(dir: &Path, remote: Option<&str>, pages: &[String], frames: u32, interval: u64, click: &[String]) -> Result<()> {
+pub fn film(dir: &Path, remote: Option<&str>, pages: &[String], frames: u32, interval: u64, click: &[String], view: usize) -> Result<()> {
     let r = rig(dir, remote, false)?;
     let out = std::env::var_os("MCTAS_WEBKIT_SHOTS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp/mctas-webkit-shots"));
     std::fs::create_dir_all(&out)?;
@@ -668,8 +668,10 @@ pub fn film(dir: &Path, remote: Option<&str>, pages: &[String], frames: u32, int
         let tag = if phone { "phone" } else { "desktop" };
         let s = Session::start(&r.display, phone)?;
         for page in pages {
-            // (an index or a study page: its first thumbnail; a design page: its 3D view)
-            let sel = if page.starts_with("index.html") || page.ends_with("/index.html") { ".thumb[data-mcview]" } else { "[data-mcview=\"full\"]" };
+            // (an index or a study page: its first thumbnail; a design page or a component page,
+            // whose views are full ones: its 3D view)
+            let full_views = std::fs::read_to_string(dir.join(page)).is_ok_and(|h| h.contains("data-mcview=\"full\""));
+            let sel = if !full_views && (page.starts_with("index.html") || page.ends_with("/index.html")) { ".thumb[data-mcview]" } else { "[data-mcview=\"full\"]" };
             match check_page(&s, &r.base, page, sel) {
                 Ok(d) => println!("{tag} {page}: ready, {d}"),
                 Err(e) => println!("{tag} {page}: {e:#}"),
@@ -681,10 +683,11 @@ pub fn film(dir: &Path, remote: Option<&str>, pages: &[String], frames: u32, int
                 }
                 std::thread::sleep(Duration::from_millis(300));
             }
-            // the view's rectangle in screenshot pixels
-            s.script(&format!("document.querySelector('{sel}').scrollIntoView({{block: 'center', inline: 'nearest'}}); return true;"))?;
+            // the view's rectangle in screenshot pixels (the page's Nth view of that kind: `--view`)
+            let nth = view.max(1) - 1;
+            s.script(&format!("document.querySelectorAll('{sel}')[{nth}].scrollIntoView({{block: 'center', inline: 'nearest'}}); return true;"))?;
             std::thread::sleep(Duration::from_millis(300));
-            let rv = s.script(&format!("const v = document.querySelector('{sel}'); const r = v.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, window.devicePixelRatio, window.innerWidth];"))?;
+            let rv = s.script(&format!("const v = document.querySelectorAll('{sel}')[{nth}]; const r = v.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, window.devicePixelRatio, window.innerWidth];"))?;
             let f = |i: usize| rv[i].as_f64().unwrap_or(0.0);
             let stem = page.trim_end_matches(".html").replace(['/', '#', '?', '&', '='], "_");
             let (mut first, mut prev): (Option<(u32, u32, Vec<[u8; 3]>)>, Option<(u32, u32, Vec<[u8; 3]>)>) = (None, None);

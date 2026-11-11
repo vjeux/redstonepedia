@@ -957,13 +957,19 @@ constructors); a `LightningBolt`'s seed (`nextLong`) and flashes (`nextInt(3) + 
 `LivingEntity`'s yaw (`nextFloat() * 2 pi`) and each brain sensor's start delay (`nextInt(scanRate)`
 per sensor in its order; a summoned villager's brain is built twice: the constructor's, then
 `load`'s); the leaf classes' draws (`Chicken.eggTime`, `Rabbit`'s idle timeout, `Squid`'s and
-`Guardian`'s animation, `CopperGolem`'s cooldown). A spawn path that snaps the yaw without the
+`Guardian`'s animation, `CopperGolem`'s cooldown); a schooling fish's goals (Mob's constructor runs
+`registerGoals`: `FollowFlockLeaderGoal`'s first `nextStartTick`, `reducedTickDelay(200 +
+nextInt(200) % 20)`, after the yaw). A spawn path that snaps the yaw without the
 head (`NaturalSpawner`'s `snapTo`, the siege) leaves the replayed yaw in the head, and a cube
 mob's move control keeps `180 * yaw / pi` as its direction until a goal sets one;
 `EntityType.create(level, .., pos, ..)` sets the head and the body to its snap yaw. What a mob
 draws from its own random before it enters (a zombie's `finalizeSpawn` -> `handleAttributes`, a
 salmon's variant) comes from its construction seed; vanilla's siege builds its zombie with
 `new Zombie(level)`, so the bridge runs `ExactVillageSiege` (vanilla's code plus that seeding).
+A mob's projectile (a skeleton's arrow, a drowned's trident) is constructed and shot from an
+unseeded random before it enters: the bridge reseeds it as entity n and redoes the shot from
+that stream toward the shooter's target (an arrow's `setBaseDamageFromMob` triangle, then
+`shoot`'s three), as redsim's `entity::arrow` launches it.
 
 **A world sandbox** (`world` op; one per worker: 26.3 keeps the clock, the weather and the game
 rules server-wide) runs the server clock and weather, in a biome (`biome`: the real-game gate's

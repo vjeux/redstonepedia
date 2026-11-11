@@ -196,7 +196,7 @@ fn hurt_by(w: &mut World, i: usize) {
     let attacker = mob(w, i).ai.as_deref().and_then(|a| a.last_damage_entity);
     match last.filter(|(at, _)| t - at <= 40) {
         Some((_, src)) => {
-            let by = if src == Damage::MobAttack { attacker } else { None };
+            let by = if src.by_attacker() { attacker } else { None };
             let x = ex_mut(w, i);
             x.mem.hurt_by = Some((src, by));
             if let Some(a) = by {

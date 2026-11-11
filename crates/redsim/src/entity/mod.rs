@@ -13,6 +13,7 @@
 //! live in `gravity.rs` (they move into this list as a kind in M2, bit-identical).
 
 pub mod armor_stand;
+pub mod arrow;
 pub mod boat;
 pub mod collide;
 pub mod fluid_push;
@@ -58,6 +59,8 @@ pub enum EntityKind {
     PrimedTnt(primed_tnt::PrimedTntState),
     /// ironfarm: a mob (`mob/`: villager, iron golem, zombie).
     Mob(Box<mob::MobState>),
+    /// mob AI: an arrow (`arrow.rs`: a skeleton's shot).
+    Arrow(arrow::ArrowState),
 }
 
 impl EntityKind {
@@ -70,6 +73,7 @@ impl EntityKind {
             EntityKind::ArmorStand(_) => (armor_stand::WIDTH, armor_stand::HEIGHT),
             EntityKind::PrimedTnt(_) => (primed_tnt::WIDTH, primed_tnt::HEIGHT),
             EntityKind::Mob(m) => m.dims(),
+            EntityKind::Arrow(_) => (arrow::WIDTH, arrow::HEIGHT),
         }
     }
 
@@ -82,6 +86,7 @@ impl EntityKind {
             EntityKind::ArmorStand(_) => 1.7775,
             EntityKind::PrimedTnt(_) => primed_tnt::EYE_HEIGHT,
             EntityKind::Mob(m) => m.eye(),
+            EntityKind::Arrow(_) => arrow::EYE_HEIGHT,
         }
     }
 }
@@ -602,6 +607,13 @@ pub fn tick_one(w: &mut World, i: usize) {
     if w.mob.natural.is_some() && natural_kind {
         mob::natural::check_despawn(w, i);
         if w.entities.list[i].removed {
+            // (mob-AI 2026-11-10) the game still ticks a mob checkDespawn just discarded
+            // (`tickNonPassenger` follows with no removal test): LivingEntity.tick skips its aiStep
+            // (`!isRemoved()`), what follows `super.tick()` runs: a schooling fish's level-random
+            // school check (forest t651)
+            if w.entity_ticks_at(p.x, p.z) && w.entities.list[i].vehicle.is_none() && mob::ai::has_ai(w, i) && mob::ai::fish::is_fish(w, i) {
+                mob::ai::fish::school_tick(w, i);
+            }
             return;
         }
     } else if w.mob.ai.on && matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
@@ -631,6 +643,7 @@ pub fn tick_one(w: &mut World, i: usize) {
         EntityKind::ArmorStand(_) => armor_stand::tick(w, i),
         EntityKind::PrimedTnt(_) => primed_tnt::tick(w, i),
         EntityKind::Mob(_) => mob::tick(w, i),
+        EntityKind::Arrow(_) => arrow::tick(w, i),
     }
     let me = w.entities.list[i].id;
     let riders = w.entities.list[i].passengers.clone();
@@ -688,23 +701,32 @@ fn ride_tick(w: &mut World, j: usize) {
 }
 
 /// `Entity.positionRider(passenger)`: the passenger's position is the vehicle's plus its
-/// passenger attachment point (a minecart's: 0.1875 up, the same at every yaw), minus the
-/// passenger's vehicle attachment (at its feet for every modeled rider), `setPos`.
+/// passenger attachment point (a minecart's: 0.1875 up, the same at every yaw; a villager's lowered
+/// seat at the cart's own y), minus the passenger's vehicle attachment (a mob's riding offset, as
+/// `mob::ride_tick` seats it: (y + seat) + offset), `setPos`. (tickexact 2026-11-10: a bench's
+/// `tp` of a cart, `teleportPassengers`, seated its villager 0.1875 high for the tick after.)
 pub fn position_rider(w: &mut World, vi: usize, j: usize) {
     let v = &w.entities.list[vi];
     let rider = w.entities.list[j].id;
     if !v.passengers.contains(&rider) {
         return;
     }
-    let up = match v.kind {
-        EntityKind::Minecart(_) => 0.1875f32 as f64,
-        ref k => {
+    let (up, offset) = match (&v.kind, &w.entities.list[j].kind) {
+        (EntityKind::Minecart(_), EntityKind::Mob(m)) => match mob::rider_seat(&v.kind, m) {
+            Some(s) => s,
+            None => {
+                w.errors.push(format!("a {:?} riding a minecart (its seat) is not modeled", m.ty));
+                return;
+            }
+        },
+        (EntityKind::Minecart(_), _) => (0.1875f32 as f64, 0.0),
+        (k, _) => {
             w.errors.push(format!("a passenger of {k:?} (its attachment points) is not modeled"));
             return;
         }
     };
     let p = v.pos.add(0.0, up, 0.0);
-    w.entities.set_pos(j, p);
+    w.entities.set_pos(j, Vec3::new(p.x, p.y + offset, p.z));
 }
 
 /// `Entity.stopRiding` of entity `i` (`removeVehicle`; a living one then `dismountVehicle`): it

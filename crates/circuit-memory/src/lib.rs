@@ -9,6 +9,11 @@ pub mod compose;
 pub mod items;
 pub mod ring;
 pub mod counter8;
+pub mod loopbench;
+pub mod loopgen;
+pub mod loopmodel;
+pub mod releasegen;
+pub mod releasebench;
 pub mod schedbench;
 pub mod schedgen;
 pub mod schedmodel;
@@ -93,6 +98,125 @@ enum Cmd {
         modules: PathBuf,
         #[arg(long, default_value = "designs/farms/iron/parts/carousel-scheduler/offdelay-k3.txt")]
         offdelay: PathBuf,
+    },
+    /// The single-lane loop scheduler's bench on redsim (crates/circuit-memory/src/loopbench.rs).
+    LoopBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 60)]
+        days: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 0.01)]
+        miss: f64,
+        #[arg(long, default_value_t = 0.3)]
+        burst: f64,
+        #[arg(long, default_value_t = 13_670)]
+        dusk: u64,
+        #[arg(long, default_value_t = 22_330)]
+        end: u64,
+        #[arg(long, default_value_t = 0)]
+        game: u32,
+        /// The night window: `ideal`, or a normal daylight detector reading 0 under `clear`,
+        /// `rain`, `thunder` or `cycle` (random weather spells).
+        #[arg(long, default_value = "ideal")]
+        weather: String,
+        /// Repeat the run with this many chunk reloads at random ticks: the outputs must match.
+        #[arg(long, default_value_t = 0)]
+        restarts: u32,
+        /// Place the design raw: written states and block entities, no shape or neighbour
+        /// updates, no settle ("works as placed").
+        #[arg(long)]
+        placed_raw: bool,
+    },
+    /// Golem pulses at the given ticks into a release controller design; every output port's on
+    /// intervals relative to the first pulse (the loop-wired probe file: each control).
+    ReleaseTrace {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', default_value = "200")]
+        at: Vec<u64>,
+        /// Ticks the loop's detector rail (-3,1,4) switches on (a redstone block for 4 gt).
+        #[arg(long, value_delimiter = ',')]
+        det: Vec<u64>,
+        #[arg(long, default_value_t = 600)]
+        ticks: u32,
+    },
+    /// The release controller driven alone (crates/circuit-memory/src/releasebench.rs): golems in
+    /// time, early (held), missed (fallback) and doubled (merged), checked against an exact model.
+    ReleaseBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1000)]
+        pulses: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 0.05)]
+        miss: f64,
+        #[arg(long, default_value_t = 0.05)]
+        early: f64,
+        #[arg(long, default_value_t = 0.1)]
+        double: f64,
+        #[arg(long, default_value_t = 0)]
+        restarts: u32,
+        /// Replay the first N ticks in the real game (the shared server) and compare the outputs.
+        #[arg(long, default_value_t = 0)]
+        game: u32,
+        /// Quarter turns the same run is repeated on (comma-separated, e.g. 1,2,3).
+        #[arg(long, value_delimiter = ',')]
+        turns: Vec<u8>,
+        /// Place the design raw: written states and block entities, no shape or neighbour
+        /// updates, no settle ("works as placed").
+        #[arg(long)]
+        placed_raw: bool,
+    },
+    /// The single-lane loop's release controller, generated (crates/circuit-memory/src/releasegen.rs).
+    ReleaseGen {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value = "designs/circuits/pulsemult/archive/off-delay-ring-L20.txt")]
+        offdelay: PathBuf,
+        /// Build it into this loop file (ironfarm's carousel-single-lane-loop-wip.txt), wired to
+        /// its 21 controls.
+        #[arg(long = "loop")]
+        loop_file: Option<PathBuf>,
+    },
+    /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
+    LoopGen {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value = "designs/farms/iron/parts/carousel-scheduler")]
+        modules: PathBuf,
+        #[arg(long, default_value = "designs/circuits/pulsemult/archive/off-delay-2stage-k1.txt")]
+        offdelay: PathBuf,
+    },
+    /// The single-lane loop's sleep scheduling, modeled (crates/circuit-memory/src/loopmodel.rs).
+    LoopModel {
+        #[arg(long, default_value = "every")]
+        policy: String,
+        #[arg(long, default_value_t = 60)]
+        days: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 0.01)]
+        miss: f64,
+        #[arg(long, default_value_t = 4)]
+        every: u32,
+        #[arg(long, default_value_t = 13_670)]
+        dusk: u64,
+        #[arg(long, default_value_t = 22_330)]
+        end: u64,
+        /// The visit's length (the cart leaves the coming-back batch until it rejoins), `A..B` gt.
+        #[arg(long, default_value = "400..430")]
+        visit: String,
+        /// The nap after the visit starts, `A..B` gt.
+        #[arg(long, default_value = "115..135")]
+        nap: String,
+        /// `tail` (rejoins at the queue's tail) or `place` (in its batch's place).
+        #[arg(long, default_value = "tail")]
+        rejoin: String,
+        /// A batch's way back from the station to the tail, gt.
+        #[arg(long, default_value_t = 60)]
+        out: u64,
+        #[arg(long)]
+        verbose: bool,
     },
     /// Carousel counter v8 generated from v7 (crates/circuit-memory/src/counter8.rs): all 7 lines
     /// out of the south face at the paired-lane frame's wiring columns, two heights.
@@ -282,6 +406,34 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::Compose { out, name, parts } => compose::compose(&out, &name, &parts)?,
         Cmd::SchedGen { out, modules, offdelay } => schedgen::generate(&out, &modules, &offdelay)?,
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
+        Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
+        Cmd::ReleaseTrace { design, at, det, ticks } => releasebench::trace(&design, &at, &det, ticks)?,
+        Cmd::ReleaseGen { out, offdelay, loop_file } => match loop_file {
+            Some(l) => releasegen::generate_loop(&out, &l, &offdelay)?,
+            None => releasegen::generate(&out, &offdelay)?,
+        },
+        Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns, placed_raw } => {
+            let ok = releasebench::bench(&design, &releasebench::Opts { pulses, seed, miss, early, double, restarts, game, turns, raw: placed_raw })?;
+            if !ok {
+                anyhow::bail!("release-bench: violations");
+            }
+        }
+        Cmd::LoopBench { design, days, seed, miss, burst, dusk, end, game, weather, restarts, placed_raw } => {
+            let o = loopbench::Opts { days, seed, miss, burst, dusk, end, game_days: game, weather, restarts, raw: placed_raw, ..Default::default() };
+            if !loopbench::bench(&design, &o)? {
+                bail!("the loop scheduler fails its bench");
+            }
+        }
+        Cmd::LoopModel { policy, days, seed, miss, every, dusk, end, visit, nap, rejoin, out, verbose } => {
+            let pair = |s: &str| -> Result<(u32, u32)> {
+                let (a, b) = s.split_once("..").unwrap_or((s, s));
+                Ok((a.parse()?, b.parse()?))
+            };
+            let o = loopmodel::Opts { policy, days, seed, miss, every, dusk, end, visit: pair(&visit)?, nap: pair(&nap)?, rejoin, out, verbose };
+            if !loopmodel::run(&o) {
+                bail!("the loop schedule loses slots or naps");
+            }
+        }
         Cmd::SchedBench { design, days, seed, miss, burst, dusk, end, game, watch, probes } => {
             let watch = match watch {
                 Some(s) => {

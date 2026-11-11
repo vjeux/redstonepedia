@@ -48,11 +48,14 @@ pub struct EvalFlags {
     /// `AmphibiousNodeEvaluator` (a drowned's `AmphibiousPathNavigation`; `prefersShallowSwimming`
     /// false): water nodes up and down, water borders, the walk costing 6.
     pub amphibious: bool,
+    /// `SwimNodeEvaluator(allowBreaching false)` (a fish's `WaterBoundPathNavigation`): water
+    /// cells only, the 6 directions then the horizontal diagonals ([`WalkEval::swim_neighbors`]).
+    pub swim: bool,
 }
 
 impl Default for EvalFlags {
     fn default() -> EvalFlags {
-        EvalFlags { can_pass_doors: true, can_open_doors: false, can_float: false, can_walk_over_fences: false, amphibious: false }
+        EvalFlags { can_pass_doors: true, can_open_doors: false, can_float: false, can_walk_over_fences: false, amphibious: false, swim: false }
     }
 }
 
@@ -96,6 +99,17 @@ impl<'w> Level<'w> {
     /// Water at `p` (`FluidTags.WATER`, = `ENTITY_FLOATABLE`).
     pub fn is_water(&self, p: BlockPos) -> bool {
         crate::fluid::fluid_state(self.w, p).fluid.is_water()
+    }
+
+    /// `BlockState.isPathfindable(PathComputationType.WATER)` of the block at `p`: a terrain state's
+    /// from the game's table; redsim's own blocks: `BlockBehaviour`'s default (its fluid is water),
+    /// a door or fence gate never, a trapdoor when waterlogged.
+    pub fn pathfindable_water(&self, p: BlockPos) -> bool {
+        match self.w.get(p) {
+            Block::Terrain(id) => crate::terrain::blocks::props(id).path[1],
+            Block::Door { .. } | Block::FenceGate { .. } => false,
+            _ => self.is_water(p),
+        }
     }
 
     /// `!noCollision(mob, box)` through a `PathNavigationRegion` (no entity collisions).
@@ -391,6 +405,12 @@ impl<'a, 'w> WalkEval<'a, 'w> {
 
     /// `getStart()`.
     pub fn start(&mut self) -> Option<NodeId> {
+        // SwimNodeEvaluator.getStart: the plain node (`getNode`: its type and malus untouched) at
+        // the box's min corner, half a block up
+        if self.flags.swim {
+            let bb = self.mob.bb;
+            return Some(self.arena.get(mth::floor(bb.min_x), mth::floor(bb.min_y + 0.5), mth::floor(bb.min_z)));
+        }
         // AmphibiousNodeEvaluator.getStart: in water, the node at the box's min corner, half a
         // block up
         if self.flags.amphibious && self.mob.in_floatable {
@@ -435,6 +455,9 @@ impl<'a, 'w> WalkEval<'a, 'w> {
 
     /// `getNeighbors(neighbors, pos)`: the accepted nodes around `pos`, in the game's order.
     pub fn neighbors(&mut self, out: &mut Vec<NodeId>, pos: NodeId) {
+        if self.flags.swim {
+            return self.swim_neighbors(out, pos);
+        }
         out.clear();
         let p = *self.arena.n(pos);
         let mut jump_size = 0;
@@ -624,5 +647,93 @@ impl<'a, 'w> WalkEval<'a, 'w> {
         let (bx, by, bz) = (mth::floor(x), mth::floor(y), mth::floor(z));
         self.arena.get(bx, by, bz);
         super::node::Target::new(bx, by, bz)
+    }
+
+    // ------------------------------------------------------------------- SwimNodeEvaluator
+
+    /// `SwimNodeEvaluator.getNeighbors`: `findAcceptedNode` in `Direction.values()` order (D, U, N,
+    /// S, W, E), each kept when it is not closed; then each horizontal direction (N, E, S, W) and
+    /// its clockwise one, both with a malus of 0 or more, give their diagonal at the same height.
+    fn swim_neighbors(&mut self, out: &mut Vec<NodeId>, pos: NodeId) {
+        out.clear();
+        let p = *self.arena.n(pos);
+        let mut by_dir = [NONE; 6];
+        for (k, d) in Dir::ALL.iter().enumerate() {
+            let [sx, sy, sz] = d.step();
+            let node = self.swim_find_accepted_node(p.x + sx, p.y + sy, p.z + sz);
+            by_dir[k] = node.unwrap_or(NONE);
+            if let Some(n) = node
+                && !self.arena.n(n).closed
+            {
+                out.push(n);
+            }
+        }
+        let has_malus = |a: &Arena, id: NodeId| id != NONE && a.n(id).cost_malus >= 0.0;
+        let index = |d: Dir| Dir::ALL.iter().position(|&e| e == d).expect("a direction");
+        for d in Dir::HORIZONTAL {
+            let second = d.clockwise();
+            if has_malus(self.arena, by_dir[index(d)]) && has_malus(self.arena, by_dir[index(second)]) {
+                let [sx, _, sz] = d.step();
+                let [tx, _, tz] = second.step();
+                if let Some(n) = self.swim_find_accepted_node(p.x + sx + tx, p.y, p.z + sz + tz)
+                    && !self.arena.n(n).closed
+                {
+                    out.push(n);
+                }
+            }
+        }
+    }
+
+    /// `SwimNodeEvaluator.findAcceptedNode` (no breaching): a WATER cell whose malus is 0 or more
+    /// is a node (its malus the larger of its own and that one), 8 more where the cell holds no
+    /// fluid.
+    fn swim_find_accepted_node(&mut self, x: i32, y: i32, z: i32) -> Option<NodeId> {
+        let t = self.swim_cached_type(x, y, z);
+        if t != PathType::Water {
+            return None;
+        }
+        let cost = self.malus(t);
+        if cost < 0.0 {
+            return None;
+        }
+        let id = self.node_and_update_cost_to_max(x, y, z, t, cost);
+        if crate::fluid::fluid_state(self.level.w, BlockPos::new(x, y, z)).is_empty() {
+            self.arena.n_mut(id).cost_malus += 8.0;
+        }
+        Some(id)
+    }
+
+    /// `SwimNodeEvaluator.getCachedBlockType` (its own cache by position).
+    fn swim_cached_type(&mut self, x: i32, y: i32, z: i32) -> PathType {
+        let k = as_long(x, y, z);
+        if let Some(t) = self.type_cache.get(&k) {
+            return *t;
+        }
+        let t = self.swim_path_type_of_mob(x, y, z);
+        self.type_cache.insert(k, t);
+        t
+    }
+
+    /// `SwimNodeEvaluator.getPathTypeOfMob`: over the mob's cells, air above a block water could
+    /// path through is BREACH, a cell without water BLOCKED; then the last cell's
+    /// `isPathfindable(WATER)` decides WATER or BLOCKED.
+    pub fn swim_path_type_of_mob(&self, x: i32, y: i32, z: i32) -> PathType {
+        let mut last = BlockPos::new(x, y, z);
+        for xx in x..x + self.entity_width {
+            for yy in y..y + self.entity_height {
+                for zz in z..z + self.entity_depth {
+                    let p = BlockPos::new(xx, yy, zz);
+                    last = p;
+                    let fluid = crate::fluid::fluid_state(self.level.w, p);
+                    if fluid.is_empty() && self.level.pathfindable_water(p.below()) && self.level.block(p).is_air() {
+                        return PathType::Breach;
+                    }
+                    if !fluid.fluid.is_water() {
+                        return PathType::Blocked;
+                    }
+                }
+            }
+        }
+        if self.level.pathfindable_water(last) { PathType::Water } else { PathType::Blocked }
     }
 }

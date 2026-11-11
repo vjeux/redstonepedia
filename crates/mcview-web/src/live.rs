@@ -44,9 +44,14 @@ struct FrameStats {
 pub struct Live {
     gpu: Option<Gpu>,
     player: Option<Player>,
+    /// A page's Nether view (`data-part="nether"`): the tick of its overworld view's session whose
+    /// Nether world it shows now (its second scene: one session, two views).
+    mirror_tick: Option<u32>,
     label: HtmlElement,
     bar: HtmlElement,
     status: HtmlElement,
+    /// The caption line (a part's bench drive: what the bench drives).
+    caption: HtmlElement,
     /// The scrubber (the timelapse, jump between states): its track, the activity strip
     /// inside it, the thumb; a drag in progress; the activity version the strip was
     /// built from.
@@ -584,6 +589,31 @@ pub fn start(app: &mut App, id: u32) {
         ],
     );
     let _ = root.append_child(&status);
+    // a part's bench run: what the bench drives, in a player's words (its drive's `# caption`,
+    // vjeux 07:29: "write down these details when you show me things"): a line of its own over
+    // the view's bottom left, above the scrubber and clear of the Record pill, never cut short
+    let caption = el("div");
+    caption.set_class_name("mcview-caption");
+    style(
+        &caption,
+        &[
+            ("position", "absolute"),
+            ("left", "8px"),
+            ("bottom", "68px"),
+            ("max-width", "calc(100% - 150px)"),
+            ("line-height", "15px"),
+            ("padding", "3px 8px"),
+            ("border-radius", "8px"),
+            ("background", "rgba(0,0,0,0.45)"),
+            ("color", "#fff"),
+            ("font", "11px system-ui, sans-serif"),
+            ("white-space", "normal"),
+            ("pointer-events", "none"),
+            ("z-index", "2"),
+            ("display", "none"),
+        ],
+    );
+    let _ = root.append_child(&caption);
     // the Record button: a labelled pill over the view's bottom right, above the
     // scrubber (its bottom tracks the bar's height in `frame`, so it never overlaps
     // the scrubber or a wrapped bar; a phone's bar is full; critique: a bare red dot
@@ -623,9 +653,11 @@ pub fn start(app: &mut App, id: u32) {
     v.live = Some(Live {
         gpu: None,
         player: None,
+        mirror_tick: None,
         label,
         bar: bar.clone(),
         status,
+        caption,
         play: play.clone(),
         back: back.clone(),
         scrub: scrub.clone(),
@@ -861,17 +893,18 @@ pub fn load(app: &mut App, id: u32) {
     // site, the landscape layer by layer: `mcview::terrain::farm_for_staged`; no task over ~50 ms;
     // the page's `data-site`: the judge's spot found ahead, priced alone), then its still at once
     if let Ok(d) = mcview::Design::parse(&text)
-        && mcview::mobfarm::is_mob_farm(&d)
+        && (mcview::mobfarm::is_mob_farm(&d) || mcview::terrain::is_part_in_terrain(&d))
         && !mcview::terrain::farm_ready(&text, &d)
     {
         let key = text.to_string();
-        let chosen = app.views.get(&id).and_then(|v| v.site);
+        // (a part in its terrain: its own `site:`, its reference farm's)
+        let chosen = app.views.get(&id).and_then(|v| v.site).or_else(|| mcview::terrain::site_meta(&d));
         if app.terrain_jobs.insert(key.clone()) {
             wasm_bindgen_futures::spawn_local(async move {
                 let t = crate::window().performance().map(|p| p.now()).unwrap_or(0.0);
                 let r = crate::run_staged(12.0, |b| {
                     mcview::staged::Task::new(async move {
-                        let spec = mcview::mobfarm::spec(&d)?;
+                        let spec = if mcview::mobfarm::is_mob_farm(&d) { mcview::mobfarm::spec(&d)? } else { mcview::terrain::part_spec(&d)? };
                         mcview::terrain::farm_for_staged(&key, &d, &spec, chosen, &b).await.map(|_| key)
                     })
                 })
@@ -1431,6 +1464,25 @@ fn short_reason(why: &str) -> String {
 pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
     let atlas = app.atlas.clone();
     let mut need_ready = false;
+    // (a page's Nether view, `data-part="nether"`, is the second scene of the session its
+    // overworld view of the same design runs: that session's Nether world, as of its tick; and
+    // that overworld view plays on while only its Nether scene is on screen)
+    let nether_scene = app.views.get(&id).is_some_and(|v| v.part.as_deref() == Some("nether"));
+    let (mirror, scene_on_screen) = {
+        let Some(v) = app.views.get(&id) else { return false };
+        let same = |o: &crate::View| o.src.is_some() && o.src == v.src && o.inline == v.inline;
+        if v.part.as_deref() == Some("nether") {
+            let shown = v.live.as_ref().and_then(|l| l.mirror_tick);
+            let has_mob = v.live.as_ref().and_then(|l| l.player.as_ref()).is_some_and(|p| p.session.mob.is_some());
+            let from = app.views.values().filter(|o| o.part.is_none() && same(o)).find_map(|o| o.live.as_ref()?.player.as_ref());
+            // (its world, and once the partner's farm run to draw that world's mobs with: the
+            // golems in the Nether, `MobRun::draw`)
+            let m = from.and_then(|pp| pp.session.world.nether.as_deref().filter(|_| shown != Some(pp.session.tick)).map(|n| (pp.session.tick, n.clone(), if has_mob { None } else { pp.session.mob.clone() })));
+            (m, false)
+        } else {
+            (None, v.part.is_none() && app.views.values().any(|o| o.part.as_deref() == Some("nether") && o.visible && same(o)))
+        }
+    };
     let more = {
         let Some(v) = app.views.get_mut(&id) else { return false };
         let (w, h) = (v.w.max(1), v.h.max(1));
@@ -1441,14 +1493,44 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             return false;
         }
         // off screen: neither drawn nor played (coordinator: only on-screen live viewers render
-        // and animate); its time stands still until it is back (`App::on_intersect`)
+        // and animate); its time stands still until it is back (`App::on_intersect`), unless its
+        // Nether scene is on screen: then it plays on, drawing nothing here
         if !visible {
+            if scene_on_screen {
+                let dt = l.last_ts.map(|t| ((ts - t) / 1000.0) as f32).unwrap_or(0.0);
+                l.last_ts = Some(ts);
+                let perf = window().performance();
+                let t0 = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
+                let mut out_of_time = || perf.as_ref().is_some_and(|q| q.now() - t0 > STEP_BUDGET_MS);
+                if let Some(p) = l.player.as_mut() {
+                    p.tps = SPEEDS[l.speed_i].1;
+                    p.update_with(dt, &mut out_of_time);
+                }
+                return true;
+            }
             l.last_ts = None;
             return false;
         }
         let dt = l.last_ts.map(|t| ((ts - t) / 1000.0) as f32).unwrap_or(0.0);
         l.last_ts = Some(ts);
         let Some(p) = l.player.as_mut() else { return false };
+        if let Some((t, n, mob)) = mirror {
+            if let Some(m) = mob {
+                p.session.mob = Some(m);
+            }
+            p.session.show_world(n, t);
+            let s = &mut p.session;
+            if let Some(m) = s.mob.as_mut() {
+                m.follow(&s.world);
+            }
+            l.mirror_tick = Some(t);
+            l.redraw = true;
+        }
+        if nether_scene {
+            // (its controls are its overworld view's: that session plays both scenes; no badge)
+            let _ = l.bar.style().set_property("display", "none");
+            let _ = l.status.style().set_property("display", "none");
+        }
         // a frame's time for its ticks (the coordinator 2026-10-21: never block the page over
         // ~50 ms a frame): the ticks past it are dropped, never queued
         let perf = window().performance();
@@ -1528,7 +1610,8 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                 }
                 l.last_camera = Some(cam);
                 // the game's day (a mob farm's run: its sky, sun, moon and light)
-                g.r.env = p.daylight();
+                // (a Nether scene: the Nether's own sky, before its run plays too)
+                g.r.env = if nether_scene { Some(mcview::daylight::nether()) } else { p.daylight() };
                 match g.draw(&Frame { solid: &solid, translucent: &translucent, camera: p.camera, width: w, height: h }) {
                     Ok(()) => need_ready = true,
                     Err(e) => log(&e),
@@ -1560,6 +1643,20 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             let bar_h = l.bar.offset_height() as f64;
             let _ = l.scrub.style().set_property("bottom", &format!("{}px", bar_h + 6.0));
             let _ = l.record.style().set_property("bottom", &format!("{}px", bar_h + 40.0));
+            // the caption line: its drive's words, over the bottom left (no bar: a Nether scene)
+            match mcview::mobfarm::caption(&p.session) {
+                Some(c) => {
+                    if l.caption.text_content().as_deref() != Some(c.as_str()) {
+                        l.caption.set_text_content(Some(&c));
+                    }
+                    let shown = l.bar.style().get_property_value("display").ok().as_deref() != Some("none");
+                    let _ = l.caption.style().set_property("bottom", &format!("{}px", if shown { bar_h + 40.0 } else { 8.0 }));
+                    let _ = l.caption.style().set_property("display", "block");
+                }
+                None => {
+                    let _ = l.caption.style().set_property("display", "none");
+                }
+            }
             // the back button is live once the run has a tick behind it
             l.back.set_disabled(!p.can_step_back());
             // the scrubber follows the run

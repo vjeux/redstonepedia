@@ -406,6 +406,7 @@ impl Rig for SimRig {
                     EntityKind::Boat(b) => (if b.chest { "minecraft:oak_chest_boat" } else { "minecraft:oak_boat" }.to_string(), Vec::new()),
                     EntityKind::PrimedTnt(_) => ("minecraft:tnt".to_string(), Vec::new()),
                     EntityKind::Mob(m) => (m.ty.game_id().to_string(), Vec::new()),
+                    EntityKind::Arrow(_) => ("minecraft:arrow".to_string(), Vec::new()),
                 };
                 RigEntity { handle: e.id.to_string(), kind, pos: [e.pos.x, e.pos.y, e.pos.z], stacks }
             })

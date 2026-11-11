@@ -56,10 +56,16 @@ pub fn bench(design: &Path, o: &Opts) -> Result<bool> {
 /// a redstone block or stone at its tick) for the first --game days, replayed on redsim and in the
 /// game; every output probe's signal compared at every tick.
 fn game_check(design: &Path, o: &Opts, recorded: &[(u32, clock::Action)]) -> Result<bool> {
-    let c = Circuit::load(design)?;
-    let ticks = (o.game_days as u64 * DAY) as u32;
-    let actions: Vec<(u32, clock::Action)> = recorded.iter().filter(|(t, _)| *t <= ticks).cloned().collect();
     let names: Vec<String> = (0..7).map(|b| format!("output.p{b}")).chain((0..3).map(|k| format!("output.l{k}"))).chain(["output.v".to_string()]).collect();
+    game_check_named(design, (o.game_days as u64 * DAY) as u32, recorded, &names)
+}
+
+/// The real game's check of a direct-driven run: the recorded input actions up to `ticks`
+/// replayed on redsim and in the game, the named output probes compared every tick.
+pub fn game_check_named(design: &Path, ticks: u32, recorded: &[(u32, clock::Action)], names: &[String]) -> Result<bool> {
+    let c = Circuit::load(design)?;
+    let game_days = ticks as u64 / DAY;
+    let actions: Vec<(u32, clock::Action)> = recorded.iter().filter(|(t, _)| *t <= ticks).cloned().collect();
     let probes: Vec<[i32; 3]> = names.iter().map(|n| c.clock.design.ports.get(n).copied().ok_or_else(|| anyhow!("no port {n}"))).collect::<Result<_>>()?;
     let cc = c.with_consumers().map_err(|e| anyhow!("{e:#}"))?;
     let (from, to) = circuit::run::watch_box(&c, 3);
@@ -119,7 +125,7 @@ fn game_check(design: &Path, o: &Opts, recorded: &[(u32, clock::Action)]) -> Res
             return Ok(false);
         }
     }
-    println!("IDENTICAL: {} output probes x {n} ticks ({} days, {} input actions), redsim = the game", names.len(), o.game_days, actions.len());
+    println!("IDENTICAL: {} output probes x {n} ticks ({} days, {} input actions), redsim = the game", names.len(), game_days, actions.len());
     Ok(true)
 }
 

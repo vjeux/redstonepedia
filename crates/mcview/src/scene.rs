@@ -147,6 +147,10 @@ pub fn default_look(s: &Session) -> Look {
             }
         }
     }
+    // a part in its terrain: its reference farm's blocks of other parts inside its box (`ghost:`
+    // lines) see-through where they sit (ironspec 2026-11-10: the chamber's fence gates in the
+    // drop's column, not natural ground)
+    ghost.extend(s.design.ghosts.iter().filter(|(_, st)| st.as_str() != "minecraft:air").map(|(p, _)| *p));
     let (lo, _) = s.path_box();
     // the pictures' floor: `clock shot` fills grass at the box's lowest y - 2, its top one block
     // under the lowest cell

@@ -23,30 +23,40 @@ fn modified_friction(friction: f32) -> f32 {
     (1.0f32 - (1.0f32 - friction) * 1.0f32).clamp(0.0, 1.0)
 }
 
+/// `onClimbable()` of mob `i` as it stands now: a spider's climbing flag (`Spider.onClimbable`);
+/// else `LivingEntity.onClimbable`, the block at its feet in #minecraft:climbable (a natural ladder
+/// or vine; scaffolding, whose climbing is not modeled, is refused; a trapdoor used as a ladder
+/// is not modeled either).
+pub(crate) fn climbable_now(w: &mut World, i: usize) -> bool {
+    if matches!(mob(w, i).ty.def().id, "spider" | "cave_spider") {
+        return mob(w, i).climbing;
+    }
+    let feet = w.entities.list[i].block_position();
+    match w.get(feet) {
+        Block::Scaffolding { .. } => {
+            let why = "a mob in a climbable (scaffolding): climbing is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+            true
+        }
+        Block::Terrain(id) => crate::terrain::blocks::props(id).has_tag("minecraft:climbable"),
+        _ => false,
+    }
+}
+
 /// `Mob.tick` of entity `i` (`LivingEntity.tick`; `updateControlFlags` changes no modeled state).
 pub fn tick(w: &mut World, i: usize) {
     // ---- mob AI (the mob-AI lane): Creeper.tick's fuse before super.tick ----
     if super::ai::has_ai(w, i) && mob(w, i).ty.def().id == "creeper" {
         super::ai::goal::creeper::creeper_tick(w, i);
     }
-    // LivingEntity.onClimbable (the block at its feet in BlockTags.CLIMBABLE; scaffolding is the
-    // only one redsim has): climbing is not modeled, so it is refused wherever the mob came from,
-    // and `isPushable` reads the flag. A spider's is its climbing flag (`Spider.onClimbable`).
-    let spider = matches!(mob(w, i).ty.def().id, "spider" | "cave_spider");
-    if spider {
-        let c = mob(w, i).climbing;
-        mob_mut(w, i).on_climbable = c;
-    } else {
-        let feet = w.entities.list[i].block_position();
-        let climbing = matches!(w.get(feet), Block::Scaffolding { .. });
-        mob_mut(w, i).on_climbable = climbing;
-        if climbing {
-            let why = "a mob in a climbable (scaffolding): climbing is not modeled".to_string();
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
-            }
-        }
-    }
+    // LivingEntity.onClimbable (the block at its feet in BlockTags.CLIMBABLE: the natural ladders
+    // and vines; scaffolding, whose climbing is not modeled, is refused), read again where the
+    // game reads it (`climbable_now`); `isPushable` reads the flag. A spider's is its climbing
+    // flag (`Spider.onClimbable`).
+    let c = climbable_now(w, i);
+    mob_mut(w, i).on_climbable = c;
     let pre_air = mob(w, i).air;
     base_tick(w, i);
     if w.entities.list[i].removed {
@@ -55,9 +65,14 @@ pub fn tick(w: &mut World, i: usize) {
     // ---- mob AI (the mob-AI lane): the rest of LivingEntity.baseTick and Mob.baseTick ----
     if super::ai::has_ai(w, i) {
         super::ai::after_base_tick(w, i);
-        // AgeableWaterCreature.baseTick's tail: handleAirSupply(the air before the tick)
-        if super::ai::squid::is_water_creature(w, i) && super::ai::squid::handle_air_supply(w, i, pre_air) {
+        // AgeableWaterCreature.baseTick's tail: handleAirSupply(the air before the tick) (a fish:
+        // WaterAnimal's, the same)
+        if (super::ai::squid::is_water_creature(w, i) || super::ai::fish::is_fish(w, i)) && super::ai::squid::handle_air_supply(w, i, pre_air) {
             hurt(w, i, Damage::Drown, 2.0);
+        }
+        // LivingEntity.tick after super.tick(): updatingUsingItem (a skeleton's drawn bow)
+        if !w.entities.list[i].removed {
+            super::ai::goal::skeleton::updating_using_item(w, i);
         }
     }
     // LivingEntity.tick: a sleeper whose bed is gone wakes up
@@ -84,6 +99,9 @@ pub fn tick(w: &mut World, i: usize) {
                 let (tt, id) = (w.time, w.entities.list[i].id);
                 w.entities.list[i].removed = true;
                 w.mob.events.push(super::MobEvent::Removed { t: tt, id });
+                // discard (setRemoved, DISCARDED destroys): it stops riding, its riders too
+                crate::entity::stop_riding(w, i);
+                crate::entity::eject_passengers(w, i);
                 return;
             }
         }
@@ -93,7 +111,7 @@ pub fn tick(w: &mut World, i: usize) {
         super::ai::after_ai_step(w, i);
     }
     // Spider.tick after super.tick: climbing while it collides horizontally
-    if spider {
+    if matches!(mob(w, i).ty.def().id, "spider" | "cave_spider") {
         super::ai::goal::spider::after_tick(w, i);
     }
     // Bat.tick after super.tick: still at its ceiling, or 0.6 of its vertical motion
@@ -111,6 +129,14 @@ pub fn tick(w: &mut World, i: usize) {
     // Zombie.tick after super.tick: the drowning tracker (its conversion into a drowned)
     if super::ai::has_ai(w, i) && !w.entities.list[i].removed {
         super::ai::zombie_drowning(w, i);
+    }
+    // AbstractSchoolingFish.tick after super.tick: a lone leader's school forgotten
+    if super::ai::has_ai(w, i) && super::ai::fish::is_fish(w, i) {
+        super::ai::fish::school_tick(w, i);
+    }
+    // Wolf.tick after super.tick: wet in water or rain, the shake's draws
+    if super::ai::has_ai(w, i) {
+        super::ai::goal::wolf::after_tick(w, i);
     }
 }
 
@@ -162,13 +188,21 @@ fn base_tick(w: &mut World, i: usize) {
     if m.damage_cooldown > 0 {
         m.damage_cooldown -= 1;
     }
-    // tickEffects: an instant health heals 4 (`heal`), the others count down
+    // tickEffects: an instant health heals 4 (`heal`), regeneration heals 1 when its tick comes
+    // (an infinite one's: the mob's tickCount % 50; `RegenerationMobEffect`), the others count down
     {
+        let tick_count = w.entities.list[i].tick_count;
         let m = mob_mut(w, i);
+        if m.effects.regeneration > 0 && tick_count % 50 == 0 {
+            let max = max_health(m);
+            if m.health < max && m.health > 0.0 {
+                m.health = (m.health + 1.0).min(max);
+            }
+        }
         let e = &mut m.effects;
         let heal = std::mem::take(&mut e.instant_health);
-        for d in [&mut e.water_breathing, &mut e.fire_resistance, &mut e.speed] {
-            if *d > 0 {
+        for d in [&mut e.water_breathing, &mut e.fire_resistance, &mut e.speed, &mut e.strength, &mut e.regeneration, &mut e.invisibility] {
+            if *d > 0 && *d != i32::MAX {
                 *d -= 1;
             }
         }
@@ -310,6 +344,9 @@ fn tick_death(w: &mut World, i: usize) {
         let t = w.time;
         w.entities.list[i].removed = true;
         w.mob.events.push(MobEvent::Removed { t, id });
+        // Entity.setRemoved (KILLED destroys): it stops riding, then its passengers stop riding it
+        // (a dead passenger leaves its boat's seats: the other takes the single seat)
+        crate::entity::stop_riding(w, i);
         crate::entity::eject_passengers(w, i);
     }
 }
@@ -345,7 +382,15 @@ fn ai_step(w: &mut World, i: usize) {
     if super::ai::has_ai(w, i) {
         super::ai::goal::animal::horse_before_ai_step(w, i);
         super::ai::goal::witch::before_ai_step(w, i);
+        // Enderman.aiStep before super.aiStep: updatePersistentAnger(level, true)
+        if super::ai::ai(w, i).enderman.is_some() {
+            super::ai::goal::golem::update_anger(w, i);
+        }
         super::ai::update_no_action_time(w, i);
+        // AbstractFish.aiStep: the flop out of the water before super.aiStep
+        if super::ai::fish::is_fish(w, i) {
+            super::ai::fish::flop(w, i);
+        }
     }
     {
         let m = mob_mut(w, i);
@@ -410,6 +455,10 @@ fn ai_step(w: &mut World, i: usize) {
     }
     // Mob.aiStep: burnUndead after LivingEntity.aiStep (mobinfra: zombies in daylight)
     super::sun::burn_undead(w, i);
+    // Mob.aiStep's looting (the mob AI on): the item entities it picks up (`ai::loot`)
+    if w.mob.ai.on && mob(w, i).can_pick_up_loot && !w.entities.list[i].removed {
+        super::ai::loot::pick_up(w, i);
+    }
 }
 
 /// `Mob.serverAiStep`: `noActionTime`, then (`customServerAiStep`) the villager's brain; the
@@ -557,9 +606,10 @@ fn travel_in_air(w: &mut World, i: usize, input: Vec3) {
         0.02f32
     };
     move_relative(w, i, speed, input);
-    // handleOnClimbable: a climbing mob (a spider on a wall) falls no faster than 0.15 and moves
-    // at most 0.15 sideways; its fall distance resets
-    let climbing = mob(w, i).on_climbable;
+    // handleOnClimbable (onClimbable now): a climbing mob (a spider on a wall, a mob in a vine or
+    // on a ladder) falls no faster than 0.15 and moves at most 0.15 sideways; its fall distance
+    // resets
+    let climbing = climbable_now(w, i);
     if climbing {
         let c = 0.15f32 as f64;
         let e = &mut w.entities.list[i];
@@ -570,8 +620,11 @@ fn travel_in_air(w: &mut World, i: usize, input: Vec3) {
     let d = w.entities.list[i].delta_movement;
     entity::move_(w, i, MoverType::Self_, d);
     let mut movement = w.entities.list[i].delta_movement;
-    // and goes up 0.2 while it pushes against a wall (or jumps)
-    if climbing && (w.entities.list[i].horizontal_collision || mob(w, i).jumping) {
+    // and goes up 0.2 while it pushes against a wall (or jumps) in one (onClimbable after the
+    // move, at its new feet)
+    let climbing_after = climbable_now(w, i);
+    mob_mut(w, i).on_climbable = climbing_after;
+    if climbing_after && (w.entities.list[i].horizontal_collision || mob(w, i).jumping) {
         movement = Vec3::new(movement.x, 0.2, movement.z);
     }
     let movement_y = movement.y - 0.08;
@@ -592,6 +645,20 @@ fn fluid_falling_adjusted(gravity: f64, falling: bool, m: Vec3) -> Vec3 {
 
 /// `LivingEntity.travelInWater` (no water walker, no dolphin's grace, nobody sprints).
 fn travel_in_water(w: &mut World, i: usize, input: Vec3, gravity: f64, falling: bool, old_y: f64) {
+    // AbstractFish.travelInWater: 0.01 of the input, the move, the motion x 0.9, then 0.005 down
+    // without a target
+    if super::ai::has_ai(w, i) && super::ai::fish::is_fish(w, i) {
+        move_relative(w, i, 0.01, input);
+        let d = w.entities.list[i].delta_movement;
+        entity::move_(w, i, MoverType::Self_, d);
+        let no_target = super::ai::ai(w, i).target.is_none();
+        let e = &mut w.entities.list[i];
+        e.delta_movement = e.delta_movement.scale(0.9);
+        if no_target {
+            e.delta_movement = e.delta_movement.add(0.0, -0.005, 0.0);
+        }
+        return;
+    }
     // (tickexact 2026-11-10) Drowned.travelInWater: under water and wanting to swim, 0.01 of the
     // input, the move, the motion x 0.9 (no gravity, no jump out)
     if super::ai::has_ai(w, i) && super::ai::goal::drowned::is_drowned(w, i) && super::ai::goal::drowned::is_under_water(w, i) && super::ai::goal::drowned::wants_to_swim(w, i) {
@@ -607,8 +674,8 @@ fn travel_in_water(w: &mut World, i: usize, input: Vec3, gravity: f64, falling: 
     let d = w.entities.list[i].delta_movement;
     entity::move_(w, i, MoverType::Self_, d);
     let mut m = w.entities.list[i].delta_movement;
-    // a climbing mob against a wall goes up 0.2 (a spider in water)
-    if w.entities.list[i].horizontal_collision && mob(w, i).on_climbable {
+    // a climbing mob against a wall goes up 0.2 (a spider in water; onClimbable after the move)
+    if w.entities.list[i].horizontal_collision && climbable_now(w, i) {
         m = Vec3::new(m.x, 0.2, m.z);
     }
     let m = m.multiply(slow as f64, 0.8f32 as f64, slow as f64);
@@ -805,7 +872,7 @@ fn hurt_inner(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
     // (tickexact 2026-11-10) Zombie.hurtServer after the hurt (zombies, zombie villagers, husks,
     // drowned, zombified piglins): the reinforcement roll on Hard with a target, and the call
     if super::natural::is_zombie_class(ty) && super::ai::has_ai(w, i) {
-        let attacker = if src == Damage::MobAttack { w.mob.ai.attacker } else { None };
+        let attacker = if src.by_attacker() { w.mob.ai.attacker } else { None };
         super::natural::zombie_reinforcements(w, i, attacker);
     }
     true
@@ -861,6 +928,10 @@ fn die(w: &mut World, i: usize, src: Damage) {
     }
     w.game_event_at("entity_die", [pos.x, pos.y, pos.z], None, false);
     drop_loot(w, i, src);
+    // dropCustomDeathLoot (after the loot table, when it drops loot): a picked-up item in hand
+    if drops_loot(w, i) {
+        super::ai::loot::drop_hand(w, i);
+    }
 }
 
 /// The dying mob's facts its loot table reads (`loot::Victim`).
@@ -878,7 +949,7 @@ fn victim(w: &World, i: usize, src: Damage) -> super::loot::Victim {
         _ => None,
     };
     let wool = (m.ty.def().game_id == "minecraft:sheep").then(|| super::loot::wool_of(m.color));
-    let killer_skeleton = src == Damage::MobAttack && w.mob.ai.attacker.and_then(|a| w.entities.list.iter().find(|x| x.id == a)).is_some_and(|x| matches!(&x.kind, EntityKind::Mob(km) if matches!(km.ty.def().id, "skeleton" | "stray" | "bogged" | "wither_skeleton")));
+    let killer_skeleton = src.by_attacker() && w.mob.ai.attacker.and_then(|a| w.entities.list.iter().find(|x| x.id == a)).is_some_and(|x| matches!(&x.kind, EntityKind::Mob(km) if matches!(km.ty.def().id, "skeleton" | "stray" | "bogged" | "wither_skeleton")));
     super::loot::Victim { on_fire: m.fire_ticks > 0 && !m.ty.def().fire_immune, cube_size, rides_zombie_horse, wool, killed_by_skeleton: killer_skeleton, lightning: src == Damage::Lightning }
 }
 
@@ -1150,8 +1221,8 @@ fn root_vehicle(w: &World, id: u32) -> u32 {
     cur
 }
 
-/// `Entity.isPushable` of the entities a mob can push.
-fn pushable(e: &entity::Entity) -> bool {
+/// `Entity.isPushable` of the entities a mob (or the AFK player) can push.
+pub(crate) fn pushable(e: &entity::Entity) -> bool {
     match &e.kind {
         // (tickexact 2026-11-10) AbstractHorse.isPushable: not while it carries a rider, nothing
         // else (a zombie jockey's horse: a creeper pushing it got the push back, d1u-deep t7324)

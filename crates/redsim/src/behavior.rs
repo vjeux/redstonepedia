@@ -178,7 +178,10 @@ pub fn is_solid(s: &Block) -> bool {
         // a cactus flower has no collision (a cactus's 14 x 15 px column is solid)
         Block::CactusFlower => false,
         // ---- mob farms (ironfarm): lava has no collision (a bed's 9 px box averages 0.85: solid) ----
-        Block::Lava { .. } | Block::Sign { .. } => false,
+        Block::Lava { .. } => false,
+        // (mob-AI 2026-11-10) a sign has no collision but is forceSolidOn: solid (a skeleton's
+        // stroll target on a wall sign is moved above it: d1-bed-plate plains t37233)
+        Block::Sign { .. } => true,
         // ---- fire (mobinfra): no collision, not forced solid ----
         Block::Fire { .. } => false,
         _ => true,
@@ -946,6 +949,10 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
         }
         // ---- natural speleothems (terrain lane): SpeleothemBlock.updateShape ----
         Block::Terrain(id) if matches!(crate::terrain::blocks::props(id).block_id(), "minecraft:pointed_dripstone" | "minecraft:sulfur_spike") => crate::terrain::ticks::speleothem_update_shape(w, s, p, d),
+        // ---- natural plants (terrain lane): VegetationBlock, DoublePlantBlock, CarpetBlock... ----
+        Block::Terrain(id) if crate::terrain::plants::plant(id).is_some() => crate::terrain::plants::update_shape(w, s, id, p, d, ns),
+        // ---- natural fences, glass panes, iron bars (terrain lane): their connections ----
+        Block::Terrain(id) if crate::terrain::plants::connects(id) => crate::terrain::plants::connection_update(w, s, id, p, d, np, ns),
         // ---- placed light sources (terrain lane) ----
         Block::SoulLantern { hanging } => {
             if d == (if hanging { Dir::Up } else { Dir::Down }) && !can_survive(w, &s, p) {
@@ -1010,6 +1017,11 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
         Block::CactusFlower => crate::cactus::flower_update_shape(w, s, p),
         // ---- fire (mobinfra) ----
         Block::Fire { .. } => crate::weather::fire::update_shape(w, s, p),
+        // ---- any other natural state: a named model error when it would react (terrain lane) ----
+        Block::Terrain(id) => {
+            crate::terrain::plants::unmodeled_update(w, id, p, d, &ns);
+            s
+        }
         _ => s,
     }
 }

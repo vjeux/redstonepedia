@@ -148,6 +148,7 @@ public final class Protocol {
             case "spawnrules" -> BlockInfo.spawnRules(this, sandbox(r), r);
             case "blockstates" -> BlockInfo.states(this, r);
             case "path" -> MobAiProbe.path(sandbox(r), r);
+            case "path_nodes" -> MobAiProbe.pathNodes(sandbox(r), r);
             case "math" -> MobAiProbe.math(r);
             case "mobstate" -> MobAiProbe.mobState(sandbox(r));
             case "info" -> info();
@@ -172,6 +173,8 @@ public final class Protocol {
             case "heights" -> heights(r);
             case "identity_hashes" -> identityHashes();
             case "memory" -> memory(r);
+            case "teleport" -> teleport(r);
+            case "poi_take" -> poiTake(r);
             case "golem_spots" -> golemSpots(r);
             case "trace" -> trace(r);
             case "terrain" -> Terrain.load(this, sandbox(r), r);
@@ -1005,6 +1008,37 @@ public final class Protocol {
             throw new IllegalArgumentException("game rule " + name + ": unsupported type " + current.getClass().getSimpleName());
         }
         rules.set(rule, v, this.server);
+    }
+
+    /**
+     * (tickexact 2026-11-10, a bench's drive replayed: `act t tp eN x y z`) Entity {@code entity}
+     * (its net id) moved to {@code pos} at rest: {@code Entity.teleportTo} (snapped there, its
+     * passengers placed on it), then its motion zeroed.
+     */
+    private JsonObject teleport(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int n = r.get("entity").getAsInt();
+        Entity e = sb.level.getEntity(sb.entityIdBase() + n);
+        if (e == null) {
+            throw new IllegalArgumentException("teleport: no entity #" + n);
+        }
+        JsonArray p = r.getAsJsonArray("pos");
+        e.teleportTo(p.get(0).getAsDouble(), p.get(1).getAsDouble(), p.get(2).getAsDouble());
+        e.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+        return new JsonObject();
+    }
+
+    /**
+     * (tickexact 2026-11-10, a bench's drive replayed: `act t poi-take x y z`) The POI at
+     * {@code pos} taken (its ticket: what a villager's claim of its bed does).
+     */
+    private JsonObject poiTake(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int[] p = ints(r.getAsJsonArray("pos"));
+        BlockPos pos = new BlockPos(p[0], p[1], p[2]);
+        sb.level.getPoiManager().take(t -> true, (t, q) -> q.equals(pos), pos, 1)
+                .orElseThrow(() -> new IllegalArgumentException("poi_take: no free POI at " + pos.toShortString()));
+        return new JsonObject();
     }
 
     /**

@@ -102,6 +102,64 @@ final class MobAiProbe {
     }
 
     /**
+     * {@code path_nodes} (mob-AI 2026-11-10): a live mob of the sandbox (by its entity number)
+     * searches again as its navigation's {@code createPath(Set.of(target), 0, false, reach)} would
+     * (the same region, maximum path length and node budget; the navigation's current path is
+     * left alone), and every node its evaluator made is returned (position, type, cost malus,
+     * {@code g}, walked distance, closed, in the open set, came from) with the path: the game's
+     * search to set beside redsim's (MCTAS_PATH_DUMP).
+     */
+    @SuppressWarnings("unchecked")
+    static JsonObject pathNodes(Sandbox sb, JsonObject r) throws ReflectiveOperationException {
+        Entity e = sb.level.getEntity(sb.entityIdBase() + r.get("entity").getAsInt());
+        if (!(e instanceof Mob mob)) {
+            throw new IllegalArgumentException("path_nodes: no mob #" + r.get("entity").getAsInt());
+        }
+        PathNavigation nav = mob.getNavigation();
+        JsonArray t = r.getAsJsonArray("target");
+        BlockPos target = new BlockPos(t.get(0).getAsInt(), t.get(1).getAsInt(), t.get(2).getAsInt());
+        int reach = r.get("reach").getAsInt();
+        java.lang.reflect.Method gm = PathNavigation.class.getDeclaredMethod("getMaxPathLength");
+        gm.setAccessible(true);
+        float maxPathLength = (Float) gm.invoke(nav);
+        java.lang.reflect.Field pf = PathNavigation.class.getDeclaredField("pathFinder");
+        pf.setAccessible(true);
+        net.minecraft.world.level.pathfinder.PathFinder finder = (net.minecraft.world.level.pathfinder.PathFinder) pf.get(nav);
+        java.lang.reflect.Field mv = PathNavigation.class.getDeclaredField("maxVisitedNodesMultiplier");
+        mv.setAccessible(true);
+        float multiplier = mv.getFloat(nav);
+        BlockPos fromPos = mob.blockPosition();
+        int radius = (int) (maxPathLength + 8);
+        net.minecraft.world.level.PathNavigationRegion region = new net.minecraft.world.level.PathNavigationRegion(sb.level, fromPos.offset(-radius, -radius, -radius), fromPos.offset(radius, radius, radius));
+        Path path = finder.findPath(region, mob, java.util.Set.of(target), maxPathLength, reach, multiplier);
+        java.lang.reflect.Field ne = PathNavigation.class.getDeclaredField("nodeEvaluator");
+        ne.setAccessible(true);
+        Object eval = ne.get(nav);
+        java.lang.reflect.Field nf = net.minecraft.world.level.pathfinder.NodeEvaluator.class.getDeclaredField("nodes");
+        nf.setAccessible(true);
+        java.util.Map<Integer, Node> nodes = (java.util.Map<Integer, Node>) nf.get(eval);
+        java.lang.reflect.Field heap = Node.class.getDeclaredField("heapIdx");
+        heap.setAccessible(true);
+        JsonArray out = new JsonArray();
+        for (Node n : nodes.values()) {
+            String from = n.cameFrom == null ? "-" : n.cameFrom.x + "," + n.cameFrom.y + "," + n.cameFrom.z;
+            out.add(n.x + "," + n.y + "," + n.z + " " + n.type.name() + " malus " + n.costMalus + " g " + n.g + " walked " + n.walkedDistance + " closed " + n.closed + " open " + (heap.getInt(n) >= 0) + " from " + from);
+        }
+        JsonObject o = new JsonObject();
+        o.add("nodes", out);
+        o.addProperty("max_path_length", Float.toString(maxPathLength));
+        if (path != null) {
+            StringBuilder s = new StringBuilder();
+            for (int i = 0; i < path.getNodeCount(); i++) {
+                Node n = path.getNode(i);
+                s.append(" ").append(n.x).append(",").append(n.y).append(",").append(n.z);
+            }
+            o.addProperty("path", s.toString().trim() + (path.canReach() ? " reached" : " partial"));
+        }
+        return o;
+    }
+
+    /**
      * {@code mobstate}: every mob of the sandbox's level (debugging the mob AI between ticks): its
      * position and rotations as raw bits, its move control's wanted position and operation, its
      * look control's wanted position, and its path (nodes, next index).

@@ -1,0 +1,147 @@
+name: carousel-loop-scheduler
+port input.release: -5 0 -3
+port input.win: -2 0 1
+port output.s0: -3 0 14
+port output.s1: -5 0 14
+port output.s2: -4 0 21
+port output.v: -4 0 10
+nbt: -3 0 17 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: -1 0 0 {OutputSignal:1}
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -13 0 -5
+palette:
+  0 minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  1 minecraft:stone
+  A minecraft:comparator[facing=south,mode=subtract,powered=false]
+  B minecraft:dropper[facing=south,triggered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=true]
+  D minecraft:dropper[facing=east,triggered=false]
+  E minecraft:dropper[facing=west,triggered=false]
+  F minecraft:hopper[enabled=true,facing=south]
+  G minecraft:hopper[enabled=true,facing=west]
+  H minecraft:hopper[enabled=true,facing=east]
+  I minecraft:redstone_wall_torch[facing=west,lit=true]
+  J minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  K minecraft:redstone_wire[east=none,north=none,power=12,south=side,west=side]
+  L minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  M minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  N minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+  O minecraft:redstone_wire[east=none,north=side,power=10,south=side,west=none]
+  P minecraft:redstone_wire[east=none,north=side,power=11,south=side,west=none]
+  Q minecraft:redstone_wire[east=none,north=side,power=14,south=side,west=none]
+  R minecraft:redstone_wall_torch[facing=south,lit=true]
+  S minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=none]
+  T minecraft:redstone_wire[east=none,north=side,power=5,south=none,west=side]
+  U minecraft:redstone_wire[east=none,north=side,power=6,south=side,west=none]
+  V minecraft:redstone_wire[east=none,north=side,power=7,south=side,west=none]
+  W minecraft:redstone_wire[east=none,north=side,power=8,south=side,west=none]
+  X minecraft:redstone_wire[east=none,north=side,power=9,south=side,west=none]
+  Y minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  Z minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  a minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
+  b minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
+  c minecraft:comparator[facing=north,mode=subtract,powered=false]
+  d minecraft:dropper[facing=north,triggered=false]
+  e minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
+  f minecraft:redstone_wire[east=side,north=none,power=3,south=none,west=side]
+  g minecraft:redstone_wire[east=side,north=none,power=4,south=none,west=side]
+  h minecraft:hopper[enabled=true,facing=north]
+  i minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  j minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
+  k minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+  l minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=side]
+  m minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=side]
+  n minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=none]
+  o minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  p minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  q minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  r minecraft:redstone_wall_torch[facing=west,lit=false]
+  s minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
+  t minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  u minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  v minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  w minecraft:repeater[delay=3,facing=east,locked=false,powered=false]
+  x minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  y minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  z minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+layer -1:
+  .
+  .
+  .
+  ........1
+  .
+  ........1..11
+  ........11
+  ........1
+  ........1
+  .11.11.1
+  1.......111
+  .11111.11.1
+  ........1.1
+  ........111
+  ..........11
+  ..........11
+  .
+  .........1111
+  .........1..1
+  .........1..1
+  ........111.1
+  ........111.1
+  ............1
+  ............1
+  .........1111
+  .........1
+layer 0:
+  11111111111111
+  1..1..1......1
+  1..1..1.1....1
+  1..1..1.q....1
+  1..1..1.11111
+  1..1..1.qr1pCBG
+  1..1..1.cmI1.Fd
+  1..1..1.M....Bh
+  1..1..1.q....Fd
+  1wy1wy1v1....Bh
+  q.......ZYJ..Fd
+  10000x1uc.M..Dh
+  ......1.q.M
+  ......1.iYN
+  ......1...iJ
+  ......1..1oL
+  ......1..R
+  ......1..nebK
+  ......1..Q..P
+  ......1..s..O
+  ......1.tSt.X
+  ......1.AlA.W
+  ......11BGE.V
+  ........HDh.U
+  .........cfgT
+  .........q
+layer 1:
+  ZYYauYaYYYYYuJ
+  t..t..t......M
+  M..M..M......M
+  M..M..M......q
+  M..M..M.YYYYu1
+  M..M..M......ZJ
+  M..M..M......kN
+  M..M..M......kN
+  M..M..M......kN
+  M..M..M......kN
+  .............kN
+  ......M......iL
+  ......M
+  ......M
+  ......M
+  ......M
+  ......M
+  ......z
+  ......M
+  ......M
+  ......M
+  ......M..1
+  ......iuaaJ
+  ........ijL
+  ..........1
+  .

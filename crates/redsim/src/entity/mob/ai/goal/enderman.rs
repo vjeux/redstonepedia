@@ -188,8 +188,9 @@ fn leave_block(w: &mut World, i: usize) {
     // Block.updateFromNeighbourShapes and canSurvive: a block without its own canSurvive survives
     // anywhere (a snowy one takes its snowy flag from the cell above); a small flower needs
     // #supports_vegetation under it (VegetationBlock), a mushroom #overrides_mushroom_light_
-    // requirement or raw light below 13 over a solid-render block (MushroomBlock); their shape
-    // update keeps them once they survive
+    // requirement or raw light below 13 over a solid-render block (MushroomBlock). One that
+    // cannot survive there turns to air in its shape update (VegetationBlock.updateShape), and
+    // air survives: the enderman "places" air on the air and holds nothing (its block is gone)
     let name = carried.to_string();
     let base = name.split('[').next().unwrap_or("").to_string();
     let Some(cp) = props_at_name(&name) else {
@@ -208,10 +209,9 @@ fn leave_block(w: &mut World, i: usize) {
         refuse(w, format!("an enderman placing {base} (its canSurvive and shape update) is not modeled"));
         return;
     };
-    if !survives {
-        return;
-    }
-    let placed = if name.contains("snowy=") {
+    let placed = if !survives {
+        Block::Air
+    } else if name.contains("snowy=") {
         let above = w.get(pos.above()).to_string();
         let snowy = above.starts_with("minecraft:snow[") || above == "minecraft:snow_block" || above.starts_with("minecraft:snow ");
         let s = name.replace("snowy=true", "snowy=false").replace("snowy=false", if snowy { "snowy=true" } else { "snowy=false" });
@@ -260,6 +260,19 @@ pub fn set_target(w: &mut World, i: usize, t: Option<u32>) {
 /// The movement speed's attack boost (`SPEED_MODIFIER_ATTACKING`: +0.15 while it has a target).
 pub fn speed_bonus(w: &World, i: usize) -> f64 {
     if super::super::target::get_target(w, i).is_some() { 0.15f32 as f64 } else { 0.0 }
+}
+
+/// `Enderman.repeatedlyTryToTeleport()` (a projectile's hit): not a passenger, up to 64
+/// teleports until one lands.
+pub fn repeatedly_try_to_teleport(w: &mut World, i: usize) {
+    if w.entities.list[i].vehicle.is_some() {
+        return;
+    }
+    for _ in 0..64 {
+        if teleport(w, i) {
+            return;
+        }
+    }
 }
 
 /// `Enderman.teleport()`: a cell within 32 (x, z) and 32 (y) drawn from its own random.
@@ -336,7 +349,9 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
 /// `Enderman.hurtServer`'s tail: a damage no living entity caused teleports it nine times in ten
 /// (the roll drawn whether it lived or not).
 pub fn after_hurt(w: &mut World, i: usize, src: crate::entity::mob::Damage) {
-    if src == crate::entity::mob::Damage::MobAttack {
+    // a living attacker's (a hit, a spear's stab, an arrow's or a trident's owner) teleports it
+    // not (`source.getEntity() instanceof LivingEntity`)
+    if src.by_attacker() && w.mob.ai.attacker.is_some() {
         return;
     }
     if rnd(w, i).next_int(10) != 0 {

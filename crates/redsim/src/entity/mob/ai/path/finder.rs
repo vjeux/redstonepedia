@@ -60,7 +60,18 @@ fn best_h(eval: &WalkEval, id: NodeId, targets: &mut [(Target, BlockPos)]) -> f3
     best
 }
 
+/// The last search's node count when it stopped (`count`, the budget's counter) and its budget
+/// (`MCTAS_PATH_DUMP`'s line).
+pub static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+pub static LAST_BUDGET: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
 fn search(eval: &mut WalkEval, from: NodeId, targets: &mut [(Target, BlockPos)], max_path_length: f32, reach_range: i32, max_visited: i32) -> Option<Path> {
+    let r = search_inner(eval, from, targets, max_path_length, reach_range, max_visited);
+    LAST_BUDGET.store(max_visited, std::sync::atomic::Ordering::Relaxed);
+    r
+}
+
+fn search_inner(eval: &mut WalkEval, from: NodeId, targets: &mut [(Target, BlockPos)], max_path_length: f32, reach_range: i32, max_visited: i32) -> Option<Path> {
     let mut open = Heap::default();
     let h0 = best_h(eval, from, targets);
     {
@@ -120,11 +131,13 @@ fn search(eval: &mut WalkEval, from: NodeId, targets: &mut [(Target, BlockPos)],
         }
     }
     let paths: Vec<(usize, Path)> = if !reached.is_empty() {
+        LAST_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
         // reachedTargets.stream(): HashSet<Target> order, then min by node count (the first wins ties)
         let hashes: Vec<i32> = reached.iter().map(|&k| targets[k].0.hash).collect();
         let order = java_hash_order(&hashes, expected_size_table(targets.len()));
         order.iter().map(|&j| reached[j]).map(|k| (k, reconstruct(eval, targets[k].0.best_node, targets[k].1, true))).collect()
     } else {
+        LAST_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
         (0..targets.len()).map(|k| (k, reconstruct(eval, targets[k].0.best_node, targets[k].1, false))).collect()
     };
     let mut best: Option<Path> = None;

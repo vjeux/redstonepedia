@@ -11,25 +11,51 @@ bed-panic.rec	1c9f38eb41aa7b28		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai 
 bed-r1.rec	c2199fa6955a6c94		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 bed-retake.rec	07e5f7c3f65e781e		26.3	2026-11-10T07:11Z on 0609ee3f7	mctas mobai record bed-retake --seed 1 --ticks 24500 --dir designs/redsim/recorded/mobai
 bed-shared.rec	dab056dfa27a591c		26.3	2026-11-10T07:21Z on a5d224f10	mctas mobai record bed-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
+carousel-catch.rec	adbbb8812cfc0947		26.3	2026-11-10T17:26Z on b04e233c2f	mctas mobai record carousel-catch --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
+carousel-catch2.rec	5188db60b3a98b45		26.3	2026-11-10T18:16Z on d553d16cc2	mctas mobai record carousel-catch2 --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
+carousel-loop.rec	ec3cee3a9ba1932e		26.3	2026-11-10T15:13Z on 8c648c8c25	mctas mobai record carousel-loop --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+carousel-wired-built.rec	1afdd55355e2eb61		26.3	2026-11-10T20:10Z on 22a810e385	mctas mobai record carousel-wired-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+carousel-wired-raw.rec	49f1c26c7edde299		26.3	2026-11-10T19:56Z on 697d581c8d	mctas mobai record carousel-wired-raw --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
+carousel-wired-v2.rec	9cf3237b64e905ab		26.3	2026-11-10T20:10Z on 22a810e385	mctas mobai record carousel-wired-v2 --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
+carousel-wired-v3-built.rec	e9c3fccfbcdfa78f		26.3	2026-11-11T00:53Z on 4effc3db21	mctas mobai record carousel-wired-v3-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+carousel-wired-v3.rec	0afa7e25d26f42f6		26.3	2026-11-11T00:53Z on 4effc3db21	mctas mobai record carousel-wired-v3 --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
+carousel-wired.rec	63b26c96584877e3		26.3	2026-11-10T19:31Z on ea79604008	mctas mobai record carousel-wired --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
+cart-queue-bend.rec	777599cc15248ab8		26.3	2026-11-10T14:22Z on cf641f4683	mctas mobai record cart-queue-bend --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
+cart-queue-slope.rec	ec9ecf71f00527e3		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue-slope --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
+cart-queue.rec	03e88b32b3410e96		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-train.rec	17ec81151bf10b6f		26.3	2026-11-10T07:00Z on d811d6f2a	mctas mobai record cart-train --seed 1 --ticks 1400 --dir designs/redsim/recorded/mobai
 chicken-jockey-flag.rec	8fa3fe767611d11e		26.3	2026-11-09T09:18Z on 05e0d74842	mctas mobai record chicken-jockey-flag --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+drowned-trident.rec	37b7967c66fa587d		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+enderman-flower.rec	380b5c44d8b814db		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+enderman-golem.rec	03bed56814f1516a		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 golem-summon.rec	9211d49a03edc4b0		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record golem-summon --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 horses.rec	0d4fd5510c0f2f5f		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+loot-pickup.rec	399481169aa92c26		26.3	2026-11-10T15:13Z on 15717973b	mctas mobai record loot-pickup --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
+plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+siding-raw.rec	04aee9029e5c9d6f		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-raw --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
+skeleton-golem.rec	201cbec2967abec0		26.3	2026-11-10T16:07Z on 4b8e206c1	mctas mobai record skeleton-golem --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 skeleton-night.rec	0c0593037b2d3fb3		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-night --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 skeleton-sun.rec	2c1222b87fbd3641		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-sun --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+spider-effects.rec	bc7bcd4b52713a4f		26.3	2026-11-10T23:51Z on 4e39780ede	mctas mobai record spider-effects --seed 1 --ticks 2400 --dir designs/redsim/recorded/mobai
 spider-golem.rec	68e63d0d953653ad		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-golem --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 spider-walls.rec	460e567ed52121ef		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-walls --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 squids.rec	63dbb40561554df8		26.3	2026-11-09T02:42Z on 4381c606f	mctas mobai record squids --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mobai record sulfur-cubes --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 villager-beds.rec	1f4af3add61d842b		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record villager-beds --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 witch.rec	a4648595d1a91707		26.3	2026-11-09T03:26Z on 06c4a9d60	mctas mobai record witch --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
+wolf-pack.rec	77cfb2718f101e56		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+wolf-skeleton.rec	1cbf8fae6aa1722b		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-door.rec	ab5e3e201b44edd3		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-door --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-drowning.rec	8bacb3c82b85ce5c		26.3	2026-11-09T12:30Z on d445b48fa6	mctas mobai record zombie-drowning --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-horse-baby.rec	631ad2ea616df98c		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-obstacles.rec	26fc66de4a19d6ae		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-obstacles --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-spear.rec	28b890397c1c4153		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-stroll.rec	3fda981d2947ddc8		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-stroll --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-village.rec	02c7f373276cdaf0		26.3	2026-11-09T00:47Z on 6205e5357	mctas mobai record zombie-village --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-villager.rec	7d7ed052702f4fba		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-villager --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

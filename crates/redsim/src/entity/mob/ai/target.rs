@@ -132,11 +132,6 @@ pub fn set_target(w: &mut World, i: usize, t: Option<u32>) {
     // delay and alert interval
     super::goal::zombie::piglin_on_set_target(w, i, before, v);
     ai_mut(w, i).target = v;
-    // a zombie holding an iron spear with a target: SpearUseGoal (priority 2) would charge with
-    // it; not modeled, its melee attack runs instead (named in the run's legacy list)
-    if v.is_some() && ai(w, i).spear {
-        w.mob.ai.legacy.insert("a zombie's iron spear (SpearUseGoal: it attacks in melee instead)");
-    }
     let now = w.entities.list[i].tick_count;
     if let Some(s) = ai_mut(w, i).enderman.as_mut() {
         s.target_change_time = if v.is_some() { now } else { 0 };
@@ -164,9 +159,14 @@ pub fn has_line_of_sight(w: &mut World, i: usize, t: Who) -> bool {
     v
 }
 
-/// `getVisibilityPercent(level, targeter)` (no sneaking, invisibility or mob heads modeled: 1).
-pub fn visibility_percent(_w: &World, _t: Who, _i: usize) -> f64 {
-    1.0
+/// `getVisibilityPercent(level, targeter)`: an invisible mob (a spider's spawn effect) 0.7 x its
+/// armour cover (at least 0.1: an invisible spider wears none, so 0.7 x 0.1F); no sneaking or mob
+/// heads modeled.
+pub fn visibility_percent(w: &World, t: Who, _i: usize) -> f64 {
+    match t {
+        Who::Entity(j) if matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.effects.invisibility > 0) => 0.7 * (0.1f32 as f64),
+        _ => 1.0,
+    }
 }
 
 /// `TargetingConditions`.

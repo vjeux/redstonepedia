@@ -29,6 +29,9 @@ pub enum Variant {
     MoveBackToVillage,
     /// `GolemRandomStrollInVillageGoal`: its choices from the level random.
     GolemInVillage,
+    /// `AbstractFish.FishSwimGoal` (`RandomSwimmingGoal`): only a fish that may swim at random
+    /// (`canRandomSwim`: no live leader), toward `getRandomSwimmablePos(10, 7)`.
+    FishSwim,
 }
 
 impl RandomStroll {
@@ -41,6 +44,11 @@ impl RandomStroll {
     pub fn default_interval(speed: f64) -> RandomStroll {
         RandomStroll { speed_modifier: speed, interval: 120, force_trigger: false, check_no_action_time: true, wanted: Vec3::ZERO, water_avoiding: None, variant: Variant::Plain }
     }
+
+    /// `new FishSwimGoal(fish)`: `RandomSwimmingGoal(fish, 1.0, 40)`.
+    pub fn fish_swim() -> RandomStroll {
+        RandomStroll { speed_modifier: 1.0, interval: 40, force_trigger: false, check_no_action_time: true, wanted: Vec3::ZERO, water_avoiding: None, variant: Variant::FishSwim }
+    }
 }
 
 fn rnd(w: &mut World, i: usize) -> &mut crate::rng::LegacyRandom {
@@ -50,6 +58,10 @@ fn rnd(w: &mut World, i: usize) -> &mut crate::rng::LegacyRandom {
 /// `canUse()`.
 pub fn can_use(w: &mut World, i: usize, g: &mut RandomStroll) -> bool {
     if g.variant == Variant::MoveBackToVillage && !super::golem::back_to_village_gate(w, i) {
+        return false;
+    }
+    // FishSwimGoal.canUse: canRandomSwim() first
+    if g.variant == Variant::FishSwim && !super::super::fish::can_random_swim(w, i) {
         return false;
     }
     // hasControllingPassenger: a mob steering this one (a spider jockey's skeleton)
@@ -76,6 +88,7 @@ fn position(w: &mut World, i: usize, g: &RandomStroll) -> Option<Vec3> {
     match g.variant {
         Variant::MoveBackToVillage => return super::golem::back_to_village_position(w, i),
         Variant::GolemInVillage => return super::golem::golem_village_position(w, i),
+        Variant::FishSwim => return super::super::fish::swimmable_pos(w, i, 10, 7),
         Variant::Plain => {}
     }
     match g.water_avoiding {
@@ -131,10 +144,13 @@ pub fn is_stable_destination(w: &World, p: BlockPos) -> bool {
 }
 
 /// `mob.getNavigation().isStableDestination(pos)`: an amphibious navigation's (a drowned's) only
-/// wants a block below that is not air.
+/// wants a block below that is not air; a water-bound one's (a fish's) a cell that does not render
+/// solid.
 fn stable_for(w: &World, i: usize, p: BlockPos) -> bool {
-    if ai(w, i).nav.kind == super::super::path::navigation::NavKind::Amphibious {
-        return !w.get(p.below()).is_air();
+    match ai(w, i).nav.kind {
+        super::super::path::navigation::NavKind::Amphibious => return !w.get(p.below()).is_air(),
+        super::super::path::navigation::NavKind::WaterBound => return !is_solid_render(&w.get(p)),
+        _ => {}
     }
     is_solid_render(&w.get(p.below()))
 }
@@ -359,6 +375,19 @@ pub fn land_pos_in_direction(w: &mut World, i: usize, min_h: f64, max_h: f64, v:
 pub fn default_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> {
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
+        let p = toward_direction(w, i, d);
+        (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+    })
+}
+
+/// `DefaultRandomPos.getPosAway(mob, h, v, avoidPos)` (no home: no restriction): ten random
+/// directions within a quarter turn of the way away from it, each cell inside the world, stable
+/// and without malus, the best by walk-target value.
+pub fn default_pos_away(w: &mut World, i: usize, h: i32, v: i32, avoid: Vec3) -> Option<Vec3> {
+    let p = w.entities.list[i].pos;
+    let dir = Vec3::new(p.x - avoid.x, p.y - avoid.y, p.z - avoid.z);
+    best_of_ten(w, i, |w| {
+        let d = random_direction_within_radians(w, i, 0.0, h as f64, v, 0, dir.x, dir.z, (std::f64::consts::PI / 2.0) as f32 as f64)?;
         let p = toward_direction(w, i, d);
         (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })

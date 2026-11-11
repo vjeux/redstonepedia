@@ -17,6 +17,19 @@ use std::collections::BTreeMap;
 
 const PARTS: [&str; 8] = ["cage", "calm", "pad", "transport", "kill", "collection", "storage", "access"];
 
+/// A farm's site in its terrain sample (the judge's spot: `site::Site::new`, where the farm's page
+/// shows it), for a dug-only part of it shown in its ground; None for a void farm.
+fn farm_site(d: &mctas::design::Design) -> Result<Option<[i32; 3]>> {
+    use redsim::entity::mob::site;
+    let meta = |k: &str| d.meta.get(k).map(String::as_str);
+    let Some(sample) = site::sample_of(meta("terrain"), meta("sample")).map_err(|e| anyhow::anyhow!(e))? else { return Ok(None) };
+    let c = circuit::Circuit::from_design(d.clone())?;
+    let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow::anyhow!(e))?;
+    let (ground, afk, clear_box) = site::params(&spec, meta("ground"), meta("afk"), meta("terrain")).map_err(|e| anyhow::anyhow!(e))?;
+    let s = site::Site::new(sample, &spec, ground, afk, clear_box).map_err(|e| anyhow::anyhow!(e))?;
+    Ok(Some(s.offset))
+}
+
 fn design_of(c: &Cand, calm_parts: &[crate::calm::Part], without: (bool, bool)) -> Result<mctas::design::Design> {
     crate::design::WITHOUT.with(|w| w.set(without));
     let built = crate::design::build_uncached(c, calm_parts);
@@ -69,7 +82,10 @@ pub fn roles_of(c: &Cand, calm_parts: &[crate::calm::Part], actual: Option<&mcta
         } else if p[1] >= -1 && p[2] <= 1 {
             "cage"
         } else if (fl - 1..=fl + 2).contains(&p[1]) && (x0 - 1..=x0 + n).contains(&p[0]) && (1..=n + 2).contains(&p[2]) {
-            "pad"
+            // (the pad's open cells are the golems' fall path, the drop shaft's, from under the pad
+            // to the kill; the pad's blocks (its fence gates, walls, water) stay the pad's:
+            // ironspec 2026-11-10)
+            if i == "air" { "transport" } else { "pad" }
         } else if matches!(i.as_str(), "hopper" | "chest") {
             "collection"
         } else if matches!(i.as_str(), "lava" | "oak_wall_sign" | "oak_button" | "oak_fence_gate") {
@@ -279,6 +295,39 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
             if placed == 0 && dug == 0 {
                 continue;
             }
+            // (a dug-only member's `ghost:` lines: below)
+            let mut ghosts = String::new();
+            // a dug-only part (nothing placed: an open drop dug into the ground): its dug cells as
+            // air and its reference farm's terrain lines and site (ironspec 2026-11-10: "its file
+            // carrying the terrain sample and its dug cells as air, so the view shows the shaft dug
+            // into the ground"; the view draws it there: `mcview::terrain::is_part_in_terrain`)
+            if placed == 0 {
+                for (p, s) in &d.blocks {
+                    if roles.get(p).copied() == Some(part) && id(s) == "air" {
+                        out.blocks.insert(*p, s.clone());
+                    }
+                }
+                for k in ["terrain", "sample", "ground", "afk"] {
+                    if let Some(v) = d.meta.get(k) {
+                        out.meta.insert(k.to_string(), v.clone());
+                    }
+                }
+                if let Some(o) = farm_site(&d)? {
+                    out.meta.insert("site".into(), format!("{},{},{}", o[0], o[1], o[2]));
+                }
+                // inside its box, its reference farm's cells of other parts, each a `ghost:` line
+                // (ironspec 2026-11-10: "cells that belong to another part of the same farm must
+                // not be drawn as natural ground ... draw them as their real blocks, ghosted, so
+                // drop-shaft-11 reads as one open shaft with the chamber's fence gates visible
+                // where they sit"; the view draws them see-through): context, never its build
+                let lo: [i32; 3] = std::array::from_fn(|k| out.blocks.keys().map(|p| p[k]).min().unwrap_or(0));
+                let hi: [i32; 3] = std::array::from_fn(|k| out.blocks.keys().map(|p| p[k]).max().unwrap_or(0));
+                for (p, s) in &d.blocks {
+                    if (0..3).all(|k| p[k] >= lo[k] && p[k] <= hi[k]) && roles.get(p).is_some_and(|r| *r != part) {
+                        ghosts.push_str(&format!("ghost: {} {} {} {s}\n", p[0], p[1], p[2]));
+                    }
+                }
+            }
             let (name, extra) = match part {
                 "storage" => {
                     let slots = out.blocks.values().map(|s| match id(s).as_str() { "chest" => 27, "hopper" => 5, _ => 0 }).sum::<u32>() + 27;
@@ -315,7 +364,7 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
             let catalog = std::fs::read_to_string(dir.join(part).join("members.tsv")).unwrap_or_default();
             let mine = matches!(part, "storage" | "access" | "transport");
             if mine || !catalog.lines().any(|l| l.split('\t').next() == Some(format!("{stem}.txt").as_str())) {
-                std::fs::write(dir.join(part).join(format!("{stem}.txt")), out.to_text())?;
+                std::fs::write(dir.join(part).join(format!("{stem}.txt")), format!("{}{ghosts}", out.to_text()))?;
             }
             by_part.entry(part).or_default().push((stem, name, stage.to_string(), format!("{metrics}\t{}", users.join(" "))));
         }
@@ -329,15 +378,24 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
         let have: Vec<&str> = old.lines().skip(1).map(|l| l.split('\t').next().unwrap_or("")).collect();
         let members: Vec<_> = members.into_iter().filter(|m| !have.contains(&format!("{}.txt", m.0).as_str()) || part == "storage" || part == "access" || part == "transport").collect();
         let mut tsv = String::from("file\tname\tstage\tmetrics\tused_by\n");
+        // (a member written again keeps its row's place: the catalog is best first)
         for l in old.lines().skip(1) {
             let file = l.split('\t').next().unwrap_or("");
-            if !l.trim().is_empty() && !members.iter().any(|m| format!("{}.txt", m.0) == file) {
-                tsv.push_str(l);
-                tsv.push('\n');
+            if l.trim().is_empty() {
+                continue;
+            }
+            match members.iter().find(|m| format!("{}.txt", m.0) == file) {
+                Some((stem, name, stage, rest)) => tsv.push_str(&format!("{stem}.txt\t{name}\t{stage}\t{rest}\n")),
+                None => {
+                    tsv.push_str(l);
+                    tsv.push('\n');
+                }
             }
         }
         for (stem, name, stage, rest) in &members {
-            tsv.push_str(&format!("{stem}.txt\t{name}\t{stage}\t{rest}\n"));
+            if !have.contains(&format!("{stem}.txt").as_str()) {
+                tsv.push_str(&format!("{stem}.txt\t{name}\t{stage}\t{rest}\n"));
+            }
         }
         std::fs::write(&path, tsv)?;
         lines.push(format!("{part}: {} members ({})", members.len(), members.iter().map(|m| m.0.as_str()).collect::<Vec<_>>().join(", ")));

@@ -56,6 +56,17 @@ pub enum NavKind {
     /// `AmphibiousPathNavigation` (a drowned's): `AmphibiousNodeEvaluator(false)`, always free to
     /// update its path, its mob position at half its height, no surface search.
     Amphibious,
+    /// `WaterBoundPathNavigation` (a fish's): `SwimNodeEvaluator(false)`, its path updated only in
+    /// a liquid, its mob position at half its height, the target's own y, a waypoint within 0.5
+    /// up or down, no surface search, a destination is any cell that does not render solid.
+    WaterBound,
+}
+
+impl NavKind {
+    /// A navigation whose mob position is `getY(0.5)` and whose ground is the target's own y.
+    fn mid_height(self) -> bool {
+        matches!(self, NavKind::Amphibious | NavKind::WaterBound)
+    }
 }
 
 /// Every path search's count and the time spent in them (benchmarks read them).
@@ -147,9 +158,14 @@ impl Navigation {
         self.max_visited_nodes = mth::floor((self.max_path_length(m) * 16.0f32) as f64);
     }
 
-    /// `GroundPathNavigation.canUpdatePath` (`AmphibiousPathNavigation`: always).
+    /// `GroundPathNavigation.canUpdatePath` (`AmphibiousPathNavigation`: always;
+    /// `WaterBoundPathNavigation`: in a liquid).
     fn can_update_path(&self, m: &NavMob) -> bool {
-        self.kind == NavKind::Amphibious || m.on_ground || m.in_liquid || m.is_passenger
+        match self.kind {
+            NavKind::Amphibious => true,
+            NavKind::WaterBound => m.in_liquid,
+            _ => m.on_ground || m.in_liquid || m.is_passenger,
+        }
     }
 
     /// `GroundPathNavigation.getSurfaceY`.
@@ -171,9 +187,9 @@ impl Navigation {
         }
     }
 
-    /// `getTempMobPos()` (`AmphibiousPathNavigation`: `getY(0.5)`).
+    /// `getTempMobPos()` (`AmphibiousPathNavigation`, `WaterBoundPathNavigation`: `getY(0.5)`).
     fn temp_mob_pos(&self, w: &World, m: &NavMob) -> Vec3 {
-        if self.kind == NavKind::Amphibious {
+        if self.kind.mid_height() {
             return Vec3::new(m.pos.x, m.pos.y + m.height as f64 * 0.5, m.pos.z);
         }
         Vec3::new(m.pos.x, self.surface_y(w, m) as f64, m.pos.z)
@@ -216,13 +232,24 @@ impl Navigation {
     /// `createPath(BlockPos, reach)` (GroundPathNavigation: the surface first; WallClimber
     /// remembers the position).
     pub fn create_path_pos(&mut self, w: &World, m: &NavMob, pos: BlockPos, reach: i32, arena: &mut Arena) -> Option<Path> {
+        let requested = pos;
         if self.kind == NavKind::WallClimber {
             self.path_to_position = Some(pos);
+        }
+        // PathNavigation.createPath(BlockPos, reach) (a water-bound navigation's): no chunk test,
+        // no surface search
+        if self.kind == NavKind::WaterBound {
+            let max = self.max_path_length(m);
+            return self.create_path_set(w, m, &[pos], 8, false, reach, max, arena);
         }
         if !Self::chunk_loaded(w, pos) {
             return None;
         }
         let pos = if self.can_path_to_targets_below_surface || self.kind == NavKind::Amphibious { pos } else { self.find_surface_position(w, pos) };
+        if path_dump_target() == Some(pos) {
+            let col: Vec<String> = (-2..=2).map(|d| format!("{}:{}", pos.y + d, w.get(BlockPos::new(pos.x, pos.y + d, pos.z)))).collect();
+            eprintln!("path dump t{}: target {:?} surface-searched to {:?}; column {}", m.game_time, requested, pos, col.join(" "));
+        }
         let max = self.max_path_length(m);
         self.create_path_set(w, m, &[pos], 8, false, reach, max, arena)
     }
@@ -258,8 +285,22 @@ impl Navigation {
         let path = {
             let mut flags = self.flags;
             flags.amphibious = self.kind == NavKind::Amphibious;
+            flags.swim = self.kind == NavKind::WaterBound;
             let mut eval = WalkEval::new(w, m.path_mob(), flags, arena);
-            finder::find_path(&mut eval, targets, max_path_length, reach, max_visited)
+            let p = finder::find_path(&mut eval, targets, max_path_length, reach, max_visited);
+            // MCTAS_PATH_DUMP: the search's nodes within 4 of the target too
+            if let Some(want) = path_dump_target()
+                && targets.contains(&want)
+            {
+                for n in eval.arena.nodes.iter() {
+                    let (dx, dy, dz) = ((n.x - want.x) as f32, (n.y - want.y) as f32, (n.z - want.z) as f32);
+                    if (dx * dx + dy * dy + dz * dz).sqrt() <= 4.0 {
+                        let from = if n.came_from == super::node::NONE { "-".to_string() } else { let c = eval.arena.n(n.came_from); format!("{},{},{}", c.x, c.y, c.z) };
+                        eprintln!("path node t{}: {},{},{} {:?} malus {} g {} walked {} closed {} open {} from {}", m.game_time, n.x, n.y, n.z, n.ty, n.cost_malus, n.g, n.walked_distance, n.closed, n.heap_idx >= 0, from);
+                    }
+                }
+            }
+            p
         };
         #[cfg(not(target_arch = "wasm32"))]
         SEARCH_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
@@ -269,7 +310,7 @@ impl Navigation {
             && want == p.target
         {
             let nodes: Vec<String> = p.nodes.iter().map(|n| format!("{},{},{}:{:?}", n.x, n.y, n.z, n.ty)).collect();
-            eprintln!("path dump t{} from {:?} reach {} max {}: {} nodes [{}] reached {}", m.game_time, m.pos, reach, max_path_length, nodes.len(), nodes.join(" "), p.can_reach());
+            eprintln!("path dump t{} from {:?} reach {} max {} (follow {} required {}): {} nodes [{}] reached {} (searched {} of {} nodes)", m.game_time, m.pos, reach, max_path_length, m.follow_range, self.required_path_length, nodes.len(), nodes.join(" "), p.can_reach(), finder::LAST_COUNT.load(std::sync::atomic::Ordering::Relaxed), finder::LAST_BUDGET.load(std::sync::atomic::Ordering::Relaxed));
         }
         if let Some(p) = &path {
             self.target_pos = Some(p.target);
@@ -444,7 +485,7 @@ impl Navigation {
         if self.can_update_path(m) {
             self.follow_the_path(w, m);
         } else if self.path.as_ref().is_some_and(|p| !p.is_done()) {
-            let mp = Vec3::new(m.pos.x, self.surface_y_cached(w, m), m.pos.z);
+            let mp = self.temp_mob_pos(w, m);
             let p = self.path.as_mut().expect("checked");
             let np = p.next_entity_pos(m.width);
             if mp.y > np.y && !m.on_ground && mth::floor(mp.x) == mth::floor(np.x) && mth::floor(mp.z) == mth::floor(np.z) {
@@ -458,13 +499,10 @@ impl Navigation {
         Some((target.x, self.ground_y(w, target), target.z, self.speed_modifier))
     }
 
-    fn surface_y_cached(&self, w: &World, m: &NavMob) -> f64 {
-        self.surface_y(w, m) as f64
-    }
-
-    /// `getGroundY(target)` (`AmphibiousPathNavigation`: the target's y).
+    /// `getGroundY(target)` (`AmphibiousPathNavigation`, `WaterBoundPathNavigation`: the target's
+    /// y).
     fn ground_y(&self, w: &World, target: Vec3) -> f64 {
-        if self.kind == NavKind::Amphibious {
+        if self.kind.mid_height() {
             return target.y;
         }
         let bp = BlockPos::new(mth::floor(target.x), mth::floor(target.y), mth::floor(target.z));
@@ -481,7 +519,9 @@ impl Navigation {
         let yd = (m.pos.y - cur.y as f64).abs();
         let zd = (m.pos.z - (cur.z as f64 + 0.5)).abs();
         let mdw = self.max_distance_to_waypoint as f64;
-        let close = xd < mdw && zd < mdw && yd < 1.0;
+        // getMaxVerticalDistanceToWaypoint: 1 (WaterBoundPathNavigation: 0.5)
+        let max_vertical = if self.kind == NavKind::WaterBound { 0.5 } else { 1.0 };
+        let close = xd < mdw && zd < mdw && yd < max_vertical;
         if close || (Self::can_cut_corner(p.next_node().ty) && self.should_target_next_node_in_direction(w, m, mp)) {
             self.path.as_mut().expect("following").advance();
         }
@@ -501,7 +541,9 @@ impl Navigation {
         if !(mp.distance_to_sqr(current) < 2.0 * 2.0) {
             return false;
         }
-        if self.kind == NavKind::Amphibious && m.in_liquid {
+        // canMoveDirectly: an amphibious navigation's in a liquid, a water-bound one's always
+        // (`isClearForMovementBetween(mob, from, to, false)`)
+        if (self.kind == NavKind::Amphibious && m.in_liquid) || self.kind == NavKind::WaterBound {
             let stop = p.next_entity_pos(m.width);
             let to = Vec3::new(stop.x, stop.y + m.height as f64 * 0.5, stop.z);
             if crate::explosion::clip_misses(w, mp, to) {

@@ -243,6 +243,10 @@ pub fn tick_chunks(w: &mut World) {
     if w.random_ticks.is_some() && w.ticking_sections.is_none() {
         w.ticking_sections = Some(TickingSections::build(w));
     }
+    // (a probe: MCTAS_TRACE_TICKS_AT=T keeps every position picked at game time T in
+    // TRACED_TICKS, printed with its block: the exact compare prints both sides' blocks and light
+    // there at the end)
+    let trace = *TRACE_TICKS_AT.get_or_init(|| std::env::var("MCTAS_TRACE_TICKS_AT").ok().and_then(|v| v.parse().ok())) == Some(w.time);
     for [cx, cz] in order {
         // iceandsnow: randomTickSpeed x nextInt(48); a 0 picks a cell for tickPrecipitation
         // (getBlockRandomPos: randValue steps), which changes nothing in a sandbox
@@ -270,6 +274,11 @@ pub fn tick_chunks(w: &mut World) {
             for _ in 0..speed {
                 let Some(rt) = w.random_ticks.as_mut() else { return };
                 let p = rt.position(cx * 16, sy * 16, cz * 16);
+                if trace {
+                    TRACED_TICKS.lock().unwrap().push([p.x, p.y, p.z]);
+                    let ticks = w.ticking_sections.as_ref().is_some_and(|ts| ts.cell(p));
+                    eprintln!("random tick t{} chunk {cx},{cz} section {sy}: {} {} {} {}{}{}", w.time, p.x, p.y, p.z, w.get(p), if ticks { " (ticks)" } else { "" }, if w.contains(p) { "" } else { " (outside the box)" });
+                }
                 // isRandomlyTicking (its block's or its fluid's): natural states by the table; the
                 // section's bits say it without reading the box's cell (the same answer:
                 // `ticks_in_section` of the cell, kept by every write)
@@ -281,6 +290,11 @@ pub fn tick_chunks(w: &mut World) {
         }
     }
 }
+
+/// (a probe) The game time whose random-tick positions are kept (`MCTAS_TRACE_TICKS_AT`), and
+/// the positions.
+static TRACE_TICKS_AT: std::sync::OnceLock<Option<i64>> = std::sync::OnceLock::new();
+pub static TRACED_TICKS: std::sync::Mutex<Vec<[i32; 3]>> = std::sync::Mutex::new(Vec::new());
 
 /// `ChunkPos.pack`.
 fn pack(x: i32, z: i32) -> i64 {

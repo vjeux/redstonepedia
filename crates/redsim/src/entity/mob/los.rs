@@ -87,6 +87,52 @@ pub fn has_line_of_sight(w: &World, from: Vec3, to: Vec3) -> bool {
     clear(w, from, to)
 }
 
+/// A `BlockHitResult` of [`clip_collider`]: a miss (at `to`) or the hit point and its cell.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct BlockHit {
+    pub miss: bool,
+    pub location: Vec3,
+    pub pos: BlockPos,
+}
+
+/// `level.clip(new ClipContext(from, to, Block.COLLIDER, Fluid.NONE, entity))` with its hit point:
+/// the first cell along the segment whose collision shape `VoxelShape.clip` meets (the point
+/// 0.001 along the segment when it lies inside the shape, else the nearest box face over the
+/// shape's boxes, `AABB.clip`), else a miss at `to` (`BlockHitResult.miss`, in `to`'s cell).
+pub fn clip_collider(w: &World, from: Vec3, to: Vec3) -> BlockHit {
+    let mut hit = None;
+    collide::traverse_blocks(from, to, |p| {
+        let s = w.get(p);
+        if s.is_air() {
+            return false;
+        }
+        let boxes = collide::boxes_at(w, &s, p);
+        if boxes.is_empty() {
+            return false;
+        }
+        let diff = to.subtract_v(from);
+        if diff.length_sqr() < 1.0e-7 {
+            return false;
+        }
+        let t = from.add_v(diff.scale(0.001));
+        let (rx, ry, rz) = (t.x - p.x as f64, t.y - p.y as f64, t.z - p.z as f64);
+        let inside = boxes.iter().any(|b| {
+            let (x0, y0, z0) = (b.min_x - p.x as f64, b.min_y - p.y as f64, b.min_z - p.z as f64);
+            let (x1, y1, z1) = (b.max_x - p.x as f64, b.max_y - p.y as f64, b.max_z - p.z as f64);
+            x0 <= rx && rx < x1 && y0 <= ry && ry < y1 && z0 <= rz && rz < z1
+        });
+        let at = if inside { Some(t) } else { collide::clip_boxes(&boxes, from, to) };
+        match at {
+            Some(l) => {
+                hit = Some(BlockHit { miss: false, location: l, pos: p });
+                true
+            }
+            None => false,
+        }
+    });
+    hit.unwrap_or_else(|| BlockHit { miss: true, location: to, pos: BlockPos::new(to.x.floor() as i32, to.y.floor() as i32, to.z.floor() as i32) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

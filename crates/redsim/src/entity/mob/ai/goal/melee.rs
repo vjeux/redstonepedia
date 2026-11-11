@@ -13,6 +13,9 @@ pub enum MeleeKind {
     Spider,
     /// `DrownedAttackGoal`: the zombie's, while the drowned may hunt its target (`okTarget`).
     Drowned,
+    /// `AbstractSkeleton.meleeGoal` (an empty-handed skeleton's): an anonymous subclass, whose
+    /// simple class name is empty.
+    Skeleton,
 }
 
 impl MeleeKind {
@@ -22,6 +25,7 @@ impl MeleeKind {
             MeleeKind::Zombie => "ZombieAttackGoal",
             MeleeKind::Spider => "SpiderAttackGoal",
             MeleeKind::Drowned => "DrownedAttackGoal",
+            MeleeKind::Skeleton => "",
         }
     }
 }
@@ -87,7 +91,7 @@ fn drowned_ok(w: &World, t: Who) -> bool {
 }
 
 /// `target.blockPosition()`.
-fn target_block(w: &World, t: Who) -> crate::pos::BlockPos {
+pub fn target_block(w: &World, t: Who) -> crate::pos::BlockPos {
     let p = target::pos_of(w, t);
     crate::pos::BlockPos::new(crate::entity::mth::floor(p.x), crate::entity::mth::floor(p.y), crate::entity::mth::floor(p.z))
 }

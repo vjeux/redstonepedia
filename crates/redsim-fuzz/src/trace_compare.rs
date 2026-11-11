@@ -206,6 +206,7 @@ fn entities_of(w: &World) -> Vec<TraceEntity> {
                         EntityKind::ArmorStand(_) => "minecraft:armor_stand".to_string(),
                         EntityKind::PrimedTnt(_) => "minecraft:tnt".to_string(),
                         EntityKind::Mob(m) => m.ty.game_id().to_string(),
+                        EntityKind::Arrow(_) => "minecraft:arrow".to_string(),
                     },
                     pos: [e.pos.x, e.pos.y, e.pos.z],
                     motion: [e.delta_movement.x, e.delta_movement.y, e.delta_movement.z],

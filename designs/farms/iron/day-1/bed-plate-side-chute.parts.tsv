@@ -2,8 +2,8 @@
 part	member	blocks	dug	build_seconds
 cage	bed-plate-2-watching	16	36	887
 calm		1	0	8
-pad	dry-floor-6x6	40	84	401
-transport	side-chute-arm-16-d20	4	328	358
+pad	dry-floor-6x6	40	0	317
+transport	side-chute-arm-16-d20	4	412	442
 kill	side-chute-16	29	131	713
 collection		2	0	171
 access	spiral-staircase	45	107	431

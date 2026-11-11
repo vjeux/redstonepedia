@@ -54,9 +54,125 @@ pub fn part_folder(key: &str) -> Option<&'static str> {
     PARTS.iter().find(|p| p.0 == key || (!p.1.is_empty() && p.1 == key)).map(|p| p.0)
 }
 
-/// A part's name and what it is (`PARTS`).
+/// The villager carousel's parts (vjeux 2026-11-10: "Can you publish the components in the site so I
+/// can see how it looks like"; the parent: under a "Villager carousel (in progress)" heading on the
+/// iron farm's page): (folder under designs/farms/iron/parts/, name, what it is, for the player).
+/// Each gets its component page as soon as its catalog (`members.tsv`) has a member.
+pub const CAROUSEL: [(&str, &str, &str, &str); 4] = [
+    // (vjeux 2026-11-10 rejected the 7-lane layout for one lane of 21 carts released 3 by 3: only the
+    // station carries over; the counter, the hold, the yard, the scheduler and the assembly were
+    // the 7-lane farm's and stay off)
+    ("carousel-station", "", "Station, portal pad and Nether kill", "Where each batch of villagers panics and summons its golem: the golem lands on a pad touching a portal, leaves for the Nether at once, dies there in lava, and its iron is sorted and stored."),
+    ("carousel-release", "", "Release controller", "The redstone that sends the villagers out 3 by 3: each golem pulse releases the 3 head carts, then moves the 18-cart queue up 3 slots in three steps; a missed golem falls back to a timed release, and an early one is held."),
+    // (the parent 2026-11-10 09:24, vjeux wants every carousel component on the site)
+    ("carousel-siding", "", "Bed siding", "The one bed of the farm, beside the loop: each night every villager's cart turns off into it by turns; the villager is dropped beside the bed, sleeps, is woken by a zombie behind an iron hatch that opens and shuts by itself, gets back into its own cart, and waits there until its group passes again."),
+    // (the parent 2026-11-10: the wired loop v2 runs on its own in the real game: the fourth component)
+    ("carousel-loop", "", "Single-lane loop", "The villagers ride one track in carts: the queue moves up 3 places after each golem, the front 3 leave for the station and come back to the tail."),
+];
+
+/// A part's name and what it is (`PARTS`, `CAROUSEL`).
 fn part_words(folder: &str) -> (&'static str, &'static str) {
-    PARTS.iter().find(|p| p.0 == folder).map(|p| (p.2, p.3)).unwrap_or(("Part", ""))
+    PARTS.iter().find(|p| p.0 == folder).map(|p| (p.2, p.3)).or_else(|| CAROUSEL.iter().find(|p| p.0 == folder).map(|p| (p.2, p.3))).unwrap_or(("Part", ""))
+}
+
+/// Whether a part is one of the villager carousel's.
+pub fn is_carousel(folder: &str) -> bool {
+    CAROUSEL.iter().any(|p| p.0 == folder)
+}
+
+/// Every part folder with a component page: the iron farm's parts, then the carousel's.
+pub fn all_part_folders() -> Vec<&'static str> {
+    PARTS.iter().map(|p| p.0).chain(CAROUSEL.iter().map(|p| p.0)).collect()
+}
+
+/// A part's members: its folder's catalog, else (a carousel part) its folder's other name's
+/// (ironfarm's first push named them `carousel-release-hold`, `carousel-sleep-yard`).
+fn part_members(repo: &Path, folder: &str) -> Vec<Member> {
+    let mut v = read_members(repo, "iron", folder);
+    if v.is_empty()
+        && let Some(alias) = CAROUSEL.iter().find(|p| p.0 == folder && !p.1.is_empty()).map(|p| p.1)
+    {
+        v = read_members(repo, "iron", alias);
+        for m in &mut v {
+            m.part = folder.to_string();
+        }
+    }
+    v
+}
+
+/// A carousel member's name as a player reads it (the owners' catalogs name versions `v8` and
+/// count `gt`): `version 8`, game ticks.
+fn carousel_name(name: &str) -> String {
+    name.split(' ')
+        .map(|w| {
+            let core = w.trim_end_matches([':', ',', ';', ')']);
+            let tail = &w[core.len()..];
+            let lead = core.strip_prefix('(').map(|_| "(").unwrap_or("");
+            let core = core.trim_start_matches('(');
+            match core.strip_prefix('v').filter(|r| r.starts_with(|c: char| c.is_ascii_digit()) && r.chars().all(|c| c.is_ascii_alphanumeric())) {
+                Some(r) => format!("{lead}version {r}{tail}"),
+                None => match core {
+                    "gt" => format!("{lead}game ticks{tail}"),
+                    "judged" => format!("{lead}checked{tail}"),
+                    _ => w.to_string(),
+                },
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("-gt ", "-game-tick ")
+        // (the lanes that built a part are no words for a player: "for ironfarm's paired lanes")
+        .replace("ironfarm's ", "the ")
+        .replace("farmopt's ", "the ")
+        .replace("ironspec's ", "the ")
+}
+
+/// A carousel member's number as a player reads it (the owners' catalogs write the bench's terms:
+/// `T_c 25 gt`, `fallback m 6..8`): its label and value, game ticks also in seconds.
+fn carousel_metric(k: &str, v: &str) -> (String, String) {
+    let ticks = |v: &str| -> String {
+        let t = v.trim();
+        match t.strip_suffix(" gt").and_then(|n| n.trim().parse::<f64>().ok()) {
+            Some(n) => format!("{n} game ticks ({} s)", (n / 20.0 * 100.0).round() / 100.0),
+            None => t.replace(" gt", " game ticks"),
+        }
+    };
+    // (a test world is a seed to the owners; to a player, a world; a game tick is no `gt`)
+    let worlds = |v: &str| v.replace(" seeds x ", " worlds × ").replace(" seeds", " worlds");
+    let v = &worlds(v);
+    let words = |v: &str| v.replace(" gt", " game ticks");
+    match k {
+        "clean seeds" => ("worlds where it ran clean".into(), words(v)),
+        "arrival margin min" => ("a batch arrives before its slot, at least".into(), ticks(v)),
+        "arrival margin mean" => ("a batch arrives before its slot, on average".into(), ticks(v)),
+        "golem spawn spots" if v.trim() == "0" => ("stray golem spawn spots".into(), "none".into()),
+        "visit median" => ("a bed visit takes (median)".into(), ticks(v).replace("..", " to ")),
+        "junctions clear max" => ("the tracks are clear again within".into(), ticks(v)),
+        "T_c" => ("next batch called".into(), format!("within {} of a golem", ticks(v))),
+        "transition gap" => ("between two batches".into(), format!("at most {} with none called, never two at once", ticks(v))),
+        "fallback m" => ("a missed slot".into(), match v.split_once("..").and_then(|(a, b)| Some((a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?))) {
+            Some((a, b)) => format!("it steps by itself {} to {} game ticks after its last step", 100 + a, 100 + b),
+            None => v.to_string(),
+        }),
+        "blocks" => ("blocks placed".into(), v.to_string()),
+        "box" => ("size".into(), v.replace('x', "×")),
+        k if k.starts_with("box ") => ("size".into(), format!("{} {}", &k[4..], v).replace('x', "×").replace(" Nether ", ", Nether ")),
+        "build minutes" if v.split_whitespace().count() > 1 => {
+            // (`68.8 middle 19.2 late`: the minutes at each stage's prices)
+            let w: Vec<&str> = v.split_whitespace().collect();
+            let pairs: Vec<String> = w.chunks(2).map(|c| if c.len() == 2 { format!("{} at {} prices", c[0], c[1].replace("day-1", "day 1")) } else { c[0].to_string() }).collect();
+            ("build minutes".into(), pairs.join(", "))
+        }
+        "success per slot" => ("a golem each slot".into(), match v.split_once(' ') {
+            Some((pct, rest)) => format!("{pct} of the time {}", rest.replace(" seeds x ", " worlds × ").replace(" seeds", " worlds")),
+            None => format!("{v} of the time"),
+        }),
+        "pulse +1 gt" => ("signal to the counter".into(), format!("1 game tick after the golem appears, lasting {}", ticks(v))),
+        "golem stay" => ("a golem stays".into(), format!("{} before it leaves through the portal", ticks(v))),
+        "Nether kill" => ("in the Nether".into(), v.replace(" gt", " game ticks after it arrives,").replace(" a golem", " per golem")),
+        "storage" => ("storage".into(), v.replace(" h at ", " hours at ").replace(" iron/h", " iron an hour")),
+        _ => (k.to_string(), if v.trim().ends_with(" gt") { ticks(v) } else { v.replace(" gt", " game ticks") }),
+    }
 }
 
 /// The title of a farm folder, by what it produces (`iron` -> `Iron farm`, `sugar-cane` ->
@@ -314,6 +430,12 @@ pub struct Member {
     pub terrain: Option<String>,
     /// Its site offset there (`x,y,z`: [`crate::pages::site_of`]), for its viewer's `data-site`.
     pub site: Option<String>,
+    /// Its design has a Nether part (`nether layer Y:` sections: the station's kill and storage),
+    /// drawn in a second viewer beside the overworld one (`data-part="nether"`).
+    pub nether: bool,
+    /// Its bench's drive beside it (`<stem>.drive.txt`, the bench's `--drive-out`), the path in
+    /// the repository and on the site: its viewer plays that bench's run (`data-drive`).
+    pub drive: Option<String>,
 }
 
 impl Member {
@@ -336,11 +458,16 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
             let file = if file.ends_with(".txt") { file } else { format!("{file}.txt") };
             let stage = r.get("stage").cloned().unwrap_or_default();
             let staged = STAGES.iter().find(|s| s.0 == stage || s.2 == stage).map(|s| format!("designs/farms/{farm}/{}", s.0));
-            let (src, from_stage) = if dir.join(&file).exists() {
-                (format!("{rel}/{file}"), None)
+            // (a member kept elsewhere in the repository, named by its path: the carousel's
+            // assembly, designs/farms/iron/carousel-assembly/carousel-v0a.txt)
+            let (src, from_stage, file) = if file.starts_with("designs/") && repo.join(&file).exists() {
+                let name = Path::new(&file).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                (file.clone(), None, name)
+            } else if dir.join(&file).exists() {
+                (format!("{rel}/{file}"), None, file)
             } else {
                 let s = staged.filter(|s| repo.join(s).join(&file).exists())?;
-                (format!("{s}/{file}"), Some(s))
+                (format!("{s}/{file}"), Some(s), file)
             };
             let mut metrics = parse_member_metrics(r.get("metrics").map(String::as_str).unwrap_or(""));
             let row = from_stage.as_ref().and_then(|s| circuit::archive::read_rows(&repo.join(s)).ok()).and_then(|rows| rows.into_iter().find(|x| x.file == file));
@@ -359,6 +486,8 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
             let design = std::fs::read_to_string(repo.join(&src)).ok();
             let terrain = design.as_deref().and_then(crate::pages::terrain_of).map(String::from);
             let site = design.as_deref().filter(|_| terrain.is_some()).and_then(crate::pages::site_of);
+            let nether = design.as_deref().is_some_and(|d| d.lines().any(|l| l.starts_with("nether layer ")));
+            let drive = Some(format!("{}.drive.txt", src.trim_end_matches(".txt"))).filter(|p| repo.join(p).exists());
             Some(Member {
                 part: part.to_string(),
                 name: r.get("name").cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| file.trim_end_matches(".txt").to_string()),
@@ -369,6 +498,8 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                 kind: row.map(|r| r.kind).unwrap_or_default(),
                 terrain,
                 site,
+                nether,
+                drive,
                 file,
             })
         })
@@ -387,8 +518,28 @@ pub fn member_design(_farm: &str, m: &Member) -> String {
 pub fn parse_member_metrics(s: &str) -> Vec<(String, String)> {
     const KEYS: [&str; 12] = ["storage hours at 480 iron/h", "in sight of the villagers", "spawn success per check", "blocks with wiring", "watching villagers", "build seconds", "build minutes", "iron per hour", "lava buckets", "floor cells", "hide time", "storage hours"];
     let number = |t: &str| t.trim_end_matches(['%', 's']).replace(',', "").parse::<f64>().is_ok() || t == "yes" || t == "no";
-    s.split(", ")
-        .map(str::trim)
+    // (split at the commas outside parentheses: `blocks 332 (pad 210, Nether 122)` is one)
+    let mut items: Vec<String> = vec![String::new()];
+    let mut depth = 0i32;
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth <= 0 && chars.peek() == Some(&' ') => {
+                chars.next();
+                items.push(String::new());
+                continue;
+            }
+            _ => {}
+        }
+        if let Some(last) = items.last_mut() {
+            last.push(ch);
+        }
+    }
+    items
+        .iter()
+        .map(|p| p.trim())
         .filter(|p| !p.is_empty())
         .map(|p| {
             if let Some(k) = KEYS.iter().find(|k| p.strip_prefix(**k).is_some_and(|r| r.starts_with(' '))) {
@@ -432,11 +583,28 @@ fn member_viewer(prefix: &str, m: &Member) -> String {
     if let Some(s) = &m.site {
         a.push_str(&format!(" data-site=\"{}\"", esc(s)));
     }
+    // (a part that does not run alone plays its bench's run, replayed tick for tick: vjeux 06:58,
+    // "Why does it keep saying not simulated in the viewer")
+    if let Some(d) = &m.drive {
+        a.push_str(&format!(" data-drive=\"{}\"", esc(&format!("{prefix}{d}"))));
+    }
     let title = part_words(&m.part).0;
+    let name = if is_carousel(&m.part) { carousel_name(&m.name) } else { m.name.clone() };
+    // (its Nether part, a needed part, in its own viewer: vjeux, "if they are needed you need to
+    // show them"; the second scene of the run its overworld viewer plays: one session, two views)
+    let nether = if m.nether {
+        format!(
+            "<p>Its Nether side, where the golems arrive through the portals: the kill and the storage.</p><div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\" data-part=\"nether\" data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">the Nether side</span></div></div>",
+            esc(&format!("{prefix}{}", m.src)),
+            esc(&name)
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "<div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\"{a} data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">{}</span></div></div>",
+        "<div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\"{a} data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">{}</span></div></div>{nether}",
         esc(&format!("{prefix}{}", m.src)),
-        esc(&m.name),
+        esc(&name),
         esc(title)
     )
 }
@@ -550,7 +718,7 @@ pub fn load_parts(repo: &Path) -> Vec<Member> {
     if let Ok(mut g) = REPO.write() {
         *g = Some(repo.to_path_buf());
     }
-    let all: Vec<Member> = PARTS.iter().flat_map(|p| read_members(repo, "iron", p.0)).collect();
+    let all: Vec<Member> = all_part_folders().into_iter().flat_map(|p| part_members(repo, p)).collect();
     if let Ok(mut g) = PARTS_LOADED.write() {
         *g = all.clone();
     }
@@ -846,11 +1014,10 @@ pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
         };
         stages.push_str(&format!("<section class=\"stage\"><h3>{}</h3><p class=\"hint\">{}</p>\n{body}</section>\n", esc(title), esc(line)));
     }
-    let mut comps: Vec<String> = Vec::new();
-    for (p, _, title, what) in PARTS {
+    let card = |p: &str, title: &str, what: &str| -> Option<String> {
         let members: Vec<&Member> = parts.iter().filter(|m| m.part == p).collect();
-        let Some(best) = members.first() else { continue };
-        comps.push(format!(
+        let best = members.first()?;
+        Some(format!(
             "<a class=\"card study\" href=\"{prefix}{}\" aria-label=\"{}\">{}<div class=\"meta\"><div class=\"title\">{}</div><div class=\"sub\">{} {}</div></div></a>",
             esc(&part_page_path("iron", p)),
             esc(title),
@@ -858,13 +1025,23 @@ pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
             esc(title),
             esc(what),
             if members.len() == 1 { "1 version.".to_string() } else { format!("{} versions.", members.len()) }
-        ));
-    }
-    let components = if comps.is_empty() {
+        ))
+    };
+    let comps: Vec<String> = PARTS.iter().filter_map(|(p, _, title, what)| card(p, title, what)).collect();
+    let mut components = if comps.is_empty() {
         String::new()
     } else {
         format!("<h2>Components</h2>\n<p class=\"hint\">The pieces an iron farm is made of, each with the best versions to build into your own farm.</p>\n{}", pages::grid(&comps))
     };
+    // the villager carousel's parts, under their own heading while it is being built (vjeux
+    // 2026-11-10: "Can you publish the components in the site so I can see how it looks like")
+    let carousel: Vec<String> = CAROUSEL.iter().filter_map(|(p, _, title, what)| card(p, title, what)).collect();
+    if !carousel.is_empty() {
+        components.push_str(&format!(
+            "<h2 id=\"carousel\">Villager carousel (in progress)</h2>\n<p class=\"hint\">An iron farm being built: batches of villagers ride to one station by turns, and each batch summons its golem there. Each part as it stands today, with what it measured.</p>\n{}",
+            pages::grid(&carousel)
+        ));
+    }
     let body = format!(
         "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › Iron farm</p>\n<h1>Iron farm</h1>\n<p class=\"lede\">{}</p>\n<h2>Full farms</h2>\n{stages}{components}",
         esc(crate::explain::study_uses("mobfarm"))
@@ -879,8 +1056,32 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
     let prefix_s = pages::prefix_of(&path);
     let prefix = prefix_s.as_str();
     let (title, what) = part_words(part);
+    // (a carousel part: its crumbs and a line naming the farm it is for, being built)
+    let (crumb, note) = if is_carousel(part) {
+        // (the release controller's standing, in plain words: vjeux asked where the 3-by-3
+        // release redstone was, 2026-11-10)
+        let extra = if part == "carousel-release" {
+            "<p>Real redstone; tested on its own; its golem input is driven by the test bench and its outputs light lamps; not yet connected to the queue.</p>\n"
+        } else if part == "carousel-siding" {
+            // (the parent 2026-11-10 09:24, its plain standing line; the bed's claim is the design's
+            // own since 2026-11-10 14:30: its `port home:` line and priced break-and-replace steps,
+            // no bench act)
+            "<p>Real redstone; tested on its own; arrivals and release are driven by the test bench; not yet joined to the loop.</p>\n"
+        } else if part == "carousel-loop" {
+            // (the parent 2026-11-10, its plain standing line)
+            "<p>Real redstone; runs on its own in the real game, pasted as written or built block by block; its golem signal is supplied by the test; the stand is a placeholder; not yet joined to the pad or the bed stop.</p>\n"
+        } else {
+            ""
+        };
+        (
+            format!(" › <a href=\"{prefix}farms/{farm}/index.html#carousel\">Villager carousel (in progress)</a>"),
+            format!("<p class=\"hint\">Part of the villager carousel, an iron farm still being built: this part as it stands today, with what it measured.</p>\n{extra}"),
+        )
+    } else {
+        (String::new(), String::new())
+    };
     let mut body = format!(
-        "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › <a href=\"{prefix}farms/{farm}/index.html\">{}</a> › {}</p>\n<h1>{}</h1>\n<p class=\"lede\">{}</p>\n",
+        "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › <a href=\"{prefix}farms/{farm}/index.html\">{}</a>{crumb} › {}</p>\n<h1>{}</h1>\n<p class=\"lede\">{}</p>\n{note}",
         esc(&farm_title(farm)),
         esc(title),
         esc(title),
@@ -898,8 +1099,12 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
         let rows: String = m
             .metrics
             .iter()
+            // (a carousel catalog's bench-only numbers stay off: the villagers' REST ticks, where
+            // the smallest margin fell)
+            .filter(|(k, _)| !(is_carousel(&m.part) && matches!(k.as_str(), "REST" | "arrival margin min at")))
             .map(|(k, v)| {
                 let (k, v) = match k.as_str() {
+                    _ if is_carousel(&m.part) => carousel_metric(k, v),
                     "blocks" => ("blocks placed".to_string(), v.clone()),
                     "build seconds" => ("build time".to_string(), v.split_whitespace().next().and_then(|s| s.parse::<f64>().ok()).map(build_time).unwrap_or_else(|| v.clone())),
                     _ => (k.clone(), v.clone()),
@@ -943,9 +1148,11 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
         body.push_str(&format!(
             "<section class=\"member\" id=\"{}\"><h2>{}</h2>{}{try_line}<table class=\"props\">{stage}{rows}</table>{}<p><a href=\"{prefix}{}\" download>Download it as text</a></p></section>\n",
             esc(m.stem()),
-            // (a heading starts with a capital, whatever members.tsv says: "Bed-plate cage, ...")
+            // (a heading starts with a capital, whatever members.tsv says: "Bed-plate cage, ...";
+            // a carousel member's versions and ticks in words)
             esc(&{
-                let mut ch = m.name.chars();
+                let name = if is_carousel(&m.part) { carousel_name(&m.name) } else { m.name.clone() };
+                let mut ch = name.chars();
                 ch.next().map(|c| c.to_uppercase().collect::<String>() + ch.as_str()).unwrap_or_default()
             }),
             member_viewer(prefix, m),
@@ -1274,6 +1481,57 @@ fn pick_value(a: &crate::VariationArgs) -> Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_nether_part_gets_its_own_viewer() {
+        // (the carousel station's members: their Nether kill and storage drawn beside the pad)
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let members = read_members(&repo, "iron", "carousel-station");
+        assert!(!members.is_empty() && members.iter().all(|m| m.nether), "{members:?}");
+        let html = member_viewer("../", &members[0]);
+        assert_eq!(html.matches("data-mcview=\"full\"").count(), 2, "{html}");
+        assert_eq!(html.matches("data-part=\"nether\"").count(), 1, "{html}");
+        // (the linear stand plays its bench's run: its drive beside it, the overworld view's
+        // only; its Nether view is that run's second scene)
+        assert!(members[0].file.contains("linear") && members[0].drive.is_some(), "{:?}", members[0]);
+        assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-station/carousel-linear-stand.drive.txt\"").count(), 1, "{html}");
+        let plain = Member { nether: false, ..members[0].clone() };
+        assert!(!member_viewer("../", &plain).contains("data-part"));
+    }
+
+    #[test]
+    fn a_dug_part_is_shown_in_its_terrain() {
+        // (ironspec 2026-11-10: drop-shaft-11, a dug-only part, back in the transport catalog,
+        // its view in its reference farm's terrain at that farm's site)
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let members = read_members(&repo, "iron", "transport");
+        let m = members.iter().find(|m| m.stem() == "drop-shaft-11").expect("drop-shaft-11 in the transport catalog");
+        assert_eq!(m.terrain.as_deref(), Some("village-edge"));
+        assert_eq!(m.site.as_deref(), Some("-345,65,246"));
+        let html = member_viewer("../", m);
+        assert!(html.contains("data-terrain=\"../terrain/village-edge.mcterrain\"") && html.contains("data-site=\"-345,65,246\""), "{html}");
+    }
+
+    #[test]
+    fn the_bed_siding_plays_its_bench_run_in_plain_words() {
+        // (the carousel's third component, 2026-11-10: its drive beside it, its page's words free of
+        // the guard's internal names)
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let members = part_members(&repo, "carousel-siding");
+        assert_eq!(members.len(), 1, "{members:?}");
+        let m = &members[0];
+        let html = member_viewer("../", m);
+        assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-siding/carousel-siding-wired.drive.txt\"").count(), 1, "{html}");
+        let mut text = format!("{} {}", part_words("carousel-siding").0, part_words("carousel-siding").1);
+        text.push(' ');
+        text.push_str(&carousel_name(&m.name));
+        for (k, v) in &m.metrics {
+            let (a, b) = carousel_metric(k, v);
+            text.push_str(&format!(" {a} {b}"));
+        }
+        let faults = crate::explain::page_faults("", &text);
+        assert!(faults.is_empty(), "{faults:?} in {text}");
+    }
 
     #[test]
     fn stages_and_kinds() {

@@ -858,7 +858,7 @@ pub struct FrameCost {
 /// degrees, framed as a page's `data-yaw` / `data-pitch` frame it (None: the live camera); `zoom`:
 /// the camera that many times closer.
 #[allow(clippy::too_many_arguments)]
-pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>, png_dir: Option<&std::path::Path>, view: (Option<f32>, Option<f32>), zoom: Option<f32>) -> Result<FrameCost, String> {
+pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>, png_dir: Option<&std::path::Path>, view: (Option<f32>, Option<f32>), zoom: Option<f32>, look_at: Option<[f32; 3]>) -> Result<FrameCost, String> {
     let mut p = crate::player::Player::new_web(text, width as f32 / height as f32)?;
     p.frame_live(atlas, width as f32 / dpr.max(0.5), height as f32 / dpr.max(0.5));
     if view.0.is_some() || view.1.is_some() {
@@ -876,6 +876,11 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
     if let Some(z) = zoom.filter(|z| *z > 0.0) {
         // (closer by that factor: the distance divided)
         p.camera.dist /= z;
+        p.home = p.camera;
+    }
+    if let Some(t) = look_at {
+        // (a film's subject: the camera aimed there, its framing kept)
+        p.camera.target = [t[0] + 0.5, t[1] + 0.5, t[2] + 0.5];
         p.home = p.camera;
     }
     for _ in 0..warm {

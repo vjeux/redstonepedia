@@ -233,6 +233,7 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
             EntityKind::Minecart(m) => if m.hopper { "hopper_minecart".into() } else { "minecart".into() },
             EntityKind::ArmorStand(_) => "armor_stand".into(),
             EntityKind::PrimedTnt(_) => "tnt".into(),
+            EntityKind::Arrow(a) => if a.trident { "trident".into() } else { "arrow".into() },
         },
         pos: v(e.pos),
         motion: v(e.delta_movement),
@@ -249,6 +250,10 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
             f.age = Some(it.age);
             // its fire (a drop in lava burns: tickexact 2026-11-08)
             f.fire = Some(it.fire);
+        }
+        // (mob AI) an arrow's fire
+        EntityKind::Arrow(a) => {
+            f.fire = Some(crate::entity::arrow::fire(a));
         }
         EntityKind::Mob(m) => {
             f.fire = Some(m.fire_ticks);

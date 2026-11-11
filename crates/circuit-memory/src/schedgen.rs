@@ -58,7 +58,19 @@ impl B {
         Ok(())
     }
     /// A design placed at `off`, turned `turns` quarter turns; its ports prefixed (`None`: dropped).
-    fn stamp(&mut self, path: &Path, off: P3, turns: u8, prefix: Option<&str>) -> Result<()> {
+    /// A design placed mirrored east-west (x -> -x) at `off`, ports dropped.
+    pub(crate) fn stamp_mirrored(&mut self, path: &Path, off: P3) -> Result<()> {
+        let d = Design::load(path)?;
+        let place = |q: P3| [off[0] - q[0], off[1] + q[1], off[2] + q[2]];
+        for (q, s) in &d.blocks {
+            self.put(place(*q), &clock::canon::mirror_state(s))?;
+        }
+        for (q, n) in &d.block_entities {
+            self.nbt.insert(place(*q), n.clone());
+        }
+        Ok(())
+    }
+    pub(crate) fn stamp(&mut self, path: &Path, off: P3, turns: u8, prefix: Option<&str>) -> Result<()> {
         let d = Design::load(path)?;
         let place = |q: P3| {
             let r = clock::rotate_pos(q, turns);

@@ -1683,6 +1683,7 @@ fn sim_entity_name(e: &redsim::entity::Entity) -> &'static str {
         EntityKind::ArmorStand(_) => "minecraft:armor_stand",
         EntityKind::PrimedTnt(_) => "minecraft:tnt",
         EntityKind::Mob(m) => m.ty.game_id(),
+        EntityKind::Arrow(_) => "minecraft:arrow",
     }
 }
 

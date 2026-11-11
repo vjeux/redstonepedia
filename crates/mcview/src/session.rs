@@ -379,6 +379,11 @@ pub struct Session {
     /// the farm built in at the site's offset; the view draws the design's coordinates (the
     /// world's minus the offset: [`Session::view_offset`]) and the landscape around the farm.
     pub terrain: Option<std::rc::Rc<crate::terrain::TerrainFarm>>,
+    /// The id of the design's first entity (its entity lines, each followed by its passengers, in
+    /// file order): 0 in a world of its own; in a terrain sample the village's and the natural
+    /// mobs took the ids before it (tick-exact 2026-11-10: cross-4-underground's boat 17 was
+    /// drawn as the zombie the design's list held at index 17).
+    pub design_base: u32,
 }
 
 /// The run's mutable state, for the timelapse ([`crate::player::Player::step_back`]): everything
@@ -477,7 +482,8 @@ pub fn drawn_state(b: &Block) -> String {
 /// A design block as redsim state; quartz-like plain blocks (`crates/piston-door/src/properties.rs`)
 /// fall back to stone like the door tools do.
 fn convert(state: &str) -> Result<(Block, bool), String> {
-    match Block::parse(state) {
+    // (a nether portal as the mob-farm judge reads it: `mobfarm::farm_block`)
+    match crate::mobfarm::farm_block(state) {
         Ok(b) => Ok((b, false)),
         Err(e) => {
             if quartz_like(state) {
@@ -860,6 +866,7 @@ impl Session {
             changed_cells: None,
             drawn: HashMap::new(),
             terrain: None,
+            design_base: 0,
         };
         // a farm judged in its terrain sample (`crate::terrain`; vjeux 2026-11-08: "The day 1 farm
         // needs to run in a real looking terrain, not a void world"): the judge's site, made once
@@ -872,9 +879,35 @@ impl Session {
                     None
                 }
             }
+        } else if o.terrain && crate::terrain::is_part_in_terrain(&s.design) {
+            // (a part in its terrain: its reference farm's site, `site:`)
+            match crate::terrain::part_for(text, &s.design) {
+                Ok(t) => t,
+                Err(e) => {
+                    s.unsimulated = Some(format!("its terrain: {e}"));
+                    None
+                }
+            }
         } else {
             None
         };
+        // a part in its terrain (ironspec 2026-11-10: a dug-only part, the drop shaft, "the view
+        // shows the shaft dug into the ground"): its cells cut into the sample's world at its
+        // reference farm's site, the landscape around it; no farm runs (played, the world ticks)
+        if let Some(t) = terrain.clone().filter(|_| crate::terrain::is_part_in_terrain(&s.design)) {
+            let spec = crate::terrain::part_spec(&s.design)?;
+            s.world = crate::terrain::part_world(&t, &spec, &s.design.ghosts)?;
+            s.world.errors.clear();
+            // (a cell the world changes when played is drawn: `take_writes`)
+            s.world.log_writes = true;
+            s.world.writes.clear();
+            let (lo, hi) = t.farm_box;
+            s.machine_box = Some((lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]));
+            s.terrain = Some(t);
+            s.still = !o.simulate;
+            s.initial = Some((s.world.clone(), s.actions.clone(), s.tick));
+            return Ok(s);
+        }
         if !o.simulate {
             // a farm judged in its terrain sample: its still is the judge's world before its run
             // (the sample, the farm built in), its mobs as placed
@@ -884,6 +917,7 @@ impl Session {
                     Ok(mut m) => {
                         let mut w = m.take_world();
                         let off = t.offset();
+                        s.design_base = w.entities.next_id;
                         for e in &s.design.entities {
                             let pos = [e.pos[0] + off[0] as f64, e.pos[1] + off[1] as f64, e.pos[2] + off[2] as f64];
                             let _ = redsim::entity::spawn(&mut w, &e.kind, pos, e.nbt.as_deref());
@@ -939,7 +973,14 @@ impl Session {
         // judge's first run, its water's settle paused between ticks; nothing else of the session's
         // placement applies
         if crate::mobfarm::is_mob_farm(&s.design) {
-            let started = match crate::mobfarm::MobRun::start(&s.design, o.mob_seed.unwrap_or(crate::mobfarm::JUDGE_SEED), terrain.as_deref()) {
+            // (a part's page plays its bench's run: the drive the page gave for this design,
+            // `data-drive`; `redsim::entity::mob::drive`)
+            let driven = crate::mobfarm::drive_for(&s.design.name).filter(|_| terrain.is_none());
+            let start = match driven {
+                Some(dv) => crate::mobfarm::MobRun::start_driven(&s.design, dv),
+                None => crate::mobfarm::MobRun::start(&s.design, o.mob_seed.unwrap_or(crate::mobfarm::JUDGE_SEED), terrain.as_deref()),
+            };
+            let started = match start {
                 Ok(mut m) => {
                     // (in its terrain: the cells the settle changes, followed like the run's)
                     m.run.world.log_writes = terrain.is_some();
@@ -953,6 +994,7 @@ impl Session {
             match started {
                 Ok(mut m) => {
                     s.world = m.take_world();
+                    s.design_base = m.first_design_id().unwrap_or(0);
                     // its blocks change seldom: the world logs the cells it changes, so the view
                     // keeps its blocks' mesh until one does (no effect on the run)
                     s.world.log_writes = true;
@@ -2249,12 +2291,14 @@ impl Session {
     pub fn entities(&self, partial: f32) -> Vec<crate::mesh::EntityDraw> {
         let mut v = self.world_entities(partial);
         if let Some(t) = &self.terrain {
-            // in its terrain: the mobs in the landscape drawn (none in the caves under it nor
-            // north of the cutaway, where nothing is drawn), in the design's coordinates
+            // in its terrain: the mobs in the landscape drawn (none in the caves under it, north of
+            // the cutaway nor past its reach, where nothing is drawn: `TerrainFarm::draws`, the
+            // blocks' rule; an item a plant dropped out there floated in the sky), in the design's
+            // coordinates
             let (lo, hi) = t.farm_box;
             let shown = |p: [f32; 3]| {
                 let inside = p[0] >= lo.x as f32 && p[1] >= lo.y as f32 && p[2] >= lo.z as f32 && p[0] <= hi.x as f32 + 1.0 && p[1] <= hi.y as f32 + 1.0 && p[2] <= hi.z as f32 + 1.0;
-                inside || (p[1] >= t.min_y as f32 && p[2] >= t.cut_z as f32)
+                inside || (t.draws([p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32]) && p[2] >= t.cut_z as f32)
             };
             v.retain(|e| shown(e.pos));
             let off = t.offset();
@@ -2301,8 +2345,9 @@ impl Session {
             .filter(|e| !e.removed)
             .map(|e| {
                 // a mob: its own type (redsim's); anything else: the design's own type id (its
-                // wood, ...) for the entities it summons, else the kind's
-                let kind = match (&e.kind, design_kinds.get(e.id as usize)) {
+                // wood, ...) for the entities it summons (counted from its first: `design_base`),
+                // else the kind's
+                let kind = match (&e.kind, e.id.checked_sub(self.design_base).and_then(|i| design_kinds.get(i as usize))) {
                     (EntityKind::Mob(m), _) => format!("minecraft:{}", m.ty.def().id),
                     (_, Some(k)) => k.clone(),
                     (_, None) => match &e.kind {
@@ -2314,6 +2359,7 @@ impl Session {
                         EntityKind::ArmorStand(_) => "minecraft:armor_stand".to_string(),
                         EntityKind::PrimedTnt(_) => "minecraft:tnt".to_string(),
                         EntityKind::Mob(m) => format!("minecraft:{}", m.ty.def().id),
+                        EntityKind::Arrow(_) => "minecraft:arrow".to_string(),
                     },
                 };
                 let kind = match &e.kind {
@@ -2428,6 +2474,17 @@ impl Session {
     /// and from now on the changes after this call.
     pub fn take_changed_cells(&mut self) -> Option<Vec<[i32; 3]>> {
         std::mem::replace(&mut self.changed_cells, Some(Vec::new()))
+    }
+
+    /// Show another session's world in this one's view, as of that session's `tick` (a page's
+    /// second scene: a mob farm's Nether view, `data-part="nether"`, drawing the `World::nether`
+    /// of the session its overworld view runs): its blocks and entities drawn from `w`; anything
+    /// may have changed (the mesh is built again). This session's own run never ticks it.
+    pub fn show_world(&mut self, w: World, tick: u32) {
+        self.world = w;
+        self.tick = tick;
+        self.blocks_version += 1;
+        self.changed_cells = None;
     }
 
     /// What [`Session::render_blocks`] draws at the world's cell `c`, a still block (Ok(None):
@@ -2788,6 +2845,7 @@ fn redsim_kind(k: &redsim::entity::EntityKind) -> String {
         EntityKind::ArmorStand(_) => "minecraft:armor_stand".into(),
         EntityKind::PrimedTnt(_) => "primed tnt".into(),
         EntityKind::Item(it) => format!("item {}", it.item),
+        EntityKind::Arrow(_) => "minecraft:arrow".into(),
     }
 }
 
@@ -2806,6 +2864,7 @@ fn kind_ok(k: &redsim::entity::EntityKind, drawn: &str) -> bool {
         EntityKind::ArmorStand(_) => drawn == "minecraft:armor_stand",
         EntityKind::Item(_) => drawn.starts_with("item:"),
         EntityKind::PrimedTnt(_) => drawn.starts_with("primed:"),
+        EntityKind::Arrow(_) => drawn == "minecraft:arrow",
     }
 }
 
@@ -3020,6 +3079,7 @@ impl Session {
             changed_cells: None,
             drawn: HashMap::new(),
             terrain: self.terrain.clone(),
+            design_base: self.design_base,
         };
         // the world as placed: its ground intact
         if let Some(f) = s.floor.as_mut() {

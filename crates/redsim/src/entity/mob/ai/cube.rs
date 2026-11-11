@@ -391,12 +391,23 @@ pub fn split_on_death(w: &mut World, i: usize) {
         }
         let yaw = own(w, i).next_float() * 360.0f32;
         let id = crate::entity::mob::add(w, child, crate::entity::Vec3::new(p.x + xd as f64, p.y + 0.5, p.z + zd as f64), persistent);
-        crate::entity::mob::seed_entered(w, id);
+        let ctor = crate::entity::mob::seed_entered(w, id);
         if let Some(j) = crate::entity::index_of(w, id) {
             let e = &mut w.entities.list[j];
             e.y_rot = yaw;
             e.y_rot_o = yaw;
             e.portal_cooldown = portal;
+            // setSize's onSyncedDataUpdated(ID_SIZE): its body took its head, the constructor's
+            // yaw (the bridge's seeded one: Exact.seed's bodyIsCtor), before snapTo turned it; a
+            // half of size 1 is ID_SIZE's default, no change, no callback: its body stays 0
+            if let (Some(c), crate::entity::EntityKind::Mob(m)) = (ctor, &mut e.kind)
+                && let Some(a) = m.ai.as_deref_mut()
+            {
+                a.y_head_rot = c;
+                if size / 2 > 1 {
+                    a.y_body_rot = c;
+                }
+            }
         }
     }
 }

@@ -173,6 +173,14 @@ pub struct World {
     nu_count: u32,
     /// `ServerLevel.handlingTick`: true from the tick's start through the block-event phase.
     pub handling_tick: bool,
+    /// (tickexact 2026-11-10) Inside [`World::tick`], entities included (the bridge's
+    /// `Sandbox.ticking`: a drop then is reseeded by its drop seeder, [`World::pop_resource`]).
+    pub in_tick: bool,
+    /// (tickexact 2026-11-10) `ServerLevel.isSpawningMonsters` (SPAWN_MOBS and SPAWN_MONSTERS) for
+    /// a world without natural spawning (`mob.natural` None): `None` = on (the judge's void runs,
+    /// whose game has them on); a mob AI fixture scene sets its sandbox's rules (a nether portal's
+    /// random tick draws only with monsters spawning).
+    pub spawn_monsters: Option<bool>,
     /// Comparator block entities: their output signal.
     pub comparator_out: HashMap<BlockPos, u8>,
     /// Container block entities (droppers, dispensers, hoppers): contents, hopper cooldowns.
@@ -353,6 +361,8 @@ impl World {
             nu_added: Vec::new(),
             nu_count: 0,
             handling_tick: false,
+            in_tick: false,
+            spawn_monsters: None,
             comparator_out: HashMap::new(),
             containers: Default::default(),
             torch_toggles: Vec::new(),
@@ -532,16 +542,72 @@ impl World {
     /// with a drop seed the item entity the bridge spawns (`rng::Drop`, the sandbox's n-th drop;
     /// `payload`: a shulker box item's contents).
     pub fn pop_resource(&mut self, pos: BlockPos, item: &str, count: u32, payload: u16) {
-        self.draw_pop_resource();
-        let Some(seed) = self.drop_seed else { return };
-        let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
-        self.drop_count += 1;
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
-        let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
-        if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
-            e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
-            e.random = Some(d.random.clone());
+        if let Some(seed) = self.drop_seed {
+            self.draw_pop_resource();
+            if count == 0 {
+                return;
+            }
+            let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
+            self.drop_count += 1;
+            let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+            let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
+            if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
+                e.random = Some(d.random.clone());
+            }
+            return;
         }
+        // (tickexact 2026-11-10) Block.popResource: the position from the level random (a stack of
+        // 0 draws it too, then pops nothing), then `new ItemEntity(level, x, y, z, stack)` with
+        // setDefaultPickUpDelay ([`World::spawn_item`])
+        let Some(r) = self.level_random.as_mut() else { return };
+        let dx = r.next_double_between(-0.25, 0.25);
+        let dy = r.next_double_between(-0.25, 0.25);
+        let dz = r.next_double_between(-0.25, 0.25);
+        if count == 0 {
+            return;
+        }
+        // (mob-AI's forest t2504: a pop while the world ticks (an enderman's take) is reseeded by
+        // the bridge's drop seeder (Sandbox.DropSeeder: `seed ^ (0x6d63746173 + n)`, n its own
+        // count), which draws the item's position, yaw and drift from it; between ticks (a
+        // fixture's action) the item enters like any entity)
+        if self.in_tick
+            && let Some(seed) = self.exact_seed
+        {
+            let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
+            self.drop_count += 1;
+            let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+            let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
+            if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
+                e.random = Some(d.random.clone());
+            }
+            return;
+        }
+        // EntityType.ITEM is 0.25 tall: its center at the cell's
+        let at = crate::entity::Vec3::new(pos.x as f64 + 0.5 + dx, pos.y as f64 + 0.5 + dy - 0.125, pos.z as f64 + 0.5 + dz);
+        self.spawn_item(at, item, count, payload);
+    }
+
+    /// (tickexact 2026-11-10) `new ItemEntity(level, x, y, z, stack)` then `setDefaultPickUpDelay`
+    /// and `addFreshEntity`: its own random as the bridge seeds an entering entity
+    /// ([`World::entering_random`]), the constructor's UUID, `bobOffs` and yaw replayed, its drift
+    /// drawn (x and z, 0.2 up), a pickup delay of 10, health 5. Its entity number.
+    pub fn spawn_item(&mut self, at: crate::entity::Vec3, item: &str, count: u32, payload: u16) -> u32 {
+        let n = self.entities.next_id;
+        let mut own = self.entering_random(n);
+        crate::rng::replay_uuid(&mut own);
+        own.next_float();
+        let y_rot = own.next_float() * 360.0;
+        let mx = own.next_double() * 0.2 - 0.1;
+        let mz = own.next_double() * 0.2 - 0.1;
+        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+        let id = self.entities.add(crate::entity::EntityKind::Item(state), at, y_rot);
+        if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+            e.delta_movement = crate::entity::Vec3::new(mx, 0.2, mz);
+            e.random = Some(own);
+        }
+        id
     }
 
     /// `Block.dropResources(state, level, pos)` of the block `s` just broken at `pos` (callers
@@ -553,6 +619,23 @@ impl World {
             return;
         }
         let payload = crate::redstone::shulker::box_payload(self, pos, &s).unwrap_or(0);
+        // (tickexact 2026-11-10) a natural state: its table evaluated with its random sequence
+        // (`terrain::loot`)
+        if let Block::Terrain(_) = s {
+            match crate::terrain::loot::drops(self, &s, pos, None) {
+                Ok(v) => {
+                    for (item, n) in v {
+                        self.pop_resource(pos, &item, n.max(0) as u32, 0);
+                    }
+                }
+                Err(e) => {
+                    if !self.errors.contains(&e) {
+                        self.errors.push(e);
+                    }
+                }
+            }
+            return;
+        }
         // a melon's slices draw from its loot table's random sequence (stems::melon_slices)
         if s == Block::Simple(crate::block::Simple::Melon) {
             match crate::stems::melon_slices(self) {
@@ -660,6 +743,13 @@ impl World {
                 let old = if s.is_air() { self.outer.remove(&p) } else { self.outer.insert(p, s) }.unwrap_or(Block::Air);
                 if old != s && (crate::daylight::light_differs(&old, &s) || crate::entity::mob::sun::emission(&old) != crate::entity::mob::sun::emission(&s)) {
                     self.light_version += 1;
+                }
+                // (tickexact 2026-11-10) a cell of the sample's chunks: the game's engines check
+                // it (`LevelLightEngine.checkBlock`) like a cell of the box
+                if old != s && crate::terrain::engine::enabled() && crate::terrain::light::different_light(&old, &s) && self.stores_light_outside(p)
+                    && let Some(l) = self.land.as_mut()
+                {
+                    l.dirty.push((p, p.y, p.y));
                 }
             }
             None => {
@@ -1084,6 +1174,13 @@ impl World {
 
     /// `ServerLevel.tick` for a world with no entities, fluids or random ticks.
     pub fn tick(&mut self) {
+        self.in_tick = true;
+        self.tick_level();
+        self.in_tick = false;
+    }
+
+    /// The tick's work ([`World::tick`]).
+    fn tick_level(&mut self) {
         self.handling_tick = true;
         self.time += 1;
         // terrain worlds: the light engine settles last tick's changes between ticks

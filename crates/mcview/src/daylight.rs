@@ -223,6 +223,22 @@ fn blend_to_gray(c: [f32; 3], brightness: f32, factor: f32) -> [f32; 3] {
 
 /// The overworld's environment at day time `day_time` with rain and thunder at `rain` and
 /// `thunder` (0..1, the level's `getRainLevel` / `getThunderLevel`).
+/// The Nether's environment (a mob farm's Nether part, its page's second scene): no day, no sun,
+/// moon or stars; the sky and the fog the Nether wastes' fog colour (0x330808, the game's
+/// `NetherEffects` sky). Its blocks lit as at noon so the part reads (the game's Nether has no
+/// sky light, its blocks lit by their own light over a 0.1 ambient).
+pub fn nether() -> Env {
+    let mut e = at(6000, 0.0, 0.0);
+    let fog = [0x33 as f32 / 255.0, 0x08 as f32 / 255.0, 0x08 as f32 / 255.0];
+    e.sky_color = fog;
+    e.fog_color = fog;
+    e.star_brightness = 0.0;
+    e.sunrise = [0.0; 4];
+    e.sun_angle = 180.0;
+    e.moon_angle = 0.0;
+    e
+}
+
 pub fn at(day_time: i64, rain: f32, thunder: f32) -> Env {
     let t = day_time;
     // the dimension, then the day timeline (multiply; star brightness: maximum; the sunrise colour

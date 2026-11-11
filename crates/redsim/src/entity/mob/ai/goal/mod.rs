@@ -18,6 +18,9 @@ pub mod stroll;
 pub mod targets;
 pub mod zombie;
 pub mod drowned;
+pub mod spear;
+pub mod wolf;
+pub mod avoid;
 
 use super::{MobAi, ai_mut};
 use crate::entity::mob::types::MobType;
@@ -51,7 +54,8 @@ pub enum Goal {
     RandomLookAround(look::RandomLookAround),
     MeleeAttack(melee::MeleeAttack),
     ZombieAttackTurtleEgg(zombie::TurtleEgg),
-    SpearUse,
+    /// `SpearUseGoal` (a zombie's, a zombified piglin's): its state while it runs.
+    SpearUse(spear::SpearUse),
     MoveThroughVillage(zombie::MoveThroughVillage),
     BreakDoor(zombie::BreakDoor),
     MoveTowardsTarget(golem::MoveTowardsTarget),
@@ -59,14 +63,15 @@ pub enum Goal {
     DefendVillage,
     /// `SwellGoal` (the creeper's fuse).
     Swell,
-    /// `AvoidEntityGoal` of cats or ocelots (none modeled).
-    AvoidEntity,
+    /// `AvoidEntityGoal` (a skeleton's of wolves, a creeper's of ocelots and cats, a fish's of
+    /// players).
+    AvoidEntity(avoid::AvoidEntity),
     /// `RestrictSunGoal` (the skeleton's: the navigation avoids the sun while it is bright).
     RestrictSun,
     /// `FleeSunGoal` (a burning skeleton's shade).
     FleeSun(skeleton::FleeSun),
-    /// `RangedBowAttackGoal` (its tick is refused).
-    RangedBow,
+    /// `RangedBowAttackGoal` (a skeleton's with a bow in hand).
+    RangedBow(skeleton::RangedBow),
     /// `LeapAtTargetGoal` (the spider's, 0.4 up).
     LeapAtTarget,
     /// A cube mob's goals (`AbstractCubeMob`, the sulfur cube's).
@@ -75,6 +80,8 @@ pub enum Goal {
     Animal(animal::AnimalGoal),
     /// A squid's goals (its random swim, its flight).
     Squid(super::squid::SquidGoal),
+    /// A schooling fish's `FollowFlockLeaderGoal`.
+    Fish(super::fish::FishGoal),
     /// A witch's ranged attack and its raiders' healing target.
     Witch(witch::WitchGoal),
     /// An enderman's own goals (freeze, leave and take a block, look for a player).
@@ -96,20 +103,22 @@ impl Goal {
             Goal::RandomLookAround(_) => MOVE | LOOK,
             Goal::MeleeAttack(_) => MOVE | LOOK,
             Goal::ZombieAttackTurtleEgg(_) => MOVE | JUMP,
-            Goal::SpearUse => MOVE | LOOK,
+            Goal::SpearUse(_) => MOVE | LOOK,
             Goal::MoveThroughVillage(_) => MOVE,
             Goal::BreakDoor(_) => 0,
             Goal::MoveTowardsTarget(_) => MOVE,
             Goal::OfferFlower(_) => MOVE | LOOK,
             Goal::DefendVillage => TARGET,
-            Goal::Swell | Goal::AvoidEntity => MOVE,
+            Goal::Swell | Goal::AvoidEntity(_) => MOVE,
             Goal::RestrictSun => 0,
             Goal::FleeSun(_) => MOVE,
-            Goal::RangedBow => MOVE | LOOK,
+            Goal::RangedBow(_) => MOVE | LOOK,
             Goal::LeapAtTarget => JUMP | MOVE,
             Goal::Cube(c) => c.flags(),
             Goal::Animal(a) => a.flags(),
             Goal::Squid(_) => 0,
+            // FollowFlockLeaderGoal sets no flags
+            Goal::Fish(_) => 0,
             Goal::Witch(g) => g.flags(),
             Goal::Enderman(g) => g.flags(),
             Goal::Drowned(g) => g.flags(),
@@ -129,7 +138,7 @@ impl Goal {
         if let Goal::Drowned(d) = self {
             return d.every_tick();
         }
-        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow)
+        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow(_))
     }
 
     /// `isInterruptable()`.
@@ -148,6 +157,7 @@ impl Goal {
             Goal::RandomStroll(s) => match s.variant {
                 stroll::Variant::MoveBackToVillage => "MoveBackToVillageGoal",
                 stroll::Variant::GolemInVillage => "GolemRandomStrollInVillageGoal",
+                stroll::Variant::FishSwim => "FishSwimGoal",
                 stroll::Variant::Plain => {
                     if s.water_avoiding.is_some() {
                         "WaterAvoidingRandomStrollGoal"
@@ -160,27 +170,29 @@ impl Goal {
             Goal::RandomLookAround(_) => "RandomLookAroundGoal",
             Goal::MeleeAttack(m) => m.kind.name(),
             Goal::ZombieAttackTurtleEgg(_) => "ZombieAttackTurtleEggGoal",
-            Goal::SpearUse => "SpearUseGoal",
+            Goal::SpearUse(_) => "SpearUseGoal",
             Goal::MoveThroughVillage(_) => "MoveThroughVillageGoal",
             Goal::BreakDoor(_) => "BreakDoorGoal",
             Goal::MoveTowardsTarget(_) => "MoveTowardsTargetGoal",
             Goal::OfferFlower(_) => "OfferFlowerGoal",
             Goal::DefendVillage => "DefendVillageTargetGoal",
             Goal::Swell => "SwellGoal",
-            Goal::AvoidEntity => "AvoidEntityGoal",
+            Goal::AvoidEntity(_) => "AvoidEntityGoal",
             Goal::RestrictSun => "RestrictSunGoal",
             Goal::FleeSun(_) => "FleeSunGoal",
-            Goal::RangedBow => "RangedBowAttackGoal",
+            Goal::RangedBow(_) => "RangedBowAttackGoal",
             Goal::LeapAtTarget => "LeapAtTargetGoal",
             Goal::Cube(c) => c.name(),
             Goal::Animal(a) => a.name(),
             Goal::Squid(s) => s.name(),
+            Goal::Fish(f) => f.name(),
             Goal::Witch(g) => g.name(),
             Goal::Enderman(g) => g.name(),
             Goal::Drowned(g) => g.name(),
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(n) => match n.target_type {
+                _ if n.non_tame => "NonTameRandomTargetGoal",
                 targets::TargetType::SpiderPlayer | targets::TargetType::SpiderIronGolem => "SpiderTargetGoal",
                 _ => "NearestAttackableTargetGoal",
             },
@@ -327,21 +339,22 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::RandomLookAround(l) => look::random_can_use(w, i, l),
         Goal::MeleeAttack(m) => melee::can_use(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_can_use(w, i, t),
-        Goal::SpearUse => zombie::spear_can_use(w, i),
+        Goal::SpearUse(s) => spear::can_use(w, i, s),
         Goal::MoveThroughVillage(v) => zombie::village_can_use(w, i, v),
         Goal::BreakDoor(d) => zombie::door_can_use(w, i, d),
         Goal::MoveTowardsTarget(g) => golem::towards_can_use(w, i, g),
         Goal::OfferFlower(g) => golem::flower_can_use(w, i, g),
         Goal::DefendVillage => golem::defend_can_use(w, i),
         Goal::Swell => creeper::swell_can_use(w, i),
-        Goal::AvoidEntity => false,
+        Goal::AvoidEntity(a) => avoid::can_use(w, i, a),
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
         Goal::FleeSun(g) => skeleton::flee_sun_can_use(w, i, g),
-        Goal::RangedBow => skeleton::bow_can_use(w, i),
+        Goal::RangedBow(_) => skeleton::bow_can_use(w, i),
         Goal::LeapAtTarget => spider::leap_can_use(w, i),
         Goal::Cube(c) => super::cube::can_use(w, i, c),
         Goal::Animal(a) => animal::can_use(w, i, a),
         Goal::Squid(s) => super::squid::can_use(w, i, s),
+        Goal::Fish(f) => super::fish::can_use(w, i, f),
         Goal::Witch(g) => witch::can_use(w, i, g),
         Goal::Enderman(g) => enderman::can_use(w, i, g),
         Goal::Drowned(g) => drowned::can_use(w, i, g),
@@ -360,27 +373,29 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::RandomLookAround(l) => l.look_time >= 0,
         Goal::MeleeAttack(m) => melee::can_continue(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_can_continue(w, i, t),
-        Goal::SpearUse => false,
+        Goal::SpearUse(s) => spear::can_continue(w, i, s),
         Goal::MoveThroughVillage(v) => zombie::village_can_continue(w, i, v),
         Goal::BreakDoor(d) => zombie::door_can_continue(w, i, d),
         Goal::MoveTowardsTarget(g) => golem::towards_can_continue(w, i, g),
         Goal::OfferFlower(g) => g.tick > 0,
         Goal::DefendVillage | Goal::ResetUniversalAnger => false,
         Goal::Swell => creeper::swell_can_use(w, i),
-        Goal::AvoidEntity => false,
+        Goal::AvoidEntity(a) => avoid::can_continue(w, i, a),
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
         Goal::FleeSun(_) => !super::nav_of(w, i).is_done(),
-        Goal::RangedBow => skeleton::bow_can_continue(w, i),
+        Goal::RangedBow(_) => skeleton::bow_can_continue(w, i),
         Goal::LeapAtTarget => spider::leap_can_continue(w, i),
         // Goal.canContinueToUse: canUse() (the slime's attack: its own)
         Goal::Cube(c) => super::cube::can_continue(w, i, c),
         Goal::Animal(a) => animal::can_continue(w, i, a),
         Goal::Squid(s) => super::squid::can_use(w, i, s),
+        Goal::Fish(f) => super::fish::can_continue(w, i, f),
         Goal::Witch(g) => witch::can_use(w, i, g),
         // Goal.canContinueToUse: canUse()
         Goal::Enderman(g) => enderman::can_use(w, i, g),
         Goal::Drowned(g) => drowned::can_continue(w, i, g),
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
+        Goal::NearestAttackableTarget(n) if n.non_tame => targets::non_tame_can_continue(w, i, n),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
 }
@@ -394,21 +409,22 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RandomLookAround(l) => look::random_start(w, i, l),
         Goal::MeleeAttack(m) => melee::start(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_start(w, i, t),
-        Goal::SpearUse => {}
+        Goal::SpearUse(s) => spear::start(w, i, s),
         Goal::MoveThroughVillage(v) => zombie::village_start(w, i, v),
         Goal::BreakDoor(d) => zombie::door_start(w, i, d),
         Goal::MoveTowardsTarget(g) => golem::towards_start(w, i, g),
         Goal::OfferFlower(g) => golem::flower_start(w, i, g),
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => creeper::swell_start(w, i),
-        Goal::AvoidEntity => {}
+        Goal::AvoidEntity(a) => avoid::start(w, i, a),
         Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = true,
         Goal::FleeSun(g) => skeleton::flee_sun_start(w, i, g),
-        Goal::RangedBow => {}
+        Goal::RangedBow(_) => skeleton::bow_start(w, i),
         Goal::LeapAtTarget => spider::leap_start(w, i),
         Goal::Cube(c) => super::cube::start(w, i, c),
         Goal::Animal(a) => animal::start(w, i, a),
         Goal::Squid(_) => {}
+        Goal::Fish(f) => super::fish::start(w, i, f),
         Goal::Witch(_) => {}
         Goal::Enderman(_) => {}
         Goal::Drowned(g) => drowned::start(w, i, g),
@@ -426,18 +442,20 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RandomLookAround(_) => {}
         Goal::MeleeAttack(m) => melee::stop(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_stop(w, i, t),
-        Goal::SpearUse => {}
+        Goal::SpearUse(s) => spear::stop(w, i, s),
         Goal::MoveThroughVillage(v) => zombie::village_stop(w, i, v),
         Goal::BreakDoor(d) => zombie::door_stop(w, i, d),
         Goal::MoveTowardsTarget(g) => g.target = None,
         Goal::OfferFlower(g) => g.entity = None,
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => super::ai_mut(w, i).swell_target = None,
-        Goal::AvoidEntity => {}
+        Goal::AvoidEntity(a) => avoid::stop(w, i, a),
         Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = false,
-        Goal::FleeSun(_) | Goal::RangedBow | Goal::LeapAtTarget | Goal::Cube(_) => {}
+        Goal::RangedBow(g) => skeleton::bow_stop(w, i, g),
+        Goal::FleeSun(_) | Goal::LeapAtTarget | Goal::Cube(_) => {}
         Goal::Animal(a) => animal::stop(w, i, a),
         Goal::Squid(_) => {}
+        Goal::Fish(f) => super::fish::stop(w, i, f),
         Goal::Witch(_) => {}
         Goal::Enderman(_) => {}
         Goal::Drowned(d) => drowned::stop(w, i, d),
@@ -455,18 +473,19 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RandomLookAround(l) => look::random_tick(w, i, l),
         Goal::MeleeAttack(m) => melee::tick(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_tick(w, i, t),
-        Goal::SpearUse => {}
+        Goal::SpearUse(s) => spear::tick(w, i, s),
         Goal::MoveThroughVillage(_) => {}
         Goal::BreakDoor(d) => zombie::door_tick(w, i, d),
         Goal::OfferFlower(g) => golem::flower_tick(w, i, g),
         Goal::MoveTowardsTarget(_) | Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => creeper::swell_tick(w, i),
-        Goal::AvoidEntity => {}
-        Goal::RangedBow => skeleton::bow_tick(w),
+        Goal::AvoidEntity(a) => avoid::tick(w, i, a),
+        Goal::RangedBow(g) => skeleton::bow_tick(w, i, g),
         Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget => {}
         Goal::Cube(c) => super::cube::tick(w, i, c),
         Goal::Animal(a) => animal::tick(w, i, a),
         Goal::Squid(s) => super::squid::tick(w, i, s),
+        Goal::Fish(f) => super::fish::tick(w, i, f),
         Goal::Witch(_) => {}
         Goal::Enderman(g) => enderman::tick(w, i, g),
         Goal::Drowned(d) => drowned::tick(w, i, d),

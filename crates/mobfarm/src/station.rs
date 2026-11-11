@@ -462,7 +462,7 @@ fn is_portal(w: &World, p: BlockPos) -> bool {
 
 /// The portal cells a box meets (`Entity.checkInsideBlocks`: the cells its box spans, a hair in
 /// from each face).
-fn portal_cells_met(w: &World, bb: Aabb) -> Vec<BlockPos> {
+pub(crate) fn portal_cells_met(w: &World, bb: Aabb) -> Vec<BlockPos> {
     let e = 1.0e-7;
     let mut out = Vec::new();
     for x in (bb.min_x + e).floor() as i32..=(bb.max_x - e).floor() as i32 {
@@ -478,14 +478,14 @@ fn portal_cells_met(w: &World, bb: Aabb) -> Vec<BlockPos> {
     out
 }
 
-fn golem_box(cell: BlockPos) -> Aabb {
+pub(crate) fn golem_box(cell: BlockPos) -> Aabb {
     let d = MobType::IronGolem.def();
     redsim::entity::make_bounding_box(Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5), d.width, d.height)
 }
 
 /// The smallest inflation (every axis alike) that makes box `bb` meet a portal cell within 2 of
 /// it: the largest of its per-axis gaps to the nearest such cell; None with none within 2.
-fn portal_gap(w: &World, bb: Aabb) -> Option<f64> {
+pub(crate) fn portal_gap(w: &World, bb: Aabb) -> Option<f64> {
     let mut best: Option<f64> = None;
     for x in bb.min_x.floor() as i32 - 2..=bb.max_x.floor() as i32 + 2 {
         for y in bb.min_y.floor() as i32 - 2..=bb.max_y.floor() as i32 + 2 {
@@ -502,7 +502,7 @@ fn portal_gap(w: &World, bb: Aabb) -> Option<f64> {
     best
 }
 
-fn kind_name(k: &EntityKind) -> &'static str {
+pub(crate) fn kind_name(k: &EntityKind) -> &'static str {
     match k {
         EntityKind::Boat(_) => "boat",
         EntityKind::Minecart(_) => "minecart",
@@ -510,10 +510,11 @@ fn kind_name(k: &EntityKind) -> &'static str {
         EntityKind::ArmorStand(_) => "armor stand",
         EntityKind::PrimedTnt(_) => "tnt",
         EntityKind::Mob(m) => m.ty.def().id,
+        EntityKind::Arrow(_) => "arrow",
     }
 }
 
-fn is_piglin(k: &EntityKind) -> bool {
+pub(crate) fn is_piglin(k: &EntityKind) -> bool {
     matches!(k, EntityKind::Mob(m) if m.ty.def().id == "zombified_piglin")
 }
 
@@ -563,7 +564,7 @@ impl CheckReport {
 }
 
 /// The world a station design runs in (the bench's: built, settled, its entities spawned).
-fn world_of(spec: &FarmSpec, seed: i64) -> Result<Run, String> {
+pub(crate) fn world_of(spec: &FarmSpec, seed: i64) -> Result<Run, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed, 24000, WalkMode::Random) };
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
@@ -853,12 +854,16 @@ pub struct BenchOpts {
     /// The design's own wiring drives the controls (an assembly's `wired=1`): the bench only
     /// reads the counter's lines.
     pub wired: bool,
+    /// Record the drive (`--drive-out`): [`BenchReport::drive`].
+    pub drive: bool,
 }
 
 /// What the dynamic bench measured.
 #[derive(Clone, Debug, Default)]
 pub struct BenchReport {
     pub slots: u32,
+    /// The drive as data (`crate::drive`), when asked.
+    pub drive: Option<String>,
     /// The counter in the loop: each advance's tick (a line rising), each slot's batch, and the
     /// ticks with no line or several lines high.
     pub advances: Vec<i64>,
@@ -920,7 +925,7 @@ pub struct BenchReport {
     pub timeline: Option<(String, String)>,
 }
 
-fn wire_power(w: &World, p: [i32; 3]) -> i32 {
+pub(crate) fn wire_power(w: &World, p: [i32; 3]) -> i32 {
     match w.get(BlockPos::new(p[0], p[1], p[2])) {
         Block::Wire { power, .. } => power as i32,
         _ => 0,
@@ -935,13 +940,18 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
     let first = run.world.entities.next_id;
+    let mut spawned = Vec::new();
     for (ty, pos, nbt) in &spec.entities {
-        redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
+        spawned.push(redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?);
     }
     run.own = (first..run.world.entities.next_id).collect();
     let bed = lanes.bed();
     let t0 = run.world.time;
+    let mut drive = crate::drive::Drive::new(bo.drive);
+    drive.name_entities(&run.world, &spawned, t0);
+    let drive = drive;
     redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+    drive.act(t0, format!("poi-take {} {} {}", bed.x, bed.y, bed.z));
     let mut riders: Vec<(u32, i32)> = Vec::new();
     for i in 0..run.world.entities.list.len() {
         let e = &run.world.entities.list[i];
@@ -951,9 +961,12 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
         }
         let lane = (0..BATCHES).find(|&k| (e.pos.x - (lanes.x(k) as f64 + 0.5)).abs() < 0.4).ok_or_else(|| format!("a villager at x {:.2} is in no lane", e.pos.x))?;
         riders.push((e.id, lane));
+        let name = drive.name(e.id);
         let b = brain::brain_mut(&mut run.world, i);
         b.home = Some(bed);
         b.last_slept = Some(t0 - 100);
+        drive.act(t0, format!("home {name} {} {} {}", bed.x, bed.y, bed.z));
+        drive.act(t0, format!("last-slept {name} -100"));
     }
     // the slot grid and the line switches (as the release + hold bench draws them)
     let mut rng = redsim::rng::LegacyRandom::new(bo.seed ^ 0x686f_6c64);
@@ -978,10 +991,14 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     let set_line = |w: &mut World, k: i32, high: bool| {
         let fl = redsim::world::flags::ALL;
         for p in lanes.hold_ctrls(k) {
-            w.set_block(p, if high { on.clone() } else { off.clone() }, fl);
+            let b = if high { on.clone() } else { off.clone() };
+            drive.act(w.time, format!("set {} {} {} {b}", p.x, p.y, p.z));
+            w.set_block(p, b, fl);
         }
         for p in lanes.stand_ctrls(k) {
-            w.set_block(p, if high { off.clone() } else { on.clone() }, fl);
+            let b = if high { off.clone() } else { on.clone() };
+            drive.act(w.time, format!("set {} {} {} {b}", p.x, p.y, p.z));
+            w.set_block(p, b, fl);
         }
     };
     let mut rep = BenchReport::default();
@@ -1053,6 +1070,7 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
             for (id, _) in &riders {
                 if let Some(i) = index_of(&run.world, *id) {
                     brain::brain_mut(&mut run.world, i).last_slept = Some(now);
+                    drive.act(now, format!("last-slept {} {}", drive.name(*id), now - t0));
                 }
             }
         }
@@ -1107,6 +1125,7 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
                 pending.retain(|c| c.0 > t_next);
                 for (_, p, on_) in due {
                     run.world.set_block(p, if on_ { on.clone() } else { off.clone() }, fl);
+                    drive.act(run.world.time, format!("set {} {} {} {}", p.x, p.y, p.z, if on_ { &on } else { &off }));
                 }
             }
             let n_high = line_state.iter().filter(|&&h| h).count();
@@ -1207,6 +1226,7 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
                     }
                     golems.push((id, et, None, None, None));
                     alive.push(golems.len() - 1);
+                    drive.expect(et, format!("golem g{} {} {} {}", drive.golem(id), c[0], c[1], c[2]));
                 }
             }
         }
@@ -1231,9 +1251,10 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
                 }
                 pulse_on = Some((t, g));
             }
-            (false, Some((_, g))) => {
+            (false, Some((on_at, g))) => {
                 if let Some(gi) = g {
                     golems[gi].3 = Some(t);
+                    drive.expect(on_at, format!("pulse g{} {}", drive.golem(golems[gi].0), t - on_at));
                 }
                 pulse_on = None;
             }
@@ -1268,13 +1289,18 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
         for &(ct, from, to) in &w.crossings[crossed_seen.min(w.crossings.len())..] {
             if golems.iter().any(|g| g.0 == from) {
                 nether.push((to, ct, None, (Vec3::new(0.0, 0.0, 0.0), 100.0, ct)));
+                drive.expect(ct, format!("cross g{}", drive.golem(from)));
+                drive.alias(to, from);
             }
         }
         crossed_seen = w.crossings.len();
         if let Some(n) = w.nether.as_deref() {
             for g in nether.iter_mut().filter(|g| g.2.is_none()) {
                 match n.entities.list.iter().find(|e| e.id == g.0 && !e.removed) {
-                    None => g.2 = Some(t),
+                    None => {
+                        g.2 = Some(t);
+                        drive.expect(t, format!("nether-death g{}", drive.golem(g.0)));
+                    }
                     Some(e) => {
                         let hp = match &e.kind {
                             EntityKind::Mob(m) => m.health,
@@ -1375,6 +1401,22 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
         tl.finish();
         let (html, _) = crate::timeline::write(&tl, dir, "station-bench", 0, stepped).map_err(|e| e.to_string())?;
         rep.timeline = Some((html.display().to_string(), tl.summary(0, stepped)));
+    }
+    if bo.drive {
+        drive.expect_end(format!("golems {}", golems.len()));
+        drive.expect_end(format!("nether-deaths {}", rep.nether_life.len()));
+        drive.expect_end(format!("iron-dropped {}", rep.iron_dropped));
+        drive.expect_end(format!("iron-chest {}", rep.iron_chest));
+        rep.drive = Some(drive.text(&[
+            format!("drive v1: mctas mobfarm station-bench <design> --from {s} --to {s} --days {} --jitter {} --drive-out F", bo.days, bo.jitter, s = bo.seed),
+            format!("seed {}", bo.seed),
+            format!("days {}", bo.days),
+            "walk random".into(),
+            "ai on".into(),
+            "start Run::start(spec, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }); settle_tick until false; the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then".into(),
+            "act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order: at the top of its loop)".into(),
+            format!("t0 {}", t0),
+        ]));
     }
     Ok(rep)
 }

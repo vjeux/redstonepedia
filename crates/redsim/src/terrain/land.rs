@@ -51,6 +51,15 @@ pub struct Land {
     /// What the light engine approximated (changes within 15 of the box's sides or bottom, whose
     /// light from outside the box is not known), once each.
     pub notes: Vec<String>,
+    /// (tickexact 2026-11-10) The stored light of the cells outside the box that the game's engines
+    /// light ([`World::stores_light_outside`], `terrain::engine`): the bridge imports whole sections
+    /// (`mobfarm::exact::import_terrain`), so the sample's chunks outside the box are air holding
+    /// light 0, the sandbox's void chunks around them hold 15, and the section under the box holds
+    /// data too. Water pouring out of a cave at the box's side lit the cells beside it, and that
+    /// light came back into the box through the cave (d1-bed-plate plains t36936: grass in the
+    /// cave stayed dark in redsim). Absent: that default.
+    pub outer_sky: crate::fxhash::FxHashMap<BlockPos, u8>,
+    pub outer_block: crate::fxhash::FxHashMap<BlockPos, u8>,
 }
 
 /// The redsim block of a natural state: air, the fluids redsim models (water, lava, bubble
@@ -236,6 +245,8 @@ fn land_of(t: &Terrain, sky: Vec<u8>, block: Vec<u8>, sources: Vec<i32>) -> Land
         dirty: Vec::new(),
         structures: t.structures.clone(),
         notes: Vec::new(),
+        outer_sky: Default::default(),
+        outer_block: Default::default(),
     }
 }
 
@@ -278,6 +289,8 @@ fn build_world_one_step(t: &Terrain) -> Result<World, String> {
         dirty: Vec::new(),
         structures: t.structures.clone(),
         notes: Vec::new(),
+        outer_sky: Default::default(),
+        outer_block: Default::default(),
     }));
     Ok(w)
 }
@@ -574,34 +587,118 @@ impl World {
     /// at the start of the next tick (`World::tick` -> `settle_light`), the same timing (the bridge's
     /// sandbox drains the light engine before and after every tick: the tick-exact compare's
     /// reference).
-    fn light_index(&self, p: BlockPos) -> Option<usize> {
+    pub(crate) fn light_index(&self, p: BlockPos) -> Option<usize> {
         self.index(p)
     }
 
     /// `getBrightness(LightLayer.SKY, pos)`: the raw sky light (no darkening). A world without land
     /// reads daylight.rs's per-query fixed point (`Err` on unclassified blocks, as before); outside
-    /// the box: the open sky above, darkness below.
+    /// the box: [`World::sky_light_outside`].
     pub fn sky_light(&self, p: BlockPos) -> Result<i32, String> {
         match self.land.as_ref() {
             Some(l) => Ok(match self.light_index(p) {
                 Some(i) => l.sky[i] as i32,
-                None => {
-                    if p.y >= self.min.y + self.size[1] {
-                        15
-                    } else {
-                        0
-                    }
-                }
+                None => self.sky_light_outside(l, p),
             }),
             None => crate::daylight::sky_light(self, p),
         }
     }
 
+    /// (tickexact 2026-11-10) The chunks the sample's sections fill, `[min cx, min cz]` and
+    /// `[max cx, max cz]`: the bridge imports them whole, so the game stores light for every cell
+    /// of them in the box's y range, outside the box too ([`Land::outer_sky`]).
+    pub fn stored_chunks(&self) -> ([i32; 2], [i32; 2]) {
+        let (x1, z1) = (self.min.x + self.size[0] - 1, self.min.z + self.size[2] - 1);
+        ([self.min.x.div_euclid(16), self.min.z.div_euclid(16)], [x1.div_euclid(16), z1.div_euclid(16)])
+    }
+
+    /// Whether a cell outside the box is one the game's light engines may store: in the sample's
+    /// chunks ([`World::stored_chunks`]) or the sandbox's void chunks around them, within the box's
+    /// y range. False inside the box.
+    pub fn stores_light_outside(&self, p: BlockPos) -> bool {
+        self.outside_chunk(p).is_some()
+    }
+
+    /// For a cell outside the box within its y range: `Some(true)` in one of the sample's chunks,
+    /// `Some(false)` in a void chunk around them, `None` past those.
+    pub(crate) fn outside_chunk(&self, p: BlockPos) -> Option<bool> {
+        if self.land.is_none() || self.contains(p) || p.y < self.min.y || p.y >= self.min.y + self.size[1] {
+            return None;
+        }
+        let (lo, hi) = self.stored_chunks();
+        let (cx, cz) = (p.x.div_euclid(16), p.z.div_euclid(16));
+        if cx >= lo[0] && cx <= hi[0] && cz >= lo[1] && cz <= hi[1] {
+            Some(true)
+        } else if cx >= lo[0] - 1 && cx <= hi[0] + 1 && cz >= lo[1] - 1 && cz <= hi[1] + 1 {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    /// The highest non-empty section of a chunk (its cells in the box: the highest non-air cell
+    /// of its columns, `Heightmap.WORLD_SURFACE`; and what the natural updates wrote outside the
+    /// box), `None` when it has none.
+    fn highest_nonempty_section(&self, l: &Land, cx: i32, cz: i32) -> Option<i32> {
+        let mut top = self.min.y - 1;
+        let m = Heightmap::WorldSurface.index();
+        for z in (cz * 16).max(self.min.z)..=(cz * 16 + 15).min(self.min.z + self.size[2] - 1) {
+            for x in (cx * 16).max(self.min.x)..=(cx * 16 + 15).min(self.min.x + self.size[0] - 1) {
+                if let Some(c) = Land::col(self.min, self.size, x, z) {
+                    top = top.max(l.heights[m][c] - 1);
+                }
+            }
+        }
+        for (p, b) in self.outer.iter() {
+            if !b.is_air() && p.x.div_euclid(16) == cx && p.z.div_euclid(16) == cz {
+                top = top.max(p.y);
+            }
+        }
+        (top >= self.min.y).then_some(top >> 4)
+    }
+
+    /// The section from which a stored chunk's sky reads 15 (`SkyLightSectionStorage.topSections`):
+    /// a section holds light data while it or one of its 26 neighbours is non-empty
+    /// (`LayerLightSectionStorage.updateSectionStatus`), so the sky reads 15 two sections above the
+    /// highest non-empty one of the chunk and the 8 around it.
+    pub(crate) fn chunk_top_section(&self, l: &Land, cx: i32, cz: i32) -> i32 {
+        let mut top = None;
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                top = top.max(self.highest_nonempty_section(l, cx + dx, cz + dz));
+            }
+        }
+        top.map(|s| s + 2).unwrap_or(self.min.y >> 4)
+    }
+
+    /// The sky light of a cell outside the box as the game's sandbox reads it
+    /// (`SkyLightSectionStorage.getLightValue`): above the box open sky, below it dark; below a
+    /// chunk's top section ([`World::chunk_top_section`]) its stored light ([`Land::outer_sky`]:
+    /// the import's 0 in the sample's chunks, the lit void's 15 in the chunks around them, until an
+    /// engine writes it), 15 from there up; past those chunks, 15 at every height.
+    fn sky_light_outside(&self, l: &Land, p: BlockPos) -> i32 {
+        if p.y >= self.min.y + self.size[1] {
+            return 15;
+        }
+        if p.y < self.min.y {
+            return 0;
+        }
+        let Some(imported) = self.outside_chunk(p) else { return 15 };
+        if p.y >> 4 >= self.chunk_top_section(l, p.x.div_euclid(16), p.z.div_euclid(16)) {
+            return 15;
+        }
+        l.outer_sky.get(&p).copied().unwrap_or(if imported { 0 } else { 15 }) as i32
+    }
+
     /// `getBrightness(LightLayer.BLOCK, pos)` (a world without land: no block light is modeled
-    /// there; `Err` when a light source is in it).
+    /// there; `Err` when a light source is in it). Outside the box: the stored light of the
+    /// sample's chunks ([`Land::outer_block`]), else 0.
     pub fn block_light(&self, p: BlockPos) -> Result<i32, String> {
         match self.land.as_ref() {
-            Some(l) => Ok(self.light_index(p).map(|i| l.block[i] as i32).unwrap_or(0)),
+            Some(l) => Ok(match self.light_index(p) {
+                Some(i) => l.block[i] as i32,
+                None => l.outer_block.get(&p).copied().unwrap_or(0) as i32,
+            }),
             None => Err("block light is modeled in terrain worlds only".into()),
         }
     }

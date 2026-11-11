@@ -170,6 +170,59 @@ pub fn farm_for(text: &str, d: &Design, spec: &FarmSpec) -> Result<Option<Rc<Ter
     crate::staged::block_on(farm_for_staged(text, d, spec, None, &crate::staged::Budget::none()))
 }
 
+/// A part shown in its terrain (ironspec 2026-11-10 on the dug-only drop shaft: "keep it, its file
+/// carrying the terrain sample and its dug cells as air, so the view shows the shaft dug into the
+/// ground"): a design that is no mob farm, with `terrain:` and `site: x,y,z` (its reference farm's
+/// site offset, the judge's spot for that farm): its cells (the dug ones as air) at that offset in
+/// the sample's world. Nothing of a farm runs in it.
+pub fn is_part_in_terrain(d: &Design) -> bool {
+    !crate::mobfarm::is_mob_farm(d) && sample_of(d).is_some() && site_meta(d).is_some()
+}
+
+/// A design's `site: x,y,z` (or `x y z`): the offset of its coordinates in its terrain sample.
+pub fn site_meta(d: &Design) -> Option<[i32; 3]> {
+    let v: Vec<i32> = d.meta.get("site")?.split([',', ' ']).filter(|t| !t.is_empty()).map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().ok()?;
+    let [x, y, z] = v[..] else { return None };
+    Some([x, y, z])
+}
+
+/// A part's cells as a farm spec for its terrain ([`is_part_in_terrain`]): its blocks (the dug ones
+/// as air), no entity, its box with the judge's margin; its output an unused cell (nothing runs).
+pub fn part_spec(d: &Design) -> Result<FarmSpec, String> {
+    let mut blocks = Vec::with_capacity(d.blocks.len());
+    for (q, s) in &d.blocks {
+        blocks.push((BlockPos::new(q[0], q[1], q[2]), crate::mobfarm::farm_block(s).map_err(|e| format!("not modeled by redsim: {e}"))?));
+    }
+    blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
+    let (lo, hi) = d.bounds().ok_or("an empty design")?;
+    let m = crate::mobfarm::WATCH_MARGIN;
+    let block_entities = d.block_entities.iter().map(|(p, s)| (BlockPos::new(p[0], p[1], p[2]), s.clone())).collect();
+    Ok(FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(lo[0], lo[1], lo[2]), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether: None })
+}
+
+/// A part's terrain ([`is_part_in_terrain`]): the sample's site at its `site:` offset alone (priced
+/// there as the judge prices a spot: the seals its dug cells need), made once, then shared.
+pub fn part_for(text: &str, d: &Design) -> Result<Option<Rc<TerrainFarm>>, String> {
+    let spec = part_spec(d)?;
+    crate::staged::block_on(farm_for_staged(text, d, &spec, site_meta(d), &crate::staged::Budget::none()))
+}
+
+/// A part's world in its terrain: the site's world (its seals) with the part's cells written raw
+/// (a dug cell: air), then its `ghost:` cells (its reference farm's blocks of other parts inside
+/// its box: the chamber's fence gates in the drop's column), in the world's coordinates.
+pub fn part_world(t: &TerrainFarm, spec: &FarmSpec, ghosts: &[(crate::design::Pos, String)]) -> Result<World, String> {
+    let moved = t.site.spec(spec);
+    let mut w = t.site.world_for(&moved);
+    w.place_raw(&moved.blocks);
+    let o = t.offset();
+    let mut placed = Vec::with_capacity(ghosts.len());
+    for (p, s) in ghosts {
+        placed.push((BlockPos::new(p[0] + o[0], p[1] + o[1], p[2] + o[2]), crate::mobfarm::farm_block(s).map_err(|e| format!("its ghost at {p:?}: not modeled by redsim: {e}"))?));
+    }
+    w.place_raw(&placed);
+    Ok(w)
+}
+
 /// Whether a design's terrain farm is made already (or it needs none): a live view makes it over
 /// frames first ([`farm_for_staged`]), then its still and its run take it from here at once.
 pub fn farm_ready(text: &str, d: &Design) -> bool {
@@ -448,6 +501,89 @@ mod tests {
         // a card stays void
         let card = crate::session::Session::new(&text, &crate::session::Options { terrain: false, ..crate::session::Options::still() }).unwrap();
         assert!(card.terrain.is_none());
+    }
+
+    /// tick-exact 2026-11-10: in a terrain sample the village's and the natural mobs take the
+    /// first entity ids, so the design's entities are counted from its first
+    /// (`Session::design_base`): cross-4-underground's boat 17 was drawn as the zombie the
+    /// design's list held at index 17 ("drawn differs from redsim: entity 17 (a boat) drawn as
+    /// minecraft:zombie").
+    #[test]
+    fn a_terrain_farms_entities_are_drawn_as_their_kinds() {
+        let text = String::from_utf8(read("designs/farms/iron/middle/cross-4-underground.txt")).unwrap();
+        for o in [crate::session::Options::still(), crate::session::Options::live()] {
+            let s = crate::session::Session::new(&text, &o).unwrap();
+            // (its run: the judge's settle spawns natural mobs before the design's arrive)
+            assert!(s.terrain.is_some() && (o.simulate == (s.design_base > 0)), "the settle's mobs come first in a run: {}", s.design_base);
+            s.drawn_matches_simulation().unwrap();
+            assert!(s.entities(0.0).iter().any(|e| e.kind.ends_with("_boat")), "its zombies' boats drawn as boats");
+        }
+    }
+
+    /// A terrain view draws the mobs in the landscape it draws only (`TerrainFarm::draws`, the
+    /// blocks' rule): an item a plant dropped past the landscape's reach floated in the sky
+    /// (a67650c84's plants popping off their supports, cross-4-underground's run).
+    #[test]
+    fn a_mob_past_the_landscape_drawn_is_not_drawn() {
+        let text = String::from_utf8(read("designs/circuits/mobfarm/tracks/ironfarm/d1u-underground.txt")).unwrap();
+        let mut s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
+        let t = s.terrain.clone().expect("D1U in its terrain");
+        let off = t.offset();
+        let ([x0, x1], [_, z1]) = t.reach_xz;
+        // (above the farm's box and south of its cutaway: drawn by the landscape's rule alone)
+        let (y, z) = ((t.farm_box.1.y + 2) as f64, (z1 - 1) as f64 + 0.5);
+        let mid = ((x0 + x1) / 2) as f64 + 0.5;
+        let n0 = s.entities(0.0).len();
+        redsim::entity::spawn(&mut s.world, "minecraft:zombie", [mid, y, z], None).unwrap();
+        redsim::entity::spawn(&mut s.world, "minecraft:zombie", [(x0 - 3) as f64 + 0.5, y, z], None).unwrap();
+        let e = s.entities(0.0);
+        assert_eq!(e.len(), n0 + 1, "only the mob in the landscape drawn");
+        assert!(e.iter().any(|e| (e.pos[0] - (mid as f32 - off[0] as f32)).abs() < 0.01 && (e.pos[2] - (z as f32 - off[2] as f32)).abs() < 0.01));
+    }
+
+    /// ironspec 2026-11-10 on drop-shaft-11 (a dug-only part: "keep it, its file carrying the
+    /// terrain sample and its dug cells as air, so the view shows the shaft dug into the ground"):
+    /// a part in its terrain is its cells cut into the sample's world at its reference farm's site
+    /// (`site:`, the farm's page's), the landscape around; its cells air in the world, no farm runs.
+    #[test]
+    fn a_dug_part_shows_in_its_ground() {
+        let text = String::from_utf8(read("designs/farms/iron/parts/transport/drop-shaft-11.txt")).unwrap();
+        let d = Design::parse(&text).unwrap();
+        assert!(is_part_in_terrain(&d) && site_meta(&d) == Some([-345, 65, 246]));
+        // (its reference farm's page site: the judge's spot for bed-plate-lava-out-of-sight)
+        let farm_text = String::from_utf8(read("designs/farms/iron/day-1/bed-plate-lava-out-of-sight.txt")).unwrap();
+        let farm = Design::parse(&farm_text).unwrap();
+        assert_eq!(site_offset(&farm, &crate::mobfarm::spec(&farm).unwrap()).unwrap(), site_meta(&d), "the part's site is its farm's");
+        for o in [crate::session::Options::still(), crate::session::Options::live()] {
+            let s = crate::session::Session::new(&text, &o).unwrap();
+            let t = s.terrain.as_ref().expect("shown in its terrain");
+            assert!(s.unsimulated.is_none() && s.mob.is_none(), "{:?}", s.unsimulated);
+            assert_eq!(t.offset(), [-345, 65, 246]);
+            // every dug cell is air in the world, natural blocks around (the shaft's walls)
+            for (p, _) in &d.blocks {
+                let q = BlockPos::new(p[0] - 345, p[1] + 65, p[2] + 246);
+                assert!(matches!(s.world.get(q), Block::Air), "{p:?}: {}", s.world.get(q));
+            }
+            assert!(matches!(s.world.get(BlockPos::new(-1 - 345, -10 + 65, 4 + 246)), Block::Terrain(_)), "the shaft's west wall is the sample's ground");
+            let blocks = s.render_blocks(0.0);
+            assert!(blocks.iter().filter(|b| b.state.starts_with("minecraft:grass_block")).count() > 100, "the landscape's grass");
+            assert!(!blocks.iter().any(|b| d.blocks.contains_key(&b.cell)), "nothing drawn in the shaft");
+            // its reference farm's blocks of other parts inside its box (`ghost:` lines: the
+            // chamber's fence gates and walls), placed as the farm has them and drawn see-through
+            // (ironspec 2026-11-10: "not ... natural ground, or the shaft reads as blocked")
+            assert!(d.ghosts.iter().filter(|(_, st)| st.starts_with("minecraft:oak_fence_gate")).count() >= 8, "{:?}", d.ghosts.len());
+            let look = crate::scene::viewer_look(&s);
+            for (p, st) in &d.ghosts {
+                let q = BlockPos::new(p[0] - 345, p[1] + 65, p[2] + 246);
+                assert_eq!(s.world.get(q), crate::mobfarm::farm_block(st).unwrap(), "{p:?}");
+                if st.as_str() != "minecraft:air" {
+                    assert!(look.ghost.contains(p) && blocks.iter().any(|b| b.cell == *p && b.state == *st), "{p:?} {st} drawn see-through");
+                }
+            }
+        }
+        // a void design with `site:` but no `terrain:` stays void; a mob farm never takes this path
+        assert!(!is_part_in_terrain(&Design::parse("name: x\nsite: 1,2,3\npalette:\n  S stone\nlayer 0:\n  S\n").unwrap()));
+        assert!(!is_part_in_terrain(&farm));
     }
 
     /// What a farm in its terrain costs in the view (`--nocapture`): its still, its run's session

@@ -179,7 +179,13 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   (the optimizer's `calm`), `spawn-area` (its `pad`), `transport`, `kill`, `collection`, `storage`,
   `access`) holds each member alone (`<stem>.txt`, no judge) and
   `members.tsv` (`file`, `name`, `stage`, `metrics` as `key value, key value`, `used_by` = the full
-  farms' stems, space-separated), best first, written by the farm optimizer. A member whose file
+  farms' stems, space-separated), best first, written by the farm optimizer. A dug-only member
+  (nothing placed: drop-shaft-11, an open drop) carries its dug cells as air, its reference farm's
+  `terrain:`, `ground:` and `afk:` lines and that farm's site (`site: x,y,z`, the judge's spot), and
+  inside its box the farm's cells of its other parts as `ghost: x y z <state>` lines (context drawn
+  see-through, never its build): its view shows it dug into that farm's ground
+  ([webrender.md](webrender.md), a part in its terrain).
+  A member whose file
   is not in the part's folder is a judged design of its stage (`designs/farms/<farm>/<stage>/`,
   gated like a variation): a farm module (ironspec 2026-11-08: the unit the bigger farms copy), its
   numbers read from its verdict (iron an hour, blocks, build minutes, villagers) when `metrics` is
@@ -209,6 +215,16 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   cells in ten in the same parts as farmopt's own files on its day-1 farms and its middle module
   (eight on the side chute; a test holds it). A design of another shape (golems spawning at the
   villagers' level, no lava) gets no table, and a note in the build.
+- **The villager carousel (in progress)** (vjeux 2026-11-10: "Can you publish the components in the
+  site so I can see how it looks like"): its parts (farms::CAROUSEL; for now the station + portal
+  pad + Nether kill alone: vjeux rejected the 7-lane layout the counter, the hold, the yard, the
+  scheduler and the assembly were built for) each in `designs/farms/iron/parts/<carousel-part>/`
+  with its owner's `members.tsv` (a member may be named by its repository path, `designs/...`),
+  listed under their own "Villager carousel (in progress)" heading on the iron farm's page, each
+  with its component page (its crumbs through the heading, a line saying the farm is being built).
+  Their numbers in a player's words (farms::carousel_metric: `T_c 25 gt` -> "next batch called:
+  within 25 game ticks (1.25 s) of a golem", seeds as worlds, ticks with seconds; the benches' REST
+  ticks left out) and their names' versions spelled out (`v8` -> "version 8").
 - **A module's copies curve** (ironspec 2026-11-09: each module's iron an hour, build minutes and
   room per module at N copies, from a number source): `<stem>.copies.tsv` beside a farm's design
   (its stage folder), written by the farm optimizer from its copies pricing: `n
@@ -242,7 +258,7 @@ generates and the one-line `import init ...; init();` each page uses to start a 
 | `mctas site serve --dir site/ [--port 8000]` | local preview (static server on 127.0.0.1) |
 | `mctas site smoke --dir site/ [--url <deployed site>]` | headless Chrome (`--dump-dom`) loads the index, a time search, a facet link, a door page and a family page and checks the DOM the WebAssembly UI built against the engine's own answers; two probe pages screenshot a door and a clock thumbnail through the 3D viewer (WebGL2 in SwiftShader) and count colors (a render has thousands, the fallback one); `--url` checks the live site. `mctas site publish` refuses to deploy without it (`--no-smoke` overrides) |
 | `mctas site smoke --dir site/ --engine webkit` | WebKitGTK (the engine family of iOS Safari) through WebKitWebDriver + MiniBrowser in an Xvfb display of its own (CentOS: `dnf install webkit2gtk3 webkit2gtk3-devel xorg-x11-server-Xvfb`), desktop 1280x900 and phone 390x844 at device scale 2 with an iPhone user agent: the index's first thumbnail and the live views of a door, a clock, a circuit, a family page, two entity clocks, a TNT duper, five shulker machines (a loader, an unloader, the combo, the fastest loader and the fastest unloader) and a BUD switch must become ready and draw a real picture (colors >= 40, mean luma >= 25, at most half black), the console clean, and the picker / family swaps keep the viewer. It caught the 2026-10-20 black-texture bundle (86-100% black on every view) |
-| `mctas site smoke --dir site/ --engine webkit --page <path> [--page ...] [--frames 6 --interval 700] [--click <label> ...]` | films pages in WebKit instead of checking: screenshots of each page every `--interval` ms, desktop and phone, into `$MCTAS_WEBKIT_SHOTS` (default /tmp/mctas-webkit-shots), with each frame's colors and brightness in the view, how much of the view changed since the previous and the first frame, and the console; `--click` presses viewer buttons by label first, in order (`IN` = a shulker machine's start lever; `1×` `2×` `5×` = speed 20×) |
+| `mctas site smoke --dir site/ --engine webkit --page <path> [--page ...] [--frames 6 --interval 700] [--click <label> ...] [--view N]` | films pages in WebKit instead of checking (`--view N`: the page's Nth 3D view, a component page's Nether scene under its overworld one; a component page's full views filmed as a design page's): screenshots of each page every `--interval` ms, desktop and phone, into `$MCTAS_WEBKIT_SHOTS` (default /tmp/mctas-webkit-shots), with each frame's colors and brightness in the view, how much of the view changed since the previous and the first frame, and the console; `--click` presses viewer buttons by label first, in order (`IN` = a shulker machine's start lever; `1×` `2×` `5×` = speed 20×) |
 | `mctas site chrome` | downloads Chrome for Testing's headless shell into ~/.cache/mctas (what the optional smoke uses) |
 | `mctas site read --dir site/ [--kinds] [--page <path> ...] [--details]` | a built page's visitor text in reading order, as plain lines (headings `#`, list items `-`, table rows `|`; no view, scripts or design text; `--details` adds the folded In depth / measurements sections): `--kinds` reads every kind's card page (the doors' card and each circuit kind's), for a player's-eye review of the whole site in one file |
 | `mctas site dominated [--all] [--hide]` | the circuits a builder has no reason to pick: another design of the same kind and main value is smaller (fewer blocks, and smaller by its kind's own ranking: the box for the kinds ranked by box) and at least as fast on the study's speed metrics, at least as robust, and the listed one's only advantage is a material restriction (it avoids slime, honey, torches, pistons, copper bulbs or sculk sensors that the smaller one uses); a design with any other property the smaller one lacks (its own button, 1 wide, a badge, a different output, an extendable family) is not listed. Three lists: strictly slower with a material, the same speed with a material, and nothing in its favour. `--all` includes the designs `crates/site/hidden.tsv` already keeps off the site. `--hide` appends one hidden.tsv line per design of the "nothing in its favour" list (`dominated: <winner> is N blocks smaller, same speed`) under a dated header, again until nothing more is dominated (a design folded under a hidden one stands on its own), never a design the site keeps (a pick, a size, a variant) nor one the file already has; rebuild mctas after it (the file is compiled in). `mctas site build` prints the same audit as notes at every build (`dominated (...)`: check, then add to hidden.tsv), so a re-archived study's new candidates show up without anyone remembering to run it. A family's base design (`extend` headers) counts as extendable, a builder's property: it is never listed |
