@@ -84,6 +84,17 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
         attack_damage(w, i)
     };
     let attacker = w.entities.list[i].id;
+    // (mob-AI 2026-11-10) EnchantmentHelper.doPostAttackEffects: thorns armor's post_attack (a
+    // level-random chance, then damage to the attacker) is not modeled
+    if mob(w, j).armor.has(mob(w, j).helmet.is_some(), "thorns") {
+        let why = "a hit on thorns armor (its post-attack effect) is not modeled".to_string();
+        if !w.errors.contains(&why) {
+            w.errors.push(why);
+        }
+    }
+    if std::env::var("MCTAS_TRACE_HURT").ok().and_then(|v| v.parse::<u32>().ok()) == Some(w.entities.list[j].id) {
+        eprintln!("hurt t{}: #{} ({:?}, hand {:?}) hits #{} ({:?}) for {dmg}", w.time, attacker, mob(w, i).ty, mob(w, i).mainhand, w.entities.list[j].id, mob(w, j).ty);
+    }
     let prev = w.mob.ai.attacker.replace(attacker);
     let hurt = living::hurt(w, j, Damage::MobAttack, dmg);
     w.mob.ai.attacker = prev;

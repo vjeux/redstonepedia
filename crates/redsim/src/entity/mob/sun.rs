@@ -92,17 +92,30 @@ pub fn burn_undead(w: &mut World, i: usize) {
     }
     if is_sun_burn_tick(w, i) {
         let id = w.entities.list[i].id;
-        // a helmet takes it: damage + nextInt(2) of its own random, gone at its max (no burn)
+        // a helmet takes it: hurtAndBreak(nextInt(2) of its own random), gone at its max (no
+        // burn); (mob-AI 2026-11-10) an unbreaking helmet's `item_damage` (RemoveBinomial, the
+        // level random: a point stays off with chance 2L / (10 + 5(L - 1)), armor's)
         if let Some((max, dmg)) = mob(w, i).helmet {
-            let add = w.entities.list[i].random.as_mut().map_or(0, |r| r.next_int(2));
+            let mut add = w.entities.list[i].random.as_mut().map_or(0, |r| r.next_int(2));
+            let unbreaking = mob(w, i).armor.ench[0].iter().find(|&&(e, _)| e == "unbreaking").map(|&(_, l)| l);
+            if add > 0
+                && let Some(l) = unbreaking
+                && let Some(r) = w.level_random.as_mut()
+            {
+                let chance = (2.0f32 + 2.0f32 * (l - 1) as f32) / (10.0f32 + 5.0f32 * (l - 1) as f32);
+                if r.next_float() < chance {
+                    add -= 1;
+                }
+            }
             let d = dmg + add;
             mob_mut(w, i).helmet = if d >= max { None } else { Some((max, d)) };
             return;
         }
+        // igniteForSeconds(8): igniteForTicks(160) (LivingEntity's: x BURNING_TIME)
+        let t160 = super::ignite_ticks(w, i, 160);
         let m = mob_mut(w, i);
-        // igniteForSeconds(8): igniteForTicks(160)
-        if m.fire_ticks < 160 {
-            m.fire_ticks = 160;
+        if m.fire_ticks < t160 {
+            m.fire_ticks = t160;
         }
         let t = w.time;
         w.weather.events.push(WeatherEvent::Sunburn { t, entity: id });

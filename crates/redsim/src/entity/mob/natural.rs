@@ -1397,9 +1397,11 @@ fn mob_armor(w: &mut World, special: f32, hard: bool) -> (usize, u8) {
 /// `Mob.populateDefaultEquipmentEnchantments`: the weapon (0.25), then each armor piece (0.5) in
 /// `EquipmentSlot.VALUES` order (feet, legs, chest, head), times the special multiplier, each
 /// enchanted by `MOB_SPAWN_EQUIPMENT` (`enchant::mob_spawn_equipment`, its draws in order).
-/// Returns whether the weapon got enchantments.
-fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Item>, armor: (usize, u8)) -> bool {
+/// Returns whether the weapon got enchantments, and each armor piece's enchantments (by slot: 0
+/// head, 1 chest, 2 legs, 3 feet).
+fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Item>, armor: (usize, u8)) -> (bool, [Vec<(&'static str, i32)>; 4]) {
     let mut enchanted = false;
+    let mut ench: [Vec<(&'static str, i32)>; 4] = Default::default();
     if let Some(item) = weapon
         && rng(w).next_float() < 0.25 * special
     {
@@ -1407,18 +1409,19 @@ fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Ite
     }
     for slot in (0..4u8).rev() {
         if (slot as usize) < armor.0 && rng(w).next_float() < 0.5 * special {
-            super::enchant::mob_spawn_equipment(rng(w), super::enchant::Item::Armor { slot, material: armor.1 }, special);
+            ench[slot as usize] = super::enchant::mob_spawn_equipment(rng(w), super::enchant::Item::Armor { slot, material: armor.1 }, special);
         }
     }
-    enchanted
+    (enchanted, ench)
 }
 
 /// What finalizeSpawn put in a natural mob's hand (`Mob::set_hand`): `setCanPickUpLoot`'s roll
-/// and its main-hand weapon (id, enchanted).
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
+/// and its main-hand weapon (id, enchanted); (mob-AI 2026-11-10) and the armor it wears.
+#[derive(Clone, Default, PartialEq, Debug)]
 struct Hand {
     loot: bool,
     weapon: Option<(&'static str, bool)>,
+    armor: super::Armor,
 }
 
 /// The item id of a spawn weapon.
@@ -1577,8 +1580,9 @@ fn zombie_finalize_at(w: &mut World, special: f32, hard: bool, g: &mut GroupData
         };
         (armor, weapon)
     };
-    let enchanted = enchant_draws(w, special, weapon, armor);
+    let (enchanted, ench) = enchant_draws(w, special, weapon, armor);
     hand.weapon = weapon.and_then(weapon_id).map(|id| (id, enchanted));
+    hand.armor = super::Armor { pieces: armor.0 as u8, material: armor.1, ench };
     // SpecialDates.isHalloween: the server's date is outside it (no draw); handleAttributes draws
     // from the zombie's own random
     if drowned {
@@ -1622,7 +1626,7 @@ fn piglin_finalize(w: &mut World, nat: &Natural, hand: &mut Hand) -> (bool, Jock
     let spear = rng(w).next_int(20) == 0;
     // (a golden spear: its SpearUseGoal is modeled, goal::spear)
     let weapon = if spear { super::enchant::Item::GoldenSpear } else { super::enchant::Item::GoldenSword };
-    let enchanted = enchant_draws(w, special, Some(weapon), (0, 0));
+    let (enchanted, _) = enchant_draws(w, special, Some(weapon), (0, 0));
     hand.weapon = weapon_id(weapon).map(|id| (id, enchanted));
     // SpecialDates.isHalloween: outside it (no draw); handleAttributes: its own random
     (baby, jockey, breaks_doors)
@@ -1862,6 +1866,10 @@ fn zombie_handle_attributes(w: &mut World, id: u32, ctor: Option<crate::rng::Leg
             m.health = (m.ty.def().max_health as f64 * (1.0 + health)) as f32;
         }
     }
+    // (mob-AI 2026-11-10) the new FOLLOW_RANGE modifier: getNavigation()'s search budget
+    if follow > 1.0 {
+        super::ai::refresh_path_budget(w, id, false);
+    }
     if bonus {
         set_breaks_doors(w, id);
     }
@@ -1932,8 +1940,8 @@ pub fn zombie_to_drowned(w: &mut World, i: usize) -> Option<u32> {
         (m.persistence_required, m.helmet, m.hurt_time, m.effects, m.damage_cooldown, m.natural)
     };
     // ConversionParams.single(keepEquipment, preserveCanPickUpLoot): the hand and its drop chance,
-    // the loot flag
-    let (loot, mainhand) = (mob(w, i).can_pick_up_loot, mob(w, i).mainhand.clone());
+    // the armor, the loot flag
+    let (loot, mainhand, armor) = (mob(w, i).can_pick_up_loot, mob(w, i).mainhand.clone(), mob(w, i).armor.clone());
     let (body, doors) = mob(w, i).ai.as_deref().map(|a| (a.y_body_rot, a.can_break_doors)).unwrap_or((y_rot, false));
     let vehicle = w.entities.list[i].vehicle;
     let d = super::add(w, dty, pos, persistent);
@@ -1962,6 +1970,7 @@ pub fn zombie_to_drowned(w: &mut World, i: usize) -> Option<u32> {
         && let EntityKind::Mob(m) = &mut w.entities.list[di].kind
     {
         m.helmet = helmet;
+        m.armor = armor;
         m.hurt_time = hurt_time;
         m.effects = effects;
         m.damage_cooldown = cooldown;
@@ -2084,6 +2093,7 @@ pub fn villager_to_zombie_villager(w: &mut World, i: usize) -> Option<u32> {
     {
         m.follow_range = m.ty.def().follow_range * (1.0 + b);
     }
+    super::ai::refresh_path_budget(w, z, true);
     // Zombie's: setCanBreakDoors(nextFloat < special x 0.1F)
     let special = special_multiplier_now(w);
     let doors = rng(w).next_float() < special * 0.1;
@@ -2126,8 +2136,9 @@ fn skeleton_finalize(w: &mut World, nat: &Natural, hand: &mut Hand) -> Option<u8
     mob_base(w);
     let armor = mob_armor(w, special, hard);
     // AbstractSkeleton.populateDefaultEquipmentSlots: a bow
-    let enchanted = enchant_draws(w, special, Some(super::enchant::Item::Bow), armor);
+    let (enchanted, ench) = enchant_draws(w, special, Some(super::enchant::Item::Bow), armor);
     hand.weapon = Some(("minecraft:bow", enchanted));
+    hand.armor = super::Armor { pieces: armor.0 as u8, material: armor.1, ench };
     hand.loot = rng(w).next_float() < 0.55 * special; // setCanPickUpLoot
     (armor.0 > 0).then_some(armor.1)
 }
@@ -2422,6 +2433,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
         }
     }
     super::set_helmet(w, id, f.helmet);
+    super::set_armor(w, id, &f.hand.armor);
     if f.hand != Hand::default() {
         super::set_hand(w, id, f.hand.loot, f.hand.weapon);
     }
@@ -2504,6 +2516,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 let r = super::add(w, MobType::Natural(4), pos, false);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
+                super::set_armor(w, r, &f.rider_hand.armor);
                 super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
                 if let (Some(ri), Some(vi)) = (crate::entity::index_of(w, r), crate::entity::index_of(w, id)) {
                     // Spider.finalizeSpawn: skeleton.snapTo(the spider's x, y, z, yRot, 0)
@@ -2521,6 +2534,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 let r = super::add(w, MobType::Natural(4), pos, true);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
+                super::set_armor(w, r, &f.rider_hand.armor);
                 super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
                 ride(w, r, id);
                 rider = Some(r);
@@ -2543,6 +2557,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 let r = super::add(w, rty, pos, false);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
+                super::set_armor(w, r, &f.rider_hand.armor);
                 super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
                 if let (Some(ri), Some(vi)) = (crate::entity::index_of(w, r), crate::entity::index_of(w, id)) {
                     // the bridge reports the rider at yaw 0 on its first tick (its snapTo's yaw is
@@ -2563,6 +2578,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 let r = super::add(w, rty, pos, true);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
+                super::set_armor(w, r, &f.rider_hand.armor);
                 super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
                 ride(w, r, id);
                 rider = Some(r);
@@ -2610,6 +2626,11 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
         && let EntityKind::Mob(m) = &mut e.kind
     {
         m.follow_range = m.ty.def().follow_range;
+    }
+    // (mob-AI 2026-11-10) each one's search budget from its follow range (Mob.onAttributeUpdated,
+    // before any of them mounts)
+    for who in [Some(id), rider, chicken].into_iter().flatten() {
+        super::ai::refresh_path_budget(w, who, true);
     }
     // the zombies that break doors: the goal joins and the navigation opens doors
     let doors = |w: &mut World, who: Option<u32>, v: bool| {
