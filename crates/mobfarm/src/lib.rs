@@ -7,6 +7,7 @@ pub mod bury;
 pub mod carousel;
 pub mod cli;
 pub mod day1;
+pub mod entlog;
 pub mod exact;
 pub mod gate;
 pub mod hold;

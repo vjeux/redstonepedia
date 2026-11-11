@@ -1296,6 +1296,14 @@ fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, f
     if gate && kind.name().starts_with("mob-farm") {
         eprintln!("{}: the real-game gate (about 2 minutes)...", path.display());
         let g = game_gate(c).map_err(|e| format!("the real-game gate could not run: {e:#}"))?;
+        // (farmopt 2026-11-10: a failed gate's card line says nothing when its failures are no
+        // farm break (a rate outside redsim's interval, a harness failure): its report on stderr)
+        if !g.passed() {
+            eprintln!("{}: the real-game gate failed: {}", path.display(), g.line());
+            for f in &g.failures {
+                eprintln!("  {f}");
+            }
+        }
         metrics = game_findings(&metrics, &g, c.blocks() as u32);
     }
     let (lo, hi) = c.bounds();

@@ -316,6 +316,29 @@ pub enum MobfarmCmd {
         /// weather cycle; `--seed` is then the run's: JUDGE_SEED0 + 1000 K + I for its run I).
         #[arg(long)]
         build: Option<usize>,
+        /// Instead of the report: follow the entities of these kinds tick by tick (`villager,
+        /// zombie_villager,iron_golem,item` or `item:iron_ingot`, `boat`, `all`): each as it
+        /// appears and goes (a villager discarded and a zombie villager added at its spot in one
+        /// tick is a conversion) and their mob events (deaths, hurts, drops, pickups, burns).
+        #[arg(long)]
+        log: Option<String>,
+        /// With `--log`: only entities whose block cell lies in this world box `x0,y0,z0,x1,y1,z1`.
+        #[arg(long)]
+        log_box: Option<String>,
+        /// With `--log`: the game-time window printed (the run ticks from its start regardless).
+        #[arg(long, default_value_t = 0)]
+        log_from: i64,
+        #[arg(long, default_value_t = i64::MAX)]
+        log_to: i64,
+        /// With `--log`: each followed entity's line again every time it changes block cell.
+        #[arg(long)]
+        log_moves: bool,
+        /// In terrain: first the site's seals (each cell's natural block, the sample's world
+        /// before the build: a cave's air, or a gravity block the dig would set falling), and with
+        /// `--watch` each watched cell's natural block and what the site does to it (sealed,
+        /// capped, cleared); alone, only that.
+        #[arg(long)]
+        natural: bool,
     },
     /// A mob farm design's Nether part as a design of its own (its `nether layer` blocks and
     /// `nether nbt:` data as the blocks, its `port nether-<name>` ports as ports): to picture the
@@ -3491,7 +3514,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("recorded in {}", path.display());
             }
         }
-        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch, cells, census, build } => {
+        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch, cells, census, build, log, log_box, log_from, log_to, log_moves, natural } => {
             let (c, spec) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode, run};
             let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };
@@ -3514,6 +3537,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 (None, None) => spec,
             };
             let t0 = std::time::Instant::now();
+            if natural && let Some(site) = o.site {
+                let w = site.world.read().unwrap_or_else(|e| e.into_inner());
+                for (p, dig) in &site.seals {
+                    println!("seal {} {} {}: natural {}{}", p.x, p.y, p.z, w.get(*p), if *dig { " (dug first)" } else { "" });
+                }
+                if log.is_none() && watch.is_empty() {
+                    return Ok(());
+                }
+            }
+            if let Some(types) = log {
+                let bx = log_box.as_deref().map(crate::entlog::parse_box).transpose().map_err(|e| anyhow::anyhow!(e))?;
+                let lo = crate::entlog::LogOpts { types: types.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(), bx, from: log_from, to: log_to, moves: log_moves };
+                return crate::entlog::log_run(&spec, &o, days * 24000, &lo).map_err(|e| anyhow::anyhow!(e));
+            }
             if !watch.is_empty() {
                 let cells: Vec<redsim::BlockPos> = watch
                     .iter()
@@ -3522,6 +3559,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         if v.len() == 3 { Ok(redsim::BlockPos::new(v[0], v[1], v[2])) } else { Err(anyhow::anyhow!("--watch {s}: expected x,y,z")) }
                     })
                     .collect::<Result<_>>()?;
+                if natural && let Some(site) = o.site {
+                    let w = site.world.read().unwrap_or_else(|e| e.into_inner());
+                    for c in &cells {
+                        let what = if site.seals.iter().any(|(p, _)| p == c) {
+                            " (the site seals it: cobblestone)"
+                        } else if site.fills.contains(c) {
+                            " (the site caps it)"
+                        } else if site.clears.iter().any(|(p, _)| p == c) {
+                            " (the site clears it)"
+                        } else {
+                            ""
+                        };
+                        println!("natural {} {} {}: {}{what}", c.x, c.y, c.z, w.get(*c));
+                    }
+                }
                 let mut r = redsim::entity::mob::farm::Run::new(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
                 let mut last: Vec<String> = cells.iter().map(|c| r.world.get(*c).to_string()).collect();
                 let mut sleeping: Vec<(u32, bool)> = Vec::new();
