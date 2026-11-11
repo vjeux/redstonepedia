@@ -185,6 +185,19 @@ fn hcontact_lanes(name: &str) -> Vec<(i32, i32, i32, Vec<(f64, bool)>, (f64, boo
     v
 }
 
+/// (tickexact 2026-11-11, the re-path of a napper off its bed: ironspec's targeted proof) scene
+/// repath-nap's lanes: (x0, the change: 0 none, 1 two cells set from air to stone in one tick 14 gt
+/// before the drop, 2 the same two cells swapped stone -> redstone_block (no collision change), 3
+/// the two cells from air 25 gt before the drop, 4 the two cells from air 30 gt into the nap (the
+/// sleeper holding no path and no delayed recompute)), 4 copies of each (the flee target is a random
+/// draw); lanes 20 apart, so no lane's cells come within a neighbour's path range.
+fn repath_lanes() -> Vec<(i32, u8)> {
+    (0..20).map(|k| (2 + 20 * k, (k / 4) as u8)).collect()
+}
+
+/// The tick scene repath-nap's riders lie down (all lanes alike).
+const REPATH_DROP: u32 = 135;
+
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
 /// during the freeze, and whether the cart is ridden.
@@ -204,6 +217,22 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, the re-path proof) the two cells west of each lane's corridor (x0-1,
+        // 64, 33 and 35: near the middle of a rider's flee path, from the line near the bed back to
+        // its flee target behind the corridor's west wall): set from air in one tick 14 gt before
+        // the drop (change 1) or 25 gt before (change 3), or swapped stone -> redstone_block 14 gt
+        // before (change 2)
+        "repath-nap" => {
+            let lanes = repath_lanes();
+            let cells = |x0: i32| [[x0 - 1, 64, 33], [x0 - 1, 64, 35]];
+            let at = |c: u8, st: &str| -> Vec<([i32; 3], String)> { lanes.iter().filter(|(_, k)| *k == c).flat_map(|(x0, _)| cells(*x0).map(|p| (p, st.to_string()))).collect() };
+            let mut v = vec![(REPATH_DROP - 25, at(3, "minecraft:stone"))];
+            let mut t14 = at(1, "minecraft:stone");
+            t14.extend(at(2, "minecraft:redstone_block"));
+            v.push((REPATH_DROP - 14, t14));
+            v.push((REPATH_DROP + 30, at(4, "minecraft:stone")));
+            v
+        }
         // (tickexact 2026-11-11, ironspec's junction-settle) every lane's junction placed at t1 (like a
         // player: onPlace settles it), the placed-then-powered lanes' floor under it a redstone
         // block at t3 (the first power update after placement)
@@ -4603,6 +4632,60 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [15, 72, 127]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, the re-path of a napper off its bed: ironspec's targeted proof of the
+    // mechanism behind 58f770cc's early wakes) repath_lanes, 20 apart in x: a bed (head (x0,64,56),
+    // foot (x0,64,57)) beside a rail line along x0+1 from z 2 to 62 (a stone at 63), a powered
+    // activator rail beside the bed's head (on a redstone block); a ridden cart from z 2.5 at stored
+    // 1.0 (visible 0.4), its rider remembering the bed as HOME; a zombie in a boat 3 blocks east of
+    // the line at z 6.5 (the rider panics and takes a flee path), stone walls 3 high on both sides
+    // of the line from z 12 to 48 (it calms down: REST, the flee path kept while it rides); night
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 400, 0, 64, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for (x0, change) in repath_lanes() {
+            b.push(([x0, 64, 56], "minecraft:red_bed[facing=north,occupied=false,part=head]".to_string()));
+            b.push(([x0, 64, 57], "minecraft:red_bed[facing=north,occupied=false,part=foot]".to_string()));
+            b.push(([x0 + 1, 64, 1], stone.to_string()));
+            for z in 2..=62 {
+                if z == 56 {
+                    b.push(([x0 + 1, 63, z], "minecraft:redstone_block".to_string()));
+                    b.push(([x0 + 1, 64, z], "minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]".to_string()));
+                } else {
+                    b.push(([x0 + 1, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+                }
+            }
+            b.push(([x0 + 1, 64, 63], stone.to_string()));
+            for z in 12..=48 {
+                for y in 64..67 {
+                    b.push(([x0, y, z], stone.to_string()));
+                    b.push(([x0 + 2, y, z], stone.to_string()));
+                }
+            }
+            if change == 2 {
+                for z in [33, 35] {
+                    b.push(([x0 - 1, 64, z], stone.to_string()));
+                }
+            }
+            let bed = [x0, 64, 56];
+            let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", bed[0], bed[1], bed[2]);
+            mobs.push(("minecraft:minecart".into(), [x0 as f64 + 1.5, 64.0625, 2.5], Some(format!("{{Motion:[0.0d,0.0d,1.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,{home}}}]}}"))));
+            mobs.push(("minecraft:oak_boat".into(), [x0 as f64 + 4.5, 64.0, 6.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: "repath-nap".into(),
+            chunks: [0, 0, 24, 3],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [399, 68, 63]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,

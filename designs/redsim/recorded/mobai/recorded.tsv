@@ -104,6 +104,7 @@ recover-occupied.rec	9459a35cd221c296		26.3	2026-11-11T10:50Z on ac495f13c	mctas
 recover-shared.rec	ab8f7b683acc91d6		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 recover-single.rec	b3e69998f7c7bb39		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record recover-single --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 reload-wake.rec	f8568a9cc5f26122		26.3	2026-11-11T14:34Z on edd6bbe50	mctas mobai record reload-wake --seed 1 --ticks 320 --dir designs/redsim/recorded/mobai
+repath-nap.rec	1e3f23135f789553		26.3	2026-11-11T22:45Z on ab51e21020	mctas mobai record repath-nap --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 rider-eye-block.rec	1bfd51735215e944		26.3	2026-11-11T19:57Z on f3a5b75987	mctas mobai record rider-eye-block --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 rider-eye-graze.rec	f4bfc0bd61ee1277		26.3	2026-11-11T22:14Z on 6742227352	mctas mobai record rider-eye-graze --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 rider-push.rec	a1a9e3d0bfceaf94		26.3	2026-11-11T18:41Z on 1ccfb43c1e	mctas mobai record rider-push --seed 1 --ticks 900 --dir /tmp/rerec
