@@ -170,12 +170,22 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
             ai_mut(w, i).last_hurt_mob = Some(w.entities.list[j].id);
         }
     }
-    // Zombie.doHurtTarget: a burning zombie with an empty hand may set the target on fire (with
-    // something in its hand: no roll)
-    if hurt && mob(w, i).fire_ticks > 0 && mob(w, i).mainhand.is_none() && matches!(mob(w, i).ty.def().id, "zombie" | "baby_zombie" | "zombie_villager" | "husk" | "drowned") {
-        let why = "a burning zombie's hit (the fire it passes on, regional difficulty) is not modeled".to_string();
-        if !w.errors.contains(&why) {
-            w.errors.push(why);
+    // (mob-AI 2026-11-10) Zombie.doHurtTarget after the hit: a burning zombie with an empty hand
+    // sets the target on fire for 2 x (int) the regional difficulty seconds when its own
+    // nextFloat is under 0.3 x the effective difficulty (module-three-watchers village-edge
+    // build 1 t38415)
+    if hurt && mob(w, i).fire_ticks > 0 && !mob(w, i).ty.def().fire_immune && mob(w, i).mainhand.is_none() && crate::entity::mob::natural::is_zombie_class(mob(w, i).ty) {
+        let difficulty = crate::entity::mob::natural::effective_difficulty_now(w);
+        let roll = w.entities.list[i].random.as_mut().expect("random").next_float();
+        if roll < difficulty * 0.3f32 && !w.entities.list[j].removed {
+            let secs = (2 * difficulty as i32) as f32;
+            let t = crate::entity::mob::ignite_ticks(w, j, (secs * 20.0f32).floor() as i32);
+            if !mob(w, j).ty.def().fire_immune {
+                let m = crate::entity::mob::mob_mut(w, j);
+                if m.fire_ticks < t {
+                    m.fire_ticks = t;
+                }
+            }
         }
     }
     hurt

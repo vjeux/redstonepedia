@@ -23,6 +23,8 @@ pub mod station;
 pub mod siding;
 pub mod tail_bench;
 pub mod merge;
+pub mod flight;
+pub mod declared;
 pub mod slot_drop;
 pub mod drive;
 pub mod linear;

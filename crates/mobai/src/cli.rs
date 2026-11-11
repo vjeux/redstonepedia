@@ -96,6 +96,35 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "designs/redsim/recorded/mobai")]
         dir: std::path::PathBuf,
     },
+    /// (tickexact 2026-11-11) A whole-part unload at an event, in the game alone, over game seeds:
+    /// for each seed the scene runs as it is (the event's game tick G: the first change of block
+    /// `cell` to a state holding `state` after game time `after`; the cart's rider asleep at G or
+    /// not; the rider riding its own cart at G + `check` or not), then again with the whole part
+    /// away `len` gt right after the tick to G; per seed, then the totals over the seeds whose
+    /// rider was asleep at G with Wilson 95% intervals.
+    UnloadRate {
+        name: String,
+        #[arg(long, default_value_t = 1)]
+        from: i64,
+        #[arg(long, default_value_t = 20)]
+        to: i64,
+        /// The event's block, x,y,z (in the scene's coordinates).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        cell: Vec<i32>,
+        /// Text the block's new state holds (e.g. `powered=true`).
+        #[arg(long)]
+        state: String,
+        /// The event is the first change after this game time.
+        #[arg(long)]
+        after: i64,
+        /// The cart's drive line (eN's N): its first passenger is the rider.
+        #[arg(long)]
+        cart: usize,
+        #[arg(long, default_value_t = 3)]
+        len: u32,
+        #[arg(long, default_value_t = 300)]
+        check: i64,
+    },
     /// Record scenes in the game for `mctas test` (`<dir>/<scene>.rec`: the bridge's frames,
     /// gzipped, with the scene's hash in the header), then `mctas recorded write <dir>`.
     Record {
@@ -207,6 +236,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
         MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
         MobaiCmd::SensorSweep { name, villager, reveal, dir } => crate::fixture::sensor_sweep(&name, villager, reveal, &dir),
+        MobaiCmd::UnloadRate { name, from, to, cell, state, after, cart, len, check } => {
+            let [x, y, z] = cell[..] else { anyhow::bail!("--cell takes x,y,z") };
+            crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
+        }
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
