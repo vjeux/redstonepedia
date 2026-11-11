@@ -9251,7 +9251,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 && let Some(zp) = h.dep_x
             {
                 let xb = -o.row_gap as f64;
-                let occupied = meter_state.occ.iter().any(|x| *x);
+                // (the stand holds a batch: from its first Dh edge to its SE, the meter's live
+                // E_X; the occupancy snapshot taken at the last REL stays set after the batch's SE,
+                // and re-armed EMP_X on a DEP_X crossing after the SE (h5's, +41 after the launch
+                // against SE at +30), holding A at the next GO with nothing in the stand)
+                let occupied = !meter_state.empty;
                 let mut on_branch = false;
                 for id in carts.iter() {
                     let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
