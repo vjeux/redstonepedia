@@ -3383,10 +3383,23 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut expose_multi = 0u64;
     let mut last_panic = vec![i64::MIN / 2; riders.len()];
     let mut exposure_lines: Vec<String> = Vec::new();
-    // (ironspec / the reviewer: a calm rider following a path pushes its neighbour; at the pressed
-    // positions, the queue's slots and the stand's, each calm rider-tick's PATH: reaching, partial,
-    // none)
-    let mut pressed_paths = [0u64; 3];
+    // (ironspec's contact rule, tickexact 2026-11-11) every rider, every tick, by walk state
+    // (reaching, partial, a walk target with no path, no walk target): touching another cart's box,
+    // within 0.2 of one; the most touching at once; the cells
+    let mut walkers = [0u64; 4];
+    let mut rider_touch_ticks = [0u64; 4];
+    let mut walk_near = [0u64; 4];
+    let mut touch_max: (usize, String) = (0, String::new());
+    let mut touch_cells: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
+    // (ironspec's push rule, tickexact 2026-11-11: counted at the push itself) every push a rider's
+    // pushEntities gives another cart (redsim's log, drained each tick), by the pusher's walk state;
+    // the largest; the most in one tick; the cells; other mobs' pushes on carts
+    redsim::entity::minecart::log_cart_pushes(&mut run.world);
+    let mut pushes = [0u64; 4];
+    let mut push_big = 0.0f64;
+    let mut push_max: (usize, String) = (0, String::new());
+    let mut push_cells: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
+    let mut push_other = 0u64;
     let mut expose_map: std::collections::BTreeMap<[i32; 3], (u64, i64, u64, u64)> = std::collections::BTreeMap::new();
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
     // the loop's places in travel order: slot 0 .. slot q-1, S3, S2, S1
@@ -5511,6 +5524,51 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // PANIC at night (the deep night, day time 13,670..22,330): every rider, and where the
         // calm ones ride
         let tod = run.world.day_time().rem_euclid(24000);
+        // (tickexact 2026-11-11, ironspec's contact rule) every rider whose box touches another
+        // cart's box, every tick: LivingEntity.pushEntities runs in each rider's tick, so it pushes
+        // that cart away from itself (AbstractMinecart.push: 0.05 b/t at 1 apart, nothing closer
+        // than 0.01) whether it walks or not; a walk only moves its box within the tick. By walk
+        // state (reaching, partial, a walk target with no path, no walk target); within 0.2 too
+        {
+            // the pushes this tick, at the push (redsim's log)
+            let now = redsim::entity::minecart::take_cart_pushes(&mut run.world);
+            let mut by_rider: Vec<String> = Vec::new();
+            for p in &now {
+                let Some(k) = riders.iter().position(|r| *r == p.mob) else {
+                    push_other += 1;
+                    continue;
+                };
+                let kind = rider_walk_kind(&run.world, p.mob).map_or(3, |x| x as usize);
+                pushes[kind] += 1;
+                push_big = push_big.max(p.push[0].hypot(p.push[1]));
+                if let Some(i) = redsim::entity::index_of(&run.world, p.mob) {
+                    let q = run.world.entities.list[i].pos;
+                    *push_cells.entry([q.x.floor() as i32, q.y.floor() as i32, q.z.floor() as i32]).or_insert(0) += 1;
+                    by_rider.push(format!("e{k} at {:.2},{:.2},{:.2} on cart #{} ({:.3} apart, {})", q.x, q.y, q.z, p.cart, p.dist, ["reaching", "partial", "no path", "no walk"][kind]));
+                }
+            }
+            if by_rider.len() > push_max.0 {
+                push_max = (by_rider.len(), format!("slot {c} +{dt}: {}", by_rider.join(", ")));
+            }
+            let mut touching_now: Vec<String> = Vec::new();
+            for (k, r) in riders.iter().enumerate() {
+                let kind = rider_walk_kind(&run.world, *r).map_or(3, |x| x as usize);
+                walkers[kind] += 1;
+                if redsim::entity::touching_cart(&run.world, *r, 0.0) {
+                    rider_touch_ticks[kind] += 1;
+                    if let Some(i) = redsim::entity::index_of(&run.world, *r) {
+                        let p = run.world.entities.list[i].pos;
+                        *touch_cells.entry([p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32]).or_insert(0) += 1;
+                        touching_now.push(format!("e{k} at {:.2},{:.2},{:.2} ({})", p.x, p.y, p.z, ["reaching", "partial", "no path", "no walk"][kind]));
+                    }
+                } else if redsim::entity::touching_cart(&run.world, *r, 0.2) {
+                    walk_near[kind] += 1;
+                }
+            }
+            if touching_now.len() > touch_max.0 {
+                touch_max = (touching_now.len(), format!("slot {c} +{dt}: {}", touching_now.join(", ")));
+            }
+        }
         // (tickexact 2026-11-11, ironspec: the freeze exposure) the villagers calm in REST with a
         // live CANT_REACH streak and HOME held, this tick (the napper on its visit included): a long
         // freeze now releases each one's HOME on the resume, and two holders of the one bed losing
@@ -5525,18 +5583,6 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 let (Some(b), Some(x)) = (m.brain.as_deref(), m.brain.as_deref().and_then(|b| b.ex.as_deref())) else { continue };
                 if x.active == redsim::entity::mob::ai::brain::Act::Panic {
                     last_panic[k] = run.world.time;
-                } else {
-                    let p = run.world.entities.list[i].pos;
-                    let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
-                    let near = |q: &[i32; 3]| q[0] == cell[0] && q[2] == cell[2] && (q[1] - cell[1]).abs() <= 1;
-                    if lay.slot_cells.iter().any(near) || lay.stand_cells.iter().any(near) || lay.pockets.iter().any(|(_, q)| near(q)) {
-                        let slot = match &x.mem.path {
-                            Some(pp) if pp.reached => 0,
-                            Some(_) => 1,
-                            None => 2,
-                        };
-                        pressed_paths[slot] += 1;
-                    }
                 }
                 if let (Some(home), redsim::entity::mob::ai::brain::Act::Rest, Some(since)) = (b.home, x.active, x.mem.cant_reach_since) {
                     expose_ticks[k] += 1;
@@ -6163,7 +6209,27 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if tm.reach_probe {
             out.push(format!("reach probe: of {total} exposed rider-ticks, {reachable} ({:.1}%) had a path from the cart to within 1 of the bed (an open bed top would clear their stamps on the next HOME walk); the rest only panic coverage clears", if total > 0 { 100.0 * reachable as f64 / total as f64 } else { 0.0 }));
         }
-        out.push(format!("calm riders' paths at the pressed positions (the queue's slots, the stand's), deep night: following a reaching path {} rider-ticks, a partial path {}, no path {}", pressed_paths[0], pressed_paths[1], pressed_paths[2]));
+        {
+            let mut cells: Vec<([i32; 3], u64)> = touch_cells.into_iter().collect();
+            cells.sort_by(|a, b| b.1.cmp(&a.1));
+            let mut pcells: Vec<([i32; 3], u64)> = push_cells.into_iter().collect();
+            pcells.sort_by(|a, b| b.1.cmp(&a.1));
+            out.push(format!(
+                "rider pushes on other carts (counted at the push: a rider's LivingEntity.pushEntities moving a cart not its own, AbstractMinecart.push past its 0.01): {} (by the pusher's walk state: reaching {}, partial {}, a walk target with no path {}, no walk target {}); the largest {:.4} b/t; the most in one tick {}{}; the cells: {}; other mobs' pushes on carts {}",
+                pushes.iter().sum::<u64>(), pushes[0], pushes[1], pushes[2], pushes[3], push_big, push_max.0,
+                if push_max.0 > 0 { format!(" ({})", push_max.1) } else { String::new() },
+                if pcells.is_empty() { "-".to_string() } else { pcells.iter().take(8).map(|(c, n)| format!("{} {} {}: {n}", c[0], c[1], c[2])).collect::<Vec<_>>().join("; ") },
+                push_other
+            ));
+            out.push(format!(
+                "riders touching another cart's box (each pushes that cart away every tick, walking or not; LivingEntity.pushEntities): {} rider-ticks (following a reaching path {}, a partial path {}, a walk target with no path {}, no walk target {}); within 0.2 of one: {} (reaching {}, partial {}, no path {}, no walk {}); the most touching at once {}{}; the cells with the most touching ticks: {}; riders' walk states, every tick: reaching {}, partial {}, a walk target with no path {}, no walk target {}",
+                rider_touch_ticks.iter().sum::<u64>(), rider_touch_ticks[0], rider_touch_ticks[1], rider_touch_ticks[2], rider_touch_ticks[3],
+                walk_near.iter().sum::<u64>(), walk_near[0], walk_near[1], walk_near[2], walk_near[3], touch_max.0,
+                if touch_max.0 > 0 { format!(" ({})", touch_max.1) } else { String::new() },
+                if cells.is_empty() { "-".to_string() } else { cells.iter().take(8).map(|(c, n)| format!("{} {} {}: {n}", c[0], c[1], c[2])).collect::<Vec<_>>().join("; ") },
+                walkers[0], walkers[1], walkers[2], walkers[3]
+            ));
+        }
         out.extend(exposure_lines);
     }
     if let Some(v) = tm.visit {

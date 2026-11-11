@@ -511,11 +511,32 @@ pub struct MobWorld {
     pub custom: Option<custom::Custom>,
     /// ---- mob AI (the mob-AI lane): on/off, difficulty, players, game rules ----
     pub ai: ai::AiWorld,
+    /// (tickexact 2026-11-11, ironspec's push rule: counted at the push itself) Every push a mob's
+    /// `pushEntities` gives a minecart (`AbstractMinecart.push(mob)` past its 0.01 threshold; never
+    /// the mob's own vehicle): `Some` logs them (whoever reads it drains it,
+    /// [`crate::entity::minecart::take_cart_pushes`]), `None` (the default) logs nothing.
+    pub cart_pushes: Option<Vec<CartPush>>,
+}
+
+/// One push of a minecart by a mob ([`MobWorld::cart_pushes`]): `AbstractMinecart.push(mob)`'s
+/// `this.push(-xa, 0, -za)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CartPush {
+    pub t: i64,
+    /// The pushing mob's id.
+    pub mob: u32,
+    /// The pushed cart's id.
+    pub cart: u32,
+    /// The motion added to the cart (x, z): 0.05 b/t away from the mob at 1 apart or more, 0.05 / d
+    /// nearer (`pow` = min(1, 1 / d) on the unit direction, then 0.1 and 0.5).
+    pub push: [f64; 2],
+    /// The horizontal distance between their centres.
+    pub dist: f64,
 }
 
 impl Default for MobWorld {
     fn default() -> MobWorld {
-        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default() }
+        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default(), cart_pushes: None }
     }
 }
 
