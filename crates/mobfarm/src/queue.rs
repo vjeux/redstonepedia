@@ -465,11 +465,14 @@ pub struct LoopOpts {
     pub adm_short: bool,
     /// Admission control: the last queue slope an always-on booster.
     pub adm_qboost: bool,
+    /// Admission control: B, a flat always-on booster at the queue's foot, the front pressed
+    /// against G0 on it (its power runs into P: P always on).
+    pub adm_flatb: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, cprime: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, cprime: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false }
     }
 }
 
@@ -537,42 +540,6 @@ pub struct LoopLayout {
     pub flights: Vec<crate::flight::Flight>,
 }
 
-/// A loop design's declared states (`crate::declared`), derived from its options: every rail cell
-/// of the layout (a booster powered, always on; a braked slot or linked rail unpowered; a plain or
-/// detector rail present), the tail's gates in their starting states, `adm_qboost`'s booster. The
-/// generator writes them as the design's `declared:` line; the runners check the world against
-/// them at tick 0 and the boosters again after the warm-up, so a requested cell that the design
-/// does not have (the qboost hazard) fails the run.
-pub fn declared_states(o: &LoopOpts) -> Vec<crate::declared::Decl> {
-    use crate::declared::Decl;
-    let lay = loop_layout(o);
-    let mut ds: Vec<Decl> = Vec::new();
-    for (c, k) in &lay.path {
-        ds.push(match k {
-            Cell::Boost => Decl::new(*c, "powered_rail", &[("powered", "true")], true),
-            Cell::Slot | Cell::Linked => Decl::new(*c, "powered_rail", &[("powered", "false")], false),
-            Cell::Plain => Decl::new(*c, "rail", &[], false),
-            Cell::Detector => Decl::new(*c, "detector_rail", &[], false),
-        });
-    }
-    let gate = |p: BlockPos, open: bool| Decl::new([p.x, p.y, p.z], "oak_fence_gate", &[("open", if open { "true" } else { "false" })], false);
-    for (g, _) in &lay.fifo {
-        ds.push(gate(*g, false));
-    }
-    if let Some(g) = lay.esc_g0 {
-        ds.push(gate(g, !o.esc_adm));
-    }
-    for g in lay.esc_g1.iter().chain(lay.esc_gb.iter()) {
-        ds.push(gate(*g, false));
-    }
-    if let (true, Some(g0)) = (o.esc_adm && o.adm_qboost, lay.esc_g0) {
-        let c = [g0.x, g0.y, g0.z - 1];
-        ds.retain(|d| d.cell != c);
-        ds.push(Decl::new(c, "powered_rail", &[("powered", "true")], true));
-    }
-    ds
-}
-
 /// The loop's layout in the bench's frame: [`loop_layout_frame`] moved by `o.shift`.
 pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
     let mut lay = loop_layout_frame(o);
@@ -610,6 +577,95 @@ pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
         lay.flights = lay.flights.iter().map(|f| f.shifted(sx, sz)).collect();
     }
     lay
+}
+
+/// The loop's layout: the entry at (0, 1, 0); queue row A going -x (slots 0 .. slots/2), a U-turn,
+/// row B going +x (the rest, the head ending at x -1, z 4); the release run +x along z 4, the
+/// stand (S3, S2, S1 in travel order), the departure run, a U-turn to z 0 and the return run -x
+/// back to the entry.
+/// A design file's own declared states and flights (its `declared:` and `flights:` header lines,
+/// a pasted part's carried in by `mobfarm paste`), which the runners check on top of the ones
+/// derived from the loop's options.
+#[derive(Clone, Debug, Default)]
+pub struct Headers {
+    pub declared: Vec<crate::declared::Decl>,
+    pub flights: Vec<crate::flight::Flight>,
+}
+
+/// The design's `declared:` and `flights:` headers.
+pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<Headers, String> {
+    Ok(Headers {
+        declared: match meta.get("declared") { Some(s) => crate::declared::parse(s)?, None => Vec::new() },
+        flights: match meta.get("flights") { Some(s) => crate::flight::parse(s)?, None => Vec::new() },
+    })
+}
+
+/// The derived declared states with a header's added: an identical entry once, a cell declared two
+/// different ways a mismatch of its own (returned with the merged list).
+pub fn merge_declared(mut ds: Vec<crate::declared::Decl>, hdr: &[crate::declared::Decl]) -> (Vec<crate::declared::Decl>, Vec<String>) {
+    let mut bad = Vec::new();
+    for h in hdr {
+        match ds.iter().find(|d| d.cell == h.cell) {
+            Some(d) if d == h => {}
+            Some(d) => bad.push(format!("{},{},{}: declared two ways: {} (options) and {} (header)", h.cell[0], h.cell[1], h.cell[2], crate::declared::format(std::slice::from_ref(d)), crate::declared::format(std::slice::from_ref(h)))),
+            None => ds.push(h.clone()),
+        }
+    }
+    (ds, bad)
+}
+
+/// The derived flights with a header's added (an identical one once).
+pub fn merge_flights(mut fs: Vec<crate::flight::Flight>, hdr: &[crate::flight::Flight]) -> Vec<crate::flight::Flight> {
+    for h in hdr {
+        if !fs.contains(h) {
+            fs.push(h.clone());
+        }
+    }
+    fs
+}
+
+/// A loop design's declared states (`crate::declared`), derived from its options: every rail cell
+/// of the layout (a booster powered, always on; a braked slot or linked rail unpowered; a plain or
+/// detector rail present), the tail's gates in their starting states, `adm_qboost`'s booster. The
+/// generator writes them as the design's `declared:` line; the runners check the world against
+/// them at tick 0 and the boosters again after the warm-up, so a requested cell that the design
+/// does not have (the qboost hazard) fails the run.
+pub fn declared_states(o: &LoopOpts) -> Vec<crate::declared::Decl> {
+    use crate::declared::Decl;
+    let lay = loop_layout(o);
+    let mut ds: Vec<Decl> = Vec::new();
+    for (c, k) in &lay.path {
+        ds.push(match k {
+            Cell::Boost => Decl::new(*c, "powered_rail", &[("powered", "true")], true),
+            Cell::Slot | Cell::Linked => Decl::new(*c, "powered_rail", &[("powered", "false")], false),
+            Cell::Plain => Decl::new(*c, "rail", &[], false),
+            Cell::Detector => Decl::new(*c, "detector_rail", &[], false),
+        });
+    }
+    let gate = |p: BlockPos, open: bool| Decl::new([p.x, p.y, p.z], "oak_fence_gate", &[("open", if open { "true" } else { "false" })], false);
+    for (g, _) in &lay.fifo {
+        ds.push(gate(*g, false));
+    }
+    if let Some(g) = lay.esc_g0 {
+        ds.push(gate(g, !o.esc_adm));
+    }
+    for g in lay.esc_g1.iter().chain(lay.esc_gb.iter()) {
+        ds.push(gate(*g, false));
+    }
+    if let (true, Some(g0)) = (o.esc_adm && o.adm_qboost, lay.esc_g0) {
+        let c = [g0.x, g0.y, g0.z - 1];
+        ds.retain(|d| d.cell != c);
+        ds.push(Decl::new(c, "powered_rail", &[("powered", "true")], true));
+    }
+    // (`adm_flatb`: B always on, and P with it (B's power runs along the rail))
+    if let (true, Some(g0)) = (o.esc_adm && o.adm_flatb, lay.esc_g0) {
+        let b = [g0.x, g0.y, g0.z - 1];
+        let p = [g0.x, g0.y - 1, g0.z];
+        ds.retain(|d| d.cell != b && d.cell != p);
+        ds.push(Decl::new(b, "powered_rail", &[("powered", "true")], true));
+        ds.push(Decl::new(p, "powered_rail", &[("powered", "true")], true));
+    }
+    ds
 }
 
 /// The escapement tail's level (`tail_esc`): the return run's and the ledge's y (the queue of Q
@@ -880,6 +936,15 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             z += 1;
         }
         let lg = top - q; // G0's level: the last queue slope's lower end
+        // (`adm_flatb`: B, a flat always-on booster at the queue's foot (placed by the generator,
+        // powered by a redstone block beside it, east: one under it would touch P), the front
+        // pressed against G0 at its end, its follower 0.98 back on the plain slope above; B's power
+        // runs on along the rail into P: P always on)
+        if o.adm_flatb {
+            path.push(([0, lg, z], Cell::Plain));
+            queue_cells.push([0, lg, z]);
+            z += 1;
+        }
         esc_g0 = Some(BlockPos::new(0, lg, z));
         let pz = z;
         path.push(([0, lg - 1, pz], Cell::Linked));
@@ -1837,15 +1902,25 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     // (admission control: the queue's front against G0 (0.885 along the last queue slope) and
-    // the rest up the slopes 0.79 apart; P's cart is the fifo's; G0 shut)
+    // the rest up the slopes 0.79 apart; P's cart is the fifo's; G0 shut. With `adm_flatb` the
+    // front rests on B, the flat before G0, and its follower 0.98 back on the last slope)
     if let (true, Some(g0)) = (o.esc_adm, lay.esc_g0) {
-        // (the last queue slope: (0, g0.y, g0.z − 1), from g0.y + 1 at its upper end to g0.y)
-        let (yq, zq) = (g0.y as f64, (g0.z - 1) as f64);
-        for k in 0..fifo_init.saturating_sub(1) {
-            let zz = zq + 0.885 - 0.79 * k as f64;
+        let n = fifo_init.saturating_sub(1);
+        let mut first = 0;
+        // (the slopes: the last one ends at G0's cell, or at B's with `adm_flatb`)
+        let zq_end = if o.adm_flatb { (g0.z - 2) as f64 } else { (g0.z - 1) as f64 };
+        let mut z_front = zq_end + 0.885;
+        if o.adm_flatb && n > 0 {
+            b.entity("minecart", [0.5, g0.y as f64 + 0.0625, (g0.z - 1) as f64 + 0.885], stand_rider);
+            first = 1;
+            z_front = (g0.z - 1) as f64 + 0.885 - 0.98 + 0.79;
+        }
+        let yq = g0.y as f64;
+        for k in 0..n.saturating_sub(first) {
+            let zz = z_front - 0.79 * (k + if first > 0 { 1 } else { 0 }) as f64;
             let cell_z = zz.floor();
             let s = zz - cell_z;
-            let yc = yq + (zq - cell_z);
+            let yc = yq + (zq_end - cell_z);
             b.entity("minecart", [0.5, yc + (1.0 - s) + 0.0625, zz], stand_rider);
         }
     }
@@ -1870,6 +1945,20 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     // (admission control's mid-queue gate G1, shut)
     if let Some(g1) = lay.esc_g1 {
         b.set(g1.x, g1.y, g1.z, "oak_fence_gate[facing=south,in_wall=false,open=false,powered=false]");
+    }
+    // (`adm_flatb`: B, the flat cell before G0, an always-on booster powered by a redstone block
+    // beside it (east); its power runs along the rail into P)
+    if let (true, Some(g0)) = (o.esc_adm && o.adm_flatb, lay.esc_g0) {
+        let c = [g0.x, g0.y, g0.z - 1];
+        let cur = b.d.blocks.get(&c).cloned().unwrap_or_default();
+        if !cur.contains("rail[shape=north_south") {
+            bail!("adm_flatb: the cell before G0 at {c:?} is {cur}, not a flat north-south rail");
+        }
+        b.set(c[0], c[1], c[2], "powered_rail[powered=true,shape=north_south,waterlogged=false]");
+        if b.d.blocks.contains_key(&[c[0] + 1, c[1], c[2]]) {
+            bail!("adm_flatb: the cell east of B at {:?} is taken", [c[0] + 1, c[1], c[2]]);
+        }
+        b.set(c[0] + 1, c[1], c[2], "redstone_block");
     }
     // (`adm_qboost`: the last queue slope, where the front rests against G0, an always-on booster
     // powered by a redstone block beside it (east), not under it: a block under it would touch P's
@@ -1972,13 +2061,15 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.set(c[0], c[1], c[2], s);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default())));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default())));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
         let fl: Vec<crate::flight::Flight> = lay.flights.iter().map(|f| f.shifted(o.shift[0], o.shift[1])).collect();
         b.d.meta.insert("flights".into(), crate::flight::format(&fl));
     }
+    // (its declared states (`crate::declared`), so a file pasted into another carries them)
+    b.d.meta.insert("declared".into(), crate::declared::format(&declared_states(o)));
     // (a booster the layout asked for but placed plain: refused, so an option can't silently
     // vanish (ironspec 01:04, the qboost hazard))
     if !lay.downgraded.is_empty() {
@@ -2058,6 +2149,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "adm_g1" => o.adm_g1 = v.parse().map_err(|_| anyhow::anyhow!("bad adm_g1 {v}"))?,
             "adm_short" => o.adm_short = v == "1",
             "adm_qboost" => o.adm_qboost = v == "1",
+            "adm_flatb" => o.adm_flatb = v == "1",
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -2295,6 +2387,9 @@ pub struct LoopTiming {
     pub p_always: bool,
     /// Admission control: G1's window (0: G0's MAX).
     pub adm_g1_w: i64,
+    /// Admission control: G0's delay after the gate opens for the third advance of each cycle (the
+    /// next G_P is 60 gt away there, so its window can open later); −1: as the others.
+    pub adm_k2: i64,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -2433,7 +2528,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, start_random: false, calm: false }
     }
 }
 
@@ -2999,6 +3094,12 @@ pub fn paste_part(spec: &mut FarmSpec, part: &FarmSpec, at: [i32; 3], turn: i32,
 }
 
 pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
+    run_loop_hdr(spec, o, tm, &Headers::default(), cycles, seed, verbose, watch, drive_out)
+}
+
+/// `run_loop` with the design file's own declared states and flights (`Headers`) checked too.
+#[allow(clippy::too_many_arguments)]
+pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Headers, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
     let ticks = 200 + cycles * 100 + 200;
     let ro = RunOpts { ai: true, raw: tm.placed_raw, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
     // (`build_gap`, the brief's "built in order": the world starts empty and the design is placed
@@ -3227,8 +3328,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // (the declared states, `crate::declared`: the design's rail cells, gates and boosters as its
     // options declare them, at tick 0 (a design built in order is checked once built, below) and
     // the boosters again at t 20; a mismatch is a problem: the run fails)
-    let declared = declared_states(o);
-    let mut declared_bad: Vec<String> = if build_start.is_none() { crate::declared::check(&run.world, &declared, false) } else { Vec::new() };
+    let (declared, declared_twice) = merge_declared(declared_states(o), &hdr.declared);
+    let mut declared_bad: Vec<String> = declared_twice;
+    if build_start.is_none() {
+        declared_bad.extend(crate::declared::check(&run.world, &declared, false));
+    }
     // (the drive log's times count from the build's start when the bench builds the design, from
     // the spawn otherwise)
     let t_origin = build_start.unwrap_or(t_spawn);
@@ -3336,7 +3440,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // (every cart's state each tick: off the rails (no rail at its cell or the one under it) for
     // 3 ticks or more, its rider not seated in it; and the latch's sets after +55 (T2 going out:
     // D1's set, or C's), each a slot offset)
-    let mut rail_watch = crate::flight::RailWatch::new(lay.flights.clone());
+    let mut rail_watch = crate::flight::RailWatch::new(merge_flights(lay.flights.clone(), &hdr.flights));
     let mut unseated: Vec<bool> = vec![false; 21];
     let mut unseat_log: Vec<String> = Vec::new();
     let mut latch_sets: Vec<i64> = Vec::new();
@@ -3347,7 +3451,6 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut g0_opens: Vec<i64> = Vec::new();
     let mut g0_was_open = false;
     let mut t2_was_lit: Option<bool> = None;
-    let mut adm_p_once = false;
     let mut latch_all: Vec<(i64, i64, bool)> = Vec::new();
     let mut t3_was_lit = false;
     let mut t3_rises: Vec<(i64, i64)> = Vec::new();
@@ -4274,32 +4377,39 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 };
                 set_gate(&mut run.world, lay.fifo[j].0, "south", open);
             }
-            // (the escapement: B powered `esc_b` K gt after the gate opens (`fifo_intake` D gt after
-            // each advance's start), for its W gt; the flat escapement's G_B open in that window)
-            if lay.esc_adm_a1.is_some() {
-                // (admission control, escG6L, as tail-bench drives it: P powered with G_P's window,
-                // or from the first window on with `p_always` (a booster held by G_P alone); G0
-                // opened `esc_adm` DELAY gt after G_P opens, a plain pulse MAX gt long)
+            // (admission control, `esc_adm`: G0 opened `esc_adm` D gt after the gate opens for its W
+            // gt, the third advance's after `adm_k2` gt when set; P always on from the first gate
+            // opening with `p_always`, else powered with the gate)
+            if let (true, Some(g0)) = (o.esc_adm, lay.esc_g0) {
                 let (d, w) = tm.fifo_intake;
-                let (da, mx) = tm.esc_adm;
-                let win = |from: i64, len: i64| c < cycles && (0..3).any(|k| {
+                let (dl, wl) = tm.esc_adm;
+                let want = c < cycles && (0..3).any(|k| {
                     let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
-                    dt >= a + from && dt < a + from + len
+                    let dk = if k == 2 && tm.adm_k2 >= 0 { tm.adm_k2 } else { dl };
+                    dt >= a + d + dk && dt < a + d + dk + wl
                 });
+                let s = format!("minecraft:oak_fence_gate[facing=south,in_wall=false,open={want},powered=false]");
+                if let Ok(blk) = Block::parse(&s)
+                    && run.world.get(g0) != blk
+                {
+                    run.world.set_block(g0, blk, redsim::world::flags::ALL);
+                    drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, g0.x, g0.y, g0.z, s));
+                }
                 if let Some(pc) = lay.esc_p {
-                    let in_win = win(d, w);
-                    adm_p_once |= in_win;
-                    let want = in_win || (tm.p_always && adm_p_once);
-                    let b = if want { on.clone() } else { off.clone() };
+                    let gate_now = c < cycles && (0..3).any(|k| {
+                        let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                        dt >= a + d && dt < a + d + w
+                    });
+                    let want_p = if tm.p_always { c > 0 || dt >= tm.advance_at + tm.adv_shift[0] + d } else { gate_now };
+                    let b = if want_p { on.clone() } else { off.clone() };
                     if run.world.get(pc) != b {
                         run.world.set_block(pc, b, redsim::world::flags::ALL);
-                        drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", run.world.time - t_origin, pc.x, pc.y, pc.z, if want { "redstone_block" } else { "glass" }));
+                        drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", run.world.time - t_origin, pc.x, pc.y, pc.z, if want_p { "redstone_block" } else { "glass" }));
                     }
                 }
-                if let Some(g0) = lay.esc_g0 {
-                    set_gate(&mut run.world, g0, "south", win(d + da, mx));
-                }
             }
+            // (the escapement: B powered `esc_b` K gt after the gate opens (`fifo_intake` D gt after
+            // each advance's start), for its W gt; the flat escapement's G_B open in that window)
             if lay.esc.is_some() || lay.esc_gb.is_some() {
                 let (d, _) = tm.fifo_intake;
                 let (kb, wb) = tm.esc_b;
