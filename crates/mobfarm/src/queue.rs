@@ -4473,16 +4473,6 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // cell, slot and offset), its crossing and death in the Nether, the pulse, the iron)
     let has_nether = run.world.nether.is_some();
     let mut ev_seen = run.world.mob.events.len();
-    // (ironspec's golem-lock line, tickexact 2026-11-11) GOLEM_DETECTED_RECENTLY set on a rider
-    // outside the summoning group (off the stand's cells and pockets at that tick): by a summon's
-    // 10-box (`GolemLocked`) or by its own golem sensor (`GolemSeen`), 599 gt; each rider's last
-    // such lock, and the stand turns it costs (the rider at the stand at a summon tick still
-    // locked by it)
-    let mut lock_ev_seen = run.world.mob.events.len();
-    let mut outside_n = [0u64; 2];
-    let mut outside_first: Vec<String> = Vec::new();
-    let mut last_outside: std::collections::HashMap<u32, (i64, String)> = std::collections::HashMap::new();
-    let mut turns_lost: Vec<String> = Vec::new();
     // (tickexact 2026-11-11, ironspec: the one-bed claim's second failure path) per rider, the
     // oldest CANT_REACH_WALK_TARGET_SINCE at a tick SetWalkTargetFromBlockMemory(HOME) can run
     // (REST, no WALK_TARGET, HOME held: past 1200 gt it releases HOME), and every POI release
@@ -6551,55 +6541,6 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // than 0.01) whether it walks or not; a walk only moves its box within the tick. By walk
         // state (reaching, partial, a walk target with no path, no walk target); within 0.2 too
         {
-            // (ironspec's golem-lock line) the locks set this tick on riders off the stand, and at
-            // the tick before each summon tick the riders at the stand still locked by one
-            let on_stand = |w: &redsim::World, id: u32| -> bool {
-                redsim::entity::index_of(w, id).is_some_and(|i| {
-                    let p = w.entities.list[i].pos;
-                    let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
-                    lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1)
-                })
-            };
-            let n_ev = run.world.mob.events.len();
-            let evs: Vec<redsim::entity::mob::MobEvent> = run.world.mob.events[lock_ev_seen.min(n_ev)..].to_vec();
-            lock_ev_seen = n_ev;
-            for ev in evs {
-                let (path, t_ev, v, golem, summoner) = match ev {
-                    redsim::entity::mob::MobEvent::GolemLocked { t, villager, summoner, golem } => (0usize, t, villager, Some(golem), Some(summoner)),
-                    redsim::entity::mob::MobEvent::GolemSeen { t, villager } => (1usize, t, villager, None, None),
-                    _ => continue,
-                };
-                let Some(k) = riders.iter().position(|r| *r == v) else { continue };
-                if on_stand(&run.world, v) {
-                    continue;
-                }
-                let Some(i) = redsim::entity::index_of(&run.world, v) else { continue };
-                let p = run.world.entities.list[i].pos;
-                let golems = match golem {
-                    Some(g) => format!("golem #{g} (summoner e#{})", summoner.unwrap_or(0)),
-                    None => format!("golems {:?} in its living list", redsim::entity::mob::villager::nearest_golems(&run.world, i)),
-                };
-                outside_n[path] += 1;
-                let desc = format!("e{k} at {:.2},{:.2},{:.2} slot {c} +{dt} (t {t_ev}): {} {golems}", p.x, p.y, p.z, ["a summon's 10-box", "its golem sensor"][path]);
-                if outside_first.len() < 8 {
-                    outside_first.push(desc.clone());
-                }
-                last_outside.insert(v, (t_ev + 599, desc));
-            }
-            if (run.world.time + 1).rem_euclid(100) == 0 {
-                let t_next = run.world.time + 1;
-                for (k, r) in riders.iter().enumerate() {
-                    if !on_stand(&run.world, *r) {
-                        continue;
-                    }
-                    let locked = redsim::entity::index_of(&run.world, *r).is_some_and(|i| matches!(&run.world.entities.list[i].kind, redsim::entity::EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.golem_detected.is_some())));
-                    if let (true, Some((end, desc))) = (locked, last_outside.get(r))
-                        && *end >= t_next
-                    {
-                        turns_lost.push(format!("slot {c} +{dt}: e{k} at the stand locked until t {end} by {desc}"));
-                    }
-                }
-            }
             // (ironspec's forced-phase mode) the forced villager's wake after the load
             if let Some((id, t_load, true)) = phase_watch {
                 let awake = redsim::entity::index_of(&run.world, id).is_none_or(|i| !matches!(&run.world.entities.list[i].kind, redsim::entity::EntityKind::Mob(mm) if mm.sleeping_pos.is_some()));
@@ -7349,12 +7290,6 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             out.push(format!("reach probe: of {total} exposed rider-ticks, {reachable} ({:.1}%) had a path from the cart to within 1 of the bed (an open bed top would clear their stamps on the next HOME walk); the rest only panic coverage clears", if total > 0 { 100.0 * reachable as f64 / total as f64 } else { 0.0 }));
         }
         {
-            out.push(format!(
-                "golem locks outside the summoning group (GOLEM_DETECTED_RECENTLY, 599 gt, set on a rider off the stand: a summon's 10-box or its own golem sensor): {} (10-box {}, sensor {}); stand turns lost to them (a rider at the stand at a summon tick still so locked): {}{}{}",
-                outside_n[0] + outside_n[1], outside_n[0], outside_n[1], turns_lost.len(),
-                if outside_first.is_empty() { String::new() } else { format!("; the first locks: {}", outside_first.join("; ")) },
-                if turns_lost.is_empty() { String::new() } else { format!("; the turns lost: {}", turns_lost.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
-            ));
             let mut cells: Vec<([i32; 3], u64)> = touch_cells.into_iter().collect();
             cells.sort_by(|a, b| b.1.cmp(&a.1));
             let mut pcells: Vec<([i32; 3], u64)> = push_cells.into_iter().collect();
