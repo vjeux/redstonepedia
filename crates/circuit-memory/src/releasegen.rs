@@ -2515,7 +2515,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         siding_cells.extend(phys);
         if let Some(sched) = siding_ctl {
             let more = crate::sidinggen::wire_control(&mut d, sched)?;
-            println!("siding control module at {:?}: {} cells (the scheduler, the night window, the windows, R', the visit-delay register, the routes to the 4 controls)", crate::sidinggen::MODULE_AT, more.len());
+            println!("siding control module at {:?}: {} cells (the scheduler, the night window, the windows, R', the visit-delay register, the routes to the 4 controls)", crate::sidinggen::module_origin(), more.len());
             siding_cells.extend(more);
         }
     }
@@ -2577,8 +2577,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         let base_cells: std::collections::BTreeSet<P3> = Design::load(loop_file)?.blocks.keys().copied().collect();
         // (the siding's own blocks are farmopt's: its floor is where the napper walks to the bed, a
         // glass cover there would block it; it is left as pasted)
-        let s0 = crate::sidinggen::origin();
-        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 7..=s0[1] + 4).contains(&p[1]) && (s0[2] - 4..=s0[2] + 9).contains(&p[2]);
+        let in_siding = |p: &P3| crate::sidinggen::in_siding_box(p, -7, crate::sidinggen::siding_yhi(), -4);
         let solid = |s: &str| ["minecraft:stone", "minecraft:redstone_block", "minecraft:dropper", "minecraft:observer", "minecraft:target", "minecraft:smooth_stone", "minecraft:waxed_copper_bulb", "minecraft:copper_bulb"].iter().any(|k| s == *k || s.starts_with(&format!("{k}[")));
         let covers: Vec<P3> = d
             .blocks
@@ -2737,8 +2736,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // the partial-unload faults at each line)
     {
         let base_cells: std::collections::BTreeSet<P3> = Design::load(loop_file)?.blocks.keys().copied().collect();
-        let s0 = crate::sidinggen::origin();
-        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 7..=s0[1] + 4).contains(&p[1]) && (s0[2] - 4..=s0[2] + 9).contains(&p[2]);
+        let in_siding = |p: &P3| crate::sidinggen::in_siding_box(p, -7, crate::sidinggen::siding_yhi(), -4);
         let real = |s: &String| !s.starts_with("minecraft:glass") && !s.ends_with(":air");
         let mine: std::collections::BTreeSet<P3> = d.blocks.iter().filter(|(p, s)| !base_cells.contains(*p) && !pad_cells.contains(*p) && !(siding.is_some() && in_siding(p)) && real(s)).map(|(p, _)| *p).collect();
         let solid_at = |p: &P3| d.blocks.get(p).is_some_and(real);

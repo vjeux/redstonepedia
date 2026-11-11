@@ -347,7 +347,15 @@ fn cell_ok_old(b: &B, l: &Limits, n: P3) -> bool {
 /// that would sit a cell on its own support, cover its own stair or touch itself out of sequence
 /// is searched again without the offending cell (up to 40 times).
 pub(crate) fn find(b: &B, start: P3, end: P3, l: &Limits) -> Result<Vec<P3>> {
-    let lim = Limits { lo: l.lo, hi: l.hi, avoid: l.avoid.clone(), near_ok: l.near_ok.clone() };
+    // (the riders' space kept off every routed line by default, its dust and the supports it would
+    // add: the two cells over every rail (ironspec Nov 11 15:06, W's first full night: a route's
+    // support over the exit climb hurt every visiting rider); a line's own ends excepted)
+    let mut avoid = l.avoid.clone();
+    // (`MCTAS_NO_ROUTER_RIDER_SPACE`: the old router, for control rows only)
+    if std::env::var("MCTAS_NO_ROUTER_RIDER_SPACE").is_err() {
+        avoid.extend(rider_space(&b.blocks).into_iter().filter(|c| *c != start && *c != end));
+    }
+    let lim = Limits { lo: l.lo, hi: l.hi, avoid, near_ok: l.near_ok.clone() };
     let mut no_path: BTreeSet<P3> = BTreeSet::new();
     for _ in 0..40 {
         let path = find_once(b, start, end, &lim, &no_path)?;
