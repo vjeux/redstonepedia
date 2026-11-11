@@ -939,6 +939,27 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 60)]
         ticks: u32,
     },
+    /// R1's queue-contact scenes for the merge bridge: the escapement column of a queue-loop
+    /// design in 4 lanes (RR, RE, ER, EE: the waiting cart's rider, then the arrival's), case g0 (an
+    /// arrival into the front pressed at G0) or p (the admitted cart meeting P's cart), one scene
+    /// file and drive per arrival speed in --out-dir, each also run on redsim and scored as `mctas
+    /// mobai rec-carts` scores a recording.
+    ContactScenes {
+        design: PathBuf,
+        /// g0 or p.
+        #[arg(long, default_value = "g0")]
+        case: String,
+        #[arg(long, value_delimiter = ',', default_values_t = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0])]
+        speeds: Vec<f64>,
+        #[arg(long)]
+        out_dir: PathBuf,
+        #[arg(long, default_value_t = 100)]
+        ticks: u32,
+        /// Where the waiting cart starts along its cell: 0.885 at rest pressed on the gate (as the
+        /// design's tail carts rest), 0.5 the cell's middle (rolling in, as slope-merge's lanes).
+        #[arg(long, default_value_t = 0.885)]
+        front_frac: f64,
+    },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
     QueueLoopRun {
@@ -2819,6 +2840,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(gap_step > 0.0, "--gap-step must be positive");
             for l in crate::ledge_sweep::sweep(&spec, &fl, &speeds, gap_from, gap_to, gap_step, &ridden, ticks).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
+            }
+        }
+        MobfarmCmd::ContactScenes { design, case, speeds, out_dir, ticks, front_frac } => {
+            let src = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            let case = match case.as_str() {
+                "g0" => crate::contact_scene::Case::G0,
+                "p" => crate::contact_scene::Case::P,
+                _ => anyhow::bail!("--case: g0 or p"),
+            };
+            std::fs::create_dir_all(&out_dir)?;
+            let src_name = design.file_name().map_or("the design".to_string(), |n| n.to_string_lossy().to_string());
+            for v in &speeds {
+                let d = crate::contact_scene::scene(&src, case, *v, front_frac).map_err(|e| anyhow::anyhow!(e))?;
+                let path = out_dir.join(format!("{}.txt", d.name));
+                std::fs::write(&path, crate::contact_scene::caption(case, *v, &src_name) + &d.to_text())?;
+                std::fs::write(out_dir.join(format!("{}.drive", d.name)), crate::contact_scene::drive(case, *v, ticks))?;
+                let (_c, spec) = load(version, &path)?;
+                let scores = crate::contact_scene::score(&spec, ticks).map_err(|e| anyhow::anyhow!(e))?;
+                for l in crate::contact_scene::score_lines(&d.name, &scores) {
+                    println!("{l}");
+                }
             }
         }
         MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check } => {
