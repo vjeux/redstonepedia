@@ -3040,6 +3040,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let (mut expose_night, mut expose_ticks) = (vec![0u64; riders.len()], vec![0u64; riders.len()]);
     let mut expose_max: (usize, String) = (0, String::new());
     let mut expose_multi = 0u64;
+    let mut last_panic = vec![i64::MIN / 2; riders.len()];
+    let mut expose_map: std::collections::BTreeMap<[i32; 3], (u64, i64, u64)> = std::collections::BTreeMap::new();
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
     // the loop's places in travel order: slot 0 .. slot q-1, S3, S2, S1
     let q = o.slots as usize;
@@ -4774,10 +4776,23 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 expose_night[k] += 1;
                 let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { continue };
                 let (Some(b), Some(x)) = (m.brain.as_deref(), m.brain.as_deref().and_then(|b| b.ex.as_deref())) else { continue };
+                if x.active == redsim::entity::mob::ai::brain::Act::Panic {
+                    last_panic[k] = run.world.time;
+                }
                 if let (Some(_), redsim::entity::mob::ai::brain::Act::Rest, Some(since)) = (b.home, x.active, x.mem.cant_reach_since) {
                     expose_ticks[k] += 1;
                     let p = run.world.entities.list[i].pos;
-                    exposed.push(format!("e{k} at {:.1},{:.1},{:.1} ({} gt)", p.x, p.y, p.z, run.world.time - since));
+                    let streak = run.world.time - since;
+                    exposed.push(format!("e{k} at {:.1},{:.1},{:.1} ({streak} gt)", p.x, p.y, p.z));
+                    // (the position map: per block cell, the exposed rider-ticks, the longest
+                    // streak, and how many of those ticks the rider had panicked within 20 gt)
+                    let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+                    let e = expose_map.entry(cell).or_insert((0, 0, 0));
+                    e.0 += 1;
+                    e.1 = e.1.max(streak);
+                    if run.world.time - last_panic[k] <= 20 {
+                        e.2 += 1;
+                    }
                 }
             }
             if exposed.len() >= 2 {
@@ -5269,6 +5284,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             expose_max.0,
             if expose_max.0 > 0 { format!(" ({})", expose_max.1) } else { String::new() },
             fr.iter().take(6).map(|(k, f)| format!("e{k} {:.2}%", 100.0 * f)).collect::<Vec<_>>().join(", ")
+        ));
+        let mut cells: Vec<([i32; 3], (u64, i64, u64))> = expose_map.into_iter().collect();
+        cells.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        out.push(format!(
+            "freeze exposure map (block cell: exposed rider-ticks, the longest streak, the share panicking within 20 gt before), the 16 most: {}",
+            if cells.is_empty() { "-".to_string() } else { cells.iter().take(16).map(|(c, (n, s, p))| format!("{} {} {}: {n} ticks, {s} gt, {:.0}%", c[0], c[1], c[2], 100.0 * *p as f64 / *n as f64)).collect::<Vec<_>>().join("; ") }
         ));
     }
     if let Some(v) = tm.visit {
