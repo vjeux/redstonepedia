@@ -4,8 +4,13 @@
 //! every runner checks the world against it at tick 0 and, for the always-on cells (boosters),
 //! again after a short warm-up. Any mismatch fails the run. A design file carries its states as a
 //! header line `declared: X,Y,Z id[k=v,...]!; ...` (`!` marks an always-on cell, checked through
-//! the warm-up too); loop designs derive theirs from their `queue:` options (`queue::declared_states`),
+//! the warm-up too; `<X,Y,Z` after it names a braked rail's control block, which the runtime
+//! check uses); loop designs derive theirs from their `queue:` options (`queue::declared_states`),
 //! so an older file whose blocks no longer match its options fails too.
+//!
+//! The runtime check (Nov 11 03:17: P's power ran along the track through a powered R into slot 0,
+//! which the tick-0 check could not see): every tick, a braked rail with a named control block may
+//! be powered only while that block is a redstone block.
 
 use redsim::pos::BlockPos;
 use redsim::world::World;
@@ -20,31 +25,74 @@ pub struct Decl {
     pub props: Vec<(String, String)>,
     /// Checked after the warm-up too (an always-on cell).
     pub always: bool,
+    /// A braked rail's control block: the rail may be powered only while it is a redstone block.
+    pub ctl: Option<[i32; 3]>,
+    /// A block the bench sets directly (no control line): no redstone may ever power it (a gate
+    /// opened by a neighbour detector rail, say). Header suffix `~`.
+    pub unpowered: bool,
 }
 
 impl Decl {
     pub fn new(cell: [i32; 3], id: &str, props: &[(&str, &str)], always: bool) -> Decl {
         let id = if id.contains(':') { id.to_string() } else { format!("minecraft:{id}") };
-        Decl { cell, id, props: props.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), always }
+        Decl { cell, id, props: props.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), always, ctl: None, unpowered: false }
+    }
+
+    /// This braked rail's control block.
+    pub fn with_ctl(mut self, ctl: [i32; 3]) -> Decl {
+        self.ctl = Some(ctl);
+        self
+    }
+
+    /// A bench-set block no redstone may power.
+    pub fn bench_set(mut self) -> Decl {
+        self.unpowered = true;
+        self
     }
 }
 
 /// The header line's value.
 pub fn format(ds: &[Decl]) -> String {
     ds.iter()
-        .map(|d| format!("{},{},{} {}{}{}", d.cell[0], d.cell[1], d.cell[2], d.id.trim_start_matches("minecraft:"), if d.props.is_empty() { String::new() } else { format!("[{}]", d.props.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",")) }, if d.always { "!" } else { "" }))
+        .map(|d| {
+            format!(
+                "{},{},{} {}{}{}{}{}",
+                d.cell[0],
+                d.cell[1],
+                d.cell[2],
+                d.id.trim_start_matches("minecraft:"),
+                if d.props.is_empty() { String::new() } else { format!("[{}]", d.props.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",")) },
+                if d.always { "!" } else { "" },
+                if d.unpowered { "~" } else { "" },
+                d.ctl.map_or(String::new(), |c| format!("<{},{},{}", c[0], c[1], c[2]))
+            )
+        })
         .collect::<Vec<_>>()
         .join("; ")
 }
 
 /// Parses a `declared:` header value.
 pub fn parse(s: &str) -> Result<Vec<Decl>, String> {
+    let cell3 = |t: &str, item: &str| -> Result<[i32; 3], String> {
+        let v: Vec<i32> = t.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("declared: {item}: {e}"))).collect::<Result<_, _>>()?;
+        match v.as_slice() {
+            [x, y, z] => Ok([*x, *y, *z]),
+            _ => Err(format!("declared: {item}: give X,Y,Z")),
+        }
+    };
     let mut out = Vec::new();
     for item in s.split(';').map(str::trim).filter(|t| !t.is_empty()) {
         let (cell, rest) = item.split_once(' ').ok_or_else(|| format!("declared: {item}: give X,Y,Z id"))?;
-        let v: Vec<i32> = cell.split(',').map(|x| x.parse::<i32>().map_err(|e| format!("declared: {item}: {e}"))).collect::<Result<_, _>>()?;
-        let [x, y, z] = v.as_slice() else { return Err(format!("declared: {item}: give X,Y,Z")) };
+        let cell = cell3(cell, item)?;
         let rest = rest.trim();
+        let (rest, ctl) = match rest.split_once('<') {
+            Some((r, c)) => (r.trim(), Some(cell3(c, item)?)),
+            None => (rest, None),
+        };
+        let (rest, unpowered) = match rest.strip_suffix('~') {
+            Some(r) => (r, true),
+            None => (rest, false),
+        };
         let (rest, always) = match rest.strip_suffix('!') {
             Some(r) => (r, true),
             None => (rest, false),
@@ -54,7 +102,7 @@ pub fn parse(s: &str) -> Result<Vec<Decl>, String> {
             None => (rest, Vec::new()),
         };
         let id = if id.contains(':') { id.to_string() } else { format!("minecraft:{id}") };
-        out.push(Decl { cell: [*x, *y, *z], id, props, always });
+        out.push(Decl { cell, id, props, always, ctl, unpowered });
     }
     Ok(out)
 }
@@ -74,15 +122,34 @@ pub fn check(w: &World, ds: &[Decl], warm: bool) -> Vec<String> {
     bad
 }
 
+/// The runtime check: each braked rail with a control block that is powered while its control is
+/// not a redstone block (power from somewhere else: along the track, a neighbour), and each
+/// bench-set block that redstone powers.
+pub fn check_runtime(w: &World, ds: &[Decl]) -> Vec<String> {
+    let mut bad = Vec::new();
+    for d in ds {
+        if d.unpowered && w.get(BlockPos::new(d.cell[0], d.cell[1], d.cell[2])).to_string().contains("powered=true") {
+            bad.push(format!("{},{},{}: powered by a neighbour (it has no control line)", d.cell[0], d.cell[1], d.cell[2]));
+            continue;
+        }
+        let Some(c) = d.ctl else { continue };
+        let b = w.get(BlockPos::new(d.cell[0], d.cell[1], d.cell[2])).to_string();
+        if b.contains("powered=true") && !w.get(BlockPos::new(c[0], c[1], c[2])).to_string().contains("redstone_block") {
+            bad.push(format!("{},{},{}: powered with its control {},{},{} off", d.cell[0], d.cell[1], d.cell[2], c[0], c[1], c[2]));
+        }
+    }
+    bad
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn declared_round_trip() {
-        let ds = vec![Decl::new([0, 2, 31], "powered_rail", &[("powered", "true")], true), Decl::new([0, 3, 31], "oak_fence_gate", &[("open", "false")], false), Decl::new([0, 3, 30], "rail", &[], false)];
+        let ds = vec![Decl::new([0, 2, 31], "powered_rail", &[("powered", "true")], true), Decl::new([0, 3, 31], "oak_fence_gate", &[("open", "false")], false).bench_set(), Decl::new([0, 3, 30], "rail", &[], false), Decl::new([0, 0, 33], "powered_rail", &[("powered", "false")], false).with_ctl([0, -1, 33])];
         let s = format(&ds);
-        assert_eq!(s, "0,2,31 powered_rail[powered=true]!; 0,3,31 oak_fence_gate[open=false]; 0,3,30 rail");
+        assert_eq!(s, "0,2,31 powered_rail[powered=true]!; 0,3,31 oak_fence_gate[open=false]~; 0,3,30 rail; 0,0,33 powered_rail[powered=false]<0,-1,33");
         assert_eq!(parse(&s).unwrap(), ds);
     }
 }

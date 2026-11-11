@@ -455,11 +455,17 @@ pub struct LoopOpts {
     /// Admission control: B, a flat always-on booster at the queue's foot, the front pressed
     /// against G0 on it (its power runs into P: P always on).
     pub adm_flatb: bool,
+    /// Admission control: R (the slope under G_P into slot 0) a powered rail pulsed at each
+    /// launch (`LoopTiming::adm_rpulse`), its control beside it (east); braked between pulses.
+    pub adm_rboost: bool,
+    /// Admission control: P a sloped detector rail (it senses its cart; no booster), the launch on
+    /// gravity (with `adm_rboost`, R's pulse speeds it).
+    pub adm_pdet: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false }
     }
 }
 
@@ -570,6 +576,11 @@ pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
 /// row B going +x (the rest, the head ending at x -1, z 4); the release run +x along z 4, the
 /// stand (S3, S2, S1 in travel order), the departure run, a U-turn to z 0 and the return run -x
 /// back to the entry.
+/// Admission control's R: the slope under G_P into slot 0, from P's rail cell (`esc_adm_a1`).
+pub fn adm_r_cell(a1: [i32; 3]) -> [i32; 3] {
+    [a1[0], a1[1] - 1, a1[2] + 1]
+}
+
 /// A design file's own declared states and flights (its `declared:` and `flights:` header lines,
 /// a pasted part's carried in by `mobfarm paste`), which the runners check on top of the ones
 /// derived from the loop's options.
@@ -592,9 +603,16 @@ pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<H
 pub fn merge_declared(mut ds: Vec<crate::declared::Decl>, hdr: &[crate::declared::Decl]) -> (Vec<crate::declared::Decl>, Vec<String>) {
     let mut bad = Vec::new();
     for h in hdr {
-        match ds.iter().find(|d| d.cell == h.cell) {
-            Some(d) if d == h => {}
-            Some(d) => bad.push(format!("{},{},{}: declared two ways: {} (options) and {} (header)", h.cell[0], h.cell[1], h.cell[2], crate::declared::format(std::slice::from_ref(d)), crate::declared::format(std::slice::from_ref(h)))),
+        // (a control named on one side only is no conflict: the other side's older form)
+        let same = |d: &crate::declared::Decl| d.cell == h.cell && d.id == h.id && d.props == h.props && d.always == h.always && (d.ctl.is_none() || h.ctl.is_none() || d.ctl == h.ctl);
+        match ds.iter().position(|d| d.cell == h.cell) {
+            Some(i) if same(&ds[i]) => {
+                if ds[i].ctl.is_none() {
+                    ds[i].ctl = h.ctl;
+                }
+                ds[i].unpowered |= h.unpowered;
+            }
+            Some(i) => bad.push(format!("{},{},{}: declared two ways: {} (options) and {} (header)", h.cell[0], h.cell[1], h.cell[2], crate::declared::format(std::slice::from_ref(&ds[i])), crate::declared::format(std::slice::from_ref(h)))),
             None => ds.push(h.clone()),
         }
     }
@@ -621,15 +639,26 @@ pub fn declared_states(o: &LoopOpts) -> Vec<crate::declared::Decl> {
     use crate::declared::Decl;
     let lay = loop_layout(o);
     let mut ds: Vec<Decl> = Vec::new();
+    // (a braked rail's control block, for the runtime check: each register slot's, P's)
+    let mut ctl_of: std::collections::HashMap<[i32; 3], [i32; 3]> = lay.slot_cells.iter().zip(lay.slots.iter()).map(|(r, c)| (*r, [c.x, c.y, c.z])).collect();
+    if let (Some(a1), Some(pc), false) = (lay.esc_adm_a1, lay.esc_p, o.adm_pdet) {
+        ctl_of.insert(a1, [pc.x, pc.y, pc.z]);
+    }
     for (c, k) in &lay.path {
         ds.push(match k {
             Cell::Boost => Decl::new(*c, "powered_rail", &[("powered", "true")], true),
-            Cell::Slot | Cell::Linked => Decl::new(*c, "powered_rail", &[("powered", "false")], false),
+            Cell::Slot | Cell::Linked => {
+                let d = Decl::new(*c, "powered_rail", &[("powered", "false")], false);
+                match ctl_of.get(c) {
+                    Some(ctl) => d.with_ctl(*ctl),
+                    None => d,
+                }
+            }
             Cell::Plain => Decl::new(*c, "rail", &[], false),
             Cell::Detector => Decl::new(*c, "detector_rail", &[], false),
         });
     }
-    let gate = |p: BlockPos, open: bool| Decl::new([p.x, p.y, p.z], "oak_fence_gate", &[("open", if open { "true" } else { "false" })], false);
+    let gate = |p: BlockPos, open: bool| Decl::new([p.x, p.y, p.z], "oak_fence_gate", &[("open", if open { "true" } else { "false" })], false).bench_set();
     for (g, _) in &lay.fifo {
         ds.push(gate(*g, false));
     }
@@ -651,6 +680,13 @@ pub fn declared_states(o: &LoopOpts) -> Vec<crate::declared::Decl> {
         ds.retain(|d| d.cell != b && d.cell != p);
         ds.push(Decl::new(b, "powered_rail", &[("powered", "true")], true));
         ds.push(Decl::new(p, "powered_rail", &[("powered", "true")], true));
+    }
+    // (`adm_rboost`: R braked at rest, its control glass)
+    if let (true, Some(a1)) = (o.esc_adm && o.adm_rboost, lay.esc_adm_a1) {
+        let r = adm_r_cell(a1);
+        ds.retain(|d| d.cell != r);
+        ds.push(Decl::new(r, "powered_rail", &[("powered", "false")], false).with_ctl([r[0] + 1, r[1], r[2]]));
+        ds.push(Decl::new([r[0] + 1, r[1], r[2]], "glass", &[], false));
     }
     ds
 }
@@ -930,7 +966,8 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         }
         esc_g0 = Some(BlockPos::new(0, lg, z));
         let pz = z;
-        path.push(([0, lg - 1, pz], Cell::Linked));
+        // (`adm_pdet`: P a sloped detector rail, sensing its cart, no booster)
+        path.push(([0, lg - 1, pz], if o.adm_pdet { Cell::Detector } else { Cell::Linked }));
         queue_cells.push([0, lg - 1, pz]);
         esc_adm_a1 = Some([0, lg - 1, pz]);
         fifo.push((BlockPos::new(0, lg - 1, pz + 1), [0, lg - 1, pz]));
@@ -1871,6 +1908,21 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
         b.set(c[0] + 1, c[1], c[2], "redstone_block");
     }
+    // (`adm_rboost`: R, the slope under G_P into slot 0, a powered rail (braked between the
+    // launch pulses), its control a glass block beside it (east), set to a redstone block by the
+    // bench for `adm_rpulse` gt from each G_P opening)
+    if let (true, Some(a1)) = (o.esc_adm && o.adm_rboost, lay.esc_adm_a1) {
+        let r = adm_r_cell(a1);
+        let cur = b.d.blocks.get(&r).cloned().unwrap_or_default();
+        let Some(shape) = cur.strip_prefix("minecraft:rail[").or_else(|| cur.strip_prefix("rail[")) else { bail!("adm_rboost: R at {r:?} is {cur}, not a plain rail") };
+        let shape = shape.split(',').find(|t| t.starts_with("shape=")).unwrap_or("shape=north_south").trim_end_matches(']').to_string();
+        b.set(r[0], r[1], r[2], &format!("powered_rail[powered=false,{shape},waterlogged=false]"));
+        let ctl = [r[0] + 1, r[1], r[2]];
+        if b.d.blocks.contains_key(&ctl) {
+            bail!("adm_rboost: the cell east of R at {ctl:?} is taken");
+        }
+        b.set(ctl[0], ctl[1], ctl[2], "glass");
+    }
     // (`adm_qboost`: the last queue slope, where the front rests against G0, an always-on booster
     // powered by a redstone block beside it (east), not under it: a block under it would touch P's
     // rail (the layout turns such a booster plain). It presses the front against G0 and brings the
@@ -1947,7 +1999,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" })));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
@@ -2029,6 +2081,8 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "adm_short" => o.adm_short = v == "1",
             "adm_qboost" => o.adm_qboost = v == "1",
             "adm_flatb" => o.adm_flatb = v == "1",
+            "adm_rboost" => o.adm_rboost = v == "1",
+            "adm_pdet" => o.adm_pdet = v == "1",
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -2255,6 +2309,9 @@ pub struct LoopTiming {
     /// Admission control's skip requests (slot, dt): each sets a latch; the next G0 opening after
     /// it is skipped (a hole one advance later), which clears the latch.
     pub adm_skip_req: [Option<(i64, i64)>; 8],
+    /// Admission control's R booster (`adm_rboost` designs): R's control on for this many gt from
+    /// each G_P opening (0: never).
+    pub adm_rpulse: i64,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -2383,7 +2440,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, start_random: false }
     }
 }
 
@@ -4132,7 +4189,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     run.world.set_block(g0, blk, redsim::world::flags::ALL);
                     drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, g0.x, g0.y, g0.z, s));
                 }
-                if let Some(pc) = lay.esc_p {
+                if let (Some(pc), false) = (lay.esc_p, o.adm_pdet) {
                     let gate_now = c < cycles && (0..3).any(|k| {
                         let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
                         dt >= a + d && dt < a + d + w
@@ -4142,6 +4199,20 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     if run.world.get(pc) != b {
                         run.world.set_block(pc, b, redsim::world::flags::ALL);
                         drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", run.world.time - t_origin, pc.x, pc.y, pc.z, if want_p { "redstone_block" } else { "glass" }));
+                    }
+                }
+                // (`adm_rboost`: R's control on for `adm_rpulse` gt from each G_P opening)
+                if let (true, Some(a1)) = (o.adm_rboost && tm.adm_rpulse > 0, lay.esc_adm_a1) {
+                    let r = adm_r_cell(a1);
+                    let rc = BlockPos::new(r[0] + 1 + fx as i32, r[1], r[2] + fz as i32);
+                    let want_r = c < cycles && (0..3).any(|k| {
+                        let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                        dt >= a + d && dt < a + d + tm.adm_rpulse
+                    });
+                    let b = if want_r { on.clone() } else { off.clone() };
+                    if run.world.get(rc) != b {
+                        run.world.set_block(rc, b, redsim::world::flags::ALL);
+                        drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", run.world.time - t_origin, rc.x, rc.y, rc.z, if want_r { "redstone_block" } else { "glass" }));
                     }
                 }
             }
@@ -4257,6 +4328,16 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             for b in crate::declared::check(&run.world, &declared, true) {
                 if !declared_bad.contains(&b) {
                     declared_bad.push(format!("{b} (at t 20)"));
+                }
+            }
+        }
+        // (the runtime check: a braked rail powered while its control is off, once per cell;
+        // bench-driven controls only)
+        if build_start.is_none() && tm.wired.is_none() {
+            for b in crate::declared::check_runtime(&run.world, &declared) {
+                let key = b.split(':').next().unwrap_or("").to_string();
+                if !declared_bad.iter().any(|x| x.starts_with(&key)) {
+                    declared_bad.push(format!("{b} (slot {c} +{dt})"));
                 }
             }
         }

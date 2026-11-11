@@ -154,6 +154,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     // a mismatch fails the bench)
     let sh = |mut d: crate::declared::Decl| {
         d.cell = [d.cell[0] + dx, d.cell[1], d.cell[2] + dz];
+        d.ctl = d.ctl.map(|c| [c[0] + dx, c[1], c[2] + dz]);
         d
     };
     let (declared, mut bad) = crate::queue::merge_declared(crate::queue::declared_states(o).into_iter().map(sh).collect(), &bo.hdr.declared.iter().cloned().map(sh).collect::<Vec<_>>());
@@ -161,6 +162,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     if !bad.is_empty() {
         return Err(format!("declared states: {} mismatches ({})", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
     }
+    let mut runtime_bad: Vec<String> = Vec::new();
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let off = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
     // the tail: x 0 from the entry curve (z 20) to slot 0; slot 0's rest cell; B's and P's rail
@@ -238,6 +240,13 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let mut g1_open: Option<i64> = None;
     // (`drive_out`: the cells the bench drives, watched for changes each tick)
     let mut watched: Vec<BlockPos> = vec![gate, p_ctl];
+    // (`adm_rboost`: R's rail and its control, beside it)
+    let r_cell: Option<[i32; 3]> = lay.esc_adm_a1.filter(|_| o.adm_rboost).map(|a| {
+        let r = crate::queue::adm_r_cell(a);
+        [r[0] + dx, r[1], r[2] + dz]
+    });
+    let r_ctl: Option<BlockPos> = r_cell.map(|r| BlockPos::new(r[0] + 1, r[1], r[2]));
+    watched.extend(r_ctl);
     watched.extend(b_ctl);
     watched.extend(gb);
     watched.extend(lay.esc_g0.map(m));
@@ -451,8 +460,22 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             // gate opens for its W gt
             if live && dt == a + d {
                 set_gate(&mut run.world, true);
-                set(&mut run.world, p_ctl, true);
+                if !o.adm_pdet {
+                    set(&mut run.world, p_ctl, true);
+                }
                 reload_open = Some(t);
+                // (`adm_rboost`: R's launch pulse from G_P's opening)
+                if let Some(rc) = r_ctl
+                    && tm.adm_rpulse > 0
+                {
+                    set(&mut run.world, rc, true);
+                }
+            }
+            if let Some(rc) = r_ctl
+                && tm.adm_rpulse > 0
+                && dt == a + d + tm.adm_rpulse
+            {
+                set(&mut run.world, rc, false);
             }
             if dt == a + d + w_gate {
                 set_gate(&mut run.world, false);
@@ -651,6 +674,12 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
         for (k, id) in carts.iter().enumerate() {
             rails.observe(&run.world, k, *id, riders.get(k).copied().flatten(), &format!("slot {c} +{dt}"));
         }
+        // (the declared states at runtime: a braked rail powered while its control is off)
+        for b in crate::declared::check_runtime(&run.world, &declared) {
+            if runtime_bad.len() < 6 && !runtime_bad.iter().any(|x: &String| x.starts_with(b.split(':').next().unwrap_or(""))) {
+                runtime_bad.push(format!("{b} (slot {c} +{dt})"));
+            }
+        }
         run.tick();
         // per tick: falls, backward motion on B/P/slot 0, the gate, rest gaps and drift, the
         // per-cart cycle, riders
@@ -717,7 +746,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             // (backward on a powered rail: B, P or slot 0, split by the rail's state: boosted
             // backward while powered, or braked while unpowered; the flat escapement's X is always
             // powered)
-            let ctl = if b_ctl.is_some() && on_cell(&p, b_cell) { b_ctl } else if on_cell(&p, p_cell) { Some(p_ctl) } else if on_cell(&p, s0) { lay.slots.first().copied().map(m) } else { None };
+            let ctl = if b_ctl.is_some() && on_cell(&p, b_cell) { b_ctl } else if on_cell(&p, p_cell) { Some(p_ctl) } else if r_cell.is_some_and(|rc| on_cell(&p, rc)) { r_ctl } else if on_cell(&p, s0) { lay.slots.first().copied().map(m) } else { None };
             if (x_cell.is_some_and(|xc| on_cell(&p, xc)) || a_cell.is_some_and(|ac| on_cell(&p, ac)) || qb_cell.is_some_and(|qc| on_cell(&p, qc))) && v.z < -0.003 {
                 max_back = max_back.max(-v.z);
                 if backward.len() < 12 {
@@ -907,6 +936,9 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     s += &format!("the tail's most carts at once: {max_tail}\n");
     s += &format!("{}\n", merges.line());
     s += &format!("{}\n", rails.line());
+    if !runtime_bad.is_empty() {
+        return Err(format!("declared states at runtime (a driven block powered against its control): {}", runtime_bad.join("; ")));
+    }
     if let Some(path) = &bo.drive_out {
         // (with `scene_at` C the drive starts at cycle C: the driven cells' states then, and the
         // acts from then on, re-based)
