@@ -1737,6 +1737,13 @@ pub enum MobfarmCmd {
         /// again (a cart-cart push: the next cart pushed it through; or by itself), or never.
         #[arg(long, default_value = "")]
         stall_box: String,
+        /// The riderless matrix: "STAGGERS;KS" (e.g. "2,3,4,5,6;0,1,2,3"): each release stagger x
+        /// each empty-cart position (0: every cart; k: the k-th cart of each train, at
+        /// --strip-riders' cell), run in parallel (--jobs); per run the --cell-log cells' empty
+        /// passages, the --stall-box stalls, backward entries, merges, the closest centres by rest
+        /// place, T-cell crossings.
+        #[arg(long, default_value = "")]
+        riderless_rows: String,
         /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
         /// partial unloads too when the design is shifted), on --seeds seeds from --seed, --jobs
         /// threads; a value keeps only the cases whose name contains it ("D1|REL").
@@ -3331,7 +3338,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::TraceDiff { a, b, tol } => {
             println!("{}", crate::queue::trace_diff(&std::fs::read_to_string(&a)?, &std::fs::read_to_string(&b)?, tol));
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, fault_table, perfect_tail, all_corners, rel_sweep, corner_table, exposure_out, hold_progress, meter_hold, meter_sweep, meter_freeze, meter_freeze_n, rider_space_control, watch_mob, watch_mob_slots, bed_distance, approach_trace, rel_clear, cprime_variants, force_phase, phase_sweep, sight, reg_interlock, l33_delay, arrival_log, hold_back, bench_release, release_start, release_offs, head_wait, head_latch, head_perm, strip_riders, trace_pair, head_retry, train_size, router_pulses, dep_x, vanish, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, summon_unaligned, stale_live, darr_gate, go_lead, hold_cart, retry_darr, darr_stuck, retry_emp_only, no_arr_rules, vanish_box, hold_box, summon_raw, cell_log, stall_box } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, fault_table, perfect_tail, all_corners, rel_sweep, corner_table, exposure_out, hold_progress, meter_hold, meter_sweep, meter_freeze, meter_freeze_n, rider_space_control, watch_mob, watch_mob_slots, bed_distance, approach_trace, rel_clear, cprime_variants, force_phase, phase_sweep, sight, reg_interlock, l33_delay, arrival_log, hold_back, bench_release, release_start, release_offs, head_wait, head_latch, head_perm, strip_riders, trace_pair, head_retry, train_size, router_pulses, dep_x, vanish, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, summon_unaligned, stale_live, darr_gate, go_lead, hold_cart, retry_darr, darr_stuck, retry_emp_only, no_arr_rules, vanish_box, hold_box, summon_raw, cell_log, stall_box, riderless_rows } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3634,6 +3641,80 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         };
                         println!("freeze at +{dt} for {nn}: {} | shuts: {} | on a cart: {} | back: {back} | T crossings: {t_cross} | contact: {contact} | by place: {places} | {probs}{}{head}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
                     }
+                }
+                return Ok(());
+            }
+            // (cc767b78, `--riderless-rows STAGGERS;KS`: the riderless matrix in parallel: each
+            // release stagger x each empty-cart position K (0 every cart, k the k-th cart of each
+            // train, via --strip-riders' cell); per run each --cell-log cell's empty passages (their
+            // stored speed in, least inside, the least corner gap with an empty follower), the
+            // stalls (and those the no-meetings rule bars or no cart pushed on), backward entries,
+            // merges, the closest centres by rest place, T-cell crossings, problems)
+            if !riderless_rows.is_empty() {
+                let (ss, ks) = riderless_rows.split_once(';').ok_or_else(|| anyhow::anyhow!("--riderless-rows takes STAGGERS;KS, e.g. 2,3,4,5,6;0,1,2,3"))?;
+                let parse = |s: &str| s.split(',').filter(|x| !x.trim().is_empty()).map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
+                let (ss, ks) = (parse(ss)?, parse(ks)?);
+                let Some((cell, s0, s1, _)) = tm.strip_riders else { anyhow::bail!("--riderless-rows needs --strip-riders X,Y,Z[,S0,S1] for the stripping cell") };
+                let runs: Vec<(i64, i64)> = ss.iter().flat_map(|s| ks.iter().map(move |k| (*s, *k))).collect();
+                println!("riderless rows: release staggers {:?} x empty-cart positions {:?} (0: every cart; k: the k-th cart of each train), riders stripped at {},{},{} ({} runs, seed {seed}, {cycles} cycles)", ss, ks, cell[0], cell[1], cell[2], runs.len());
+                let mut agg: std::collections::BTreeMap<String, (usize, f64, f64, Option<(i64, String)>)> = std::collections::BTreeMap::new();
+                for chunk in runs.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(st, k)| {
+                                let (spec, o, hdr) = (&spec, &o, &hdr);
+                                let mut t2 = tm.clone();
+                                t2.release_stagger = st;
+                                t2.strip_riders = Some((cell, s0, s1, k as usize));
+                                sc.spawn(move || ((st, k), crate::queue::run_loop_hdr(spec, o, &t2, hdr, cycles, seed, false, None, None)))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((st, k), r) in got {
+                        let r = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("0 problems").to_string();
+                        let mut cells_txt: Vec<String> = Vec::new();
+                        for l in r.lines().filter(|l| l.starts_with("cell-log (")) {
+                            let name = l.split(':').next().unwrap_or("").trim_start_matches("cell-log ").to_string();
+                            let passages = l.split("passages: ").nth(1).unwrap_or("");
+                            let empties: Vec<(f64, f64)> = passages
+                                .split(" | ")
+                                .filter(|p| p.contains(" empty in "))
+                                .filter_map(|p| {
+                                    let sv = p.split("stored ").nth(1)?.split(' ').next()?.parse::<f64>().ok()?;
+                                    let lv = p.split("least ").nth(1)?.split(' ').next()?.parse::<f64>().ok()?;
+                                    Some((sv, lv))
+                                })
+                                .collect();
+                            let gap = l.split("empty follower: ").nth(1).and_then(|x| x.split(';').next()).unwrap_or("-").to_string();
+                            let gap_n = gap.split(' ').nth(1).and_then(|x| x.parse::<i64>().ok());
+                            let (smin, lmin) = (empties.iter().map(|e| e.0).fold(f64::MAX, f64::min), empties.iter().map(|e| e.1).fold(f64::MAX, f64::min));
+                            cells_txt.push(if empties.is_empty() { format!("{name}: no empties") } else { format!("{name}: {} empties, stored in {:.3}..{:.3}, least {:.3}, empty-follower gap {gap}", empties.len(), smin, empties.iter().map(|e| e.0).fold(0.0f64, f64::max), lmin) });
+                            let a = agg.entry(name).or_insert((0, f64::MAX, f64::MAX, None));
+                            a.0 += empties.len();
+                            a.1 = a.1.min(smin);
+                            a.2 = a.2.min(lmin);
+                            if let Some(g) = gap_n
+                                && a.3.as_ref().is_none_or(|x| g < x.0)
+                            {
+                                a.3 = Some((g, format!("stagger {st} K {k}: {gap}")));
+                            }
+                        }
+                        let stalls = r.lines().find_map(|l| l.strip_prefix("empty carts at rest >= 10 gt in the stall boxes: ")).map(|x| x.split(" where the no-meetings").next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
+                        let back = r.lines().find_map(|l| l.strip_prefix("meter backward entries through a stand gate or H: ")).map(|x| x.split(' ').next().unwrap_or(x).trim_end_matches(';').to_string()).unwrap_or("-".to_string());
+                        let merged = r.lines().find_map(|l| l.split("; merged ").nth(1)).map(|x| x.split(';').next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
+                        let places = r.lines().find_map(|l| l.strip_prefix("meter arrivals by rest place: ")).map(|x| x.split("; each arrival").next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
+                        let t_cross = r.lines().find_map(|l| l.split("backward crossings into T's cell: ").nth(1)).map(|x| x.split(' ').next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
+                        // (7b90c3f1's curve-spacing line: each curve's least margin, tick-exact's
+                        // curve-pair rule; the first three curves listed (least first))
+                        let curves = r.lines().find_map(|l| l.split("least first): ").nth(1).filter(|_| l.starts_with("curve spacing"))).map(|x| x.split("); ").take(3).collect::<Vec<_>>().join("); ")).unwrap_or("-".to_string());
+                        println!("stagger {st} K {k}: stalls {stalls}) | backward entries {back} | merged {merged} | T crossings {t_cross} | curves: {curves}) | by place: {places} | {probs} | {}", cells_txt.join(" | "));
+                    }
+                }
+                for (name, a) in &agg {
+                    println!("over the matrix, {name}: {} empty passages, stored in from {:.3}, least inside {:.3}; the least empty-follower corner gap {}", a.0, if a.0 == 0 { f64::NAN } else { a.1 }, if a.0 == 0 { f64::NAN } else { a.2 }, a.3.as_ref().map_or("-".to_string(), |x| x.1.clone()));
                 }
                 return Ok(());
             }
