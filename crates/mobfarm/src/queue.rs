@@ -3718,6 +3718,10 @@ pub struct LoopTiming {
     /// The departure's take-off stand-in (loop z on the x 9 column) whose crossing gaps are printed
     /// (`--takeoff-z Z`; R1's ledge sticks carts 4..6 gt apart).
     pub takeoff_z: i32,
+    /// Router S's cell and DP's (loop frame; ironspec's interlock rows): at each flip of the
+    /// head model's router, the carts whose centre is in S's cell, ridden or empty (an empty one
+    /// with the gt since it left DP's cell).
+    pub s_cell: Option<([i32; 3], Option<[i32; 3]>)>,
     /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
     /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
     pub arrivals: bool,
@@ -5438,7 +5442,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, meter: None }
     }
 }
 
@@ -6217,6 +6221,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut last_go_t: i64 = 0;
     let mut dep_prev_z: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
     let mut dh3_seen: usize = 0;
+    let (mut s_prev_r, mut s_flips, mut s_ridden, mut s_empty): (Option<bool>, usize, usize, usize) = (None, 0, 0, 0);
+    let mut s_hits: Vec<String> = Vec::new();
+    let mut s_dp_seen: std::collections::HashMap<u32, i64> = std::collections::HashMap::new();
     let mut adv_blocked_slot: Option<i64> = None;
     let mut stripped: Vec<String> = Vec::new();
     let mut vanished: Vec<String> = Vec::new();
@@ -9280,6 +9287,40 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let cp: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
             h.pre_tick(&run.world, &cp, t);
         }
+        // (`s_cell`, ironspec's interlock rows: at each flip of the router (its position after a
+        // GO changing), every cart whose centre is in S's cell, ridden or empty; DP's cell, the
+        // last tick each cart was in it, for an empty cart's gt since it left DP)
+        if let (Some((sc, dpc)), Some(h)) = (tm.s_cell, head_perm.as_ref()) {
+            let cell_of = |e: &redsim::entity::Entity| [(e.pos.x - fx).floor() as i32, (e.pos.y + 0.01).floor() as i32, (e.pos.z - fz).floor() as i32];
+            if let Some(dp) = dpc {
+                for id in carts.iter() {
+                    if run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| cell_of(e) == dp) {
+                        s_dp_seen.insert(*id, t);
+                    }
+                }
+            }
+            let r = h.last_to_a;
+            if h.router && s_prev_r.is_some_and(|p| p != r) {
+                s_flips += 1;
+                for (k, id) in carts.iter().enumerate() {
+                    let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
+                    if cell_of(e) != sc {
+                        continue;
+                    }
+                    let ridden = !e.passengers.is_empty();
+                    let since = s_dp_seen.get(id).map(|d| t - d);
+                    if ridden {
+                        s_ridden += 1;
+                    } else {
+                        s_empty += 1;
+                    }
+                    if s_hits.len() < 12 {
+                        s_hits.push(format!("slot {c} +{dt}: cart {k} {}{}", if ridden { "ridden" } else { "empty" }, since.map_or(String::new(), |s| format!(", {s} gt after leaving DP's cell"))));
+                    }
+                }
+            }
+            s_prev_r = Some(r);
+        }
         // (`strip_riders`: the riders of carts entering the cell removed: riderless trains; with
         // K, only the K-th cart to enter it in the slot)
         // (`vanish` SLOT,DT,Z0,Z1: every cart on the stand's approach column between loop z Z0 and
@@ -12188,6 +12229,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     if tm.strip_riders.is_some() {
         out.push(format!("riders removed (riderless trains): {}{}", stripped.len(), if stripped.is_empty() { String::new() } else { format!(" ({})", stripped.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) }));
+    }
+    if let Some((sc, _)) = tm.s_cell {
+        out.push(format!("router S at {},{},{}: {s_flips} flips; with a cart's centre in S's cell at the flip: ridden {s_ridden} (the rider string sees each), empty {s_empty}{}", sc[0], sc[1], sc[2], if s_hits.is_empty() { String::new() } else { format!(" ({})", s_hits.join("; ")) }));
     }
     if tm.vanish.is_some() {
         out.push(format!("carts removed after DEP (a train that never arrives): {}{}", vanished.len(), if vanished.is_empty() { String::new() } else { format!(" ({})", vanished.join(", ")) }));

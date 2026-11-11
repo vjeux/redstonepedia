@@ -98,6 +98,8 @@ pub struct Summary {
     /// the run), and the golems the run's A ticks made (each summon margin entry marked golem).
     pub hclean: Option<Option<i64>>,
     pub golems: Option<usize>,
+    /// Router S's flips with a cart's centre in S's cell (`s_cell`): ridden, empty.
+    pub s_flip: Option<(usize, usize, usize)>,
 }
 
 /// "name a/b/c/d/e/f when x/y/z; ..." (the runner's cause lines), the first N parts.
@@ -182,6 +184,11 @@ pub fn summarize(out: &str) -> Summary {
             s.golems = Some(r.matches(", golem)").count());
         } else if let Some(r) = l.strip_prefix("head-perm cycles-to-clean ") {
             s.hclean = Some(r.rsplit_once("; clean from slot ").and_then(|(_, v)| v.split_once(" (")).and_then(|(_, v)| v.split(' ').next()).and_then(|v| v.parse().ok()));
+        } else if let Some(r) = l.strip_prefix("router S at ") {
+            let flips = r.split_once(": ").and_then(|(_, v)| v.split_whitespace().next()).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let ridden = num_after(l, "ridden ").unwrap_or(0) as usize;
+            let empty = num_after(l, "), empty ").unwrap_or(0) as usize;
+            s.s_flip = Some((flips, ridden, empty));
         } else if let Some(r) = l.strip_prefix("head-perm day-1 latches ") {
             let n = r.split_once("launches for A with carts stopped at H: ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
             let most = r.split_once("the most carts stopped on the descent at once ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -673,6 +680,8 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         // golems over the seeds: ironspec's "recovery and golems lost printed")
         let hcs: Vec<Option<i64>> = ss.iter().filter_map(|s| s.hclean).collect();
         let pad = if hcs.is_empty() { pad } else { format!("{pad} | recovery {} A-cycles, golems {}", if hcs.iter().any(|h| h.is_none()) { "never".to_string() } else { hcs.iter().flatten().max().map_or("-".into(), |v| v.to_string()) }, ss.iter().filter_map(|s| s.golems).sum::<usize>()) };
+        let sfs: Vec<(usize, usize, usize)> = ss.iter().filter_map(|s| s.s_flip).collect();
+        let pad = if sfs.is_empty() { pad } else { format!("{pad} | S flips {} with a cart in S ridden {} empty {}", sfs.iter().map(|s| s.0).sum::<usize>(), sfs.iter().map(|s| s.1).sum::<usize>(), sfs.iter().map(|s| s.2).sum::<usize>()) };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
             let dr: usize = ss.iter().map(|s| s.d_rev).sum();
