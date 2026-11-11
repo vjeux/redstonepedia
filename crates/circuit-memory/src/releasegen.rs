@@ -668,7 +668,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {
-            for (n, q) in [("row7", [23, -6, 7]), ("row1", [23, -6, 1]), ("row_5", [23, -6, -5]), ("step_in", [20, -4, 12]), ("step_end", [28, -5, 6]), ("ring_top", [27, -5, 4]), ("p0", [22, -6, 9]), ("p1", [22, -6, 3]), ("p2", [22, -6, -3]), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
+            for (n, q) in [("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", [23, -6, 7]), ("row1", [23, -6, 1]), ("row_5", [23, -6, -5]), ("step_in", [20, -4, 12]), ("step_end", [28, -5, 6]), ("ring_top", [27, -5, 4]), ("p0", [22, -6, 9]), ("p1", [22, -6, 3]), ("p2", [22, -6, -3]), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
                 sp.ports.insert(format!("output.{n}"), q);
             }
         }

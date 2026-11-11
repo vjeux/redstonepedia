@@ -558,7 +558,7 @@ pub(crate) fn stand_rel(d: &mut Design) -> Result<Vec<P3>> {
     b.on([7, -1, 9], &rep("west", 4))?;
     b.put([8, -1, 9], STONE)?;
     for x in [0, 3, 6, 8] {
-        b.on([x, -1, 8], &rep("north", 1))?;
+        b.on([x, -1, 8], &rep("south", 1))?;
     }
     for x in 0..=8 {
         b.on([x, -1, 7], DUST)?;

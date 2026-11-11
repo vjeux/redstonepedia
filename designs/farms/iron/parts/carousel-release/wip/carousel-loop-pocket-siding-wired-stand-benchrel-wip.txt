@@ -1,0 +1,1946 @@
+name: carousel-release-loop-wired
+build: last -4,1,28 -4,1,31 -4,1,34
+circuit: mob-farm iron_ingot
+queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=8 straight=0 drop=0 vstand=0 tail_v=0 bridge=1 row_gap=3 uturn_boost=0 line=0 tail_deep=0 plain=0 stand_desc=0 detector=1 zombie_every=8 zombie_x=3 stand_deep=0 tail_desc=1 peak_pad=0 short_depart=0 stand_stop=1 stand_wired=1
+port home: -20 2 12
+port output: -5 1 -3
+entity: minecraft:minecart 0.5 2.73 25.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 1.73 29.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 33.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 36.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 39.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 42.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 45.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -0.32 0.73 47.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 46.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 43.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 40.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 37.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 34.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 31.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 28.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 25.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 22.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 19.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 7.885 -1.8225 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 3.885 -0.8225 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -0.115 0.1775 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:oak_boat 3.5 3 5.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 13.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 23.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 29.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 37.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 45.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 53.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -5.5 3 21.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -15.5 3 12.5 {Passengers:[{id:"minecraft:zombie"}]}
+nbt: -62 -4 17 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: -60 -4 0 {OutputSignal:1}
+nbt: -59 -4 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: -53 -6 9 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: -53 -6 10 {OutputSignal:1}
+nbt: -52 -6 8 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: -51 -6 8 {OutputSignal:1}
+nbt: -41 -6 -2 {Items:[{Slot:0b,id:"minecraft:stone",count:3}]}
+nbt: -6 -1 6 {OutputSignal:15}
+nbt: -5 -1 11 {OutputSignal:2}
+nbt: -5 -1 12 {Items:[{Slot:0b,id:"minecraft:stone",count:23}]}
+nbt: 26 -6 3 {OutputSignal:1}
+nbt: 26 -6 4 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 28 -6 4 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 29 -6 4 {OutputSignal:1}
+origin: -72 0 -26
+palette:
+  ! minecraft:redstone_wire[east=none,north=none,power=7,south=up,west=side]
+  " minecraft:redstone_wire[east=none,north=side,power=12,south=side,west=none]
+  $ minecraft:redstone_wire[east=none,north=none,power=0,south=up,west=side]
+  % minecraft:redstone_wire[east=none,north=none,power=10,south=side,west=side]
+  & minecraft:redstone_wire[east=none,north=none,power=12,south=side,west=side]
+  ' minecraft:redstone_wire[east=none,north=side,power=11,south=up,west=none]
+  ( minecraft:redstone_wire[east=none,north=side,power=12,south=up,west=none]
+  ) minecraft:redstone_wire[east=none,north=side,power=13,south=side,west=none]
+  * minecraft:redstone_wire[east=none,north=none,power=13,south=side,west=side]
+  + minecraft:redstone_wire[east=none,north=none,power=15,south=side,west=side]
+  , minecraft:redstone_wire[east=none,north=side,power=11,south=side,west=none]
+  / minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+  0 minecraft:red_bed[facing=north,occupied=false,part=head]
+  1 minecraft:redstone_block
+  2 minecraft:redstone_torch[lit=false]
+  3 minecraft:redstone_torch[lit=true]
+  4 minecraft:redstone_wall_torch[facing=east,lit=false]
+  5 minecraft:redstone_wall_torch[facing=north,lit=true]
+  6 minecraft:redstone_wall_torch[facing=south,lit=true]
+  7 minecraft:redstone_wall_torch[facing=west,lit=false]
+  8 minecraft:redstone_wall_torch[facing=west,lit=true]
+  9 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  ; minecraft:redstone_wire[east=none,north=side,power=10,south=up,west=none]
+  < minecraft:redstone_wire[east=none,north=none,power=8,south=side,west=side]
+  = minecraft:redstone_wire[east=none,north=none,power=6,south=side,west=side]
+  > minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  ? minecraft:redstone_wire[east=none,north=none,power=7,south=side,west=side]
+  @ minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
+  A minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]
+  B minecraft:comparator[facing=east,mode=compare,powered=true]
+  C minecraft:cobblestone
+  D minecraft:comparator[facing=east,mode=subtract,powered=false]
+  E minecraft:comparator[facing=north,mode=compare,powered=false]
+  F minecraft:comparator[facing=north,mode=compare,powered=true]
+  G minecraft:comparator[facing=north,mode=subtract,powered=false]
+  H minecraft:comparator[facing=north,mode=subtract,powered=true]
+  I minecraft:comparator[facing=south,mode=compare,powered=false]
+  J minecraft:comparator[facing=south,mode=compare,powered=true]
+  K minecraft:comparator[facing=south,mode=subtract,powered=false]
+  L minecraft:comparator[facing=west,mode=compare,powered=false]
+  M minecraft:comparator[facing=west,mode=compare,powered=true]
+  N minecraft:comparator[facing=west,mode=subtract,powered=false]
+  O minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  P minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  Q minecraft:dropper[facing=east,triggered=false]
+  R minecraft:dropper[facing=north,triggered=false]
+  S minecraft:dropper[facing=south,triggered=false]
+  T minecraft:dropper[facing=west,triggered=false]
+  U minecraft:hopper[enabled=true,facing=east]
+  V minecraft:hopper[enabled=true,facing=north]
+  W minecraft:hopper[enabled=true,facing=south]
+  X minecraft:hopper[enabled=true,facing=west]
+  Y minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  Z minecraft:observer[facing=north,powered=false]
+  \ minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+  ^ minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=up]
+  ` minecraft:redstone_wire[east=none,north=side,power=12,south=none,west=side]
+  a minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+  b minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  d minecraft:daylight_detector[inverted=true,power=0]
+  e minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  f minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  g minecraft:glass
+  h minecraft:hopper[enabled=true,facing=down]
+  i minecraft:iron_trapdoor[facing=east,half=bottom,open=true,powered=true,waterlogged=false]
+  j minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  k minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  l minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  m minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  n minecraft:rail[shape=ascending_north,waterlogged=false]
+  o minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]
+  p minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  q minecraft:rail[shape=ascending_south,waterlogged=false]
+  r minecraft:rail[shape=ascending_east,waterlogged=false]
+  s minecraft:rail[shape=ascending_west,waterlogged=false]
+  t minecraft:rail[shape=east_west,waterlogged=false]
+  u minecraft:rail[shape=north_east,waterlogged=false]
+  v minecraft:rail[shape=north_south,waterlogged=false]
+  w minecraft:rail[shape=north_west,waterlogged=false]
+  x minecraft:rail[shape=south_east,waterlogged=false]
+  y minecraft:rail[shape=south_west,waterlogged=false]
+  z minecraft:red_bed[facing=north,occupied=false,part=foot]
+  { minecraft:redstone_wire[east=none,north=side,power=13,south=up,west=none]
+  | minecraft:redstone_wire[east=none,north=side,power=10,south=side,west=none]
+  } minecraft:redstone_wire[east=none,north=side,power=14,south=side,west=none]
+  ~ minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  À minecraft:redstone_wire[east=none,north=side,power=14,south=up,west=none]
+  Á minecraft:redstone_wire[east=none,north=side,power=15,south=none,west=side]
+  Â minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=none]
+  Ã minecraft:redstone_wire[east=none,north=side,power=2,south=side,west=none]
+  Ä minecraft:redstone_wire[east=none,north=side,power=3,south=side,west=none]
+  Å minecraft:redstone_wire[east=none,north=side,power=4,south=side,west=none]
+  Æ minecraft:redstone_wire[east=none,north=side,power=5,south=none,west=side]
+  Ç minecraft:redstone_wire[east=none,north=side,power=5,south=side,west=none]
+  È minecraft:redstone_wire[east=none,north=side,power=5,south=up,west=none]
+  É minecraft:redstone_wire[east=none,north=side,power=6,south=side,west=none]
+  Ê minecraft:redstone_wire[east=none,north=side,power=6,south=up,west=none]
+  Ë minecraft:redstone_wire[east=none,north=side,power=7,south=side,west=none]
+  Ì minecraft:redstone_wire[east=none,north=side,power=7,south=up,west=none]
+  Í minecraft:redstone_wire[east=none,north=side,power=8,south=side,west=none]
+  Î minecraft:redstone_wire[east=none,north=side,power=8,south=up,west=none]
+  Ï minecraft:redstone_wire[east=none,north=side,power=9,south=side,west=none]
+  Ð minecraft:redstone_wire[east=none,north=side,power=9,south=up,west=none]
+  Ñ minecraft:redstone_wire[east=none,north=up,power=0,south=none,west=side]
+  Ò minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+  Ó minecraft:redstone_wire[east=none,north=up,power=10,south=side,west=none]
+  Ô minecraft:redstone_wire[east=none,north=up,power=11,south=side,west=none]
+  Õ minecraft:redstone_wire[east=none,north=up,power=12,south=side,west=none]
+  Ö minecraft:redstone_wire[east=none,north=up,power=13,south=side,west=none]
+  Ø minecraft:redstone_wire[east=none,north=up,power=14,south=side,west=none]
+  Ù minecraft:redstone_wire[east=none,north=up,power=7,south=side,west=none]
+  Ú minecraft:redstone_wire[east=none,north=up,power=8,south=none,west=side]
+  Û minecraft:redstone_wire[east=none,north=up,power=8,south=side,west=none]
+  Ü minecraft:redstone_wire[east=none,north=up,power=9,south=side,west=none]
+  Ý minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  Þ minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
+  ß minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  à minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
+  á minecraft:redstone_wire[east=side,north=none,power=10,south=none,west=side]
+  â minecraft:redstone_wire[east=side,north=none,power=10,south=side,west=none]
+  ã minecraft:redstone_wire[east=side,north=none,power=11,south=none,west=side]
+  ä minecraft:redstone_wire[east=side,north=none,power=11,south=side,west=none]
+  å minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
+  æ minecraft:redstone_wire[east=side,north=none,power=12,south=side,west=side]
+  ç minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
+  è minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
+  é minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=up]
+  ê minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
+  ë minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=none]
+  ì minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=side]
+  í minecraft:redstone_wire[east=side,north=none,power=3,south=none,west=side]
+  î minecraft:redstone_wire[east=side,north=none,power=4,south=none,west=side]
+  ï minecraft:redstone_wire[east=side,north=none,power=5,south=none,west=side]
+  ð minecraft:redstone_wire[east=side,north=none,power=6,south=none,west=side]
+  ñ minecraft:redstone_wire[east=side,north=none,power=7,south=none,west=side]
+  ò minecraft:redstone_wire[east=side,north=none,power=7,south=side,west=none]
+  ó minecraft:redstone_wire[east=side,north=none,power=8,south=none,west=side]
+  ô minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=side]
+  õ minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  ö minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
+  ø minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+  ù minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  ú minecraft:redstone_wire[east=side,north=side,power=13,south=none,west=none]
+  û minecraft:redstone_wire[east=side,north=side,power=13,south=none,west=side]
+  ü minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=none]
+  ý minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=side]
+  þ minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=none]
+  ÿ minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=none]
+  Α minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  Β minecraft:redstone_wire[east=side,north=side,power=3,south=none,west=none]
+  Γ minecraft:redstone_wire[east=side,north=side,power=6,south=none,west=none]
+  Δ minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
+  Ε minecraft:redstone_wire[east=side,north=up,power=0,south=side,west=none]
+  Ζ minecraft:redstone_wire[east=side,north=up,power=6,south=none,west=none]
+  Η minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  Θ minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
+  Ι minecraft:redstone_wire[east=up,north=none,power=10,south=none,west=side]
+  Κ minecraft:redstone_wire[east=up,north=none,power=11,south=none,west=side]
+  Λ minecraft:redstone_wire[east=up,north=none,power=11,south=side,west=none]
+  Μ minecraft:redstone_wire[east=up,north=none,power=12,south=none,west=side]
+  Ν minecraft:redstone_wire[east=up,north=none,power=13,south=none,west=side]
+  Ξ minecraft:redstone_wire[east=up,north=none,power=14,south=none,west=side]
+  Ο minecraft:redstone_wire[east=up,north=none,power=15,south=none,west=side]
+  Π minecraft:redstone_wire[east=up,north=none,power=9,south=none,west=side]
+  Ρ minecraft:redstone_wire[east=up,north=side,power=0,south=side,west=none]
+  Σ minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  Τ minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  Υ minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  Φ minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
+  Χ minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  Ψ minecraft:repeater[delay=1,facing=south,locked=false,powered=true]
+  Ω minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  Ϊ minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  Ϋ minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  ά minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  έ minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  ή minecraft:repeater[delay=2,facing=west,locked=false,powered=true]
+  ί minecraft:repeater[delay=3,facing=east,locked=false,powered=false]
+  ΰ minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
+  α minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  β minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  γ minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  δ minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  ε minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
+  ζ minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  η minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  θ minecraft:stone
+  ι minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  κ minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  λ minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  μ minecraft:waxed_copper_bulb[lit=false,powered=false]
+layer -14:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....................................................θθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθ
+  .....................................................θ
+  .....................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -13:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................................................................................θ
+  .....................................................ëΤáãåçèêΤáãåçèêΤáãåçèêΤáãåçèêΤáãåçèêΤáãåçèêΤÚ
+  .....................................................}
+  .....................................................{
+  .....................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -12:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......................................................θθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ
+  .......................................................θ.........................................θ
+  .......................................................θ.........................................Ü
+  .......................................................θ
+  .......................................................θ
+  .
+  .....................................................(
+  .....................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......................................................äåçèêΤáãåçèêΤáãåçèêΤáãåçèêΤáãåçèêΤáãåçèêΤ!
+  .......................................................|........................................θ
+  .......................................................Φ
+  .......................................................Â
+  .......................................................}
+  .......................................................)
+  ......................................................."
+  .......................................................,
+  .......................................................|
+  .......................................................Φ
+  .......................................................Â
+  .......................................................}
+  .......................................................)
+  ......................................................."
+  .......................................................,
+  .......................................................|
+  .......................................................Φ
+  .......................................................Â
+  .......................................................}
+  .......................................................)
+  ......................................................."
+  .......................................................,.........................................θ
+  .......................................................|.........................................Ó
+  .......................................................Φ
+  .......................................................Â
+  .......................................................À
+  .......................................................θ
+  .
+  .....................................................'
+  .....................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -10:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................................................................................................Î
+  ................................................................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....................................................................................θ
+  .....................................................................................θ
+  .....................................................................................θ
+  .....................................................................................θ
+  .........................................θθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθ
+  .................................................................................................θ
+  .................................................................................................Ô
+  .
+  .
+  .
+  .
+  .......................................................{
+  .......................................................θ
+  .
+  .....................................................;
+  .....................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................................................................................................Ð
+  ................................................................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....................................................................................Λθ
+  ....................................................................................."
+  ........................θ............................................................)
+  ........................θ................θ...........................................}
+  ........................θ................ΖΪêèçåãáΪêèçåãáΪêèçåãáΪêèçåãáΪêèçåãáΪêèçåãáΪÁ...........θ
+  ........................θ........................................................................Õ
+  ........................θ
+  ........................θ
+  ........................θ
+  ........................θ
+  ........................θ
+  ........................θ
+  ........................θ..............................(
+  .......................................................θ
+  .
+  .....................................................Ð
+  .....................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................θ
+  ................θ
+  ................θ
+  ................θ
+  ................θ
+  ................θ
+  ................θ
+  ................θ
+  ................θ
+  ................θ...............................................................................;
+  ................θ...............................................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ......................................................................................Ιθ
+  ........................θ
+  ........................Ó................θ
+  ........................Ï................Ù.......................................................θ
+  ........................Í........................................................................Ö
+  ........................Ë
+  ........................É
+  ........................Ç
+  ........................Φ
+  ........................Â
+  ........................}
+  ........................)
+  ........................"
+  .......................................................'
+  .......................................................θ
+  .
+  .....................................................Î
+  .....................................................θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................θ
+  ................Ù
+  ................Φ..........θθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθ
+  ................Â..........θ.................................................θ
+  ................}..........θ.................................................θ
+  ................)..........θ.................................................θ
+  ................"..........θ.θθθθθθθθθθ......................................θ
+  ................,..........θ.θ........θ......................................θ...............θθθθθθθθθθθ
+  ................|.........θ.θθ........θ......................................θ...............θ.........θ
+  ................Φ..........θ..........θ......................................θ...............θθ........θ
+  ................Â..........θ.θθ.......θ......................................θ..............θ..........θ
+  ................À..........θ.θ...............................................θ..............θ...'......θ
+  ................θ..........θ.θ..θ............................................θ..............θ...θ......θ
+  ............θ.θθθ..........θ.θ...............................................θ..............θθθθθθθ....θ
+  ...........................θ.θ...θθθθθθθθθθθθ................................θ..............θθ....θ....θ
+  ..........θθθθθθθθθθθθθθθθθθ.θ..............θ................................θ...............θθ...θ....θ
+  ...........................θ.θ..............θ................................θ..............θ........θθθ
+  ..................θθθθθθθθ.θ.θ..............θ................................θ..............θ
+  ..................θ......θθθ.θ..............θ................................θ..............θ......θ
+  ..................θ.......θθ.θ..............θ................................θ..............θθθθθθ.θ
+  ................θθ...θθθ.θθ.θ...............θ................................θ..............θθ...θθθ
+  .......................θ...θ................θ................................θ...............θθ..θ
+  ...............θ...θ...θθθθθ................θ................................θ.........Πθθθθθ
+  ...............θ...θ....Ô.θθ.............θ..θ................................θ............θ.θ
+  ...............θ...θ.....θθ..............Û..θ................................θ............θ.θ....θ
+  ...............θ...θ.......θ................θ................................θ.......θθθθθθθθ....Ø
+  ...............θ...θθθθθθθθθ................θ................................θ
+  ...............θ..........θθ................θ................................θ
+  ...............θ.........θθ.................θ
+  ...............θ............................θ
+  ...............θ............................θ
+  ...............θ............................θ
+  ...............θ............................θ
+  ...............θ............................θ
+  ...............θ............................θ
+  ............................................θ
+  ............................................θ..........;
+  ............................................θ..........θ
+  ............................................θ
+  ............................................θ........Ì
+  ............................................θ........θ
+  ............................................θ
+  ............................................θθθθ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................θ
+  ................Û
+  .
+  ...........................ßÝÝÝΣÝÝÝÝÝÝΣÝÝÝÝÝÝΣÝÝÝÝÝÝΣÝÝÝÝÝÝΣÝÝÝÝÝÝΣÝÝÝÝÝÝΣÝÝÝ9
+  ...........................~.................................................~
+  ...........................~.................................................~
+  ...........................~.................................................Χ
+  ...........................~.ßÝÝÝÝÝÝÝΩ9......................................~
+  ...........................Υ.~........~......................................~...............òóôáãåçèêΤ<
+  .........θθθθθθθθθθθθθθθθθÞθÝ>........~......................................~...............Φ.........Ï
+  ...........................~..........~......................................~..............θNΗθ.......|
+  ...........................~.ßΩQUQUQW.\......................................~..............Χ..........,
+  ...........................~.~.VTXTXTθθ......................................~..............Χ.........."
+  ................)..........~.~..E............................................Χ..............Χ..."......)
+  ...........θΤθΤã`..........~.~..θ............................................~..............Χâãåûè+....}
+  ...........................~.~..6êèçåãáôóΪêè*................................~..............ΧΦ....Ψ....Â
+  .........θéçåãáôóΪêèçåãáôóΪG.~.............."................................~..............θNΗθ..J....Ψ
+  ...........................Υ.~..............,................................~..............Χ.....QUSMΪÁ
+  ..................ßÝÝÝÝÝÝ9.Υ.~..............|................................~..............Χ.....VTX
+  ..................Χ......õ9Υ.~..............Ï................................~..............Χ......Eθθ
+  ..................I.......ΥΥ.~..............Í................................Χ..............ΧßÝÝÝ9.Υ
+  ...............θΣcQUSMΪ+θÞDθΩθ..............Ë................................~..............ΧΥ...øÝ>
+  ...............6θθVTX..}...ΰ................É................................~..............θNΗθ.Υ
+  ...............Â...F...úæã%Υ.............θ..Ç................................~..........óΪìήK....θ
+  ...............}...Φ......ΦΥ.............Ü..Å................................~............ζ.Χ....6
+  ...............)...Â....θÞDθ................Ä................................~............~.~....Â
+  ..............."...}.......ΰ................Ã................................~......θÞΩÝÝÝöÝ>
+  ...............,...úåãáôóñ=Υ................Φ................................Χ
+  ...............|..........ΦΥ................Â...............................θ^
+  ...............Ï........θÞDθ................}
+  ...............Í............................)
+  ...............Ë............................"
+  ...............É............................,
+  ...............Φ............................|
+  ...............Â............................Ï
+  ...............}............................Í
+  ............................................Ë
+  ............................................É
+  ............................................Ç..........Ð
+  ............................................Å..........θ
+  ............................................Ä
+  ............................................Ã........Ê
+  ............................................Φ........θ
+  ............................................þèçΜθ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................θ
+  ................Ü
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........θÞÝÝΣÝÝÝÝÝÝÝÝÝÝÝÝÝ
+  ........θ......................................................................................Ηθ
+  ........θ........................ßàà9...........................................................θ
+  ................................ÝööööΣ>.........................................................θ
+  ........θ..θθ.....................................................................θθθθθθθθθθθθθθθ
+  ........θθ.2....................................................................................θ
+  ........θθ......................................................................................θ
+  ........θê.....................................................................................Ηθ
+  .θθ.θθ.θ........................................................................................θ.ßà9
+  θ.......θθθ.....................................................................................θ.õö/
+  .θθθθθ.θθ.θ.....................................................................................θ...õΗθθθθθ
+  ........θ.θ.....................................................................................θ.........θ
+  ........θθθ.....θ.ßà9..θÞ..Ηθ...................................................................θ.........θ
+  ..........θθ....ΔΩöö>..θ.................θ..................................................\..Ηθ.........θ
+  ..........θθ...........θ.................Ó..................................................θ.............θ
+  .......................θ....................................................................θ.............θ
+  .........θθθθ..........θÞ...................................................................θ.............θ
+  .........θ..θ..........θ...........................................................θÞ.......θ.............θ
+  .........θ..θ..........θ....................................................................θθθθθθθθθθθθθθθ
+  ........θθθ.θ..........θ...................................................θÞ
+  ........θθθ.θ..........θÞ
+  ............θ..........θ
+  ............θ......................................θθθθθθθθθθθθθθθθθθθθ
+  .........θθθθ......................................θ
+  .........θ.........................................θ
+  ...................................................θ
+  ...................................................θ
+  ...................................................θ
+  ...................................................θ
+  ...................................................θ
+  ...................................................θ...Î
+  ...................................................θ...θ
+  ...................................................θ...θθ
+  ...................................................θ.È
+  ................................................Κθθθ.θ
+  ...................................................θ.θθ
+  ...................................................θ
+  ...................................................θ
+  ...................................................θ
+  ...................................................θ
+  ...................................................θ
+  ...................................................θθθθ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................θ
+  ................Ó
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  θθθθθθθθθθθθθθ
+  θ..θ..θ.Ε....θ
+  θ..θ..θ.Υ....θ..θθθθθθθθθθθθθθ..................................................................9
+  θ..θ..θ.Υ....θ..θ............θ.............θθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθ..............~
+  θ..θ..θ.θθθθθ...θ............θ.............θ.....................................θ..............~
+  θ..θ..θ.Υ7θΤBSX.θ............θ.............1....................................1θΣÝÝÝÝÝÝÝÝÝÝÝÝΣ/
+  θ..θ..θ.GΑ8θ.WR.θ............θ...................................................1..............~
+  θ..θ..θ.~Φ...SV.θ............θ..................................................................~
+  θ..θ..θ.Υθ...WR.θ............θ................................................................../
+  θίγθίγθΫθ....SV.θ............θ..................................................................~
+  Υ.......ßÝ9..WR.θ............θ..................................................................~
+  θηηηηβθΩG.~..QV.θ............θ..................................................................~.....ÝίÝί9
+  ......θ.Υ.~.....θ............θ..................................................................~.........α
+  ......θ.õÝ/.....Ò......ß....Ηθ...........θ......................................................~.........~
+  ......θ...õ9...........~.................Ô......................................................>.........α
+  ......θ..θΣ>...........~....................................................................~.............~
+  ......θ..6.............~....................................................................ΰ.............α
+  ......θ..ÿèç&..........ø....................................................................~.............~
+  ......θ..}..,..........~..........................................................θÞ........ΰ.............α
+  ......θ..Φ..|..........~....................................................................õβÝβÝβÝβÝβÝβÝβ>
+  ......θ.ΧÂΧ.Ï..........~..................................................θÞ
+  ......θ.KýK.Í..........ø
+  ......θθSXT.Ë..........Υ..............................................θ
+  ........UQV.É......................................ßÝΣÝÝÝÝÝÝΣÝÝÝÝÝÝΣÝÝÑ
+  .........GíîÆ......................................δ
+  .........Υ.........................................δ
+  ...................................................δ
+  ...................................................δ
+  ...................................................δ
+  ...................................................δ
+  ...................................................~
+  ...................................................~
+  ...................................................~...Ë
+  ...................................................~...ΓΪθ
+  ...................................................~
+  .................................................áΪG.Å.....................θ
+  ...................................................Υ.ΒΪθ...................θ
+  ...................................................~.......................θ
+  ...................................................~.......................θ
+  ...................................................~.......................θ
+  ...................................................~.......................θ
+  ...................................................~.......................θ
+  ...................................................õΩÝΗθ...................θ
+  ...........................................................................θ
+  ...........................................................................θ
+  ...........................................................................θ
+  ...........................................................................θ
+  ...........................................................................θ
+  .................................................................θθθθθθθθθθθθθθθθ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................θ
+  ................Ô
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ßÝÝàΩÝàÝàÝÝÝΩ9
+  Χ..Χ..Χ......~
+  ~..~..~......~..ßγΣγΣγΣγΣγΣγΣ9
+  ~..~..~......Υ..Υ............ζ.............xttttttttttttttttttttttttttttttttttttty
+  ~..~..~.ÝÝÝÝΩθ..Υ............ζ.............v.....................................v
+  ~..~..~......ß9.Υ............ζ.............j................................11.gky
+  ~..~..~......ø/.Υ............ζ.............θ....................................gj
+  ~..~..~......ø/.Υ............ζ...................................................1
+  ~..~..~..Οθ..ø/.Υ............ζ
+  ~..~..~......ø/.Υ............ζ................................................g
+  .............ø/.Υ............ζ
+  ......~......õ>.Υ............ζ
+  ......~.........~............ζ...........θ
+  ......~......................>...........Õ
+  ......~
+  ......~
+  ......~
+  ......δ
+  ......~..........................................................................θÞ
+  ......~
+  ......~..................................................................θÞ
+  ......~..θ............................................................θ
+  ......õΩàà9...........................................................Ò
+  ........õö>
+  ..........θ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .........................................................2
+  .
+  ..........................................................................θ@
+  .......................................................2..................θ~
+  ...........................................................................~
+  ...........................................................................~
+  ...........................................................................~
+  ...........................................................................~
+  ...........................................................................~
+  .......................................................Ηθ..................~
+  ...........................................................................~
+  ...........................................................................~
+  ...........................................................................~
+  ...........................................................................α
+  .................................................................θ.........~....θ
+  .................................................................ΔÝÝÝÝÝΩÝÝÝöÝÝÝÝÑ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................θ
+  ................Õ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........................................................................11.gkfgso
+  ...........................................j................................g.g.ù
+  ...........................................θ....................θθθθθθ......g.5.gj
+  ..........Ξθ....................................................θ...θθ........θ..1
+  ................................................................θ...θθ........Χ
+  ................................................................θ...θ.........θ
+  .........................................θ.......................θθθ
+  .........................................Ö...θ...............θθθθθθθ
+  .............................................θ...............θ..θθ...θθ
+  .............................................θθθ.............θθ.θθ..θ.θ
+  .............................................θ.θθθθθθ..........θ.θθθ.θ
+  .............................................θ.θ...θ.........θθθ.θ.θ..θθθθθθθθθθθ
+  .............................................θ.θθθ.θ.........θ...θ..θθ..θ.......θ
+  .............................................θθθ...θθ........θ.θθθθθθθ.θθ.......θÞ
+  ..............................................θ....θ.........θ.θ.θ.θ..θ.θ
+  ..............................................θ....θθθ.......θ.θθθ.θ..θ.θÞ
+  ..............................................θ..............θ...θ.θ..Ò
+  ..............................................θ..............θθθθ.θθ
+  ..............................................θ..............θ...θ.θ
+  ..............................................θθθθθθθθθ......θθθθ.θθθ
+  .............................................................θ...θ.θ
+  .............................................................θθθθ.θθ
+  .............................................................θ...θ.θθ
+  .............................................................θ...θ.θ
+  .............................................................θ...θ.θ........θθθθθθθ
+  .............................................................θ...θ.θθ.......θ.....θ
+  .............................................................θ...θ.θ........θ..θ..θ
+  .............................................................θθθθ.θθ........θ.θ.θ.θ
+  .........................................................θ...θ...θ.θθ.......θ.θ..θθ
+  .............................................................θθθθ..θ..........θ.θ.θ
+  .........................................................θ...θ...θ.θ......ß.θ.θθ.θθ
+  .......................................................θ.θ...θθθθ..θθ.....Υ.θ.θ.θ.θ
+  .........................................................θ...θ...θ.θ......θ.θ.θθ.θθ
+  .........................................................θ...θθθθ..θ.....θθ.θ.θ.θ.θ
+  .........................................................θ.......θ.θθ.....θ.θ.θθ.θθ
+  .........................................................θ........θθ......θ.θ.θ.θ
+  .........................................................θ.......θ.θ.....θθθθθθ.θ
+  ........................................................Ηθ.......θ.θθ.....θ.....θ
+  .................................................................θ.θ......θ.....θ
+  ..................................................................θθ.....θθ.....θ
+  .................................................................θ.θθ.....θ.....θ
+  .................................................................θ.θ......θ.....θ
+  .................................................................Ò.θ.....θθ.....Ò
+  ...................................................................θθ.....θ
+  ...................................................................θ......θ
+  ...................................................................θ.....θθ
+  ...................................................................θθ.....θ
+  ...................................................................θ......θ
+  ...................................................................θ...θ..θ
+  ...................................................................θθθθθθθθ
+  .
+  .
+  .
+  .
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................θ
+  ................Ö
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......................................................................gkfgso.O
+  ........................................................................g...~.Â
+  ...........................................j....................ßÝÝÝà9..g...\.θgÞ
+  ...........Νθθθθθθθθθθθθθθθθθθθθθθθθθθθθθθ.θ....................~...Υ~..ggggθggg.j
+  .........................................θ......................~...ø>........θ..1
+  .........................................θ......................~.1.Υ.........Ò
+  .........................................Ø.......................ßHΣθ
+  .............................................Θθ..............ßÝΩàùDê5
+  .............................................Υ...............~..ΰ~..θL9
+  .............................................θ49.............õcμD/..I.~
+  .............................................,.øΩÝÝàΩθ.........Χ.GΣDθcθ
+  .............................................".~...~.........ßÝ>.~.J..KγàΩÝÝÝÝÝÝ9
+  .............................................).θγ$.~.........~...~.hßΩθ.~.......~
+  .............................................üì6.θ.øΩθθ......~.ßγùÝàöΩθÝ/.......õ
+  ..............................................ε....~..θ......~.~.~.Υ..Υ.Υ
+  ..............................................ε....õÝΗθ......Χ.õΩG.~..~.õ
+  ..............................................ε......θθ......~...ΰ.~
+  ..............................................ε.......θ......øÝÝΣθΩ/
+  ..............................................ε.......θθθθθ..~...δ.~.g
+  ..............................................þèçåΩÝÝÝÑ......øÝÝΣθΩùÝθ
+  .............................................................~...δ.~
+  .............................................................øÝÝΣθΩ/.g
+  .............................................................~...Υ.øÝθ
+  .............................................................~...~.~
+  .............................................................~...ά.~.g......ßÝÝÝÝÝ9
+  .............................................................~...~.øÝθ......~.....Χ
+  .............................................................~...~.ζ........~.θΫθ.~
+  .............................................................øÝÝΣθΩ/.g......~.Ò.Χ.~
+  .........................................................3...~...δ.øηθ......\.~.θΩ/
+  ............................................................θøÝÝΣθ.~.....θθθθ.~.έ.~
+  .........................................................Θθθ.~...δ.~.g......Ò.øΫθΩ/
+  .......................................................3.~...øÝÝΣθ.øηθ......~.~.ζ.~
+  .........................................................~..θ~...Υ.~......~.~.øΫθΩ/
+  .........................................................Ρθθ.õÝÝΣθ.~.g..θΣ/.~.~.ζ.~
+  .........................................................~.......Υ.øηθ..g.Χ.~.øΫθΩ>
+  .........................................................Χ..θ....θΩ/......~.Χ.Χ.~
+  .........................................................Ρθθ.....δ.~.g..θΣùÝöÝ>.~
+  .........................................................>.......δ.øηθ..g.~.....~
+  .................................................................ά.~......~.....~
+  .................................................................θΩ/.g..θΣ/.....~
+  .................................................................δ.øηθ..g.~.....έ
+  .................................................................~.Υ......~.....~
+  ...................................................................~.g..θΣ/
+  ...................................................................øβθ..g.~
+  ...................................................................~......~
+  ...................................................................~.g..θΣ/
+  ...................................................................øβθ..g.~
+  ...................................................................Υ..gθ..Χ
+  ...................................................................~...έ..~
+  ...................................................................õÝÝÝöÝÝ>
+  .
+  .
+  .
+  .
+layer 0:
+  .
+  ................θ
+  ................θ
+  ................θ
+  ................θ
+  .
+  .
+  ................θ
+  ................Ø
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....................................................................ggso.t
+  .....................................................................g..~
+  .....................................................................g..~.....2à
+  ............åãáôóñðïîíΪêèçåãáôóñΪêèçåãáôó?.j.........................g..õÝÝÝöÝù>
+  .........................................Φ.θ.........................g........~..j
+  .........................................Â...........................g...........1
+  .....................................................................g
+  ..............................................Ηθ.....................g
+  .....................................................................g
+  .............................................g.......................1
+  .....................................................3..1ggθ.........1
+  ...........................................................1.........1
+  ...............................................g......θ....θ.........1
+  .................................................\...3Χ....θ.........1
+  .................................................θ....~....θ.........1
+  ......................................................>....θ.........1
+  .....................................................8θ....θ.........1
+  ......................................................~...θθ.........g
+  ......................................................øÝÝÝÑθ.........n
+  ...........................................................θ.........b
+  ...........................................................θ.........g
+  ...........................................................θ.........n
+  ...........................................................θ.........b
+  ...........................................................θ.........g
+  ...........................................................θ.........n
+  ...........................................................θ.........b...θθθθθθ
+  .........................................................θθθ.........g........Ò
+  .........................................................θ...........n
+  .......................................................θθθθ.θθθθθθgggb
+  .......................................................θ....Χ........g..θΣÝÝ/
+  .......................................................θ..ÝΩθ........n..g
+  .....................................................θθθθθθ.θθθθθθgggb
+  .....................................................θ......Χ........g..g
+  .....................................................θ....ÝΩθ........n..a
+  .....................................................θθθθθθ.θθθθθθgggb..q
+  ............................................................Χ........g..g
+  ..........................................................ÝΩθ........n..a
+  .....................................................................b..q
+  .....................................................................g..g
+  .....................................................................n..a
+  .....................................................................b..q
+  .....................................................................g..g
+  .....................................................................n..a
+  .....................................................................b..q
+  .....................................................................g..g
+  .....................................................................n..a
+  .....................................................................b..q
+  .....................................................................gspg
+  .
+  .
+  .
+  .
+  .
+  .
+layer 1:
+  ................d
+  ................~
+  ................~
+  ................~
+  ................Υ
+  ................θ
+  ................6
+  ................Â
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....................................................................xt
+  .....................................................................v
+  .....................................................................v
+  .....................................................................v
+  ...........................................j.........................P
+  ...........................................θ.........................v...........j
+  ...........................................θ.........................v...........1
+  ...........................................θ...Ηθθθθθθθθ.............v
+  ...........................................θ...........θ.............v
+  ...........................................θ...........θ.............m
+  ...........................................θθ1gggggggθggktty.........m
+  ....................................................g1...θθm.........m
+  ....................................................gg3...θv.........m
+  ....................................................gθ....θv.........m
+  .................................................\...g....θv.........m
+  .................................................θθθθg....θv.........m
+  .....................................................θg...θv.........m
+  .....................................................g....Òv.........v
+  ...........................................................v
+  ...........................................................v
+  ...........................................................v.........v
+  ...........................................................v
+  ...........................................................v
+  ...........................................................v.........v
+  ...........................................................v
+  ...........................................................v............θΣÝÝÝÝ9
+  .........................................................xtw.........v..g
+  .........................................................v
+  .......................................................xtwrθetttttttt.θ.g
+  .......................................................v.............v..a
+  .......................................................v................q
+  .....................................................xtwttrθetttttttt.θ.g
+  .....................................................v...............v..a
+  .....................................................v
+  .....................................................uttttrθetttttttt.θ
+  .....................................................................v..v
+  .
+  .
+  .....................................................................v..v
+  .
+  .
+  .....................................................................v..v
+  .
+  .
+  .....................................................................v..v
+  .
+  .
+  .....................................................................u..w
+  .
+  .
+  .
+  .
+  .
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................v...............................g
+  ...........................................v.....................................j
+  ...........................................v....ÝÝÝÝÝÝÝ9.........................1
+  ...........................................v...........Χθ
+  ...........................................v...........Χλ
+  ...........................................utltttttttytOι
+  .....................................................mg.κΩ9
+  ...................................................g0vθ.g.~
+  ...................................................gzAg...~................g
+  ....................................................Zvg...~
+  .................................................õÝÝ>v....~
+  .....................................................m....~
+  .....................................................C
+  .
+  .
+  .
+  ..................................................................g
+  .
+  ...........................................................................g
+  ........................................................................g
+  ........................................................................a
+  ........................................................................q
+  ........................................................................g
+  ...........................................................t............a
+  ...........................................................................g
+  .
+  ...........................................................t............v
+  .
+  .
+  ...........................................................t
+  .
+  .
+  ...........................................................................g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................................................g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................................................g
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................................................................j
+  ........................................................g........................g
+  .................................................................................g
+  .................................................................................g
+  .....................................................gg..........................g
+  ...................................................g..i..........................g
+  ...................................................g.gg..........................g
+  ....................................................ggg..........................g
+  .....................................................g...........................g
+  .................................................................................g
+  .....................................................g...........................g
+  .................................................................................g
+  .................................................................................g
+  ........................................................................gggggggggg
+  ........................................................................g
+  ........................................................................g
+  ........................................................................g
+  ........................................................................a
+  .
+  .
+  ........................................................................v
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................................................................v
+  .................................................................................v
+  .................................................................................v
+  ......................................................g..........................v
+  ....................................................g.g..........................v
+  ....................................................g.g..........................v
+  ......................................................g..........................v
+  .................................................................................v
+  .................................................................................v
+  .................................................................................v
+  .................................................................................v
+  .................................................................................v
+  ........................................................................xttttttttw
+  ........................................................................v
+  ........................................................................v
+  ........................................................................v
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................................................Y
+  .
+  .
+  .
+  .
+  .
+  .
+  ........................................................Y
+  ...........................................................................Y
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..................................................................Y
+  .
+  ...........................................................................Y
+  .
+  .
+  .
+  .
+  .
+  ...........................................................................Y
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................................................Y
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................................................Y
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................................................Y
