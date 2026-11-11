@@ -398,17 +398,120 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-wired-pocket", include_str!("../scenes/carousel-wired-pocket.txt"), include_str!("../scenes/carousel-wired-pocket.drive")),
 ];
 
+/// (tickexact 2026-11-10, ironspec's chunk alignment) Drive scenes moved in the sandbox, with
+/// extra acts: (name, the drive scene it copies, the shift in blocks, the extra drive lines). The
+/// carousel's final alignment puts the loop frame's cell 0, 0 at X & 15 = 6, Z & 15 = 6, its chunk
+/// lines at x -7|-6, 9|10, -23|-22 and z -7|-6, 9|10, 25|26, 41|42: the lean loop moved by +6, 0,
+/// +6, with partial unloads at those lines (`act T unload x0,z0,x1,z1 N` in the sandbox's chunks,
+/// sandbox = frame + 6; its box is chunks x -5..2, z -2..3):
+/// - t1250 for 30 gt, chunk row z 1 (frame z 10..25): the stand's release run cut at z 9|10 at
+///   level 32 mid-release (the slot's golem pulse at t1240), the queue's z 25|26 line too;
+/// - t2080 for 60 gt, row z 2 (frame z 26..41): the queue's z 25|26 and 41|42 lines at level 32
+///   across its advance pulses;
+/// - t3200 for 200 gt, column x -2 (frame x -38..-23): the siding's x -23|-22 line at level 32
+///   while slot 30's visitor sleeps in the bed;
+/// - t5040 for 100 gt, rows z 0..2 (frame z -6..41): rows 0 and 2 at level 32, row 1 at 33 (the
+///   stand and the queue's south end loaded but frozen) for a whole slot.
+const MOVED_SCENES: &[(&str, &str, [i32; 3], &str)] = &[(
+    "carousel-wired-pocket-a6",
+    "carousel-wired-pocket",
+    [6, 0, 6],
+    "act 1250 unload -5,1,2,1 30\nact 2080 unload -5,2,2,2 60\nact 3200 unload -2,-2,-2,3 200\nact 5040 unload -5,0,2,2 100\n",
+)];
+
+/// A moved scene's copy: (the drive scene, the shift, the extra drive lines).
+fn moved(name: &str) -> Option<(&'static str, [i32; 3], &'static str)> {
+    MOVED_SCENES.iter().find(|(n, ..)| *n == name).map(|(_, b, s, x)| (*b, *s, *x))
+}
+
+/// Every drive scene's name: the frozen ones, then the moved copies.
+fn drive_scene_names() -> Vec<&'static str> {
+    DRIVE_SCENES.iter().map(|(n, _, _)| *n).chain(MOVED_SCENES.iter().map(|(n, ..)| *n)).collect()
+}
+
+/// A design moved by `s` (its blocks, block entities, ports and entities).
+fn shift_design(mut d: mctas::design::Design, s: [i32; 3]) -> mctas::design::Design {
+    let add = |p: [i32; 3]| [p[0] + s[0], p[1] + s[1], p[2] + s[2]];
+    d.blocks = d.blocks.into_iter().map(|(p, st)| (add(p), st)).collect();
+    d.block_entities = d.block_entities.into_iter().map(|(p, n)| (add(p), n)).collect();
+    for v in d.ports.values_mut() {
+        *v = add(*v);
+    }
+    for e in &mut d.entities {
+        e.pos = [e.pos[0] + s[0] as f64, e.pos[1] + s[1] as f64, e.pos[2] + s[2] as f64];
+    }
+    d
+}
+
+/// A drive log moved by `s` (its block acts' cells, its teleports' and expected positions), with
+/// `extra` act lines merged in by tick.
+fn shift_drive(text: &str, s: [i32; 3], extra: &str) -> String {
+    let mut head = Vec::new();
+    let mut acts: Vec<(u32, String)> = Vec::new();
+    let mut expects = Vec::new();
+    let moved_ints = |f: &[&str], at: usize| -> String {
+        let mut g: Vec<String> = f.iter().map(|x| x.to_string()).collect();
+        for k in 0..3 {
+            let v: i32 = g[at + k].trim().parse().unwrap_or_else(|_| panic!("a drive line's cell: {f:?}"));
+            g[at + k] = (v + s[k]).to_string();
+        }
+        g.join(" ")
+    };
+    let moved_floats = |f: &[&str], at: usize| -> String {
+        let mut g: Vec<String> = f.iter().map(|x| x.to_string()).collect();
+        for k in 0..3 {
+            let v: f64 = g[at + k].trim().parse().unwrap_or_else(|_| panic!("a drive line's position: {f:?}"));
+            g[at + k] = format!("{}", v + s[k] as f64);
+        }
+        g.join(" ")
+    };
+    for line in text.lines() {
+        if line.starts_with("expect ") {
+            let f: Vec<&str> = line.split(' ').collect();
+            expects.push(if f.len() == 7 && f[2] == "pos" { moved_floats(&f, 4) } else { line.to_string() });
+            continue;
+        }
+        if !line.starts_with("act ") {
+            head.push(line.to_string());
+            continue;
+        }
+        let f: Vec<&str> = line.splitn(7, ' ').collect();
+        let t: u32 = f[1].parse().unwrap_or_else(|_| panic!("a drive line's tick: {line:?}"));
+        let l = match f.get(2).copied() {
+            Some("set") | Some("nbt") if f.len() == 7 => moved_ints(&f, 3),
+            Some("tp") if f.len() == 7 => moved_floats(&f, 4),
+            Some("home") if f.len() == 7 => moved_ints(&f, 4),
+            Some("poi-take") if f.len() == 6 => moved_ints(&f, 3),
+            Some("unload") | Some("load") | Some("nether-set") | Some("nether-nbt") if s != [0, 0, 0] => panic!("a moved drive scene's base holds {line:?}: chunk boxes and Nether cells do not move"),
+            _ => line.to_string(),
+        };
+        acts.push((t, l));
+    }
+    for line in extra.lines().filter(|l| l.starts_with("act ")) {
+        let t: u32 = line.split(' ').nth(1).and_then(|x| x.parse().ok()).unwrap_or_else(|| panic!("an extra drive line's tick: {line:?}"));
+        acts.push((t, line.to_string()));
+    }
+    acts.sort_by_key(|(t, _)| *t);
+    let mut out = head;
+    out.extend(acts.into_iter().map(|(_, l)| l));
+    out.extend(expects);
+    out.join("\n") + "\n"
+}
+
 /// A drive scene's day time at its spawn in its bench's run: the bench's world is
 /// `RunOpts::steady(seed, ..)` of the drive log's `seed` line (its `day0`).
 fn drive_day0(name: &str) -> Option<i64> {
-    let (_, _, t) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
+    let t = drive_text(name)?;
     // (`seed N`, or `# seed N` as farmopt's benches write it)
     let seed: i64 = t.lines().find_map(|l| l.trim_start_matches('#').trim_start().strip_prefix("seed "))?.trim().parse().ok()?;
     Some(redsim::entity::mob::farm::RunOpts::steady(seed, 0, redsim::entity::mob::farm::WalkMode::Random).day0)
 }
 
-/// A drive scene's design.
+/// A drive scene's design (a moved scene's: its base's, moved).
 fn drive_design(name: &str) -> Option<mctas::design::Design> {
+    if let Some((base, s, _)) = moved(name) {
+        return drive_design(base).map(|d| shift_design(d, s));
+    }
     let (_, d, _) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
     Some(mctas::design::Design::parse(d).unwrap_or_else(|e| panic!("the frozen design of {name}: {e}")))
 }
@@ -437,6 +540,9 @@ fn with_home(kind: &str, nbt: Option<String>, h: [i32; 3]) -> Option<String> {
 /// A drive scene's drive log: the frozen one, or `MOBAI_DRIVE=<file>` (another drive log of the
 /// same design: the catch's tick window, `--stand-detect` 26, 27, 29...).
 fn drive_text(name: &str) -> Option<String> {
+    if let Some((base, s, extra)) = moved(name) {
+        return drive_text(base).map(|t| shift_drive(&t, s, extra));
+    }
     let (_, _, t) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
     Some(std::env::var("MOBAI_DRIVE").ok().map(|p| std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("MOBAI_DRIVE {p}: {e}"))).unwrap_or_else(|| t.to_string()))
 }
@@ -671,6 +777,9 @@ enum Placement {
 /// container's stock as an `nbt:` line, as its generator wrote them; carousel-wired builds it the
 /// judge's way, carousel-wired-raw places it as written.
 fn scene_placement(name: &str) -> Placement {
+    if let Some((base, ..)) = moved(name) {
+        return scene_placement(base);
+    }
     match name {
         "carousel-wired" | "carousel-wired-pocket" => Placement::Judge,
         "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" | "unload-v3-raw" | "unload-part-v3-raw" => Placement::Merged,
@@ -690,7 +799,7 @@ fn scene_judge_placed(name: &str) -> bool {
 /// summon (they would read the settle's sky), then placed raw with their updates; its output chest
 /// (`port output`) set when it is not one, and emptied.
 fn scene_bench_start(name: &str) -> bool {
-    name == "carousel-wired-pocket"
+    name == "carousel-wired-pocket" || moved(name).is_some_and(|(base, ..)| scene_bench_start(base))
 }
 
 /// The chest a bench start sets at the output.
@@ -2666,7 +2775,8 @@ fn scenes_raw() -> Vec<Scene> {
     // its bench's drive log ([`DRIVE_SCENES`], [`drive_actions`]): cart physics, the riders (and
     // carousel-catch2's zombies in boats) and the detector rail under scripted controls (no other
     // redstone in the designs). carousel-catch2 runs on Hard at day time 200, as the bench's world.
-    for (name, _, _) in DRIVE_SCENES {
+    for name in drive_scene_names() {
+        let name = &name;
         let d = drive_design(name).expect("a drive scene's design");
         let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, st)| (*p, st.clone())).collect();
         let home = scene_home(name);
