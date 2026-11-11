@@ -4209,6 +4209,9 @@ pub struct MeterHold {
     pub wired_h: i64,
     /// The emulated gate follows the logic this many gt late (to match the wired path's delay).
     pub h_delay: i64,
+    /// The guard (`--meter-hold ...,GUARD` 1): a chained opening waits for the previous cart's
+    /// L1/L2 edge (the cart counted in the stand), not only Dh + D12.
+    pub guard: bool,
 }
 
 /// The metered stand's state and measurements (`meter_tick`).
@@ -4218,6 +4221,11 @@ pub struct MeterState {
     /// (its meter acts on the odd cycles' REL)
     off: [i32; 3],
     stand_b: bool,
+    /// stand B pasted mirrored in z (`MCTAS_WIRED_B_MIRROR`): its cells at offz - z, positions at
+    /// offz + 1 - z
+    mirror: bool,
+    /// the pending opening is a retry (the guard doesn't hold it)
+    retry_open: bool,
     init: bool,
     rel_was: bool,
     rel_open: bool,
@@ -4356,7 +4364,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     let fy = offy as f64;
     let xb = -o.row_gap;
     let ox = xb + 3;
-    let at = |x: i32, y: i32, z: i32| BlockPos::new(x + sx + offx, y + offy, z + sz + offz);
+    let mz = s.mirror;
+    let at = |x: i32, y: i32, z: i32| BlockPos::new(x + sx + offx, y + offy, if mz { offz - z + sz } else { z + sz + offz });
     // (the router of the wired second stand: S, the plain-rail T at (xb,1,16) (north, south, west),
     // powered through the stone under it by a repeater at (xb+1,0,16) facing east, whose input
     // (xb+2,0,16) the bench sets: a redstone block at each even cycle's GO (north_west: the train
@@ -4450,7 +4459,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         }
         s.t_z = (o.approach.max(1) - 1) as f64;
     }
-    let pos: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| w.entities.list.iter().find(|e| e.id == *id).map(|e| (e.pos.x - fx, e.pos.y - fy, e.pos.z - fz, (e.delta_movement.x.powi(2) + e.delta_movement.y.powi(2) + e.delta_movement.z.powi(2)).sqrt()))).collect();
+    let pos: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| w.entities.list.iter().find(|e| e.id == *id).map(|e| (e.pos.x - fx, e.pos.y - fy, if mz { offz as f64 + 1.0 - (e.pos.z - sz as f64) } else { e.pos.z - fz }, (e.delta_movement.x.powi(2) + e.delta_movement.y.powi(2) + e.delta_movement.z.powi(2)).sqrt()))).collect();
     // (the wired pair: each stand's meter sees only the carts within its own height band, so the
     // other stand's carts, 27 apart, never enter its counts)
     let pos: Vec<Option<(f64, f64, f64, f64)>> = if m.wired_b { pos.into_iter().map(|p| p.filter(|p| p.1 > -12.0 && p.1 < 12.0)).collect() } else { pos };
@@ -4653,6 +4662,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     }
     if m.fallback > 0 && s.metering && !s.p3 && !s.h_open && s.open_at.is_none() && s.last_evidence.is_some_and(|e| t - e >= m.fallback) {
         s.open_at = Some(t);
+        s.retry_open = true;
         s.retries += 1;
         log(s, format!("{c}+{dt} retry"));
     }
@@ -4703,8 +4713,12 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.l2 = true;
         s.face_wait[2] = Some(t);
     }
-    if s.open_at.is_some_and(|a| t >= a) && !s.h_open {
+    // (the guard, `--meter-hold ...,GUARD` 1: a chained opening (Dh + D12) waits for the cart it
+    // follows to be counted in the stand: opening 2 for L1, opening 3 for L2; a retry doesn't wait)
+    let guard_wait = m.guard && !s.retry_open && ((s.phase == 2 && !s.l1) || (s.phase == 4 && !s.l2));
+    if s.open_at.is_some_and(|a| t >= a) && !s.h_open && !guard_wait {
         s.open_at = None;
+        s.retry_open = false;
         s.h_open = true;
         if s.phase % 2 == 0 {
             s.phase += 1;
@@ -4794,7 +4808,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     }
     // (the gates and their slopes; `g` in A's frame for the cart tests, `gw` this stand's own)
     let g: Vec<BlockPos> = lay.pockets.iter().take(3).map(|p| p.0).collect();
-    let gw: Vec<BlockPos> = g.iter().map(|p| BlockPos::new(p.x + offx, p.y + offy, p.z + offz)).collect();
+    let gw: Vec<BlockPos> = g.iter().map(|p| BlockPos::new(p.x + offx, p.y + offy, if mz { offz - (p.z - sz) + sz } else { p.z + offz })).collect();
     if g.len() == 3 {
         let want = [s.rel_open, s.rel_open || !s.l1, s.rel_open || !s.l2];
         for k in 0..3 {
@@ -5017,7 +5031,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
                             (0..3).filter(|k| {
                                 let (x, z) = (pa.0 - ux * *k as f64, pa.2 - uz * *k as f64);
                                 [0.1, -0.9].iter().any(|dy| {
-                                    let st = w.get(BlockPos::new(x.floor() as i32 + sx + offx, (pa.1 + dy).floor() as i32 + offy, z.floor() as i32 + sz + offz)).to_string();
+                                    let st = w.get(at(x.floor() as i32, (pa.1 + dy).floor() as i32, z.floor() as i32)).to_string();
                                     st.contains("rail") && st.contains("ascending")
                                 })
                             }).count()
@@ -5152,6 +5166,22 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
             per.entry(*c).or_default().push(*dt);
         }
         let rows: Vec<String> = per.iter().map(|(c, v)| format!("{c}: {}", v.iter().map(|d| format!("+{d}")).collect::<Vec<_>>().join("/"))).collect();
+        // (the departure gaps: each REL's carts crossing the crest (x 9.5, z dc + 0.5), gt after REL,
+        // and the gaps between consecutive carts)
+        let mut deps: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i < s.crest_offs.len() {
+            let mut run = vec![s.crest_offs[i].1];
+            let mut j = i + 1;
+            while j < s.crest_offs.len() && s.crest_offs[j].0 > s.crest_offs[j - 1].0 {
+                run.push(s.crest_offs[j].1);
+                j += 1;
+            }
+            let gaps: Vec<String> = run.windows(2).map(|w| (w[1] - w[0]).to_string()).collect();
+            deps.push(format!("+{} gaps {}", run.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("/+"), if gaps.is_empty() { "-".to_string() } else { gaps.join(",") }));
+            i = j;
+        }
+        out.push(format!("meter departure at the crest (each REL: carts' crossing gt after REL, then the gaps): {}", deps.join("; ")));
         out.push(format!("meter DEP_X probe (a detector at (xb,1,14) on A's branch, the centre crossing z 15.29 northward; gt after the cycle's tick, each cart): {}", rows.join("; ")));
         if !s.dep_level.is_empty() {
             let lv: Vec<String> = s.dep_level.iter().map(|(c, dt, on)| format!("{c}+{dt} {}", if *on { "on" } else { "off" })).collect();
@@ -6976,6 +7006,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             })
             .unwrap_or([0, -27, 32]),
         stand_b: true,
+        mirror: std::env::var("MCTAS_WIRED_B_MIRROR").is_ok_and(|v| v == "1"),
         ..MeterState::default()
     };
     let (mut strip_seen, mut strip_now, mut stripped): (Vec<u32>, Vec<u32>, Vec<String>) = (Vec::new(), Vec::new(), Vec::new());
