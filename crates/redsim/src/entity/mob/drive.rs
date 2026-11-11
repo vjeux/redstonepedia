@@ -51,6 +51,10 @@ pub enum Act {
     /// the bridge's `unload` / `load`).
     Unload,
     Load,
+    /// (tickexact 2026-11-11, the reload-order rule) `load order=reverse|seed:K` (and `unload all
+    /// <N> order=..`): the load with the entities' chunks in that order (`reload::load_all_ordered`;
+    /// `order=save` is the plain `Load`).
+    LoadOrdered(crate::reload::Order),
     /// `unload <box>` / `load <box>` (the brief's partial form: the chunk box [x0, z0, x1, z1]'s
     /// forced tickets dropped / back: `reload::unload_some` / `load_some`).
     UnloadSome([i32; 4]),
@@ -98,6 +102,15 @@ fn num(s: Option<&&str>, line: &str) -> Result<f64, String> {
 }
 
 /// A chunk box `x0,z0,x1,z1` (chunk coordinates).
+/// (tickexact 2026-11-11) A drive line's `order=save|reverse|seed:K`: the load act (`save`: the
+/// plain `Load`).
+fn load_act(s: &str) -> Option<Act> {
+    match crate::reload::Order::parse(s.strip_prefix("order=")?)? {
+        crate::reload::Order::Save => Some(Act::Load),
+        o => Some(Act::LoadOrdered(o)),
+    }
+}
+
 pub fn chunk_box(s: &str) -> Option<[i32; 4]> {
     let v: Vec<i32> = s.split(',').map(|x| x.trim().parse().ok()).collect::<Option<Vec<i32>>>()?;
     (v.len() == 4).then(|| [v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])])
@@ -161,15 +174,21 @@ impl Drive {
                         Some("poi-take") => Act::PoiTake(pos(3)?),
                         // (tickexact 2026-11-10, the brief's shared act) `unload all <N>`: every
                         // chunk unloaded now and loaded again N ticks later; bare `unload` / `load`
-                        // the two halves
-                        Some("unload") if w.len() == 5 && w[3] == "all" => {
+                        // the two halves; (2026-11-11) a last `order=save|reverse|seed:K`: the
+                        // load's entity order
+                        Some("unload") if (w.len() == 5 || w.len() == 6) && w[3] == "all" => {
                             let n: i64 = w[4].parse().map_err(|_| format!("{l:?}: unload all <N>"))?;
+                            let load = match w.get(5) {
+                                Some(o) => load_act(o).ok_or_else(|| format!("{l:?}: unload all <N> order=save|reverse|seed:K"))?,
+                                None => Act::Load,
+                            };
                             d.acts.push((t, Act::Unload));
-                            d.acts.push((t + n, Act::Load));
+                            d.acts.push((t + n, load));
                             continue;
                         }
                         Some("unload") if w.len() == 3 => Act::Unload,
                         Some("load") if w.len() == 3 => Act::Load,
+                        Some("load") if w.len() == 4 && w[3].starts_with("order=") => load_act(w[3]).ok_or_else(|| format!("{l:?}: load order=save|reverse|seed:K"))?,
                         // `unload x0,z0,x1,z1 <N>` (a chunk box), or its halves
                         Some("unload") if w.len() == 5 => {
                             let b = chunk_box(w[3]).ok_or_else(|| format!("{l:?}: unload x0,z0,x1,z1 <N>"))?;
@@ -272,6 +291,7 @@ pub fn apply(w: &mut World, lines: &[u32], t0: i64, a: &Act) {
         Act::PoiTake(p) => super::ai::poi::take(w, *p),
         Act::Unload => crate::reload::unload_all(w),
         Act::Load => crate::reload::load_all(w),
+        Act::LoadOrdered(o) => crate::reload::load_all_ordered(w, *o),
         Act::UnloadSome(b) => crate::reload::unload_some(w, *b),
         Act::LoadSome(b) => crate::reload::load_some(w, *b),
     }

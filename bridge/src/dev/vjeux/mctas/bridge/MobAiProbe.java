@@ -167,17 +167,22 @@ final class MobAiProbe {
     static JsonObject mobState(Sandbox sb) throws ReflectiveOperationException {
         java.lang.reflect.Field op = net.minecraft.world.entity.ai.control.MoveControl.class.getDeclaredField("operation");
         op.setAccessible(true);
+        java.lang.reflect.Field nextStep = Entity.class.getDeclaredField("nextStep");
+        nextStep.setAccessible(true);
         JsonArray out = new JsonArray();
         for (Entity e : sb.level.getAllEntities()) {
             if (!(e instanceof Mob mob)) {
                 continue;
             }
             JsonObject m = new JsonObject();
+            m.addProperty("id", e.getId() - sb.entityIdBase());
             m.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString());
             m.addProperty("x", Double.toString(e.getX()));
             m.addProperty("y", Double.toString(e.getY()));
             m.addProperty("z", Double.toString(e.getZ()));
             m.addProperty("yaw", Float.toString(e.getYRot()));
+            // the step-sound bookkeeping (Entity.applyMovementEmissionAndPlaySound)
+            m.addProperty("step", e.moveDist + " " + nextStep.get(e));
             var mc = mob.getMoveControl();
             m.addProperty("move", mc.getWantedX() + " " + mc.getWantedY() + " " + mc.getWantedZ() + " " + op.get(mc) + " " + mc.getSpeedModifier());
             var lc = mob.getLookControl();

@@ -3,6 +3,8 @@
 name: carousel-station-pad
 build: fills-last
 circuit: mob-farm iron_ingot
+declared: 
+flights: 
 station: x0=-2 x1=8 planes=-5,-2 by=0 h=3 slabs=-2,2,-1;-1,2,-1
 port nether-anchor: 0 0 0
 port nether-axis: 1 0 0
