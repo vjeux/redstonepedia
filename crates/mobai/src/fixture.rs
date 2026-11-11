@@ -3669,6 +3669,43 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's eye-in-block riders: the siding's glass cap over its booster,
+    // and a closed gate over a rider) seated riders in carts held on one rail cell (P = 64) with,
+    // in the cell over the cart (where the rider's eye sits, P + 1.68): glass (x 4), a closed oak
+    // fence gate facing north (its 1.5-high collision box across the eye, x 12), nothing (the
+    // control, x 20); each with a zombie in a boat 7 blocks +z in plain view, under a roof (so it
+    // does not burn): the sight ray (ClipContext COLLIDER from the eye) starts inside the block's
+    // collision shape
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 32, 63, stone);
+        floor(&mut b, 0, 32, 0, 32, 72, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        for (x, cap) in [(4, Some("minecraft:glass")), (12, Some("minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]")), (20, None)] {
+            b.push(([x, 64, 7], stone.to_string()));
+            b.push(([x, 64, 8], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([x, 64, 9], stone.to_string()));
+            if let Some(c) = cap {
+                b.push(([x, 65, 8], c.to_string()));
+            }
+            mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, 64.0625, 8.5], Some(rider.to_string())));
+            mobs.push(("minecraft:oak_boat".into(), [x as f64 + 0.5, 64.0, 15.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: "rider-eye-block".into(),
+            chunks: [0, 0, 1, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 70, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
