@@ -664,6 +664,230 @@ pub fn bed_distance(design: &Path, riders: &str) -> Result<()> {
     Ok(())
 }
 
+/// Capped stairs: a dust D with a dust one up and one across (a climb), where the cell over D is a
+/// conductor, so the two never connect (redstone wire climbs only past a transparent cell). Prints
+/// each per file and a total; files with none print their count 0.
+pub fn stair_lint(designs: &[std::path::PathBuf], plants: &[String], climbs: bool) -> Result<()> {
+    let conductor = |s: &str| {
+        let n = s.split('[').next().unwrap_or(s);
+        ["minecraft:stone", "minecraft:smooth_stone", "minecraft:cobblestone", "minecraft:stone_bricks", "minecraft:dirt", "minecraft:grass_block", "minecraft:target", "minecraft:dropper", "minecraft:copper_bulb", "minecraft:waxed_copper_bulb", "minecraft:oak_planks", "minecraft:deepslate"].contains(&n)
+    };
+    let dir = |f: &str| -> Option<[i32; 3]> {
+        Some(match f {
+            "north" => [0, 0, -1],
+            "south" => [0, 0, 1],
+            "east" => [1, 0, 0],
+            "west" => [-1, 0, 0],
+            _ => return None,
+        })
+    };
+    let facing = |s: &str| s.split("facing=").nth(1).and_then(|r| r.split([',', ']']).next()).map(|v| v.to_string());
+    let add = |a: [i32; 3], b: [i32; 3]| [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+    let six = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]];
+    let mut total = 0usize;
+    let mut broken_total = 0usize;
+    for path in designs {
+        let mut d = mctas::design::Design::load(path)?;
+        // (--plant: blocks placed in memory first, the planted-break control)
+        for p in plants {
+            let (at, block) = p.split_once('=').ok_or_else(|| anyhow::anyhow!("--plant wants X,Y,Z=BLOCK, got {p}"))?;
+            let v: Vec<i32> = at.split(',').map(|x| x.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(v.len() == 3, "--plant wants X,Y,Z=BLOCK, got {p}");
+            let was = d.blocks.insert([v[0], v[1], v[2]], block.to_string());
+            println!("{}: planted {block} at {at} (was {was:?})", path.display());
+        }
+        let dust = |p: &[i32; 3]| d.blocks.get(p).is_some_and(|s| s.starts_with("minecraft:redstone_wire"));
+        let cond = |p: &[i32; 3]| d.blocks.get(p).is_some_and(|s| conductor(s));
+        // (nets by the game's rules: side by side, up a stair past a transparent cell over the
+        // lower dust, down past a transparent cell beside the upper one)
+        let dusts: Vec<[i32; 3]> = d.blocks.keys().copied().filter(|p| dust(p)).collect();
+        let idx: std::collections::HashMap<[i32; 3], usize> = dusts.iter().enumerate().map(|(i, p)| (*p, i)).collect();
+        let mut parent: Vec<usize> = (0..dusts.len()).collect();
+        fn find(p: &mut Vec<usize>, i: usize) -> usize {
+            let mut r = i;
+            while p[r] != r {
+                r = p[r];
+            }
+            let mut j = i;
+            while p[j] != r {
+                let n = p[j];
+                p[j] = r;
+                j = n;
+            }
+            r
+        }
+        let hs = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+        let mut open_climbs: Vec<([i32; 3], [i32; 3])> = Vec::new();
+        for (i, p) in dusts.iter().enumerate() {
+            for h in hs {
+                let side = add(*p, h);
+                let up = add(side, [0, 1, 0]);
+                let link = if dust(&side) {
+                    Some(side)
+                } else if dust(&up) && !cond(&add(*p, [0, 1, 0])) {
+                    open_climbs.push((*p, up));
+                    Some(up)
+                } else {
+                    None
+                };
+                if let Some(q) = link {
+                    let (a, b) = (find(&mut parent, i), find(&mut parent, idx[&q]));
+                    parent[a] = b;
+                }
+            }
+        }
+        // drivers and consumers per net
+        let mut driven: std::collections::HashSet<usize> = Default::default();
+        let mut consumed: std::collections::HashSet<usize> = Default::default();
+        let net_of = |parent: &mut Vec<usize>, p: &[i32; 3]| idx.get(p).map(|&i| find(parent, i));
+        // (a conductor block's dusts: the ones on it or beside it, which can power it)
+        let block_dusts = |q: [i32; 3]| -> Vec<[i32; 3]> { [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].iter().map(|nb| add(q, *nb)).collect() };
+        // (ports: an input is driven from outside the file (the bench's block on its cell), any
+        // other port is read from outside)
+        for (name, at) in &d.ports {
+            for q in std::iter::once(*at).chain(six.iter().map(|nb| add(*at, *nb))) {
+                if let Some(k) = net_of(&mut parent, &q) {
+                    if name.starts_with("input.") {
+                        driven.insert(k);
+                    } else {
+                        consumed.insert(k);
+                    }
+                }
+            }
+        }
+        for (c, s) in &d.blocks {
+            let n = s.split('[').next().unwrap_or(s);
+            if n.ends_with("repeater") || n.ends_with("comparator") {
+                let Some(f) = facing(s).and_then(|f| dir(&f)) else { continue };
+                let input = add(*c, f);
+                let output = [c[0] - f[0], c[1] - f[1], c[2] - f[2]];
+                if let Some(k) = net_of(&mut parent, &output) {
+                    driven.insert(k);
+                } else if cond(&output) {
+                    // (a block it powers strongly powers the dust beside, on or under it)
+                    for q in block_dusts(output).into_iter().chain(std::iter::once([output[0], output[1] - 1, output[2]])) {
+                        if let Some(k) = net_of(&mut parent, &q) {
+                            driven.insert(k);
+                        }
+                    }
+                }
+                if let Some(k) = net_of(&mut parent, &input) {
+                    consumed.insert(k);
+                } else if cond(&input) {
+                    // (a block a dust on it or pointing in powers, read as the diode's input)
+                    for q in block_dusts(input) {
+                        if let Some(k) = net_of(&mut parent, &q) {
+                            consumed.insert(k);
+                        }
+                    }
+                }
+                if n.ends_with("comparator") {
+                    for side in [[f[2], 0, f[0]], [-f[2], 0, -f[0]]] {
+                        if let Some(k) = net_of(&mut parent, &add(*c, side)) {
+                            consumed.insert(k);
+                        }
+                    }
+                }
+            } else if n == "minecraft:redstone_torch" || n == "minecraft:redstone_wall_torch" {
+                for nb in six {
+                    if let Some(k) = net_of(&mut parent, &add(*c, nb)) {
+                        driven.insert(k);
+                    }
+                }
+                // (a torch strongly powers the block over it: that block drives the dust beside,
+                // on or under it)
+                let over = [c[0], c[1] + 1, c[2]];
+                if cond(&over) {
+                    for q in block_dusts(over) {
+                        if let Some(k) = net_of(&mut parent, &q) {
+                            driven.insert(k);
+                        }
+                    }
+                }
+                // (a torch reads the block it hangs on: the dusts that power that block feed it)
+                let att = if n == "minecraft:redstone_torch" {
+                    Some([c[0], c[1] - 1, c[2]])
+                } else {
+                    facing(s).and_then(|f| dir(&f)).map(|f| [c[0] - f[0], c[1], c[2] - f[2]])
+                };
+                if let Some(att) = att.filter(|a| cond(a)) {
+                    for q in block_dusts(att) {
+                        if let Some(k) = net_of(&mut parent, &q) {
+                            consumed.insert(k);
+                        }
+                    }
+                }
+            } else if ["minecraft:redstone_block", "minecraft:lever", "minecraft:detector_rail", "minecraft:daylight_detector", "minecraft:stone_button", "minecraft:observer", "minecraft:tripwire_hook", "minecraft:trapped_chest", "minecraft:sculk_sensor"].contains(&n) || n.ends_with("pressure_plate") {
+                for nb in six {
+                    if let Some(k) = net_of(&mut parent, &add(*c, nb)) {
+                        driven.insert(k);
+                    }
+                }
+            } else if ["piston", "powered_rail", "activator_rail", "redstone_lamp", "dropper", "dispenser", "hopper", "copper_bulb", "door", "fence_gate", "note_block", "tnt"].iter().any(|m| n.contains(m)) {
+                for nb in six {
+                    let q = add(*c, nb);
+                    if let Some(k) = net_of(&mut parent, &q) {
+                        consumed.insert(k);
+                    } else if cond(&q) {
+                        // (a mechanism beside a block a dust powers)
+                        for r in block_dusts(q) {
+                            if let Some(k) = net_of(&mut parent, &r) {
+                                consumed.insert(k);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let tag = |k: usize| match (driven.contains(&k), consumed.contains(&k)) {
+            (true, true) => "driven+read",
+            (true, false) => "driven only",
+            (false, true) => "READ, NO DRIVER",
+            (false, false) => "neither",
+        };
+        let mut found: Vec<String> = Vec::new();
+        let mut broken = 0usize;
+        for p in &dusts {
+            for h in hs {
+                let up = [p[0] + h[0], p[1] + 1, p[2] + h[2]];
+                let over = [p[0], p[1] + 1, p[2]];
+                if dust(&up) && cond(&over) {
+                    let (a, b) = (find(&mut parent, idx[p]), find(&mut parent, idx[&up]));
+                    let class = if a == b {
+                        "redundant (same net)".to_string()
+                    } else {
+                        // (broken: a net that is read but has no driver, its only way to one
+                        // being this capped step into a driven net)
+                        let starved = |x: usize, y: usize| consumed.contains(&x) && !driven.contains(&x) && driven.contains(&y);
+                        if starved(a, b) || starved(b, a) {
+                            broken += 1;
+                            format!("BROKEN ROUTE (lower {}, upper {})", tag(a), tag(b))
+                        } else {
+                            format!("isolation (lower {}, upper {})", tag(a), tag(b))
+                        }
+                    };
+                    found.push(format!("{p:?} -> {up:?} capped by {} at {over:?}: {class}", d.blocks[&over]));
+                }
+            }
+        }
+        println!("{}: {} capped stairs, {} broken routes", path.display(), found.len(), broken);
+        for f in &found {
+            println!("  {f}");
+        }
+        if climbs {
+            println!("  open climbs ({}):", open_climbs.len());
+            for (p, up) in &open_climbs {
+                let k = find(&mut parent, idx[p]);
+                println!("    {p:?} -> {up:?} (net {})", tag(k));
+            }
+        }
+        total += found.len();
+        broken_total += broken;
+    }
+    println!("total: {total} capped, {broken_total} broken routes");
+    Ok(())
+}
+
 /// `trace-diff` (the fold's check: which control lines moved, and by how much): two `release-trace`
 /// outputs, per port: identical, every edge shifted by the same gt (and that shift), or the first
 /// edge that differs.

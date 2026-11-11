@@ -251,7 +251,9 @@ fn feed(b: &mut B, srcs: &[(P3, usize)], end: P3, total: u8, near: &[P3], lo: P3
     // RETRY BLOCK_e route's second dust (-14,-3,27) capped its own first step (-14,-5,27) ->
     // (-14,-4,28)))
     for &(src, _) in srcs {
-        avoid.insert([src[0], src[1] + 2, src[2]]);
+        if std::env::var("MCTAS_NO_SRC_STAIR_RULE").is_err() {
+            avoid.insert([src[0], src[1] + 2, src[2]]);
+        }
     }
     let mut why: Vec<String> = Vec::new();
     for &(src, run0) in srcs {
@@ -669,6 +671,142 @@ fn retry_source_stand(d: &mut Design, net: &[(P3, usize)]) -> Result<()> {
         if d.blocks.get(&k) != Some(&v) {
             d.blocks.insert(k, v);
         }
+    }
+    Ok(())
+}
+
+/// An AND gadget (C = REAR AND SIDE as REAR - (15 - SIDE)): I (0,0,0) a subtract comparator facing
+/// south, its rear a repeater (0,0,1) from a redstone block (0,0,2), its side the repeater (-1,0,0)
+/// from the side input (-2,0,0); C (0,0,-1) a subtract comparator facing west, rear input
+/// (-1,0,-1), I into its south side, out east into the dust (1,0,-1). Placed at the first spot in
+/// the ranges where no cell, support or neighbour touches a foreign conductor. Returns (side input,
+/// rear input, output).
+fn and_gadget(b: &mut B, ys: &[i32], xs: std::ops::RangeInclusive<i32>, zs: std::ops::RangeInclusive<i32>, what: &str) -> Result<(P3, P3, P3)> {
+    let gad: Vec<([i32; 3], String)> = vec![
+        ([0, 0, 0], "minecraft:comparator[facing=south,mode=subtract,powered=false]".into()),
+        ([0, 0, 1], rep("south", 1)),
+        ([0, 0, 2], "minecraft:redstone_block".into()),
+        ([-1, 0, 0], rep("west", 1)),
+        ([0, 0, -1], "minecraft:comparator[facing=west,mode=subtract,powered=false]".into()),
+        ([1, 0, -1], DUST.into()),
+    ];
+    let inputs = [[-2, 0, 0], [-1, 0, -1]];
+    let v = place_gadget(b, &gad, &inputs, ys, xs, zs, what)?;
+    let at = |d: [i32; 3]| [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
+    Ok((at([-2, 0, 0]), at([-1, 0, -1]), at([1, 0, -1])))
+}
+
+/// Places a gadget (cells relative to an origin, plus its input cells kept free) at the first origin
+/// in the ranges where every cell and support is free and no foreign conductor touches a cell (at
+/// its level, above, or on a diagonal a dust could join).
+fn place_gadget(b: &mut B, gad: &[([i32; 3], String)], inputs: &[[i32; 3]], ys: &[i32], xs: std::ops::RangeInclusive<i32>, zs: std::ops::RangeInclusive<i32>, what: &str) -> Result<P3> {
+    let own: std::collections::BTreeSet<[i32; 3]> = gad.iter().map(|(d, _)| *d).chain(inputs.iter().copied()).collect();
+    let free = |b: &B, q: P3| b.blocks.get(&q).is_none_or(|s| s.ends_with(":air"));
+    for &y in ys {
+        for vz in zs.clone() {
+            'v: for vx in xs.clone() {
+                let v = [vx, y, vz];
+                for d in &own {
+                    let c = [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
+                    let sup = [c[0], c[1] - 1, c[2]];
+                    if !free(b, c) || (!free(b, sup) && b.blocks.get(&sup).map(|s| s.as_str()) != Some(STONE)) {
+                        continue 'v;
+                    }
+                    for n in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
+                        let q = [c[0] + n[0], c[1] + n[1], c[2] + n[2]];
+                        if own.contains(&[q[0] - v[0], q[1] - v[1], q[2] - v[2]]) {
+                            continue;
+                        }
+                        if !free(b, q) && b.blocks.get(&q).map(|s| s.as_str()) != Some(STONE) {
+                            continue 'v;
+                        }
+                    }
+                }
+                for (d, s) in gad {
+                    let c = [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
+                    if s != "minecraft:redstone_block" {
+                        b.blocks.insert([c[0], c[1] - 1, c[2]], STONE.into());
+                    }
+                    b.blocks.insert(c, s.clone());
+                }
+                eprintln!("{what}: placed at {v:?}");
+                return Ok(v);
+            }
+        }
+    }
+    bail!("{what}: no free place")
+}
+
+/// The post-hold cancel (ironspec 08:52 rule 2, 09:42: the stale REQ seen in D2 v2), today's stand
+/// (S3: the same keyed on Dh3_X): on the arrival evidence, if REQ or EXPIRE is lit, refill the ring
+/// (EXPIRE counts afresh) through its own entry, a landing dust on top of I2 (3,-4,25) (a stone
+/// (3,-4,24) cuts its diagonal to the ring's dust (3,-5,24)); if REQ is lit, a pulse into the reset
+/// tail's end (its rising edge toggles REQ off). Unshaped: the arrival is a short pulse, the ring
+/// takes any pulse, the bulb only the rising edge; ~10 gt of logic so the ring restart beats
+/// NOT-PERMIT's fall (arrival + 22). REQ ORed with EXPIRE through two repeaters into one dust (a
+/// dust join would let REQ power RETRY's EXPIRE line).
+#[allow(dead_code)]
+fn cancel_source(b: &mut B) -> Result<()> {
+    let none = std::collections::BTreeSet::new();
+    let lo = [-20, -13, 8];
+    let hi = [10, 0, 36];
+    // the ring entry on I2's top
+    if b.blocks.get(&[3, -4, 25]).is_some_and(|s| !s.ends_with(":air") && !s.contains("glass")) {
+        bail!("cancel: I2's top (3,-4,25) holds {:?}", b.blocks.get(&[3, -4, 25]));
+    }
+    b.blocks.remove(&[3, -4, 25]);
+    b.blocks.insert([3, -4, 24], STONE.into());
+    // the arrival tap: a repeater reading the arrival port (-11,-5,19) from a free side
+    let port = [-11, -5, 19];
+    let mut arr_src = None;
+    for (r, facing, out) in [([-11, -5, 18], "south", [-11, -5, 17]), ([-10, -5, 19], "west", [-9, -5, 19]), ([-11, -5, 20], "north", [-11, -5, 21])] {
+        let free = |q: &P3| b.blocks.get(q).is_none_or(|s| s.ends_with(":air"));
+        if free(&r) && free(&out) && free(&[r[0], r[1] - 1, r[2]]) {
+            b.blocks.insert([r[0], r[1] - 1, r[2]], STONE.into());
+            b.blocks.insert(r, rep(facing, 1));
+            b.blocks.insert([out[0], out[1] - 1, out[2]], STONE.into());
+            b.blocks.insert(out, DUST.into());
+            arr_src = Some(out);
+            break;
+        }
+    }
+    let Some(arr) = arr_src else { bail!("cancel: no free side at the arrival port {port:?}") };
+    // the two ANDs and the OR, in GO's chunk under the core
+    let (g1_side, g1_rear, g1_out) = and_gadget(b, &[-11, -9], -6..=8, 10..=25, "cancel: ring AND")?;
+    let (g2_side, g2_rear, g2_out) = and_gadget(b, &[-11, -9], -6..=8, 10..=25, "cancel: reset AND")?;
+    let or_gad: Vec<([i32; 3], String)> = vec![([0, 0, 0], DUST.into()), ([-1, 0, 0], rep("west", 1)), ([0, 0, 1], rep("south", 1))];
+    let ov = place_gadget(b, &or_gad, &[[-2, 0, 0], [0, 0, 2]], &[-11, -9], -6..=8, 10..=25, "cancel: REQ OR EXPIRE")?;
+    let (or_a, or_b, or_o) = ([ov[0] - 2, ov[1], ov[2]], [ov[0], ov[1], ov[2] + 2], ov);
+    // routes: REQ (the readback line) to the OR and to the reset AND's rear; EXPIRE to the OR; the
+    // OR to the ring AND's rear; the arrival to both ANDs' sides; the outputs to I2's top and to
+    // the reset tail's end
+    let req = [([-6, -5, 24], 1), ([-6, -5, 23], 2), ([-6, -5, 22], 3), ([-5, -5, 22], 4)];
+    let p = feed(b, &req, or_a, 4, &[[ov[0] - 1, ov[1], ov[2]]], lo, hi, "cancel: REQ to the OR", &none)?;
+    let mut rnet: Vec<(P3, usize)> = req.to_vec();
+    rnet.extend(p);
+    feed(b, &rnet, g2_rear, 4, &[[g2_rear[0] + 1, g2_rear[1], g2_rear[2]], [g2_rear[0], g2_rear[1], g2_rear[2] + 1]], lo, hi, "cancel: REQ to the reset AND", &none)?;
+    feed(b, &[([4, -5, 22], 1), ([0, -5, 22], 1)], or_b, 4, &[[ov[0], ov[1], ov[2] + 1]], lo, hi, "cancel: EXPIRE to the OR", &none)?;
+    feed(b, &[(or_o, 1)], g1_rear, 4, &[[g1_rear[0] + 1, g1_rear[1], g1_rear[2]], [g1_rear[0], g1_rear[1], g1_rear[2] + 1]], lo, hi, "cancel: the OR to the ring AND", &none)?;
+    let p = feed(b, &[(arr, 1)], g1_side, 4, &[[g1_side[0] + 1, g1_side[1], g1_side[2]]], lo, hi, "cancel: the arrival to the ring AND", &none)?;
+    let mut anet = vec![(arr, 1)];
+    anet.extend(p);
+    feed(b, &anet, g2_side, 4, &[[g2_side[0] + 1, g2_side[1], g2_side[2]]], lo, hi, "cancel: the arrival to the reset AND", &none)?;
+    feed(b, &[(g1_out, 1)], [3, -4, 25], 4, &[[3, -5, 25]], lo, hi, "cancel: to I2's top", &none)?;
+    // (the reset tail ends at (-4,-4,23), beside the bulb's support: the route ends beside it)
+    let tail_end = [-4, -4, 23];
+    let mut done = false;
+    let mut why = Vec::new();
+    for e in [[-5, -4, 23], [-3, -4, 23], [-4, -4, 22]] {
+        match feed(b, &[(g2_out, 1)], e, 4, &[tail_end], lo, hi, "cancel: to the reset tail", &none) {
+            Ok(_) => {
+                done = true;
+                break;
+            }
+            Err(err) => why.push(format!("{err}")),
+        }
+    }
+    if !done {
+        bail!("cancel: no route to the reset tail ({})", why.join("; "));
     }
     Ok(())
 }
