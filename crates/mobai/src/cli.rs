@@ -97,6 +97,9 @@ pub enum MobaiCmd {
         seed: i64,
         #[arg(long, default_value_t = 2000)]
         ticks: u32,
+        /// Memories printed too that the timeline leaves out by default (walk_target, path, ...)
+        #[arg(long, value_delimiter = ',')]
+        also: Vec<String>,
     },
     /// A recorded scene's panic onset over every phase pair of a sleeping villager's two sensors
     /// (NearestLivingEntitySensor, VillagerHostilesSensor; 400 redsim runs from the scene's state
@@ -197,6 +200,12 @@ pub enum MobaiCmd {
         /// One line a lane (its carts, the first contact, the closest centres, a merge)
         #[arg(long)]
         summary: bool,
+    },
+    /// (tickexact 2026-11-11, ironspec's raw-placement audit) The scenes (default: every scene
+    /// placed raw) whose written block states one update pass would change (a powered rail on its
+    /// redstone block written unpowered, a rail shape, a gate, dust...): FAIL on any
+    SceneLint {
+        scenes: Vec<String>,
     },
     /// A farm design's redsim run as the exact compare runs it, the level random's (or an
     /// entity's) draws of one game tick printed by call site.
@@ -312,7 +321,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         }
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
-        MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
+        MobaiCmd::Timeline { name, seed, ticks, also } => crate::fixture::timeline(version, &name, seed, ticks, &also),
         MobaiCmd::SensorSweep { name, villager, reveal, dir } => crate::fixture::sensor_sweep(&name, villager, reveal, &dir),
         MobaiCmd::ReloadWake { living, hostiles, seeds } => crate::fixture::reload_wake(version, &living, &hostiles, &seeds),
         MobaiCmd::Ledge { ticks, only } => crate::fixture::ledge(version, ticks, &only),
@@ -322,6 +331,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         }
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::RecCarts { path, every, band, summary } => crate::fixture::rec_carts(&path, every, band, summary),
+        MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
         MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger, make_pad, piglins, ticket } => match (nether, overworld, nether_design) {

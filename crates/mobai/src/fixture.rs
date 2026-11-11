@@ -662,7 +662,7 @@ fn slope_lane(b: &mut Vec<([i32; 3], String)>, x: i32, n: i32, stone: &str) {
 /// `wait` (pinned: G0's rest, or P's cart on G_P) and an arrival at `arrive` (mid-slope) set off
 /// down the slope (+z) at stored 0.02 k (0 to 2.0); the waiting cart's and the arrival's riders as
 /// given.
-fn r1_sweep_scene(name: &str, file: &str, wait: [f64; 3], arrive: [f64; 3], wait_ridden: bool, arrive_ridden: bool) -> Scene {
+fn r1_sweep_scene(name: &str, file: &str, wait: [f64; 3], arrive: [f64; 3], wait_ridden: bool, arrive_ridden: bool, raw_p: bool) -> Scene {
     let d = mctas::design::Design::parse(file).expect("ironfarm's contact scene parses");
     let column: Vec<([i32; 3], String)> = d.blocks.iter().filter(|(p, _)| p[0] == 0).map(|(p, s)| (*p, s.clone())).collect();
     let mut b: Vec<([i32; 3], String)> = Vec::new();
@@ -675,8 +675,15 @@ fn r1_sweep_scene(name: &str, file: &str, wait: [f64; 3], arrive: [f64; 3], wait
         let (col, row) = (k % 26, k / 26);
         let (dx, dz) = (1 + 2 * col as i32, 2 + 12 * row as i32 - 26);
         for (p, s) in &column {
-            b.push(([p[0] + dx, p[1] + 64, p[2] + dz], s.clone()));
+            // (P (0,2,31) sits on its redstone block, always on as R1 runs: a scene is placed raw,
+            // so its state is written powered)
+            let s = if *p == [0, 2, 31] && !raw_p { s.replace("powered=false", "powered=true") } else { s.clone() };
+            b.push(([p[0] + dx, p[1] + 64, p[2] + dz], s));
         }
+        // (ironspec's raw-placement audit: the column's cut ends, its top rail (0,7,26) and its last
+        // (0,0,34), against stone on their high sides as escR1 has them, so no update pops them)
+        b.push(([dx, 7 + 64, 25 + dz], "minecraft:stone".to_string()));
+        b.push(([dx, 64, 35 + dz], "minecraft:stone".to_string()));
         mobs.push(cart([wait[0] + dx as f64, wait[1] + 64.0, wait[2] + dz as f64], 0.0, wait_ridden));
         mobs.push(cart([arrive[0] + dx as f64, arrive[1] + 64.0, arrive[2] + dz as f64], 0.02 * k as f64, arrive_ridden));
     }
@@ -2707,6 +2714,12 @@ fn scenes_raw() -> Vec<Scene> {
             for x in 22..=29 {
                 b.push(([x, 65, z], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
             }
+            // (tickexact 2026-11-11, ironspec's raw-placement audit: the departure's rails on stone
+            // and the slope's top rail against stone on its high side, so no update pops them)
+            for x in 23..=29 {
+                b.push(([x, 64, z], stone.to_string()));
+            }
+            b.push(([13, 70, z], stone.to_string()));
             b.push(([30, 65, z], stone.to_string()));
         }
         let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
@@ -3051,6 +3064,9 @@ fn scenes_raw() -> Vec<Scene> {
                 }
                 b.push(([x, y, z], "minecraft:rail[shape=ascending_west,waterlogged=false]".to_string()));
             }
+            // (tickexact 2026-11-11, ironspec's raw-placement audit: the top rail against stone on
+            // its high side, so no update pops it)
+            b.push(([13, 69, z], stone.to_string()));
             b.push(([20, 64, z], stone.to_string()));
             b.push(([20, 65, z], stone.to_string()));
         }
@@ -3146,6 +3162,9 @@ fn scenes_raw() -> Vec<Scene> {
             }
             b.push(([x, y, 2], "minecraft:rail[shape=ascending_east,waterlogged=false]".to_string()));
         }
+        // (tickexact 2026-11-11, ironspec's raw-placement audit: the top rail against stone on its
+        // high side, so no update pops it)
+        b.push(([11, 69, 2], stone.to_string()));
         let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
         let mut mobs: Vec<(String, [f64; 3], Option<String>)> = vec![("minecraft:minecart".into(), [4.5, 64.0, 2.5], Some(rider.into()))];
         for x in 5..=9 {
@@ -3542,6 +3561,78 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's flee distances: the two code distances every zombie post is
+    // laid to) a villager riding a cart held between stones on a rail at floor level (its position
+    // 0.0625 over the rail), and one standing on a 5-high pillar (no way down: its walks fail), each
+    // with a zombie in an oak boat (0.5125 under the boat) on the same level and the same x, at 3D
+    // distances 5.80, 5.95, 6.05, 6.20, 7.80, 7.95 and 8.05 along +z; and a rider with its zombie at
+    // 7.0 behind a 2-high stone wall halfway (sight needed for panic). Slots 18 apart in x and 24 in
+    // z (no zombie within 8 of another slot's villager); a stone roof at y 80 (no sunburn), day.
+    // Expected from 26.3: NEAREST_HOSTILE (VillagerHostilesSensor: a zombie within 8, in sight)
+    // and PANIC up to 8, a flee walk target only inside 6 (SetWalkTargetAwayFrom's closerThan 6)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 112, 0, 80, 63, stone);
+        floor(&mut b, 0, 112, 0, 80, 80, stone);
+        let mut mobs = Vec::new();
+        let ds = [5.80, 5.95, 6.05, 6.20, 7.80, 7.95, 8.05];
+        let mut slots: Vec<(f64, bool, bool)> = Vec::new();
+        for d in ds {
+            slots.push((d, true, false));
+            slots.push((d, false, false));
+        }
+        slots.push((7.0, true, true));
+        for (k, (d, riding, walled)) in slots.into_iter().enumerate() {
+            let (x, z) = (4 + 18 * (k % 6) as i32, 4 + 24 * (k / 6) as i32);
+            let (vy, zy) = if riding {
+                // (the rider's position 0.0625 over the rail cell, the zombie 0.5125 under its boat on
+                // the floor: the vertical 0.575)
+                b.push(([x, 64, z], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+                b.push(([x - 1, 64, z], stone.to_string()));
+                b.push(([x + 1, 64, z], stone.to_string()));
+                (64.0625, 63.4875)
+            } else {
+                for y in 64..=68 {
+                    b.push(([x, y, z], stone.to_string()));
+                }
+                (69.0, 68.4875)
+            };
+            let h = (d * d - (vy - zy) * (vy - zy)).sqrt();
+            let zz = z as f64 + 0.5 + h;
+            if !riding {
+                // (the zombie's boat on its own pillar top at the villager's level)
+                for y in 64..=68 {
+                    b.push(([x, y, zz.floor() as i32], stone.to_string()));
+                }
+            }
+            if walled {
+                let wz = (z as f64 + 0.5 + h / 2.0).floor() as i32;
+                for y in 64..=65 {
+                    b.push(([x, y, wz], stone.to_string()));
+                }
+            }
+            if riding {
+                mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, 64.0, z as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string())));
+            } else {
+                mobs.push(("minecraft:villager".to_string(), [x as f64 + 0.5, 69.0, z as f64 + 0.5], Some("{PersistenceRequired:1b}".to_string())));
+            }
+            let by = if riding { 64.0 } else { 69.0 };
+            mobs.push(("minecraft:oak_boat".to_string(), [x as f64 + 0.5, by, zz], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".to_string())));
+        }
+        v.push(Scene {
+            name: "flee-distance".into(),
+            chunks: [0, 0, 6, 4],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [111, 81, 79]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's queue-back sweep, its first step: where a pressed 3-cart
     // queue rests) a closed gate at (x,64,3) at the foot of N ascending rails rising south
     // ((x,64+s,4+s)), the flat at y 64+N to z 14; a ridden front, a ridden middle and an empty back
@@ -3583,7 +3674,7 @@ fn scenes_raw() -> Vec<Scene> {
     // the arrival ridden or empty (rr, re, er, ee)
     for (case, file, wait, arrive) in [("g0", R1_CONTACT_G0, [0.5, 3.1775, 30.885], [0.5, 5.5625, 28.5]), ("p", R1_CONTACT_P, [0.5, 2.1775, 31.885], [0.5, 4.5625, 29.5])] {
         for (tag, wr, ar) in [("rr", true, true), ("re", true, false), ("er", false, true), ("ee", false, false)] {
-            v.push(r1_sweep_scene(&format!("r1-sweep-{case}-{tag}"), file, wait, arrive, wr, ar));
+            v.push(r1_sweep_scene(&format!("r1-sweep-{case}-{tag}"), file, wait, arrive, wr, ar, false));
         }
     }
     // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
@@ -3696,15 +3787,20 @@ fn scenes_raw() -> Vec<Scene> {
             b.push(([x0 + 1, 63, 12], "minecraft:water[level=0]".to_string()));
         }
         // the repeater loop: four repeaters (delay 1) and four dust corners around (8, 5)
-        let dust = "minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]";
+        // (tickexact 2026-11-11, ironspec's raw-placement audit: each corner's dust written in the
+        // shape its neighbours give it, the two repeaters it joins, not a cross)
+        let corner = |e: bool, n: bool, s: bool, w: bool| {
+            let f = |c: bool| if c { "side" } else { "none" };
+            format!("minecraft:redstone_wire[east={},north={},power=0,south={},west={}]", f(e), f(n), f(s), f(w))
+        };
         b.push(([8, 64, 4], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]".to_string()));
-        b.push(([9, 64, 4], dust.to_string()));
+        b.push(([9, 64, 4], corner(false, false, true, true)));
         b.push(([9, 64, 5], "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]".to_string()));
-        b.push(([9, 64, 6], dust.to_string()));
+        b.push(([9, 64, 6], corner(false, true, false, true)));
         b.push(([8, 64, 6], "minecraft:repeater[delay=1,facing=east,locked=false,powered=false]".to_string()));
-        b.push(([7, 64, 6], dust.to_string()));
+        b.push(([7, 64, 6], corner(true, true, false, false)));
         b.push(([7, 64, 5], "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]".to_string()));
-        b.push(([7, 64, 4], dust.to_string()));
+        b.push(([7, 64, 4], corner(true, false, true, false)));
         // the hopper between two chests
         b.push(([4, 64, 8], "minecraft:chest[facing=north,type=single,waterlogged=false]".to_string()));
         b.push(([4, 65, 8], "minecraft:hopper[enabled=true,facing=down]".to_string()));
@@ -4788,6 +4884,16 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
         list.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("{st}: {e}"))?));
     }
     w.place_raw(&list);
+    // (tickexact 2026-11-11, ironspec's raw-placement audit) a scene placed raw (as built here, not
+    // a merged or judge-placed design) whose written states one update pass would change sets up a
+    // configuration no farm has, in the game and in redsim alike: refused
+    if scene_placement(&s.name) == Placement::Raw {
+        let c = scene_raw_conflicts(s)?;
+        if !c.is_empty() {
+            let cells: Vec<String> = c.iter().take(4).map(|(p, a, b)| format!("{},{},{}: {a} -> {b}", p.x, p.y, p.z)).collect();
+            bail!("scene {}: {} cells whose written state one update pass would change (mctas mobai scene-lint): {}", s.name, c.len(), cells.join("; "));
+        }
+    }
     // (a merged or judge-placed scene: its block entities' data; a judge-placed one then the
     // judge's updates)
     let bes: Vec<(BlockPos, String)> = scene_block_entities(&s.name).into_iter().map(|(p, nbt)| (BlockPos::new(p[0], p[1], p[2]), nbt)).collect();
@@ -5748,7 +5854,7 @@ pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Pat
 /// activities, running behaviors or memories (its HOME, LAST_SLEPT, LAST_WOKEN, walk target and
 /// CANT_REACH_WALK_TARGET_SINCE among them) or a watched block change, printed as it happens (the
 /// numbers a design is built on: when a villager lies down, wakes, loses its HOME).
-pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32) -> Result<()> {
+pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String]) -> Result<()> {
     let all = scenes();
     let s = all.iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
     let mut game = GameScene::start(version, s, seed, false)?;
@@ -5779,9 +5885,10 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32) -> Result<()> 
                         println!("t {t} #{n} {ty} at {at} {k}: {now}");
                     }
                 }
-                // the memories a bed's story is told in (the sensors' lists, paths and gaze left out)
+                // the memories a bed's story is told in (the sensors' lists, paths and gaze left out,
+                // unless named by `also`)
                 for (m, v) in e["memories"].as_object().into_iter().flatten() {
-                    if matches!(m.as_str(), "mobs" | "visible_mobs" | "path" | "walk_target" | "look_target" | "nearest_players" | "nearest_visible_player" | "interactable_doors" | "doors_to_close" | "secondary_job_site" | "nearest_bed") {
+                    if !also.iter().any(|a| a == m) && matches!(m.as_str(), "mobs" | "visible_mobs" | "path" | "walk_target" | "look_target" | "nearest_players" | "nearest_visible_player" | "interactable_doors" | "doors_to_close" | "secondary_job_site" | "nearest_bed") {
                         continue;
                     }
                     let now = v.to_string();
@@ -5931,6 +6038,67 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             );
             k = j + 1;
         }
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's raw-placement audit) The cells of scene `s` whose state one
+/// update pass would change: the scene is placed raw (no neighbour updates: a powered rail on its
+/// redstone block stays unpowered), so a block whose written state its neighbours contradict sets
+/// up a configuration the farm never has, in the game and in redsim alike, and 0 differences cannot
+/// see it. Each placed cell and its six neighbours, the raw world against a copy given the judge's
+/// updates (`place_updates`: each placed block's neighbour updates, in placement order).
+pub fn scene_raw_conflicts(s: &Scene) -> Result<Vec<(BlockPos, String, String)>> {
+    let lo = BlockPos::new(s.chunks[0] * 16, -64, s.chunks[1] * 16);
+    let size = [(s.chunks[2] - s.chunks[0] + 1) * 16, 384, (s.chunks[3] - s.chunks[1] + 1) * 16];
+    let mut w = World::new(lo, size);
+    let mut list = Vec::new();
+    for (p, st) in &scene_placed_blocks(s) {
+        list.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("{st}: {e}"))?));
+    }
+    w.place_raw(&list);
+    let mut u = w.clone();
+    u.place_updates(&list);
+    let mut cells: Vec<BlockPos> = Vec::new();
+    for (p, _) in &list {
+        for d in [(0, 0, 0), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+            let q = BlockPos::new(p.x + d.0, p.y + d.1, p.z + d.2);
+            if !cells.contains(&q) {
+                cells.push(q);
+            }
+        }
+    }
+    Ok(cells.into_iter().filter(|q| w.get(*q) != u.get(*q)).map(|q| (q, w.get(q).to_string(), u.get(q).to_string())).collect())
+}
+
+/// `mctas mobai scene-lint [scenes...]`: [`scene_raw_conflicts`] of each scene (default: every
+/// scene placed raw); FAIL when any scene has one. First its positive control: case p of r1-sweep
+/// with P written unpowered on its redstone block (the configuration 3be9617b3 measured) must fail.
+pub fn scene_lint(names: &[String]) -> Result<()> {
+    let control = r1_sweep_scene("r1-sweep-p-ee-raw-p", R1_CONTACT_P, [0.5, 2.1775, 31.885], [0.5, 4.5625, 29.5], false, false, true);
+    let c = scene_raw_conflicts(&control)?;
+    let p_hits = c.iter().filter(|(_, a, _)| a.contains("powered_rail")).count();
+    if p_hits == 0 {
+        bail!("positive control: the raw-placed p scene passes the lint");
+    }
+    println!("positive control: the raw-placed p scene fails, {p_hits} unpowered P rails (e.g. {})", c.iter().find(|(_, a, _)| a.contains("powered_rail")).map(|(p, a, b)| format!("{},{},{}: {a} -> {b}", p.x, p.y, p.z)).unwrap_or_default());
+    let all = scenes();
+    let pick: Vec<&Scene> = if names.is_empty() { all.iter().filter(|s| scene_placement(&s.name) == Placement::Raw).collect() } else { all.iter().filter(|s| names.iter().any(|n| *n == s.name)).collect() };
+    let mut bad = 0;
+    for s in pick {
+        let c = scene_raw_conflicts(s)?;
+        if c.is_empty() {
+            println!("ok {}", s.name);
+        } else {
+            bad += 1;
+            println!("FAIL {}: {} cells one update pass changes", s.name, c.len());
+            for (p, a, b) in c.iter().take(6) {
+                println!("  {},{},{}: {a} -> {b}", p.x, p.y, p.z);
+            }
+        }
+    }
+    if bad > 0 {
+        bail!("{bad} scenes with raw states their neighbours contradict");
     }
     Ok(())
 }
