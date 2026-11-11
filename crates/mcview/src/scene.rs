@@ -1982,6 +1982,26 @@ mod tests {
     /// one in the open the sky's, in a whole frame and in a mob farm's entities built apart from
     /// their blocks (they were lit as if under the open sky: a cave's spider as bright as the
     /// night outside), and the blocks' light is given back to them after.
+    /// A terrain farm's mob is lit at its own eye: its light probe moved into the design's
+    /// coordinates with it (`Session::entities`; it had stayed in the world's, hundreds of blocks
+    /// off the farm, so every mob of a terrain farm took the light of a cell outside the drawn
+    /// world: a cave's spider as bright as the open night).
+    #[test]
+    fn a_terrain_farms_mob_is_lit_at_its_own_eye() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/farms/iron/day-1/d1u-side.txt")).unwrap();
+        let mut s = Session::new(&text, &Options::default()).unwrap();
+        for _ in 0..250 {
+            s.step();
+        }
+        assert_ne!(s.view_offset(), [0; 3], "a terrain farm's world is offset from its design");
+        let mobs: Vec<_> = s.entities(0.0).into_iter().filter(|e| e.mob.is_some()).collect();
+        assert!(!mobs.is_empty());
+        for e in &mobs {
+            let p = e.probe.expect("a probe");
+            assert!((p[0] - e.pos[0]).abs() < 1e-3 && (p[2] - e.pos[2]).abs() < 1e-3 && p[1] > e.pos[1] && p[1] - e.pos[1] < 2.5, "{}: probe {p:?} at its eye over {:?}", e.kind, e.pos);
+        }
+    }
+
     #[test]
     fn a_mob_is_lit_at_its_eye() {
         let text = "name: lit-mobs\npalette:\n  S minecraft:stone\n  G minecraft:grass_block[snowy=false]\n\

@@ -2315,6 +2315,13 @@ impl Session {
                 for k in 0..3 {
                     e.pos[k] -= off[k] as f32;
                 }
+                // its light probe with it (it had stayed in the world's coordinates, outside the
+                // drawn world: every terrain farm's mob lit by a cell hundreds of blocks off)
+                if let Some(p) = e.probe.as_mut() {
+                    for k in 0..3 {
+                        p[k] -= off[k] as f32;
+                    }
+                }
             }
         }
         v
