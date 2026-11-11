@@ -326,6 +326,9 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         // and reload keeps it
         m.put([3, 1, 6], "minecraft:daylight_detector[inverted=true,power=0]")?;
         m.put([3, 0, 6], STONE)?;
+        // (glass over it: a golem's legacy spawn takes a daylight detector for a floor, never glass;
+        // the sky light comes through glass)
+        m.put([3, 2, 6], "minecraft:glass")?;
     }
     let at = |p: P3| -> P3 { [-2 - p[0], p[1] - 2, 10 - p[2]] };
     let mut b = new_b();

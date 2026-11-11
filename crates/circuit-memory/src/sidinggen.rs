@@ -269,6 +269,28 @@ pub fn control_blocks(sched: &Path) -> Result<B> {
     } else {
         bail!("the scheduler's D ring has no token in d0 (0, 0, 0)");
     }
+    // (the scheduler's slot-out stage does nothing in the farm: its visit latch C, the reset path
+    // into it from the 3rd stage's end, the step line along x -7, and the slot-out module with its
+    // connections (every cell at z >= 9); removed, ironspec 19:52: faults there changed nothing)
+    let slot_out: Vec<P3> = b
+        .blocks
+        .keys()
+        .copied()
+        .filter(|&[x, y, z]| {
+            (z >= 9 && x <= 0)
+                || ((-5..=-3).contains(&x) && (5..=8).contains(&z) && (-1..=0).contains(&y))
+                || (z == 6 && (-13..=-6).contains(&x) && (-1..=0).contains(&y))
+                || (x == -13 && z == 5 && (-1..=0).contains(&y))
+                || (x == -7 && (6..=17).contains(&z) && (0..=1).contains(&y))
+        })
+        .collect();
+    for p in &slot_out {
+        b.blocks.remove(p);
+        b.nbt.remove(p);
+    }
+    for k in ["output.s0", "output.s1", "output.s2", "output.v"] {
+        b.ports.remove(k);
+    }
     // ---- REL into the scheduler (its input cell becomes a repeater); the input block (14, -2, -4)
     // feeds the bus (up to y -1 at x 12) and REL2 south along x 14 for the siding logic
     b.blocks.remove(&[-5, 0, -3]);
@@ -316,108 +338,12 @@ pub fn control_blocks(sched: &Path) -> Result<B> {
     for (i, d) in w0.iter().enumerate() {
         b.on([14, -2, 4 + i as i32], &rep("north", *d))?;
     }
-    let zk = [8, 12, 16];
-    for (k, &z) in zk.iter().enumerate() {
-        b.put([14, -2, z], STONE)?;
-        if k < 2 {
-            b.on([14, -2, z + 1], &rep("north", 3))?;
-            b.on([14, -2, z + 2], &rep("north", 1))?;
-            b.on([14, -2, z + 3], &rep("north", 1))?;
-        }
-        // P_k = W_k - NOT l_k: a comparator west of the tap, its side (north) a repeater fed by
-        // the ring R''s NOT l_k line (R' holds 2 items in 3 droppers: the empty one is the state,
-        // so a comparator on dropper k reads NOT l_k)
-        b.on([13, -2, z], &comp("east", "subtract"))?;
-        b.on([13, -2, z - 1], &rep("north", 1))?;
-        b.on([13, -2, z - 2], DUST)?;
-        // its output up a stair to the OR column at y 0
-        b.on([12, -2, z], DUST)?;
-        b.on([11, -1, z], DUST)?;
-    }
-    for z in 8..=16 {
-        b.on([10, 0, z], DUST)?;
-    }
-    b.on([10, 0, 17], &rep("north", 1))?;
-    b.ports.insert("output.divert".into(), [10, 0, 18]);
-    // ---- R', the visit counter mod 3 (the scheduler's own slot ring is not reachable): droppers
-    // A (5, 8), B (7, 8), C (6, 9) and hoppers h (6, 8), H (7, 9), j (5, 9), A -> B -> C -> A, dust on
-    // all six tops (y -1) fired by `step`; 2 items, A empty at power-on (R' = 0). Its taps (NOT l_k):
-    // A from the north -> (5, 6) -> row 5 -> (12, 5..6) -> P0's side; B from the east -> (9, 8) ->
-    // x 10 -> row 10 -> P1's side; C from the south -> (6, 11) -> x 6 -> row 14 -> P2's side.
-    let item = "{Items:[{Slot:0b,id:\"minecraft:stone\",count:1}]}";
-    let ring: [(P3, &str); 6] = [
-        ([5, -2, 8], "minecraft:dropper[facing=east,triggered=false]"),
-        ([6, -2, 8], "minecraft:hopper[enabled=true,facing=east]"),
-        ([7, -2, 8], "minecraft:dropper[facing=south,triggered=false]"),
-        ([7, -2, 9], "minecraft:hopper[enabled=true,facing=west]"),
-        ([6, -2, 9], "minecraft:dropper[facing=west,triggered=false]"),
-        ([5, -2, 9], "minecraft:hopper[enabled=true,facing=north]"),
-    ];
-    for (p, s) in ring {
-        b.put(p, s)?;
-        b.put([p[0], -1, p[2]], DUST)?;
-    }
-    b.nbt.insert([7, -2, 8], item.into());
-    b.nbt.insert([6, -2, 9], item.into());
-    // (its step comes in from the west through j's top: see the step line below)
-    b.on([4, -1, 9], &rep("west", 1))?;
-    // A's tap
-    b.on([5, -2, 7], &comp("south", "compare"))?;
-    b.on([5, -2, 6], &rep("south", 1))?;
-    for x in 5..=12 {
-        b.on([x, -2, 5], DUST)?;
-    }
-    b.on([12, -2, 6], DUST)?;
-    // B's tap
-    b.on([8, -2, 8], &comp("west", "compare"))?;
-    b.on([9, -2, 8], &rep("west", 1))?;
-    for p in [[10, -2, 8], [10, -2, 9], [10, -2, 10], [11, -2, 10], [12, -2, 10]] {
-        b.on(p, DUST)?;
-    }
-    // C's tap
-    b.on([6, -2, 10], &comp("north", "compare"))?;
-    b.on([6, -2, 11], &rep("north", 1))?;
-    for z in 12..=14 {
-        b.on([6, -2, z], DUST)?;
-    }
-    for x in 7..=12 {
-        b.on([x, -2, 14], DUST)?;
-    }
-    // ---- R''s step, ~150 gt after W0 (after the waiting cart has crossed T1/T2 in this release,
-    // long before the next visit's windows): a dust on T0, up two stairs to y 1, a repeater line
-    // north along x 16, west along z -3, south along x 3, down two stairs into j's top repeater
-    b.on([14, -1, 8], DUST)?;
-    b.on([15, 0, 8], DUST)?;
-    b.on([16, 1, 8], DUST)?;
-    let step_delay: u8 = 4;
-    for z in (-2..=7).rev() {
-        b.on([16, 1, z], &rep("south", step_delay))?;
-    }
-    b.on([16, 1, -3], DUST)?;
-    for x in (4..=15).rev() {
-        b.on([x, 1, -3], &rep("east", if x % 2 == 0 { step_delay } else { 1 }))?;
-    }
-    b.on([3, 1, -3], DUST)?;
-    for z in -2..=6 {
-        b.on([3, 1, z], &rep("north", 1))?;
-    }
-    b.on([3, 1, 7], DUST)?;
-    b.on([3, 0, 8], DUST)?;
-    b.on([3, -1, 9], DUST)?;
-    // ---- router: T1 = (the waiting cart's k != 0) = (R' != 1) = NOT l1, off B's tap line, down to
-    // y -4 and south along x 11; T2 = (k = 2) = (R' = 0) = l0, a second comparator on A (west), a
-    // torch on the block it powers, south along x 2
-    b.on([11, -3, 11], DUST)?;
-    let t1: Vec<P3> = (12..=22).map(|z| [11, -4, z]).collect();
-    b.wire([11, -3, 11], &t1, 6)?;
-    b.ports.insert("output.t1".into(), [11, -4, 23]);
-    b.on([4, -2, 8], &comp("east", "compare"))?;
-    b.on([3, -2, 8], &rep("east", 1))?;
-    b.put([2, -2, 8], STONE)?;
-    b.put([2, -2, 9], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
-    let t2: Vec<P3> = (10..=22).map(|z| [2, -2, z]).collect();
-    b.wire([2, -2, 9], &t2, 10)?;
-    b.ports.insert("output.t2".into(), [2, -2, 23]);
+    // T0 (14, -2, 8): W0's tap, which fires the visit-delay register's INJ (below). (The module's
+    // own divert windows W1, W2 and their P_k gates, the OR column to `output.divert`, the visit
+    // counter R' with its taps and its step line, and the router lines `output.t1`/`output.t2`
+    // were removed, ironspec 19:52: the local divert unit (`divert_unit`) has its own windows,
+    // ring R'' and router, and fault-survey-v1 showed faults in R' changing nothing.)
+    b.put([14, -2, 8], STONE)?;
     // ---- the visit-delay register: a ring of droppers D0 (INJ) .. D5 and hoppers, D0 (18, -2, -2)
     // east along z -2 to H2 (23), back west along z -1 to H5 (18) into D0. The REL clock is a dust
     // patch on the tops of D1..D5 and the hoppers between them (hoppers locked while it is high, so
