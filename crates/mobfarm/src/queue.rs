@@ -3468,6 +3468,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             out.push(format!("LAST_SLEPT bench-driven (--slept): every rider's set {slept_acts} times (the start and each night from day time 13,000), the station bench's stand-in for the siding's naps"));
         }
         out.push(format!("summons onto the pad out of turn (the summoner not on a stand cell or its pocket): {} of {}{}", out_of_turn.len(), pad_golems.len(), if out_of_turn.is_empty() { String::new() } else { format!(": {}", out_of_turn.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }));
+        out.push(format!("pad stats: golems {} with {} slots {cycles} crossed {} died {} alive {} pulses {pulses} spurious {spurious_pulses} iron {iron} out_of_turn {}", pad_golems.len(), with.len(), nether_golems.len(), died, nether_golems.len() - died, out_of_turn.len()));
         for s in out_of_turn.iter().take(3) {
             problems.push(format!("a summon onto the pad out of turn: {s}"));
         }

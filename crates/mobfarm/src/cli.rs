@@ -2065,6 +2065,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     if let Some(a) = agg {
                         println!("{label}: the pocket stand over {} slots: cart 1 to cart 2 at D2 {}..{} gt apart; G2 shut {}..{} gt after cart 2's front was in it ({}..{} after its tail left), {}..{} gt before cart 3 reached it", a[8], a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
                     }
+                    // (the pad over every seed: each run's `pad stats:` line, its numbers in order:
+                    // golems, slots with one, slots, crossed, died, alive, pulses, spurious, iron,
+                    // out of turn)
+                    let mut pad: Option<[i64; 10]> = None;
+                    for (_, r) in &results {
+                        let Some(l) = r.lines().find(|l| l.starts_with("pad stats: ")) else { continue };
+                        let v: Vec<i64> = l.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+                        if v.len() != 10 {
+                            continue;
+                        }
+                        let mut a = pad.unwrap_or([0; 10]);
+                        for i in 0..10 {
+                            a[i] += v[i];
+                        }
+                        pad = Some(a);
+                    }
+                    if let Some(a) = pad {
+                        // (an hour is 72,000 gt: 720 slots)
+                        let hours = a[2] as f64 * 100.0 / 72000.0;
+                        println!("{label}: the pad over {} slots ({hours:.1} h): {} golems ({:.0}/h), {} slots with a golem ({:.2}%); {} through the portal, {} killed in the Nether, {} alive at a run's end; pulses {} with a golem, {} without; iron into storage {} ingots ({:.0}/h, {:.2} a golem); summons out of turn {}", a[2], a[0], a[0] as f64 / hours, a[1], 100.0 * a[1] as f64 / a[2].max(1) as f64, a[3], a[4], a[5], a[6], a[7], a[8], a[8] as f64 / hours, a[8] as f64 / a[4].max(1) as f64, a[9]);
+                    }
                     if build_gap_sweep && !bad.is_empty() {
                         println!("built in order: the first gap that fails is {} gt", gap.unwrap_or(0));
                         break;
