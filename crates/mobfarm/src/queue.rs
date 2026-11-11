@@ -3619,9 +3619,10 @@ pub struct LoopTiming {
     /// S3(ii)'s per-stand head-launch permissions (`crate::headperm`): D_arr, Dh (loop frame),
     /// whether they gate the head, the router emulated (A here, B virtual), B held (C0, N).
     pub head_perm: Option<([i32; 3], [i32; 3], bool, u8, Option<(i64, i64)>)>,
-    /// Riderless trains (cc767b78, H's rows): every rider of a cart entering this cell (loop
-    /// frame) in slots S0..=S1 removed (an empty cart from there on).
-    pub strip_riders: Option<([i32; 3], i64, i64)>,
+    /// Riderless trains (cc767b78, H's rows): the riders of carts entering this cell (loop
+    /// frame) in slots S0..=S1 removed (an empty cart from there on); K > 0: only the K-th cart to
+    /// enter the cell in each slot (a single riderless cart in its train).
+    pub strip_riders: Option<([i32; 3], i64, i64, usize)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -5222,6 +5223,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (S3(ii)'s per-stand head permissions, `crate::headperm`)
     let mut head_perm = tm.head_perm.map(|(a, d, g, r, bh)| crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, lay.stand_rel, g, r, bh));
     let mut stripped: Vec<String> = Vec::new();
+    let (mut strip_seen, mut strip_now): (Vec<u32>, Vec<u32>) = (Vec::new(), Vec::new());
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)
     let (fx, fz) = (o.shift[0] as f64, o.shift[1] as f64);
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -7929,27 +7931,41 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let cp: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
             h.pre_tick(&run.world, &cp, t);
         }
-        // (`strip_riders`: the riders of carts entering the cell removed: riderless trains)
-        if let Some((cell, s0, s1)) = tm.strip_riders
+        // (`strip_riders`: the riders of carts entering the cell removed: riderless trains; with
+        // K, only the K-th cart to enter it in the slot)
+        if dt == 0 {
+            strip_seen.clear();
+        }
+        if let Some((cell, s0, s1, k_only)) = tm.strip_riders
             && c >= s0
             && c <= s1
         {
-            let hits: Vec<Vec<u32>> = run
+            let inside: Vec<(u32, Vec<u32>)> = run
                 .world
                 .entities
                 .list
                 .iter()
                 .filter(|e| {
                     let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
-                    !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && !e.passengers.is_empty() && lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                    !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
                 })
-                .map(|e| e.passengers.clone())
+                .map(|e| (e.id, e.passengers.clone()))
                 .collect();
-            for p in hits.into_iter().flatten() {
-                if let Some(pi) = redsim::entity::index_of(&run.world, p) {
-                    run.world.entities.list[pi].removed = true;
-                    redsim::entity::stop_riding(&mut run.world, pi);
-                    stripped.push(format!("slot {c} +{dt}: e{p}"));
+            for (cart, ps) in inside {
+                if !strip_seen.contains(&cart) {
+                    strip_seen.push(cart);
+                    if k_only == 0 || strip_seen.len() == k_only {
+                        strip_now.push(cart);
+                    }
+                }
+                if strip_now.contains(&cart) {
+                    for p in ps {
+                        if let Some(pi) = redsim::entity::index_of(&run.world, p) {
+                            run.world.entities.list[pi].removed = true;
+                            redsim::entity::stop_riding(&mut run.world, pi);
+                            stripped.push(format!("slot {c} +{dt}: e{p} (cart e{cart})"));
+                        }
+                    }
                 }
             }
         }

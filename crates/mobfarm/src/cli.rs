@@ -1603,8 +1603,9 @@ pub enum MobfarmCmd {
         /// permission held from cycle BC0 for BN cycles.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         head_perm: Vec<i32>,
-        /// Riderless trains: X,Y,Z[,S0,S1]: every rider of a cart entering the cell X,Y,Z (loop
-        /// frame) in slots S0..=S1 (default all) removed, the cart running on empty.
+        /// Riderless trains: X,Y,Z[,S0,S1[,K]]: every rider of a cart entering the cell X,Y,Z (loop
+        /// frame) in slots S0..=S1 (default all) removed, the cart running on empty; K > 0: only
+        /// the K-th cart to enter the cell in each slot.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         strip_riders: Vec<i64>,
         /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
@@ -3245,7 +3246,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
                 }
                 a
-            }, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, head_perm: match head_perm.as_slice() { [a, b, c, d, e, f] => Some(([*a, *b, *c], [*d, *e, *f], false, 0, None)), [a, b, c, d, e, f, g] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, 0, None)), [a, b, c, d, e, f, g, r] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, (*r).clamp(0, 2) as u8, None)), [a, b, c, d, e, f, g, r, c0, n] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, (*r).clamp(0, 2) as u8, Some((*c0 as i64, *n as i64)))), [] => None, _ => anyhow::bail!("--head-perm takes AX,AY,AZ,HX,HY,HZ[,G[,R[,BC0,BN]]]") }, strip_riders: match strip_riders.as_slice() { [x, y, z] => Some(([*x as i32, *y as i32, *z as i32], 0, i64::MAX)), [x, y, z, s0, s1] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1)), [] => None, _ => anyhow::bail!("--strip-riders takes X,Y,Z[,S0,S1]") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match release_offs.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, ..Default::default() };
+            }, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, head_perm: match head_perm.as_slice() { [a, b, c, d, e, f] => Some(([*a, *b, *c], [*d, *e, *f], false, 0, None)), [a, b, c, d, e, f, g] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, 0, None)), [a, b, c, d, e, f, g, r] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, (*r).clamp(0, 2) as u8, None)), [a, b, c, d, e, f, g, r, c0, n] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, (*r).clamp(0, 2) as u8, Some((*c0 as i64, *n as i64)))), [] => None, _ => anyhow::bail!("--head-perm takes AX,AY,AZ,HX,HY,HZ[,G[,R[,BC0,BN]]]") }, strip_riders: match strip_riders.as_slice() { [x, y, z] => Some(([*x as i32, *y as i32, *z as i32], 0, i64::MAX, 0)), [x, y, z, s0, s1] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, 0)), [x, y, z, s0, s1, k] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, *k as usize)), [] => None, _ => anyhow::bail!("--strip-riders takes X,Y,Z[,S0,S1[,K]]") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match release_offs.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, ..Default::default() };
             // (`--place-rest`: the approach's rest check instead of a run)
             if let Some(pr) = &place_rest {
                 let cells: Vec<[i32; 3]> = if pr == "approach" {
@@ -3359,7 +3360,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let r = r.map_err(|e| anyhow::anyhow!(e))?;
                         let pick = |p: &str| r.lines().filter(|l| l.starts_with(p)).map(|l| l.trim_start_matches(p).trim().to_string()).collect::<Vec<_>>().join(" | ");
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
-                        println!("L {w} S {d:+}: {} | shuts: {} | window: {} | {probs}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), r.lines().find_map(|l| l.split("common window ").nth(1)).unwrap_or("-"));
+                        let touch = r.lines().find_map(|l| l.split("H closes, gt until a cart touches its face ").nth(1)).and_then(|x| x.split(';').next()).unwrap_or("-");
+                        let merges = r.lines().find(|l| l.contains("merged carts:")).map(|l| l.trim().chars().take(60).collect::<String>()).unwrap_or_default();
+                        let back = r.lines().find_map(|l| l.split("back travel up to ").nth(1)).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
+                        println!("L {w} S {d:+}: {} | shuts: {} | clear..follower window: {} | shut to the next cart at H's face: {touch} | back: {back} | {probs}{}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), r.lines().find_map(|l| l.split("common window ").nth(1)).unwrap_or("-"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
                     }
                 }
                 return Ok(());
@@ -3399,7 +3403,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let r = r.map_err(|e| anyhow::anyhow!(e))?;
                         let pick = |p: &str| r.lines().filter(|l| l.starts_with(p)).map(|l| l.trim_start_matches(p).trim().to_string()).collect::<Vec<_>>().join(" | ");
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
-                        println!("freeze at +{dt}: {} | shuts: {} | on a cart: {} | {probs}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"));
+                        let merges = r.lines().find(|l| l.contains("merged carts:")).map(|l| l.trim().chars().take(60).collect::<String>()).unwrap_or_default();
+                        let back = r.lines().find_map(|l| l.split("back travel up to ").nth(1)).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
+                        println!("freeze at +{dt}: {} | shuts: {} | on a cart: {} | back: {back} | {probs}{}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
                     }
                 }
                 return Ok(());
