@@ -79,7 +79,7 @@ act 339 tp e10 6.5 0.0625 60.5
 act 339 tp e11 2.5 0.0625 0.5
 act 339 tp e12 3.5 0.0625 0.5
 act 339 tp e13 4.5 0.0625 0.5
-expect 362 nether-death g0
+expect 363 nether-death g0
 expect 400 golem g3 2 3 -6
 expect 401 pulse g3 10
 expect 402 cross g3
@@ -386,7 +386,7 @@ act 3239 tp e13 1.5 0.0625 60.5
 act 3239 tp e14 2.5 0.0625 0.5
 act 3239 tp e15 3.5 0.0625 0.5
 act 3239 tp e16 4.5 0.0625 0.5
-expect 3260 nether-death g28
+expect 3262 nether-death g28
 expect 3300 golem g31 8 3 -3
 expect 3301 pulse g31 10
 expect 3302 cross g31
@@ -416,7 +416,7 @@ act 3539 tp e22 16.5 0.0625 60.5
 act 3539 tp e0 2.5 0.0625 0.5
 act 3539 tp e1 3.5 0.0625 0.5
 act 3539 tp e2 4.5 0.0625 0.5
-expect 3560 nether-death g31
+expect 3562 nether-death g31
 expect 3600 golem g34 3 3 -1
 expect 3601 pulse g34 10
 expect 3602 cross g34
@@ -666,7 +666,7 @@ act 6039 tp e13 21.5 0.0625 60.5
 act 6039 tp e14 2.5 0.0625 0.5
 act 6039 tp e15 3.5 0.0625 0.5
 act 6039 tp e16 4.5 0.0625 0.5
-expect 6060 nether-death g56
+expect 6062 nether-death g56
 expect 6100 golem g59 -2 3 -1
 expect 6101 pulse g59 10
 expect 6102 cross g59
@@ -746,7 +746,7 @@ act 6839 tp e16 1.5 0.0625 60.5
 act 6839 tp e17 2.5 0.0625 0.5
 act 6839 tp e18 3.5 0.0625 0.5
 act 6839 tp e19 4.5 0.0625 0.5
-expect 6860 nether-death g64
+expect 6862 nether-death g64
 expect 6900 golem g67 -1 3 -4
 expect 6901 pulse g67 10
 expect 6902 cross g67
@@ -816,7 +816,7 @@ act 7539 tp e16 6.5 0.0625 60.5
 act 7539 tp e17 2.5 0.0625 0.5
 act 7539 tp e18 3.5 0.0625 0.5
 act 7539 tp e19 4.5 0.0625 0.5
-expect 7560 nether-death g71
+expect 7562 nether-death g71
 expect 7600 golem g74 8 3 -6
 expect 7601 pulse g74 10
 expect 7602 cross g74
@@ -846,7 +846,7 @@ act 7839 tp e2 21.5 0.0625 60.5
 act 7839 tp e5 2.5 0.0625 0.5
 act 7839 tp e6 3.5 0.0625 0.5
 act 7839 tp e7 4.5 0.0625 0.5
-expect 7860 nether-death g74
+expect 7862 nether-death g74
 expect 7900 golem g77 2 3 -4
 expect 7901 pulse g77 10
 expect 7902 cross g77
@@ -1256,7 +1256,7 @@ act 11939 tp e22 16.5 0.0625 60.5
 act 11939 tp e0 2.5 0.0625 0.5
 act 11939 tp e1 3.5 0.0625 0.5
 act 11939 tp e2 4.5 0.0625 0.5
-expect 11960 nether-death g115
+expect 11962 nether-death g115
 expect 12000 golem g118 6 3 -3
 expect 12001 pulse g118 10
 expect 12002 cross g118
@@ -1396,7 +1396,7 @@ act 13339 tp e22 -3.5 0.0625 60.5
 act 13339 tp e0 2.5 0.0625 0.5
 act 13339 tp e1 3.5 0.0625 0.5
 act 13339 tp e2 4.5 0.0625 0.5
-expect 13360 nether-death g129
+expect 13362 nether-death g129
 expect 13400 golem g132 0 3 -6
 expect 13401 pulse g132 10
 expect 13402 cross g132
@@ -1562,7 +1562,7 @@ act 15039 tp e10 21.5 0.0625 60.5
 act 15039 tp e11 2.5 0.0625 0.5
 act 15039 tp e12 3.5 0.0625 0.5
 act 15039 tp e13 4.5 0.0625 0.5
-expect 15060 nether-death g145
+expect 15062 nether-death g145
 expect 15100 golem g148 2 3 -6
 expect 15101 pulse g148 10
 expect 15102 cross g148
@@ -1692,7 +1692,7 @@ act 16339 tp e7 -3.5 0.0625 60.5
 act 16339 tp e8 2.5 0.0625 0.5
 act 16339 tp e9 3.5 0.0625 0.5
 act 16339 tp e10 4.5 0.0625 0.5
-expect 16360 nether-death g158
+expect 16362 nether-death g158
 expect 16400 golem g161 8 3 -6
 expect 16401 pulse g161 10
 expect 16402 cross g161
@@ -1722,7 +1722,7 @@ act 16639 tp e16 11.5 0.0625 60.5
 act 16639 tp e17 2.5 0.0625 0.5
 act 16639 tp e18 3.5 0.0625 0.5
 act 16639 tp e19 4.5 0.0625 0.5
-expect 16660 nether-death g161
+expect 16662 nether-death g161
 expect 16700 golem g164 -1 3 -6
 expect 16701 pulse g164 10
 expect 16702 cross g164
@@ -1862,7 +1862,7 @@ act 18039 tp e16 21.5 0.0625 60.5
 act 18039 tp e17 2.5 0.0625 0.5
 act 18039 tp e18 3.5 0.0625 0.5
 act 18039 tp e19 4.5 0.0625 0.5
-expect 18060 nether-death g175
+expect 18062 nether-death g175
 expect 18100 golem g178 1 3 -3
 expect 18101 pulse g178 10
 expect 18102 cross g178
@@ -1932,7 +1932,7 @@ act 18739 tp e16 -3.5 0.0625 60.5
 act 18739 tp e17 2.5 0.0625 0.5
 act 18739 tp e18 3.5 0.0625 0.5
 act 18739 tp e19 4.5 0.0625 0.5
-expect 18760 nether-death g182
+expect 18762 nether-death g182
 expect 18800 golem g185 6 3 -1
 expect 18801 pulse g185 10
 expect 18802 cross g185
@@ -2002,7 +2002,7 @@ act 19439 tp e16 1.5 0.0625 60.5
 act 19439 tp e17 2.5 0.0625 0.5
 act 19439 tp e18 3.5 0.0625 0.5
 act 19439 tp e19 4.5 0.0625 0.5
-expect 19460 nether-death g189
+expect 19462 nether-death g189
 expect 19500 golem g192 1 3 -6
 expect 19501 pulse g192 10
 expect 19502 cross g192
@@ -2082,7 +2082,7 @@ act 20239 tp e19 11.5 0.0625 60.5
 act 20239 tp e20 2.5 0.0625 0.5
 act 20239 tp e21 3.5 0.0625 0.5
 act 20239 tp e22 4.5 0.0625 0.5
-expect 20260 nether-death g197
+expect 20262 nether-death g197
 expect 20300 golem g200 -1 3 -1
 expect 20301 pulse g200 10
 expect 20302 cross g200
@@ -2092,7 +2092,7 @@ act 20339 tp e22 16.5 0.0625 60.5
 act 20339 tp e0 2.5 0.0625 0.5
 act 20339 tp e1 3.5 0.0625 0.5
 act 20339 tp e2 4.5 0.0625 0.5
-expect 20360 nether-death g198
+expect 20362 nether-death g198
 expect 20400 golem g201 8 3 -4
 expect 20401 pulse g201 10
 expect 20402 cross g201
@@ -2122,7 +2122,7 @@ act 20639 tp e10 1.5 0.0625 60.5
 act 20639 tp e11 2.5 0.0625 0.5
 act 20639 tp e12 3.5 0.0625 0.5
 act 20639 tp e13 4.5 0.0625 0.5
-expect 20660 nether-death g201
+expect 20662 nether-death g201
 expect 20700 golem g204 4 3 -6
 expect 20701 pulse g204 10
 expect 20702 cross g204
@@ -2132,7 +2132,7 @@ act 20739 tp e13 6.5 0.0625 60.5
 act 20739 tp e14 2.5 0.0625 0.5
 act 20739 tp e15 3.5 0.0625 0.5
 act 20739 tp e16 4.5 0.0625 0.5
-expect 20760 nether-death g202
+expect 20762 nether-death g202
 expect 20800 golem g205 3 3 -3
 expect 20801 pulse g205 10
 expect 20802 cross g205
@@ -2182,7 +2182,7 @@ act 21239 tp e7 1.5 0.0625 60.5
 act 21239 tp e8 2.5 0.0625 0.5
 act 21239 tp e9 3.5 0.0625 0.5
 act 21239 tp e10 4.5 0.0625 0.5
-expect 21260 nether-death g207
+expect 21262 nether-death g207
 expect 21300 golem g210 6 3 -3
 expect 21301 pulse g210 10
 expect 21302 cross g210
@@ -2192,7 +2192,7 @@ act 21339 tp e10 6.5 0.0625 60.5
 act 21339 tp e11 2.5 0.0625 0.5
 act 21339 tp e12 3.5 0.0625 0.5
 act 21339 tp e13 4.5 0.0625 0.5
-expect 21360 nether-death g208
+expect 21362 nether-death g208
 expect 21400 golem g211 2 3 -1
 expect 21401 pulse g211 10
 expect 21402 cross g211
@@ -2312,7 +2312,7 @@ act 22539 tp e2 6.5 0.0625 60.5
 act 22539 tp e5 2.5 0.0625 0.5
 act 22539 tp e6 3.5 0.0625 0.5
 act 22539 tp e7 4.5 0.0625 0.5
-expect 22560 nether-death g220
+expect 22562 nether-death g220
 expect 22600 golem g223 8 3 -4
 expect 22601 pulse g223 10
 expect 22602 cross g223
@@ -2342,7 +2342,7 @@ act 22839 tp e13 21.5 0.0625 60.5
 act 22839 tp e14 2.5 0.0625 0.5
 act 22839 tp e15 3.5 0.0625 0.5
 act 22839 tp e16 4.5 0.0625 0.5
-expect 22860 nether-death g223
+expect 22862 nether-death g223
 expect 22900 golem g226 6 3 -3
 expect 22901 pulse g226 10
 expect 22902 cross g226
@@ -2422,7 +2422,7 @@ act 23639 tp e16 1.5 0.0625 60.5
 act 23639 tp e17 2.5 0.0625 0.5
 act 23639 tp e18 3.5 0.0625 0.5
 act 23639 tp e19 4.5 0.0625 0.5
-expect 23660 nether-death g231
+expect 23662 nether-death g231
 expect 23700 golem g234 8 3 -1
 expect 23701 pulse g234 10
 expect 23702 cross g234
@@ -2452,7 +2452,7 @@ act 23939 tp e2 16.5 0.0625 60.5
 act 23939 tp e5 2.5 0.0625 0.5
 act 23939 tp e6 3.5 0.0625 0.5
 act 23939 tp e7 4.5 0.0625 0.5
-expect 23960 nether-death g234
+expect 23962 nether-death g234
 expect 24000 golem g237 5 3 -4
 expect-end golems 238
 expect-end nether-deaths 235
