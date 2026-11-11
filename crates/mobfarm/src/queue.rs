@@ -3653,6 +3653,7 @@ pub struct MeterState {
     /// router S's shape last seen, and its changes
     s_shape: String,
     s_flips: usize,
+    s_flip_on_cart: Vec<String>,
     /// the opening in progress (or the last one) came from a retry
     cur_open_retry: bool,
     init: bool,
@@ -3704,6 +3705,8 @@ pub struct MeterState {
     rest_for: Vec<i64>,
     prev_v: Vec<f64>,
     contacts: Vec<((usize, usize), f64, f64, i64, bool, bool)>,
+    /// per contact: the mover ridden, the resting cart ridden
+    contact_ridden: Vec<(bool, bool)>,
     contact_at: Vec<(f64, f64, f64)>,
     contact_slopes: Vec<usize>,
     /// H's logic state per gt (the emulated gate follows it `h_delay` late), the wired trigger's
@@ -3817,6 +3820,16 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         if shape != s.s_shape {
             if (c < 4 || s.s_shape.is_empty()) && s.events.len() < 60 {
                 s.events.push(format!("{c}+{dt} S {shape}"));
+            }
+            // (the switch rule: S never flips with a cart in its cell, ridden or empty)
+            if !s.s_shape.is_empty() {
+                let cell = at(xb, 1, 16);
+                let (lx, ly, lz) = (cell.x as f64, cell.y as f64, cell.z as f64);
+                for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))) {
+                    if e.bb.max_x > lx && e.bb.min_x < lx + 1.0 && e.bb.max_y > ly && e.bb.min_y < ly + 1.0 && e.bb.max_z > lz && e.bb.min_z < lz + 1.0 {
+                        s.s_flip_on_cart.push(format!("{c}+{dt} S to {shape} with e{} ({}) in its cell", e.id, if e.passengers.is_empty() { "empty" } else { "ridden" }));
+                    }
+                }
             }
             s.s_flips += 1;
             s.s_shape = shape;
@@ -4505,6 +4518,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
                         s.contacts.push((key, s.prev_v[a], d, t, at_h, true));
                         s.contact_at.push((pb.0, pb.1, pb.2));
                         s.contact_slopes.push(slopes);
+                        let ridden = |k: usize| carts.get(k).and_then(|id| w.entities.list.iter().find(|e| e.id == *id)).is_some_and(|e| !e.passengers.is_empty());
+                        s.contact_ridden.push((ridden(a), ridden(b)));
                     }
                 }
                 (true, Some(i)) => {
@@ -4564,15 +4579,19 @@ fn meter_trace(w: &redsim::world::World, s: &mut MeterState, lay: &LoopLayout, o
 
 /// The metered stand's report lines (`meter_tick`'s measurements), and its problems.
 /// Each curve's passages, for tick-exact's curve-pair rule (a follower must not enter a curve
-/// before the leader's centre is 0.98 past the curve's centre): per plain curve rail, each cart's
-/// entry (its centre within 0.5 of the cell's centre, within 1 in height) and clear (0.98 past the
-/// centre after entering), and the least margin, follower entry minus leader clear, over
-/// consecutive passages, with the leader's speed at its entry.
+/// before the leader's centre is 0.98 past the curve's centre; G1's bar): per plain curve rail and
+/// 3-arm junction, each cart's entry (its box front at the cell's near edge: its centre within
+/// 0.99 of the cell's centre, within 1 in height) and clear (0.98 past the centre along its exit,
+/// after passing within 0.5 of it), and the least margin, follower entry minus leader clear, over
+/// consecutive passages, with the leader's speed at its entry; plus the ticks on which two carts'
+/// boxes touch while both centres are within 1.5 of the curve's centre (must be 0).
 #[derive(Default)]
 struct CurveSpacing {
     cells: Vec<BlockPos>,
-    open: std::collections::HashMap<(usize, u32), (i64, f64)>,
+    /// (curve, cart): entry tick, speed at entry, passed the centre
+    open: std::collections::HashMap<(usize, u32), (i64, f64, bool)>,
     passes: Vec<Vec<(i64, i64, u32, f64)>>,
+    touches: Vec<(usize, i64)>,
 }
 
 impl CurveSpacing {
@@ -4596,21 +4615,34 @@ impl CurveSpacing {
         self.passes = vec![Vec::new(); self.cells.len()];
     }
     fn observe(&mut self, w: &redsim::world::World, t: i64) {
-        for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))) {
-            let v = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
-            for (i, p) in self.cells.iter().enumerate() {
+        let carts: Vec<&redsim::entity::Entity> = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).collect();
+        for (i, p) in self.cells.iter().enumerate() {
+            let (cx, cz) = (p.x as f64 + 0.5, p.z as f64 + 0.5);
+            let near: Vec<&&redsim::entity::Entity> = carts.iter().filter(|e| (e.pos.y - p.y as f64).abs() <= 1.0 && ((e.pos.x - cx).powi(2) + (e.pos.z - cz).powi(2)).sqrt() < 1.5).collect();
+            if near.iter().enumerate().any(|(a, ea)| near.iter().skip(a + 1).any(|eb| ea.bb.intersects(eb.bb))) {
+                self.touches.push((i, t));
+            }
+            for e in &carts {
                 if (e.pos.y - p.y as f64).abs() > 1.0 {
                     continue;
                 }
-                let d = ((e.pos.x - (p.x as f64 + 0.5)).powi(2) + (e.pos.z - (p.z as f64 + 0.5)).powi(2)).sqrt();
+                let v = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
+                let d = ((e.pos.x - cx).powi(2) + (e.pos.z - cz).powi(2)).sqrt();
                 let key = (i, e.id);
                 match self.open.get(&key).copied() {
-                    None if d < 0.5 => {
-                        self.open.insert(key, (t, v));
+                    None if d < 0.99 => {
+                        self.open.insert(key, (t, v, d < 0.5));
                     }
-                    Some((t0, v0)) if d > 0.98 => {
-                        self.passes[i].push((t0, t, e.id, v0));
-                        self.open.remove(&key);
+                    Some((t0, v0, passed)) => {
+                        if !passed && d < 0.5 {
+                            self.open.insert(key, (t0, v0, true));
+                        } else if passed && d > 0.98 {
+                            self.passes[i].push((t0, t, e.id, v0));
+                            self.open.remove(&key);
+                        } else if !passed && d > 1.5 {
+                            // (in and back out without passing the centre: no passage)
+                            self.open.remove(&key);
+                        }
                     }
                     _ => {}
                 }
@@ -4619,7 +4651,7 @@ impl CurveSpacing {
     }
     /// One line per curve passed by two or more carts (loop cells: the design frame less
     /// (6,0,6)), the least margin first; a negative margin is a follower entering before the
-    /// leader cleared.
+    /// leader cleared; then the touch count.
     fn report(&self) -> Vec<String> {
         let mut rows: Vec<(i64, String)> = Vec::new();
         for (i, p) in self.cells.iter().enumerate() {
@@ -4629,8 +4661,9 @@ impl CurveSpacing {
             }
             ps.sort_by_key(|x| x.0);
             let worst = ps.windows(2).map(|w| (w[1].0 - w[0].1, w[0].1, w[0].3, w[1].3)).min_by_key(|x| x.0);
+            let touch = self.touches.iter().filter(|x| x.0 == i).count();
             if let Some((m, at, vl, vf)) = worst {
-                rows.push((m, format!("({},{},{}) {} passes, least margin {m} gt at t {at} (leader {vl:.2}, follower {vf:.2} b/gt)", p.x - 6, p.y, p.z - 6, ps.len())));
+                rows.push((m, format!("({},{},{}) {} passes, least margin {m} gt at t {at} (leader {vl:.2}, follower {vf:.2} b/gt){}", p.x - 6, p.y, p.z - 6, ps.len(), if touch > 0 { format!(", {touch} touching ticks") } else { String::new() })));
             }
         }
         rows.sort_by_key(|r| r.0);
@@ -4722,6 +4755,10 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
             deps.push(format!("+{} gaps {}", run.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("/+"), if gaps.is_empty() { "-".to_string() } else { gaps.join(",") }));
             i = j;
         }
+        out.push(format!("meter router S (the switch rule: never a shape change with a cart's box in S's cell): {} changes, {} with a cart in the cell{}", s.s_flips.saturating_sub(1), s.s_flip_on_cart.len(), if s.s_flip_on_cart.is_empty() { String::new() } else { format!(" ({})", s.s_flip_on_cart.join("; ")) }));
+        if !s.s_flip_on_cart.is_empty() {
+            problems.push(format!("router S flipped with a cart in its cell: {}", s.s_flip_on_cart[0]));
+        }
         out.push(format!("meter departure at the crest (each REL: carts' crossing gt after REL, then the gaps): {}", deps.join("; ")));
         out.push(format!("meter DEP_X probe (a detector at (xb,1,14) on A's branch, the centre crossing z 15.29 northward; gt after the cycle's tick, each cart): {}", rows.join("; ")));
         if !s.dep_level.is_empty() {
@@ -4746,6 +4783,31 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
         let h_max = cs.iter().filter(|c| c.0 .4).map(|c| c.0 .1).fold(0.0f64, f64::max);
         let top: Vec<String> = cs.iter().take(5).map(|(c, w, g)| format!("cart {} onto {} at {}+{} stored {:.3} ({}) closest {:.3}, the resting cart at {:.2},{:.2},{:.2}{}", c.0 .0, c.0 .1, c.3 / 100, c.3 % 100, c.1, geo(*g), c.2, w.0, w.1, w.2, if c.4 { " (H's queue)" } else { "" })).collect();
         out.push(format!("meter speed rule (a moving cart's stored speed the gt before it enters a resting cart's push range: centres within 1.18 across, 1.0 up): {}; {} at H's queue (fastest there {:.3}); the fastest {}; closest centres {}", by.join("; "), at_h, h_max, top.join("; "), if cs.is_empty() { "-".to_string() } else { format!("{:.3}", cs.iter().map(|c| c.0 .2).fold(f64::MAX, f64::min)) }));
+        // (H's arrivals for tick-exact's lanes: each contact into a cart resting at H's queue, by
+        // rest place (the resting cart's z: place 1 at 1.12, 2 at 1.91, 3 at 2.70) and by the
+        // pair (R ridden, E empty: mover then resting cart), the mover's stored speed)
+        {
+            let mut cells: std::collections::BTreeMap<(usize, &str), (usize, f64, f64)> = std::collections::BTreeMap::new();
+            for (k, c) in s.contacts.iter().enumerate() {
+                if !c.4 {
+                    continue;
+                }
+                let z = s.contact_at.get(k).map_or(0.0, |p| p.2);
+                let place = if z < 1.5 { 1 } else if z < 2.3 { 2 } else { 3 };
+                let pair = match s.contact_ridden.get(k).copied().unwrap_or((true, true)) {
+                    (true, true) => "R->R",
+                    (false, true) => "E->R",
+                    (true, false) => "R->E",
+                    (false, false) => "E->E",
+                };
+                let e = cells.entry((place, pair)).or_insert((0, f64::MAX, 0.0));
+                e.0 += 1;
+                e.1 = e.1.min(c.1);
+                e.2 = e.2.max(c.1);
+            }
+            let txt: Vec<String> = cells.iter().map(|((p, pair), (n, lo, hi))| format!("place {p} {pair}: {n} arrivals, stored {lo:.3}..{hi:.3}")).collect();
+            out.push(format!("meter H arrivals (stored speed the gt before contact, by rest place and pair; R ridden, E empty, mover then resting cart): {}", if txt.is_empty() { "-".to_string() } else { txt.join("; ") }));
+        }
         if let Some(c) = cs.iter().find(|c| c.0 .1 >= bar(c.2)) {
             problems.push(format!("meter: a contact at stored {:.3} after {} (bar {:.2})", c.0 .1, geo(c.2), bar(c.2)));
         }
@@ -10354,7 +10416,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         out.push(merges.line());
         {
             let cr = curves.report();
-            out.push(format!("curve spacing (each curve's passages: the follower's entry, its centre within 0.5 of the curve's centre, minus the leader's clear, 0.98 past it; tick-exact's curve-pair rule, least first): {}", if cr.is_empty() { "no curve passed twice".to_string() } else { cr.join("; ") }));
+            let touching: usize = curves.touches.len();
+            out.push(format!("curve spacing (G1's bar: each curve's passages, the follower's box front at the cell's near edge, its centre within 0.99 of the curve's centre, minus the leader's clear, its centre 0.98 past along the exit; least first): {}", if cr.is_empty() { "no curve passed twice".to_string() } else { cr.join("; ") }));
+            out.push(format!("curve contact (ticks on which two carts' boxes touch, both centres within 1.5 of a curve's centre; must be 0): {touching}"));
+            if touching > 0 {
+                problems.push(format!("curve contact: {touching} ticks with two carts' boxes touching at a curve"));
+            }
         }
         if lay.esc_adm_a1.is_some() {
             out.push(format!("riders in the pressed queue (landing to P) with a walk target, rider-ticks by path: reaching {}, partial {}, no path {}{}; riders whose box touches another cart's, walking or not (contact alone pushes: LivingEntity.pushEntities, bridged in gate-escg6l-v3; must be 0): {walk_touch} (not walking {touch_idle}){}", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }, if walk_touch_log.is_empty() { String::new() } else { format!(" ({})", walk_touch_log.join("; ")) }));
