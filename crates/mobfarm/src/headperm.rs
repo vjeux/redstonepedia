@@ -121,6 +121,13 @@ pub struct HeadPerm {
     pub last_tick: (i64, usize, usize),
     pub ledger: Vec<(i64, (i64, usize, usize))>,
     pub fault_slot: Option<i64>,
+    /// (day-1's latches) DEP_X: an ideal plane (loop z) on this stand's approach column that a cart
+    /// crosses going down toward the hold (after VB's parking point): ARR/EMP re-armed on it, not
+    /// on the launch; its re-arms logged (t, +E: EMP re-armed too)
+    pub dep_x: Option<f64>,
+    pub dep_log: Vec<String>,
+    /// trains reaching H (ARR_X's clearing edge) while carts of an earlier one still waited there
+    pub second_train: Vec<String>,
     /// D_arr's and Dh's levels at each change (t: A/a = D_arr on/off, H/h = Dh on/off)
     pub det_log: Vec<String>,
 }
@@ -177,6 +184,9 @@ impl HeadPerm {
             last_tick: (0, 0, 0),
             ledger: Vec::new(),
             fault_slot: None,
+            dep_x: None,
+            dep_log: Vec::new(),
+            second_train: Vec::new(),
             det_log: Vec::new(),
         }
     }
@@ -201,11 +211,29 @@ impl HeadPerm {
 
     /// (day-1's latches) the launch re-arms ARR_X, and EMP_X only while the stand holds a batch
     /// (¬E_X): `occupied` the stand's occupancy at the launch, `waiting` the carts stopped at H then.
+    /// With `dep_x` the launch only records `waiting`: DEP_X re-arms instead (`day1_dep`).
     pub fn day1_launch(&mut self, t: i64, slot: i64, occupied: bool, waiting: usize) {
-        self.arr_armed = true;
-        self.emp_armed = occupied;
+        if self.dep_x.is_none() {
+            self.arr_armed = true;
+            self.emp_armed = occupied;
+        }
         if waiting > 0 {
             self.launch_waits.push(format!("slot {slot} (t {t}): {waiting} carts stopped at H"));
+        }
+    }
+
+    /// (day-1's latches with DEP_X) a cart crossing DEP_X toward this stand: ARR_X re-armed if
+    /// clear (a train's later carts cross while it is still armed), EMP_X re-armed while the
+    /// stand holds a batch (one-shot per re-arm).
+    pub fn day1_dep(&mut self, t: i64, occupied: bool) {
+        if !self.arr_armed {
+            self.arr_armed = true;
+            if occupied {
+                self.emp_armed = true;
+            }
+            if self.dep_log.len() < 40 {
+                self.dep_log.push(format!("{t}{}", if occupied { "+E" } else { "" }));
+            }
         }
     }
 
@@ -325,6 +353,9 @@ impl HeadPerm {
         if da_rise && !self.arr {
             self.arr = true;
         }
+        // (ironspec's watch item: a train reaching H (ARR_X's clearing edge) while carts of an
+        // earlier one still wait there; counted below with the carts stopped on the column)
+        let arr_clearing = da_rise && self.arr_armed;
         if da_rise {
             self.arr_armed = false;
         }
@@ -350,6 +381,9 @@ impl HeadPerm {
         }
         if n_held > self.held_max.0 || (n_held == self.held_max.0 && z_back > self.held_max.1) {
             self.held_max = (n_held, z_back);
+        }
+        if arr_clearing && n_held > 0 && self.second_train.len() < 20 {
+            self.second_train.push(format!("t {t}: {n_held} carts still stopped at H (back to z {z_back:.2})"));
         }
         // (each launch followed to completion within 300 gt)
         let rel_known = self.rel_cell.is_some();
@@ -432,11 +466,19 @@ impl HeadPerm {
                     clean_from.map_or("-".to_string(), |s| ((s - from) / 2).to_string())
                 ));
                 out.push(format!(
-                    "head-perm day-1 latches (ARR_X by the launch, cleared by D_arr's first edge; EMP_X by the launch while the stand holds a batch, cleared by SE_X): launches for A with carts stopped at H: {}{}; the most carts stopped on the descent at once {} (the farthest back z {:.2} from the snap turn's cell)",
+                    "head-perm day-1 latches (ARR_X by the launch, cleared by D_arr's first edge; EMP_X by the launch while the stand holds a batch, cleared by SE_X): launches for A with carts stopped at H: {}{}; the most carts stopped on the descent at once {} (the farthest back z {:.2} from the snap turn's cell){}",
                     self.launch_waits.len(),
                     if self.launch_waits.is_empty() { String::new() } else { format!(" ({})", self.launch_waits.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) },
                     self.held_max.0,
-                    self.held_max.1
+                    self.held_max.1,
+                    self.dep_x.map_or(String::new(), |z| format!("; re-armed by DEP_X (ideal, the approach column crossing z {z} downward) at t {}", if self.dep_log.is_empty() { "-".to_string() } else { self.dep_log.join(",") }))
+                ));
+                out.push(format!(
+                    "head-perm at H (ironspec's watch item): the most carts stopped at H at once {} (the farthest back z {:.2} from the snap turn's cell); a train reaching H while earlier carts still waited there: {}{}",
+                    self.held_max.0,
+                    self.held_max.1,
+                    self.second_train.len(),
+                    if self.second_train.is_empty() { String::new() } else { format!(" ({})", self.second_train.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }
                 ));
             }
             if !self.tick_waits.is_empty() {
