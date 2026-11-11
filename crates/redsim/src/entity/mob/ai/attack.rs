@@ -14,7 +14,27 @@ use crate::world::World;
 
 /// `Attributes.ATTACK_DAMAGE` of the modeled attackers.
 pub fn attack_damage(w: &World, i: usize) -> f32 {
-    let base = match mob(w, i).ty.def().id {
+    let base = base_attack_damage(w, i);
+    // the main hand's ATTACK_DAMAGE modifier (a natural zombie's iron sword +5, a zombified
+    // piglin's golden sword +3; a picked-up item's)
+    let d = match &mob(w, i).mainhand {
+        Some(h) => base as f64 + super::loot::weapon_damage(&h.item),
+        None => base as f64,
+    };
+    // (tickexact 2026-11-10) strength's ADD_VALUE modifier, 3 x (amplifier + 1): a spider's spawn
+    // effect
+    let d = if mob(w, i).effects.strength > 0 { d + 3.0 } else { d };
+    d as f32
+}
+
+/// `getAttributeBaseValue(ATTACK_DAMAGE)` of the modeled attackers (a spear's stab adds to it).
+pub fn base_attack_damage(w: &World, i: usize) -> f32 {
+    base_attack_damage_by_id(mob(w, i).ty.def().id)
+}
+
+/// [`base_attack_damage`] by mob type id.
+pub fn base_attack_damage_by_id(id: &str) -> f32 {
+    match id {
         "zombie" | "baby_zombie" | "zombie_villager" | "baby_zombie_villager" | "husk" | "drowned" | "baby_drowned" => 3.0,
         // ZombifiedPiglin.createAttributes
         "zombified_piglin" | "baby_zombified_piglin" => 5.0,
@@ -22,13 +42,9 @@ pub fn attack_damage(w: &World, i: usize) -> f32 {
         "spider" | "cave_spider" => 2.0,
         "skeleton" | "stray" | "bogged" => 2.0,
         "pillager" | "vindicator" => 5.0,
+        // Wolf.createAttributes
+        "wolf" => 4.0,
         _ => 2.0,
-    };
-    // the main hand's ATTACK_DAMAGE modifier (a natural zombie's iron sword +5, a zombified
-    // piglin's golden sword +3; a picked-up item's)
-    match &mob(w, i).mainhand {
-        Some(h) => (base as f64 + super::loot::weapon_damage(&h.item)) as f32,
-        None => base,
     }
 }
 
@@ -41,6 +57,14 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
         Who::Entity(j) => j,
         Who::Player(_) => {
             let why = "a mob hitting a player is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+            return false;
+        }
+        // (an entity of another level is never in reach: never in line of sight)
+        Who::Foreign(_) => {
+            let why = "a mob hitting an entity of another dimension is not modeled".to_string();
             if !w.errors.contains(&why) {
                 w.errors.push(why);
             }
@@ -65,8 +89,7 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
     w.mob.ai.attacker = prev;
     if hurt && golem {
         // the toss: +0.4 up, scaled by the target's knockback resistance
-        let resist = if mob(w, j).ty == crate::entity::mob::types::MobType::IronGolem { 1.0 } else { 0.0 };
-        let scale = (1.0f64 - resist).max(0.0);
+        let scale = (1.0f64 - knockback_resistance(w, j)).max(0.0);
         let e = &mut w.entities.list[j];
         e.delta_movement = e.delta_movement.add(0.0, (0.4f32 as f64) * scale, 0.0);
     }
@@ -106,11 +129,13 @@ fn voice_pitch_draws(w: &mut World, i: usize) {
 /// villager on Hard, or on Normal when its own random's `nextBoolean()` is false, converts it
 /// into a zombie villager: refused (zombie villagers are not modeled).
 pub fn killed_entity(w: &mut World, victim: usize, src: Damage) {
-    if src != Damage::MobAttack {
+    // Zombie.killedEntity (every Zombie class: a drowned's too): whatever it killed it with (its
+    // hit, its spear, its trident)
+    if !src.by_attacker() {
         return;
     }
     let Some(att) = w.mob.ai.attacker.and_then(|id| crate::entity::index_of(w, id)) else { return };
-    if !matches!(mob(w, att).ty.def().id, "zombie" | "baby_zombie") || mob(w, victim).ty != crate::entity::mob::types::MobType::Villager {
+    if !crate::entity::mob::natural::is_zombie_class(mob(w, att).ty) || mob(w, victim).ty != crate::entity::mob::types::MobType::Villager {
         return;
     }
     let d = super::difficulty_id(w);
@@ -130,7 +155,7 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
     if !w.mob.ai.on {
         return;
     }
-    let attacker = if matches!(src, Damage::MobAttack | Damage::Arrow) { w.mob.ai.attacker } else { None };
+    let attacker = if src.by_attacker() { w.mob.ai.attacker } else { None };
     if has_ai(w, i) {
         ai_mut(w, i).last_damage_entity = attacker;
     }
@@ -143,12 +168,14 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
         s.last_hurt_by_mob_timestamp = tc;
     }
     if took_full
-        && src == Damage::Arrow
+        && src.by_projectile()
         && let Some(m) = w.mob.ai.projectile_motion
     {
-        // Projectile.calculateHorizontalHurtKnockbackDirection: along the arrow's motion
+        // Projectile.calculateHorizontalHurtKnockbackDirection: along the projectile's motion
         knockback(w, i, 0.4f32 as f64, -m.x, -m.z);
     } else if took_full
+        // a spear's stab: #no_knockback (stabAttack pushes on its own)
+        && src != Damage::Spear
         && let Some(a) = attacker
         && let Some(ai_idx) = crate::entity::index_of(w, a)
     {
@@ -169,10 +196,16 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
     }
 }
 
-/// `LivingEntity.knockback(power, xd, zd)` (no knockback resistance on the modeled victims but the
-/// iron golem's 1.0).
+/// `getAttributeValue(KNOCKBACK_RESISTANCE)`: the type's (the iron golem's 1.0) plus a zombie's
+/// spawn bonus, clamped to the attribute's 0..1.
+pub fn knockback_resistance(w: &World, i: usize) -> f64 {
+    let m = mob(w, i);
+    (m.ty.def().knockback_resistance + m.knockback_bonus).clamp(0.0, 1.0)
+}
+
+/// `LivingEntity.knockback(power, xd, zd)`: the power scaled by 1 less the knockback resistance.
 pub fn knockback(w: &mut World, i: usize, power: f64, mut xd: f64, mut zd: f64) {
-    let resist = if mob(w, i).ty.def().id == "iron_golem" { 1.0 } else { 0.0 };
+    let resist = knockback_resistance(w, i);
     let power = power * (1.0 - resist);
     if power <= 0.0 {
         return;

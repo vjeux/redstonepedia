@@ -239,6 +239,24 @@ public final class SimServer extends MinecraftServer {
         return listenPort > 0;
     }
 
+    private LevelStem netherStem;
+
+    /**
+     * (tickexact 2026-11-10, farmopt's station) The Nether sandbox's stem: the Nether's dimension
+     * type (ultrawarm, coordinate scale 8, its portals' Level.NETHER) over a void source whose
+     * chunks are nether wastes (no layers: a farm's Nether part is pasted into it).
+     */
+    LevelStem netherStem() {
+        if (this.netherStem == null) {
+            Holder<Biome> wastes = this.registryAccess().lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.NETHER_WASTES);
+            Holder<DimensionType> type = this.registryAccess().lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(BuiltinDimensionTypes.NETHER);
+            FlatLevelGeneratorSettings flat = new FlatLevelGeneratorSettings(Optional.empty(), wastes, List.of());
+            flat.updateLayers();
+            this.netherStem = new LevelStem(type, new FlatLevelSource(flat));
+        }
+        return this.netherStem;
+    }
+
     /**
      * Network work a real server does every tick, for connected viewers: packets, keep-alives,
      * player bookkeeping and chunk sending. Levels are NOT ticked here.

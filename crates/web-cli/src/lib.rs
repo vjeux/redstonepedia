@@ -385,6 +385,20 @@ pub enum WebCmd {
         /// page's `data-drive`.
         #[arg(long)]
         drive: Option<PathBuf>,
+        /// With `--drive`: the camera follows that entity of the drive each frame (`eN`, entity
+        /// line N from 0, or `eN.pK`, its passenger K: a napper riding its cart), framed as the
+        /// other flags frame it (a film's follow shot).
+        #[arg(long)]
+        follow: Option<String>,
+        /// The game's Brightness option for the frames (0 Moody .. 1 Bright; default the game's
+        /// 0.5): a night's film drawn as a player at Bright sees it.
+        #[arg(long)]
+        brightness: Option<f32>,
+        /// The camera fitted to this box (`x0,y0,z0,x1,y1,z1`, cells in the design's coordinates)
+        /// at its yaw and pitch instead of the design's bounds: a film framed on one part of a long
+        /// design (a loop, not its far wires).
+        #[arg(long)]
+        fit: Option<String>,
     },
     /// What a card costs (natively): each design's still (`Session::new` with `Options::still`)
     /// and its picture's mesh, timed; the slowest first. A card over `--budget` ms here is surely
@@ -920,7 +934,30 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Recqa { pages, dir, out, engines, window, scale, timeout, browser, chrome } => crate::recqa::cmd_recqa(&dir, &pages, &out, &engines, &window, scale, timeout, &browser, chrome.as_deref()),
         WebCmd::Qa { pages, dir, kinds, clocks, out, window, at, watch, shards } => crate::qa::cmd_qa(&dir, &pages, kinds, clocks, &out, &window, &at, watch, shards),
         WebCmd::Cardcost { designs, budget, top, procedural } => cmd_cardcost(&designs, budget, top, procedural),
-        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, yaw, pitch, zoom, look_at, drive } => {
+        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, yaw, pitch, zoom, look_at, drive, follow, brightness, fit } => {
+            let fit: Option<([f32; 3], [f32; 3])> = match fit.as_deref() {
+                None => None,
+                Some(s) => {
+                    let v: Vec<f32> = s.split(',').map(|x| x.trim().parse::<f32>()).collect::<Result<_, _>>().with_context(|| format!("--fit {s}: x0,y0,z0,x1,y1,z1"))?;
+                    let [x0, y0, z0, x1, y1, z1] = v[..] else { bail!("--fit {s}: x0,y0,z0,x1,y1,z1") };
+                    Some(([x0.min(x1), y0.min(y1), z0.min(z1)], [x0.max(x1), y0.max(y1), z0.max(z1)]))
+                }
+            };
+            use redsim::entity::mob::drive::Who;
+            let follow: Option<Who> = match follow.as_deref() {
+                None => None,
+                Some(s) => {
+                    let bad = || anyhow::anyhow!("--follow {s}: eN or eN.pK");
+                    let r = s.strip_prefix('e').ok_or_else(bad)?;
+                    Some(match r.split_once(".p") {
+                        Some((n, k)) => Who::Rider(n.parse().map_err(|_| bad())?, k.parse().map_err(|_| bad())?),
+                        None => Who::Line(r.parse().map_err(|_| bad())?),
+                    })
+                }
+            };
+            if follow.is_some() && drive.is_none() {
+                bail!("--follow: with --drive (it names the drive's entities)");
+            }
             let look_at: Option<[f32; 3]> = match look_at.as_deref() {
                 None => None,
                 Some(s) => {
@@ -948,7 +985,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
             let mut bad = 0;
             for d in &designs {
                 let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
-                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir.as_deref(), (yaw, pitch), zoom, look_at) {
+                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir.as_deref(), (yaw, pitch), zoom, look_at, follow, brightness, fit) {
                     Ok(c) => {
                         println!(
                             "{}: {width}x{height}: mesh {:.2} ms, draw {:.2} ms a frame ({} frames of {ticks} ticks; the blocks' mesh rebuilt {} times); vertices: {} on the GPU, {} solid + {} translucent uploaded a frame",

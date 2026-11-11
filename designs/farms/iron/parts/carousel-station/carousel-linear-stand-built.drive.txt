@@ -1,0 +1,2880 @@
+# drive v1: mctas mobfarm linear-bench <design> --from 1 --to 1 --days 1 --lead 60 --placed-in-order --drive-out F
+# caption batches teleported to the stand by the test bench (the release is stubbed)
+# seed 1
+# days 1
+# walk random
+# ai on
+# start Run::start(spec with no blocks, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }) and an empty Nether world, the build (the `build:` line), then the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then
+# act t: applied when the world's time is the build's start + t, before the run's next tick (the bench's own order: at the top of its loop)
+# t0 8500
+# build: built in order instead: Run::start with the design's blocks and block entities removed (no settle), then each `act t set x y z <state>` a placement with the game's updates (flags 3) and each `act t nbt x y z <snbt>` a container's fill, in the build order (mobfarm::placing::build_steps_of: ironfarm's build_order_of, each lit portal's cells at one tick after every other block, fluid sources poured last, then the design's listed steps (`build: fills-last`: fills-last, each container's contents a step of its own after every placement and no comparator output merged; last, these cells at the very end)), each cell's priced gap between placements (20 gt; 40 gt at a cell the bill charges place:edge); every time here counts from the build's start (time 0), not from t0. The Nether part is built first, as `act t nether-set x y z <state>` / `act t nether-nbt x y z <snbt>` (the Nether's coordinates), its world ticked every tick of its build and of the player's 80 gt in the portal back (t 0..3040: the player is there); then the overworld's, the Nether not ticked again until a golem's crossing (its PORTAL ticket).
+# spawn 8500
+# expect t: the event happened in the tick that brought the world's time to t0 + t (an act at t comes before the tick to t0 + t + 1)
+act 0 nether-set -2 53 0 minecraft:cobblestone
+act 20 nether-set -1 53 0 minecraft:cobblestone
+act 40 nether-set -1 53 1 minecraft:cobblestone
+act 60 nether-set -2 54 1 minecraft:cobblestone
+act 80 nether-set -3 55 1 minecraft:cobblestone
+act 100 nether-set 2 55 -1 minecraft:cobblestone
+act 120 nether-set 3 55 -1 minecraft:cobblestone
+act 140 nether-set 3 55 0 minecraft:cobblestone
+act 160 nether-set 3 55 1 minecraft:cobblestone
+act 180 nether-set 4 55 0 minecraft:cobblestone
+act 200 nether-set 4 55 1 minecraft:cobblestone
+act 220 nether-set -3 56 0 minecraft:cobblestone
+act 240 nether-set 1 56 3 minecraft:cobblestone
+act 260 nether-set 2 56 1 minecraft:cobblestone
+act 280 nether-set -2 57 0 minecraft:cobblestone
+act 300 nether-set 1 57 2 minecraft:cobblestone
+act 320 nether-set 1 57 4 minecraft:cobblestone
+act 340 nether-set 2 57 -3 minecraft:cobblestone
+act 360 nether-set -2 58 1 minecraft:cobblestone
+act 380 nether-set 1 58 1 minecraft:cobblestone
+act 400 nether-set 1 58 2 minecraft:cobblestone
+act 420 nether-set 1 58 3 minecraft:cobblestone
+act 440 nether-set 2 58 -4 minecraft:cobblestone
+act 460 nether-set 2 58 -2 minecraft:cobblestone
+act 480 nether-set -3 59 1 minecraft:cobblestone
+act 500 nether-set 2 59 -3 minecraft:cobblestone
+act 520 nether-set 2 59 -2 minecraft:cobblestone
+act 540 nether-set 2 59 -1 minecraft:cobblestone
+act 560 nether-set -3 60 0 minecraft:cobblestone
+act 580 nether-set -2 61 0 minecraft:cobblestone
+act 600 nether-set -2 62 1 minecraft:cobblestone
+act 620 nether-set 0 62 0 minecraft:cobblestone
+act 640 nether-set 0 62 1 minecraft:cobblestone
+act 660 nether-set 1 62 -1 minecraft:cobblestone
+act 680 nether-set 1 62 2 minecraft:cobblestone
+act 700 nether-set 2 62 -1 minecraft:cobblestone
+act 740 nether-set 2 62 2 minecraft:cobblestone
+act 780 nether-set 3 62 0 minecraft:cobblestone
+act 820 nether-set 3 62 1 minecraft:cobblestone
+act 860 nether-set -1 63 0 minecraft:cobblestone
+act 880 nether-set -1 63 1 minecraft:cobblestone
+act 900 nether-set 0 63 0 minecraft:obsidian
+act 920 nether-set 0 63 1 minecraft:obsidian
+act 940 nether-set 1 63 -1 minecraft:cobblestone
+act 960 nether-set 1 63 0 minecraft:oak_wall_sign[facing=south,waterlogged=false]
+act 980 nether-set 1 63 1 minecraft:oak_wall_sign[facing=north,waterlogged=false]
+act 1000 nether-set 1 63 2 minecraft:cobblestone
+act 1020 nether-set 2 63 -1 minecraft:cobblestone
+act 1060 nether-set 2 63 0 minecraft:oak_wall_sign[facing=south,waterlogged=false]
+act 1100 nether-set 2 63 1 minecraft:oak_wall_sign[facing=north,waterlogged=false]
+act 1140 nether-set 2 63 2 minecraft:cobblestone
+act 1180 nether-set 3 63 0 minecraft:cobblestone
+act 1220 nether-set 3 63 1 minecraft:cobblestone
+act 1260 nether-set 0 64 -1 minecraft:obsidian
+act 1280 nether-set 0 64 2 minecraft:obsidian
+act 1300 nether-set 1 64 -1 minecraft:cobblestone
+act 1320 nether-set 1 64 2 minecraft:cobblestone
+act 1340 nether-set 2 64 -1 minecraft:cobblestone
+act 1360 nether-set 2 64 2 minecraft:cobblestone
+act 1380 nether-set 3 64 0 minecraft:cobblestone
+act 1420 nether-set 3 64 1 minecraft:cobblestone
+act 1460 nether-set 0 65 -1 minecraft:obsidian
+act 1480 nether-set 0 65 2 minecraft:obsidian
+act 1500 nether-set 1 65 -1 minecraft:cobblestone
+act 1520 nether-set 1 65 2 minecraft:cobblestone
+act 1540 nether-set 2 65 -1 minecraft:cobblestone
+act 1560 nether-set 2 65 2 minecraft:cobblestone
+act 1580 nether-set 3 65 0 minecraft:cobblestone
+act 1620 nether-set 3 65 1 minecraft:cobblestone
+act 1660 nether-set -1 66 0 minecraft:cobblestone
+act 1680 nether-set -1 66 1 minecraft:cobblestone
+act 1700 nether-set 0 66 -1 minecraft:obsidian
+act 1720 nether-set 0 66 2 minecraft:obsidian
+act 1740 nether-set 0 67 0 minecraft:obsidian
+act 1760 nether-set 0 67 1 minecraft:obsidian
+act 1780 nether-set 0 54 0 minecraft:chest[facing=west,type=right,waterlogged=false]
+act 1800 nether-set 0 54 1 minecraft:chest[facing=west,type=left,waterlogged=false]
+act 1820 nether-set 1 54 0 minecraft:hopper[enabled=true,facing=west]
+act 1840 nether-set 2 54 0 minecraft:hopper[enabled=true,facing=west]
+act 1860 nether-set 2 55 0 minecraft:chest[facing=north,type=single,waterlogged=false]
+act 1880 nether-set 1 56 -1 minecraft:crafter[crafting=false,orientation=south_up,triggered=false]
+act 1900 nether-set 1 56 0 minecraft:hopper[enabled=true,facing=east]
+act 1920 nether-set 2 56 0 minecraft:crafter[crafting=false,orientation=down_south,triggered=false]
+act 1940 nether-set 1 57 0 minecraft:chest[facing=north,type=single,waterlogged=false]
+act 1960 nether-set 2 57 0 minecraft:hopper[enabled=true,facing=east]
+act 1980 nether-set 3 57 0 minecraft:chest[facing=north,type=single,waterlogged=false]
+act 2000 nether-set 1 58 0 minecraft:hopper[enabled=false,facing=down]
+act 2020 nether-set 2 58 0 minecraft:composter[level=0]
+act 2040 nether-set 1 59 0 minecraft:hopper[enabled=true,facing=down]
+act 2060 nether-set 2 59 0 minecraft:hopper[enabled=false,facing=down]
+act 2080 nether-set 1 60 0 minecraft:hopper[enabled=true,facing=east]
+act 2100 nether-set 2 60 0 minecraft:hopper[enabled=true,facing=down]
+act 2140 nether-set 1 61 0 minecraft:hopper[enabled=true,facing=down]
+act 2180 nether-set 1 61 1 minecraft:hopper[enabled=true,facing=north]
+act 2220 nether-set 2 61 0 minecraft:hopper[enabled=true,facing=west]
+act 2260 nether-set 2 61 1 minecraft:hopper[enabled=true,facing=north]
+act 2300 nether-set 1 57 1 minecraft:redstone_wall_torch[facing=north,lit=true]
+act 2320 nether-set 2 58 -1 minecraft:redstone_wall_torch[facing=south,lit=true]
+act 2340 nether-set 2 56 -1 minecraft:comparator[facing=west,mode=compare,powered=true]
+act 2360 nether-set 3 56 -1 minecraft:redstone_wire[east=none,north=none,power=9,south=side,west=side]
+act 2380 nether-set 3 56 0 minecraft:comparator[facing=west,mode=compare,powered=false]
+act 2400 nether-set 3 56 1 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+act 2420 nether-set 4 56 0 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+act 2460 nether-set 4 56 1 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+act 2500 nether-set 1 57 3 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+act 2520 nether-set 1 58 4 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+act 2540 nether-set 1 59 3 minecraft:redstone_wire[east=none,north=side,power=1,south=side,west=none]
+act 2560 nether-set 1 59 2 minecraft:redstone_wire[east=none,north=side,power=2,south=side,west=none]
+act 2580 nether-set 1 59 1 minecraft:comparator[facing=north,mode=compare,powered=true]
+act 2600 nether-set 2 58 -3 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+act 2620 nether-set 2 59 -4 minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+act 2660 nether-set 2 60 -3 minecraft:redstone_wire[east=none,north=side,power=1,south=side,west=none]
+act 2700 nether-set 2 60 -2 minecraft:redstone_wire[east=none,north=side,power=2,south=side,west=none]
+act 2740 nether-set 2 60 -1 minecraft:comparator[facing=south,mode=compare,powered=true]
+act 2780 nether-nbt 1 56 -1 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
+act 2800 nether-nbt 1 58 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}}]}
+act 2820 nether-nbt 1 59 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}}]}
+act 2840 nether-nbt 2 59 0 {Items:[{Slot:0b,id:"minecraft:poppy",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}}]}
+act 2860 nether-nbt 2 60 0 {Items:[{Slot:0b,id:"minecraft:poppy",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}}]}
+act 2900 nether-set 0 64 0 minecraft:nether_portal[axis=z]
+act 2900 nether-set 0 64 1 minecraft:nether_portal[axis=z]
+act 2900 nether-set 0 65 0 minecraft:nether_portal[axis=z]
+act 2900 nether-set 0 65 1 minecraft:nether_portal[axis=z]
+act 2900 nether-set 0 66 0 minecraft:nether_portal[axis=z]
+act 2900 nether-set 0 66 1 minecraft:nether_portal[axis=z]
+act 2920 nether-set 1 64 0 minecraft:lava[level=0]
+act 2940 nether-set 1 64 1 minecraft:lava[level=0]
+act 3040 set -7 -1 60 minecraft:glass
+act 3060 set -6 -1 60 minecraft:glass
+act 3080 set -5 -1 60 minecraft:glass
+act 3100 set -4 -1 60 minecraft:glass
+act 3120 set -3 -1 60 minecraft:glass
+act 3140 set -2 -1 60 minecraft:glass
+act 3160 set -1 -1 60 minecraft:glass
+act 3180 set 0 -1 60 minecraft:glass
+act 3200 set 1 -1 60 minecraft:glass
+act 3220 set 2 -1 0 minecraft:glass
+act 3240 set 2 -1 2 minecraft:glass
+act 3260 set 2 -1 60 minecraft:glass
+act 3280 set 3 -1 0 minecraft:glass
+act 3300 set 3 -1 60 minecraft:glass
+act 3320 set 3 -1 66 minecraft:glass
+act 3340 set 3 -1 67 minecraft:glass
+act 3360 set 4 -1 0 minecraft:glass
+act 3380 set 4 -1 2 minecraft:glass
+act 3400 set 4 -1 60 minecraft:glass
+act 3420 set 5 -1 60 minecraft:glass
+act 3440 set 6 -1 60 minecraft:glass
+act 3460 set 7 -1 60 minecraft:glass
+act 3480 set 8 -1 60 minecraft:glass
+act 3500 set 9 -1 60 minecraft:glass
+act 3520 set 10 -1 60 minecraft:glass
+act 3540 set 11 -1 60 minecraft:glass
+act 3560 set 12 -1 60 minecraft:glass
+act 3580 set 13 -1 60 minecraft:glass
+act 3600 set 14 -1 60 minecraft:glass
+act 3620 set 15 -1 60 minecraft:glass
+act 3640 set 16 -1 60 minecraft:glass
+act 3660 set 17 -1 60 minecraft:glass
+act 3680 set 18 -1 60 minecraft:glass
+act 3700 set 19 -1 60 minecraft:glass
+act 3720 set 20 -1 60 minecraft:glass
+act 3740 set 21 -1 60 minecraft:glass
+act 3760 set 22 -1 60 minecraft:glass
+act 3780 set -7 0 60 minecraft:glass
+act 3800 set -3 0 60 minecraft:glass
+act 3820 set -2 0 60 minecraft:glass
+act 3840 set -1 0 -5 minecraft:obsidian
+act 3860 set -1 0 -2 minecraft:obsidian
+act 3880 set 0 0 -5 minecraft:obsidian
+act 3900 set 0 0 -2 minecraft:obsidian
+act 3920 set 1 0 -5 minecraft:obsidian
+act 3940 set 1 0 -2 minecraft:obsidian
+act 3960 set 1 0 0 minecraft:glass
+act 3980 set 2 0 -5 minecraft:obsidian
+act 4000 set 2 0 -2 minecraft:obsidian
+act 4020 set 2 0 60 minecraft:glass
+act 4040 set 3 0 -5 minecraft:obsidian
+act 4060 set 3 0 -2 minecraft:obsidian
+act 4080 set 3 0 60 minecraft:glass
+act 4100 set 3 0 66 minecraft:red_bed[facing=north,occupied=false,part=head]
+act 4120 set 3 0 67 minecraft:red_bed[facing=north,occupied=false,part=foot]
+act 4140 set 4 0 -5 minecraft:obsidian
+act 4160 set 4 0 -2 minecraft:obsidian
+act 4180 set 5 0 -5 minecraft:obsidian
+act 4200 set 5 0 -2 minecraft:obsidian
+act 4220 set 5 0 0 minecraft:glass
+act 4240 set 6 0 -5 minecraft:obsidian
+act 4260 set 6 0 -2 minecraft:obsidian
+act 4280 set 7 0 -5 minecraft:obsidian
+act 4300 set 7 0 -2 minecraft:obsidian
+act 4320 set 7 0 60 minecraft:glass
+act 4340 set 8 0 60 minecraft:glass
+act 4360 set 12 0 60 minecraft:glass
+act 4380 set 13 0 60 minecraft:glass
+act 4400 set 17 0 60 minecraft:glass
+act 4420 set 18 0 60 minecraft:glass
+act 4440 set 22 0 60 minecraft:glass
+act 4460 set -7 1 60 minecraft:glass
+act 4480 set -3 1 60 minecraft:glass
+act 4500 set -2 1 -5 minecraft:obsidian
+act 4520 set -2 1 -2 minecraft:obsidian
+act 4540 set -2 1 60 minecraft:glass
+act 4560 set 1 1 0 minecraft:glass
+act 4580 set 2 1 60 minecraft:glass
+act 4600 set 3 1 60 minecraft:glass
+act 4620 set 5 1 0 minecraft:glass
+act 4640 set 7 1 60 minecraft:glass
+act 4660 set 8 1 -5 minecraft:obsidian
+act 4680 set 8 1 -2 minecraft:obsidian
+act 4700 set 8 1 60 minecraft:glass
+act 4720 set 12 1 60 minecraft:glass
+act 4740 set 13 1 60 minecraft:glass
+act 4760 set 17 1 60 minecraft:glass
+act 4780 set 18 1 60 minecraft:glass
+act 4800 set 22 1 60 minecraft:glass
+act 4820 set -2 2 -6 minecraft:cobblestone
+act 4860 set -2 2 -5 minecraft:obsidian
+act 4900 set -2 2 -4 minecraft:cobblestone
+act 4940 set -2 2 -3 minecraft:cobblestone
+act 4960 set -2 2 -2 minecraft:obsidian
+act 4980 set -2 2 -1 minecraft:cobblestone
+act 5000 set -1 2 -6 minecraft:cobblestone
+act 5040 set -1 2 -4 minecraft:cobblestone
+act 5080 set -1 2 -3 minecraft:cobblestone
+act 5100 set -1 2 -1 minecraft:cobblestone
+act 5120 set 0 2 -6 minecraft:cobblestone
+act 5160 set 0 2 -4 minecraft:cobblestone
+act 5200 set 0 2 -3 minecraft:cobblestone
+act 5220 set 0 2 -1 minecraft:cobblestone
+act 5240 set 1 2 -6 minecraft:cobblestone
+act 5280 set 1 2 -4 minecraft:cobblestone
+act 5320 set 1 2 -3 minecraft:cobblestone
+act 5340 set 1 2 -1 minecraft:cobblestone
+act 5360 set 2 2 -6 minecraft:cobblestone
+act 5400 set 2 2 -4 minecraft:cobblestone
+act 5440 set 2 2 -3 minecraft:cobblestone
+act 5460 set 2 2 -1 minecraft:cobblestone
+act 5480 set 3 2 -6 minecraft:cobblestone
+act 5520 set 3 2 -4 minecraft:cobblestone
+act 5560 set 3 2 -3 minecraft:cobblestone
+act 5580 set 3 2 -1 minecraft:cobblestone
+act 5600 set 4 2 -6 minecraft:cobblestone
+act 5640 set 4 2 -4 minecraft:cobblestone
+act 5680 set 4 2 -3 minecraft:cobblestone
+act 5700 set 4 2 -1 minecraft:cobblestone
+act 5720 set 5 2 -6 minecraft:cobblestone
+act 5760 set 5 2 -4 minecraft:cobblestone
+act 5800 set 5 2 -3 minecraft:cobblestone
+act 5820 set 5 2 -1 minecraft:cobblestone
+act 5840 set 6 2 -6 minecraft:cobblestone
+act 5880 set 6 2 -4 minecraft:cobblestone
+act 5920 set 6 2 -3 minecraft:cobblestone
+act 5940 set 6 2 -1 minecraft:cobblestone
+act 5960 set 7 2 -6 minecraft:cobblestone
+act 6000 set 7 2 -4 minecraft:cobblestone
+act 6040 set 7 2 -3 minecraft:cobblestone
+act 6060 set 7 2 -1 minecraft:cobblestone
+act 6080 set 8 2 -6 minecraft:cobblestone
+act 6120 set 8 2 -5 minecraft:obsidian
+act 6160 set 8 2 -4 minecraft:cobblestone
+act 6200 set 8 2 -3 minecraft:cobblestone
+act 6220 set 8 2 -2 minecraft:obsidian
+act 6240 set 8 2 -1 minecraft:cobblestone
+act 6260 set -2 3 -5 minecraft:obsidian
+act 6280 set -2 3 -2 minecraft:obsidian
+act 6300 set 2 3 2 minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+act 6320 set 4 3 2 minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+act 6340 set 8 3 -5 minecraft:obsidian
+act 6360 set 8 3 -2 minecraft:obsidian
+act 6380 set -1 4 -5 minecraft:obsidian
+act 6400 set -1 4 -2 minecraft:obsidian
+act 6420 set 0 4 -5 minecraft:obsidian
+act 6440 set 0 4 -2 minecraft:obsidian
+act 6460 set 1 4 -5 minecraft:obsidian
+act 6480 set 1 4 -2 minecraft:obsidian
+act 6500 set 2 4 -5 minecraft:obsidian
+act 6520 set 2 4 -2 minecraft:obsidian
+act 6540 set 3 4 -5 minecraft:obsidian
+act 6560 set 3 4 -2 minecraft:obsidian
+act 6580 set 4 4 -5 minecraft:obsidian
+act 6600 set 4 4 -2 minecraft:obsidian
+act 6620 set 5 4 -5 minecraft:obsidian
+act 6640 set 5 4 -2 minecraft:obsidian
+act 6660 set 6 4 -5 minecraft:obsidian
+act 6680 set 6 4 -2 minecraft:obsidian
+act 6700 set 7 4 -5 minecraft:obsidian
+act 6720 set 7 4 -2 minecraft:obsidian
+act 6740 set -3 5 -5 minecraft:glass
+act 6780 set -3 5 -2 minecraft:glass
+act 6820 set 9 5 -5 minecraft:cobblestone
+act 6860 set 9 5 -4 minecraft:glass
+act 6900 set 9 5 -3 minecraft:glass
+act 6940 set 9 5 -2 minecraft:cobblestone
+act 6980 set -6 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7000 set -5 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7020 set -4 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7040 set -1 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7060 set 0 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7080 set 1 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7100 set 2 0 0 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7120 set 3 0 0 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7140 set 4 0 0 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7160 set 4 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7180 set 5 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7200 set 6 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7220 set 9 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7240 set 10 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7260 set 11 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7280 set 14 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7300 set 15 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7320 set 16 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7340 set 19 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7360 set 20 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7380 set 21 0 60 minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+act 7400 set -2 5 -5 minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+act 7440 set -2 5 -2 minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+act 7480 set 8 5 -5 minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+act 7520 set 8 5 -2 minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+act 7560 set -1 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 7600 set -1 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 7640 set 7 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 7680 set 9 6 -5 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+act 7720 set 7 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 7760 set 9 6 -2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+act 7800 set 0 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 7840 set 0 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 7880 set 6 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 7920 set 9 6 -4 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+act 7960 set 6 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8000 set 9 6 -3 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+act 8040 set 1 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8080 set 1 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8120 set 5 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8160 set 5 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8200 set 2 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8240 set 2 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8280 set 4 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8320 set 4 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8360 set 3 5 -5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8400 set 3 5 -2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+act 8440 set -1 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set 0 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set 1 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set 2 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set 3 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set 4 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set 5 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set 6 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set 7 1 -5 minecraft:nether_portal[axis=x]
+act 8440 set -1 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set 0 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set 1 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set 2 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set 3 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set 4 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set 5 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set 6 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set 7 2 -5 minecraft:nether_portal[axis=x]
+act 8440 set -1 3 -5 minecraft:nether_portal[axis=x]
+act 8440 set 0 3 -5 minecraft:nether_portal[axis=x]
+act 8440 set 1 3 -5 minecraft:nether_portal[axis=x]
+act 8440 set 2 3 -5 minecraft:nether_portal[axis=x]
+act 8440 set 3 3 -5 minecraft:nether_portal[axis=x]
+act 8440 set 4 3 -5 minecraft:nether_portal[axis=x]
+act 8440 set 5 3 -5 minecraft:nether_portal[axis=x]
+act 8440 set 6 3 -5 minecraft:nether_portal[axis=x]
+act 8440 set 7 3 -5 minecraft:nether_portal[axis=x]
+act 8480 set -1 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set 0 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set 1 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set 2 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set 3 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set 4 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set 5 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set 6 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set 7 1 -2 minecraft:nether_portal[axis=x]
+act 8480 set -1 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set 0 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set 1 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set 2 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set 3 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set 4 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set 5 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set 6 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set 7 2 -2 minecraft:nether_portal[axis=x]
+act 8480 set -1 3 -2 minecraft:nether_portal[axis=x]
+act 8480 set 0 3 -2 minecraft:nether_portal[axis=x]
+act 8480 set 1 3 -2 minecraft:nether_portal[axis=x]
+act 8480 set 2 3 -2 minecraft:nether_portal[axis=x]
+act 8480 set 3 3 -2 minecraft:nether_portal[axis=x]
+act 8480 set 4 3 -2 minecraft:nether_portal[axis=x]
+act 8480 set 5 3 -2 minecraft:nether_portal[axis=x]
+act 8480 set 6 3 -2 minecraft:nether_portal[axis=x]
+act 8480 set 7 3 -2 minecraft:nether_portal[axis=x]
+act 8500 poi-take 3 0 66
+act 8500 home e0.p0 3 0 66
+act 8500 last-slept e0.p0 8400
+act 8500 home e1.p0 3 0 66
+act 8500 last-slept e1.p0 8400
+act 8500 home e2.p0 3 0 66
+act 8500 last-slept e2.p0 8400
+act 8500 home e5.p0 3 0 66
+act 8500 last-slept e5.p0 8400
+act 8500 home e6.p0 3 0 66
+act 8500 last-slept e6.p0 8400
+act 8500 home e7.p0 3 0 66
+act 8500 last-slept e7.p0 8400
+act 8500 home e8.p0 3 0 66
+act 8500 last-slept e8.p0 8400
+act 8500 home e9.p0 3 0 66
+act 8500 last-slept e9.p0 8400
+act 8500 home e10.p0 3 0 66
+act 8500 last-slept e10.p0 8400
+act 8500 home e11.p0 3 0 66
+act 8500 last-slept e11.p0 8400
+act 8500 home e12.p0 3 0 66
+act 8500 last-slept e12.p0 8400
+act 8500 home e13.p0 3 0 66
+act 8500 last-slept e13.p0 8400
+act 8500 home e14.p0 3 0 66
+act 8500 last-slept e14.p0 8400
+act 8500 home e15.p0 3 0 66
+act 8500 last-slept e15.p0 8400
+act 8500 home e16.p0 3 0 66
+act 8500 last-slept e16.p0 8400
+act 8500 home e17.p0 3 0 66
+act 8500 last-slept e17.p0 8400
+act 8500 home e18.p0 3 0 66
+act 8500 last-slept e18.p0 8400
+act 8500 home e19.p0 3 0 66
+act 8500 last-slept e19.p0 8400
+act 8500 home e20.p0 3 0 66
+act 8500 last-slept e20.p0 8400
+act 8500 home e21.p0 3 0 66
+act 8500 last-slept e21.p0 8400
+act 8500 home e22.p0 3 0 66
+act 8500 last-slept e22.p0 8400
+act 8500 last-slept e0.p0 8500
+act 8500 last-slept e1.p0 8500
+act 8500 last-slept e2.p0 8500
+act 8500 last-slept e5.p0 8500
+act 8500 last-slept e6.p0 8500
+act 8500 last-slept e7.p0 8500
+act 8500 last-slept e8.p0 8500
+act 8500 last-slept e9.p0 8500
+act 8500 last-slept e10.p0 8500
+act 8500 last-slept e11.p0 8500
+act 8500 last-slept e12.p0 8500
+act 8500 last-slept e13.p0 8500
+act 8500 last-slept e14.p0 8500
+act 8500 last-slept e15.p0 8500
+act 8500 last-slept e16.p0 8500
+act 8500 last-slept e17.p0 8500
+act 8500 last-slept e18.p0 8500
+act 8500 last-slept e19.p0 8500
+act 8500 last-slept e20.p0 8500
+act 8500 last-slept e21.p0 8500
+act 8500 last-slept e22.p0 8500
+expect 8600 golem g0 1 3 -1
+expect 8601 pulse g0 10
+expect 8602 cross g0
+act 8639 tp e0 -5.5 0.0625 60.5
+act 8639 tp e1 -4.5 0.0625 60.5
+act 8639 tp e2 -3.5 0.0625 60.5
+act 8639 tp e5 2.5 0.0625 0.5
+act 8639 tp e6 3.5 0.0625 0.5
+act 8639 tp e7 4.5 0.0625 0.5
+expect 8700 golem g1 5 3 -4
+expect 8701 pulse g1 10
+expect 8702 cross g1
+act 8739 tp e5 -0.5 0.0625 60.5
+act 8739 tp e6 0.5 0.0625 60.5
+act 8739 tp e7 1.5 0.0625 60.5
+act 8739 tp e8 2.5 0.0625 0.5
+act 8739 tp e9 3.5 0.0625 0.5
+act 8739 tp e10 4.5 0.0625 0.5
+expect 8800 golem g2 -1 3 -6
+expect 8801 pulse g2 10
+expect 8802 cross g2
+act 8839 tp e8 4.5 0.0625 60.5
+act 8839 tp e9 5.5 0.0625 60.5
+act 8839 tp e10 6.5 0.0625 60.5
+act 8839 tp e11 2.5 0.0625 0.5
+act 8839 tp e12 3.5 0.0625 0.5
+act 8839 tp e13 4.5 0.0625 0.5
+expect 8863 nether-death g0
+expect 8900 golem g3 2 3 -6
+expect 8901 pulse g3 10
+expect 8902 cross g3
+act 8939 tp e11 9.5 0.0625 60.5
+act 8939 tp e12 10.5 0.0625 60.5
+act 8939 tp e13 11.5 0.0625 60.5
+act 8939 tp e14 2.5 0.0625 0.5
+act 8939 tp e15 3.5 0.0625 0.5
+act 8939 tp e16 4.5 0.0625 0.5
+expect 8962 nether-death g1
+expect 9000 golem g4 1 3 -4
+expect 9001 pulse g4 10
+expect 9002 cross g4
+act 9039 tp e14 14.5 0.0625 60.5
+act 9039 tp e15 15.5 0.0625 60.5
+act 9039 tp e16 16.5 0.0625 60.5
+act 9039 tp e17 2.5 0.0625 0.5
+act 9039 tp e18 3.5 0.0625 0.5
+act 9039 tp e19 4.5 0.0625 0.5
+expect 9062 nether-death g2
+expect 9100 golem g5 -1 3 -1
+expect 9101 pulse g5 10
+expect 9102 cross g5
+act 9139 tp e17 19.5 0.0625 60.5
+act 9139 tp e18 20.5 0.0625 60.5
+act 9139 tp e19 21.5 0.0625 60.5
+act 9139 tp e20 2.5 0.0625 0.5
+act 9139 tp e21 3.5 0.0625 0.5
+act 9139 tp e22 4.5 0.0625 0.5
+expect 9162 nether-death g3
+expect 9200 golem g6 -1 3 -3
+expect 9201 pulse g6 10
+expect 9202 cross g6
+act 9239 tp e20 -5.5 0.0625 60.5
+act 9239 tp e21 -4.5 0.0625 60.5
+act 9239 tp e22 -3.5 0.0625 60.5
+act 9239 tp e0 2.5 0.0625 0.5
+act 9239 tp e1 3.5 0.0625 0.5
+act 9239 tp e2 4.5 0.0625 0.5
+expect 9262 nether-death g4
+expect 9300 golem g7 4 3 -1
+expect 9301 pulse g7 10
+expect 9302 cross g7
+act 9339 tp e0 -0.5 0.0625 60.5
+act 9339 tp e1 0.5 0.0625 60.5
+act 9339 tp e2 1.5 0.0625 60.5
+act 9339 tp e5 2.5 0.0625 0.5
+act 9339 tp e6 3.5 0.0625 0.5
+act 9339 tp e7 4.5 0.0625 0.5
+expect 9362 nether-death g5
+expect 9400 golem g8 -2 3 -4
+expect 9401 pulse g8 10
+expect 9402 cross g8
+act 9439 tp e5 4.5 0.0625 60.5
+act 9439 tp e6 5.5 0.0625 60.5
+act 9439 tp e7 6.5 0.0625 60.5
+act 9439 tp e8 2.5 0.0625 0.5
+act 9439 tp e9 3.5 0.0625 0.5
+act 9439 tp e10 4.5 0.0625 0.5
+expect 9462 nether-death g6
+expect 9500 golem g9 -2 3 -4
+expect 9501 pulse g9 10
+expect 9502 cross g9
+act 9539 tp e8 9.5 0.0625 60.5
+act 9539 tp e9 10.5 0.0625 60.5
+act 9539 tp e10 11.5 0.0625 60.5
+act 9539 tp e11 2.5 0.0625 0.5
+act 9539 tp e12 3.5 0.0625 0.5
+act 9539 tp e13 4.5 0.0625 0.5
+expect 9562 nether-death g7
+expect 9600 golem g10 3 3 -4
+expect 9601 pulse g10 10
+expect 9602 cross g10
+act 9639 tp e11 14.5 0.0625 60.5
+act 9639 tp e12 15.5 0.0625 60.5
+act 9639 tp e13 16.5 0.0625 60.5
+act 9639 tp e14 2.5 0.0625 0.5
+act 9639 tp e15 3.5 0.0625 0.5
+act 9639 tp e16 4.5 0.0625 0.5
+expect 9662 nether-death g8
+expect 9700 golem g11 -2 3 -3
+expect 9701 pulse g11 10
+expect 9702 cross g11
+act 9739 tp e14 19.5 0.0625 60.5
+act 9739 tp e15 20.5 0.0625 60.5
+act 9739 tp e16 21.5 0.0625 60.5
+act 9739 tp e17 2.5 0.0625 0.5
+act 9739 tp e18 3.5 0.0625 0.5
+act 9739 tp e19 4.5 0.0625 0.5
+expect 9762 nether-death g9
+expect 9800 golem g12 6 3 -1
+expect 9801 pulse g12 10
+expect 9802 cross g12
+act 9839 tp e17 -5.5 0.0625 60.5
+act 9839 tp e18 -4.5 0.0625 60.5
+act 9839 tp e19 -3.5 0.0625 60.5
+act 9839 tp e20 2.5 0.0625 0.5
+act 9839 tp e21 3.5 0.0625 0.5
+act 9839 tp e22 4.5 0.0625 0.5
+expect 9862 nether-death g10
+expect 9900 golem g13 -1 3 -3
+expect 9901 pulse g13 10
+expect 9902 cross g13
+act 9939 tp e20 -0.5 0.0625 60.5
+act 9939 tp e21 0.5 0.0625 60.5
+act 9939 tp e22 1.5 0.0625 60.5
+act 9939 tp e0 2.5 0.0625 0.5
+act 9939 tp e1 3.5 0.0625 0.5
+act 9939 tp e2 4.5 0.0625 0.5
+expect 9962 nether-death g11
+expect 10000 golem g14 1 3 -1
+expect 10001 pulse g14 10
+expect 10002 cross g14
+act 10039 tp e0 4.5 0.0625 60.5
+act 10039 tp e1 5.5 0.0625 60.5
+act 10039 tp e2 6.5 0.0625 60.5
+act 10039 tp e5 2.5 0.0625 0.5
+act 10039 tp e6 3.5 0.0625 0.5
+act 10039 tp e7 4.5 0.0625 0.5
+expect 10062 nether-death g12
+expect 10100 golem g15 2 3 -6
+expect 10101 pulse g15 10
+expect 10102 cross g15
+act 10139 tp e5 9.5 0.0625 60.5
+act 10139 tp e6 10.5 0.0625 60.5
+act 10139 tp e7 11.5 0.0625 60.5
+act 10139 tp e8 2.5 0.0625 0.5
+act 10139 tp e9 3.5 0.0625 0.5
+act 10139 tp e10 4.5 0.0625 0.5
+expect 10162 nether-death g13
+expect 10200 golem g16 2 3 -4
+expect 10201 pulse g16 10
+expect 10202 cross g16
+act 10239 tp e8 14.5 0.0625 60.5
+act 10239 tp e9 15.5 0.0625 60.5
+act 10239 tp e10 16.5 0.0625 60.5
+act 10239 tp e11 2.5 0.0625 0.5
+act 10239 tp e12 3.5 0.0625 0.5
+act 10239 tp e13 4.5 0.0625 0.5
+expect 10262 nether-death g14
+expect 10300 golem g17 2 3 -3
+expect 10301 pulse g17 10
+expect 10302 cross g17
+act 10339 tp e11 19.5 0.0625 60.5
+act 10339 tp e12 20.5 0.0625 60.5
+act 10339 tp e13 21.5 0.0625 60.5
+act 10339 tp e14 2.5 0.0625 0.5
+act 10339 tp e15 3.5 0.0625 0.5
+act 10339 tp e16 4.5 0.0625 0.5
+expect 10362 nether-death g15
+expect 10400 golem g18 7 3 -6
+expect 10401 pulse g18 10
+expect 10402 cross g18
+act 10439 tp e14 -5.5 0.0625 60.5
+act 10439 tp e15 -4.5 0.0625 60.5
+act 10439 tp e16 -3.5 0.0625 60.5
+act 10439 tp e17 2.5 0.0625 0.5
+act 10439 tp e18 3.5 0.0625 0.5
+act 10439 tp e19 4.5 0.0625 0.5
+expect 10462 nether-death g16
+act 10539 tp e17 -0.5 0.0625 60.5
+act 10539 tp e18 0.5 0.0625 60.5
+act 10539 tp e19 1.5 0.0625 60.5
+act 10539 tp e20 2.5 0.0625 0.5
+act 10539 tp e21 3.5 0.0625 0.5
+act 10539 tp e22 4.5 0.0625 0.5
+expect 10562 nether-death g17
+expect 10600 golem g19 -1 3 -3
+expect 10601 pulse g19 10
+expect 10602 cross g19
+act 10639 tp e20 4.5 0.0625 60.5
+act 10639 tp e21 5.5 0.0625 60.5
+act 10639 tp e22 6.5 0.0625 60.5
+act 10639 tp e0 2.5 0.0625 0.5
+act 10639 tp e1 3.5 0.0625 0.5
+act 10639 tp e2 4.5 0.0625 0.5
+expect 10662 nether-death g18
+expect 10700 golem g20 4 3 -6
+expect 10701 pulse g20 10
+expect 10702 cross g20
+act 10739 tp e0 9.5 0.0625 60.5
+act 10739 tp e1 10.5 0.0625 60.5
+act 10739 tp e2 11.5 0.0625 60.5
+act 10739 tp e5 2.5 0.0625 0.5
+act 10739 tp e6 3.5 0.0625 0.5
+act 10739 tp e7 4.5 0.0625 0.5
+expect 10800 golem g21 2 3 -1
+expect 10801 pulse g21 10
+expect 10802 cross g21
+act 10839 tp e5 14.5 0.0625 60.5
+act 10839 tp e6 15.5 0.0625 60.5
+act 10839 tp e7 16.5 0.0625 60.5
+act 10839 tp e8 2.5 0.0625 0.5
+act 10839 tp e9 3.5 0.0625 0.5
+act 10839 tp e10 4.5 0.0625 0.5
+expect 10862 nether-death g19
+expect 10900 golem g22 4 3 -1
+expect 10901 pulse g22 10
+expect 10902 cross g22
+act 10939 tp e8 19.5 0.0625 60.5
+act 10939 tp e9 20.5 0.0625 60.5
+act 10939 tp e10 21.5 0.0625 60.5
+act 10939 tp e11 2.5 0.0625 0.5
+act 10939 tp e12 3.5 0.0625 0.5
+act 10939 tp e13 4.5 0.0625 0.5
+expect 10962 nether-death g20
+expect 11000 golem g23 4 3 -1
+expect 11001 pulse g23 10
+expect 11002 cross g23
+act 11039 tp e11 -5.5 0.0625 60.5
+act 11039 tp e12 -4.5 0.0625 60.5
+act 11039 tp e13 -3.5 0.0625 60.5
+act 11039 tp e14 2.5 0.0625 0.5
+act 11039 tp e15 3.5 0.0625 0.5
+act 11039 tp e16 4.5 0.0625 0.5
+expect 11062 nether-death g21
+expect 11100 golem g24 7 3 -3
+expect 11101 pulse g24 10
+expect 11102 cross g24
+act 11139 tp e14 -0.5 0.0625 60.5
+act 11139 tp e15 0.5 0.0625 60.5
+act 11139 tp e16 1.5 0.0625 60.5
+act 11139 tp e17 2.5 0.0625 0.5
+act 11139 tp e18 3.5 0.0625 0.5
+act 11139 tp e19 4.5 0.0625 0.5
+expect 11162 nether-death g22
+expect 11200 golem g25 7 3 -3
+expect 11201 pulse g25 10
+expect 11202 cross g25
+act 11239 tp e17 4.5 0.0625 60.5
+act 11239 tp e18 5.5 0.0625 60.5
+act 11239 tp e19 6.5 0.0625 60.5
+act 11239 tp e20 2.5 0.0625 0.5
+act 11239 tp e21 3.5 0.0625 0.5
+act 11239 tp e22 4.5 0.0625 0.5
+expect 11262 nether-death g23
+expect 11300 golem g26 2 3 -3
+expect 11301 pulse g26 10
+expect 11302 cross g26
+act 11339 tp e20 9.5 0.0625 60.5
+act 11339 tp e21 10.5 0.0625 60.5
+act 11339 tp e22 11.5 0.0625 60.5
+act 11339 tp e0 2.5 0.0625 0.5
+act 11339 tp e1 3.5 0.0625 0.5
+act 11339 tp e2 4.5 0.0625 0.5
+expect 11362 nether-death g24
+expect 11400 golem g27 6 3 -4
+expect 11401 pulse g27 10
+expect 11402 cross g27
+act 11439 tp e0 14.5 0.0625 60.5
+act 11439 tp e1 15.5 0.0625 60.5
+act 11439 tp e2 16.5 0.0625 60.5
+act 11439 tp e5 2.5 0.0625 0.5
+act 11439 tp e6 3.5 0.0625 0.5
+act 11439 tp e7 4.5 0.0625 0.5
+expect 11462 nether-death g25
+expect 11500 golem g28 8 3 -1
+expect 11501 pulse g28 10
+expect 11502 cross g28
+act 11539 tp e5 19.5 0.0625 60.5
+act 11539 tp e6 20.5 0.0625 60.5
+act 11539 tp e7 21.5 0.0625 60.5
+act 11539 tp e8 2.5 0.0625 0.5
+act 11539 tp e9 3.5 0.0625 0.5
+act 11539 tp e10 4.5 0.0625 0.5
+expect 11562 nether-death g26
+expect 11600 golem g29 -2 3 -3
+expect 11601 pulse g29 10
+expect 11602 cross g29
+act 11639 tp e8 -5.5 0.0625 60.5
+act 11639 tp e9 -4.5 0.0625 60.5
+act 11639 tp e10 -3.5 0.0625 60.5
+act 11639 tp e11 2.5 0.0625 0.5
+act 11639 tp e12 3.5 0.0625 0.5
+act 11639 tp e13 4.5 0.0625 0.5
+expect 11662 nether-death g27
+expect 11700 golem g30 3 3 -1
+expect 11701 pulse g30 10
+expect 11702 cross g30
+act 11739 tp e11 -0.5 0.0625 60.5
+act 11739 tp e12 0.5 0.0625 60.5
+act 11739 tp e13 1.5 0.0625 60.5
+act 11739 tp e14 2.5 0.0625 0.5
+act 11739 tp e15 3.5 0.0625 0.5
+act 11739 tp e16 4.5 0.0625 0.5
+expect 11762 nether-death g28
+expect 11800 golem g31 8 3 -3
+expect 11801 pulse g31 10
+expect 11802 cross g31
+act 11839 tp e14 4.5 0.0625 60.5
+act 11839 tp e15 5.5 0.0625 60.5
+act 11839 tp e16 6.5 0.0625 60.5
+act 11839 tp e17 2.5 0.0625 0.5
+act 11839 tp e18 3.5 0.0625 0.5
+act 11839 tp e19 4.5 0.0625 0.5
+expect 11862 nether-death g29
+expect 11900 golem g32 -2 3 -4
+expect 11901 pulse g32 10
+expect 11902 cross g32
+act 11939 tp e17 9.5 0.0625 60.5
+act 11939 tp e18 10.5 0.0625 60.5
+act 11939 tp e19 11.5 0.0625 60.5
+act 11939 tp e20 2.5 0.0625 0.5
+act 11939 tp e21 3.5 0.0625 0.5
+act 11939 tp e22 4.5 0.0625 0.5
+expect 11962 nether-death g30
+expect 12000 golem g33 6 3 -3
+expect 12001 pulse g33 10
+expect 12002 cross g33
+act 12039 tp e20 14.5 0.0625 60.5
+act 12039 tp e21 15.5 0.0625 60.5
+act 12039 tp e22 16.5 0.0625 60.5
+act 12039 tp e0 2.5 0.0625 0.5
+act 12039 tp e1 3.5 0.0625 0.5
+act 12039 tp e2 4.5 0.0625 0.5
+expect 12062 nether-death g31
+expect 12100 golem g34 3 3 -1
+expect 12101 pulse g34 10
+expect 12102 cross g34
+act 12139 tp e0 19.5 0.0625 60.5
+act 12139 tp e1 20.5 0.0625 60.5
+act 12139 tp e2 21.5 0.0625 60.5
+act 12139 tp e5 2.5 0.0625 0.5
+act 12139 tp e6 3.5 0.0625 0.5
+act 12139 tp e7 4.5 0.0625 0.5
+expect 12162 nether-death g32
+expect 12200 golem g35 3 3 -3
+expect 12201 pulse g35 10
+expect 12202 cross g35
+act 12239 tp e5 -5.5 0.0625 60.5
+act 12239 tp e6 -4.5 0.0625 60.5
+act 12239 tp e7 -3.5 0.0625 60.5
+act 12239 tp e8 2.5 0.0625 0.5
+act 12239 tp e9 3.5 0.0625 0.5
+act 12239 tp e10 4.5 0.0625 0.5
+expect 12262 nether-death g33
+expect 12300 golem g36 5 3 -3
+expect 12301 pulse g36 10
+expect 12302 cross g36
+act 12339 tp e8 -0.5 0.0625 60.5
+act 12339 tp e9 0.5 0.0625 60.5
+act 12339 tp e10 1.5 0.0625 60.5
+act 12339 tp e11 2.5 0.0625 0.5
+act 12339 tp e12 3.5 0.0625 0.5
+act 12339 tp e13 4.5 0.0625 0.5
+expect 12362 nether-death g34
+expect 12400 golem g37 4 3 -4
+expect 12401 pulse g37 10
+expect 12402 cross g37
+act 12439 tp e11 4.5 0.0625 60.5
+act 12439 tp e12 5.5 0.0625 60.5
+act 12439 tp e13 6.5 0.0625 60.5
+act 12439 tp e14 2.5 0.0625 0.5
+act 12439 tp e15 3.5 0.0625 0.5
+act 12439 tp e16 4.5 0.0625 0.5
+expect 12462 nether-death g35
+expect 12500 golem g38 -1 3 -4
+expect 12501 pulse g38 10
+expect 12502 cross g38
+act 12539 tp e14 9.5 0.0625 60.5
+act 12539 tp e15 10.5 0.0625 60.5
+act 12539 tp e16 11.5 0.0625 60.5
+act 12539 tp e17 2.5 0.0625 0.5
+act 12539 tp e18 3.5 0.0625 0.5
+act 12539 tp e19 4.5 0.0625 0.5
+expect 12562 nether-death g36
+expect 12600 golem g39 1 3 -4
+expect 12601 pulse g39 10
+expect 12602 cross g39
+act 12639 tp e17 14.5 0.0625 60.5
+act 12639 tp e18 15.5 0.0625 60.5
+act 12639 tp e19 16.5 0.0625 60.5
+act 12639 tp e20 2.5 0.0625 0.5
+act 12639 tp e21 3.5 0.0625 0.5
+act 12639 tp e22 4.5 0.0625 0.5
+expect 12662 nether-death g37
+expect 12700 golem g40 7 3 -6
+expect 12701 pulse g40 10
+expect 12702 cross g40
+act 12739 tp e20 19.5 0.0625 60.5
+act 12739 tp e21 20.5 0.0625 60.5
+act 12739 tp e22 21.5 0.0625 60.5
+act 12739 tp e0 2.5 0.0625 0.5
+act 12739 tp e1 3.5 0.0625 0.5
+act 12739 tp e2 4.5 0.0625 0.5
+expect 12762 nether-death g38
+expect 12800 golem g41 3 3 -1
+expect 12801 pulse g41 10
+expect 12802 cross g41
+act 12839 tp e0 -5.5 0.0625 60.5
+act 12839 tp e1 -4.5 0.0625 60.5
+act 12839 tp e2 -3.5 0.0625 60.5
+act 12839 tp e5 2.5 0.0625 0.5
+act 12839 tp e6 3.5 0.0625 0.5
+act 12839 tp e7 4.5 0.0625 0.5
+expect 12862 nether-death g39
+expect 12900 golem g42 5 3 -4
+expect 12901 pulse g42 10
+expect 12902 cross g42
+act 12939 tp e5 -0.5 0.0625 60.5
+act 12939 tp e6 0.5 0.0625 60.5
+act 12939 tp e7 1.5 0.0625 60.5
+act 12939 tp e8 2.5 0.0625 0.5
+act 12939 tp e9 3.5 0.0625 0.5
+act 12939 tp e10 4.5 0.0625 0.5
+expect 12962 nether-death g40
+expect 13000 golem g43 6 3 -6
+expect 13001 pulse g43 10
+expect 13002 cross g43
+act 13039 tp e8 4.5 0.0625 60.5
+act 13039 tp e9 5.5 0.0625 60.5
+act 13039 tp e10 6.5 0.0625 60.5
+act 13039 tp e11 2.5 0.0625 0.5
+act 13039 tp e12 3.5 0.0625 0.5
+act 13039 tp e13 4.5 0.0625 0.5
+expect 13062 nether-death g41
+expect 13100 golem g44 -1 3 -1
+expect 13101 pulse g44 10
+expect 13102 cross g44
+act 13139 tp e11 9.5 0.0625 60.5
+act 13139 tp e12 10.5 0.0625 60.5
+act 13139 tp e13 11.5 0.0625 60.5
+act 13139 tp e14 2.5 0.0625 0.5
+act 13139 tp e15 3.5 0.0625 0.5
+act 13139 tp e16 4.5 0.0625 0.5
+expect 13162 nether-death g42
+expect 13200 golem g45 4 3 -4
+expect 13201 pulse g45 10
+expect 13202 cross g45
+act 13239 tp e14 14.5 0.0625 60.5
+act 13239 tp e15 15.5 0.0625 60.5
+act 13239 tp e16 16.5 0.0625 60.5
+act 13239 tp e17 2.5 0.0625 0.5
+act 13239 tp e18 3.5 0.0625 0.5
+act 13239 tp e19 4.5 0.0625 0.5
+expect 13262 nether-death g43
+expect 13300 golem g46 -2 3 -3
+expect 13301 pulse g46 10
+expect 13302 cross g46
+act 13339 tp e17 19.5 0.0625 60.5
+act 13339 tp e18 20.5 0.0625 60.5
+act 13339 tp e19 21.5 0.0625 60.5
+act 13339 tp e20 2.5 0.0625 0.5
+act 13339 tp e21 3.5 0.0625 0.5
+act 13339 tp e22 4.5 0.0625 0.5
+expect 13362 nether-death g44
+expect 13400 golem g47 1 3 -1
+expect 13401 pulse g47 10
+expect 13402 cross g47
+act 13439 tp e20 -5.5 0.0625 60.5
+act 13439 tp e21 -4.5 0.0625 60.5
+act 13439 tp e22 -3.5 0.0625 60.5
+act 13439 tp e0 2.5 0.0625 0.5
+act 13439 tp e1 3.5 0.0625 0.5
+act 13439 tp e2 4.5 0.0625 0.5
+expect 13462 nether-death g45
+expect 13500 golem g48 5 3 -4
+expect 13501 pulse g48 10
+expect 13502 cross g48
+act 13539 tp e0 -0.5 0.0625 60.5
+act 13539 tp e1 0.5 0.0625 60.5
+act 13539 tp e2 1.5 0.0625 60.5
+act 13539 tp e5 2.5 0.0625 0.5
+act 13539 tp e6 3.5 0.0625 0.5
+act 13539 tp e7 4.5 0.0625 0.5
+expect 13562 nether-death g46
+expect 13600 golem g49 6 3 -3
+expect 13601 pulse g49 10
+expect 13602 cross g49
+act 13639 tp e5 4.5 0.0625 60.5
+act 13639 tp e6 5.5 0.0625 60.5
+act 13639 tp e7 6.5 0.0625 60.5
+act 13639 tp e8 2.5 0.0625 0.5
+act 13639 tp e9 3.5 0.0625 0.5
+act 13639 tp e10 4.5 0.0625 0.5
+expect 13662 nether-death g47
+expect 13700 golem g50 2 3 -6
+expect 13701 pulse g50 10
+expect 13702 cross g50
+act 13739 tp e8 9.5 0.0625 60.5
+act 13739 tp e9 10.5 0.0625 60.5
+act 13739 tp e10 11.5 0.0625 60.5
+act 13739 tp e11 2.5 0.0625 0.5
+act 13739 tp e12 3.5 0.0625 0.5
+act 13739 tp e13 4.5 0.0625 0.5
+expect 13762 nether-death g48
+expect 13800 golem g51 6 3 -1
+expect 13801 pulse g51 10
+expect 13802 cross g51
+act 13839 tp e11 14.5 0.0625 60.5
+act 13839 tp e12 15.5 0.0625 60.5
+act 13839 tp e13 16.5 0.0625 60.5
+act 13839 tp e14 2.5 0.0625 0.5
+act 13839 tp e15 3.5 0.0625 0.5
+act 13839 tp e16 4.5 0.0625 0.5
+expect 13862 nether-death g49
+expect 13900 golem g52 -1 3 -3
+expect 13901 pulse g52 10
+expect 13902 cross g52
+act 13939 tp e14 19.5 0.0625 60.5
+act 13939 tp e15 20.5 0.0625 60.5
+act 13939 tp e16 21.5 0.0625 60.5
+act 13939 tp e17 2.5 0.0625 0.5
+act 13939 tp e18 3.5 0.0625 0.5
+act 13939 tp e19 4.5 0.0625 0.5
+expect 13962 nether-death g50
+expect 14000 golem g53 6 3 -1
+expect 14001 pulse g53 10
+expect 14002 cross g53
+act 14039 tp e17 -5.5 0.0625 60.5
+act 14039 tp e18 -4.5 0.0625 60.5
+act 14039 tp e19 -3.5 0.0625 60.5
+act 14039 tp e20 2.5 0.0625 0.5
+act 14039 tp e21 3.5 0.0625 0.5
+act 14039 tp e22 4.5 0.0625 0.5
+expect 14062 nether-death g51
+expect 14100 golem g54 0 3 -3
+expect 14101 pulse g54 10
+expect 14102 cross g54
+act 14139 tp e20 -0.5 0.0625 60.5
+act 14139 tp e21 0.5 0.0625 60.5
+act 14139 tp e22 1.5 0.0625 60.5
+act 14139 tp e0 2.5 0.0625 0.5
+act 14139 tp e1 3.5 0.0625 0.5
+act 14139 tp e2 4.5 0.0625 0.5
+expect 14162 nether-death g52
+expect 14200 golem g55 1 3 -4
+expect 14201 pulse g55 10
+expect 14202 cross g55
+act 14239 tp e0 4.5 0.0625 60.5
+act 14239 tp e1 5.5 0.0625 60.5
+act 14239 tp e2 6.5 0.0625 60.5
+act 14239 tp e5 2.5 0.0625 0.5
+act 14239 tp e6 3.5 0.0625 0.5
+act 14239 tp e7 4.5 0.0625 0.5
+expect 14262 nether-death g53
+expect 14300 golem g56 8 3 -4
+expect 14301 pulse g56 10
+expect 14302 cross g56
+act 14339 tp e5 9.5 0.0625 60.5
+act 14339 tp e6 10.5 0.0625 60.5
+act 14339 tp e7 11.5 0.0625 60.5
+act 14339 tp e8 2.5 0.0625 0.5
+act 14339 tp e9 3.5 0.0625 0.5
+act 14339 tp e10 4.5 0.0625 0.5
+expect 14362 nether-death g54
+expect 14400 golem g57 7 3 -3
+expect 14401 pulse g57 10
+expect 14402 cross g57
+act 14439 tp e8 14.5 0.0625 60.5
+act 14439 tp e9 15.5 0.0625 60.5
+act 14439 tp e10 16.5 0.0625 60.5
+act 14439 tp e11 2.5 0.0625 0.5
+act 14439 tp e12 3.5 0.0625 0.5
+act 14439 tp e13 4.5 0.0625 0.5
+expect 14462 nether-death g55
+expect 14500 golem g58 2 3 -1
+expect 14501 pulse g58 10
+expect 14502 cross g58
+act 14539 tp e11 19.5 0.0625 60.5
+act 14539 tp e12 20.5 0.0625 60.5
+act 14539 tp e13 21.5 0.0625 60.5
+act 14539 tp e14 2.5 0.0625 0.5
+act 14539 tp e15 3.5 0.0625 0.5
+act 14539 tp e16 4.5 0.0625 0.5
+expect 14562 nether-death g56
+expect 14600 golem g59 -2 3 -1
+expect 14601 pulse g59 10
+expect 14602 cross g59
+act 14639 tp e14 -5.5 0.0625 60.5
+act 14639 tp e15 -4.5 0.0625 60.5
+act 14639 tp e16 -3.5 0.0625 60.5
+act 14639 tp e17 2.5 0.0625 0.5
+act 14639 tp e18 3.5 0.0625 0.5
+act 14639 tp e19 4.5 0.0625 0.5
+expect 14662 nether-death g57
+expect 14700 golem g60 7 3 -1
+expect 14701 pulse g60 10
+expect 14702 cross g60
+act 14739 tp e17 -0.5 0.0625 60.5
+act 14739 tp e18 0.5 0.0625 60.5
+act 14739 tp e19 1.5 0.0625 60.5
+act 14739 tp e20 2.5 0.0625 0.5
+act 14739 tp e21 3.5 0.0625 0.5
+act 14739 tp e22 4.5 0.0625 0.5
+expect 14762 nether-death g58
+expect 14800 golem g61 7 3 -4
+expect 14801 pulse g61 10
+expect 14802 cross g61
+act 14839 tp e20 4.5 0.0625 60.5
+act 14839 tp e21 5.5 0.0625 60.5
+act 14839 tp e22 6.5 0.0625 60.5
+act 14839 tp e0 2.5 0.0625 0.5
+act 14839 tp e1 3.5 0.0625 0.5
+act 14839 tp e2 4.5 0.0625 0.5
+expect 14862 nether-death g59
+expect 14900 golem g62 0 3 -6
+expect 14901 pulse g62 10
+expect 14902 cross g62
+act 14939 tp e0 9.5 0.0625 60.5
+act 14939 tp e1 10.5 0.0625 60.5
+act 14939 tp e2 11.5 0.0625 60.5
+act 14939 tp e5 2.5 0.0625 0.5
+act 14939 tp e6 3.5 0.0625 0.5
+act 14939 tp e7 4.5 0.0625 0.5
+expect 14962 nether-death g60
+expect 15000 golem g63 2 3 -3
+expect 15001 pulse g63 10
+expect 15002 cross g63
+act 15039 tp e5 14.5 0.0625 60.5
+act 15039 tp e6 15.5 0.0625 60.5
+act 15039 tp e7 16.5 0.0625 60.5
+act 15039 tp e8 2.5 0.0625 0.5
+act 15039 tp e9 3.5 0.0625 0.5
+act 15039 tp e10 4.5 0.0625 0.5
+expect 15062 nether-death g61
+expect 15100 golem g64 8 3 -6
+expect 15101 pulse g64 10
+expect 15102 cross g64
+act 15139 tp e8 19.5 0.0625 60.5
+act 15139 tp e9 20.5 0.0625 60.5
+act 15139 tp e10 21.5 0.0625 60.5
+act 15139 tp e11 2.5 0.0625 0.5
+act 15139 tp e12 3.5 0.0625 0.5
+act 15139 tp e13 4.5 0.0625 0.5
+expect 15162 nether-death g62
+expect 15200 golem g65 5 3 -3
+expect 15201 pulse g65 10
+expect 15202 cross g65
+act 15239 tp e11 -5.5 0.0625 60.5
+act 15239 tp e12 -4.5 0.0625 60.5
+act 15239 tp e13 -3.5 0.0625 60.5
+act 15239 tp e14 2.5 0.0625 0.5
+act 15239 tp e15 3.5 0.0625 0.5
+act 15239 tp e16 4.5 0.0625 0.5
+expect 15262 nether-death g63
+expect 15300 golem g66 2 3 -6
+expect 15301 pulse g66 10
+expect 15302 cross g66
+act 15339 tp e14 -0.5 0.0625 60.5
+act 15339 tp e15 0.5 0.0625 60.5
+act 15339 tp e16 1.5 0.0625 60.5
+act 15339 tp e17 2.5 0.0625 0.5
+act 15339 tp e18 3.5 0.0625 0.5
+act 15339 tp e19 4.5 0.0625 0.5
+expect 15362 nether-death g64
+expect 15400 golem g67 -1 3 -4
+expect 15401 pulse g67 10
+expect 15402 cross g67
+act 15439 tp e17 4.5 0.0625 60.5
+act 15439 tp e18 5.5 0.0625 60.5
+act 15439 tp e19 6.5 0.0625 60.5
+act 15439 tp e20 2.5 0.0625 0.5
+act 15439 tp e21 3.5 0.0625 0.5
+act 15439 tp e22 4.5 0.0625 0.5
+expect 15462 nether-death g65
+expect 15500 golem g68 5 3 -3
+expect 15501 pulse g68 10
+expect 15502 cross g68
+act 15539 tp e20 9.5 0.0625 60.5
+act 15539 tp e21 10.5 0.0625 60.5
+act 15539 tp e22 11.5 0.0625 60.5
+act 15539 tp e0 2.5 0.0625 0.5
+act 15539 tp e1 3.5 0.0625 0.5
+act 15539 tp e2 4.5 0.0625 0.5
+expect 15562 nether-death g66
+expect 15600 golem g69 1 3 -3
+expect 15601 pulse g69 10
+expect 15602 cross g69
+act 15639 tp e0 14.5 0.0625 60.5
+act 15639 tp e1 15.5 0.0625 60.5
+act 15639 tp e2 16.5 0.0625 60.5
+act 15639 tp e5 2.5 0.0625 0.5
+act 15639 tp e6 3.5 0.0625 0.5
+act 15639 tp e7 4.5 0.0625 0.5
+expect 15662 nether-death g67
+expect 15700 golem g70 4 3 -1
+expect 15701 pulse g70 10
+expect 15702 cross g70
+act 15739 tp e5 19.5 0.0625 60.5
+act 15739 tp e6 20.5 0.0625 60.5
+act 15739 tp e7 21.5 0.0625 60.5
+act 15739 tp e8 2.5 0.0625 0.5
+act 15739 tp e9 3.5 0.0625 0.5
+act 15739 tp e10 4.5 0.0625 0.5
+expect 15762 nether-death g68
+expect 15800 golem g71 8 3 -6
+expect 15801 pulse g71 10
+expect 15802 cross g71
+act 15839 tp e8 -5.5 0.0625 60.5
+act 15839 tp e9 -4.5 0.0625 60.5
+act 15839 tp e10 -3.5 0.0625 60.5
+act 15839 tp e11 2.5 0.0625 0.5
+act 15839 tp e12 3.5 0.0625 0.5
+act 15839 tp e13 4.5 0.0625 0.5
+expect 15862 nether-death g69
+expect 15900 golem g72 1 3 -6
+expect 15901 pulse g72 10
+expect 15902 cross g72
+act 15939 tp e11 -0.5 0.0625 60.5
+act 15939 tp e12 0.5 0.0625 60.5
+act 15939 tp e13 1.5 0.0625 60.5
+act 15939 tp e14 2.5 0.0625 0.5
+act 15939 tp e15 3.5 0.0625 0.5
+act 15939 tp e16 4.5 0.0625 0.5
+expect 15962 nether-death g70
+expect 16000 golem g73 5 3 -6
+expect 16001 pulse g73 10
+expect 16002 cross g73
+act 16039 tp e14 4.5 0.0625 60.5
+act 16039 tp e15 5.5 0.0625 60.5
+act 16039 tp e16 6.5 0.0625 60.5
+act 16039 tp e17 2.5 0.0625 0.5
+act 16039 tp e18 3.5 0.0625 0.5
+act 16039 tp e19 4.5 0.0625 0.5
+expect 16062 nether-death g71
+expect 16100 golem g74 8 3 -6
+expect 16101 pulse g74 10
+expect 16102 cross g74
+act 16139 tp e17 9.5 0.0625 60.5
+act 16139 tp e18 10.5 0.0625 60.5
+act 16139 tp e19 11.5 0.0625 60.5
+act 16139 tp e20 2.5 0.0625 0.5
+act 16139 tp e21 3.5 0.0625 0.5
+act 16139 tp e22 4.5 0.0625 0.5
+expect 16162 nether-death g72
+expect 16200 golem g75 5 3 -6
+expect 16201 pulse g75 10
+expect 16202 cross g75
+act 16239 tp e20 14.5 0.0625 60.5
+act 16239 tp e21 15.5 0.0625 60.5
+act 16239 tp e22 16.5 0.0625 60.5
+act 16239 tp e0 2.5 0.0625 0.5
+act 16239 tp e1 3.5 0.0625 0.5
+act 16239 tp e2 4.5 0.0625 0.5
+expect 16262 nether-death g73
+expect 16300 golem g76 -1 3 -4
+expect 16301 pulse g76 10
+expect 16302 cross g76
+act 16339 tp e0 19.5 0.0625 60.5
+act 16339 tp e1 20.5 0.0625 60.5
+act 16339 tp e2 21.5 0.0625 60.5
+act 16339 tp e5 2.5 0.0625 0.5
+act 16339 tp e6 3.5 0.0625 0.5
+act 16339 tp e7 4.5 0.0625 0.5
+expect 16362 nether-death g74
+expect 16400 golem g77 1 3 -6
+expect 16401 pulse g77 10
+expect 16402 cross g77
+act 16439 tp e5 -5.5 0.0625 60.5
+act 16439 tp e6 -4.5 0.0625 60.5
+act 16439 tp e7 -3.5 0.0625 60.5
+act 16439 tp e8 2.5 0.0625 0.5
+act 16439 tp e9 3.5 0.0625 0.5
+act 16439 tp e10 4.5 0.0625 0.5
+expect 16462 nether-death g75
+expect 16500 golem g78 8 3 -6
+expect 16501 pulse g78 10
+expect 16502 cross g78
+act 16539 tp e8 -0.5 0.0625 60.5
+act 16539 tp e9 0.5 0.0625 60.5
+act 16539 tp e10 1.5 0.0625 60.5
+act 16539 tp e11 2.5 0.0625 0.5
+act 16539 tp e12 3.5 0.0625 0.5
+act 16539 tp e13 4.5 0.0625 0.5
+expect 16562 nether-death g76
+expect 16600 golem g79 3 3 -3
+expect 16601 pulse g79 10
+expect 16602 cross g79
+act 16639 tp e11 4.5 0.0625 60.5
+act 16639 tp e12 5.5 0.0625 60.5
+act 16639 tp e13 6.5 0.0625 60.5
+act 16639 tp e14 2.5 0.0625 0.5
+act 16639 tp e15 3.5 0.0625 0.5
+act 16639 tp e16 4.5 0.0625 0.5
+expect 16662 nether-death g77
+expect 16700 golem g80 1 3 -6
+expect 16701 pulse g80 10
+expect 16702 cross g80
+act 16739 tp e14 9.5 0.0625 60.5
+act 16739 tp e15 10.5 0.0625 60.5
+act 16739 tp e16 11.5 0.0625 60.5
+act 16739 tp e17 2.5 0.0625 0.5
+act 16739 tp e18 3.5 0.0625 0.5
+act 16739 tp e19 4.5 0.0625 0.5
+expect 16762 nether-death g78
+expect 16800 golem g81 -2 3 -4
+expect 16801 pulse g81 10
+expect 16802 cross g81
+act 16839 tp e17 14.5 0.0625 60.5
+act 16839 tp e18 15.5 0.0625 60.5
+act 16839 tp e19 16.5 0.0625 60.5
+act 16839 tp e20 2.5 0.0625 0.5
+act 16839 tp e21 3.5 0.0625 0.5
+act 16839 tp e22 4.5 0.0625 0.5
+expect 16862 nether-death g79
+expect 16900 golem g82 1 3 -6
+expect 16901 pulse g82 10
+expect 16902 cross g82
+act 16939 tp e20 19.5 0.0625 60.5
+act 16939 tp e21 20.5 0.0625 60.5
+act 16939 tp e22 21.5 0.0625 60.5
+act 16939 tp e0 2.5 0.0625 0.5
+act 16939 tp e1 3.5 0.0625 0.5
+act 16939 tp e2 4.5 0.0625 0.5
+expect 16962 nether-death g80
+expect 17000 golem g83 7 3 -3
+expect 17001 pulse g83 10
+expect 17002 cross g83
+act 17039 tp e0 -5.5 0.0625 60.5
+act 17039 tp e1 -4.5 0.0625 60.5
+act 17039 tp e2 -3.5 0.0625 60.5
+act 17039 tp e5 2.5 0.0625 0.5
+act 17039 tp e6 3.5 0.0625 0.5
+act 17039 tp e7 4.5 0.0625 0.5
+expect 17062 nether-death g81
+expect 17100 golem g84 1 3 -6
+expect 17101 pulse g84 10
+expect 17102 cross g84
+act 17139 tp e5 -0.5 0.0625 60.5
+act 17139 tp e6 0.5 0.0625 60.5
+act 17139 tp e7 1.5 0.0625 60.5
+act 17139 tp e8 2.5 0.0625 0.5
+act 17139 tp e9 3.5 0.0625 0.5
+act 17139 tp e10 4.5 0.0625 0.5
+expect 17162 nether-death g82
+expect 17200 golem g85 3 3 -6
+expect 17201 pulse g85 10
+expect 17202 cross g85
+act 17239 tp e8 4.5 0.0625 60.5
+act 17239 tp e9 5.5 0.0625 60.5
+act 17239 tp e10 6.5 0.0625 60.5
+act 17239 tp e11 2.5 0.0625 0.5
+act 17239 tp e12 3.5 0.0625 0.5
+act 17239 tp e13 4.5 0.0625 0.5
+expect 17262 nether-death g83
+expect 17300 golem g86 0 3 -1
+expect 17301 pulse g86 10
+expect 17302 cross g86
+act 17339 tp e11 9.5 0.0625 60.5
+act 17339 tp e12 10.5 0.0625 60.5
+act 17339 tp e13 11.5 0.0625 60.5
+act 17339 tp e14 2.5 0.0625 0.5
+act 17339 tp e15 3.5 0.0625 0.5
+act 17339 tp e16 4.5 0.0625 0.5
+expect 17362 nether-death g84
+expect 17400 golem g87 3 3 -3
+expect 17401 pulse g87 10
+expect 17402 cross g87
+act 17439 tp e14 14.5 0.0625 60.5
+act 17439 tp e15 15.5 0.0625 60.5
+act 17439 tp e16 16.5 0.0625 60.5
+act 17439 tp e17 2.5 0.0625 0.5
+act 17439 tp e18 3.5 0.0625 0.5
+act 17439 tp e19 4.5 0.0625 0.5
+expect 17462 nether-death g85
+expect 17500 golem g88 -2 3 -6
+expect 17501 pulse g88 10
+expect 17502 cross g88
+act 17539 tp e17 19.5 0.0625 60.5
+act 17539 tp e18 20.5 0.0625 60.5
+act 17539 tp e19 21.5 0.0625 60.5
+act 17539 tp e20 2.5 0.0625 0.5
+act 17539 tp e21 3.5 0.0625 0.5
+act 17539 tp e22 4.5 0.0625 0.5
+expect 17562 nether-death g86
+expect 17600 golem g89 4 3 -6
+expect 17601 pulse g89 10
+expect 17602 cross g89
+act 17639 tp e20 -5.5 0.0625 60.5
+act 17639 tp e21 -4.5 0.0625 60.5
+act 17639 tp e22 -3.5 0.0625 60.5
+act 17639 tp e0 2.5 0.0625 0.5
+act 17639 tp e1 3.5 0.0625 0.5
+act 17639 tp e2 4.5 0.0625 0.5
+expect 17662 nether-death g87
+expect 17700 golem g90 -1 3 -3
+expect 17701 pulse g90 10
+expect 17702 cross g90
+act 17739 tp e0 -0.5 0.0625 60.5
+act 17739 tp e1 0.5 0.0625 60.5
+act 17739 tp e2 1.5 0.0625 60.5
+act 17739 tp e5 2.5 0.0625 0.5
+act 17739 tp e6 3.5 0.0625 0.5
+act 17739 tp e7 4.5 0.0625 0.5
+expect 17762 nether-death g88
+expect 17800 golem g91 4 3 -1
+expect 17801 pulse g91 10
+expect 17802 cross g91
+act 17839 tp e5 4.5 0.0625 60.5
+act 17839 tp e6 5.5 0.0625 60.5
+act 17839 tp e7 6.5 0.0625 60.5
+act 17839 tp e8 2.5 0.0625 0.5
+act 17839 tp e9 3.5 0.0625 0.5
+act 17839 tp e10 4.5 0.0625 0.5
+expect 17862 nether-death g89
+expect 17900 golem g92 4 3 -4
+expect 17901 pulse g92 10
+expect 17902 cross g92
+act 17939 tp e8 9.5 0.0625 60.5
+act 17939 tp e9 10.5 0.0625 60.5
+act 17939 tp e10 11.5 0.0625 60.5
+act 17939 tp e11 2.5 0.0625 0.5
+act 17939 tp e12 3.5 0.0625 0.5
+act 17939 tp e13 4.5 0.0625 0.5
+expect 17962 nether-death g90
+expect 18000 golem g93 1 3 -3
+expect 18001 pulse g93 10
+expect 18002 cross g93
+act 18039 tp e11 14.5 0.0625 60.5
+act 18039 tp e12 15.5 0.0625 60.5
+act 18039 tp e13 16.5 0.0625 60.5
+act 18039 tp e14 2.5 0.0625 0.5
+act 18039 tp e15 3.5 0.0625 0.5
+act 18039 tp e16 4.5 0.0625 0.5
+expect 18062 nether-death g91
+expect 18100 golem g94 -1 3 -4
+expect 18101 pulse g94 10
+expect 18102 cross g94
+act 18139 tp e14 19.5 0.0625 60.5
+act 18139 tp e15 20.5 0.0625 60.5
+act 18139 tp e16 21.5 0.0625 60.5
+act 18139 tp e17 2.5 0.0625 0.5
+act 18139 tp e18 3.5 0.0625 0.5
+act 18139 tp e19 4.5 0.0625 0.5
+expect 18162 nether-death g92
+expect 18200 golem g95 1 3 -6
+expect 18201 pulse g95 10
+expect 18202 cross g95
+act 18239 tp e17 -5.5 0.0625 60.5
+act 18239 tp e18 -4.5 0.0625 60.5
+act 18239 tp e19 -3.5 0.0625 60.5
+act 18239 tp e20 2.5 0.0625 0.5
+act 18239 tp e21 3.5 0.0625 0.5
+act 18239 tp e22 4.5 0.0625 0.5
+expect 18262 nether-death g93
+expect 18300 golem g96 5 3 -3
+expect 18301 pulse g96 10
+expect 18302 cross g96
+act 18339 tp e20 -0.5 0.0625 60.5
+act 18339 tp e21 0.5 0.0625 60.5
+act 18339 tp e22 1.5 0.0625 60.5
+act 18339 tp e0 2.5 0.0625 0.5
+act 18339 tp e1 3.5 0.0625 0.5
+act 18339 tp e2 4.5 0.0625 0.5
+expect 18362 nether-death g94
+expect 18400 golem g97 6 3 -3
+expect 18401 pulse g97 10
+expect 18402 cross g97
+act 18439 tp e0 4.5 0.0625 60.5
+act 18439 tp e1 5.5 0.0625 60.5
+act 18439 tp e2 6.5 0.0625 60.5
+act 18439 tp e5 2.5 0.0625 0.5
+act 18439 tp e6 3.5 0.0625 0.5
+act 18439 tp e7 4.5 0.0625 0.5
+expect 18462 nether-death g95
+expect 18500 golem g98 -2 3 -6
+expect 18501 pulse g98 10
+expect 18502 cross g98
+act 18539 tp e5 9.5 0.0625 60.5
+act 18539 tp e6 10.5 0.0625 60.5
+act 18539 tp e7 11.5 0.0625 60.5
+act 18539 tp e8 2.5 0.0625 0.5
+act 18539 tp e9 3.5 0.0625 0.5
+act 18539 tp e10 4.5 0.0625 0.5
+expect 18562 nether-death g96
+expect 18600 golem g99 -1 3 -3
+expect 18601 pulse g99 10
+expect 18602 cross g99
+act 18639 tp e8 14.5 0.0625 60.5
+act 18639 tp e9 15.5 0.0625 60.5
+act 18639 tp e10 16.5 0.0625 60.5
+act 18639 tp e11 2.5 0.0625 0.5
+act 18639 tp e12 3.5 0.0625 0.5
+act 18639 tp e13 4.5 0.0625 0.5
+expect 18662 nether-death g97
+expect 18700 golem g100 1 3 -6
+expect 18701 pulse g100 10
+expect 18702 cross g100
+act 18739 tp e11 19.5 0.0625 60.5
+act 18739 tp e12 20.5 0.0625 60.5
+act 18739 tp e13 21.5 0.0625 60.5
+act 18739 tp e14 2.5 0.0625 0.5
+act 18739 tp e15 3.5 0.0625 0.5
+act 18739 tp e16 4.5 0.0625 0.5
+expect 18762 nether-death g98
+expect 18800 golem g101 1 3 -4
+expect 18801 pulse g101 10
+expect 18802 cross g101
+act 18839 tp e14 -5.5 0.0625 60.5
+act 18839 tp e15 -4.5 0.0625 60.5
+act 18839 tp e16 -3.5 0.0625 60.5
+act 18839 tp e17 2.5 0.0625 0.5
+act 18839 tp e18 3.5 0.0625 0.5
+act 18839 tp e19 4.5 0.0625 0.5
+expect 18862 nether-death g99
+expect 18900 golem g102 5 3 -6
+expect 18901 pulse g102 10
+expect 18902 cross g102
+act 18939 tp e17 -0.5 0.0625 60.5
+act 18939 tp e18 0.5 0.0625 60.5
+act 18939 tp e19 1.5 0.0625 60.5
+act 18939 tp e20 2.5 0.0625 0.5
+act 18939 tp e21 3.5 0.0625 0.5
+act 18939 tp e22 4.5 0.0625 0.5
+expect 18962 nether-death g100
+expect 19000 golem g103 3 3 -3
+expect 19001 pulse g103 10
+expect 19002 cross g103
+act 19039 tp e20 4.5 0.0625 60.5
+act 19039 tp e21 5.5 0.0625 60.5
+act 19039 tp e22 6.5 0.0625 60.5
+act 19039 tp e0 2.5 0.0625 0.5
+act 19039 tp e1 3.5 0.0625 0.5
+act 19039 tp e2 4.5 0.0625 0.5
+expect 19062 nether-death g101
+expect 19100 golem g104 -1 3 -4
+expect 19101 pulse g104 10
+expect 19102 cross g104
+act 19139 tp e0 9.5 0.0625 60.5
+act 19139 tp e1 10.5 0.0625 60.5
+act 19139 tp e2 11.5 0.0625 60.5
+act 19139 tp e5 2.5 0.0625 0.5
+act 19139 tp e6 3.5 0.0625 0.5
+act 19139 tp e7 4.5 0.0625 0.5
+expect 19162 nether-death g102
+expect 19200 golem g105 2 3 -3
+expect 19201 pulse g105 10
+expect 19202 cross g105
+act 19239 tp e5 14.5 0.0625 60.5
+act 19239 tp e6 15.5 0.0625 60.5
+act 19239 tp e7 16.5 0.0625 60.5
+act 19239 tp e8 2.5 0.0625 0.5
+act 19239 tp e9 3.5 0.0625 0.5
+act 19239 tp e10 4.5 0.0625 0.5
+expect 19262 nether-death g103
+expect 19300 golem g106 6 3 -6
+expect 19301 pulse g106 10
+expect 19302 cross g106
+act 19339 tp e8 19.5 0.0625 60.5
+act 19339 tp e9 20.5 0.0625 60.5
+act 19339 tp e10 21.5 0.0625 60.5
+act 19339 tp e11 2.5 0.0625 0.5
+act 19339 tp e12 3.5 0.0625 0.5
+act 19339 tp e13 4.5 0.0625 0.5
+expect 19362 nether-death g104
+expect 19400 golem g107 2 3 -1
+expect 19401 pulse g107 10
+expect 19402 cross g107
+act 19439 tp e11 -5.5 0.0625 60.5
+act 19439 tp e12 -4.5 0.0625 60.5
+act 19439 tp e13 -3.5 0.0625 60.5
+act 19439 tp e14 2.5 0.0625 0.5
+act 19439 tp e15 3.5 0.0625 0.5
+act 19439 tp e16 4.5 0.0625 0.5
+expect 19462 nether-death g105
+expect 19500 golem g108 0 3 -3
+expect 19501 pulse g108 10
+expect 19502 cross g108
+act 19539 tp e14 -0.5 0.0625 60.5
+act 19539 tp e15 0.5 0.0625 60.5
+act 19539 tp e16 1.5 0.0625 60.5
+act 19539 tp e17 2.5 0.0625 0.5
+act 19539 tp e18 3.5 0.0625 0.5
+act 19539 tp e19 4.5 0.0625 0.5
+expect 19562 nether-death g106
+expect 19600 golem g109 7 3 -1
+expect 19601 pulse g109 10
+expect 19602 cross g109
+act 19639 tp e17 4.5 0.0625 60.5
+act 19639 tp e18 5.5 0.0625 60.5
+act 19639 tp e19 6.5 0.0625 60.5
+act 19639 tp e20 2.5 0.0625 0.5
+act 19639 tp e21 3.5 0.0625 0.5
+act 19639 tp e22 4.5 0.0625 0.5
+expect 19662 nether-death g107
+expect 19700 golem g110 -1 3 -6
+expect 19701 pulse g110 10
+expect 19702 cross g110
+act 19739 tp e20 9.5 0.0625 60.5
+act 19739 tp e21 10.5 0.0625 60.5
+act 19739 tp e22 11.5 0.0625 60.5
+act 19739 tp e0 2.5 0.0625 0.5
+act 19739 tp e1 3.5 0.0625 0.5
+act 19739 tp e2 4.5 0.0625 0.5
+expect 19762 nether-death g108
+expect 19800 golem g111 6 3 -3
+expect 19801 pulse g111 10
+expect 19802 cross g111
+act 19839 tp e0 14.5 0.0625 60.5
+act 19839 tp e1 15.5 0.0625 60.5
+act 19839 tp e2 16.5 0.0625 60.5
+act 19839 tp e5 2.5 0.0625 0.5
+act 19839 tp e6 3.5 0.0625 0.5
+act 19839 tp e7 4.5 0.0625 0.5
+expect 19862 nether-death g109
+expect 19900 golem g112 3 3 -6
+expect 19901 pulse g112 10
+expect 19902 cross g112
+act 19939 tp e5 19.5 0.0625 60.5
+act 19939 tp e6 20.5 0.0625 60.5
+act 19939 tp e7 21.5 0.0625 60.5
+act 19939 tp e8 2.5 0.0625 0.5
+act 19939 tp e9 3.5 0.0625 0.5
+act 19939 tp e10 4.5 0.0625 0.5
+expect 19962 nether-death g110
+expect 20000 golem g113 3 3 -3
+expect 20001 pulse g113 10
+expect 20002 cross g113
+act 20039 tp e8 -5.5 0.0625 60.5
+act 20039 tp e9 -4.5 0.0625 60.5
+act 20039 tp e10 -3.5 0.0625 60.5
+act 20039 tp e11 2.5 0.0625 0.5
+act 20039 tp e12 3.5 0.0625 0.5
+act 20039 tp e13 4.5 0.0625 0.5
+expect 20062 nether-death g111
+expect 20100 golem g114 4 3 -4
+expect 20101 pulse g114 10
+expect 20102 cross g114
+act 20139 tp e11 -0.5 0.0625 60.5
+act 20139 tp e12 0.5 0.0625 60.5
+act 20139 tp e13 1.5 0.0625 60.5
+act 20139 tp e14 2.5 0.0625 0.5
+act 20139 tp e15 3.5 0.0625 0.5
+act 20139 tp e16 4.5 0.0625 0.5
+expect 20162 nether-death g112
+expect 20200 golem g115 3 3 -4
+expect 20201 pulse g115 10
+expect 20202 cross g115
+act 20239 tp e14 4.5 0.0625 60.5
+act 20239 tp e15 5.5 0.0625 60.5
+act 20239 tp e16 6.5 0.0625 60.5
+act 20239 tp e17 2.5 0.0625 0.5
+act 20239 tp e18 3.5 0.0625 0.5
+act 20239 tp e19 4.5 0.0625 0.5
+expect 20262 nether-death g113
+expect 20300 golem g116 1 3 -4
+expect 20301 pulse g116 10
+expect 20302 cross g116
+act 20339 tp e17 9.5 0.0625 60.5
+act 20339 tp e18 10.5 0.0625 60.5
+act 20339 tp e19 11.5 0.0625 60.5
+act 20339 tp e20 2.5 0.0625 0.5
+act 20339 tp e21 3.5 0.0625 0.5
+act 20339 tp e22 4.5 0.0625 0.5
+expect 20362 nether-death g114
+expect 20400 golem g117 7 3 -6
+expect 20401 pulse g117 10
+expect 20402 cross g117
+act 20439 tp e20 14.5 0.0625 60.5
+act 20439 tp e21 15.5 0.0625 60.5
+act 20439 tp e22 16.5 0.0625 60.5
+act 20439 tp e0 2.5 0.0625 0.5
+act 20439 tp e1 3.5 0.0625 0.5
+act 20439 tp e2 4.5 0.0625 0.5
+expect 20462 nether-death g115
+expect 20500 golem g118 3 3 -6
+expect 20501 pulse g118 10
+expect 20502 cross g118
+act 20539 tp e0 19.5 0.0625 60.5
+act 20539 tp e1 20.5 0.0625 60.5
+act 20539 tp e2 21.5 0.0625 60.5
+act 20539 tp e5 2.5 0.0625 0.5
+act 20539 tp e6 3.5 0.0625 0.5
+act 20539 tp e7 4.5 0.0625 0.5
+expect 20562 nether-death g116
+expect 20600 golem g119 2 3 -4
+expect 20601 pulse g119 10
+expect 20602 cross g119
+act 20639 tp e5 -5.5 0.0625 60.5
+act 20639 tp e6 -4.5 0.0625 60.5
+act 20639 tp e7 -3.5 0.0625 60.5
+act 20639 tp e8 2.5 0.0625 0.5
+act 20639 tp e9 3.5 0.0625 0.5
+act 20639 tp e10 4.5 0.0625 0.5
+expect 20662 nether-death g117
+expect 20700 golem g120 2 3 -1
+expect 20701 pulse g120 10
+expect 20702 cross g120
+act 20739 tp e8 -0.5 0.0625 60.5
+act 20739 tp e9 0.5 0.0625 60.5
+act 20739 tp e10 1.5 0.0625 60.5
+act 20739 tp e11 2.5 0.0625 0.5
+act 20739 tp e12 3.5 0.0625 0.5
+act 20739 tp e13 4.5 0.0625 0.5
+expect 20762 nether-death g118
+expect 20800 golem g121 8 3 -6
+expect 20801 pulse g121 10
+expect 20802 cross g121
+act 20839 tp e11 4.5 0.0625 60.5
+act 20839 tp e12 5.5 0.0625 60.5
+act 20839 tp e13 6.5 0.0625 60.5
+act 20839 tp e14 2.5 0.0625 0.5
+act 20839 tp e15 3.5 0.0625 0.5
+act 20839 tp e16 4.5 0.0625 0.5
+expect 20862 nether-death g119
+expect 20900 golem g122 -1 3 -1
+expect 20901 pulse g122 10
+expect 20902 cross g122
+act 20939 tp e14 9.5 0.0625 60.5
+act 20939 tp e15 10.5 0.0625 60.5
+act 20939 tp e16 11.5 0.0625 60.5
+act 20939 tp e17 2.5 0.0625 0.5
+act 20939 tp e18 3.5 0.0625 0.5
+act 20939 tp e19 4.5 0.0625 0.5
+expect 20962 nether-death g120
+expect 21000 golem g123 6 3 -4
+expect 21001 pulse g123 10
+expect 21002 cross g123
+act 21039 tp e17 14.5 0.0625 60.5
+act 21039 tp e18 15.5 0.0625 60.5
+act 21039 tp e19 16.5 0.0625 60.5
+act 21039 tp e20 2.5 0.0625 0.5
+act 21039 tp e21 3.5 0.0625 0.5
+act 21039 tp e22 4.5 0.0625 0.5
+expect 21062 nether-death g121
+expect 21100 golem g124 3 3 -4
+expect 21101 pulse g124 10
+expect 21102 cross g124
+act 21139 tp e20 19.5 0.0625 60.5
+act 21139 tp e21 20.5 0.0625 60.5
+act 21139 tp e22 21.5 0.0625 60.5
+act 21139 tp e0 2.5 0.0625 0.5
+act 21139 tp e1 3.5 0.0625 0.5
+act 21139 tp e2 4.5 0.0625 0.5
+expect 21162 nether-death g122
+expect 21200 golem g125 2 3 -3
+expect 21201 pulse g125 10
+expect 21202 cross g125
+act 21239 tp e0 -5.5 0.0625 60.5
+act 21239 tp e1 -4.5 0.0625 60.5
+act 21239 tp e2 -3.5 0.0625 60.5
+act 21239 tp e5 2.5 0.0625 0.5
+act 21239 tp e6 3.5 0.0625 0.5
+act 21239 tp e7 4.5 0.0625 0.5
+expect 21262 nether-death g123
+expect 21300 golem g126 -2 3 -1
+expect 21301 pulse g126 10
+expect 21302 cross g126
+act 21339 tp e5 -0.5 0.0625 60.5
+act 21339 tp e6 0.5 0.0625 60.5
+act 21339 tp e7 1.5 0.0625 60.5
+act 21339 tp e8 2.5 0.0625 0.5
+act 21339 tp e9 3.5 0.0625 0.5
+act 21339 tp e10 4.5 0.0625 0.5
+expect 21362 nether-death g124
+expect 21400 golem g127 -1 3 -3
+expect 21401 pulse g127 10
+expect 21402 cross g127
+act 21439 tp e8 4.5 0.0625 60.5
+act 21439 tp e9 5.5 0.0625 60.5
+act 21439 tp e10 6.5 0.0625 60.5
+act 21439 tp e11 2.5 0.0625 0.5
+act 21439 tp e12 3.5 0.0625 0.5
+act 21439 tp e13 4.5 0.0625 0.5
+expect 21462 nether-death g125
+expect 21500 golem g128 4 3 -3
+expect 21501 pulse g128 10
+expect 21502 cross g128
+act 21539 tp e11 9.5 0.0625 60.5
+act 21539 tp e12 10.5 0.0625 60.5
+act 21539 tp e13 11.5 0.0625 60.5
+act 21539 tp e14 2.5 0.0625 0.5
+act 21539 tp e15 3.5 0.0625 0.5
+act 21539 tp e16 4.5 0.0625 0.5
+expect 21562 nether-death g126
+expect 21600 golem g129 5 3 -3
+expect 21601 pulse g129 10
+expect 21602 cross g129
+act 21639 tp e14 14.5 0.0625 60.5
+act 21639 tp e15 15.5 0.0625 60.5
+act 21639 tp e16 16.5 0.0625 60.5
+act 21639 tp e17 2.5 0.0625 0.5
+act 21639 tp e18 3.5 0.0625 0.5
+act 21639 tp e19 4.5 0.0625 0.5
+expect 21662 nether-death g127
+expect 21700 golem g130 2 3 -1
+expect 21701 pulse g130 10
+expect 21702 cross g130
+act 21739 tp e17 19.5 0.0625 60.5
+act 21739 tp e18 20.5 0.0625 60.5
+act 21739 tp e19 21.5 0.0625 60.5
+act 21739 tp e20 2.5 0.0625 0.5
+act 21739 tp e21 3.5 0.0625 0.5
+act 21739 tp e22 4.5 0.0625 0.5
+expect 21762 nether-death g128
+expect 21800 golem g131 0 3 -6
+expect 21801 pulse g131 10
+expect 21802 cross g131
+act 21839 tp e20 -5.5 0.0625 60.5
+act 21839 tp e21 -4.5 0.0625 60.5
+act 21839 tp e22 -3.5 0.0625 60.5
+act 21839 tp e0 2.5 0.0625 0.5
+act 21839 tp e1 3.5 0.0625 0.5
+act 21839 tp e2 4.5 0.0625 0.5
+expect 21862 nether-death g129
+expect 21900 golem g132 2 3 -3
+expect 21901 pulse g132 10
+expect 21902 cross g132
+act 21939 tp e0 -0.5 0.0625 60.5
+act 21939 tp e1 0.5 0.0625 60.5
+act 21939 tp e2 1.5 0.0625 60.5
+act 21939 tp e5 2.5 0.0625 0.5
+act 21939 tp e6 3.5 0.0625 0.5
+act 21939 tp e7 4.5 0.0625 0.5
+expect 21962 nether-death g130
+expect 22000 golem g133 0 3 -4
+expect 22001 pulse g133 10
+expect 22002 cross g133
+act 22039 tp e5 4.5 0.0625 60.5
+act 22039 tp e6 5.5 0.0625 60.5
+act 22039 tp e7 6.5 0.0625 60.5
+act 22039 tp e8 2.5 0.0625 0.5
+act 22039 tp e9 3.5 0.0625 0.5
+act 22039 tp e10 4.5 0.0625 0.5
+expect 22062 nether-death g131
+expect 22100 golem g134 -2 3 -4
+expect 22101 pulse g134 10
+expect 22102 cross g134
+act 22139 tp e8 9.5 0.0625 60.5
+act 22139 tp e9 10.5 0.0625 60.5
+act 22139 tp e10 11.5 0.0625 60.5
+act 22139 tp e11 2.5 0.0625 0.5
+act 22139 tp e12 3.5 0.0625 0.5
+act 22139 tp e13 4.5 0.0625 0.5
+expect 22162 nether-death g132
+expect 22200 golem g135 1 3 -6
+expect 22201 pulse g135 10
+expect 22202 cross g135
+act 22239 tp e11 14.5 0.0625 60.5
+act 22239 tp e12 15.5 0.0625 60.5
+act 22239 tp e13 16.5 0.0625 60.5
+act 22239 tp e14 2.5 0.0625 0.5
+act 22239 tp e15 3.5 0.0625 0.5
+act 22239 tp e16 4.5 0.0625 0.5
+expect 22262 nether-death g133
+expect 22300 golem g136 -2 3 -3
+expect 22301 pulse g136 10
+expect 22302 cross g136
+act 22339 tp e14 19.5 0.0625 60.5
+act 22339 tp e15 20.5 0.0625 60.5
+act 22339 tp e16 21.5 0.0625 60.5
+act 22339 tp e17 2.5 0.0625 0.5
+act 22339 tp e18 3.5 0.0625 0.5
+act 22339 tp e19 4.5 0.0625 0.5
+expect 22362 nether-death g134
+expect 22400 golem g137 3 3 -1
+expect 22401 pulse g137 10
+expect 22402 cross g137
+act 22439 tp e17 -5.5 0.0625 60.5
+act 22439 tp e18 -4.5 0.0625 60.5
+act 22439 tp e19 -3.5 0.0625 60.5
+act 22439 tp e20 2.5 0.0625 0.5
+act 22439 tp e21 3.5 0.0625 0.5
+act 22439 tp e22 4.5 0.0625 0.5
+expect 22462 nether-death g135
+expect 22500 golem g138 -1 3 -1
+expect 22501 pulse g138 10
+expect 22502 cross g138
+act 22539 tp e20 -0.5 0.0625 60.5
+act 22539 tp e21 0.5 0.0625 60.5
+act 22539 tp e22 1.5 0.0625 60.5
+act 22539 tp e0 2.5 0.0625 0.5
+act 22539 tp e1 3.5 0.0625 0.5
+act 22539 tp e2 4.5 0.0625 0.5
+expect 22562 nether-death g136
+expect 22600 golem g139 5 3 -6
+expect 22601 pulse g139 10
+expect 22602 cross g139
+act 22639 tp e0 4.5 0.0625 60.5
+act 22639 tp e1 5.5 0.0625 60.5
+act 22639 tp e2 6.5 0.0625 60.5
+act 22639 tp e5 2.5 0.0625 0.5
+act 22639 tp e6 3.5 0.0625 0.5
+act 22639 tp e7 4.5 0.0625 0.5
+expect 22662 nether-death g137
+expect 22700 golem g140 8 3 -6
+expect 22701 pulse g140 10
+expect 22702 cross g140
+act 22739 tp e5 9.5 0.0625 60.5
+act 22739 tp e6 10.5 0.0625 60.5
+act 22739 tp e7 11.5 0.0625 60.5
+act 22739 tp e8 2.5 0.0625 0.5
+act 22739 tp e9 3.5 0.0625 0.5
+act 22739 tp e10 4.5 0.0625 0.5
+expect 22762 nether-death g138
+expect 22800 golem g141 3 3 -6
+expect 22801 pulse g141 10
+expect 22802 cross g141
+act 22839 tp e8 14.5 0.0625 60.5
+act 22839 tp e9 15.5 0.0625 60.5
+act 22839 tp e10 16.5 0.0625 60.5
+act 22839 tp e11 2.5 0.0625 0.5
+act 22839 tp e12 3.5 0.0625 0.5
+act 22839 tp e13 4.5 0.0625 0.5
+expect 22862 nether-death g139
+expect 22900 golem g142 7 3 -6
+expect 22901 pulse g142 10
+expect 22902 cross g142
+act 22939 tp e11 19.5 0.0625 60.5
+act 22939 tp e12 20.5 0.0625 60.5
+act 22939 tp e13 21.5 0.0625 60.5
+act 22939 tp e14 2.5 0.0625 0.5
+act 22939 tp e15 3.5 0.0625 0.5
+act 22939 tp e16 4.5 0.0625 0.5
+expect 22962 nether-death g140
+expect 23000 golem g143 7 3 -4
+expect 23001 pulse g143 10
+expect 23002 cross g143
+act 23039 tp e14 -5.5 0.0625 60.5
+act 23039 tp e15 -4.5 0.0625 60.5
+act 23039 tp e16 -3.5 0.0625 60.5
+act 23039 tp e17 2.5 0.0625 0.5
+act 23039 tp e18 3.5 0.0625 0.5
+act 23039 tp e19 4.5 0.0625 0.5
+expect 23062 nether-death g141
+expect 23100 golem g144 3 3 -6
+expect 23101 pulse g144 10
+expect 23102 cross g144
+act 23139 tp e17 -0.5 0.0625 60.5
+act 23139 tp e18 0.5 0.0625 60.5
+act 23139 tp e19 1.5 0.0625 60.5
+act 23139 tp e20 2.5 0.0625 0.5
+act 23139 tp e21 3.5 0.0625 0.5
+act 23139 tp e22 4.5 0.0625 0.5
+expect 23162 nether-death g142
+expect 23200 golem g145 6 3 -1
+expect 23201 pulse g145 10
+expect 23202 cross g145
+act 23239 tp e20 4.5 0.0625 60.5
+act 23239 tp e21 5.5 0.0625 60.5
+act 23239 tp e22 6.5 0.0625 60.5
+act 23239 tp e0 2.5 0.0625 0.5
+act 23239 tp e1 3.5 0.0625 0.5
+act 23239 tp e2 4.5 0.0625 0.5
+expect 23262 nether-death g143
+expect 23300 golem g146 2 3 -4
+expect 23301 pulse g146 10
+expect 23302 cross g146
+act 23339 tp e0 9.5 0.0625 60.5
+act 23339 tp e1 10.5 0.0625 60.5
+act 23339 tp e2 11.5 0.0625 60.5
+act 23339 tp e5 2.5 0.0625 0.5
+act 23339 tp e6 3.5 0.0625 0.5
+act 23339 tp e7 4.5 0.0625 0.5
+expect 23362 nether-death g144
+expect 23400 golem g147 4 3 -6
+expect 23401 pulse g147 10
+expect 23402 cross g147
+act 23439 tp e5 14.5 0.0625 60.5
+act 23439 tp e6 15.5 0.0625 60.5
+act 23439 tp e7 16.5 0.0625 60.5
+act 23439 tp e8 2.5 0.0625 0.5
+act 23439 tp e9 3.5 0.0625 0.5
+act 23439 tp e10 4.5 0.0625 0.5
+expect 23462 nether-death g145
+expect 23500 golem g148 -1 3 -1
+expect 23501 pulse g148 10
+expect 23502 cross g148
+act 23539 tp e8 19.5 0.0625 60.5
+act 23539 tp e9 20.5 0.0625 60.5
+act 23539 tp e10 21.5 0.0625 60.5
+act 23539 tp e11 2.5 0.0625 0.5
+act 23539 tp e12 3.5 0.0625 0.5
+act 23539 tp e13 4.5 0.0625 0.5
+expect 23562 nether-death g146
+expect 23600 golem g149 3 3 -4
+expect 23601 pulse g149 10
+expect 23602 cross g149
+act 23639 tp e11 -5.5 0.0625 60.5
+act 23639 tp e12 -4.5 0.0625 60.5
+act 23639 tp e13 -3.5 0.0625 60.5
+act 23639 tp e14 2.5 0.0625 0.5
+act 23639 tp e15 3.5 0.0625 0.5
+act 23639 tp e16 4.5 0.0625 0.5
+expect 23662 nether-death g147
+expect 23700 golem g150 2 3 -1
+expect 23701 pulse g150 10
+expect 23702 cross g150
+act 23739 tp e14 -0.5 0.0625 60.5
+act 23739 tp e15 0.5 0.0625 60.5
+act 23739 tp e16 1.5 0.0625 60.5
+act 23739 tp e17 2.5 0.0625 0.5
+act 23739 tp e18 3.5 0.0625 0.5
+act 23739 tp e19 4.5 0.0625 0.5
+expect 23762 nether-death g148
+expect 23800 golem g151 1 3 -3
+expect 23801 pulse g151 10
+expect 23802 cross g151
+act 23839 tp e17 4.5 0.0625 60.5
+act 23839 tp e18 5.5 0.0625 60.5
+act 23839 tp e19 6.5 0.0625 60.5
+act 23839 tp e20 2.5 0.0625 0.5
+act 23839 tp e21 3.5 0.0625 0.5
+act 23839 tp e22 4.5 0.0625 0.5
+expect 23862 nether-death g149
+expect 23900 golem g152 0 3 -6
+expect 23901 pulse g152 10
+expect 23902 cross g152
+act 23939 tp e20 9.5 0.0625 60.5
+act 23939 tp e21 10.5 0.0625 60.5
+act 23939 tp e22 11.5 0.0625 60.5
+act 23939 tp e0 2.5 0.0625 0.5
+act 23939 tp e1 3.5 0.0625 0.5
+act 23939 tp e2 4.5 0.0625 0.5
+expect 23962 nether-death g150
+expect 24000 golem g153 3 3 -3
+expect 24001 pulse g153 10
+expect 24002 cross g153
+act 24039 tp e0 14.5 0.0625 60.5
+act 24039 tp e1 15.5 0.0625 60.5
+act 24039 tp e2 16.5 0.0625 60.5
+act 24039 tp e5 2.5 0.0625 0.5
+act 24039 tp e6 3.5 0.0625 0.5
+act 24039 tp e7 4.5 0.0625 0.5
+expect 24062 nether-death g151
+expect 24100 golem g154 8 3 -6
+expect 24101 pulse g154 10
+expect 24102 cross g154
+act 24139 tp e5 19.5 0.0625 60.5
+act 24139 tp e6 20.5 0.0625 60.5
+act 24139 tp e7 21.5 0.0625 60.5
+act 24139 tp e8 2.5 0.0625 0.5
+act 24139 tp e9 3.5 0.0625 0.5
+act 24139 tp e10 4.5 0.0625 0.5
+expect 24162 nether-death g152
+expect 24200 golem g155 3 3 -3
+expect 24201 pulse g155 10
+expect 24202 cross g155
+act 24239 tp e8 -5.5 0.0625 60.5
+act 24239 tp e9 -4.5 0.0625 60.5
+act 24239 tp e10 -3.5 0.0625 60.5
+act 24239 tp e11 2.5 0.0625 0.5
+act 24239 tp e12 3.5 0.0625 0.5
+act 24239 tp e13 4.5 0.0625 0.5
+expect 24262 nether-death g153
+expect 24300 golem g156 4 3 -1
+expect 24301 pulse g156 10
+expect 24302 cross g156
+act 24339 tp e11 -0.5 0.0625 60.5
+act 24339 tp e12 0.5 0.0625 60.5
+act 24339 tp e13 1.5 0.0625 60.5
+act 24339 tp e14 2.5 0.0625 0.5
+act 24339 tp e15 3.5 0.0625 0.5
+act 24339 tp e16 4.5 0.0625 0.5
+expect 24362 nether-death g154
+expect 24400 golem g157 -1 3 -1
+expect 24401 pulse g157 10
+expect 24402 cross g157
+act 24439 tp e14 4.5 0.0625 60.5
+act 24439 tp e15 5.5 0.0625 60.5
+act 24439 tp e16 6.5 0.0625 60.5
+act 24439 tp e17 2.5 0.0625 0.5
+act 24439 tp e18 3.5 0.0625 0.5
+act 24439 tp e19 4.5 0.0625 0.5
+expect 24462 nether-death g155
+expect 24500 golem g158 2 3 -3
+expect 24501 pulse g158 10
+expect 24502 cross g158
+act 24539 tp e17 9.5 0.0625 60.5
+act 24539 tp e18 10.5 0.0625 60.5
+act 24539 tp e19 11.5 0.0625 60.5
+act 24539 tp e20 2.5 0.0625 0.5
+act 24539 tp e21 3.5 0.0625 0.5
+act 24539 tp e22 4.5 0.0625 0.5
+expect 24562 nether-death g156
+expect 24600 golem g159 4 3 -1
+expect 24601 pulse g159 10
+expect 24602 cross g159
+act 24639 tp e20 14.5 0.0625 60.5
+act 24639 tp e21 15.5 0.0625 60.5
+act 24639 tp e22 16.5 0.0625 60.5
+act 24639 tp e0 2.5 0.0625 0.5
+act 24639 tp e1 3.5 0.0625 0.5
+act 24639 tp e2 4.5 0.0625 0.5
+expect 24662 nether-death g157
+expect 24700 golem g160 5 3 -1
+expect 24701 pulse g160 10
+expect 24702 cross g160
+act 24739 tp e0 19.5 0.0625 60.5
+act 24739 tp e1 20.5 0.0625 60.5
+act 24739 tp e2 21.5 0.0625 60.5
+act 24739 tp e5 2.5 0.0625 0.5
+act 24739 tp e6 3.5 0.0625 0.5
+act 24739 tp e7 4.5 0.0625 0.5
+expect 24762 nether-death g158
+expect 24800 golem g161 7 3 -6
+expect 24801 pulse g161 10
+expect 24802 cross g161
+act 24839 tp e5 -5.5 0.0625 60.5
+act 24839 tp e6 -4.5 0.0625 60.5
+act 24839 tp e7 -3.5 0.0625 60.5
+act 24839 tp e8 2.5 0.0625 0.5
+act 24839 tp e9 3.5 0.0625 0.5
+act 24839 tp e10 4.5 0.0625 0.5
+expect 24862 nether-death g159
+expect 24900 golem g162 7 3 -3
+expect 24901 pulse g162 10
+expect 24902 cross g162
+act 24939 tp e8 -0.5 0.0625 60.5
+act 24939 tp e9 0.5 0.0625 60.5
+act 24939 tp e10 1.5 0.0625 60.5
+act 24939 tp e11 2.5 0.0625 0.5
+act 24939 tp e12 3.5 0.0625 0.5
+act 24939 tp e13 4.5 0.0625 0.5
+expect 24962 nether-death g160
+expect 25000 golem g163 0 3 -1
+expect 25001 pulse g163 10
+expect 25002 cross g163
+act 25039 tp e11 4.5 0.0625 60.5
+act 25039 tp e12 5.5 0.0625 60.5
+act 25039 tp e13 6.5 0.0625 60.5
+act 25039 tp e14 2.5 0.0625 0.5
+act 25039 tp e15 3.5 0.0625 0.5
+act 25039 tp e16 4.5 0.0625 0.5
+expect 25062 nether-death g161
+expect 25100 golem g164 -2 3 -1
+expect 25101 pulse g164 10
+expect 25102 cross g164
+act 25139 tp e14 9.5 0.0625 60.5
+act 25139 tp e15 10.5 0.0625 60.5
+act 25139 tp e16 11.5 0.0625 60.5
+act 25139 tp e17 2.5 0.0625 0.5
+act 25139 tp e18 3.5 0.0625 0.5
+act 25139 tp e19 4.5 0.0625 0.5
+expect 25162 nether-death g162
+expect 25200 golem g165 8 3 -4
+expect 25201 pulse g165 10
+expect 25202 cross g165
+act 25239 tp e17 14.5 0.0625 60.5
+act 25239 tp e18 15.5 0.0625 60.5
+act 25239 tp e19 16.5 0.0625 60.5
+act 25239 tp e20 2.5 0.0625 0.5
+act 25239 tp e21 3.5 0.0625 0.5
+act 25239 tp e22 4.5 0.0625 0.5
+expect 25262 nether-death g163
+expect 25300 golem g166 3 3 -1
+expect 25301 pulse g166 10
+expect 25302 cross g166
+act 25339 tp e20 19.5 0.0625 60.5
+act 25339 tp e21 20.5 0.0625 60.5
+act 25339 tp e22 21.5 0.0625 60.5
+act 25339 tp e0 2.5 0.0625 0.5
+act 25339 tp e1 3.5 0.0625 0.5
+act 25339 tp e2 4.5 0.0625 0.5
+expect 25362 nether-death g164
+expect 25400 golem g167 6 3 -3
+expect 25401 pulse g167 10
+expect 25402 cross g167
+act 25439 tp e0 -5.5 0.0625 60.5
+act 25439 tp e1 -4.5 0.0625 60.5
+act 25439 tp e2 -3.5 0.0625 60.5
+act 25439 tp e5 2.5 0.0625 0.5
+act 25439 tp e6 3.5 0.0625 0.5
+act 25439 tp e7 4.5 0.0625 0.5
+expect 25462 nether-death g165
+expect 25500 golem g168 4 3 -6
+expect 25501 pulse g168 10
+expect 25502 cross g168
+act 25539 tp e5 -0.5 0.0625 60.5
+act 25539 tp e6 0.5 0.0625 60.5
+act 25539 tp e7 1.5 0.0625 60.5
+act 25539 tp e8 2.5 0.0625 0.5
+act 25539 tp e9 3.5 0.0625 0.5
+act 25539 tp e10 4.5 0.0625 0.5
+expect 25562 nether-death g166
+expect 25600 golem g169 1 3 -4
+expect 25601 pulse g169 10
+expect 25602 cross g169
+act 25639 tp e8 4.5 0.0625 60.5
+act 25639 tp e9 5.5 0.0625 60.5
+act 25639 tp e10 6.5 0.0625 60.5
+act 25639 tp e11 2.5 0.0625 0.5
+act 25639 tp e12 3.5 0.0625 0.5
+act 25639 tp e13 4.5 0.0625 0.5
+expect 25662 nether-death g167
+expect 25700 golem g170 -2 3 -6
+expect 25701 pulse g170 10
+expect 25702 cross g170
+act 25739 tp e11 9.5 0.0625 60.5
+act 25739 tp e12 10.5 0.0625 60.5
+act 25739 tp e13 11.5 0.0625 60.5
+act 25739 tp e14 2.5 0.0625 0.5
+act 25739 tp e15 3.5 0.0625 0.5
+act 25739 tp e16 4.5 0.0625 0.5
+expect 25762 nether-death g168
+expect 25800 golem g171 6 3 -1
+expect 25801 pulse g171 10
+expect 25802 cross g171
+act 25839 tp e14 14.5 0.0625 60.5
+act 25839 tp e15 15.5 0.0625 60.5
+act 25839 tp e16 16.5 0.0625 60.5
+act 25839 tp e17 2.5 0.0625 0.5
+act 25839 tp e18 3.5 0.0625 0.5
+act 25839 tp e19 4.5 0.0625 0.5
+expect 25862 nether-death g169
+expect 25900 golem g172 -2 3 -3
+expect 25901 pulse g172 10
+expect 25902 cross g172
+act 25939 tp e17 19.5 0.0625 60.5
+act 25939 tp e18 20.5 0.0625 60.5
+act 25939 tp e19 21.5 0.0625 60.5
+act 25939 tp e20 2.5 0.0625 0.5
+act 25939 tp e21 3.5 0.0625 0.5
+act 25939 tp e22 4.5 0.0625 0.5
+expect 25962 nether-death g170
+expect 26000 golem g173 0 3 -6
+expect 26001 pulse g173 10
+expect 26002 cross g173
+act 26039 tp e20 -5.5 0.0625 60.5
+act 26039 tp e21 -4.5 0.0625 60.5
+act 26039 tp e22 -3.5 0.0625 60.5
+act 26039 tp e0 2.5 0.0625 0.5
+act 26039 tp e1 3.5 0.0625 0.5
+act 26039 tp e2 4.5 0.0625 0.5
+expect 26062 nether-death g171
+expect 26100 golem g174 -1 3 -3
+expect 26101 pulse g174 10
+expect 26102 cross g174
+act 26139 tp e0 -0.5 0.0625 60.5
+act 26139 tp e1 0.5 0.0625 60.5
+act 26139 tp e2 1.5 0.0625 60.5
+act 26139 tp e5 2.5 0.0625 0.5
+act 26139 tp e6 3.5 0.0625 0.5
+act 26139 tp e7 4.5 0.0625 0.5
+expect 26162 nether-death g172
+expect 26200 golem g175 2 3 -4
+expect 26201 pulse g175 10
+expect 26202 cross g175
+act 26239 tp e5 4.5 0.0625 60.5
+act 26239 tp e6 5.5 0.0625 60.5
+act 26239 tp e7 6.5 0.0625 60.5
+act 26239 tp e8 2.5 0.0625 0.5
+act 26239 tp e9 3.5 0.0625 0.5
+act 26239 tp e10 4.5 0.0625 0.5
+expect 26262 nether-death g173
+expect 26300 golem g176 -2 3 -1
+expect 26301 pulse g176 10
+expect 26302 cross g176
+act 26339 tp e8 9.5 0.0625 60.5
+act 26339 tp e9 10.5 0.0625 60.5
+act 26339 tp e10 11.5 0.0625 60.5
+act 26339 tp e11 2.5 0.0625 0.5
+act 26339 tp e12 3.5 0.0625 0.5
+act 26339 tp e13 4.5 0.0625 0.5
+expect 26362 nether-death g174
+expect 26400 golem g177 3 3 -6
+expect 26401 pulse g177 10
+expect 26402 cross g177
+act 26422 last-slept e0.p0 26422
+act 26422 last-slept e1.p0 26422
+act 26422 last-slept e2.p0 26422
+act 26422 last-slept e5.p0 26422
+act 26422 last-slept e6.p0 26422
+act 26422 last-slept e7.p0 26422
+act 26422 last-slept e8.p0 26422
+act 26422 last-slept e9.p0 26422
+act 26422 last-slept e10.p0 26422
+act 26422 last-slept e11.p0 26422
+act 26422 last-slept e12.p0 26422
+act 26422 last-slept e13.p0 26422
+act 26422 last-slept e14.p0 26422
+act 26422 last-slept e15.p0 26422
+act 26422 last-slept e16.p0 26422
+act 26422 last-slept e17.p0 26422
+act 26422 last-slept e18.p0 26422
+act 26422 last-slept e19.p0 26422
+act 26422 last-slept e20.p0 26422
+act 26422 last-slept e21.p0 26422
+act 26422 last-slept e22.p0 26422
+act 26439 tp e11 14.5 0.0625 60.5
+act 26439 tp e12 15.5 0.0625 60.5
+act 26439 tp e13 16.5 0.0625 60.5
+act 26439 tp e14 2.5 0.0625 0.5
+act 26439 tp e15 3.5 0.0625 0.5
+act 26439 tp e16 4.5 0.0625 0.5
+expect 26462 nether-death g175
+expect 26500 golem g178 0 3 -3
+expect 26501 pulse g178 10
+expect 26502 cross g178
+act 26539 tp e14 19.5 0.0625 60.5
+act 26539 tp e15 20.5 0.0625 60.5
+act 26539 tp e16 21.5 0.0625 60.5
+act 26539 tp e17 2.5 0.0625 0.5
+act 26539 tp e18 3.5 0.0625 0.5
+act 26539 tp e19 4.5 0.0625 0.5
+expect 26562 nether-death g176
+expect 26600 golem g179 4 3 -6
+expect 26601 pulse g179 10
+expect 26602 cross g179
+act 26639 tp e17 -5.5 0.0625 60.5
+act 26639 tp e18 -4.5 0.0625 60.5
+act 26639 tp e19 -3.5 0.0625 60.5
+act 26639 tp e20 2.5 0.0625 0.5
+act 26639 tp e21 3.5 0.0625 0.5
+act 26639 tp e22 4.5 0.0625 0.5
+expect 26662 nether-death g177
+expect 26700 golem g180 5 3 -4
+expect 26701 pulse g180 10
+expect 26702 cross g180
+act 26739 tp e20 -0.5 0.0625 60.5
+act 26739 tp e21 0.5 0.0625 60.5
+act 26739 tp e22 1.5 0.0625 60.5
+act 26739 tp e0 2.5 0.0625 0.5
+act 26739 tp e1 3.5 0.0625 0.5
+act 26739 tp e2 4.5 0.0625 0.5
+expect 26762 nether-death g178
+expect 26800 golem g181 7 3 -3
+expect 26801 pulse g181 10
+expect 26802 cross g181
+act 26839 tp e0 4.5 0.0625 60.5
+act 26839 tp e1 5.5 0.0625 60.5
+act 26839 tp e2 6.5 0.0625 60.5
+act 26839 tp e5 2.5 0.0625 0.5
+act 26839 tp e6 3.5 0.0625 0.5
+act 26839 tp e7 4.5 0.0625 0.5
+expect 26862 nether-death g179
+expect 26900 golem g182 5 3 -3
+expect 26901 pulse g182 10
+expect 26902 cross g182
+act 26939 tp e5 9.5 0.0625 60.5
+act 26939 tp e6 10.5 0.0625 60.5
+act 26939 tp e7 11.5 0.0625 60.5
+act 26939 tp e8 2.5 0.0625 0.5
+act 26939 tp e9 3.5 0.0625 0.5
+act 26939 tp e10 4.5 0.0625 0.5
+expect 26962 nether-death g180
+expect 27000 golem g183 8 3 -4
+expect 27001 pulse g183 10
+expect 27002 cross g183
+act 27039 tp e8 14.5 0.0625 60.5
+act 27039 tp e9 15.5 0.0625 60.5
+act 27039 tp e10 16.5 0.0625 60.5
+act 27039 tp e11 2.5 0.0625 0.5
+act 27039 tp e12 3.5 0.0625 0.5
+act 27039 tp e13 4.5 0.0625 0.5
+expect 27062 nether-death g181
+expect 27100 golem g184 2 3 -1
+expect 27101 pulse g184 10
+expect 27102 cross g184
+act 27139 tp e11 19.5 0.0625 60.5
+act 27139 tp e12 20.5 0.0625 60.5
+act 27139 tp e13 21.5 0.0625 60.5
+act 27139 tp e14 2.5 0.0625 0.5
+act 27139 tp e15 3.5 0.0625 0.5
+act 27139 tp e16 4.5 0.0625 0.5
+expect 27162 nether-death g182
+expect 27200 golem g185 6 3 -4
+expect 27201 pulse g185 10
+expect 27202 cross g185
+act 27239 tp e14 -5.5 0.0625 60.5
+act 27239 tp e15 -4.5 0.0625 60.5
+act 27239 tp e16 -3.5 0.0625 60.5
+act 27239 tp e17 2.5 0.0625 0.5
+act 27239 tp e18 3.5 0.0625 0.5
+act 27239 tp e19 4.5 0.0625 0.5
+expect 27262 nether-death g183
+expect 27300 golem g186 3 3 -6
+expect 27301 pulse g186 10
+expect 27302 cross g186
+act 27339 tp e17 -0.5 0.0625 60.5
+act 27339 tp e18 0.5 0.0625 60.5
+act 27339 tp e19 1.5 0.0625 60.5
+act 27339 tp e20 2.5 0.0625 0.5
+act 27339 tp e21 3.5 0.0625 0.5
+act 27339 tp e22 4.5 0.0625 0.5
+expect 27362 nether-death g184
+expect 27400 golem g187 -1 3 -1
+expect 27401 pulse g187 10
+expect 27402 cross g187
+act 27439 tp e20 4.5 0.0625 60.5
+act 27439 tp e21 5.5 0.0625 60.5
+act 27439 tp e22 6.5 0.0625 60.5
+act 27439 tp e0 2.5 0.0625 0.5
+act 27439 tp e1 3.5 0.0625 0.5
+act 27439 tp e2 4.5 0.0625 0.5
+expect 27462 nether-death g185
+expect 27500 golem g188 -2 3 -4
+expect 27501 pulse g188 10
+expect 27502 cross g188
+act 27539 tp e0 9.5 0.0625 60.5
+act 27539 tp e1 10.5 0.0625 60.5
+act 27539 tp e2 11.5 0.0625 60.5
+act 27539 tp e5 2.5 0.0625 0.5
+act 27539 tp e6 3.5 0.0625 0.5
+act 27539 tp e7 4.5 0.0625 0.5
+expect 27562 nether-death g186
+expect 27600 golem g189 7 3 -4
+expect 27601 pulse g189 10
+expect 27602 cross g189
+act 27639 tp e5 14.5 0.0625 60.5
+act 27639 tp e6 15.5 0.0625 60.5
+act 27639 tp e7 16.5 0.0625 60.5
+act 27639 tp e8 2.5 0.0625 0.5
+act 27639 tp e9 3.5 0.0625 0.5
+act 27639 tp e10 4.5 0.0625 0.5
+expect 27662 nether-death g187
+expect 27700 golem g190 0 3 -4
+expect 27701 pulse g190 10
+expect 27702 cross g190
+act 27739 tp e8 19.5 0.0625 60.5
+act 27739 tp e9 20.5 0.0625 60.5
+act 27739 tp e10 21.5 0.0625 60.5
+act 27739 tp e11 2.5 0.0625 0.5
+act 27739 tp e12 3.5 0.0625 0.5
+act 27739 tp e13 4.5 0.0625 0.5
+expect 27762 nether-death g188
+expect 27800 golem g191 0 3 -4
+expect 27801 pulse g191 10
+expect 27802 cross g191
+act 27839 tp e11 -5.5 0.0625 60.5
+act 27839 tp e12 -4.5 0.0625 60.5
+act 27839 tp e13 -3.5 0.0625 60.5
+act 27839 tp e14 2.5 0.0625 0.5
+act 27839 tp e15 3.5 0.0625 0.5
+act 27839 tp e16 4.5 0.0625 0.5
+expect 27862 nether-death g189
+expect 27900 golem g192 0 3 -4
+expect 27901 pulse g192 10
+expect 27902 cross g192
+act 27939 tp e14 -0.5 0.0625 60.5
+act 27939 tp e15 0.5 0.0625 60.5
+act 27939 tp e16 1.5 0.0625 60.5
+act 27939 tp e17 2.5 0.0625 0.5
+act 27939 tp e18 3.5 0.0625 0.5
+act 27939 tp e19 4.5 0.0625 0.5
+expect 27962 nether-death g190
+expect 28000 golem g193 3 3 -1
+expect 28001 pulse g193 10
+expect 28002 cross g193
+act 28039 tp e17 4.5 0.0625 60.5
+act 28039 tp e18 5.5 0.0625 60.5
+act 28039 tp e19 6.5 0.0625 60.5
+act 28039 tp e20 2.5 0.0625 0.5
+act 28039 tp e21 3.5 0.0625 0.5
+act 28039 tp e22 4.5 0.0625 0.5
+expect 28062 nether-death g191
+expect 28100 golem g194 1 3 -4
+expect 28101 pulse g194 10
+expect 28102 cross g194
+act 28139 tp e20 9.5 0.0625 60.5
+act 28139 tp e21 10.5 0.0625 60.5
+act 28139 tp e22 11.5 0.0625 60.5
+act 28139 tp e0 2.5 0.0625 0.5
+act 28139 tp e1 3.5 0.0625 0.5
+act 28139 tp e2 4.5 0.0625 0.5
+expect 28162 nether-death g192
+expect 28200 golem g195 2 3 -1
+expect 28201 pulse g195 10
+expect 28202 cross g195
+act 28239 tp e0 14.5 0.0625 60.5
+act 28239 tp e1 15.5 0.0625 60.5
+act 28239 tp e2 16.5 0.0625 60.5
+act 28239 tp e5 2.5 0.0625 0.5
+act 28239 tp e6 3.5 0.0625 0.5
+act 28239 tp e7 4.5 0.0625 0.5
+expect 28262 nether-death g193
+expect 28300 golem g196 0 3 -4
+expect 28301 pulse g196 10
+expect 28302 cross g196
+act 28339 tp e5 19.5 0.0625 60.5
+act 28339 tp e6 20.5 0.0625 60.5
+act 28339 tp e7 21.5 0.0625 60.5
+act 28339 tp e8 2.5 0.0625 0.5
+act 28339 tp e9 3.5 0.0625 0.5
+act 28339 tp e10 4.5 0.0625 0.5
+expect 28362 nether-death g194
+expect 28400 golem g197 0 3 -4
+expect 28401 pulse g197 10
+expect 28402 cross g197
+act 28439 tp e8 -5.5 0.0625 60.5
+act 28439 tp e9 -4.5 0.0625 60.5
+act 28439 tp e10 -3.5 0.0625 60.5
+act 28439 tp e11 2.5 0.0625 0.5
+act 28439 tp e12 3.5 0.0625 0.5
+act 28439 tp e13 4.5 0.0625 0.5
+expect 28462 nether-death g195
+expect 28500 golem g198 -2 3 -3
+expect 28501 pulse g198 10
+expect 28502 cross g198
+act 28539 tp e11 -0.5 0.0625 60.5
+act 28539 tp e12 0.5 0.0625 60.5
+act 28539 tp e13 1.5 0.0625 60.5
+act 28539 tp e14 2.5 0.0625 0.5
+act 28539 tp e15 3.5 0.0625 0.5
+act 28539 tp e16 4.5 0.0625 0.5
+expect 28562 nether-death g196
+expect 28600 golem g199 4 3 -3
+expect 28601 pulse g199 10
+expect 28602 cross g199
+act 28639 tp e14 4.5 0.0625 60.5
+act 28639 tp e15 5.5 0.0625 60.5
+act 28639 tp e16 6.5 0.0625 60.5
+act 28639 tp e17 2.5 0.0625 0.5
+act 28639 tp e18 3.5 0.0625 0.5
+act 28639 tp e19 4.5 0.0625 0.5
+expect 28662 nether-death g197
+expect 28700 golem g200 3 3 -3
+expect 28701 pulse g200 10
+expect 28702 cross g200
+act 28739 tp e17 9.5 0.0625 60.5
+act 28739 tp e18 10.5 0.0625 60.5
+act 28739 tp e19 11.5 0.0625 60.5
+act 28739 tp e20 2.5 0.0625 0.5
+act 28739 tp e21 3.5 0.0625 0.5
+act 28739 tp e22 4.5 0.0625 0.5
+expect 28762 nether-death g198
+expect 28800 golem g201 7 3 -4
+expect 28801 pulse g201 10
+expect 28802 cross g201
+act 28839 tp e20 14.5 0.0625 60.5
+act 28839 tp e21 15.5 0.0625 60.5
+act 28839 tp e22 16.5 0.0625 60.5
+act 28839 tp e0 2.5 0.0625 0.5
+act 28839 tp e1 3.5 0.0625 0.5
+act 28839 tp e2 4.5 0.0625 0.5
+expect 28862 nether-death g199
+expect 28900 golem g202 8 3 -3
+expect 28901 pulse g202 10
+expect 28902 cross g202
+act 28939 tp e0 19.5 0.0625 60.5
+act 28939 tp e1 20.5 0.0625 60.5
+act 28939 tp e2 21.5 0.0625 60.5
+act 28939 tp e5 2.5 0.0625 0.5
+act 28939 tp e6 3.5 0.0625 0.5
+act 28939 tp e7 4.5 0.0625 0.5
+expect 28962 nether-death g200
+expect 29000 golem g203 4 3 -6
+expect 29001 pulse g203 10
+expect 29002 cross g203
+act 29039 tp e5 -5.5 0.0625 60.5
+act 29039 tp e6 -4.5 0.0625 60.5
+act 29039 tp e7 -3.5 0.0625 60.5
+act 29039 tp e8 2.5 0.0625 0.5
+act 29039 tp e9 3.5 0.0625 0.5
+act 29039 tp e10 4.5 0.0625 0.5
+expect 29062 nether-death g201
+expect 29100 golem g204 6 3 -6
+expect 29101 pulse g204 10
+expect 29102 cross g204
+act 29139 tp e8 -0.5 0.0625 60.5
+act 29139 tp e9 0.5 0.0625 60.5
+act 29139 tp e10 1.5 0.0625 60.5
+act 29139 tp e11 2.5 0.0625 0.5
+act 29139 tp e12 3.5 0.0625 0.5
+act 29139 tp e13 4.5 0.0625 0.5
+expect 29162 nether-death g202
+expect 29200 golem g205 0 3 -4
+expect 29201 pulse g205 10
+expect 29202 cross g205
+act 29239 tp e11 4.5 0.0625 60.5
+act 29239 tp e12 5.5 0.0625 60.5
+act 29239 tp e13 6.5 0.0625 60.5
+act 29239 tp e14 2.5 0.0625 0.5
+act 29239 tp e15 3.5 0.0625 0.5
+act 29239 tp e16 4.5 0.0625 0.5
+expect 29262 nether-death g203
+expect 29300 golem g206 5 3 -3
+expect 29301 pulse g206 10
+expect 29302 cross g206
+act 29339 tp e14 9.5 0.0625 60.5
+act 29339 tp e15 10.5 0.0625 60.5
+act 29339 tp e16 11.5 0.0625 60.5
+act 29339 tp e17 2.5 0.0625 0.5
+act 29339 tp e18 3.5 0.0625 0.5
+act 29339 tp e19 4.5 0.0625 0.5
+expect 29362 nether-death g204
+expect 29400 golem g207 -2 3 -6
+expect 29401 pulse g207 10
+expect 29402 cross g207
+act 29439 tp e17 14.5 0.0625 60.5
+act 29439 tp e18 15.5 0.0625 60.5
+act 29439 tp e19 16.5 0.0625 60.5
+act 29439 tp e20 2.5 0.0625 0.5
+act 29439 tp e21 3.5 0.0625 0.5
+act 29439 tp e22 4.5 0.0625 0.5
+expect 29462 nether-death g205
+expect 29500 golem g208 0 3 -4
+expect 29501 pulse g208 10
+expect 29502 cross g208
+act 29539 tp e20 19.5 0.0625 60.5
+act 29539 tp e21 20.5 0.0625 60.5
+act 29539 tp e22 21.5 0.0625 60.5
+act 29539 tp e0 2.5 0.0625 0.5
+act 29539 tp e1 3.5 0.0625 0.5
+act 29539 tp e2 4.5 0.0625 0.5
+expect 29562 nether-death g206
+expect 29600 golem g209 0 3 -1
+expect 29601 pulse g209 10
+expect 29602 cross g209
+act 29639 tp e0 -5.5 0.0625 60.5
+act 29639 tp e1 -4.5 0.0625 60.5
+act 29639 tp e2 -3.5 0.0625 60.5
+act 29639 tp e5 2.5 0.0625 0.5
+act 29639 tp e6 3.5 0.0625 0.5
+act 29639 tp e7 4.5 0.0625 0.5
+expect 29662 nether-death g207
+expect 29700 golem g210 -1 3 -3
+expect 29701 pulse g210 10
+expect 29702 cross g210
+act 29739 tp e5 -0.5 0.0625 60.5
+act 29739 tp e6 0.5 0.0625 60.5
+act 29739 tp e7 1.5 0.0625 60.5
+act 29739 tp e8 2.5 0.0625 0.5
+act 29739 tp e9 3.5 0.0625 0.5
+act 29739 tp e10 4.5 0.0625 0.5
+expect 29762 nether-death g208
+expect 29800 golem g211 8 3 -4
+expect 29801 pulse g211 10
+expect 29802 cross g211
+act 29839 tp e8 4.5 0.0625 60.5
+act 29839 tp e9 5.5 0.0625 60.5
+act 29839 tp e10 6.5 0.0625 60.5
+act 29839 tp e11 2.5 0.0625 0.5
+act 29839 tp e12 3.5 0.0625 0.5
+act 29839 tp e13 4.5 0.0625 0.5
+expect 29862 nether-death g209
+expect 29900 golem g212 4 3 -6
+expect 29901 pulse g212 10
+expect 29902 cross g212
+act 29939 tp e11 9.5 0.0625 60.5
+act 29939 tp e12 10.5 0.0625 60.5
+act 29939 tp e13 11.5 0.0625 60.5
+act 29939 tp e14 2.5 0.0625 0.5
+act 29939 tp e15 3.5 0.0625 0.5
+act 29939 tp e16 4.5 0.0625 0.5
+expect 29962 nether-death g210
+expect 30000 golem g213 3 3 -3
+expect 30001 pulse g213 10
+expect 30002 cross g213
+act 30039 tp e14 14.5 0.0625 60.5
+act 30039 tp e15 15.5 0.0625 60.5
+act 30039 tp e16 16.5 0.0625 60.5
+act 30039 tp e17 2.5 0.0625 0.5
+act 30039 tp e18 3.5 0.0625 0.5
+act 30039 tp e19 4.5 0.0625 0.5
+expect 30062 nether-death g211
+expect 30100 golem g214 -1 3 -4
+expect 30101 pulse g214 10
+expect 30102 cross g214
+act 30139 tp e17 19.5 0.0625 60.5
+act 30139 tp e18 20.5 0.0625 60.5
+act 30139 tp e19 21.5 0.0625 60.5
+act 30139 tp e20 2.5 0.0625 0.5
+act 30139 tp e21 3.5 0.0625 0.5
+act 30139 tp e22 4.5 0.0625 0.5
+expect 30162 nether-death g212
+expect 30200 golem g215 7 3 -4
+expect 30201 pulse g215 10
+expect 30202 cross g215
+act 30239 tp e20 -5.5 0.0625 60.5
+act 30239 tp e21 -4.5 0.0625 60.5
+act 30239 tp e22 -3.5 0.0625 60.5
+act 30239 tp e0 2.5 0.0625 0.5
+act 30239 tp e1 3.5 0.0625 0.5
+act 30239 tp e2 4.5 0.0625 0.5
+expect 30262 nether-death g213
+expect 30300 golem g216 3 3 -4
+expect 30301 pulse g216 10
+expect 30302 cross g216
+act 30339 tp e0 -0.5 0.0625 60.5
+act 30339 tp e1 0.5 0.0625 60.5
+act 30339 tp e2 1.5 0.0625 60.5
+act 30339 tp e5 2.5 0.0625 0.5
+act 30339 tp e6 3.5 0.0625 0.5
+act 30339 tp e7 4.5 0.0625 0.5
+expect 30362 nether-death g214
+expect 30400 golem g217 -1 3 -1
+expect 30401 pulse g217 10
+expect 30402 cross g217
+act 30439 tp e5 4.5 0.0625 60.5
+act 30439 tp e6 5.5 0.0625 60.5
+act 30439 tp e7 6.5 0.0625 60.5
+act 30439 tp e8 2.5 0.0625 0.5
+act 30439 tp e9 3.5 0.0625 0.5
+act 30439 tp e10 4.5 0.0625 0.5
+expect 30462 nether-death g215
+expect 30500 golem g218 0 3 -3
+expect 30501 pulse g218 10
+expect 30502 cross g218
+act 30539 tp e8 9.5 0.0625 60.5
+act 30539 tp e9 10.5 0.0625 60.5
+act 30539 tp e10 11.5 0.0625 60.5
+act 30539 tp e11 2.5 0.0625 0.5
+act 30539 tp e12 3.5 0.0625 0.5
+act 30539 tp e13 4.5 0.0625 0.5
+expect 30562 nether-death g216
+expect 30600 golem g219 -1 3 -1
+expect 30601 pulse g219 10
+expect 30602 cross g219
+act 30639 tp e11 14.5 0.0625 60.5
+act 30639 tp e12 15.5 0.0625 60.5
+act 30639 tp e13 16.5 0.0625 60.5
+act 30639 tp e14 2.5 0.0625 0.5
+act 30639 tp e15 3.5 0.0625 0.5
+act 30639 tp e16 4.5 0.0625 0.5
+expect 30662 nether-death g217
+expect 30700 golem g220 -1 3 -1
+expect 30701 pulse g220 10
+expect 30702 cross g220
+act 30739 tp e14 19.5 0.0625 60.5
+act 30739 tp e15 20.5 0.0625 60.5
+act 30739 tp e16 21.5 0.0625 60.5
+act 30739 tp e17 2.5 0.0625 0.5
+act 30739 tp e18 3.5 0.0625 0.5
+act 30739 tp e19 4.5 0.0625 0.5
+expect 30762 nether-death g218
+expect 30800 golem g221 5 3 -4
+expect 30801 pulse g221 10
+expect 30802 cross g221
+act 30839 tp e17 -5.5 0.0625 60.5
+act 30839 tp e18 -4.5 0.0625 60.5
+act 30839 tp e19 -3.5 0.0625 60.5
+act 30839 tp e20 2.5 0.0625 0.5
+act 30839 tp e21 3.5 0.0625 0.5
+act 30839 tp e22 4.5 0.0625 0.5
+expect 30862 nether-death g219
+expect 30900 golem g222 6 3 -4
+expect 30901 pulse g222 10
+expect 30902 cross g222
+act 30939 tp e20 -0.5 0.0625 60.5
+act 30939 tp e21 0.5 0.0625 60.5
+act 30939 tp e22 1.5 0.0625 60.5
+act 30939 tp e0 2.5 0.0625 0.5
+act 30939 tp e1 3.5 0.0625 0.5
+act 30939 tp e2 4.5 0.0625 0.5
+expect 30962 nether-death g220
+expect 31000 golem g223 8 3 -6
+expect 31001 pulse g223 10
+expect 31002 cross g223
+act 31039 tp e0 4.5 0.0625 60.5
+act 31039 tp e1 5.5 0.0625 60.5
+act 31039 tp e2 6.5 0.0625 60.5
+act 31039 tp e5 2.5 0.0625 0.5
+act 31039 tp e6 3.5 0.0625 0.5
+act 31039 tp e7 4.5 0.0625 0.5
+expect 31062 nether-death g221
+expect 31100 golem g224 3 3 -6
+expect 31101 pulse g224 10
+expect 31102 cross g224
+act 31139 tp e5 9.5 0.0625 60.5
+act 31139 tp e6 10.5 0.0625 60.5
+act 31139 tp e7 11.5 0.0625 60.5
+act 31139 tp e8 2.5 0.0625 0.5
+act 31139 tp e9 3.5 0.0625 0.5
+act 31139 tp e10 4.5 0.0625 0.5
+expect 31162 nether-death g222
+expect 31200 golem g225 0 3 -1
+expect 31201 pulse g225 10
+expect 31202 cross g225
+act 31239 tp e8 14.5 0.0625 60.5
+act 31239 tp e9 15.5 0.0625 60.5
+act 31239 tp e10 16.5 0.0625 60.5
+act 31239 tp e11 2.5 0.0625 0.5
+act 31239 tp e12 3.5 0.0625 0.5
+act 31239 tp e13 4.5 0.0625 0.5
+expect 31262 nether-death g223
+expect 31300 golem g226 2 3 -6
+expect 31301 pulse g226 10
+expect 31302 cross g226
+act 31339 tp e11 19.5 0.0625 60.5
+act 31339 tp e12 20.5 0.0625 60.5
+act 31339 tp e13 21.5 0.0625 60.5
+act 31339 tp e14 2.5 0.0625 0.5
+act 31339 tp e15 3.5 0.0625 0.5
+act 31339 tp e16 4.5 0.0625 0.5
+expect 31362 nether-death g224
+expect 31400 golem g227 4 3 -1
+expect 31401 pulse g227 10
+expect 31402 cross g227
+act 31439 tp e14 -5.5 0.0625 60.5
+act 31439 tp e15 -4.5 0.0625 60.5
+act 31439 tp e16 -3.5 0.0625 60.5
+act 31439 tp e17 2.5 0.0625 0.5
+act 31439 tp e18 3.5 0.0625 0.5
+act 31439 tp e19 4.5 0.0625 0.5
+expect 31462 nether-death g225
+expect 31500 golem g228 -1 3 -6
+expect 31501 pulse g228 10
+expect 31502 cross g228
+act 31539 tp e17 -0.5 0.0625 60.5
+act 31539 tp e18 0.5 0.0625 60.5
+act 31539 tp e19 1.5 0.0625 60.5
+act 31539 tp e20 2.5 0.0625 0.5
+act 31539 tp e21 3.5 0.0625 0.5
+act 31539 tp e22 4.5 0.0625 0.5
+expect 31562 nether-death g226
+expect 31600 golem g229 -2 3 -4
+expect 31601 pulse g229 10
+expect 31602 cross g229
+act 31639 tp e20 4.5 0.0625 60.5
+act 31639 tp e21 5.5 0.0625 60.5
+act 31639 tp e22 6.5 0.0625 60.5
+act 31639 tp e0 2.5 0.0625 0.5
+act 31639 tp e1 3.5 0.0625 0.5
+act 31639 tp e2 4.5 0.0625 0.5
+expect 31662 nether-death g227
+expect 31700 golem g230 2 3 -4
+expect 31701 pulse g230 10
+expect 31702 cross g230
+act 31739 tp e0 9.5 0.0625 60.5
+act 31739 tp e1 10.5 0.0625 60.5
+act 31739 tp e2 11.5 0.0625 60.5
+act 31739 tp e5 2.5 0.0625 0.5
+act 31739 tp e6 3.5 0.0625 0.5
+act 31739 tp e7 4.5 0.0625 0.5
+expect 31762 nether-death g228
+expect 31800 golem g231 7 3 -4
+expect 31801 pulse g231 10
+expect 31802 cross g231
+act 31839 tp e5 14.5 0.0625 60.5
+act 31839 tp e6 15.5 0.0625 60.5
+act 31839 tp e7 16.5 0.0625 60.5
+act 31839 tp e8 2.5 0.0625 0.5
+act 31839 tp e9 3.5 0.0625 0.5
+act 31839 tp e10 4.5 0.0625 0.5
+expect 31862 nether-death g229
+expect 31900 golem g232 6 3 -1
+expect 31901 pulse g232 10
+expect 31902 cross g232
+act 31939 tp e8 19.5 0.0625 60.5
+act 31939 tp e9 20.5 0.0625 60.5
+act 31939 tp e10 21.5 0.0625 60.5
+act 31939 tp e11 2.5 0.0625 0.5
+act 31939 tp e12 3.5 0.0625 0.5
+act 31939 tp e13 4.5 0.0625 0.5
+expect 31962 nether-death g230
+expect 32000 golem g233 6 3 -6
+expect 32001 pulse g233 10
+expect 32002 cross g233
+act 32039 tp e11 -5.5 0.0625 60.5
+act 32039 tp e12 -4.5 0.0625 60.5
+act 32039 tp e13 -3.5 0.0625 60.5
+act 32039 tp e14 2.5 0.0625 0.5
+act 32039 tp e15 3.5 0.0625 0.5
+act 32039 tp e16 4.5 0.0625 0.5
+expect 32062 nether-death g231
+expect 32100 golem g234 7 3 -4
+expect 32101 pulse g234 10
+expect 32102 cross g234
+act 32139 tp e14 -0.5 0.0625 60.5
+act 32139 tp e15 0.5 0.0625 60.5
+act 32139 tp e16 1.5 0.0625 60.5
+act 32139 tp e17 2.5 0.0625 0.5
+act 32139 tp e18 3.5 0.0625 0.5
+act 32139 tp e19 4.5 0.0625 0.5
+expect 32162 nether-death g232
+expect 32200 golem g235 0 3 -6
+expect 32201 pulse g235 10
+expect 32202 cross g235
+act 32239 tp e17 4.5 0.0625 60.5
+act 32239 tp e18 5.5 0.0625 60.5
+act 32239 tp e19 6.5 0.0625 60.5
+act 32239 tp e20 2.5 0.0625 0.5
+act 32239 tp e21 3.5 0.0625 0.5
+act 32239 tp e22 4.5 0.0625 0.5
+expect 32262 nether-death g233
+expect 32300 golem g236 2 3 -3
+expect 32301 pulse g236 10
+expect 32302 cross g236
+act 32339 tp e20 9.5 0.0625 60.5
+act 32339 tp e21 10.5 0.0625 60.5
+act 32339 tp e22 11.5 0.0625 60.5
+act 32339 tp e0 2.5 0.0625 0.5
+act 32339 tp e1 3.5 0.0625 0.5
+act 32339 tp e2 4.5 0.0625 0.5
+expect 32362 nether-death g234
+expect 32400 golem g237 -1 3 -6
+expect 32401 pulse g237 10
+expect 32402 cross g237
+act 32439 tp e0 14.5 0.0625 60.5
+act 32439 tp e1 15.5 0.0625 60.5
+act 32439 tp e2 16.5 0.0625 60.5
+act 32439 tp e5 2.5 0.0625 0.5
+act 32439 tp e6 3.5 0.0625 0.5
+act 32439 tp e7 4.5 0.0625 0.5
+expect 32462 nether-death g235
+expect 32500 golem g238 1 3 -3
+expect-end golems 239
+expect-end nether-deaths 236
+expect-end iron-in-nether-containers 1050 (the sorter's stock of 105 included)

@@ -98,6 +98,10 @@ pub struct MobAi {
     pub squid: Option<squid::SquidState>,
     /// A fish's school ([`fish`]).
     pub fish: Option<fish::FishState>,
+    /// A wolf's shake ([`goal::wolf`]).
+    pub wolf: Option<goal::wolf::WolfState>,
+    /// A cat's sprint and crouch ([`goal::cat`]).
+    pub cat: Option<goal::cat::CatState>,
     /// An enderman's carried block and target change time.
     pub enderman: Option<goal::enderman::EndermanState>,
     /// (tickexact 2026-11-10) A drowned's `searchingForLand` (its swim up's) and the entity's
@@ -113,9 +117,8 @@ pub struct MobAi {
     /// A horse's state (`AbstractHorse`: attributes, eating, standing).
     pub horse: Option<goal::animal::Horse>,
     /// A zombie holding an iron spear (a zombie horseman's, or 1 in 6 of the rare weapons).
-    pub spear: bool,
-    /// A drowned holding a trident (its own spawn's 10 in 16 of 1 in 10).
-    pub trident: bool,
+    /// `LivingEntity.recentKineticEnemies` (a spear in use: each entity it stabbed and when).
+    pub stabbed: Vec<(u32, i64)>,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
 }
@@ -199,14 +202,15 @@ impl MobAi {
             cube: None,
             squid: None,
             fish: None,
+            wolf: None,
+            cat: None,
             enderman: None,
             searching_for_land: false,
             swimming: false,
             piglin: None,
             witch_drink: None,
             horse: None,
-            spear: false,
-            trident: false,
+            stabbed: Vec::new(),
             age: 0,
         };
         goal::register_goals(&mut ai, ty);
@@ -273,9 +277,13 @@ pub fn movement_speed(w: &World, i: usize) -> f64 {
     if ai(w, i).piglin.is_some_and(|p| p.attacking) {
         return base + 0.05;
     }
-    // a witch drinking: -0.25 (ADD_VALUE); the speed effect: x (1 + 0.2F) (ADD_MULTIPLIED_TOTAL)
+    // a witch drinking: -0.25 (ADD_VALUE); the speed effect: x (1 + 0.2F) (ADD_MULTIPLIED_TOTAL);
+    // a cat's sprint: x (1 + 0.3F)
     let add = if ai(w, i).witch_drink.is_some() { -0.25 } else { 0.0 };
     let v = base + add;
+    if ai(w, i).cat.is_some() {
+        return v * goal::cat::speed_factor(w, i);
+    }
     if mob(w, i).effects.speed > 0 {
         return v * (1.0 + 0.2f32 as f64);
     }
@@ -507,6 +515,8 @@ fn custom_server_ai_step(w: &mut World, i: usize) {
         goal::enderman::custom_server_ai_step(w, i);
     } else if ai(w, i).piglin.is_some() {
         goal::zombie::piglin_custom_server_ai_step(w, i);
+    } else if ai(w, i).cat.is_some() {
+        goal::cat::custom_server_ai_step(w, i);
     }
 }
 
@@ -767,6 +777,8 @@ pub fn after_ai_step(w: &mut World, i: usize) {
     // inside aiStep, before tickHeadTurn: AgeableMob.aiStep's age (a grown baby's box and its
     // fudge move, which the body's turn sees), Chicken.aiStep's tail (the slow fall, the egg)
     goal::animal::after_ai_step(w, i);
+    // Wolf.aiStep's tail (after Animal's): the shake starts, the persistent anger
+    goal::wolf::after_ai_step(w, i);
     // AgeableMob.aiStep's age (a baby squid's), then Squid.aiStep's tail (after
     // LivingEntity.aiStep): the tentacles, the swim impulse, the turns
     squid::age_step(w, i);
@@ -837,9 +849,12 @@ fn update_control_flags(w: &mut World, i: usize) {
 /// `spawnSprintParticle` draws two `nextDouble`s (the particle's x and z) unless the block 0.2
 /// below (`getOnPosLegacy`) renders invisible (air, liquids, bubble columns, moving pistons...).
 pub fn before_base_tick(w: &mut World, i: usize) {
-    if mob(w, i).ty == MobType::IronGolem {
+    // a sprinting cat (Entity.canSpawnSprintParticle: no draw of its own) spawns one too
+    let cat_sprint = goal::cat::sprint_particle(w, i);
+    if mob(w, i).ty == MobType::IronGolem || cat_sprint {
         let d = w.entities.list[i].delta_movement;
-        if d.x * d.x + d.z * d.z > 2.5000003e-7f32 as f64 && w.entities.list[i].random.as_mut().expect("random").next_int(5) == 0 {
+        let golem = mob(w, i).ty == MobType::IronGolem;
+        if cat_sprint || (golem && d.x * d.x + d.z * d.z > 2.5000003e-7f32 as f64 && w.entities.list[i].random.as_mut().expect("random").next_int(5) == 0) {
             let p = crate::entity::collide::get_on_pos(w, &w.entities.list[i], 0.2);
             let invisible = matches!(w.get(p), crate::block::Block::Air | crate::block::Block::Water { .. } | crate::block::Block::Lava { .. } | crate::block::Block::BubbleColumn { .. } | crate::block::Block::MovingPiston { .. });
             if !invisible {
@@ -897,7 +912,7 @@ pub fn check_despawn(w: &mut World, i: usize) {
     // `removeWhenFarAway`: natural spawning's per-kind rule (an animal never, a fish not from a
     // bucket...), else villagers and golems never
     let removes_far = match super::natural::kind_of_type(m.ty) {
-        Some(k) => k.removes_far,
+        Some(k) => super::natural::removes_far_now(w, i, k),
         None => !matches!(m.ty, MobType::Villager | MobType::IronGolem),
     };
     let p = w.entities.list[i].pos;
@@ -1001,11 +1016,15 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
         ai_mut(w, i).ambient_sound_time = -interval;
         if bat::is_bat(w, i) {
             bat::ambient_sound(w, i);
-        } else if has_ambient_sound(w, i)
-            && let Some(r) = w.entities.list[i].random.as_mut()
-        {
-            r.next_float();
-            r.next_float();
+        } else if has_ambient_sound(w, i) {
+            // a wolf's sound is picked with its own draw first (not angry: nextInt(3))
+            if goal::wolf::is_wolf(w, i) {
+                goal::wolf::ambient_draw(w, i);
+            }
+            if let Some(r) = w.entities.list[i].random.as_mut() {
+                r.next_float();
+                r.next_float();
+            }
         }
     }
 }

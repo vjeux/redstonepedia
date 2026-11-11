@@ -5,7 +5,10 @@ cell touching a portal and leaves through it in 2 gt; its tripwire pulse advance
 the Nether a lava sheet kills it over a hopper floor and the collection keeps 18 h of iron. Tools:
 `mctas mobfarm station` (the bench design; `--part` this member), `station-check` (static: every
 rider's golem search; `--official` the pulse on the real game), `station-bench` (the seven batches
-on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--official]`.
+on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--official]`; the member
+on the linear stand: `mctas mobfarm linear --out F` (settled by default), `linear-check F`,
+`linear-bench F --from --to --days [--placed-raw | --placed-in-order [GAP] | --placed-all |
+--build-gap-sweep] [--drive-out F]`.
 
 ## Members (best first: `members.tsv`)
 
@@ -45,6 +48,79 @@ single lane with the batches back to back; kept as evidence, not on the site):
   iron, 0 lost; zombified piglins 1.3 a day on Hard, all held in the planes' bottom rows.
 - station-storage: 18.4 h at ~2,850 iron/h (redsim); the official server over 8 h put 22,797 of
   22,802 iron in the double chest with no item left in the world, as redsim.
+
+## Settled as placed, and built in order (the brief's two checks; redsim, not yet the real game)
+
+The member file is written settled (`mobfarm linear --out`, `placing::settle_design`): every cell
+as the bench finds it after the settle. 14 cells changed, all in the Nether part: the sorter's three
+comparators powered with their outputs as `nether nbt:` lines (OutputSignal 2, 9, 2), its dust in its
+settled shapes and powers (the generator wrote every dust as a cross at power 0), and the lava
+sheet's two flowing cells (2,64,0..1), which the flow had made. Its `build: fills-last` line lists
+the sorter's stocks as the build's last steps. Still bench-driven: the batches are teleported to the
+stand (the release is stubbed); the pad's pulse and the Nether sorter are real redstone.
+
+`linear-bench`, 20 seeds x 2 days each:
+- the judge's placement: 20 of 20 seeds clean, a golem in 9,512 of 9,580 slots (99.29%);
+- settled as placed (`--placed-raw`, both parts pasted raw, no settle): 20 of 20 clean, 9,512 of
+  9,580 (99.29%);
+- built in order (`--placed-in-order`, the priced gaps: the Nether part first, then the overworld's;
+  395 cells and fills in 338 steps, 8,500 gt): 20 of 20 clean, 9,511 of 9,580 (99.28%); the build
+  ends exactly as the file (every cell, comparator output and container);
+- `--build-gap-sweep`: every gap from 1 to 40 gt passes (4 seeds x 1 day each).
+
+What the build needed (each found by the build's diff against the file):
+- **Portals lit, not placed.** The default order puts each portal row's cells before the row's east
+  pillar. In the game a portal cell whose frame is incomplete when a neighbour along its plane
+  changes turns to air; redsim does not model that, so the bench alone would not show it.
+  `placing::build_steps_of` lights each portal at one tick after every other block.
+- **Lava poured last.** In the default order the sources come with the supports, before the end
+  wall's and side walls' cells at y 64, and flow out of the unfinished basin.
+- **The sorter's stocks after its redstone (`build: fills-last`).** Filled as their hoppers are
+  placed, the iron lock hopper is not locked yet (its torch comes with the redstone): it passed its
+  64 iron to the crafter and the filter refilled it, 38 of the filter's 41 iron gone and an iron
+  block in the double chest by the build's end.
+- **No comparator output merged.** Merged at the comparator's placement, before its stock, the
+  stored output already matched the stock's when the stock went in, so the comparator never updated
+  its dust ((1,59,2..3) and (2,60,-3..-2) stayed at 0 instead of 2, 1).
+- **The player's 80 gt in the portal back** (prices.tsv's portal_crossing) before the Nether
+  unloads: at gaps under 10 gt the last lava pour had not flowed when the Nether stopped ticking.
+- **A bench bug:** linear-bench's first slot was the first hundred after spawn + lead + 1, so a build
+  ending within 39 gt before a hundred skipped batch 0's first slot and its golem counted as "not the
+  stand batch's" (gap 2). The first slot is now the first hundred after the spawn (batch 0 starts at
+  the stand); the judge's and the raw runs start at 200 and 0 and are unchanged.
+
+Drives for tick-exact: `carousel-linear-stand-raw.drive.txt` (settled as placed, `--placed-raw`)
+and `carousel-linear-stand-built.drive.txt` (the build: the Nether part as `act t nether-set` /
+`nether-nbt` lines in the Nether's coordinates, its world ticking for t 0..3040, then the overworld's
+`act t set` lines; `# spawn 8500`), both `linear-bench --from 1 --to 1 --days 1 --lead 60`. The
+viewer's `carousel-linear-stand.drive.txt`, recorded again from the settled file, is byte-identical.
+
+## The pad under the wired pocket stand (the assembly's part)
+
+The parent's step (17:01): the pad in, nothing bench-driven. `carousel-station-pad.txt` is the pad
+and its Nether part alone, pasted at the loop's origin under the pocket stand (riders at x -1, 3, 7,
+y 0, -1, -2, z 0): `mobfarm linear --stand=-1,0,0 --pitch 4 --drop 1 --slab-floor
+"-2,2,-1;-1,2,-1" --alone`. 178 blocks (2 planes at z -5 and -2, frames x -2..8, trench rows z -6,
+-4, -3, -1 with floors at y 2, the tripwire lines, the output line along x 9), the Nether part's
+124. Ports: `output.pulse` 9 6 -2 (the dust: on 1 gt after a golem's spawn, 10 gt long; day-1's
+controller input), `nether-anchor`, `nether-axis`, `nether-output`. Pasted with `mobfarm paste`
+(explore/farmopt-assembly, ironfarm's runner).
+
+- Two floor cells are top slabs: riders leave the release curve (-3,1,0) with the cart thrown to
+  z 0.12..0.19 for a tick at x -1.7, the eye at y 2.68, and its box met the cobblestone at
+  (-2,2,-1): one suffocation damage a pass, every rider once a slot (found on ironfarm's bench).
+  A top slab is still a golem floor (solid, its top full) and does not suffocate.
+- `linear-check` with the pocket stand's cells: 40/44/40 spots, 0 strays, 99.03% at 3 callers.
+- On the loop (`queue-loop --stand-stop --stand-wired` + the pad; the release and the queue
+  bench-driven, LAST_SLEPT set by the bench each night as the station bench does, `--slept
+  --summon-at 99`), 20 seeds x 1,440 slots (40 h): 20 of 20 clean; 28,490 golems (712/h) in 98.92%
+  of slots; all through the portal 2 gt after the summon, 28,450 killed in the Nether (40 alive at
+  the runs' ends); 28,490 pulses, 0 without a golem; 113,858 iron into storage (2,846/h, 4.00 a
+  golem); 0 summons out of turn; no rider hurt.
+- `queue-loop-spots --pad=-3,2,-7,9,5,0`: 0 cells off the pad; every pad cell is also seen from
+  positions other than the stand's (the release run x -3 z 2..7, the curve, the departure), the
+  brief's out-of-turn flag. Those positions are empty at the summon tick (gameTime % 100 == 0) in
+  every run above: the bench checks each summoner's position as it summons.
 
 ## What did not work
 

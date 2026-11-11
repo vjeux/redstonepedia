@@ -17,8 +17,8 @@ use crate::world::World;
 /// `Spider.registerGoals()`.
 pub fn register(ai: &mut MobAi) {
     ai.goals.add(1, Goal::Float);
-    ai.goals.add(2, Goal::AvoidEntity);
-    ai.goals.add(3, Goal::LeapAtTarget);
+    ai.goals.add(2, Goal::AvoidEntity(super::avoid::AvoidEntity::new(super::avoid::AvoidClass::Armadillo, 6.0, 1.0, 1.2)));
+    ai.goals.add(3, Goal::LeapAtTarget(0.4));
     ai.goals.add(4, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Spider, 1.0, true)));
     ai.goals.add(5, Goal::RandomStroll(RandomStroll::water_avoiding(0.8)));
     ai.goals.add(6, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 8.0)));
@@ -52,7 +52,7 @@ pub fn leap_can_use(w: &mut World, i: usize) -> bool {
 }
 
 /// `LeapAtTargetGoal.start()`: toward the target 0.4 (with a fifth of its motion), 0.4 up.
-pub fn leap_start(w: &mut World, i: usize) {
+pub fn leap_start(w: &mut World, i: usize, yd: f32) {
     let Some(t) = target::get_target(w, i).and_then(|id| target::who(w, id)) else { return };
     let tp = target::pos_of(w, t);
     let e = &w.entities.list[i];
@@ -61,7 +61,7 @@ pub fn leap_start(w: &mut World, i: usize) {
     if v.length_sqr() > 1.0e-7 {
         v = v.normalize().scale(0.4).add_v(delta.scale(0.2));
     }
-    w.entities.list[i].delta_movement = crate::entity::Vec3::new(v.x, 0.4f32 as f64, v.z);
+    w.entities.list[i].delta_movement = crate::entity::Vec3::new(v.x, yd as f64, v.z);
 }
 
 /// `LeapAtTargetGoal.canContinueToUse()`: in the air.

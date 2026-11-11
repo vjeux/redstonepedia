@@ -61,7 +61,10 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
         "minecraft:nether_portal" => {
             use crate::entity::mob::natural::Difficulty;
             // ServerLevel.isSpawningMonsters: SPAWN_MOBS (the spawner runs) and SPAWN_MONSTERS
-            let (monsters, diff) = w.mob.natural.as_ref().map(|n| (n.spawning && n.spawn_enemies, n.difficulty)).unwrap_or((true, w.mob.ai.difficulty));
+            let (monsters, diff) = match w.mob.natural.as_ref() {
+                Some(n) => (n.spawning && n.spawn_enemies, n.difficulty),
+                None => (w.spawn_monsters.unwrap_or(true), w.mob.ai.difficulty),
+            };
             if monsters && diff != Difficulty::Peaceful {
                 let id = match diff {
                     Difficulty::Peaceful => 0,

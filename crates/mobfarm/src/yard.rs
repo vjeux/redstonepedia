@@ -237,7 +237,7 @@ fn opposite(d: &str) -> &'static str {
 
 /// A rail's shape from its path neighbours: ascending toward a neighbour one higher, else the
 /// straight or the curve joining them.
-fn shape(prev: Option<[i32; 3]>, c: [i32; 3], next: Option<[i32; 3]>) -> Result<String> {
+pub(crate) fn shape(prev: Option<[i32; 3]>, c: [i32; 3], next: Option<[i32; 3]>) -> Result<String> {
     let nbs: Vec<[i32; 3]> = [prev, next].into_iter().flatten().collect();
     for n in &nbs {
         if n[1] == c[1] + 1 {

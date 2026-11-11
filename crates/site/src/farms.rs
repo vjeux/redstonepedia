@@ -1063,7 +1063,9 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
         let extra = if part == "carousel-release" {
             "<p>Real redstone; tested on its own; its golem input is driven by the test bench and its outputs light lamps; not yet connected to the queue.</p>\n"
         } else if part == "carousel-siding" {
-            // (the parent 2026-11-10 09:24, its plain standing line)
+            // (the parent 2026-11-10 09:24, its plain standing line; the bed's claim is the design's
+            // own since 2026-11-10 14:30: its `port home:` line and priced break-and-replace steps,
+            // no bench act)
             "<p>Real redstone; tested on its own; arrivals and release are driven by the test bench; not yet joined to the loop.</p>\n"
         } else if part == "carousel-loop" {
             // (the parent 2026-11-10, its plain standing line)
@@ -1495,6 +1497,19 @@ mod tests {
         assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-station/carousel-linear-stand.drive.txt\"").count(), 1, "{html}");
         let plain = Member { nether: false, ..members[0].clone() };
         assert!(!member_viewer("../", &plain).contains("data-part"));
+    }
+
+    #[test]
+    fn a_dug_part_is_shown_in_its_terrain() {
+        // (ironspec 2026-11-10: drop-shaft-11, a dug-only part, back in the transport catalog,
+        // its view in its reference farm's terrain at that farm's site)
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let members = read_members(&repo, "iron", "transport");
+        let m = members.iter().find(|m| m.stem() == "drop-shaft-11").expect("drop-shaft-11 in the transport catalog");
+        assert_eq!(m.terrain.as_deref(), Some("village-edge"));
+        assert_eq!(m.site.as_deref(), Some("-345,65,246"));
+        let html = member_viewer("../", m);
+        assert!(html.contains("data-terrain=\"../terrain/village-edge.mcterrain\"") && html.contains("data-site=\"-345,65,246\""), "{html}");
     }
 
     #[test]

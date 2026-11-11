@@ -100,7 +100,8 @@ controller produces):
   posts is the same in the game, tick for tick.
 - This file, day-1's times (tail +2, departures 6 apart, tail brakes +100/+118/+120, the
   at-rest check): 3 seeds x 200 slots clean at bench +26 and +27 (redstone +27/+28); 100 seeds x
-  1,440 slots (6 days each) clean at bench +27 (day-1's v1 times: release 36, 12-gt pulses).
+  1,440 slots (6 days each) clean at bench +27, with day-1's v1 times (release 36, 12-gt pulses)
+  and again with its v2 times (release 34, 10-gt pulses, slot 2's tail brake at +98).
 - day-1's fully wired run on the previous file (9bd8f2ff9, its redstone for every control, 60 slots
   x 3 seeds): the release group holds 3 and the stand holds 3 on every slot, no rider problem; the
   one failure was the returning batch still settling when the tail's first advance came (fixed
@@ -124,12 +125,145 @@ slots per step, bench-driven controls, day-1's times):
   flagged line is the catch's: the advance's timing sets where the release group's carts rest,
   that sets the train's stored speed into the stand, and the catch cannot absorb it.
 - **The no-catch table** (this file, a stand that always delivers, the returning batch checked at
-  rest, day-1's times; the target for the stop-based stand): release end -10..+16 (the sweep's
+  rest, day-1's v1 times; the target for the stop-based stand): release end -10..+16 (the sweep's
   edge), advance 1 time -7..+2 / width -5..+2, advance 2 time -2..+1 / width -3..0 (FLAGGED late,
   12-gt pulses), advance 3 time -1..+1 / width -5..+1, S1 -6..+3, S2 -2..+6, S3 -3..+6, tail slot 1
   -3..+2, tail slot 0 -2..+3, tail slot 2 +92..+114 passes; both corners (every control at its
   early limit together, then at its late limit) pass. With 10-gt advance pulses the widths pass
   -3..+4, -1..+2, -3..+3 and the times -7..+3, -3..+2, -2..+1 (no flag).
+- **Again with day-1's v2 times** (release 34, 10-gt pulses, departures 6 apart, tail brakes
+  +98/+118/+120) and the bench's controls as the OR of their lines (a release window running into
+  the first advance no longer cuts it short): release end -8..+16 (the edge), advance 1 time -7..+3
+  / width -3..+4, advance 2 time -3..+2 / width -1..+2, advance 3 time -2..+1 / width -3..+3, S1
+  -6..+3, S2 -2..+6, S3 -3..+6, tail slot 1 -3..+2, tail slot 0 -2..+3. The early corner passes;
+  **the late corner fails**: its smallest failing sets are {advance 1 +3 gt late and +4 wide,
+  advance 2 +2 wide, advance 3 +3 wide} and {advance 2 +2 wide, advance 3 +3 wide, S1-S3 late}.
+  Shifted together: the 3 advance widths pass -1..+2 (not their one-at-a-time -3..+4), the 3
+  advance times pass -2..+2, S1-S3 pass -2..+3 (-3 and +4 fail). day-1's pulses are exact
+  redstone, 10 gt each; these joint numbers are the margins to quote.
+- **Entry speed** (a kick along each release cart's slope as the release opens, every control as
+  timed): +0.00..+0.58 b/t passes, FLAGGED on the slow side: a cart drifting backward at the
+  release is pushed backward by its powered slope (a powered rail boosts a moving cart the way it
+  moves) and rolls back over the peak. The corners with both speed extremes: the early corner
+  passes at +0.00 and +0.58, the late corner fails at both.
+- **The release stagger** (farmopt's pocket variant releases the group's slots s gt apart, the
+  front first): the back cart starts at +2s and needs ~26 gt to cross the front slot's slope, and
+  all three slots go off at release_for, so release_for >= 2s + 26. On the pocket loop (2 seeds x
+  30 slots): s = 3 release-end -2..+12, s = 4 +0..+12 (FLAGGED, no slack), s = 5 fails at 34 (the
+  back cart meets the braked front slope, drops from 0.53 to 0.08 b/t and the batch arrives short)
+  and passes at 40 and 44; s = 6 and 7 pass by luck (they hit the braked slope differently).
+  --stagger-off does not help: it delays the slot released last, but all three carts cross the
+  front slot. A wired controller holds the front slot's window to >= 2s + 30.
+- **The nap visits' couplings** (the joint table's visit rows; measured in "The nap visits wired"
+  below): a missed golem at the visit's release i+4 moves the hold kick +6 against an unmoved late
+  edge, leaving >= 13 gt of drop window (k1 at 0.21 b/t binding; k0 >= 26, k2 >= 28); the junction
+  lines divert -2..+6, kick -22..+18, T-set -17..+120 (bench controls), the early corner failing on
+  {divert -2, T-set -17} (the previous visit's cart not yet past the T's).
+
+## The bed siding's merge: the side drop (day-1's (b))
+
+`queue-loop-run --side-drop C,SLOT,D,V[,PARK]` (bench-driven): a cart parked off the loop comes
+back by rolling off a side rail beside a queue slot's braked slope (3 plain rails west of it at
+the peaks' height, a stone stop east; placed with their updates, they reshape no loop cell). With
+the stand forced to deliver (the queue alone):
+- into slots 12, 13 and 14 during the long rest (the 3rd advance's end, ~+97, to the next +38): it
+  works at 0.10..0.36 b/t, resting 0.60..0.80 down the slope 12..26 gt after rolling off; as late
+  as +24 of the next slot (0.29..0.36 b/t), +18 (0.15); 0.05 is too slow, 0.38 rests 0.83 down and
+  does not climb out at the next pulse;
+- staged on a braked staging slope and kicked: lands 0.81..0.88 down, pass or fail with where the
+  cart stopped on the staging slope; a kick block under the staging slope also powers the slot's
+  own rail beside it;
+- into the release group at the release's start: fails (the cart, landing moving onto a powered
+  slope, outruns the train); 4..8 gt before it: works at 0.2 b/t in a ~5 gt window.
+- A cart's hole visits, in the long rests, the slots of one class mod 3 (the batch's front cart
+  2, 5, 8, 11, 14; middle 1, 4, ..., 13; back 0, 3, ..., 12): day-1's plan has three drop rails,
+  slots 12, 13, 14.
+
+## Nap visits on day-1's layout (bench-driven controls; R1's shared bed from the file)
+
+`queue-loop-run F --wired=-7,-1,5 --visit S,K,REL`: during slot S the stand's cart K goes to the
+bed siding (the divert on for 10 gt from golem +16+10K, T1/T2 set for its drop slot 14-K, the
+siding released at +REL), and the bench reports the divert rail, the riders holding a bed and every
+claim, the sleep ticks, the roll-off from the drop rail, the slot it rests in and its batch's order
+before slot S+5's first advance. `--visits-nightly EVERY,REL[,FROM]`: 21 visits a night (every
+EVERY slots from day time FROM, the j-th taking the stand's cart j div 7), checked besides: every
+rider asleep once a night, every rider's HOME at each dawn and midday as at the start (ironspec's
+check, 100 seeds x 6 nights when the layout is ready). Bench-driven: the four controls (divert, T1,
+T2, release) are switched by the bench; nothing in the file drives them yet. The bench never
+assigns a bed: the riders hold one only as the design states it (`port home:`, R1's shared claim
+as loaded memories, no ticket taken).
+
+On day-1's b51e4c875 layout (the pocket loop, day-1's controller, the siding pasted at (-20,2,10)),
+S30 (night):
+- the divert works: the corner T (9,-3,0) is north_west while its control is on, south_west after;
+- **without `port home:`** the first rider to find a path takes the bed's one ticket (e14, during
+  the settle, from queue slot 14 ~24 blocks away) and keeps it (panicking riders never run REST's
+  give-up): only e14 sleeps; K1's and K2's carts stay at the bed spot and the loop breaks at S+6;
+- **with `port home: -20 2 12`** (the only change): all 21 riders hold HOME = the bed throughout,
+  no rider takes the ticket, and K0/K1/K2 sleep +211..+225, +190..+209, +200..+223;
+- the exit route takes ~230 gt (0.29 b/t leaving the exit slot, 0.105 at the drop end): past the
+  drop window; it needs <= ~200 gt and 0.10-0.36 b/t at the drop end (day-1: a booster after the
+  exit and a longer flat run, coming);
+- the 5-booster entry climb brings carts in at 0.84 (front) and ~1.1 b/t (middle), within the
+  siding's tested 0.10-1.2.
+
+The drop window on day-1's pocket loop (side drop, wired, slots 12-14): roll-offs from +88 (the
+earliest tried) to ~+130 of the drop slot's long rest (later at faster speeds, to +134-138), at
+0.10-0.35 b/t. The arrival speed sets the rest depth: 0.10 b/t -> 0.40 into the cell, 0.20 -> 0.32,
+0.30 -> 0.24, 0.35 -> 0.21, 0.40 -> 0.16, 0.45 -> 0.12 (normal carts rest 0.5-0.66); from 0.16 the
+cart crawls over the next peak at 0.09 b/t and makes or misses the 2nd advance by a tick or two
+(on b223f27b3 two visits identical to that tick: S17 K0 made it, S21 K0 stopped a slot short and
+its batch left with 2).
+
+Day-1's exit routes, measured (bench controls, S30, siding release -> roll-off; slots 14 / 13 / 12):
+| commit | the route | T_exit (gt) | arrival (b/t) |
+|---|---|---|---|
+| a60c087da | booster, drag loop | 149 / 193 / 199-223 | 0.38 / 0.32 / 0.27-0.34 |
+| b223f27b3 | booster, no loop | 101 / 124 / 149 | 0.42 / 0.39 / 0.36 |
+| 35a46f6ae | a hold before T1 (kick -> roll-off) | 74 / 112 / ~146 | 0.26 / 0.24 / ~0.19 |
+With the hold the cart is ready on it at +330..+351 and stops 0.72 into the braked cell from 0.64
+b/t; slot 12 still misses the window (kick +400 rolls off at +546). Next: a hold on each drop line,
+~3 rails before its end (T_kick ~15-20 gt for all three).
+
+### The nap visits wired (day-1's controller drives every junction; `--visits-observe`)
+
+Day-1's 9062078a8 wired-stand file (the pocket loop, day-1's controller with the stagger, farmopt's
+wired stand, the gated siding, a hold on each drop line, the night window from an inverted detector
+at 11, the night-close race latched), 100 seeds x 1,440 slots (6 nights each), the bench writing no
+control: **95 of 100 seeds clean**; 12,877 visits, every napper back in its own slot; roll-off speeds
+(min..max, median, 99th pct) cart 0 0.29..0.36 (0.29, 0.36), cart 1 0.21..0.28 (0.28, 0.28), cart 2
+0.29; 595 of 600 nights with every rider asleep; the pocket stand clean over 143,900 slots. The 5
+failures are all night 1 (seeds 14, 37, 45, 64, 76: rider e9 never asleep): each seed starts at its
+own day time, and at some phases the first night after power-on fits only 20 visits (the 21st falls
+after the window closes; the first visit lags the window's opening by ~7 slots); nights 2-6 are
+complete in every seed (day-1's: startup gives every villager its night-1 visit, or states the cost).
+
+**The drop's speed limit per slot** (side drop on 7d947146b, 2 seeds x 5 roll-off times +100..+124):
+slots 12 and 14 pass 0.30..0.44 b/t (the grid's top); slot 13 passes to 0.36 and fails 10 of 10 from
+0.37 (its control pulses and drop line are the same as 12's and 14's; the cause is open). So a 0.36
+roll-off into slot 13 has no speed margin (day-1 keeps k1's rest point, 0.28).
+
+**The drop's late edge** (side drop on 9062078a8, the last clean roll-off): ~+546 at 0.21 b/t into
+slot 13, >= +546 at 0.29 into 12 and 14, +539 at 0.36 into 14 (visit-relative).
+
+**A missed golem at release i+4** (`--golem-miss`): the kick moves +6, the drop's late edge (i+5's
+first advance) stays: roll-offs k0 +514 -> +520, k1 +527 -> +533 (0.21 b/t), k2 +512 -> +518, every
+napper back in its own slot, the loop recovers within the slot (the slot-start snapshot catches the
+late slot's third advance mid-move). Drop window left at that corner: k0 >= 26 gt, **k1 ~13 gt (the
+binding case)**, k2 >= 28 gt; a 0.36 roll-off >= 27 gt.
+
+**The junction timings** (bench-driven on 7d947146b's physical file, nightly visits k 0, 1, 2, 0 so
+T1/T2 switch between consecutive visits' lines, 2 seeds x 48 slots): divert -2..+6 gt, kick
+-22..+18 gt (from +470), T-set -17..+120 gt (the sweep's edge; from the divert +1). The early corner
+fails on {divert -2, T-set -17} together: the T's switched before the previous visit's cart had
+passed them (the coupling "the previous visit's cart clears the T's before the next T-set"); the
+late corner passes. Day-1's wired T-set is at the visit's +136, far inside.
+
+A T rail reshapes only on an update from a signal source, and a placed block updates its
+neighbours as the old block (vanilla's `blockUpdated(pos, oldState.getBlock())`, as redsim): a
+redstone block placed over glass under a T leaves it as it was. The bench switches its T's from a
+target block (full, a signal source, no power); real wiring (dust, repeaters, torches powering the
+support) switches them as expected.
 
 ## Wired
 
@@ -161,7 +295,43 @@ longest priced one (40 gt). The bench-driven loop file: clean all three ways, an
 to 40 gt passes; day-1's v2 wired file: the same (every gap from 1 to 40 gt, 2 seeds x 20 slots
 each). The first build in order failed: the release run's boosters popped off, their
 redstone-block supports placed after the rails; the default order now places any block that holds
-up a rail or a component first.
+up a rail or a component first. Then day-1's drop ends: placed by (y, x, z), a drop end (-4,1,z) went
+down before the slot slope's peak, and the slope (-3,0,z), with one link down, took the drop end and
+turned ascending_west. Rails now go down only when no rail already down could take them as a link it
+was not meant to have (a rail with both its own links down is fixed); a design's `build: last
+x,y,z ...` cells go after every other; the check counts the differing cells by kind and lists those
+that differ in more than power. A T junction with no driver can still come out either way built in
+order (day-1's bench-cell files); a driven T is set by its driver's updates.
+
+## Riders' safety: the zombie posts' reach
+
+A zombie riding a boat attacks over the boat's box (1.375 wide) grown 0.83 sideways: a rider (0.6
+wide) is hit when its centre comes within 1.82 of the post on both axes while their heights overlap
+(rails at y 1..4, the zombie at y 3). The --tail-desc return's jog (y 4 along z 20) passed inside the
+post at z 21: on day-1's pocket loop (851a583a9) rider e0 took 3 damage every 7 laps at
+(5.03,4.06,20.5), always at slot +1, and died at slot 49 (with or without visits). The generator now
+moves a post in reach north a cell at a time (up to 4) or drops it: z 21 -> z 23. Pocket loop after:
+3 seeds x 240 slots clean, no rider hurt, PANIC 98.65/99.03% (98.70/99.13% before). Every run now
+reports each rider's damage and any rider gone from the world (a problem). The published wired v2
+file has the post at z 21: on its own timing no rider is ever hurt (10 seeds x 1,440 slots: all
+clean, 0 damage events), but a timing change could expose it; its next revision should take the
+moved post.
+
+## Golem spawn cells off the pad (open on the wired files)
+
+A villager that has slept summons an iron golem when it panics with two more such villagers near
+(within 10). The loop's riders panic all night by design, so once nappers ride it (the nap
+visits), any golem spawn cell within reach of the track spawns golems off the pad. `mctas mobfarm
+queue-loop-spots F` lists them (none may exist away from the pad): this part's generated loop
+files have 0 (the bench file, the pocket base); **main's published wired v2 has 30**, all on its
+wiring's blocks (the control lines at x -7, the cells at x 8, the release-run controls at x -4..-2,
+z -3 by the stand, y 2 at z 0..4); day-1's wired night file (1152b0e38) has 24, three of them its
+drop-line stone stops. There a golem spawned at slot 33 +59 on the stop (-2,1,31), walked beside
+tail slot 2 and pushed the resting front cart back up its braked slope; the next advance boosted it
+backward into the next cart and the tail jammed (slot 35). The loop benches without visits never
+showed it: their riders never sleep. The bench now makes any iron golem in a loop run a problem.
+Fix (day-1, the wiring's owner): glass for those blocks or glass covers, then queue-loop-spots 0
+on the file as published.
 
 ## The stand catch's window (open)
 

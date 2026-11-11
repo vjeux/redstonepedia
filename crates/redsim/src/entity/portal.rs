@@ -288,6 +288,9 @@ fn cross(w: &mut World, i: usize, copy: u32) {
     let rel = relative(&src, e.pos, e.kind.dims(), living);
     let mut c = e.clone();
     c.id = copy;
+    // (tickexact 2026-11-10) the copy's network id is its own (Mob.serverAiStep's every-other
+    // goal tick reads tickCount + getId())
+    c.network_id = copy as i32;
     c.removed = false;
     c.portal = None;
     c.vehicle = None;
@@ -321,21 +324,39 @@ fn place(w: &mut World, c: Crossing, radius: i32, ticket: bool) {
     let mut e = c.entity;
     // the copy is a new entity (`EntityType.create`, then `restoreFrom` its saved data): its own
     // random is a new one, constructed in the destination
+    let living_copy = e.random.is_some() && matches!(e.kind, EntityKind::Mob(_));
     if e.random.is_some() {
         e.random = Some(w.construct());
     }
+    // (tickexact 2026-11-10, the bridge's Nether sandbox) what `restoreFrom` (`load` of its saved
+    // data) does not carry: a new entity's own state (`entity::restore_fresh`); the saved anger
+    // target it resolves in any dimension (a Nether copy of a golem angry at an overworld zombie
+    // keeps that zombie, `target::Who::Foreign`)
+    // (the old entity's rotation: teleportSetPosition turns it, unwrapped, PositionMoveRotation.of)
+    let (old_yaw, old_pitch) = (e.y_rot, e.x_rot);
+    if living_copy {
+        crate::entity::restore_fresh(&mut e);
+        if let EntityKind::Mob(m) = &mut e.kind
+            && let Some(a) = m.ai.as_deref_mut()
+        {
+            a.target = a.anger_target;
+        }
+    }
     let dims = e.kind.dims();
     let pos = collision_free(w, arrival(&r, c.rel, dims), dims);
-    // Entity.load gave the head and the body the saved yaw; the transition's relative rotation
-    // then turns the yaw by 90 when the portals' axes differ
-    let loaded = e.y_rot;
+    // Entity.load gave the head and the body the saved yaw; teleportSetPosition then sets the yaw
+    // (and the head) to the old entity's turned by the transition's relative rotation (90 when the
+    // portals' axes differ), the pitch to its own, the body keeping the saved yaw
+    let loaded = old_yaw;
+    e.y_rot = old_yaw + if r.x_axis == c.x_axis { 0.0 } else { 90.0 };
+    e.x_rot = old_pitch;
+    let turned = e.y_rot;
     if let EntityKind::Mob(m) = &mut e.kind
         && let Some(a) = m.ai.as_deref_mut()
     {
-        a.y_head_rot = loaded;
+        a.y_head_rot = turned;
         a.y_body_rot = loaded;
     }
-    e.y_rot += if r.x_axis == c.x_axis { 0.0 } else { 90.0 };
     // snapTo: the position, the old position and rotation the same
     e.set_pos(pos);
     e.xo = pos.x;
@@ -343,10 +364,19 @@ fn place(w: &mut World, c: Crossing, radius: i32, ticket: bool) {
     e.zo = pos.z;
     e.y_rot_o = e.y_rot;
     e.x_rot_o = e.x_rot;
+    let id = e.id;
     w.entities.insert(e);
+    // (tickexact 2026-11-10) it enters: the bridge's drop seeder reseeds a living copy as entity
+    // n (`Exact.seed`: its constructor's draws redone; restoreFrom's yaw and head left alone)
+    if living_copy && w.exact_seed.is_some() {
+        crate::entity::mob::seed_entered(w, id);
+    }
     if ticket {
         let chunk = [found.x.div_euclid(16), found.z.div_euclid(16)];
         let now = w.time;
+        if w.portal_tickets.is_empty() {
+            w.portal_since = Some(now);
+        }
         match w.portal_tickets.iter_mut().find(|(c, _)| *c == chunk) {
             Some(t) => t.1 = now,
             None => w.portal_tickets.push((chunk, now)),
@@ -360,18 +390,50 @@ fn place(w: &mut World, c: Crossing, radius: i32, ticket: bool) {
 /// in the overworld (the closest overworld portal within 128 of their position times 8).
 pub fn tick_nether(w: &mut World) {
     let Some(mut n) = w.nether.take() else { return };
+    // (tickexact 2026-11-10) the overworld entities the Nether's mobs target, as the overworld's
+    // tick left them (the Nether ticks after it)
+    let mut wanted: Vec<u32> = Vec::new();
+    for e in &n.entities.list {
+        if let EntityKind::Mob(m) = &e.kind
+            && let Some(a) = m.ai.as_deref()
+        {
+            for id in [a.target, a.anger_target].into_iter().flatten() {
+                if !wanted.contains(&id) && crate::entity::index_of(&n, id).is_none() {
+                    wanted.push(id);
+                }
+            }
+        }
+    }
+    n.foreign = wanted.into_iter().filter_map(|id| crate::entity::mob::ai::target::foreign_of(w, id)).collect();
     let now = w.time;
     // (measured, `portal-probe --ticket`: an item beside the Nether portal kept ageing through 305
     // ticks after the crossing, then its chunk unloaded: the ticket's 300 gt, then the unload's
     // delay, which varies with the server's unload queue: 307 to 311 for a golem's chunk)
     n.portal_tickets.retain(|(_, made)| now - made < PORTAL_TICKS);
-    if let Some(&([cx, cz], _)) = n.portal_tickets.first() {
+    if n.portal_tickets.is_empty() {
+        n.portal_since = None;
+    }
+    // (tickexact 2026-11-10, the bridge's Nether sandbox: farmopt's station) a crossing's ticket
+    // simulates from the tick after it: the arrival chunk and its neighbours are loaded but not
+    // simulated (no player in the Nether keeps them ticking), and the ticket's level reaches them
+    // as the chunk system promotes them, between ticks (measured on the bridge's Nether, its chunks
+    // around the part already full: a golem crossing in tick T first moves there in T + 1; the
+    // Nether's level random and randValue draw nothing before). Chunks a real server first loads
+    // from disk can take longer. A crossing during the overworld's tick T dates its ticket by the
+    // Nether's clock, T - 1; a ticket refreshed while the chunks already simulate (the next golem
+    // through) keeps them simulating.
+    if let Some(&([cx, cz], _)) = n.portal_tickets.first()
+        && n.portal_since.is_some_and(|since| now - since > 1)
+    {
         let (x0, x1) = (n.min.x.div_euclid(16), (n.min.x + n.size[0] - 1).div_euclid(16));
         let (z0, z1) = (n.min.z.div_euclid(16), (n.min.z + n.size[2] - 1).div_euclid(16));
         if (x0 - cx).abs() > 2 || (x1 - cx).abs() > 2 || (z0 - cz).abs() > 2 || (z1 - cz).abs() > 2 {
             error(w, format!("the Nether build reaches past the 5 x 5 chunks the PORTAL ticket at chunk {cx} {cz} keeps ticking (blocks there would not tick)"));
         }
         n.entity_chunks = Some([cx - 1, cz - 1, cx + 1, cz + 1]);
+        // (the chunks its tickChunks ticks: the ticket's entity-ticking ring, in the simulation
+        // tracker's order)
+        n.chunk_order = crate::crops::ticket_tick_order(cx, cz);
         n.time = now - 1;
         n.entities.next_id = w.entities.next_id;
         n.tick();

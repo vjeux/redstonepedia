@@ -208,7 +208,7 @@ pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitRepo
 /// spawning (a lone golem's own physics).
 pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, seed: i64, threads: usize) -> Result<ExitReport, String> {
     // the drift under the walking policies (a probe of the farm's walls, the mob AI off)
-    let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, slept_rest: false, site, weather: crate::weather::Plan::Off, ai: false };
+    let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, slept_rest: false, site, weather: crate::weather::Plan::Off, ai: false, raw: false };
     let r = super::farm::Run::new(spec, &o)?;
     let own = r.own.clone();
     let mut base = r.world;

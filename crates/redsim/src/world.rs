@@ -173,6 +173,14 @@ pub struct World {
     nu_count: u32,
     /// `ServerLevel.handlingTick`: true from the tick's start through the block-event phase.
     pub handling_tick: bool,
+    /// (tickexact 2026-11-10) Inside [`World::tick`], entities included (the bridge's
+    /// `Sandbox.ticking`: a drop then is reseeded by its drop seeder, [`World::pop_resource`]).
+    pub in_tick: bool,
+    /// (tickexact 2026-11-10) `ServerLevel.isSpawningMonsters` (SPAWN_MOBS and SPAWN_MONSTERS) for
+    /// a world without natural spawning (`mob.natural` None): `None` = on (the judge's void runs,
+    /// whose game has them on); a mob AI fixture scene sets its sandbox's rules (a nether portal's
+    /// random tick draws only with monsters spawning).
+    pub spawn_monsters: Option<bool>,
     /// Comparator block entities: their output signal.
     pub comparator_out: HashMap<BlockPos, u8>,
     /// Container block entities (droppers, dispensers, hoppers): contents, hopper cooldowns.
@@ -279,6 +287,17 @@ pub struct World {
     /// while a PORTAL ticket holds it. None (the default): an entity through a portal leaves the
     /// simulation (removed).
     pub nether: Option<Box<World>>,
+    /// (tickexact 2026-11-10, ironspec's fault rule) The world's chunks saved and unloaded, waiting
+    /// to load again (`reload::unload_all` / `load_all`): the level ticks on (its time; the
+    /// Nether), nothing of them does.
+    pub away: Option<Box<crate::reload::Away>>,
+    /// (tickexact 2026-11-10) Entities a load brought back under new ids: old id -> its current
+    /// id (`reload::load_all`; a drive's `eN` follows it).
+    pub renumbered: HashMap<u32, u32>,
+    /// (tickexact 2026-11-10, ironspec's fault rule: a partial unload) The chunks of the forced
+    /// box whose forced tickets are dropped (`reload::unload_some`): each chunk's simulation level
+    /// is then 31 plus its distance to the nearest chunk still forced ([`World::chunk_level`]).
+    pub unforced: Vec<(i32, i32)>,
     /// This world is the Nether (`DimensionType.ultraWarm`): lava flows every 10 gt, drops off by
     /// 1, looks 4 blocks for a slope and pushes entities by 0.007; a portal's random tick spawns
     /// nothing; an entity through a portal goes to the overworld (`outgoing`).
@@ -286,6 +305,13 @@ pub struct World {
     /// The PORTAL tickets on this world (chunk, game time made: `TicketType.PORTAL`, 300 gt, radius
     /// 3): entities tick within 1 chunk of one, blocks within 2.
     pub portal_tickets: Vec<([i32; 2], i64)>,
+    /// (tickexact 2026-11-10) When the PORTAL tickets' simulation began (the game time a ticket
+    /// was made while none held: a refresh keeps it; `None` with no ticket).
+    pub portal_since: Option<i64>,
+    /// (tickexact 2026-11-10) The entities of the other dimension this world's mobs target, as
+    /// they are after their own world's tick (`target::Who::Foreign`; the Nether's refreshed from
+    /// the overworld before each of its ticks).
+    pub foreign: Vec<crate::entity::mob::ai::target::Foreign>,
     /// Entities through a portal out of this Nether this tick, for the overworld to place.
     pub outgoing: Vec<crate::entity::portal::Crossing>,
     /// The crossings placed in this world or sent from it to the Nether (game time, the entity's
@@ -353,6 +379,8 @@ impl World {
             nu_added: Vec::new(),
             nu_count: 0,
             handling_tick: false,
+            in_tick: false,
+            spawn_monsters: None,
             comparator_out: HashMap::new(),
             containers: Default::default(),
             torch_toggles: Vec::new(),
@@ -389,8 +417,13 @@ impl World {
             entity_chunks: None,
             frozen: Vec::new(),
             nether: None,
+            away: None,
+            renumbered: HashMap::new(),
+            unforced: Vec::new(),
             ultrawarm: false,
             portal_tickets: Vec::new(),
+            portal_since: None,
+            foreign: Vec::new(),
             outgoing: Vec::new(),
             crossings: Vec::new(),
             explosion_rolls: Default::default(),
@@ -407,6 +440,16 @@ impl World {
             outer: Default::default(),
             ticking_sections: None,
         }
+    }
+
+    /// (tickexact 2026-11-10) `Level.getMinY()` / `getMaxY()` of this world's dimension type: the
+    /// overworld's -64..319, the Nether's (redsim's ultrawarm world) 0..255.
+    pub fn level_min_y(&self) -> i32 {
+        if self.ultrawarm { 0 } else { -64 }
+    }
+
+    pub fn level_max_y(&self) -> i32 {
+        if self.ultrawarm { 255 } else { 319 }
     }
 
     /// Mirror the bridge sandbox's level random: seeded `seed` (`level.getRandom().setSeed`, at
@@ -457,6 +500,11 @@ impl World {
     /// forced chunk has level 31, its neighbours 32+), so a TNT or an item flying out of them
     /// freezes there.
     pub fn entity_ticks_at(&self, x: f64, z: f64) -> bool {
+        // (a partial unload: entity ticking only at simulation level 31 or below)
+        if !self.unforced.is_empty() {
+            let (cx, cz) = ((x.floor() as i64).div_euclid(16) as i32, (z.floor() as i64).div_euclid(16) as i32);
+            return self.chunk_level(cx, cz) <= 31;
+        }
         match self.entity_chunks {
             None => true,
             Some([x0, z0, x1, z1]) => {
@@ -532,16 +580,72 @@ impl World {
     /// with a drop seed the item entity the bridge spawns (`rng::Drop`, the sandbox's n-th drop;
     /// `payload`: a shulker box item's contents).
     pub fn pop_resource(&mut self, pos: BlockPos, item: &str, count: u32, payload: u16) {
-        self.draw_pop_resource();
-        let Some(seed) = self.drop_seed else { return };
-        let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
-        self.drop_count += 1;
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
-        let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
-        if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
-            e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
-            e.random = Some(d.random.clone());
+        if let Some(seed) = self.drop_seed {
+            self.draw_pop_resource();
+            if count == 0 {
+                return;
+            }
+            let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
+            self.drop_count += 1;
+            let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+            let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
+            if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
+                e.random = Some(d.random.clone());
+            }
+            return;
         }
+        // (tickexact 2026-11-10) Block.popResource: the position from the level random (a stack of
+        // 0 draws it too, then pops nothing), then `new ItemEntity(level, x, y, z, stack)` with
+        // setDefaultPickUpDelay ([`World::spawn_item`])
+        let Some(r) = self.level_random.as_mut() else { return };
+        let dx = r.next_double_between(-0.25, 0.25);
+        let dy = r.next_double_between(-0.25, 0.25);
+        let dz = r.next_double_between(-0.25, 0.25);
+        if count == 0 {
+            return;
+        }
+        // (mob-AI's forest t2504: a pop while the world ticks (an enderman's take) is reseeded by
+        // the bridge's drop seeder (Sandbox.DropSeeder: `seed ^ (0x6d63746173 + n)`, n its own
+        // count), which draws the item's position, yaw and drift from it; between ticks (a
+        // fixture's action) the item enters like any entity)
+        if self.in_tick
+            && let Some(seed) = self.exact_seed
+        {
+            let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
+            self.drop_count += 1;
+            let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+            let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
+            if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
+                e.random = Some(d.random.clone());
+            }
+            return;
+        }
+        // EntityType.ITEM is 0.25 tall: its center at the cell's
+        let at = crate::entity::Vec3::new(pos.x as f64 + 0.5 + dx, pos.y as f64 + 0.5 + dy - 0.125, pos.z as f64 + 0.5 + dz);
+        self.spawn_item(at, item, count, payload);
+    }
+
+    /// (tickexact 2026-11-10) `new ItemEntity(level, x, y, z, stack)` then `setDefaultPickUpDelay`
+    /// and `addFreshEntity`: its own random as the bridge seeds an entering entity
+    /// ([`World::entering_random`]), the constructor's UUID, `bobOffs` and yaw replayed, its drift
+    /// drawn (x and z, 0.2 up), a pickup delay of 10, health 5. Its entity number.
+    pub fn spawn_item(&mut self, at: crate::entity::Vec3, item: &str, count: u32, payload: u16) -> u32 {
+        let n = self.entities.next_id;
+        let mut own = self.entering_random(n);
+        crate::rng::replay_uuid(&mut own);
+        own.next_float();
+        let y_rot = own.next_float() * 360.0;
+        let mx = own.next_double() * 0.2 - 0.1;
+        let mz = own.next_double() * 0.2 - 0.1;
+        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+        let id = self.entities.add(crate::entity::EntityKind::Item(state), at, y_rot);
+        if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+            e.delta_movement = crate::entity::Vec3::new(mx, 0.2, mz);
+            e.random = Some(own);
+        }
+        id
     }
 
     /// `Block.dropResources(state, level, pos)` of the block `s` just broken at `pos` (callers
@@ -553,6 +657,23 @@ impl World {
             return;
         }
         let payload = crate::redstone::shulker::box_payload(self, pos, &s).unwrap_or(0);
+        // (tickexact 2026-11-10) a natural state: its table evaluated with its random sequence
+        // (`terrain::loot`)
+        if let Block::Terrain(_) = s {
+            match crate::terrain::loot::drops(self, &s, pos, None) {
+                Ok(v) => {
+                    for (item, n) in v {
+                        self.pop_resource(pos, &item, n.max(0) as u32, 0);
+                    }
+                }
+                Err(e) => {
+                    if !self.errors.contains(&e) {
+                        self.errors.push(e);
+                    }
+                }
+            }
+            return;
+        }
         // a melon's slices draw from its loot table's random sequence (stems::melon_slices)
         if s == Block::Simple(crate::block::Simple::Melon) {
             match crate::stems::melon_slices(self) {
@@ -591,7 +712,55 @@ impl World {
     /// bridge's sandbox ticks (`LevelTicks` collects ticking chunks' only): the compare's
     /// entity-ticking list when known, else within the simulation distance, 6 chunks, of a natural
     /// player (the sandbox's 13 x 13); one that never runs is dropped (its chunk never ticks).
+    /// (tickexact 2026-11-10, a partial unload) Chunk (`cx`, `cz`)'s simulation level: 31 plus its
+    /// Chebyshev distance to the nearest chunk of the forced box still forced (`World::unforced`
+    /// dropped the others; 31 entity ticking, 32 block ticking: scheduled ticks, block events and
+    /// block entities, no entities and no random ticks; 33 loaded, nothing ticking; 34 for every
+    /// level past the loaded ones). Without a forced box: 31 everywhere.
+    pub fn chunk_level(&self, cx: i32, cz: i32) -> i32 {
+        let Some([x0, z0, x1, z1]) = self.entity_chunks else { return 31 };
+        let mut best = 34;
+        for x in x0..=x1 {
+            for z in z0..=z1 {
+                if self.unforced.contains(&(x, z)) {
+                    continue;
+                }
+                best = best.min(31 + (x - cx).abs().max((z - cz).abs()));
+                if best == 31 {
+                    return 31;
+                }
+            }
+        }
+        best
+    }
+
+    /// (tickexact 2026-11-10) Do block ticks, block events and block entities run at `p`? Every
+    /// one in a world without a partial unload; else only at simulation level 32 or below
+    /// (`ServerLevel.shouldTickBlocksAt`).
+    pub fn block_ticks_at(&self, p: BlockPos) -> bool {
+        self.unforced.is_empty() || self.chunk_level(p.x.div_euclid(16), p.z.div_euclid(16)) <= 32
+    }
+
+    /// The chunks at simulation level 32 or below (a partial unload: the forced box and the ring
+    /// around it).
+    fn block_ticking_chunks(&self) -> HashSet<(i32, i32)> {
+        let mut out = HashSet::new();
+        if let Some([x0, z0, x1, z1]) = self.entity_chunks {
+            for x in x0 - 1..=x1 + 1 {
+                for z in z0 - 1..=z1 + 1 {
+                    if self.chunk_level(x, z) <= 32 {
+                        out.insert((x, z));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn ticks_at(&self, p: BlockPos) -> bool {
+        if !self.unforced.is_empty() {
+            return self.block_ticks_at(p);
+        }
         if self.contains(p) {
             return true;
         }
@@ -1091,6 +1260,13 @@ impl World {
 
     /// `ServerLevel.tick` for a world with no entities, fluids or random ticks.
     pub fn tick(&mut self) {
+        self.in_tick = true;
+        self.tick_level();
+        self.in_tick = false;
+    }
+
+    /// The tick's work ([`World::tick`]).
+    fn tick_level(&mut self) {
         self.handling_tick = true;
         self.time += 1;
         // terrain worlds: the light engine settles last tick's changes between ticks
@@ -1100,6 +1276,15 @@ impl World {
         // mobinfra: the weather (advanceWeatherCycle, first in ServerLevel.tick); off: nothing
         if self.weather.on {
             crate::weather::tick(self);
+        }
+        // (tickexact 2026-11-10, ironspec's fault rule) its chunks saved and unloaded: the level
+        // ticks on (its time; the Nether after it), nothing of them does (`reload::unload_all`)
+        if self.away.is_some() {
+            self.handling_tick = false;
+            if self.nether.is_some() {
+                crate::entity::portal::tick_nether(self);
+            }
+            return;
         }
         // a primed TNT explodes after its 80 gt fuse (it ticks from the tick it spawns in): not
         // modeled, unless the caller removes primed TNT before that (the TNT judge does); TNT
@@ -1111,7 +1296,12 @@ impl World {
                 }
             }
         }
-        let due = self.ticks.collect(self.time);
+        // (a partial unload: only the block-ticking chunks' due ticks run, the others' wait)
+        let ticking: Option<HashSet<(i32, i32)>> = (!self.unforced.is_empty()).then(|| self.block_ticking_chunks());
+        let due = match &ticking {
+            None => self.ticks.collect(self.time),
+            Some(set) => self.ticks.collect_if(self.time, |ch| set.contains(&ch)),
+        };
         for t in due {
             if !self.ticks_at(t.pos) {
                 continue;
@@ -1125,7 +1315,10 @@ impl World {
         self.ticks.end_tick();
         // ServerLevel.tick: fluidTicks right after blockTicks (`tickFluid` checks the type)
         if self.fluid_ticks.count() > 0 {
-            let due = self.fluid_ticks.collect(self.time);
+            let due = match &ticking {
+                None => self.fluid_ticks.collect(self.time),
+                Some(set) => self.fluid_ticks.collect_if(self.time, |ch| set.contains(&ch)),
+            };
             for t in due {
                 if !self.ticks_at(t.pos) {
                     continue;
@@ -1152,11 +1345,21 @@ impl World {
         if self.mob.custom.is_some() {
             crate::entity::mob::custom::tick(self);
         }
+        // (a partial unload: an event whose chunk does not tick blocks waits, back at the end of
+        // the queue after the others ran: runBlockEvents' blockEventsToReschedule)
+        let mut waiting: Vec<BlockEvent> = Vec::new();
         while let Some(e) = self.events.pop() {
+            if !self.block_ticks_at(e.pos) {
+                waiting.push(e);
+                continue;
+            }
             let s = self.get(e.pos);
             if s.kind() == e.kind {
                 bh::trigger_event(self, s, e.pos, e.a, e.b);
             }
+        }
+        for e in waiting {
+            self.events.add(e);
         }
         self.handling_tick = false;
         // a rider moved off a removed vehicle and still alive (its free-position search is not

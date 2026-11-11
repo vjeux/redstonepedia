@@ -2,8 +2,8 @@
 part	member	blocks	dug	build_seconds
 cage	bed-plate-2-watching-2-sleeping	20	40	1241
 calm		1	0	5
-pad	dry-floor-6x6	40	84	305
-transport	drop-shaft-11	0	128	128
+pad	dry-floor-6x6	40	0	221
+transport	drop-shaft-11	0	212	212
 kill	lava-corner-12-drop	7	77	231
 collection		2	0	166
 access	spiral-staircase	41	97	294

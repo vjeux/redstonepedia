@@ -233,6 +233,10 @@ pub fn tick_all(w: &mut World) {
 /// `PistonMovingBlockEntity.tick` (the entities it moves: `entity::piston_push`).
 fn tick_one(w: &mut World, id: u32) {
     let Some(&(p, _, _)) = w.piston.bes.iter().find(|(_, i, _)| *i == id) else { return };
+    // (tickexact 2026-11-10, a partial unload: no block entity ticks where blocks do not)
+    if !w.block_ticks_at(p) {
+        return;
+    }
     // BoundTickingBlockEntity: the type must be valid for the cell's current state
     if !matches!(w.get(p), Block::MovingPiston { .. }) {
         return;

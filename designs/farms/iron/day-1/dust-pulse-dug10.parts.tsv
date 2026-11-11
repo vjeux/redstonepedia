@@ -2,8 +2,8 @@
 part	member	blocks	dug	build_seconds
 cage	dust-pulse-2-watching-regular	19	38	856
 calm		32	0	255
-pad	dry-floor-6x6	40	84	282
-transport	drop-shaft-5	25	32	146
+pad	dry-floor-6x6	40	0	198
+transport	drop-shaft-5	25	116	230
 kill	lava-corner-6-drop	13	77	255
 collection		2	0	165
 access	spiral-staircase	34	80	225

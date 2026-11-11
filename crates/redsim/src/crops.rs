@@ -240,6 +240,9 @@ pub fn tick_chunks(w: &mut World) {
         return;
     };
     let sections = (w.min.y.div_euclid(16).max(MIN_SECTION), (w.min.y + w.size[1] - 1).div_euclid(16).min(MAX_SECTION));
+    // (tickexact 2026-11-10, a partial unload: forEachBlockTickingChunk is the entity-ticking
+    // chunks, simulation level 31; their order left as it was)
+    let order: Vec<[i32; 2]> = if w.unforced.is_empty() { order } else { order.into_iter().filter(|c| w.chunk_level(c[0], c[1]) <= 31).collect() };
     if w.random_ticks.is_some() && w.ticking_sections.is_none() {
         w.ticking_sections = Some(TickingSections::build(w));
     }
@@ -404,6 +407,37 @@ pub fn tick_order(chunks: [i32; 4]) -> Vec<[i32; 2]> {
         map.put(pack(x, z));
     }
     map.iter().into_iter().map(|k| (k as i32, (k >> 32) as i32)).filter(|c| forced.contains(c)).map(|(x, z)| [x, z]).collect()
+}
+
+/// (tickexact 2026-11-10, the bridge's Nether sandbox) The Nether's chunks a PORTAL ticket at
+/// chunk (`cx`, `cz`) ticks, in `tickChunks`' order: the ticket (radius 3) gives its chunk
+/// simulation level 30, the ring around it 31, the next 32 (`SimulationChunkTracker.chunks` takes
+/// them as its updates set them: the ticket's chunk, then each ring in the order the previous
+/// ring's neighbour checks queued it, x offset outer, z inner); the entity-ticking ones (31 and
+/// below, `forEachBlockTickingChunk`) in the map's iteration order.
+pub fn ticket_tick_order(cx: i32, cz: i32) -> Vec<[i32; 2]> {
+    let mut inserted: Vec<(i32, i32)> = vec![(cx, cz)];
+    let mut frontier = vec![(cx, cz)];
+    for _ in 0..2 {
+        let mut next = Vec::new();
+        for &(x, z) in &frontier {
+            for dx in -1..=1 {
+                for dz in -1..=1 {
+                    let n = (x + dx, z + dz);
+                    if !inserted.contains(&n) {
+                        inserted.push(n);
+                        next.push(n);
+                    }
+                }
+            }
+        }
+        frontier = next;
+    }
+    let mut map = OpenMap::new();
+    for &(x, z) in &inserted {
+        map.put(pack(x, z));
+    }
+    map.iter().into_iter().map(|k| (k as i32, (k >> 32) as i32)).filter(|&(x, z)| (x - cx).abs() <= 1 && (z - cz).abs() <= 1).map(|(x, z)| [x, z]).collect()
 }
 
 /// `randomTick` (the blocks [`randomly_ticking`] names).

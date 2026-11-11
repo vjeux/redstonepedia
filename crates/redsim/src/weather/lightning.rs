@@ -83,6 +83,11 @@ impl Default for Settings {
 /// `DimensionType.MOON_BRIGHTNESS_PER_PHASE`.
 const MOON_BRIGHTNESS: [f32; 8] = [1.0, 0.75, 0.5, 0.25, 0.0, 0.25, 0.5, 0.75];
 
+/// The moon's brightness at day time `day_time` (`MOON_BRIGHTNESS_PER_PHASE[day / 24000 % 8]`).
+pub fn moon_brightness(day_time: i64) -> f32 {
+    MOON_BRIGHTNESS[(day_time.div_euclid(24000)).rem_euclid(8) as usize]
+}
+
 /// `DifficultyInstance.calculateDifficulty` in a mature world (or a new one): the base times 0.75,
 /// plus the world age's 0.25, plus the chunk's inhabited time (1 on Hard, else 0.75) and the moon
 /// (`moonBrightness * 0.25`, at most the age part), halved on Easy.

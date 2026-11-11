@@ -59,6 +59,12 @@ pub struct ArrowState {
     /// EXTINGUISH ([`with_block_effects`]).
     pub inside_lava: bool,
     pub inside_water: bool,
+    /// (mob-AI 2026-11-10) A thrown trident (`ThrownTrident`, a drowned's: no loyalty): 0.99
+    /// inertia in water, one entity hit at most (none once it dealt damage), 8 damage, and it
+    /// bounces back off what it hit.
+    pub trident: bool,
+    /// `ThrownTrident.dealtDamage`: it hit an entity, or lay in the ground over 4 ticks.
+    pub dealt_damage: bool,
 }
 
 /// `FluidState.entityInside` on an arrow (its sweep met the fluid's box): collected for
@@ -158,15 +164,34 @@ fn lerp_rotation(mut rot_o: f32, rot: f32) -> f32 {
 /// `AbstractSkeleton.performRangedAttack(target, power)` from mob `i` at entity `t` (the arrow's
 /// part, then the shooter's sound): returns the arrow's id.
 pub fn shoot_from_mob(w: &mut World, i: usize, t: usize, power: f32, effect: Option<&'static str>, enchanted_weapon: bool) -> u32 {
+    let state = ArrowState { effect, enchanted_weapon, ..Default::default() };
+    launch(w, i, t, state, Some(power))
+}
+
+/// `Drowned.performRangedAttack(target, power)`: `new ThrownTrident(level, mob, its trident)` at the
+/// thrower's x, eye y less 0.1F and z (its constructor's UUID), `spawnProjectileUsingShoot(xd,
+/// yd + the horizontal distance x 0.2F, zd, 1.6F, 14 - difficulty x 4)` (the shot's three
+/// triangles, then added), then the thrower's DROWNED_SHOOT pitch from its own random.
+pub fn throw_trident_from_mob(w: &mut World, i: usize, t: usize) -> u32 {
+    let state = ArrowState { trident: true, base_damage: 2.0, ..Default::default() };
+    launch(w, i, t, state, None)
+}
+
+/// A mob's shot at mob `t`: the projectile at its x, eye y less 0.1F and z, owned by it; an
+/// arrow's `setBaseDamageFromMob(power)` (`mob_power`); `shoot` toward the target's third of its
+/// height; added; the shooter's sound pitch.
+fn launch(w: &mut World, i: usize, t: usize, mut state: ArrowState, mob_power: Option<f32>) -> u32 {
     let shooter_pos = w.entities.list[i].pos;
     let eye_y = crate::entity::mob::ai::eye_pos(w, i).y;
     let start = Vec3::new(shooter_pos.x, eye_y - 0.1f32 as f64, shooter_pos.z);
     let at = w.entities.next_id;
     let mut own = w.entering_random(at);
     crate::rng::replay_uuid(&mut own);
-    // setBaseDamageFromMob(power)
     let difficulty = crate::entity::mob::ai::difficulty_id(w);
-    let base_damage = (power * 2.0f32) as f64 + triangle(&mut own, difficulty as f64 * 0.11, 0.57425);
+    // setBaseDamageFromMob(power)
+    if let Some(power) = mob_power {
+        state.base_damage = (power * 2.0f32) as f64 + triangle(&mut own, difficulty as f64 * 0.11, 0.57425);
+    }
     // xd, target.getY(1/3) - arrow y, zd; shoot(xd, yd + distance x 0.2F, zd, 1.6F, uncertainty)
     let tp = w.entities.list[t].pos;
     let th = w.entities.list[t].kind.dims().1;
@@ -183,7 +208,7 @@ pub fn shoot_from_mob(w: &mut World, i: usize, t: usize, power: f32, effect: Opt
     let y_rot = control::atan2_degrees(m.x, m.z);
     let x_rot = control::atan2_degrees(m.y, m.horizontal_distance());
     let owner = w.entities.list[i].id;
-    let state = ArrowState { owner: Some(owner), base_damage, effect, enchanted_weapon, ..Default::default() };
+    state.owner = Some(owner);
     let id = w.entities.add(EntityKind::Arrow(state), start, y_rot);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.delta_movement = m;
@@ -201,6 +226,11 @@ pub fn shoot_from_mob(w: &mut World, i: usize, t: usize, power: f32, effect: Opt
 
 /// `AbstractArrow.tick()` of arrow `i`.
 pub fn tick(w: &mut World, i: usize) {
+    // ThrownTrident.tick before AbstractArrow's: over 4 ticks in the ground it has dealt damage
+    // (no loyalty: nothing returns it)
+    if st(w, i).trident && st(w, i).in_ground_time > 4 {
+        st_mut(w, i).dealt_damage = true;
+    }
     let physics = !w.entities.list[i].no_physics;
     let movement = w.entities.list[i].delta_movement;
     let bp = w.entities.list[i].block_position();
@@ -241,8 +271,10 @@ pub fn tick(w: &mut World, i: usize) {
     st_mut(w, i).in_ground_time = 0;
     let original = w.entities.list[i].pos;
     if w.entities.list[i].was_touching_water {
+        // getWaterInertia: an arrow's 0.6, a trident's 0.99
+        let inertia = if st(w, i).trident { 0.99f32 } else { 0.6f32 };
         let e = &mut w.entities.list[i];
-        e.delta_movement = e.delta_movement.scale(0.6f32 as f64);
+        e.delta_movement = e.delta_movement.scale(inertia as f64);
     }
     let y_rot = control::atan2_degrees(movement.x, movement.z);
     let x_rot = control::atan2_degrees(movement.y, movement.horizontal_distance());
@@ -395,7 +427,12 @@ fn find_hit_entities(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Vec<(usiz
             }
         }
     }
-    // a player in the way (the AFK player, a scene's): not modeled
+    refuse_players_in_the_way(w, from, to, m);
+    out
+}
+
+/// A player in the way (the AFK player, a scene's): not modeled.
+fn refuse_players_in_the_way(w: &mut World, from: Vec3, to: Vec3, m: f64) {
     let seg = Aabb::new(from.x.min(to.x), from.y.min(to.y), from.z.min(to.z), from.x.max(to.x), from.y.max(to.y), from.z.max(to.z)).inflate(m + 0.3, m + 0.9, m + 0.3);
     let players: Vec<Vec3> = w.mob.ai.players.iter().filter(|p| p.mode != crate::entity::mob::ai::GameMode::Spectator).map(|p| p.pos).collect();
     for p in players {
@@ -404,7 +441,35 @@ fn find_hit_entities(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Vec<(usiz
             refuse(w, "an arrow reaching a player is not modeled");
         }
     }
-    out
+}
+
+/// `ThrownTrident.findHitEntities(from, to)`: `findHitEntity` alone, none once it dealt damage
+/// (`ProjectileUtil.getEntityHitResult`: over the same swept box, each entity's box grown by the
+/// margin clipped by the segment, the nearest clip point from `from`, the first of a tie).
+fn find_hit_entity_trident(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Vec<(usize, Vec3)> {
+    if st(w, i).dealt_damage {
+        return Vec::new();
+    }
+    let e = &w.entities.list[i];
+    let d = e.delta_movement;
+    let area = e.bb.expand_towards(d.x, d.y, d.z).inflate(1.0, 1.0, 1.0);
+    let m = margin(e.tick_count) as f64;
+    let id = e.id;
+    let candidates = w.get_entities(area, |x| x.id != id);
+    let mut best: Option<(usize, Vec3, f64)> = None;
+    for j in candidates {
+        if !can_hit(w, i, j) {
+            continue;
+        }
+        if let Some(p) = collide::clip(w.entities.list[j].bb.inflate(m, m, m), from, to) {
+            let dd = from.distance_to_sqr(p);
+            if best.as_ref().is_none_or(|b| dd < b.2) {
+                best = Some((j, p, dd));
+            }
+        }
+    }
+    refuse_players_in_the_way(w, from, to, m);
+    best.map(|(j, p, _)| vec![(j, p)]).unwrap_or_default()
 }
 
 /// `stepMoveAndHit(blockHitResult)`.
@@ -414,7 +479,8 @@ fn step_move_and_hit(w: &mut World, i: usize, block_hit: los::BlockHit) {
             return;
         }
         let initial = w.entities.list[i].pos;
-        let mut hits = find_hit_entities(w, i, initial, block_hit.location);
+        let trident = st(w, i).trident;
+        let mut hits = if trident { find_hit_entity_trident(w, i, initial, block_hit.location) } else { find_hit_entities(w, i, initial, block_hit.location) };
         // nearest first by the entities' positions (a stable sort)
         hits.sort_by(|a, b| {
             let da = initial.distance_to_sqr(w.entities.list[a.0].pos);
@@ -435,7 +501,11 @@ fn step_move_and_hit(w: &mut World, i: usize, block_hit: los::BlockHit) {
         }
         if !w.entities.list[i].removed && !w.entities.list[i].no_physics {
             for (j, at) in hits {
-                hit_entity(w, i, j, at);
+                if trident {
+                    hit_entity_trident(w, i, j, at);
+                } else {
+                    hit_entity(w, i, j, at);
+                }
                 if w.entities.list[i].removed {
                     break;
                 }
@@ -521,9 +591,10 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
         m.fire_ticks = 100;
     }
     let enderman = matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.ty.def().id == "enderman");
-    let hurt = if enderman {
-        // Enderman.hurtServer: a projectile makes it teleport (64 tries) and take nothing
-        w.mob.ai.legacy.insert("an enderman's teleport away from an arrow");
+    let hurt = if enderman && w.entities.list[j].vehicle.is_none() {
+        // Enderman.hurtServer: a projectile (not riding) makes it teleport (up to 64 tries), and
+        // it takes nothing
+        crate::entity::mob::ai::goal::enderman::repeatedly_try_to_teleport(w, j);
         false
     } else {
         let prev = w.mob.ai.attacker;
@@ -543,7 +614,8 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
             r.next_float();
         }
         w.entities.list[i].removed = true;
-    } else {
+    } else if !enderman {
+        // projectileReceivesSideEffectsOnHit(false) (an enderman's is false: the arrow flies on)
         if let EntityKind::Mob(m) = &mut w.entities.list[j].kind {
             m.fire_ticks = fire_before;
         }
@@ -556,6 +628,42 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
         if w.entities.list[i].delta_movement.length_sqr() < 1.0e-7 {
             w.entities.list[i].removed = true;
         }
+    }
+    w.game_event_at("projectile_land", [at.x, at.y, at.z], None, false);
+}
+
+/// `ThrownTrident.onHitEntity` (a plain trident: no enchantment's damage or effects), then the
+/// land game event: 8 `trident` damage from its owner (the knockback along its motion); it has
+/// dealt damage either way; a victim that takes the side effects (any but an enderman not hurt)
+/// hears TRIDENT_HIT (a fixed pitch) and turns it back (`deflect(REVERSE, (0.02, 0.2, 0.02))`:
+/// x -0.01, -0.1, -0.01, the yaw turned 170..190 by its own random).
+fn hit_entity_trident(w: &mut World, i: usize, j: usize, at: Vec3) {
+    if !matches!(w.entities.list[j].kind, EntityKind::Mob(_)) {
+        refuse(w, "a trident hitting a boat, a minecart, an armor stand or primed TNT is not modeled");
+        return;
+    }
+    let owner = st(w, i).owner.filter(|&o| crate::entity::index_of(w, o).is_some_and(|k| !w.entities.list[k].removed));
+    st_mut(w, i).dealt_damage = true;
+    let enderman = matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.ty.def().id == "enderman");
+    let hurt = if enderman && w.entities.list[j].vehicle.is_none() {
+        crate::entity::mob::ai::goal::enderman::repeatedly_try_to_teleport(w, j);
+        false
+    } else {
+        let motion = w.entities.list[i].delta_movement;
+        let prev = w.mob.ai.attacker;
+        w.mob.ai.attacker = owner;
+        w.mob.ai.projectile_motion = Some(motion);
+        let r = crate::entity::mob::living::hurt(w, j, crate::entity::mob::Damage::Trident, 8.0);
+        w.mob.ai.projectile_motion = None;
+        w.mob.ai.attacker = prev;
+        r
+    };
+    if !enderman || hurt {
+        let rot = 170.0f32 + w.entities.list[i].random.as_mut().map_or(0.0, |r| r.next_float()) * 20.0f32;
+        let e = &mut w.entities.list[i];
+        e.delta_movement = e.delta_movement.multiply(-0.02 * 0.5, -0.2 * 0.5, -0.02 * 0.5);
+        e.y_rot += rot;
+        e.y_rot_o += rot;
     }
     w.game_event_at("projectile_land", [at.x, at.y, at.z], None, false);
 }

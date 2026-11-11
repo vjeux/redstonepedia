@@ -474,6 +474,15 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
         add(&mut bill, "rename", renamed, p.price("rename", stage)?);
         add(&mut bill, "tool:anvil", 1, p.price("tool:anvil", stage)?);
     }
+    // (farmopt 2026-11-10) R1, the one shared bed (`port home:`, brief farm-iron-carousel rule 1):
+    // N villagers holding HOME = one bed cost N - 1 break-and-replace steps, done by hand at build
+    // time (prices.tsv's bed_reclaim)
+    if c.clock.design.ports.contains_key("home") {
+        let villagers: u32 = c.clock.design.entities.iter().map(|e| (e.kind.trim_start_matches("minecraft:") == "villager") as u32 + e.nbt.as_deref().map_or(0, |n| n.matches("minecraft:villager").count() as u32)).sum();
+        if villagers > 1 {
+            add(&mut bill, "bed_reclaim", villagers - 1, p.price("bed_reclaim", stage)?);
+        }
+    }
     // iteration 16 (brief farm-iron rev 9): the vertical travel and the height, redsim
     // `prices::add_travel`: the design's own access picks the ways (its ladders or scaffolding, its
     // staircase, its soul-sand column; a dug-in farm's access stair is a staircase); a void design

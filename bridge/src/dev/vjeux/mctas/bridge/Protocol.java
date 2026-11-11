@@ -153,9 +153,12 @@ public final class Protocol {
             case "mobstate" -> MobAiProbe.mobState(sandbox(r));
             case "info" -> info();
             case "create" -> create(r);
+            case "nether_create" -> netherCreate(r);
             case "drop" -> drop(r);
             case "clear" -> clear(r);
             case "reload" -> reload(r);
+            case "unload" -> unload(r);
+            case "load" -> load(r);
             case "set" -> set(r);
             case "fill" -> fill(r);
             case "get" -> get(r);
@@ -173,6 +176,8 @@ public final class Protocol {
             case "heights" -> heights(r);
             case "identity_hashes" -> identityHashes();
             case "memory" -> memory(r);
+            case "teleport" -> teleport(r);
+            case "poi_take" -> poiTake(r);
             case "golem_spots" -> golemSpots(r);
             case "trace" -> trace(r);
             case "terrain" -> Terrain.load(this, sandbox(r), r);
@@ -242,6 +247,32 @@ public final class Protocol {
         o.addProperty("sandbox", id);
         o.add("min", pos(sb.minX(), sb.level.getMinY(), sb.minZ()));
         o.add("max", pos(sb.maxX(), sb.level.getMaxY(), sb.maxZ()));
+        // (tickexact 2026-11-10, farmopt's station) {"nether": {"chunks": [x0, z0, x1, z1], "seed":
+        // N}}: its Nether sandbox (Sandbox.createNether), addressed by its own id for blocks and
+        // block entities, ticked by this one
+        if (r.has("nether") && r.get("nether").isJsonObject()) {
+            JsonObject n = r.getAsJsonObject("nether");
+            n.addProperty("sandbox", id);
+            o.add("nether", netherCreate(n).get("nether"));
+        }
+        return o;
+    }
+
+    /**
+     * (tickexact 2026-11-10, farmopt's station) {@code nether_create}: the Nether of sandbox
+     * {@code sandbox} ({@link Sandbox#createNether}): {@code chunks} [x0, z0, x1, z1] kept loaded,
+     * {@code seed} its level random's; answers its own sandbox id ({@code nether}) for blocks and
+     * block entities (it ticks with its overworld sandbox).
+     */
+    private JsonObject netherCreate(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        JsonArray c = r.getAsJsonArray("chunks");
+        int nid = this.nextSandboxId++;
+        long nseed = r.has("seed") ? r.get("seed").getAsLong() : sb.seed;
+        Sandbox nsb = Sandbox.createNether(this.server, sb, nid, c.get(0).getAsInt(), c.get(1).getAsInt(), c.get(2).getAsInt(), c.get(3).getAsInt(), nseed);
+        this.sandboxes.put(nid, nsb);
+        JsonObject o = new JsonObject();
+        o.addProperty("nether", nid);
         return o;
     }
 
@@ -261,6 +292,46 @@ public final class Protocol {
     private JsonObject reload(JsonObject r) {
         sandbox(r).reload(this.server);
         return new JsonObject();
+    }
+
+    /**
+     * (tickexact 2026-11-10, ironspec's fault rule) {@code unload}: every chunk of a sandbox saved
+     * and unloaded ({@link Sandbox#unloadAll}); the steps after it tick the level with them away
+     * until {@code load} ({@link Sandbox#loadAll}) brings them back.
+     */
+    private JsonObject unload(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        if (r.has("chunks")) {
+            int[] b = ints(r.getAsJsonArray("chunks"));
+            sb.unloadSome(this.server, b[0], b[1], b[2], b[3]);
+        } else {
+            sb.unloadAll(this.server);
+        }
+        return new JsonObject();
+    }
+
+    private JsonObject load(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        if (r.has("chunks")) {
+            int[] b = ints(r.getAsJsonArray("chunks"));
+            sb.loadSome(this.server, b[0], b[1], b[2], b[3]);
+            JsonObject o = new JsonObject();
+            o.add("tick_list", sb.tickList());
+            return o;
+        }
+        sb.loadAll(this.server);
+        JsonObject o = new JsonObject();
+        o.addProperty("order", sb.lastLoadOrder);
+        // each entity back under its new number: [old, new]
+        JsonArray re = new JsonArray();
+        for (int[] p : sb.lastRenumbered) {
+            JsonArray a = new JsonArray();
+            a.add(p[0]);
+            a.add(p[1]);
+            re.add(a);
+        }
+        o.add("renumbered", re);
+        return o;
     }
 
     private static int flags(JsonObject r) {
@@ -1009,6 +1080,37 @@ public final class Protocol {
     }
 
     /**
+     * (tickexact 2026-11-10, a bench's drive replayed: `act t tp eN x y z`) Entity {@code entity}
+     * (its net id) moved to {@code pos} at rest: {@code Entity.teleportTo} (snapped there, its
+     * passengers placed on it), then its motion zeroed.
+     */
+    private JsonObject teleport(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int n = r.get("entity").getAsInt();
+        Entity e = sb.level.getEntity(sb.entityIdBase() + n);
+        if (e == null) {
+            throw new IllegalArgumentException("teleport: no entity #" + n);
+        }
+        JsonArray p = r.getAsJsonArray("pos");
+        e.teleportTo(p.get(0).getAsDouble(), p.get(1).getAsDouble(), p.get(2).getAsDouble());
+        e.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+        return new JsonObject();
+    }
+
+    /**
+     * (tickexact 2026-11-10, a bench's drive replayed: `act t poi-take x y z`) The POI at
+     * {@code pos} taken (its ticket: what a villager's claim of its bed does).
+     */
+    private JsonObject poiTake(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int[] p = ints(r.getAsJsonArray("pos"));
+        BlockPos pos = new BlockPos(p[0], p[1], p[2]);
+        sb.level.getPoiManager().take(t -> true, (t, q) -> q.equals(pos), pos, 1)
+                .orElseThrow(() -> new IllegalArgumentException("poi_take: no free POI at " + pos.toShortString()));
+        return new JsonObject();
+    }
+
+    /**
      * (tickexact) Set brain memories of entity {@code entity} (its net id): {@code memories:
      * {"home": [x,y,z], "last_slept": 123, ...}} (a position memory takes [x,y,z] in this sandbox,
      * a time memory a number, a flag memory true; {@code ttl} per memory: {@code {"golem_detected_recently":
@@ -1134,6 +1236,9 @@ public final class Protocol {
         int ticks = r.has("ticks") ? r.get("ticks").getAsInt() : 1;
         boolean draws = r.has("draws") && r.get("draws").getAsBoolean();
         Exact.Watch watch = sb.watch(r.has("box") ? r.getAsJsonObject("box") : null);
+        // (tickexact 2026-11-10) its Nether's frame beside each frame ("nether_box": the Nether
+        // sandbox's watched cells)
+        Exact.Watch netherWatch = sb.nether != null && r.has("nether_box") ? sb.nether.watch(r.getAsJsonObject("nether_box")) : null;
         JsonArray frames = new JsonArray();
         for (int i = 0; i < ticks; i++) {
             Exact.DrawLog log = draws ? new Exact.DrawLog() : null;
@@ -1146,6 +1251,9 @@ public final class Protocol {
                 Exact.drawLog = null;
             }
             JsonObject f = watch.frame(sb, log);
+            if (netherWatch != null) {
+                f.add("nether", netherWatch.frame(sb.nether, null));
+            }
             if (log != null && log.shuffleState >= 0) {
                 // Util.shuffle(list, level.random) redone from the state its first draw saw
                 net.minecraft.world.level.levelgen.LegacyRandomSource copy = new net.minecraft.world.level.levelgen.LegacyRandomSource(0L);

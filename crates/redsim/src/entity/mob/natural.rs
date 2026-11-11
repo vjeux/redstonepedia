@@ -109,8 +109,9 @@ pub static DEFS: &[TypeDef] = &[
     row(39, "slime_4", "minecraft:slime", 2.08, 2.08, 1.3, 16.0, (0.2f32 + 0.1f32 * 4.0) as f64, true, false, 0.6),
     row(40, "sulfur_cube_2", "minecraft:sulfur_cube", 0.98, 0.98, 0.35, 8.0, (0.2f32 + 0.1f32 * 2.0) as f64, true, false, 0.6),
     row(41, "sulfur_cube_4", "minecraft:sulfur_cube", 1.96, 1.96, 0.7, 16.0, 0.2, true, false, 0.6),
-    // a village's cats and bees (CREATURE: they count toward the cap; not in these biomes' lists)
-    row(42, "cat", "minecraft:cat", 0.6, 0.7, 0.35, 10.0, 0.3, false, false, 0.6),
+    // a village's cats and bees (CREATURE: they count toward the cap; not in these biomes' lists).
+    // (mob-AI 2026-11-10) the cat's MOVEMENT_SPEED is 0.3F (Cat.createAttributes)
+    row(42, "cat", "minecraft:cat", 0.6, 0.7, 0.35, 10.0, 0.3f32 as f64, false, false, 0.6),
     row(43, "bee", "minecraft:bee", 0.7, 0.6, 0.3, 10.0, 0.3, false, false, 0.6),
     // AgeableWaterCreature babies (`Squid.BABY_DIMENSIONS`: 0.5 x 0.5, eye 0.37)
     row(44, "baby_glow_squid", "minecraft:glow_squid", 0.5, 0.5, 0.37, 10.0, 0.7, false, false, 0.6),
@@ -122,6 +123,9 @@ pub static DEFS: &[TypeDef] = &[
     // 2; its baby's BABY_DIMENSIONS 0.49 x 0.98, eye 0.78)
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(47, "zombified_piglin", "minecraft:zombified_piglin", 0.6, 1.95, 1.79, 20.0, 0.23f32 as f64, true, false, 0.6) },
     TypeDef { follow_range: 35.0, armor: 2.0, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(48, "baby_zombified_piglin", "minecraft:zombified_piglin", 0.49, 0.98, 0.78, 20.0, 0.23f32 as f64 * 1.5, true, false, 0.6) },
+    // (mob-AI 2026-11-10) a baby zombie horse (AbstractHorse.finalizeSpawn: 1 in 5):
+    // ZombieHorse.BABY_DIMENSIONS, the zombie horse's x 0.7 (its passenger seat: `rider_seat`)
+    row(49, "baby_zombie_horse", "minecraft:zombie_horse", 1.3964844 * 0.7, 1.6 * 0.7, 1.52 * 0.7, 25.0, 0.2f32 as f64, false, true, 1.0),
 ];
 
 // ------------------------------------------------------------------------- the categories
@@ -310,7 +314,7 @@ pub static KINDS: &[Kind] = &[
     kind("minecraft:zombie", MobType::Zombie, C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(25)), F::Zombie, false, W::Monster),
     kind("minecraft:zombie_villager", MobType::Natural(2), C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(26)), F::Zombie, false, W::Monster),
     kind("minecraft:drowned", MobType::Natural(8), C::Monster, P::InWater, Rule::Drowned, 4, true, Some(MobType::Natural(27)), F::Drowned, true, W::Monster),
-    kind("minecraft:zombie_horse", MobType::Natural(3), C::Monster, P::OnGround, Rule::Monster, 6, true, None, F::ZombieHorse, false, W::Animal),
+    kind("minecraft:zombie_horse", MobType::Natural(3), C::Monster, P::OnGround, Rule::Monster, 6, true, Some(MobType::Natural(49)), F::ZombieHorse, false, W::Animal),
     kind("minecraft:skeleton", MobType::Natural(4), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Skeleton, false, W::Monster),
     kind("minecraft:creeper", MobType::Natural(5), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Mob, false, W::Monster),
     kind("minecraft:spider", MobType::Natural(0), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Spider, false, W::Monster),
@@ -1477,6 +1481,53 @@ pub fn siege_zombie(w: &mut World, at: Vec3, special: f32) -> u32 {
     id
 }
 
+/// (mob-AI 2026-11-10) `CatSpawner.spawnCat(spawnPos, level, persistent)`: `EntityTypes.CAT.create`
+/// (a construction), then `finalizeSpawn` before `snapTo`, so at the origin: AgeableMob's (a new
+/// group, size 0: no baby roll), Mob's (the follow range's triangle, left-handed), the variant
+/// (`VariantUtils.selectVariantToSpawn`: the highest priority whose condition holds; all_black's
+/// structure selector, priority 1, never holds at the origin, so the priority-0 ones: ten, eleven
+/// at a full moon with all_black's moon selector; `Util.getRandom`) and the sound variant (one of
+/// two), all from the level random; persistent in a swamp hut; `snapTo(spawnPos, 0, 0)` (the
+/// cell's bottom centre, yaw 0); added. Returns its id.
+pub fn spawn_cat(w: &mut World, at: BlockPos, persistent: bool) -> u32 {
+    let temp = w.mob.natural.is_none();
+    if temp {
+        let players: Vec<Vec3> = w.afk.into_iter().collect();
+        w.mob.natural = Some(Natural::new(players, w.mob.ai.difficulty));
+    }
+    let _ctor = w.construct();
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.bonuses.clear();
+    }
+    mob_base(w);
+    let full_moon = crate::weather::lightning::moon_brightness(w.day_time()) >= 0.9;
+    rng(w).next_int(if full_moon { 11 } else { 10 });
+    rng(w).next_int(2);
+    let k = kind_of("minecraft:cat").expect("a cat row");
+    let f = Finalized { ty: k.ty, baby: false, jockey: Jockey::None, helmet: None, rider_helmet: None, breaks_doors: false, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None, hand: Hand::default(), rider_hand: Hand::default() };
+    let pos = Vec3::new(at.x as f64 + 0.5, at.y as f64, at.z as f64 + 0.5);
+    let id = spawn_mob(w, k, &f, pos, 0.0);
+    if persistent
+        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+    {
+        m.persistence_required = true;
+    }
+    if temp {
+        w.mob.natural = None;
+    }
+    id
+}
+
+/// `removeWhenFarAway(distSqr)` of mob `i`: its kind's, or a wild cat's past 2400 ticks
+/// (`Cat.removeWhenFarAway`: not tame and `tickCount > 2400`).
+pub fn removes_far_now(w: &World, i: usize, k: &Kind) -> bool {
+    if k.id == "minecraft:cat" {
+        return w.entities.list[i].tick_count > 2400;
+    }
+    k.removes_far
+}
+
 fn zombie_finalize_at(w: &mut World, special: f32, hard: bool, g: &mut GroupData, drowned: bool, pos: BlockPos, hand: &mut Hand) -> (bool, Jockey, Option<u8>, bool) {
     mob_base(w);
     hand.loot = rng(w).next_float() < 0.55 * special; // setCanPickUpLoot
@@ -1569,9 +1620,7 @@ fn piglin_finalize(w: &mut World, nat: &Natural, hand: &mut Hand) -> (bool, Jock
     // ZombifiedPiglin.populateDefaultEquipmentSlots: a golden spear 1 in 20, else a golden sword
     // (tickexact 2026-11-10: the portal-piglin terrain compare at t1193 drew it)
     let spear = rng(w).next_int(20) == 0;
-    if spear {
-        w.mob.ai.legacy.insert("a zombified piglin's golden spear (SpearUseGoal: it attacks in melee instead)");
-    }
+    // (a golden spear: its SpearUseGoal is modeled, goal::spear)
     let weapon = if spear { super::enchant::Item::GoldenSpear } else { super::enchant::Item::GoldenSword };
     let enchanted = enchant_draws(w, special, Some(weapon), (0, 0));
     hand.weapon = weapon_id(weapon).map(|id| (id, enchanted));
@@ -1782,7 +1831,11 @@ fn zombie_handle_attributes(w: &mut World, id: u32, ctor: Option<crate::rng::Leg
             m.reinforcement_chance = base;
         }
     }
-    own.next_double(); // knockback resistance
+    // RANDOM_SPAWN_BONUS: KNOCKBACK_RESISTANCE + nextDouble() x 0.05F
+    let knockback = own.next_double() * 0.05000000074505806;
+    if let EntityKind::Mob(m) = &mut w.entities.list[j].kind {
+        m.knockback_bonus = knockback;
+    }
     let follow = own.next_double() * 1.5 * special as f64;
     let roll = own.next_float();
     let leader = roll < special * 0.05;
@@ -2022,6 +2075,10 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
                 if hard && rng(w).next_float() < 0.1 * special {
                     // the group's effect (speed, strength, regeneration, invisibility)
                     g.spider_effect = Some(rng(w).next_int(5));
+                    // probe (tickexact): which spawn effect a spider group drew, and when
+                    if std::env::var_os("MCTAS_TRACE_SPIDER_EFFECT").is_some() {
+                        eprintln!("spider effect t{}: {:?} (0-1 speed, 2 strength, 3 regeneration, 4 invisibility)", w.time, g.spider_effect);
+                    }
                 }
             }
             spider_effect = g.spider_effect;
@@ -2253,25 +2310,22 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
     if f.hand != Hand::default() {
         super::set_hand(w, id, f.hand.loot, f.hand.weapon);
     }
-    // (tickexact 2026-11-10) a spider's group effect, infinite (`addEffect(effect, -1)`): speed
-    // (x 1.2 on its MOVEMENT_SPEED, the witch's speed effect's way); the others are named
-    if let Some(sel) = f.spider_effect {
-        if sel <= 1 {
-            if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
-                && let EntityKind::Mob(m) = &mut e.kind
-            {
-                m.effects.speed = i32::MAX;
-            }
-        } else {
-            let what = match sel {
-                2 => "strength",
-                3 => "regeneration",
-                _ => "invisibility",
-            };
-            let why = format!("a spider spawned with {what} (SpiderEffectsGroupData) is not modeled");
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
-            }
+    // (tickexact 2026-11-10) a spider's group effect, infinite (`addEffect(new
+    // MobEffectInstance(effect, -1))`, amplifier 0): speed (x 1.2 on its MOVEMENT_SPEED, the
+    // witch's speed effect's way), strength (+3 ATTACK_DAMAGE: `attack::attack_damage`),
+    // regeneration (`living::base_tick`'s tickEffects) or invisibility (`target::visibility_percent`;
+    // set at the sync right after the spawning phase, `updateDataBeforeSync`, so before any entity
+    // ticks)
+    if let Some(sel) = f.spider_effect
+        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+    {
+        let fx = &mut m.effects;
+        match sel {
+            0 | 1 => fx.speed = i32::MAX,
+            2 => fx.strength = i32::MAX,
+            3 => fx.regeneration = i32::MAX,
+            _ => fx.invisibility = i32::MAX,
         }
     }
     // a horse's attributes as randomizeAttributes drew them: its health is its max health
@@ -2366,10 +2420,11 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
             {
                 set_chicken_jockey(w, c);
             }
-            if w.mob.ai.on && f.jockey == Jockey::HorseZombie {
+            if w.mob.ai.on {
                 // with the mob AI on, the zombie horseman really rides (ZombieHorse.finalizeSpawn:
                 // snapTo(the horse's x, y, z, yRot, 0), an iron spear in its hand, startRiding);
-                // it steers the horse (the horse's MOVE, JUMP and LOOK goals off)
+                // it steers the horse (the horse's MOVE, JUMP and LOOK goals off). A baby zombie
+                // rides the same way (the same code; its seat: its own vehicle attachment 0.1875)
                 let r = super::add(w, rty, pos, false);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
@@ -2387,15 +2442,9 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                     e.x_rot_o = 0.0;
                     w.entities.list[ri].vehicle = Some(id);
                     w.entities.list[vi].passengers.push(r);
-                    if let Some(a) = super::mob_mut(w, ri).ai.as_deref_mut() {
-                        a.spear = true;
-                    }
                 }
                 rider = Some(r);
             } else {
-                if w.mob.ai.on {
-                    w.mob.ai.legacy.insert("a baby zombie horseman's riding");
-                }
                 let r = super::add(w, rty, pos, true);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
@@ -2506,7 +2555,7 @@ pub fn check_despawn(w: &mut World, i: usize) {
     };
     let Some(k) = kind_of_type(ty) else { return };
     // removeWhenFarAway: the kind's, or a chicken jockey's (Chicken.removeWhenFarAway)
-    let removes_far = k.removes_far || jockey_chicken;
+    let removes_far = removes_far_now(w, i, k) || jockey_chicken;
     let id = w.entities.list[i].id;
     let difficulty = nat.difficulty;
     let rider = nat.riders.iter().any(|(r, _)| *r == id);
@@ -2556,8 +2605,10 @@ fn discard(w: &mut World, i: usize, id: u32, k: &Kind, far: bool) {
 /// `checkDespawn` calls it too, with its type's game id.
 pub(crate) fn discard_as(w: &mut World, i: usize, id: u32, ty: &'static str, far: bool) {
     w.entities.list[i].removed = true;
-    // Entity.setRemoved: its passengers stop riding at once (a jockey's skeleton is no longer a
+    // Entity.setRemoved (DISCARDED destroys): it stops riding (a jockey zombie leaves its
+    // chicken), then its passengers stop riding at once (a jockey's skeleton is no longer a
     // passenger at its own checkDespawn later in the tick)
+    crate::entity::stop_riding(w, i);
     crate::entity::eject_passengers(w, i);
     let t = w.time;
     if let Some(n) = w.mob.natural.as_mut() {

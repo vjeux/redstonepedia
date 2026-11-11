@@ -68,7 +68,19 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     if let Some(v) = drive_actions(name) {
         return v;
     }
+    if name == "plant-supports" {
+        return plant_supports().1;
+    }
     match name {
+        // (tickexact 2026-11-10) level 32: the top chest filled, the repeater loop started by a
+        // one-tick pulse, the east chunk's forced ticket dropped from t40 to t240
+        "level32" => vec![
+            (1, vec![s([4, 66, 8], "nbt:{Items:[{Slot:0b,id:\"minecraft:cobblestone\",count:64}]}")]),
+            (5, vec![s([6, 64, 4], "minecraft:redstone_block")]),
+            (6, vec![s([6, 64, 4], "minecraft:air")]),
+            (40, vec![s([0, 0, 0], "unload:0,0,0,0")]),
+            (240, vec![s([0, 0, 0], "load:0,0,0,0")]),
+        ],
         // corrupt-poi-entity R1: the claimed bed broken, then placed again (a fresh POI record
         // with its ticket free), then the second villager's pen opened
         "bed-r1" => vec![
@@ -122,11 +134,51 @@ fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<
 
 /// redsim's side of an action: each block set with flags 3; a container's fill (`nbt:<snbt>`)
 /// merged as the game's data merge does ([`redsim::redstone::container::apply_block_entities`]).
-fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)]) -> Result<()> {
+fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> Result<()> {
     for (p, s) in blocks {
         let pos = BlockPos::new(p[0], p[1], p[2]);
+        // (tickexact 2026-11-10, ironspec's fault rule) every chunk saved and unloaded / loaded
+        // again
+        if s == "unload" {
+            redsim::reload::unload_all(w);
+            continue;
+        }
+        if s == "load" {
+            redsim::reload::load_all(w);
+            continue;
+        }
+        // (the partial form: a chunk box's forced tickets)
+        if let Some(b) = s.strip_prefix("unload:").and_then(redsim::entity::mob::drive::chunk_box) {
+            redsim::reload::unload_some(w, b);
+            continue;
+        }
+        if let Some(b) = s.strip_prefix("load:").and_then(redsim::entity::mob::drive::chunk_box) {
+            redsim::reload::load_some(w, b);
+            if std::env::var_os("MOBAI_TRACE_LOAD").is_some() {
+                eprintln!("redsim {s} tick list: {:?}", w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect::<Vec<_>>());
+            }
+            continue;
+        }
+        // (tickexact 2026-11-10, farmopt's station) a drive's Nether build: redsim's Nether part
+        // ([`GameScene::apply`]: the bridge's Nether sandbox's)
+        if let Some(st) = s.strip_prefix("nether:") {
+            let n = w.nether.as_deref_mut().ok_or_else(|| anyhow!("a nether-set act in a scene without a Nether part"))?;
+            let b = Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("action block {st}: {e}"))?;
+            n.set_block(pos, b, redsim::world::flags::ALL);
+            continue;
+        }
+        if let Some(snbt) = s.strip_prefix("nether-nbt:") {
+            let n = w.nether.as_deref_mut().ok_or_else(|| anyhow!("a nether-nbt act in a scene without a Nether part"))?;
+            redsim::redstone::container::apply_block_entities(n, [(pos, snbt)]).map_err(|e| anyhow!(e))?;
+            continue;
+        }
         if let Some(snbt) = s.strip_prefix("nbt:") {
             redsim::redstone::container::apply_block_entities(w, [(pos, snbt)]).map_err(|e| anyhow!(e))?;
+            continue;
+        }
+        // a bench's entity act: redsim's drive replay (`drive::apply`)
+        if let Some(act) = entity_act(*p, s)? {
+            redsim::entity::mob::drive::apply(w, &ctx.lines, ctx.g0, &act);
             continue;
         }
         let b = Block::parse(s).or_else(|_| redsim::terrain::land::block_of(s)).map_err(|e| anyhow!("action block {s}: {e}"))?;
@@ -252,6 +304,43 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
 ///   its 21 control lines, 791 redstone blocks; 8 zombies in boats), `--wired=-7,-1,5
 ///   --tail-check-at 43 --cycles 60`: WIRED, the only bench input the golem pulse (a redstone block
 ///   at (-7,-1,5) for 10 gt at each slot's start); every control is the design's own redstone.
+/// - siding-raw / siding-built: farmopt's bed siding with its give-up (explore/farmopt-station
+///   ee139b64b, `carousel-siding-wired.txt`, written settled: an entry detector rail, an arrival
+///   latch, day-1's 220 gt comparator timer), placed as written / built in order, its
+///   `siding-bench --wired --launch --from 1 --to 1 --nights 1` drive logs: WIRED (the siding's
+///   own redstone switches the T, the activator, the hatch and the kick); the bench launches each
+///   cart from rest on its launcher and moves it back to its hold after the exit (`tp`) and places
+///   the release as a redstone block for 10 gt. The one bed's shared claim is the design's (`port
+///   home`, R1's end state: [`scene_home`]): every villager loads HOME = the bed as data, no
+///   ticket taken on either side.
+/// - carousel-wired-v3 / carousel-wired-v3-built: day-1's published wired loop (explore/day1-counter
+///   b808c2125: v2 plus 31 glass covers over the off-pad golem spawn cells), placed as written /
+///   built in order, ironfarm's `queue-loop-run --wired=-7,-1,5 --tail-check-at 43 --cycles 60
+///   --placed-raw | --placed-in-order` drive logs: WIRED, the golem pulse the only input.
+/// - station-raw / station-built: farmopt's linear stand with its Nether part
+///   (`carousel-linear-stand.txt`), its `linear-bench --from 1 --to 1 --days 1 --lead 60
+///   --placed-raw | --placed-in-order` drive logs (bench-driven: the batches teleported to the
+///   stand). The bridge's Nether sandbox (`nether_create`: its own level under the Nether's key,
+///   its chunks loaded but not simulated until a crossing's PORTAL ticket) and redsim's Nether
+///   part ([`scene_nether`]) take the design's `nether` lines (built in order: the drive's
+///   `nether-set` / `nether-nbt` acts); each frame carries the Nether's. Exact to t2470 placed as
+///   written (24 golems through the portal, their Nether ticks, those angry at a zombie post
+///   chasing it from the Nether: `target::Who::Foreign`) and through the build to t9704 built in
+///   order; then a zombie post's MoveThroughVillageGoal finds the village close in the game after
+///   the bed's release (the POI manager's stored level 6, mob-AI's) and not in redsim.
+/// - unload-v3-raw / unload-siding-raw: ironspec's fault rule (a player leaving and coming back)
+///   on day-1's wired loop v3 and farmopt's bed siding, placed as written: their drives (the
+///   benches' acts, expects dropped) with `unload` / `load` acts added: mid-cycle (30 and 40 gt
+///   away), mid-pulse (3 and 5 gt), N = 0 mid-pulse, and the siding's 240 gt (past its 220 gt
+///   timer). Every chunk saved and unloaded (the bridge's `unload`: the level ticks on), loaded
+///   again (`load`: the entities back as new objects, numbered in the chunks' order; the drive's
+///   `tp eN` follow them, `World::renumbered`); redsim's `reload::unload_all` / `load_all`.
+/// - unload-part-v3-raw: the partial form on the wired loop v3 (`unload x0,z0,x1,z1 N`: a chunk
+///   box's forced tickets dropped, the edge of the loaded area through the part): the east column
+///   (simulation level 32: blocks tick, entities do not) 30 gt mid-cycle, the north chunks (32 and
+///   33) 5 gt mid-pulse, N = 0, and 60 gt mid-pulse across the pulse's end with the middle at 33;
+///   the bridge re-forces the chunks one by one so their entities rejoin the tick list in the box's
+///   order (`Sandbox.loadSome`), as redsim's `reload::load_some`.
 const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
@@ -259,13 +348,23 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-wired-raw", include_str!("../scenes/carousel-wired.txt"), include_str!("../scenes/carousel-wired-raw.drive")),
     ("carousel-wired-v2", include_str!("../scenes/carousel-wired-v2.txt"), include_str!("../scenes/carousel-wired-v2-raw.drive")),
     ("carousel-wired-built", include_str!("../scenes/carousel-wired-v2.txt"), include_str!("../scenes/carousel-wired-v2-built.drive")),
+    ("carousel-wired-v3", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/carousel-wired-v3-raw.drive")),
+    ("carousel-wired-v3-built", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/carousel-wired-v3-built.drive")),
+    ("siding-raw", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/siding-wired-raw.drive")),
+    ("siding-built", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/siding-wired-built.drive")),
+    ("station-raw", include_str!("../scenes/station-linear-stand.txt"), include_str!("../scenes/station-linear-stand-raw.drive")),
+    ("station-built", include_str!("../scenes/station-linear-stand.txt"), include_str!("../scenes/station-linear-stand-built.drive")),
+    ("unload-v3-raw", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/unload-v3-raw.drive")),
+    ("unload-siding-raw", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/unload-siding-raw.drive")),
+    ("unload-part-v3-raw", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/unload-part-v3-raw.drive")),
 ];
 
 /// A drive scene's day time at its spawn in its bench's run: the bench's world is
 /// `RunOpts::steady(seed, ..)` of the drive log's `seed` line (its `day0`).
 fn drive_day0(name: &str) -> Option<i64> {
     let (_, _, t) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
-    let seed: i64 = t.lines().find_map(|l| l.strip_prefix("seed "))?.trim().parse().ok()?;
+    // (`seed N`, or `# seed N` as farmopt's benches write it)
+    let seed: i64 = t.lines().find_map(|l| l.trim_start_matches('#').trim_start().strip_prefix("seed "))?.trim().parse().ok()?;
     Some(redsim::entity::mob::farm::RunOpts::steady(seed, 0, redsim::entity::mob::farm::WalkMode::Random).day0)
 }
 
@@ -273,6 +372,27 @@ fn drive_day0(name: &str) -> Option<i64> {
 fn drive_design(name: &str) -> Option<mctas::design::Design> {
     let (_, d, _) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
     Some(mctas::design::Design::parse(d).unwrap_or_else(|e| panic!("the frozen design of {name}: {e}")))
+}
+
+/// (tickexact 2026-11-10, farmopt's siding since main 7f8152452) A drive scene's `port home`: R1's
+/// one shared bed. Every villager of the design holds HOME = the bed, loaded as data as
+/// circuit::studies::mobfarm writes it ([`with_home`]): no POI ticket taken, on either side (a
+/// load takes none; redsim's AI world starts with every ticket free).
+fn scene_home(name: &str) -> Option<[i32; 3]> {
+    drive_design(name)?.ports.get("home").copied()
+}
+
+/// A design entity's data with HOME = `h` for a villager (its own compound, or a villager
+/// passenger's: the carts' riders), `Brain:{memories:{"minecraft:home":..}}` as a load reads it.
+fn with_home(kind: &str, nbt: Option<String>, h: [i32; 3]) -> Option<String> {
+    let brain = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2]);
+    if kind.trim_start_matches("minecraft:") == "villager" {
+        return Some(match nbt.as_deref().map(str::trim) {
+            Some(n) if n.len() > 2 => format!("{},{brain}}}", n.strip_suffix('}').unwrap_or(n)),
+            _ => format!("{{{brain}}}"),
+        });
+    }
+    nbt.map(|n| n.replace("{id:\"minecraft:villager\"}", &format!("{{id:\"minecraft:villager\",{brain}}}")))
 }
 
 /// A drive scene's drive log: the frozen one, or `MOBAI_DRIVE=<file>` (another drive log of the
@@ -290,19 +410,143 @@ fn drive_text(name: &str) -> Option<String> {
 fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
     let text = drive_text(name)?;
     let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
+    let mut later: Vec<(u32, ([i32; 3], String))> = Vec::new();
+    let push = |v: &mut Vec<(u32, Vec<([i32; 3], String)>)>, t: u32, c: ([i32; 3], String)| match v.last_mut() {
+        Some((lt, b)) if *lt == t => b.push(c),
+        _ => v.push((t, vec![c])),
+    };
+    let bad = |line: &str| -> ! { panic!("the drive log of {name}: {line:?} is not `act T set|nbt x y z <state|snbt>`, `tp eN x y z`, `home eN.pK x y z`, `last-slept eN.pK t`, `poi-take x y z`, `unload`, `load` or `unload all N`") };
     for line in text.lines().filter(|l| l.starts_with("act ")) {
         let f: Vec<&str> = line.splitn(7, ' ').collect();
-        let parsed = (f.len() == 7 && (f[2] == "set" || f[2] == "nbt")).then(|| Some((f[1].parse::<u32>().ok()?, [f[3].parse::<i32>().ok()?, f[4].parse::<i32>().ok()?, f[5].parse::<i32>().ok()?]))).flatten();
-        let Some((t, p)) = parsed else { panic!("the drive log of {name}: {line:?} is not `act T set x y z <state>` or `act T nbt x y z <snbt>`") };
-        // (a container's fill in a built-in-order log: `nbt:<snbt>`, merged like the game's
-        // data merge; [`apply_redsim`], [`GameScene::apply`])
-        let c = (p, if f[2] == "nbt" { format!("nbt:{}", f[6].trim()) } else { f[6].trim().to_string() });
-        match v.last_mut() {
-            Some((lt, b)) if *lt == t => b.push(c),
-            _ => v.push((t, vec![c])),
+        let int = |i: usize| f.get(i).and_then(|x| x.trim().parse::<i32>().ok());
+        let Some(t) = f.get(1).and_then(|x| x.parse::<u32>().ok()) else { bad(line) };
+        // (block acts as states; a container's fill as `nbt:<snbt>` (the game's data merge); a
+        // bench's entity acts as `tp:` / `home:` / `last-slept:` / `poi-take` (redsim's
+        // `drive::Act`, the bridge's `teleport` / `memory` / `poi_take`): [`apply_redsim`],
+        // [`GameScene::apply`])
+        let c = match f.get(2).copied() {
+            Some("set") | Some("nbt") if f.len() == 7 => {
+                let (Some(x), Some(y), Some(z)) = (int(3), int(4), int(5)) else { bad(line) };
+                ([x, y, z], if f[2] == "nbt" { format!("nbt:{}", f[6].trim()) } else { f[6].trim().to_string() })
+            }
+            Some("tp") if f.len() == 7 => ([0, 0, 0], format!("tp:{}:{}:{}:{}", f[3], f[4], f[5], f[6].trim())),
+            Some("home") if f.len() == 7 => {
+                let (Some(x), Some(y), Some(z)) = (int(4), int(5), int(6)) else { bad(line) };
+                ([x, y, z], format!("home:{}", f[3]))
+            }
+            Some("last-slept") if f.len() == 5 => ([0, 0, 0], format!("last-slept:{}:{}", f[3], f[4].trim())),
+            Some("poi-take") if f.len() == 6 => {
+                let (Some(x), Some(y), Some(z)) = (int(3), int(4), int(5)) else { bad(line) };
+                ([x, y, z], "poi-take".to_string())
+            }
+            // (farmopt's station) its Nether part's build, in the file's Nether coordinates
+            // (anchor 0 0 0): redsim's Nether only ([`apply_redsim`])
+            Some("nether-set") | Some("nether-nbt") if f.len() == 7 => {
+                let (Some(x), Some(y), Some(z)) = (int(3), int(4), int(5)) else { bad(line) };
+                ([x, y, z], format!("{}:{}", if f[2] == "nether-set" { "nether" } else { "nether-nbt" }, f[6].trim()))
+            }
+            // (tickexact 2026-11-10, ironspec's fault rule) every chunk of the scene saved and
+            // unloaded (a player leaving), then loaded again (back): the bridge's `unload` /
+            // `load`, redsim's `reload::unload_all` / `load_all`
+            Some(a @ ("unload" | "load")) if f.len() == 3 => ([0, 0, 0], a.to_string()),
+            // (the brief's shared act: `unload all <N>`, the load N ticks later)
+            Some("unload") if f.len() == 5 && f[3] == "all" => {
+                let Some(n) = f[4].trim().parse::<u32>().ok() else { bad(line) };
+                later.push((t + n, ([0, 0, 0], "load".to_string())));
+                later.sort_by_key(|(t, _)| *t);
+                ([0, 0, 0], "unload".to_string())
+            }
+            // (its partial form: `unload x0,z0,x1,z1 <N>`, a chunk box's forced tickets dropped,
+            // back N ticks later; or the halves `unload x0,z0,x1,z1` / `load x0,z0,x1,z1`)
+            Some("unload") if f.len() == 5 => {
+                let (Some(b), Some(n)) = (redsim::entity::mob::drive::chunk_box(f[3]), f[4].trim().parse::<u32>().ok()) else { bad(line) };
+                let s = format!("{},{},{},{}", b[0], b[1], b[2], b[3]);
+                later.push((t + n, ([0, 0, 0], format!("load:{s}"))));
+                later.sort_by_key(|(t, _)| *t);
+                ([0, 0, 0], format!("unload:{s}"))
+            }
+            Some(a @ ("unload" | "load")) if f.len() == 4 => {
+                let Some(b) = redsim::entity::mob::drive::chunk_box(f[3].trim()) else { bad(line) };
+                ([0, 0, 0], format!("{a}:{},{},{},{}", b[0], b[1], b[2], b[3]))
+            }
+            _ => bad(line),
+        };
+        // (an act an earlier line put at or before this line's time goes in first, as redsim's
+        // drive sorts them)
+        while let Some(i) = later.iter().position(|(lt, _)| *lt <= t) {
+            let (lt, c) = later.remove(i);
+            push(&mut v, lt, c);
         }
+        push(&mut v, t, c);
+    }
+    later.sort_by_key(|(t, _)| *t);
+    for (t, c) in later {
+        push(&mut v, t, c);
     }
     Some(v)
+}
+
+/// (tickexact 2026-11-10) What a drive's entity acts need on both sides: line N's entity number
+/// (its vehicle, in summon order), each line's passengers in order (`eN.pK`), and the game time of
+/// the drive's origin (`last-slept eN.pK t'`: `t0 + t'`).
+#[derive(Clone, Debug, Default)]
+pub struct ActCtx {
+    pub lines: Vec<u32>,
+    pub riders: Vec<Vec<u32>>,
+    pub g0: i64,
+}
+
+impl ActCtx {
+    /// From redsim's world right after the summon (`ids`: the summon's entity numbers in order).
+    fn of(w: &World, ids: &[u64], g0: i64) -> ActCtx {
+        let mut c = ActCtx { g0, ..Default::default() };
+        for &id in ids {
+            if let Some(e) = w.entities.list.iter().find(|e| e.id as u64 == id)
+                && e.vehicle.is_none()
+            {
+                c.lines.push(e.id);
+                c.riders.push(e.passengers.clone());
+            }
+        }
+        c
+    }
+
+    /// The entity number of a drive's `eN` / `eN.pK`.
+    fn number(&self, who: redsim::entity::mob::drive::Who) -> Result<u32> {
+        use redsim::entity::mob::drive::Who;
+        match who {
+            Who::Line(n) => self.lines.get(n).copied(),
+            Who::Rider(n, k) => self.riders.get(n).and_then(|r| r.get(k)).copied(),
+        }
+        .ok_or_else(|| anyhow!("the drive names {who:?}: no such entity in the scene"))
+    }
+}
+
+/// A drive's `eN` / `eN.pK`.
+fn parse_who(s: &str) -> Result<redsim::entity::mob::drive::Who> {
+    use redsim::entity::mob::drive::Who;
+    let bad = || anyhow!("{s:?}: eN or eN.pK");
+    let s = s.strip_prefix('e').ok_or_else(bad)?;
+    Ok(match s.split_once(".p") {
+        Some((n, k)) => Who::Rider(n.parse().map_err(|_| bad())?, k.parse().map_err(|_| bad())?),
+        None => Who::Line(s.parse().map_err(|_| bad())?),
+    })
+}
+
+/// An action that is one of a bench's entity acts (`tp:` / `home:` / `last-slept:` / `poi-take`),
+/// as redsim's drive act.
+fn entity_act(p: [i32; 3], s: &str) -> Result<Option<redsim::entity::mob::drive::Act>> {
+    use redsim::entity::mob::drive::Act;
+    let f: Vec<&str> = s.split(':').collect();
+    let num = |i: usize| -> Result<f64> { f.get(i).and_then(|x| x.parse().ok()).ok_or_else(|| anyhow!("{s:?}: a number")) };
+    let pos = BlockPos::new(p[0], p[1], p[2]);
+    Ok(Some(match f[0] {
+        "tp" => Act::Tp(parse_who(f.get(1).copied().unwrap_or(""))?, redsim::entity::Vec3::new(num(2)?, num(3)?, num(4)?)),
+        "home" => Act::Home(parse_who(f.get(1).copied().unwrap_or(""))?, pos),
+        "last-slept" => Act::LastSlept(parse_who(f.get(1).copied().unwrap_or(""))?, num(2)? as i64),
+        "poi-take" => Act::PoiTake(pos),
+        _ => return Ok(None),
+    }))
 }
 
 /// A built-in-order drive log's spawn tick (`# spawn S`, counted from the build's start).
@@ -310,19 +554,17 @@ fn drive_spawn(name: &str) -> Option<u32> {
     drive_text(name)?.lines().find_map(|l| l.strip_prefix("# spawn "))?.trim().parse().ok()
 }
 
-/// The drive log's `expect T pos eK x y z` lines (the design's minecart K at tick T, the bench's
-/// redsim run): (T, the cart's entity number in the scene, its position). Each entity line is
-/// numbered in summon order with its passengers after it (one per `id:"` in its data). The fixture
-/// checks the game's frames against them: the scripted replay reproduces the bench's run (a
-/// positive control on the drive log's timing).
+/// The drive log's `expect T pos eK x y z` lines (line K's entity at tick T, the bench's redsim
+/// run): (T, the entity's number in the scene, its position). Each entity line is numbered in
+/// summon order with its passengers after it (one per `id:"` in its data). The fixture checks the
+/// game's frames against them: the scripted replay reproduces the bench's run (a positive control
+/// on the drive log's timing).
 fn drive_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
     let (Some(d), Some(text)) = (drive_design(name), drive_text(name)) else { return Vec::new() };
-    let mut carts = Vec::new();
+    let mut lines = Vec::new();
     let mut n = 0u32;
     for e in &d.entities {
-        if e.kind == "minecraft:minecart" {
-            carts.push(n);
-        }
+        lines.push(n);
         n += 1 + e.nbt.as_deref().map(|s| s.matches("id:\"").count() as u32).unwrap_or(0);
     }
     text.lines()
@@ -334,7 +576,7 @@ fn drive_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
             }
             let k: usize = f[3].strip_prefix('e')?.parse().ok()?;
             let p = [f[4].parse::<f64>().ok()?, f[5].parse::<f64>().ok()?, f[6].parse::<f64>().ok()?];
-            Some((f[1].parse().ok()?, *carts.get(k)?, p))
+            Some((f[1].parse().ok()?, *lines.get(k)?, p))
         })
         .collect()
 }
@@ -392,8 +634,9 @@ enum Placement {
 fn scene_placement(name: &str) -> Placement {
     match name {
         "carousel-wired" => Placement::Judge,
-        "carousel-wired-raw" | "carousel-wired-v2" => Placement::Merged,
-        "carousel-wired-built" => Placement::Built,
+        "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" | "unload-v3-raw" | "unload-part-v3-raw" => Placement::Merged,
+        "carousel-wired-built" | "carousel-wired-v3-built" | "siding-built" | "station-built" => Placement::Built,
+        "siding-raw" | "station-raw" | "unload-siding-raw" => Placement::Merged,
         _ => Placement::Raw,
     }
 }
@@ -410,6 +653,90 @@ fn scene_block_entities(name: &str) -> Vec<([i32; 3], String)> {
         return Vec::new();
     }
     drive_design(name).map(|d| d.block_entities.into_iter().collect()).unwrap_or_default()
+}
+
+/// (tickexact 2026-11-10) The plant-supports scene: a stone floor at y 63 and three rows (z 4, 8,
+/// 12) of natural plants at y 65 on their supports at y 64, x 2..30 every 2; then, from tick 20,
+/// every 10 ticks one row's action: its support set to air, or a two-block plant's upper half, or
+/// a stone beside the plant (a shape update it survives). The plants cover every plant class of
+/// the natural table (leaf litter, grass, ferns, flowers, flower beds, bushes, a mushroom, a
+/// carpet, dry vegetation, two-block plants), and the random tables (short grass, ferns, dead
+/// bushes) several times over.
+fn plant_supports() -> (Vec<([i32; 3], String)>, Vec<(u32, Vec<([i32; 3], String)>)>) {
+    // what a row's action sets to air
+    #[derive(Clone, Copy)]
+    enum Cut {
+        Support,
+        Upper,
+        Side,
+    }
+    use Cut::*;
+    // (dirt, not grass blocks: a void sandbox's grass would spread by its random ticks, whose light
+    // test needs block light, which redsim models in terrain worlds only)
+    const DIRT: &str = "minecraft:dirt";
+    const PODZOL: &str = "minecraft:podzol[snowy=false]";
+    const SAND: &str = "minecraft:sand";
+    const STONE: &str = "minecraft:stone";
+    // (support, plant, its upper half, the action)
+    let rows: Vec<(&str, &str, Option<&str>, Cut)> = vec![
+        (DIRT, "minecraft:leaf_litter[facing=north,segment_amount=3]", None, Support),
+        (PODZOL, "minecraft:leaf_litter[facing=east,segment_amount=1]", None, Support),
+        (STONE, "minecraft:leaf_litter[facing=south,segment_amount=4]", None, Support),
+        (DIRT, "minecraft:short_grass", None, Support),
+        (PODZOL, "minecraft:fern", None, Support),
+        (DIRT, "minecraft:tall_grass[half=lower]", Some("minecraft:tall_grass[half=upper]"), Support),
+        (DIRT, "minecraft:peony[half=lower]", Some("minecraft:peony[half=upper]"), Support),
+        (DIRT, "minecraft:peony[half=lower]", Some("minecraft:peony[half=upper]"), Upper),
+        (DIRT, "minecraft:tall_grass[half=lower]", Some("minecraft:tall_grass[half=upper]"), Upper),
+        (DIRT, "minecraft:azure_bluet", None, Support),
+        (DIRT, "minecraft:wildflowers[facing=north,flower_amount=4]", None, Support),
+        (DIRT, "minecraft:bush", None, Support),
+        (DIRT, "minecraft:firefly_bush", None, Support),
+        // the podzol under the mushroom lifts its light rule: it stays
+        (PODZOL, "minecraft:brown_mushroom", None, Side),
+        (DIRT, "minecraft:poppy", None, Side),
+        (STONE, "minecraft:moss_carpet", None, Support),
+        (SAND, "minecraft:dead_bush", None, Support),
+        (SAND, "minecraft:short_dry_grass", None, Support),
+        (SAND, "minecraft:tall_dry_grass", None, Support),
+        (DIRT, "minecraft:large_fern[half=lower]", Some("minecraft:large_fern[half=upper]"), Support),
+        (DIRT, "minecraft:pink_petals[facing=north,flower_amount=2]", None, Support),
+        (DIRT, "minecraft:poppy", None, Support),
+        (DIRT, "minecraft:sunflower[half=lower]", Some("minecraft:sunflower[half=upper]"), Support),
+    ];
+    let mut all = rows.clone();
+    // the random tables again: short grass's 1-in-8 seeds, a dead bush's 0-2 sticks, a large fern's
+    // seeds
+    for _ in 0..14 {
+        all.push((DIRT, "minecraft:short_grass", None, Support));
+    }
+    for _ in 0..4 {
+        all.push((SAND, "minecraft:dead_bush", None, Support));
+    }
+    for _ in 0..4 {
+        all.push((DIRT, "minecraft:large_fern[half=lower]", Some("minecraft:large_fern[half=upper]"), Support));
+    }
+    let mut blocks = Vec::new();
+    floor(&mut blocks, 0, 32, 0, 16, 63, STONE);
+    let mut actions = Vec::new();
+    for (k, (support, plant, upper, cut)) in all.iter().enumerate() {
+        let (x, z) = (2 + 2 * (k as i32 % 15), 4 + 4 * (k as i32 / 15));
+        blocks.push(([x, 64, z], support.to_string()));
+        blocks.push(([x, 65, z], plant.to_string()));
+        if let Some(u) = upper {
+            blocks.push(([x, 66, z], u.to_string()));
+        }
+        let at = match cut {
+            Support => [x, 64, z],
+            Upper => [x, 66, z],
+            Side => {
+                blocks.push(([x + 1, 65, z], STONE.to_string()));
+                [x + 1, 65, z]
+            }
+        };
+        actions.push((20 + 10 * k as u32, vec![(at, "minecraft:air".to_string())]));
+    }
+    (blocks, actions)
 }
 
 /// A stone floor over `x0..x1`, `z0..z1` at height `y`.
@@ -1018,6 +1345,251 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (mob-AI 2026-11-10) a zombie with an iron spear and a villager in a walled arena at night:
+    // SpearUseGoal (the walk up to 10, the spear lowered for reducedTickDelay(12 + 225), the
+    // charge, the backing off and the flight), KineticWeapon's stabs (the look's reach, the
+    // speeds, the damage and knockback conditions, stabAttack, the spear damage type)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        v.push(Scene {
+            name: "zombie-spear".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:zombie".into(), [14.5, 64.0, 24.5], Some("{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:iron_spear\",count:1}}}".into())),
+                ("minecraft:villager".into(), [30.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) a wolf pack, a sheep and a skeleton with a bow in a walled arena at
+    // night, a shallow pool in a corner: the wolves' goals (their prey, the skeleton, the leap and
+    // the bite, the stroll), their anger and alerts, a wet wolf's shake; the skeleton's
+    // AvoidEntityGoal of wolves and its arrows; the sheep's panic and its loot
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        for x in 34..=38 {
+            for z in 34..=38 {
+                b.push(([x, 63, z], "minecraft:water[level=0]".to_string()));
+            }
+        }
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "wolf-pack".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:wolf", [20.5, 64.0, 20.5], "{PersistenceRequired:1b}"),
+                p("minecraft:wolf", [22.5, 64.0, 21.5], "{PersistenceRequired:1b}"),
+                p("minecraft:sheep", [30.5, 64.0, 26.5], "{PersistenceRequired:1b}"),
+                p("minecraft:skeleton", [12.5, 64.0, 34.5], "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) two wolves and a skeleton 8 apart at night: the skeleton's
+    // AvoidEntityGoal of wolves, the wolves' NearestAttackableTarget of skeletons, the fight
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "wolf-skeleton".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:wolf", [20.5, 64.0, 20.5], "{PersistenceRequired:1b}"),
+                p("minecraft:wolf", [21.5, 64.0, 22.5], "{PersistenceRequired:1b}"),
+                p("minecraft:skeleton", [26.5, 64.0, 26.5], "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) a drowned with a trident in a pool at night and an iron golem on the
+    // shore: its DrownedTridentAttackGoal (the throw every 40 ticks in sight within 10), the
+    // ThrownTrident's flight (0.99 in water), its hit (8, the bounce back), lying in the ground
+    // (dealt damage after 4 ticks); the golem's fight
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        // a pool two deep on stone
+        floor(&mut b, 18, 26, 18, 26, 61, stone);
+        for x in 18..=26 {
+            for z in 18..=26 {
+                b.push(([x, 62, z], "minecraft:water[level=0]".to_string()));
+                b.push(([x, 63, z], "minecraft:water[level=0]".to_string()));
+            }
+        }
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "drowned-trident".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:drowned", [22.5, 62.0, 22.5], "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:trident\",count:1}}}"),
+                p("minecraft:iron_golem", [31.5, 64.0, 22.5], "{PersistenceRequired:1b}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 58, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) a skeleton, an enderman and an iron golem in a line in a corridor at
+    // night: the golem fights the enderman (Enderman.aiStep's updatePersistentAnger: its anger
+    // timer's draw each tick it has a target), the skeleton shoots at the golem
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (8, 22), (40, 22), 64, 4, stone);
+        wall(&mut b, (8, 26), (40, 26), 64, 4, stone);
+        wall(&mut b, (8, 22), (8, 26), 64, 4, stone);
+        wall(&mut b, (40, 22), (40, 26), 64, 4, stone);
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "enderman-golem".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:skeleton", [14.5, 64.0, 24.5], "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"),
+                p("minecraft:enderman", [21.5, 64.0, 24.5], "{PersistenceRequired:1b}"),
+                p("minecraft:iron_golem", [30.5, 64.0, 24.5], "{PersistenceRequired:1b}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: false,
+            watch: ([0, 58, 0], [47, 72, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) a zombie horse and its baby (Age -24000: ZombieHorse.BABY_DIMENSIONS,
+    // the zombie horse's x 0.7) at night: the baby's box and its FollowParentGoal, both strolls
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "zombie-horse-baby".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:zombie_horse", [20.5, 64.0, 20.5], "{PersistenceRequired:1b}"),
+                p("minecraft:zombie_horse", [28.5, 64.0, 26.5], "{PersistenceRequired:1b,Age:-24000}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) an enderman by a patch of dandelions on grass in a stone arena at night:
+    // it takes a dandelion (EndermanTakeBlockGoal) and, off the grass, its EndermanLeaveBlockGoal
+    // finds the flower cannot survive on stone (VegetationBlock.updateShape: air), so it "places"
+    // air and holds nothing
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 4, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 4, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 4, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 4, stone);
+        for x in 22..=24 {
+            for z in 22..=24 {
+                b.push(([x, 63, z], "minecraft:grass_block[snowy=false]".to_string()));
+                b.push(([x, 64, z], "minecraft:dandelion".to_string()));
+            }
+        }
+        v.push(Scene {
+            name: "enderman-flower".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:enderman".into(), [23.5, 64.0, 26.5], Some("{PersistenceRequired:1b}".into()))],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 72, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) a cat and a creeper at night: the cat's wild goals (its stroll, looks),
+    // the creeper's AvoidEntityGoal of cats (6, 1.0, 1.2)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "cat-creeper".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:cat", [20.5, 64.0, 20.5], "{PersistenceRequired:1b}"),
+                p("minecraft:creeper", [23.5, 64.0, 22.5], "{PersistenceRequired:1b}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            // a creative player within 32 keeps the cat's noActionTime at 0 (checkDespawn), so
+            // its stroll runs, and its LookAtPlayerGoal has someone to look at
+            player: Some([30.5, 64.0, 34.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
     // a skeleton alone at night: strolls, looks around (RestrictSunGoal idle in the dark)
     {
         let mut b = Vec::new();
@@ -1201,6 +1773,102 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (tickexact 2026-11-10) the spawn effects a spider group draws on Hard (Spider.finalizeSpawn's
+    // SpiderEffectsGroupData: `addEffect(new MobEffectInstance(effect, -1))`), loaded as data (the
+    // same infinite effects; strength's ATTACK_DAMAGE +3 restored from `attributes` as a load does)
+    // at night: a spider with strength bites the iron golem for 2 + 3; an invisible one is seen at
+    // max(16 x 0.07, 2) only (the golem's NearestAttackableTargetGoal, the villager's visible list)
+    // until it bites and the golem's HurtByTargetGoal answers; one with regeneration, hurt to 6 and
+    // penned in glass, heals 1 whenever its tickCount is a multiple of 50
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        let glass = "minecraft:glass";
+        wall(&mut b, (38, 38), (44, 38), 63, 3, glass);
+        wall(&mut b, (38, 44), (44, 44), 63, 3, glass);
+        wall(&mut b, (38, 38), (38, 44), 63, 3, glass);
+        wall(&mut b, (44, 38), (44, 44), 63, 3, glass);
+        floor(&mut b, 38, 45, 38, 45, 67, glass);
+        let strength = "{PersistenceRequired:1b,active_effects:[{id:\"minecraft:strength\",amplifier:0b,duration:-1}],attributes:[{id:\"minecraft:attack_damage\",base:2.0d,modifiers:[{id:\"minecraft:effect.strength\",amount:3.0d,operation:\"add_value\"}]}]}";
+        v.push(Scene {
+            name: "spider-effects".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:iron_golem".into(), [20.5, 64.0, 20.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:spider".into(), [10.5, 64.0, 20.5], Some(strength.into())),
+                ("minecraft:spider".into(), [20.5, 64.0, 12.5], Some(strength.into())),
+                ("minecraft:spider".into(), [14.5, 64.0, 28.5], Some(strength.into())),
+                ("minecraft:spider".into(), [30.5, 64.0, 20.5], Some("{PersistenceRequired:1b,active_effects:[{id:\"minecraft:invisibility\",amplifier:0b,duration:-1}]}".into())),
+                ("minecraft:villager".into(), [30.5, 64.0, 26.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:spider".into(), [41.5, 64.0, 41.5], Some("{PersistenceRequired:1b,Health:6.0f,active_effects:[{id:\"minecraft:regeneration\",amplifier:0b,duration:-1}]}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Hard,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-10, the reviewer's question on a partial unload) level 32: two chunks,
+    // the west one forced throughout, the east one's forced ticket dropped from t40 to t240
+    // (simulation level 32: block ticking, not entity ticking). In each chunk a randomly ticking
+    // farmland (watered: no change; its section's random ticks step randValue); in the east one a
+    // repeater loop (started at t5), a hopper between two chests (the top one filled at t1), a
+    // minecart with a villager rolled onto a detector rail against a stone, and an empty minecart
+    // still rolling down a long track at t40 (scene_actions: "level32")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, -16, 16, 0, 16, 63, stone);
+        for x0 in [-8, 4] {
+            b.push(([x0, 63, 12], "minecraft:farmland[moisture=7]".to_string()));
+            b.push(([x0 + 1, 63, 12], "minecraft:water[level=0]".to_string()));
+        }
+        // the repeater loop: four repeaters (delay 1) and four dust corners around (8, 5)
+        let dust = "minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]";
+        b.push(([8, 64, 4], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]".to_string()));
+        b.push(([9, 64, 4], dust.to_string()));
+        b.push(([9, 64, 5], "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]".to_string()));
+        b.push(([9, 64, 6], dust.to_string()));
+        b.push(([8, 64, 6], "minecraft:repeater[delay=1,facing=east,locked=false,powered=false]".to_string()));
+        b.push(([7, 64, 6], dust.to_string()));
+        b.push(([7, 64, 5], "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]".to_string()));
+        b.push(([7, 64, 4], dust.to_string()));
+        // the hopper between two chests
+        b.push(([4, 64, 8], "minecraft:chest[facing=north,type=single,waterlogged=false]".to_string()));
+        b.push(([4, 65, 8], "minecraft:hopper[enabled=true,facing=down]".to_string()));
+        b.push(([4, 66, 8], "minecraft:chest[facing=north,type=single,waterlogged=false]".to_string()));
+        // the detector rail at the end of a short track (a cart rolls onto it and stops against
+        // the stone) and a long east-west track a second cart is still rolling on at t40
+        for z in 1..=3 {
+            b.push(([12, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        }
+        b.push(([12, 64, 4], "minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]".to_string()));
+        b.push(([12, 64, 5], stone.to_string()));
+        for x in 1..=14 {
+            b.push(([x, 64, 13], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+        }
+        b.push(([0, 64, 13], stone.to_string()));
+        b.push(([15, 64, 13], stone.to_string()));
+        v.push(Scene {
+            name: "level32".into(),
+            chunks: [-1, 0, 0, 0],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:minecart".into(), [12.5, 64.0, 1.5], Some("{Motion:[0.0d,0.0d,0.3d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into())),
+                ("minecraft:minecart".into(), [1.5, 64.0, 13.5], Some("{Motion:[0.15d,0.0d,0.0d]}".into())),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([-16, 62, 0], [15, 68, 15]),
             player: None,
             player_creative: false,
             random_tick_speed: 3,
@@ -1804,6 +2472,27 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // (tickexact 2026-11-10, mob-AI's forest t2504: a leaf litter whose support an enderman took)
+    // natural plants on their supports ([`plant_supports`]), each support (or a two-block plant's
+    // upper half) set to air in turn: the plant's canSurvive, its updateShape to air, the
+    // destroyBlock drop (its loot table with its random sequence, popResource's level draws, the
+    // item entity)
+    {
+        let (pb, _) = plant_supports();
+        v.push(Scene {
+            name: "plant-supports".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: pb,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [31, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
     // (tickexact 2026-11-10, ironfarm's stand catch) its loop designs as they are, each driven by
     // its bench's drive log ([`DRIVE_SCENES`], [`drive_actions`]): cart physics, the riders (and
     // carousel-catch2's zombies in boats) and the detector rail under scripted controls (no other
@@ -1811,7 +2500,15 @@ fn scenes_raw() -> Vec<Scene> {
     for (name, _, _) in DRIVE_SCENES {
         let d = drive_design(name).expect("a drive scene's design");
         let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, st)| (*p, st.clone())).collect();
-        let mobs: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+        let home = scene_home(name);
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = d
+            .entities
+            .iter()
+            .map(|e| (e.kind.clone(), e.pos, match home {
+                Some(h) => with_home(&e.kind, e.nbt.clone(), h),
+                None => e.nbt.clone(),
+            }))
+            .collect();
         let max_x = blocks.iter().map(|(p, _)| p[0]).chain(mobs.iter().map(|m| m.1[0] as i32)).max().unwrap_or(0);
         let max_z = blocks.iter().map(|(p, _)| p[2]).chain(mobs.iter().map(|m| m.1[2] as i32)).max().unwrap_or(0);
         let min_x = blocks.iter().map(|(p, _)| p[0]).chain(mobs.iter().map(|m| m.1[0].floor() as i32)).min().unwrap_or(0);
@@ -1823,7 +2520,7 @@ fn scenes_raw() -> Vec<Scene> {
         // seed, less the settle before the summon)
         let day_time = if first {
             1000
-        } else if name.starts_with("carousel-wired") {
+        } else if name.starts_with("carousel-wired") || name.starts_with("siding") || name.starts_with("station") || name.starts_with("unload-") {
             // (the bench's world: day0 at the end of its settle, which the raw paste skips)
             drive_day0(name).unwrap_or(200) - redsim::entity::mob::farm::SETTLE_TICKS
         } else {
@@ -1864,6 +2561,12 @@ pub struct GameScene {
     pub ticking: Vec<[i32; 2]>,
     /// The spawning chunks before the shuffle (a scene with a player).
     pub spawning: Vec<[i32; 2]>,
+    /// (tickexact 2026-11-10) A scene's Nether sandbox ([`scene_nether_part`]): its id and the box
+    /// both sides watch.
+    nether: Option<(u32, [i32; 3], [i32; 3])>,
+    /// (tickexact 2026-11-10) Entities a `load` brought back under new numbers: old -> current
+    /// (the bridge's answer; a drive's `eN` follows it).
+    renumbered: std::collections::HashMap<u32, u32>,
 }
 
 impl GameScene {
@@ -1897,6 +2600,32 @@ impl GameScene {
             let all: Vec<[i32; 3]> = s.blocks.iter().map(|(p, _)| *p).collect();
             w.update(sb, &all, "self")?;
         }
+        // (tickexact 2026-11-10, farmopt's station) a design's Nether part: the Nether sandbox
+        // (kept loaded, not simulated until a crossing), pasted as redsim's (a merged scene: its
+        // cells raw, its data merged, its output chest emptied; a built one: by its drive's acts)
+        let nether = match scene_nether_part(&s.name)? {
+            Some(part) => {
+                // (the chunks kept loaded: the part's and 4 around them, every chunk a crossing's
+                // PORTAL ticket (radius 3) and its ticking neighbours need already full, so the
+                // ticket's promotion waits on no chunk generation: a fixed number of level ticks)
+                let ch = part.chunks;
+                let v = w.call(json!({"op": "nether_create", "sandbox": sb, "chunks": [ch[0] - 4, ch[1] - 4, ch[2] + 4, ch[3] + 4], "seed": seed ^ NETHER_SALT}))?;
+                let nsb = v["nether"].as_u64().ok_or_else(|| anyhow!("nether_create: no id"))? as u32;
+                if scene_placement(&s.name) != Placement::Built {
+                    w.set_blocks(nsb, &part.blocks, PlaceMode::Raw)?;
+                    for (p, nbt) in part.spec.block_entities_at() {
+                        w.merge_block_entity(nsb, [p.x, p.y, p.z], &nbt)?;
+                    }
+                    if let Some(out) = part.spec.output_at()
+                        && part.blocks.iter().any(|(q, st)| *q == [out.x, out.y, out.z] && st.contains("chest"))
+                    {
+                        w.merge_block_entity(nsb, [out.x, out.y, out.z], "{Items:[]}")?;
+                    }
+                }
+                Some((nsb, part.lo, part.hi))
+            }
+            None => None,
+        };
         // the block-ticking and spawning chunks right before the first tick (a player's ring
         // widens them; the spawning list is shuffled every tick, spawning or not)
         let (ticking, spawning) = if s.player.is_some() {
@@ -1906,7 +2635,47 @@ impl GameScene {
         } else {
             (Vec::new(), Vec::new())
         };
-        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning })
+        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether, renumbered: Default::default() })
+    }
+
+    /// The bridge's `unload` / `load` of every chunk of the sandbox (a load's renumbering kept),
+    /// or of a chunk box's (`unload:x0,z0,x1,z1`: its forced tickets).
+    fn unload_load(&mut self, act: &str) -> Result<()> {
+        let (op, chunks) = match act.split_once(':') {
+            Some((op, b)) => (op, redsim::entity::mob::drive::chunk_box(b)),
+            None => (act, None),
+        };
+        let mut req = json!({"op": op, "sandbox": self.sb});
+        if let Some(b) = chunks {
+            req["chunks"] = json!(b);
+        }
+        let v = self.w.call(req)?;
+        if std::env::var_os("MOBAI_TRACE_LOAD").is_some() {
+            eprintln!("bridge {op}: {}", v["order"].as_str().unwrap_or(""));
+            if v["tick_list"].is_array() {
+                eprintln!("bridge {act} tick list: {}", v["tick_list"]);
+            }
+        }
+        if let Some(a) = v["renumbered"].as_array() {
+            let pairs: Vec<(u32, u32)> = a.iter().filter_map(|p| Some((p[0].as_u64()? as u32, p[1].as_u64()? as u32))).collect();
+            // (a number renumbered before follows to its newest)
+            for (o, n) in &pairs {
+                for v in self.renumbered.values_mut() {
+                    if *v == *o {
+                        *v = *n;
+                    }
+                }
+            }
+            for (o, n) in pairs {
+                self.renumbered.insert(o, n);
+            }
+        }
+        Ok(())
+    }
+
+    /// A drive entity's number now (after the loads that renumbered it).
+    fn now(&self, n: u32) -> u32 {
+        self.renumbered.get(&n).copied().unwrap_or(n)
     }
 
     /// Summon the scene's mobs (seeded); their numbers.
@@ -1922,21 +2691,53 @@ impl GameScene {
 
     /// The bridge's frames of the next `ticks` ticks as it sends them (what a recording keeps).
     pub fn trace_raw(&mut self, ticks: u32, draws: bool) -> Result<Vec<serde_json::Value>> {
-        let v = self.w.call(json!({"op": "trace", "sandbox": self.sb, "ticks": ticks, "draws": draws, "box": {"from": self.lo, "to": self.hi}}))?;
+        let mut req = json!({"op": "trace", "sandbox": self.sb, "ticks": ticks, "draws": draws, "box": {"from": self.lo, "to": self.hi}});
+        if let Some((_, lo, hi)) = self.nether {
+            req["nether_box"] = json!({"from": lo, "to": hi});
+        }
+        let v = self.w.call(req)?;
         Ok(v["frames"].as_array().ok_or_else(|| anyhow!("trace: no frames"))?.clone())
     }
 
     /// A scripted action on the game's side: the blocks set like a player's (flags 3).
-    pub fn apply(&mut self, blocks: &[([i32; 3], String)]) -> Result<()> {
-        // in order: runs of block sets (placed with updates), each container fill merged
+    pub fn apply(&mut self, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> Result<()> {
+        // in order: runs of block sets (placed with updates), each container fill merged, each
+        // entity act through its bridge op
         let mut run: Vec<([i32; 3], &str)> = Vec::new();
         for (p, s) in blocks {
-            if let Some(snbt) = s.strip_prefix("nbt:") {
+            // (tickexact 2026-11-10, ironspec's fault rule) every chunk of the sandbox saved and
+            // unloaded / loaded again, between two ticks
+            if s == "unload" || s == "load" || s.starts_with("unload:") || s.starts_with("load:") {
                 if !run.is_empty() {
                     self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
                     run.clear();
                 }
+                self.unload_load(s)?;
+                continue;
+            }
+            // (a Nether build act: the Nether sandbox's, placed like a player's)
+            if s.starts_with("nether:") || s.starts_with("nether-nbt:") {
+                if !run.is_empty() {
+                    self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+                    run.clear();
+                }
+                let (nsb, _, _) = self.nether.ok_or_else(|| anyhow!("a Nether act in a scene without a Nether sandbox"))?;
+                if let Some(st) = s.strip_prefix("nether:") {
+                    self.w.set_blocks(nsb, &[(*p, st)], PlaceMode::Update)?;
+                } else if let Some(snbt) = s.strip_prefix("nether-nbt:") {
+                    self.w.merge_block_entity(nsb, *p, snbt)?;
+                }
+                continue;
+            }
+            let special = s.starts_with("nbt:") || entity_act(*p, s)?.is_some();
+            if special && !run.is_empty() {
+                self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+                run.clear();
+            }
+            if let Some(snbt) = s.strip_prefix("nbt:") {
                 self.w.merge_block_entity(self.sb, *p, snbt)?;
+            } else if let Some(act) = entity_act(*p, s)? {
+                self.apply_act(&act, ctx)?;
             } else {
                 run.push((*p, s.as_str()));
             }
@@ -1945,6 +2746,42 @@ impl GameScene {
             self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
         }
         Ok(())
+    }
+
+    /// A bench's entity act in the game (`teleport`, `memory`, `poi_take`), its entities by number.
+    fn apply_act(&mut self, a: &redsim::entity::mob::drive::Act, ctx: &ActCtx) -> Result<()> {
+        use redsim::entity::mob::drive::Act;
+        let sb = self.sb;
+        match a {
+            Act::Tp(who, v) => self.w.call(json!({"op": "teleport", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "pos": [v.x, v.y, v.z]}))?,
+            Act::Home(who, p) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "memories": {"home": [p.x, p.y, p.z]}}))?,
+            Act::LastSlept(who, t) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "memories": {"last_slept": ctx.g0 + t}}))?,
+            Act::PoiTake(p) => self.w.call(json!({"op": "poi_take", "sandbox": sb, "pos": [p.x, p.y, p.z]}))?,
+            Act::Unload => {
+                self.unload_load("unload")?;
+                json!({})
+            }
+            Act::Load => {
+                self.unload_load("load")?;
+                json!({})
+            }
+            Act::UnloadSome(b) => {
+                self.unload_load(&format!("unload:{},{},{},{}", b[0], b[1], b[2], b[3]))?;
+                json!({})
+            }
+            Act::LoadSome(b) => {
+                self.unload_load(&format!("load:{},{},{},{}", b[0], b[1], b[2], b[3]))?;
+                json!({})
+            }
+            Act::Set(..) => bail!("a block act through apply_act"),
+        };
+        Ok(())
+    }
+
+    /// The sandbox's game time now (`status`).
+    pub fn time_now(&mut self) -> Result<i64> {
+        let v = self.w.call(json!({"op": "status", "sandbox": self.sb}))?;
+        v["time"].as_i64().ok_or_else(|| anyhow!("status: no time"))
     }
 
     /// The bridge's `mobstate` (debugging): each mob's controls and path, one line each.
@@ -2000,7 +2837,82 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     }
     w.mirror_level_random(seed, s.chunks);
     w.random_ticks = Some(redsim::crops::RandomTicks::new(s.random_tick_speed, seed));
+    // the sandbox's SPAWN_MOBS / SPAWN_MONSTERS rules ([`scene_spawns`]: a nether portal's random
+    // tick draws only with monsters spawning)
+    w.spawn_monsters = Some(scene_spawns(&s.name));
+    if let Some(n) = scene_nether(&s.name, seed, s.random_tick_speed)? {
+        w.nether = Some(Box::new(n));
+    }
     Ok(w)
+}
+
+/// (tickexact 2026-11-10, farmopt's station) The salt of a scene's Nether level random (and its
+/// randValue and loot sequences): the scene's seed ^ "nether", on both sides.
+const NETHER_SALT: i64 = 0x6e65_7468_6572;
+
+/// A drive scene's Nether part as the farm's Run::start places it (`NetherSpec`: the design's
+/// `nether` lines at the anchor's Nether image): its cells and states, its block-entity data, its
+/// output chest, the chunks the bridge keeps loaded for it and the box both sides watch.
+struct SceneNether {
+    spec: redsim::entity::mob::farm::NetherSpec,
+    blocks: Vec<([i32; 3], String)>,
+    chunks: [i32; 4],
+    lo: [i32; 3],
+    hi: [i32; 3],
+}
+
+fn scene_nether_part(name: &str) -> Result<Option<SceneNether>> {
+    let Some(d) = drive_design(name) else { return Ok(None) };
+    if d.nether_blocks.is_empty() {
+        return Ok(None);
+    }
+    let spec = circuit::mobfarm::spec_of(&circuit::Circuit::from_design(d)?).map_err(|e| anyhow!(e))?;
+    let Some(ns) = spec.nether else { return Ok(None) };
+    let placed = ns.placed();
+    let blocks: Vec<([i32; 3], String)> = placed.iter().map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for (p, _) in &blocks {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    // (a margin of a cell around the part; its chunks and the ring a crossing's PORTAL ticket
+    // simulates are the game's own business)
+    let (lo, hi) = ([lo[0] - 1, lo[1] - 1, lo[2] - 1], [hi[0] + 1, hi[1] + 1, hi[2] + 1]);
+    let chunks = [lo[0].div_euclid(16), lo[2].div_euclid(16), hi[0].div_euclid(16), hi[2].div_euclid(16)];
+    Ok(Some(SceneNether { spec: ns, blocks, chunks, lo, hi }))
+}
+
+/// (tickexact 2026-11-10, farmopt's station) A drive scene's Nether part in redsim, as the farm's
+/// `Run::start` builds it (`World::nether`: its own world, the design's `nether` lines at the
+/// anchor's Nether image, its `nether nbt:` data merged, its output chest emptied; a built-in-order
+/// scene's part starts empty, its drive's `nether-set` acts build it), its randoms the bridge's
+/// Nether sandbox's (the level random, randValue and loot sequences from seed ^ [`NETHER_SALT`];
+/// its entities numbered and seeded as the overworld's, by the scene's seed).
+fn scene_nether(name: &str, seed: i64, random_tick_speed: u32) -> Result<Option<World>> {
+    let Some(part) = scene_nether_part(name)? else { return Ok(None) };
+    let ns = &part.spec;
+    let bench_seed = drive_text(name)
+        .and_then(|t| t.lines().find_map(|l| l.trim_start_matches('#').trim_start().strip_prefix("seed ").and_then(|s| s.trim().parse::<i64>().ok())))
+        .unwrap_or(1);
+    let o = redsim::entity::mob::farm::RunOpts { ai: true, raw: true, ..redsim::entity::mob::farm::RunOpts::steady(bench_seed, 24000, redsim::entity::mob::farm::WalkMode::Random) };
+    let mut n = ns.world(&o).map_err(|e| anyhow!(e))?;
+    let nseed = seed ^ NETHER_SALT;
+    n.mirror_level_random(nseed, part.chunks);
+    n.exact_seed = Some(seed);
+    n.random_ticks = Some(redsim::crops::RandomTicks::new(random_tick_speed, nseed));
+    if scene_placement(name) != Placement::Built {
+        n.place_raw(&ns.placed());
+        let bes = ns.block_entities_at();
+        redsim::redstone::container::apply_block_entities(&mut n, bes.iter().map(|(p, s)| (*p, s.as_str()))).map_err(|e| anyhow!(e))?;
+        if let Some(out) = ns.output_at()
+            && matches!(n.get(out), Block::Chest { .. })
+        {
+            redsim::redstone::container::apply_block_entities(&mut n, [(out, "{Items:[]}")]).map_err(|e| anyhow!(e))?;
+        }
+    }
+    Ok(Some(n))
 }
 
 /// Summon the scene's mobs in redsim (no follow-range bonus: a summon has none).
@@ -2070,6 +2982,23 @@ impl Source {
             Source::Recorded { .. } => Ok(Vec::new()),
         }
     }
+
+    /// The game time before the next tick: the bridge's `status`, or a recording's next frame's
+    /// time less one.
+    fn time_now(&mut self) -> Result<i64> {
+        match self {
+            Source::Live(g) => g.time_now(),
+            Source::Recorded { frames, .. } => Ok(frames.front().and_then(|f| f["t"].as_i64()).map(|t| t - 1).unwrap_or(0)),
+        }
+    }
+
+    /// A scripted action on the game's side (a recording has it in its frames already).
+    fn apply(&mut self, b: &[([i32; 3], String)], ctx: &ActCtx) -> Result<()> {
+        match self {
+            Source::Live(g) => g.apply(b, ctx),
+            Source::Recorded { .. } => Ok(()),
+        }
+    }
 }
 
 /// Run a scene on both sides for `ticks` ticks; the compare. `trace`: at that game time, the game's
@@ -2105,14 +3034,21 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
     let actions = scene_actions(&s.name);
     let (wlo, whi) = (BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2]));
     let mut cmp = Compare { probe_at: trace.map(|t| t.0), ..Default::default() };
+    // the game time before the first tick (a built scene's drive counts from it)
+    let g_start = game.time_now()?;
+    let no_entities = ActCtx { g0: g_start, ..Default::default() };
     if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t == 0) {
-        if let Source::Live(g) = game {
-            g.apply(b)?;
-        }
-        apply_redsim(&mut ours, b)?;
+        game.apply(b, &no_entities)?;
+        apply_redsim(&mut ours, b, &no_entities)?;
     }
     // (the watch's baseline after the actions at 0, as the game's first traced tick has it)
     let mut early_watch = from_start.then(|| Watch::new(&ours, wlo, whi));
+    // (a scene's Nether: its own watch over its part's box, its frame beside each frame)
+    let nether_box = scene_nether_part(&s.name)?.map(|p| (BlockPos::new(p.lo[0], p.lo[1], p.lo[2]), BlockPos::new(p.hi[0], p.hi[1], p.hi[2])));
+    let mut nwatch: Option<Watch> = match (nether_box, ours.nether.as_deref()) {
+        (Some((lo, hi)), Some(n)) => Some(Watch::new(n, lo, hi)),
+        _ => None,
+    };
     let mut pre: i64 = 0;
     while pre < spawn as i64 {
         let mut n = (spawn as i64 - pre).min(batch as i64) as u32;
@@ -2129,20 +3065,31 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 if let Some(d) = f.day {
                     ours.mob.day_offset = d - f.t;
                 }
+                // (a scene's Nether: the same clocks)
+                let (t, day) = (ours.time, ours.mob.day_offset);
+                if let Some(n) = ours.nether.as_deref_mut() {
+                    n.time = t;
+                    n.mob.day_offset = day;
+                }
                 first = false;
             }
             ours.tick();
             if let Some(wt) = early_watch.as_mut() {
-                let o = wt.frame(&ours);
+                let mut o = wt.frame(&ours);
+                if let (Some(nw), Some(n)) = (nwatch.as_mut(), ours.nether.as_deref()) {
+                    o.nether = Some(Box::new(nw.frame(n)));
+                }
                 cmp.tick(f, &o);
             }
         }
         pre += frames.len() as i64;
-        if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre) {
-            if let Source::Live(g) = game {
-                g.apply(b)?;
-            }
-            apply_redsim(&mut ours, b)?;
+        // (the acts at the summon's tick come after it)
+        if from_start
+            && pre < spawn as i64
+            && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre)
+        {
+            game.apply(b, &no_entities)?;
+            apply_redsim(&mut ours, b, &no_entities)?;
         }
         if cmp.first.is_some() && !full {
             break;
@@ -2163,10 +3110,20 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
     let settled_watch = early_watch.or_else(|| (spawn > 0).then(|| Watch::new(&ours, wlo, whi)));
     // the game time a drive log's ticks count from: the summon's after a settle, else the start
     let t_summon = if spawn > 0 && !from_start { ours.time } else { 0 };
+    let g_summon = game.time_now()?;
     let game_ids = game.summon(s)?;
     let our_ids = redsim_summon(&mut ours, s)?;
     if game_ids != our_ids {
         bail!("the game's mobs entered as {game_ids:?}, redsim's as {our_ids:?}");
+    }
+    let ctx = ActCtx::of(&ours, &our_ids, if from_start { g_start } else { g_summon });
+    // the acts at the summon's tick (a drive's t0: the bench's memories, its POI claim), before the
+    // game's first traced tick of a scene with nothing before its summon (then the watch's
+    // baseline comes after them, as the game's)
+    let at_summon = if from_start { spawn as i64 } else { 0 };
+    if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == at_summon) {
+        game.apply(b, &ctx)?;
+        apply_redsim(&mut ours, b, &ctx)?;
     }
     let mut watch = settled_watch.unwrap_or_else(|| Watch::new(&ours, wlo, whi));
     let show = std::env::var("MOBAI_SHOW").is_ok();
@@ -2207,23 +3164,53 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 if let Some(d) = f.day {
                     ours.mob.day_offset = d - f.t;
                 }
+                // (a scene's Nether: the same clocks)
+                let (t, day) = (ours.time, ours.mob.day_offset);
+                if let Some(n) = ours.nether.as_deref_mut() {
+                    n.time = t;
+                    n.mob.day_offset = day;
+                }
                 first = false;
             }
             let tracing = trace.filter(|(at, _)| *at == ours.time + 1);
             if let Some((at, ent)) = tracing {
                 let addr = match ent {
                     None => ours.level_random.as_ref().map(|r| r as *const _ as usize).unwrap_or(0),
-                    Some(id) => ours.entities.list.iter().find(|e| e.id == id).and_then(|e| e.random.as_ref()).map(|r| r as *const _ as usize).unwrap_or(0),
+                    Some(id) => ours
+                        .entities
+                        .list
+                        .iter()
+                        .chain(ours.nether.as_deref().map(|n| n.entities.list.iter()).into_iter().flatten())
+                        .find(|e| e.id == id)
+                        .and_then(|e| e.random.as_ref())
+                        .map(|r| r as *const _ as usize)
+                        .unwrap_or(0),
                 };
                 eprintln!("redsim's draws at game time {at}:");
                 redsim::rng::TRACE.store(addr, std::sync::atomic::Ordering::Relaxed);
             }
             ours.tick();
             redsim::rng::TRACE.store(0, std::sync::atomic::Ordering::Relaxed);
-            let o = watch.frame(&ours);
+            let mut o = watch.frame(&ours);
+            if let (Some(nw), Some(n)) = (nwatch.as_mut(), ours.nether.as_deref()) {
+                o.nether = Some(Box::new(nw.frame(n)));
+            }
             if show && o.t % 100 == 0 {
                 for e in &o.entities {
                     eprintln!("t {} #{} {} pos {:?} goals {:?} path {:?} target {:?} no_action {:?}", o.t, e.n, e.ty, e.pos, e.goals, e.path, e.target, e.no_action);
+                }
+            }
+            // (tickexact probe: MOBAI_SHOW_BLOCKS="T0:T1": the game's block and container changes
+            // at each tick of T0..=T1)
+            if let Ok(v) = std::env::var("MOBAI_SHOW_BLOCKS") {
+                let parts: Vec<i64> = v.split(':').filter_map(|x| x.parse().ok()).collect();
+                if parts.len() == 2 && f.t >= parts[0] && f.t <= parts[1] {
+                    for (p, s) in &f.blocks {
+                        eprintln!("t {} block {} {} {} {s}", f.t, p[0], p[1], p[2]);
+                    }
+                    for (p, s) in &f.containers {
+                        eprintln!("t {} container {} {} {} [{s}]", f.t, p[0], p[1], p[2]);
+                    }
                 }
             }
             // (tickexact probe: MOBAI_SHOW_IDS="n,n:T0:T1": those entities' position and motion on
@@ -2234,8 +3221,10 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 let (a, b) = (parts.get(1).and_then(|x| x.parse::<i64>().ok()).unwrap_or(0), parts.get(2).and_then(|x| x.parse::<i64>().ok()).unwrap_or(i64::MAX));
                 if f.t >= a && f.t <= b {
                     for n in ids {
-                        let (g, e) = (f.entities.iter().find(|e| e.n == n), o.entities.iter().find(|e| e.n == n));
-                        eprintln!("t {} #{n} game {:?} {:?} | redsim {:?} {:?}", f.t, g.map(|e| e.pos), g.map(|e| e.motion), e.map(|e| e.pos), e.map(|e| e.motion));
+                        // (the Nether's frame too: a crossed entity's copy)
+                        let find = |fr: &redsim::exact::Frame| fr.entities.iter().find(|e| e.n == n).cloned().or_else(|| fr.nether.as_ref().and_then(|nf| nf.entities.iter().find(|e| e.n == n).cloned()));
+                        let (g, e) = (find(&f), find(&o));
+                        eprintln!("t {} #{n} game {:?} {:?} | redsim {:?} {:?}", f.t, g.as_ref().map(|e| e.pos), g.as_ref().map(|e| e.motion), e.as_ref().map(|e| e.pos), e.as_ref().map(|e| e.motion));
                     }
                 }
             }
@@ -2270,10 +3259,8 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         // a scripted action between the two ticks, on both sides (a recording has the game's in
         // its frames)
         if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
-            if let Source::Live(g) = game {
-                g.apply(b)?;
-            }
-            apply_redsim(&mut ours, b)?;
+            game.apply(b, &ctx)?;
+            apply_redsim(&mut ours, b, &ctx)?;
         }
         left -= n;
         if cmp.first.is_some() && !full {
@@ -2329,8 +3316,10 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
         let actions = scene_actions(&s.name);
         let from_start = scene_counts_from_start(&s.name);
         let spawn = scene_spawn(&s.name) as i64;
+        let g_start = game.time_now()?;
+        let no_entities = ActCtx { g0: g_start, ..Default::default() };
         if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t == 0) {
-            game.apply(b)?;
+            game.apply(b, &no_entities)?;
         }
         let mut pre: i64 = 0;
         while pre < spawn {
@@ -2340,11 +3329,26 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
             }
             frames.extend(game.trace_raw(n, false)?);
             pre += n as i64;
-            if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre) {
-                game.apply(b)?;
+            if from_start
+                && pre < spawn
+                && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre)
+            {
+                game.apply(b, &no_entities)?;
             }
         }
+        let g_summon = game.time_now()?;
         let game_ids = game.summon(s)?;
+        // the drive's entities by line: from redsim's summon of the same scene (its numbers are the
+        // game's: the compare checks they agree)
+        let ctx = {
+            let mut scratch = redsim_world(s, seed)?;
+            let ids = redsim_summon(&mut scratch, s)?;
+            ActCtx::of(&scratch, &ids, if from_start { g_start } else { g_summon })
+        };
+        let at_summon = if from_start { spawn } else { 0 };
+        if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == at_summon) {
+            game.apply(b, &ctx)?;
+        }
         let mut left = ticks;
         let mut done: i64 = if from_start { pre } else { 0 };
         while left > 0 {
@@ -2357,7 +3361,7 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
             left -= n;
             done += n as i64;
             if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
-                game.apply(b)?;
+                game.apply(b, &ctx)?;
             }
         }
         let header = json!({
@@ -2427,7 +3431,7 @@ pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Pat
         if done < reveal as i64
             && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done)
         {
-            apply_redsim(&mut ours, b)?;
+            apply_redsim(&mut ours, b, &ActCtx::default())?;
         }
     }
     let (_, shown) = actions.iter().find(|(t, _)| *t == reveal).ok_or_else(|| anyhow!("no action of {name} at {reveal}"))?;
@@ -2441,7 +3445,7 @@ pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Pat
         }
     };
     let wake = |mut w: World| -> Result<Option<u32>> {
-        apply_redsim(&mut w, shown)?;
+        apply_redsim(&mut w, shown, &ActCtx::default())?;
         for d in 1..=80u32 {
             w.tick();
             if !sleeping(&w) {
@@ -2536,7 +3540,7 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32) -> Result<()> 
         done += n as i64;
         if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
             println!("(scene action after {done} ticks: {b:?})");
-            game.apply(b)?;
+            game.apply(b, &ActCtx::default())?;
         }
     }
     Ok(())

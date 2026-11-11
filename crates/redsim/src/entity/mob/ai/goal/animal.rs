@@ -7,6 +7,7 @@
 //! ticks), and `AgeableMob.aiStep`'s age (a baby grows up at 0: the adult's size).
 
 use super::{Goal, JUMP, LOOK, MOVE, reduced_tick_delay};
+use super::wolf::WolfState;
 use crate::block::Block;
 use crate::entity::EntityKind;
 use crate::entity::mob::ai::{ai, ai_mut};
@@ -19,8 +20,9 @@ use crate::world::World;
 #[derive(Clone, PartialEq, Debug)]
 pub enum AnimalGoal {
     /// `PanicGoal`: its speed, the position it runs to (`mount`: a horse's `MountPanicGoal`, not
-    /// while a mob rides and steers it).
-    Panic { speed: f64, pos: crate::entity::Vec3, mount: bool },
+    /// while a mob rides and steers it; `env`: a tamable animal's `TamableAnimalPanicGoal` of
+    /// `#panic_environmental_causes` alone: the wolf's).
+    Panic { speed: f64, pos: crate::entity::Vec3, mount: bool, env: bool },
     Breed,
     Tempt,
     /// `FollowParentGoal`: its speed, the parent and `timeToRecalcPath`.
@@ -172,7 +174,9 @@ pub fn horse_seat_shift(w: &World, vi: usize) -> crate::entity::Vec3 {
     if s == 0.0 {
         return crate::entity::Vec3::ZERO;
     }
-    let (y, z) = (0.15 * s, -0.7 * s);
+    // x the scale: getScale() x getAgeScale() (a baby's 0.5)
+    let scale = if is_baby(mob(w, vi).ty.def().id) { 0.5f32 } else { 1.0f32 } as f64;
+    let (y, z) = (0.15 * s * scale, -0.7 * s * scale);
     let a = -w.entities.list[vi].y_rot * (std::f32::consts::PI / 180.0);
     let (c, sn) = (crate::entity::mth::cos(a as f64) as f64, crate::entity::mth::sin(a as f64) as f64);
     crate::entity::Vec3::new(z * sn, y, z * c)
@@ -187,8 +191,12 @@ pub fn adult_of(id: &str) -> Option<&'static str> {
         "sheep" | "baby_sheep" => Some("sheep"),
         "horse" | "baby_horse" => Some("horse"),
         "donkey" | "baby_donkey" => Some("donkey"),
-        "zombie_horse" => Some("zombie_horse"),
+        "zombie_horse" | "baby_zombie_horse" => Some("zombie_horse"),
         "skeleton_horse" => Some("skeleton_horse"),
+        // (mob-AI 2026-11-10) the wolf (a TamableAnimal: an Animal; natural wolves are adults)
+        "wolf" | "baby_wolf" => Some("wolf"),
+        // (mob-AI 2026-11-10) the cat (a TamableAnimal; the CatSpawner's are adults)
+        "cat" => Some("cat"),
         _ => None,
     }
 }
@@ -213,7 +221,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
     match adult_of(id) {
         Some("pig") => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO, mount: false }));
+            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO, mount: false, env: false }));
             g.add(3, an(AnimalGoal::Breed));
             g.add(4, an(AnimalGoal::Tempt));
             g.add(4, an(AnimalGoal::Tempt));
@@ -224,7 +232,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
         }
         Some(k @ ("cow" | "chicken")) => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic { speed: if k == "cow" { 2.0 } else { 1.4 }, pos: crate::entity::Vec3::ZERO, mount: false }));
+            g.add(1, an(AnimalGoal::Panic { speed: if k == "cow" { 2.0 } else { 1.4 }, pos: crate::entity::Vec3::ZERO, mount: false, env: false }));
             g.add(2, an(AnimalGoal::Breed));
             g.add(3, an(AnimalGoal::Tempt));
             g.add(4, follow(if k == "cow" { 1.25 } else { 1.1 }));
@@ -234,7 +242,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
         }
         Some("sheep") => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO, mount: false }));
+            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO, mount: false, env: false }));
             g.add(2, an(AnimalGoal::Breed));
             g.add(3, an(AnimalGoal::Tempt));
             g.add(4, follow(1.1));
@@ -243,6 +251,37 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
             g.add(7, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 6.0)));
             g.add(8, Goal::RandomLookAround(RandomLookAround::default()));
         }
+        // Wolf.registerGoals (an untamed wolf's: SitWhenOrderedTo 2, FollowOwner 6, OwnerHurtBy 1
+        // and OwnerHurt 1-2 never run untamed; WolfAvoidEntity<Llama> 3 finds no llama; Beg 9 no
+        // player holding a bone or meat; ResetUniversalAnger 8 never without the universal-anger
+        // rule): Float 1, TamableAnimalPanic 1 (1.5, environmental causes), LeapAtTarget 4 (0.4),
+        // MeleeAttack 5 (1.0, following unseen), Breed 7, WaterAvoidingRandomStroll 8 (1.0),
+        // LookAtPlayer 10 (8), RandomLookAround 10; the targets HurtBy 3 (alerting wolves), the
+        // player it is angry at 4, prey 5 (sheep, rabbits, foxes), baby turtles 6, skeletons 7
+        Some("wolf") => {
+            use super::melee::{MeleeAttack, MeleeKind};
+            use super::targets::{HurtByTarget, NearestAttackableTarget, TargetType};
+            g.add(1, Goal::Float);
+            g.add(1, an(AnimalGoal::Panic { speed: 1.5, pos: crate::entity::Vec3::ZERO, mount: false, env: true }));
+            g.add(4, Goal::LeapAtTarget(0.4));
+            g.add(5, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Melee, 1.0, true)));
+            g.add(7, an(AnimalGoal::Breed));
+            g.add(8, Goal::RandomStroll(RandomStroll::water_avoiding(1.0)));
+            g.add(10, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 8.0)));
+            g.add(10, Goal::RandomLookAround(RandomLookAround::default()));
+            let t = &mut a.targets;
+            t.add(3, Goal::HurtByTarget(HurtByTarget::new(true)));
+            t.add(4, Goal::NearestAttackableTarget(NearestAttackableTarget::new(TargetType::AngryPlayer, 10, true, false)));
+            t.add(5, Goal::NearestAttackableTarget(NearestAttackableTarget::non_tame(TargetType::WolfPrey)));
+            t.add(6, Goal::NearestAttackableTarget(NearestAttackableTarget::non_tame(TargetType::BabyTurtle)));
+            t.add(7, Goal::NearestAttackableTarget(NearestAttackableTarget::new(TargetType::Skeleton, 10, false, false)));
+            // the wolf's constructor: POWDER_SNOW and ON_TOP_OF_POWDER_SNOW -1
+            a.malus.set(crate::entity::mob::ai::path::path_type::PathType::PowderSnow, -1.0);
+            a.malus.set(crate::entity::mob::ai::path::path_type::PathType::OnTopOfPowderSnow, -1.0);
+            a.wolf = Some(WolfState::default());
+        }
+        // (mob-AI 2026-11-10) a wild cat (goal::cat)
+        Some("cat") => super::cat::register(a),
         // AbstractHorse.registerGoals, then addBehaviourGoals (the goal selector keeps insertion
         // order): RunAroundLikeCrazy 1, Breed 2, FollowParent 4 (1.0), WaterAvoidingRandomStroll 6
         // (0.7), LookAtPlayer 7 (6), RandomLookAround 8, RandomStand 9 (canPerformRearing: every
@@ -260,7 +299,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
             match k {
                 "horse" | "donkey" => {
                     g.add(0, Goal::Float);
-                    g.add(1, an(AnimalGoal::Panic { speed: 1.2, pos: crate::entity::Vec3::ZERO, mount: true }));
+                    g.add(1, an(AnimalGoal::Panic { speed: 1.2, pos: crate::entity::Vec3::ZERO, mount: true, env: false }));
                     g.add(3, an(AnimalGoal::Tempt));
                 }
                 "zombie_horse" => {
@@ -380,14 +419,17 @@ fn follow_can_continue(w: &mut World, i: usize, parent: Option<u32>) -> bool {
 
 pub fn can_use(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
     match g {
-        AnimalGoal::Panic { speed, pos, mount } => {
+        AnimalGoal::Panic { speed, pos, mount, env } => {
             // PanicGoal.canUse: shouldPanic (the last damage within 40 ticks, of #panic_causes;
-            // MountPanicGoal: not while a mob rides and steers it); burning, the closest water
-            // within 5 (lookForWater, from a cell without a collision shape); else
-            // DefaultRandomPos.getPos(5, 4)
+            // a wolf's: of #panic_environmental_causes; MountPanicGoal: not while a mob rides and
+            // steers it); burning, the closest water within 5 (lookForWater, from a cell without
+            // a collision shape); else DefaultRandomPos.getPos(5, 4)
             let now = w.time;
+            let env_only = *env;
             let panics = mob(w, i).last_damage.is_some_and(|(t, s)| {
-                now - t <= 40 && matches!(s, Damage::Lava | Damage::OnFire | Damage::HotFloor | Damage::Lightning | Damage::InFire | Damage::MobAttack | Damage::Arrow)
+                now - t <= 40
+                    && (matches!(s, Damage::Lava | Damage::OnFire | Damage::HotFloor | Damage::Lightning | Damage::InFire)
+                        || (!env_only && matches!(s, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident)))
             });
             if !panics || (*mount && crate::entity::mob::ai::controlled_by_mob(w, i)) {
                 return false;

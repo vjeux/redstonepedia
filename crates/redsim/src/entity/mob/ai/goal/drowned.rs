@@ -1,8 +1,8 @@
 //! The drowned's goals (`Drowned.addBehaviourGoals`, after `Zombie.registerGoals`' turtle eggs and
-//! looks): going to water by day, the trident (none modeled: refused when it would start), the
-//! attack (`DrownedAttackGoal`: the zombie's, only at a target it may hunt), the beach and the swim
-//! up at night (refused when they would start: named in the run's legacy list), the plain stroll;
-//! its targets. Its navigation is amphibious (`AmphibiousPathNavigation`).
+//! looks): going to water by day, the trident (`DrownedTridentAttackGoal`, a `RangedAttackGoal`:
+//! it throws a `ThrownTrident`, `entity::arrow`), the attack (`DrownedAttackGoal`: the zombie's,
+//! only at a target it may hunt), the beach and the swim up at night, the plain stroll; its
+//! targets. Its navigation is amphibious (`AmphibiousPathNavigation`).
 
 use super::look::{LookAtPlayer, LookType, RandomLookAround};
 use super::melee::{MeleeAttack, MeleeKind};
@@ -32,8 +32,32 @@ pub enum DrownedGoal {
     GoToBeach { next_start_tick: i32, try_ticks: i32, max_stay_ticks: i32, block_pos: BlockPos, reached: bool },
     /// `DrownedSwimUpGoal`: `stuck`.
     SwimUp { stuck: bool },
-    /// `DrownedTridentAttackGoal` (`RangedAttackGoal`).
-    TridentAttack,
+    /// `DrownedTridentAttackGoal` (`RangedAttackGoal(1.0, 40, 10.0F)`).
+    TridentAttack(TridentAttack),
+}
+
+/// `RangedAttackGoal`'s state: `target`, `attackTime` (-1: none yet), `seeTime`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct TridentAttack {
+    pub target: Option<u32>,
+    pub attack_time: i32,
+    pub see_time: i32,
+}
+
+impl Default for TridentAttack {
+    fn default() -> TridentAttack {
+        TridentAttack { target: None, attack_time: -1, see_time: 0 }
+    }
+}
+
+/// `DrownedTridentAttackGoal`'s speed, interval (min and max) and radius.
+const TRIDENT_SPEED: f64 = 1.0;
+const TRIDENT_INTERVAL: i32 = 40;
+const TRIDENT_RADIUS: f32 = 10.0;
+
+/// `getMainHandItem().is(Items.TRIDENT)`.
+pub fn holds_trident(w: &World, i: usize) -> bool {
+    mob(w, i).mainhand.as_ref().is_some_and(|h| h.item == "minecraft:trident")
 }
 
 impl DrownedGoal {
@@ -42,7 +66,7 @@ impl DrownedGoal {
             DrownedGoal::GoToWater { .. } => MOVE,
             DrownedGoal::GoToBeach { .. } => MOVE | JUMP,
             DrownedGoal::SwimUp { .. } => 0,
-            DrownedGoal::TridentAttack => MOVE | LOOK,
+            DrownedGoal::TridentAttack(_) => MOVE | LOOK,
         }
     }
 
@@ -51,13 +75,13 @@ impl DrownedGoal {
             DrownedGoal::GoToWater { .. } => "DrownedGoToWaterGoal",
             DrownedGoal::GoToBeach { .. } => "DrownedGoToBeachGoal",
             DrownedGoal::SwimUp { .. } => "DrownedSwimUpGoal",
-            DrownedGoal::TridentAttack => "DrownedTridentAttackGoal",
+            DrownedGoal::TridentAttack(_) => "DrownedTridentAttackGoal",
         }
     }
 
     /// `requiresUpdateEveryTick()`: `MoveToBlockGoal`'s and `RangedAttackGoal`'s.
     pub fn every_tick(&self) -> bool {
-        matches!(self, DrownedGoal::GoToBeach { .. } | DrownedGoal::TridentAttack)
+        matches!(self, DrownedGoal::GoToBeach { .. } | DrownedGoal::TridentAttack(_))
     }
 }
 
@@ -71,7 +95,7 @@ pub fn register(ai: &mut MobAi) {
     ai.goals.add(8, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 8.0)));
     ai.goals.add(8, Goal::RandomLookAround(RandomLookAround::default()));
     ai.goals.add(1, Goal::Drowned(DrownedGoal::GoToWater { wanted: Vec3::ZERO }));
-    ai.goals.add(2, Goal::Drowned(DrownedGoal::TridentAttack));
+    ai.goals.add(2, Goal::Drowned(DrownedGoal::TridentAttack(TridentAttack::default())));
     ai.goals.add(2, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Drowned, 1.0, false)));
     ai.goals.add(5, Goal::Drowned(DrownedGoal::GoToBeach { next_start_tick: 0, try_ticks: 0, max_stay_ticks: 0, block_pos: BlockPos::new(0, 0, 0), reached: false }));
     ai.goals.add(6, Goal::Drowned(DrownedGoal::SwimUp { stuck: false }));
@@ -150,10 +174,6 @@ fn close_to_next_pos(w: &World, i: usize) -> bool {
     dx * dx + dy * dy + dz * dz < 4.0
 }
 
-fn legacy(w: &mut World, what: &'static str) {
-    w.mob.ai.legacy.insert(what);
-}
-
 pub fn can_use(w: &mut World, i: usize, g: &mut DrownedGoal) -> bool {
     match g {
         // canUse: by day, out of water, a water cell among 10 tries around (nextInt(20) - 10,
@@ -189,14 +209,22 @@ pub fn can_use(w: &mut World, i: usize, g: &mut DrownedGoal) -> bool {
         }
         // by night, in water, more than 2 under the sea level
         DrownedGoal::SwimUp { .. } => !super::zombie::is_bright_outside(w) && w.entities.list[i].was_touching_water && w.entities.list[i].pos.y < (sea_level(w) - 2) as f64,
-        // RangedAttackGoal.canUse (a live target) and a trident in its hand: none here
-        DrownedGoal::TridentAttack => {
-            if ai(w, i).trident && super::super::target::get_target(w, i).is_some() {
-                legacy(w, "a drowned's trident (DrownedTridentAttackGoal: it attacks in melee instead)");
-            }
-            false
-        }
+        // DrownedTridentAttackGoal.canUse: RangedAttackGoal's (a live target, kept) and a trident
+        // in its main hand
+        DrownedGoal::TridentAttack(g) => trident_can_use(w, i, g),
     }
+}
+
+/// `DrownedTridentAttackGoal.canUse()`: `RangedAttackGoal.canUse` (a live target, which it keeps)
+/// and a trident in its main hand.
+fn trident_can_use(w: &mut World, i: usize, g: &mut TridentAttack) -> bool {
+    let Some(t) = super::super::target::get_target(w, i) else { return false };
+    let alive = super::super::target::who(w, t).is_some_and(|who| super::super::target::is_alive(w, who));
+    if !alive {
+        return false;
+    }
+    g.target = Some(t);
+    holds_trident(w, i)
 }
 
 pub fn can_continue(w: &mut World, i: usize, g: &mut DrownedGoal) -> bool {
@@ -207,7 +235,11 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut DrownedGoal) -> bool {
         DrownedGoal::GoToBeach { try_ticks, max_stay_ticks, block_pos, .. } => *try_ticks >= -*max_stay_ticks && *try_ticks <= 1200 && beach_target(w, *block_pos),
         // canUse and not stuck
         DrownedGoal::SwimUp { stuck } => !*stuck && !super::zombie::is_bright_outside(w) && w.entities.list[i].was_touching_water && w.entities.list[i].pos.y < (sea_level(w) - 2) as f64,
-        _ => false,
+        // RangedAttackGoal.canContinueToUse: canUse, or its target alive and the navigation going
+        DrownedGoal::TridentAttack(g) => {
+            trident_can_use(w, i, g)
+                || (g.target.and_then(|t| super::super::target::who(w, t)).is_some_and(|who| super::super::target::is_alive(w, who)) && !crate::entity::mob::ai::nav_of(w, i).is_done())
+        }
     }
 }
 
@@ -232,7 +264,11 @@ pub fn start(w: &mut World, i: usize, g: &mut DrownedGoal) {
             crate::entity::mob::ai::ai_mut(w, i).searching_for_land = true;
             *stuck = false;
         }
-        DrownedGoal::TridentAttack => {}
+        DrownedGoal::TridentAttack(_) => {
+            // DrownedTridentAttackGoal.start: aggressive, the trident in use (main hand)
+            crate::entity::mob::ai::ai_mut(w, i).aggressive = true;
+            super::skeleton::start_using_item(w, i);
+        }
     }
 }
 
@@ -271,7 +307,52 @@ pub fn tick(w: &mut World, i: usize, g: &mut DrownedGoal) {
                 }
             }
         }
+        DrownedGoal::TridentAttack(g) => trident_tick(w, i, g),
         _ => {}
+    }
+}
+
+/// `RangedAttackGoal.tick()`: the sight time; within the radius (10) and seen for 5 ticks the
+/// navigation stops, else it moves to the target (1.0); it looks at the target (30, 30); when
+/// the attack time runs out with the target in sight it throws (`performRangedAttack`) and waits
+/// `floor(dist / radius x 0 + 40)`; a first wait of `floor(lerp(dist / radius, 40, 40))`.
+fn trident_tick(w: &mut World, i: usize, g: &mut TridentAttack) {
+    let Some(t) = g.target.and_then(|id| super::super::target::who(w, id)) else { return };
+    let tp = super::super::target::pos_of(w, t);
+    let target_dist_sqr = w.entities.list[i].pos.distance_to_sqr(tp);
+    let has_los = super::super::target::has_line_of_sight(w, i, t);
+    if has_los {
+        g.see_time += 1;
+    } else {
+        g.see_time = 0;
+    }
+    let radius_sqr = TRIDENT_RADIUS * TRIDENT_RADIUS;
+    if !(target_dist_sqr > radius_sqr as f64) && g.see_time >= 5 {
+        with_nav(w, i, |_, _, nav, _| nav.stop());
+    } else {
+        let tb = super::melee::target_block(w, t);
+        with_nav(w, i, |w, nm, nav, arena| nav.move_to_entity_default(w, nm, tb, TRIDENT_SPEED, arena));
+    }
+    let te = super::super::target::eye_of(w, t);
+    crate::entity::mob::ai::ai_mut(w, i).look.set_look_at(te.x, te.y, te.z, 30.0, 30.0);
+    g.attack_time -= 1;
+    if g.attack_time == 0 {
+        if !has_los {
+            return;
+        }
+        let dist = (target_dist_sqr.sqrt() as f32) / TRIDENT_RADIUS;
+        let super::super::target::Who::Entity(j) = t else {
+            let why = "a drowned throwing its trident at a player is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+            return;
+        };
+        crate::entity::arrow::throw_trident_from_mob(w, i, j);
+        g.attack_time = crate::entity::mth::floor((dist * (TRIDENT_INTERVAL - TRIDENT_INTERVAL) as f32 + TRIDENT_INTERVAL as f32) as f64);
+    } else if g.attack_time < 0 {
+        let d = target_dist_sqr.sqrt() / TRIDENT_RADIUS as f64;
+        g.attack_time = crate::entity::mth::floor(crate::entity::mth::lerp(d, TRIDENT_INTERVAL as f64, TRIDENT_INTERVAL as f64));
     }
 }
 
@@ -279,6 +360,13 @@ pub fn tick(w: &mut World, i: usize, g: &mut DrownedGoal) {
 pub fn stop(w: &mut World, i: usize, g: &mut DrownedGoal) {
     if let DrownedGoal::SwimUp { .. } = g {
         crate::entity::mob::ai::ai_mut(w, i).searching_for_land = false;
+    }
+    // RangedAttackGoal.stop (the target, sight and attack times reset), then the trident goal's:
+    // the item released, not aggressive
+    if let DrownedGoal::TridentAttack(t) = g {
+        *t = TridentAttack::default();
+        super::skeleton::stop_using_item(w, i);
+        crate::entity::mob::ai::ai_mut(w, i).aggressive = false;
     }
 }
 

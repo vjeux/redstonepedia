@@ -16,6 +16,38 @@ pub enum Who {
     Entity(usize),
     /// A player, by index in `MobWorld.ai.players`.
     Player(usize),
+    /// (tickexact 2026-11-10) An entity of the other dimension, by index in [`World::foreign`]: a
+    /// Nether mob's target in the overworld (a copy's saved NeutralMob anger target, which
+    /// `readPersistentAngerSaveData` resolves in any dimension). Never in line of sight.
+    Foreign(usize),
+}
+
+/// (tickexact 2026-11-10) An entity of the other dimension as a target sees it this tick (its
+/// own world's state after its own tick: the Nether ticks after the overworld).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Foreign {
+    pub id: u32,
+    pub pos: Vec3,
+    pub eye: Vec3,
+    pub bb: Aabb,
+    pub alive: bool,
+    pub ty: Option<MobType>,
+    pub in_water: bool,
+}
+
+/// (tickexact 2026-11-10) The snapshot of entity `id` of world `w` (for the other dimension's
+/// [`World::foreign`]); `None` if `w` has no such entity.
+pub fn foreign_of(w: &World, id: u32) -> Option<Foreign> {
+    let j = crate::entity::index_of(w, id)?;
+    let e = &w.entities.list[j];
+    if e.removed {
+        return None;
+    }
+    let (alive, ty) = match &e.kind {
+        EntityKind::Mob(m) => (m.health > 0.0, Some(m.ty)),
+        _ => (false, None),
+    };
+    Some(Foreign { id, pos: e.pos, eye: super::eye_pos(w, j), bb: e.bb, alive, ty, in_water: e.was_touching_water })
 }
 
 /// `EntityTypes.PLAYER`'s box and eye.
@@ -28,7 +60,7 @@ pub fn who(w: &World, id: u32) -> Option<Who> {
         let k = (id - PLAYER_ID_BASE) as usize;
         return (k < w.mob.ai.players.len()).then_some(Who::Player(k));
     }
-    crate::entity::index_of(w, id).filter(|&j| !w.entities.list[j].removed).map(Who::Entity)
+    crate::entity::index_of(w, id).filter(|&j| !w.entities.list[j].removed).map(Who::Entity).or_else(|| w.foreign.iter().position(|f| f.id == id).map(Who::Foreign))
 }
 
 /// A target's feet.
@@ -36,6 +68,7 @@ pub fn pos_of(w: &World, t: Who) -> Vec3 {
     match t {
         Who::Entity(j) => w.entities.list[j].pos,
         Who::Player(k) => w.mob.ai.players[k].pos,
+        Who::Foreign(f) => w.foreign[f].pos,
     }
 }
 
@@ -47,6 +80,7 @@ pub fn eye_of(w: &World, t: Who) -> Vec3 {
             let p = w.mob.ai.players[k].pos;
             Vec3::new(p.x, p.y + PLAYER_EYE as f64, p.z)
         }
+        Who::Foreign(f) => w.foreign[f].eye,
     }
 }
 
@@ -55,6 +89,7 @@ pub fn box_of(w: &World, t: Who) -> Aabb {
     match t {
         Who::Entity(j) => w.entities.list[j].bb,
         Who::Player(k) => crate::entity::make_bounding_box(w.mob.ai.players[k].pos, PLAYER_WIDTH, PLAYER_HEIGHT),
+        Who::Foreign(f) => w.foreign[f].bb,
     }
 }
 
@@ -62,6 +97,7 @@ pub fn id_of(w: &World, t: Who) -> u32 {
     match t {
         Who::Entity(j) => w.entities.list[j].id,
         Who::Player(k) => PLAYER_ID_BASE + k as u32,
+        Who::Foreign(f) => w.foreign[f].id,
     }
 }
 
@@ -73,6 +109,7 @@ pub fn is_alive(w: &World, t: Who) -> bool {
             !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.health > 0.0)
         }
         Who::Player(_) => true,
+        Who::Foreign(f) => w.foreign[f].alive,
     }
 }
 
@@ -132,19 +169,18 @@ pub fn set_target(w: &mut World, i: usize, t: Option<u32>) {
     // delay and alert interval
     super::goal::zombie::piglin_on_set_target(w, i, before, v);
     ai_mut(w, i).target = v;
-    // a zombie holding an iron spear with a target: SpearUseGoal (priority 2) would charge with
-    // it; not modeled, its melee attack runs instead (named in the run's legacy list)
-    if v.is_some() && ai(w, i).spear {
-        w.mob.ai.legacy.insert("a zombie's iron spear (SpearUseGoal: it attacks in melee instead)");
-    }
     let now = w.entities.list[i].tick_count;
     if let Some(s) = ai_mut(w, i).enderman.as_mut() {
         s.target_change_time = if v.is_some() { now } else { 0 };
     }
 }
 
-/// `Sensing.hasLineOfSight(target)` (cached for this AI step).
+/// `Sensing.hasLineOfSight(target)` (cached for this AI step). An entity of another level is never
+/// in sight (`LivingEntity.hasLineOfSight`: `entity.level() != this.level()`).
 pub fn has_line_of_sight(w: &mut World, i: usize, t: Who) -> bool {
+    if matches!(t, Who::Foreign(_)) {
+        return false;
+    }
     let id = id_of(w, t);
     if ai(w, i).sensing.seen.contains(&id) {
         return true;
@@ -164,9 +200,14 @@ pub fn has_line_of_sight(w: &mut World, i: usize, t: Who) -> bool {
     v
 }
 
-/// `getVisibilityPercent(level, targeter)` (no sneaking, invisibility or mob heads modeled: 1).
-pub fn visibility_percent(_w: &World, _t: Who, _i: usize) -> f64 {
-    1.0
+/// `getVisibilityPercent(level, targeter)`: an invisible mob (a spider's spawn effect) 0.7 x its
+/// armour cover (at least 0.1: an invisible spider wears none, so 0.7 x 0.1F); no sneaking or mob
+/// heads modeled.
+pub fn visibility_percent(w: &World, t: Who, _i: usize) -> f64 {
+    match t {
+        Who::Entity(j) if matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.effects.invisibility > 0) => 0.7 * (0.1f32 as f64),
+        _ => 1.0,
+    }
 }
 
 /// `TargetingConditions`.
@@ -266,6 +307,7 @@ pub fn type_of(w: &World, t: Who) -> Option<MobType> {
             _ => None,
         },
         Who::Player(_) => None,
+        Who::Foreign(f) => w.foreign[f].ty,
     }
 }
 

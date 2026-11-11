@@ -217,6 +217,48 @@ slot for slot). `mctas mobfarm station-bench <design> --from S --to S --timeline
 station + portal pad part (regions `station`, `pad` and `hold`, signal `pulse`; the timeline reads
 the world's mob events through `observe`, which the bench reads too, and its output is the same with
 or without the flag).
+The brief's two placement checks on a part's bench (farm-iron-carousel, "settled as placed" and
+"built in order"; ironfarm's queue-loop-run flags on explore/ironfarm): `mctas mobfarm siding-bench`
+and `linear-bench` take `--placed-raw` (the design file pasted raw, its `nbt:` lines merged, no shape
+or neighbour update and no settle, a Nether part too), `--placed-in-order [GAP]` (the worlds empty,
+each build step placed with the game's updates, a Nether part first, its world ticking through its
+build and the player's 80 gt in the portal back, then the overworld's; each cell's priced gap, 20 gt
+or 40 gt at a cell the bill charges place:edge, or GAP gt for every step; then the entities; the
+cells the build leaves unlike the file fail the run), `--placed-all` (the judge's, the raw paste and
+built in order, each reported) and `--build-gap-sweep` (built in order at every gap from 1 to 40 gt,
+to the first that fails); `--drive-out F` with them writes the build into the drive (ironfarm's
+`build:` header and `spawn S`, `act t set|nbt ...` per placement and fill, a Nether part's as `act t
+nether-set|nether-nbt ...`, every time from the build's start). The order is
+`mobfarm::placing::build_steps_of`: ironfarm's `build_order_of` (supports bottom up, containers
+filled as placed, rails, redstone from its sources outward), each lit portal's cells at one tick
+after every other block, fluid sources poured last, and the design's listed steps, its `build:` line:
+`last x,y,z ...` (cells placed after everything else, in order: a latch's torch that is off at rest)
+and `fills-last` (every container's contents a step of its own after every placement, no comparator
+output merged: a sorter whose locks come with its redstone). `mctas mobfarm siding --out F` and
+`linear --out F` write their files settled (`placing::settle_design`: every cell as the bench finds
+it after the settle, flowing fluids included, comparator outputs as `nbt:` lines; `--unsettled` for
+the generator's own states); `siding --alone` writes the siding by itself (no launcher, approach,
+run-out, hold or carts), `--exit-brake` puts a braked powered rail past its exit cell and
+`--cage-only` closes the bed's open north front (the bed reachable only from the cage);
+`--wired` includes the give-up: by default `--give-up scheduler` (one input, F (-5,-3,-4), which
+day-1's scheduler pulses 12 gt 118-150 gt after each arrival; the siding gates it with a copper bulb
+lit from the arrival to the return and sets its visit latch, so a napper that cannot sleep still
+leaves), `--give-up timer` (its own arrival latch and 220 gt comparator timer) or `none`;
+`siding-bench` drives F as day-1's scheduler would (`--force-at 118,150`, `--no-force`) and prints
+the pulses, the visits not asleep by them, the pulse to ready, the sleep onset after the arrival
+(the earliest F's bound) and the pulse to the cart past the exit (the latest F's);
+`--drop-force K` is the fault injection (visit K's napper cannot sleep and its F is dropped; it
+prints what the stuck cart and the next visits do);
+`siding-bench --day-visits` (every visit by day: no napper sleeps) and `--fail-no-home N` (the
+first N villagers' HOME erased before each of their visits) are its forced failures: every cart
+must still be on the slot with its villager within 500 gt of its arrival;
+`siding-bench --release-held` holds the release input on all run (each napped cart leaves the slot
+as it reaches it). The siding bench sets no villager memory (HOME = the bed comes from the design's
+`port home:`, R1's state), gives each of the 21 villagers one visit a night (the full nights after
+the spawn) and prints ironspec's check: every villager's HOME at every dawn and midday, naps per
+villager-night, and each HOME loss and its reclaim. A design with `port home:` pays R1's N - 1
+break-and-replace steps in its bill (prices.tsv's `bed_reclaim`). `MCTAS_BUILD_WATCH="x,y,z n1,59,0 ..."` prints the watched cells (`n`: the
+Nether's) on stderr whenever one changes during a build.
 The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
 --threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
 level (static, quick for the first `--quick` passing static, full for the first `--full` passing

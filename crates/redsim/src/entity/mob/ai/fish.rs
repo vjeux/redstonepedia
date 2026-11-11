@@ -62,8 +62,8 @@ pub fn is_fish(w: &World, i: usize) -> bool {
 pub fn register(a: &mut super::MobAi, id: &str) {
     use super::goal::Goal;
     use super::goal::animal::AnimalGoal;
-    a.goals.add(0, Goal::Animal(AnimalGoal::Panic { speed: 1.25, pos: Vec3::ZERO, mount: false }));
-    a.goals.add(2, Goal::AvoidEntity);
+    a.goals.add(0, Goal::Animal(AnimalGoal::Panic { speed: 1.25, pos: Vec3::ZERO, mount: false, env: false }));
+    a.goals.add(2, Goal::AvoidEntity(super::goal::avoid::AvoidEntity::new(super::goal::avoid::AvoidClass::Player, 8.0, 1.6, 1.4)));
     a.goals.add(4, Goal::RandomStroll(RandomStroll::fish_swim()));
     a.goals.add(5, Goal::Fish(FishGoal::FollowLeader { next_start_tick: 0, time_to_recalc_path: 0 }));
     a.fish = Some(FishState { max_school: if id == "salmon" { 5 } else { 8 }, leader: None, school_size: 1 });

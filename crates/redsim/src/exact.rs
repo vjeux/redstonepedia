@@ -80,6 +80,9 @@ pub struct Frame {
     pub containers: Vec<([i32; 3], String)>,
     /// The game's AFK player's position (the bridge's frames; redsim's is `World::afk`).
     pub player: Option<[f64; 3]>,
+    /// (tickexact 2026-11-10, farmopt's station) The Nether's frame of the same tick (the
+    /// bridge's Nether sandbox; redsim's `World::nether`), when one is traced.
+    pub nether: Option<Box<Frame>>,
 }
 
 /// A container's items, slot by slot (`slot:item:count`, empty slots left out) and, for a
@@ -233,7 +236,7 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
             EntityKind::Minecart(m) => if m.hopper { "hopper_minecart".into() } else { "minecart".into() },
             EntityKind::ArmorStand(_) => "armor_stand".into(),
             EntityKind::PrimedTnt(_) => "tnt".into(),
-            EntityKind::Arrow(_) => "arrow".into(),
+            EntityKind::Arrow(a) => if a.trident { "trident".into() } else { "arrow".into() },
         },
         pos: v(e.pos),
         motion: v(e.delta_movement),
@@ -347,7 +350,7 @@ pub struct Compare {
 
 /// The kind of a difference's category, for [`Compare::only`].
 pub fn kind_of_category(category: &str) -> &'static str {
-    match category {
+    match category.strip_prefix("Nether ").unwrap_or(category) {
         "game time" | "AFK player" | "level random" | "randValue" | "day time" | "weather" => "world",
         "block" | "container" => "blocks",
         _ => "entities",
@@ -386,18 +389,26 @@ impl Compare {
     }
 
     /// Compare one tick's frames: every difference of the tick is found; the first of the
-    /// compare and the first of each category are kept.
+    /// compare and the first of each category are kept. (tickexact 2026-11-10) Their Nether
+    /// frames too, when both carry one: its differences named "Nether ...".
     pub fn tick(&mut self, game: &Frame, ours: &Frame) {
         self.ticks += 1;
+        self.frame_pair(game, ours, "");
+        if let (Some(g), Some(o)) = (&game.nether, &ours.nether) {
+            self.frame_pair(g, o, "Nether ");
+        }
+    }
+
+    fn frame_pair(&mut self, game: &Frame, ours: &Frame, prefix: &str) {
         let t = game.t;
-        if self.probe_at == Some(t) {
+        if self.probe_at == Some(t) && prefix.is_empty() {
             for (stream, site, n) in &game.draws {
                 self.probe.push(format!("game draw: {stream} {site} x{n}"));
             }
         }
         let mut ds: Vec<Difference> = Vec::new();
         let mut push = |what: String, category: &str, g: String, o: String, context: Vec<String>| {
-            ds.push(Difference { t, what, category: category.to_string(), game: g, redsim: o, context });
+            ds.push(Difference { t, what: format!("{prefix}{what}"), category: format!("{prefix}{category}"), game: g, redsim: o, context });
         };
         if game.t != ours.t {
             push("game time".into(), "game time", game.t.to_string(), ours.t.to_string(), Vec::new());
