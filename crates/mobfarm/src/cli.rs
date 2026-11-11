@@ -291,6 +291,19 @@ pub enum MobfarmCmd {
     /// mobinfra: bolts summoned in fixed scenarios (hits through roofs, the box's edge, a boat, a
     /// drop, a golem, the bolt's fire), the game's outcome beside redsim's.
     BoltCheck,
+    /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
+    /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
+    /// 16/7 and stroll 2/2, IDLE's stroll 10/7 and walks to villagers within 8, job-site / bell walks,
+    /// REST's HOME walk), the chance an event picks each, and whether a complete path reaches it
+    FleeCheck {
+        design: PathBuf,
+        /// The bed (HOME) for REST's walk: `x,y,z` (default: the design's `port home:` line)
+        #[arg(long, value_delimiter = ',')]
+        home: Vec<i32>,
+        /// Unreached cells printed a place
+        #[arg(long, default_value_t = 6)]
+        show: usize,
+    },
     /// One judge run of a design on redsim: its table.
     Run {
         design: PathBuf,
@@ -3401,6 +3414,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::SidingCheck { design } => {
             let (_c, spec) = load(version, &design)?;
             for l in crate::siding::check(&spec).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::FleeCheck { design, home, show } => {
+            let (_c, spec) = load(version, &design)?;
+            // (the bed: --home, else the design's `port home:` line)
+            let text = std::fs::read_to_string(&design)?;
+            let port = text.lines().find_map(|l| l.strip_prefix("port home:")).map(|r| r.split_whitespace().filter_map(|t| t.parse::<i32>().ok()).collect::<Vec<_>>());
+            let h = if home.len() == 3 { Some(home) } else { port.filter(|v| v.len() == 3) };
+            let bed = h.map(|v| redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            let places = crate::fleecheck::check(&spec, bed).map_err(|e| anyhow::anyhow!(e))?;
+            let jobs = crate::fleecheck::job_and_bell_blocks(&spec);
+            for l in crate::fleecheck::report(&places, &jobs, show) {
                 println!("{l}");
             }
         }
