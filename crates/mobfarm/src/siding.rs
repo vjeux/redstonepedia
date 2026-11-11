@@ -630,24 +630,31 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     // (-1,0,2), watching the bed head as the first watches the foot, its pulses into the bulb
     // (-2,0,2), glass over it (a golem spot otherwise). Not on the S stair: a copper bulb is no
     // conductor and would cut the stair's climb, and the parts keep clear of the stair's cut cells
-    // (-3,0,4), (-3,-1,3), (-3,-2,2). Its comparator (-3,0,2) puts B out at (-4,0,2), down a stair
-    // (-5,-1,2) on N1's glass cap, (-6,-2,2), into D1 (-6,-3,3), the chain's start: not-H or B
+    // (-3,0,4), (-3,-1,3), (-3,-2,2). Its comparator (-3,0,2) puts B out at (-4,0,2), west and
+    // south round the S stair (dust on stone, never beside a stair cell: a stair dust with stone
+    // beside it climbs to any dust on top) down to (-4,-3,6), into the chain through a repeater
+    // (-5,-3,6) at its merge cell (-6,-3,6), after two repeaters: the chain carries not-H or B,
+    // and B stays out of D1 (D1 also powers N2, the H latch's reset: B there would hold H off
+    // through every nap). (The first route went down onto N1's glass cap: dust on glass carries
+    // power up the stair and not down, so B never reached the chain.)
     swap(b, [-1, 0, 2], "observer[facing=east,powered=false]")?;
     on(b, [-2, 0, 2], bulb)?;
     put(b, [-2, 1, 2], "glass")?;
     on(b, [-3, 0, 2], &cmp("east"))?;
-    on(b, [-4, 0, 2], dust)?;
-    put(b, [-5, -1, 2], dust)?;
-    on(b, [-6, -2, 2], dust)?;
-    // the chain: 4-tick repeaters all along (about 44 gt)
-    for z in 4..=8 {
+    for c in [[-4, 0, 2], [-5, 0, 2], [-5, 0, 3], [-5, -1, 4], [-5, -2, 5], [-4, -2, 5], [-4, -3, 6]] {
+        on(b, c, dust)?;
+    }
+    on(b, [-5, -3, 6], &rep("east", 1))?;
+    // the chain: 8-gt repeaters, (-6,-3,6) the merge cell (dust)
+    for z in [4, 5, 7, 8] {
         swap(b, [-6, -3, z], &rep("north", 4))?;
     }
-    // (repeater delays count redstone ticks: 4 = 8 gt. The chain: five 8-gt repeaters down x -6,
-    // two on z 9, then four 2-gt ones: about 64 gt, design (b)'s D = 60 as emulated. Longer, the
-    // previous visit's tail still in the chain could kick a quick follow-up's napper at its wake)
+    swap(b, [-6, -3, 6], dust)?;
+    // (repeater delays count redstone ticks: 4 = 8 gt. After the merge: two 8-gt repeaters down
+    // x -6, five on z 9, one 2-gt one: about 60 gt from B's fall (the wake) to the chain's end,
+    // design (b)'s D = 60 as emulated)
     for x in -5..=0 {
-        swap(b, [x, -3, 9], &rep("west", if x <= -4 { 4 } else { 1 }))?;
+        swap(b, [x, -3, 9], &rep("west", if x <= -1 { 4 } else { 1 }))?;
     }
     // B now, the second bulb under the S dust, into the chain's end through (1,-2,8)
     swap(b, [0, -1, 5], bulb)?;
@@ -2550,7 +2557,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("obs", [0, 0, 4]),
                 ("s0", [0, 0, 5]),
                 ("B1", [-2, 0, 2]),
-                ("Ds", [-3, -3, 3]),
+                ("D1", [-6, -3, 3]),
+                ("CB1", [-3, 0, 2]),
+                ("b42", [-4, 0, 2]),
+                ("b51", [-5, -1, 2]),
+                ("b62", [-6, -2, 2]),
+                ("D1n", [-7, -3, 0]),
                 ("Dr", [-3, -3, 4]),
                 ("CN", [-3, -3, 5]),
                 ("FA", [-1, -6, 7]),
