@@ -743,13 +743,18 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     b.on([19, -6, 10], &rep("west", 2))?;
     b.on([20, -6, 10], &comp("south", "subtract"))?;
     b.on([17, -6, 10], &rep("west", 1))?;
-    // the chain north: T0 (20, -6, 9), five repeaters, T1 (20, -6, 3), five, T2 (20, -6, -3)
+    // the chain north: T0 (20, -6, 9), five repeaters, T1 (20, -6, 3), five, T2 (20, -6, -3). The
+    // first after T0 at 2 rt: cart k's window starts 0 / +12 / +22 after cart 0's, not 0 / +10 /
+    // +20 (51b2aacd and ironspec 2026-11-10/11: the stand's guard sends its carts 13 and 10 gt
+    // apart; >= 3 gt each side of every cart's occupancy of the corner cell: +21..+30, +33..+42,
+    // +43..+52 against the guard's +24..+25, +37..+39, +47..+48. Lands with the guard only: the
+    // old stand's carts 1 and 2 would get 1 gt before their windows)
     let tz = [9, 3, -3];
     for (k, &z) in tz.iter().enumerate() {
         b.put([20, -6, z], STONE)?;
         if k < 2 {
             for dz in 1..=5 {
-                b.on([20, -6, z - dz], &rep("south", 1))?;
+                b.on([20, -6, z - dz], &rep("south", if k == 0 && dz == 1 { 2 } else { 1 }))?;
             }
         }
         // P_k east of the tap, its side from the north: a repeater fed by the row of NOT l_k
