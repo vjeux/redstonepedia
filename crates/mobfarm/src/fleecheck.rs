@@ -137,6 +137,29 @@ pub struct EyeHit {
     pub suffocating: bool,
 }
 
+/// The blindness controls (ironspec Nov 11 14:08: sight clips from the eye point, so a rider is
+/// blind only with the point inside a collision shape): a rider on a lone east-west rail at
+/// (0,0,0), first with a top slab in its eye cell (0,1,0), the eye point inside it: blind; then
+/// with the top slab one cell along at (1,1,0), where the rider's eye box at 0.9 along the rail
+/// grazes it with the point outside: sighted. Each (what, blind found, as expected).
+pub fn blind_control() -> Result<Vec<(&'static str, bool, bool)>, String> {
+    let stone = redsim::block::Block::parse("minecraft:stone")?;
+    let rail = redsim::block::Block::parse("minecraft:rail[shape=east_west]")?;
+    let slab = redsim::block::Block::parse("minecraft:smooth_stone_slab[type=top]")?;
+    let mut out = Vec::new();
+    for (what, at, want) in [("the eye point inside a top slab at the eye cell (0,1,0)", BlockPos::new(0, 1, 0), true), ("the eye box grazing a top slab at (1,1,0), the point outside", BlockPos::new(1, 1, 0), false)] {
+        let mut blocks = vec![(BlockPos::new(0, -1, 0), stone.clone()), (BlockPos::new(0, 0, 0), rail.clone()), (at, slab.clone())];
+        if at.x == 1 {
+            blocks.push((BlockPos::new(1, -1, 0), stone.clone()));
+        }
+        let spec = FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(20, 1, 0), lo: BlockPos::new(-4, -2, -4), hi: BlockPos::new(24, 8, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (_, hits) = eye_check(&spec, false)?;
+        let blind = hits.iter().any(|h| !h.suffocating && h.cell == BlockPos::new(0, 0, 0));
+        out.push((what, blind, blind == want));
+    }
+    Ok(out)
+}
+
 /// The reachability controls (ironspec Nov 11 11:48: flee-check's paths are the villager's own
 /// navigation, required length 48, the search stopping after 767 nodes): a villager at (1,1,1) in
 /// a serpentine corridor one block wide (an open floor beside a wall measured unreachable at a
@@ -195,9 +218,11 @@ pub fn reach_control() -> Result<Vec<(&'static str, bool, usize, bool)>, String>
 
 /// The eye check (ironspec Nov 11 11:53, after 58f770cc's R plate support): at every rail cell,
 /// the rider seated at three points along it, its eye box (`Entity.isInWall`'s: width x 0.8 around
-/// the eye, 1e-6 tall) against every block with a collision shape. A suffocating one hurts the
-/// rider every tick (the census: a cause of a rider's death the farm must exclude); any other
-/// (glass, a closed gate, a slab) blinds it, since its sight ray starts inside the shape. With
+/// the eye, 1e-6 tall) against every suffocating block, and its eye point against every other
+/// collision shape. A suffocating one hurts the rider every tick (the census: a cause of a rider's
+/// death the farm must exclude); any other (glass, a closed gate, a slab) with the eye point
+/// inside it blinds it, since its sight ray starts inside the shape (a shape the eye box only
+/// grazes leaves the point outside, and the ray then misses or crosses it by direction). With
 /// `control`, a stone set at the eye cell of the first rail cell whose eye cell is air first (the
 /// positive control: it must fail). Returns the places checked and the hits.
 pub fn eye_check(spec: &FarmSpec, control: bool) -> Result<(usize, Vec<EyeHit>), String> {
@@ -238,11 +263,20 @@ pub fn eye_check(spec: &FarmSpec, control: bool) -> Result<(usize, Vec<EyeHit>),
                     for x in bb.min_x.floor() as i32..=bb.max_x.floor() as i32 {
                         let p = BlockPos::new(x, y, z);
                         let b = w.get(p);
-                        if b.is_air() || !redsim::entity::collide::boxes_at(w, &b, p).iter().any(|q| q.intersects(bb)) {
+                        if b.is_air() {
+                            continue;
+                        }
+                        // (a suffocating block hurts through `isInWall`'s eye box; any collider
+                        // blinds only when the eye point itself is inside it: the sight ray's
+                        // clip starts there (`LivingEntity.hasLineOfSight`, ClipContext COLLIDER))
+                        let suffocating = redsim::entity::mob::blocks::is_suffocating(&b);
+                        let boxes = redsim::entity::collide::boxes_at(w, &b, p);
+                        let hit = if suffocating { boxes.iter().any(|q| q.intersects(bb)) } else { boxes.iter().any(|q| q.min_x < eye.x && eye.x < q.max_x && q.min_y < eye.y && eye.y < q.max_y && q.min_z < eye.z && eye.z < q.max_z) };
+                        if !hit {
                             continue;
                         }
                         if !hits.iter().any(|h: &EyeHit| h.cell == *c && h.block == p) {
-                            hits.push(EyeHit { cell: *c, eye, block: p, state: b.to_string(), suffocating: redsim::entity::mob::blocks::is_suffocating(&b) });
+                            hits.push(EyeHit { cell: *c, eye, block: p, state: b.to_string(), suffocating });
                         }
                     }
                 }

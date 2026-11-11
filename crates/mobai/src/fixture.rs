@@ -7557,7 +7557,15 @@ pub fn flee_control(name: &str) -> Result<()> {
     let (n, hits) = mobfarm::fleecheck::eye_check(&spec, true).map_err(|e| anyhow!(e))?;
     let (_, eye_fails) = mobfarm::fleecheck::eye_lines(n, &hits, 0);
     println!("eye-control (a stone at the first rail cell's rider eye): the suffocation gate {}", if eye_fails { "FAILS, as it must (PASS)" } else { "passes  DIFFERS" });
-    let bad = bad + rbad + (!eye_fails) as usize;
+    // (the blindness pair, ironspec Nov 11 14:08: the eye point inside a shape is blind; an eye
+    // box only grazing a shape, the point outside, is sighted)
+    let bc = mobfarm::fleecheck::blind_control().map_err(|e| anyhow!(e))?;
+    for (what, blind, ok) in &bc {
+        println!("  blind {what}: {}{}", if *blind { "blind" } else { "sighted" }, if *ok { "" } else { "  DIFFERS" });
+    }
+    let bbad = bc.iter().filter(|b| !b.2).count();
+    println!("blind-control: {} of {} as expected{}", bc.len() - bbad, bc.len(), if bbad == 0 { " (PASS)" } else { "" });
+    let bad = bad + rbad + (!eye_fails) as usize + bbad;
     if bad > 0 {
         bail!("flee-control: {bad} lanes differ");
     }

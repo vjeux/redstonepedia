@@ -3753,6 +3753,11 @@ pub struct LoopTiming {
     pub takeoff_list: bool,
     /// `--calm-list`: every cell's calm rider-ticks at night printed.
     pub calm_list: bool,
+    /// `--no-blind-check`: blind riders at night don't fail the run.
+    pub no_blind_check: bool,
+    /// `--blind-all`: a blind rider at any time of day fails the run (a transit blind tick
+    /// recurs every slot, so a day one stands for a night one; the band search sets it).
+    pub blind_all: bool,
     /// `--start-random`: the run starts at a day time drawn from the seed (the power-on sweep).
     pub start_random: bool,
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
@@ -4148,7 +4153,7 @@ impl LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, no_blind_check: false, blind_all: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -4254,6 +4259,13 @@ pub fn loop_shifted(tm: &LoopTiming, control: &str, s: i64) -> Result<LoopTiming
             None => return Err("tail brakes: give them as --intake-brake A,B".into()),
         },
         "pocket-release" => t.pocket_release += s,
+        // (the escapement's gates, ironspec Nov 11 13:32: G0's opening and window, G_P's opening
+        // and window, and the third admission's time, each a corner or a band edge)
+        "g0-time" => t.esc_adm.0 += s,
+        "g0-width" => t.esc_adm.1 += s,
+        "gp-time" => t.fifo_intake.0 += s,
+        "gp-width" => t.fifo_intake.1 += s,
+        "adm-k2" => t.adm_k2 += s,
         "pocket-reset" => t.pocket_reset += s,
         // (a counting gate shuts on its count, never before: a negative delay never shuts it, so
         // the run fails, which is the line's early end)
@@ -4375,6 +4387,49 @@ pub fn loop_sweep_jobs(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, control: 
     }
     let edge = |v: i64| if v.abs() == range { format!("{v:+} (the sweep's edge)") } else { format!("{v:+}") };
     Ok(line(early as f64, late as f64, format!("{control}: passes from {} to {} gt ({seeds} seeds x {cycles} slots each){}", edge(early), edge(late), if early == 0 || late == 0 { "; FLAGGED: no slack on one side" } else { "" })))
+}
+
+/// The escapement's window bands (ironspec Nov 11 13:32): at every combination of the other
+/// controls' ±2 corners (G_P's opening, G0's opening, the third admission's time), the G0 window's
+/// and the G_P window's passing widths (each swept one gt at a time from its base to the first
+/// failure each way; pass = 0 problems, the blind-rider check included), then each band over all
+/// corners (the widths that pass at every one), its width and centre, and whether it is at least
+/// 5 gt wide (centre ± 2).
+#[allow(clippy::too_many_arguments)]
+pub fn esc_bands(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, range: i64, seed: i64, seeds: i64, cycles: i64, jobs: usize) -> Result<String, String> {
+    let mut out = Vec::new();
+    let mut band_g0 = (i64::MIN, i64::MAX);
+    let mut band_gp = (i64::MIN, i64::MAX);
+    // (a transit blind tick recurs every slot: any blind tick fails a width, day or night)
+    let tm = &LoopTiming { blind_all: true, ..tm.clone() };
+    for dp in [-2i64, 0, 2] {
+        for dg in [-2i64, 0, 2] {
+            for dk in [-2i64, 0, 2] {
+                let mut t = tm.clone();
+                t.fifo_intake.0 += dp;
+                t.esc_adm.0 += dg;
+                t.adm_k2 += dk;
+                let g0 = loop_sweep_jobs(spec, o, &t, "g0-width", range, seed, seeds, cycles, jobs)?;
+                let gp = loop_sweep_jobs(spec, o, &t, "gp-width", range, seed, seeds, cycles, jobs)?;
+                let w = |base: i64, l: &SweepLine| (base + l.early as i64, base + l.late as i64);
+                let (a0, b0) = w(t.esc_adm.1, &g0);
+                let (ap, bp) = w(t.fifo_intake.1, &gp);
+                band_g0 = (band_g0.0.max(a0), band_g0.1.min(b0));
+                band_gp = (band_gp.0.max(ap), band_gp.1.min(bp));
+                out.push(format!("  G_P +{} G0 +{} adm-k2 {}: G0 window passes {a0}..{b0} gt, G_P window {ap}..{bp} gt", t.fifo_intake.0, t.esc_adm.0, t.adm_k2));
+            }
+        }
+    }
+    let verdict = |name: &str, (a, b): (i64, i64)| {
+        if a > b {
+            format!("{name}: no width passes at every corner")
+        } else {
+            let wide = b - a + 1;
+            format!("{name}: {a}..{b} gt at every corner ({wide} wide, centre {}){}", (a + b) / 2, if wide >= 5 { "" } else { " -- under 5 gt wide: timing can't carry it" })
+        }
+    };
+    out.insert(0, format!("escapement window bands ({} corners, {seeds} seed(s) x {cycles} slots each, widths swept to ±{range}): {}; {}", 27, verdict("G0", band_g0), verdict("G_P", band_gp)));
+    Ok(out.join("\n"))
 }
 
 /// The corner runs (the reviewer's note on the tolerance rule): every swept control at its
@@ -4850,6 +4905,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut expose_map: std::collections::BTreeMap<[i32; 3], (u64, i64, u64, u64)> = std::collections::BTreeMap::new();
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
     let mut blind_at: std::collections::BTreeMap<[i32; 3], (u64, u64)> = std::collections::BTreeMap::new();
+    let mut eye_clear_rest: std::collections::BTreeMap<[i32; 3], f64> = std::collections::BTreeMap::new();
     // the loop's places in travel order: slot 0 .. slot q-1, S3, S2, S1
     let q = o.slots as usize;
     let mut places: Vec<[i32; 3]> = lay.slot_cells.clone();
@@ -7616,37 +7672,52 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
         }
-        // (the blind rider-ticks, ironspec Nov 11 12:12: a rider whose eye box meets a collision
-        // shape as the blocks stand this tick (a gate shut or open) sees no hostile; counted per
-        // cell, all day and at night)
+        // (the blind rider-ticks, ironspec Nov 11 12:12: a rider whose eye point is inside a
+        // collision shape as the blocks stand this tick (a gate shut or open) sees no hostile, since
+        // its sight ray's clip starts inside it (`LivingEntity.hasLineOfSight`, COLLIDER); counted
+        // per cell, all day and at night. And at rest, each rider's eye clearance, the eye point's
+        // distance to the nearest collision shape, its least per cell)
         for (k, r) in riders.iter().enumerate() {
             let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
             let e = &run.world.entities.list[i];
             if e.vehicle.is_none() {
                 continue;
             }
-            let eye = e.pos.y + 1.62;
-            let bb = redsim::entity::Aabb::new(e.pos.x - 0.24, eye - 5.0e-7, e.pos.z - 0.24, e.pos.x + 0.24, eye + 5.0e-7, e.pos.z + 0.24);
+            let (ex, ey, ez) = (e.pos.x, e.pos.y + 1.62, e.pos.z);
             let mut blind = false;
-            'cells: for y in bb.min_y.floor() as i32 - 1..=bb.max_y.floor() as i32 {
-                for z in bb.min_z.floor() as i32..=bb.max_z.floor() as i32 {
-                    for x in bb.min_x.floor() as i32..=bb.max_x.floor() as i32 {
+            let mut clear = f64::INFINITY;
+            for y in ey.floor() as i32 - 1..=ey.floor() as i32 + 1 {
+                for z in ez.floor() as i32 - 1..=ez.floor() as i32 + 1 {
+                    for x in ex.floor() as i32 - 1..=ex.floor() as i32 + 1 {
                         let p = BlockPos::new(x, y, z);
                         let s = run.world.get(p);
-                        if !s.is_air() && redsim::entity::collide::boxes_at(&run.world, &s, p).iter().any(|b| b.intersects(bb)) {
-                            blind = true;
-                            break 'cells;
+                        if s.is_air() {
+                            continue;
+                        }
+                        for b in redsim::entity::collide::boxes_at(&run.world, &s, p) {
+                            if b.min_x < ex && ex < b.max_x && b.min_y < ey && ey < b.max_y && b.min_z < ez && ez < b.max_z {
+                                blind = true;
+                            }
+                            let d = |lo: f64, v: f64, hi: f64| (lo - v).max(0.0).max(v - hi);
+                            let (dx, dy, dz) = (d(b.min_x, ex, b.max_x), d(b.min_y, ey, b.max_y), d(b.min_z, ez, b.max_z));
+                            clear = clear.min((dx * dx + dy * dy + dz * dz).sqrt());
                         }
                     }
                 }
             }
-            if blind && let Some(p) = pos_of(&run.world, carts[k]) {
-                let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+            let Some(p) = pos_of(&run.world, carts[k]) else { continue };
+            let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+            if blind {
                 let ent = blind_at.entry(cell).or_insert((0u64, 0u64));
                 ent.0 += 1;
                 if (13670..22330).contains(&tod) {
                     ent.1 += 1;
                 }
+            }
+            let at_rest = redsim::entity::index_of(&run.world, carts[k]).map(|ci| { let v = run.world.entities.list[ci].delta_movement; (v.x * v.x + v.z * v.z).sqrt() < 0.01 }).unwrap_or(false);
+            if at_rest && clear.is_finite() {
+                let m = eye_clear_rest.entry(cell).or_insert(f64::INFINITY);
+                *m = m.min(clear);
             }
         }
         if let Some((c0, c1)) = tm.tail_trace {
@@ -8171,9 +8242,27 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         let mut by: Vec<(&[i32; 3], &(u64, u64))> = blind_at.iter().collect();
         by.sort_by(|a, b| b.1.0.cmp(&a.1.0));
         out.push(format!(
-            "blind rider-ticks (a seated rider's eye inside a collision shape, the gates as they stood; it sees no hostile): {all}, at night {night}{}",
+            "blind rider-ticks (a seated rider's eye point inside a collision shape, the gates as they stood; it sees no hostile): {all}, at night {night}{}",
             if by.is_empty() { String::new() } else { format!(" ({})", by.iter().take(10).map(|(c, (a, n))| format!("{},{},{} {a}/{n}", c[0], c[1], c[2])).collect::<Vec<_>>().join(", ")) }
         ));
+        // (ironspec Nov 11 13:32: what fixes a resting rider's margin; the least clearance per cell
+        // over the whole run, every row and freeze included)
+        let mut clear: Vec<(&[i32; 3], &f64)> = eye_clear_rest.iter().collect();
+        clear.sort_by(|a, b| a.1.total_cmp(b.1));
+        out.push(format!(
+            "eye clearance at rest (a resting rider's eye point to the nearest collision shape, the least per cell): {}",
+            if clear.is_empty() { "-".to_string() } else { clear.iter().take(8).map(|(c, d)| format!("{},{},{} {:.3}", c[0], c[1], c[2], d)).collect::<Vec<_>>().join(", ") }
+        ));
+        // (ironspec Nov 11 13:13: the bar is 0 blind rider-ticks at night; a blind rider is calm,
+        // so in REST at night, where ValidateNearbyPoi can erase its HOME (the brief's sight rule))
+        if (night > 0 || (tm.blind_all && all > 0)) && !tm.no_blind_check {
+            problems.push(format!(
+                "blind riders{}: {} rider-ticks with a seated rider's eye inside a collision shape ({}; --no-blind-check opts out)",
+                if tm.blind_all { " (any time of day, --blind-all)" } else { " at night" },
+                if tm.blind_all { all } else { night },
+                by.iter().filter(|(_, (a, n))| if tm.blind_all { *a > 0 } else { *n > 0 }).take(6).map(|(c, (a, n))| format!("{},{},{} {}", c[0], c[1], c[2], if tm.blind_all { *a } else { *n })).collect::<Vec<_>>().join(", ")
+            ));
+        }
     }
     out.push(format!(
         "cant-reach: {}; HOME releases: {}",
