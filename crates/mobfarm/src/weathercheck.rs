@@ -322,7 +322,33 @@ fn scenarios() -> Vec<Scenario> {
         },
         Scenario { name: "an iron ingot 2 east of the bolt", blocks: vec![], entities: vec![("minecraft:item", [2.5, 0.0, 0.5], Some("{Item:{id:\"minecraft:iron_ingot\",count:1}}"))], bolt: [0, 0, 0] },
         Scenario { name: "iron golem, the bolt on it", blocks: vec![], entities: vec![("minecraft:iron_golem", [0.5, 0.0, 0.5], None)], bolt: [0, 0, 0] },
+        // (tickexact 2026-11-11, ironspec's lightning reads (c)) a lightning rod topping a 1-wide
+        // stone pillar, the bolt on the block above it (where a strike the rod draws lands):
+        // LightningBolt.spawnFire's fire at the bolt's block needs a sturdy floor (the rod's top is
+        // not) or a flammable neighbour, its 4 more sources (Normal/Hard) each a random cell within
+        // 1 under the same test; the rod powered (onLightningStrike, 8 gt)
+        Scenario { name: "a lightning rod on a bare 1-wide pillar, the bolt on the rod", blocks: rod_pillar(&[]), entities: vec![], bolt: [0, 3, 0] },
+        Scenario { name: "a lightning rod on the pillar, oak planks beside the block above it", blocks: rod_pillar(&[([1, 3, 0], "minecraft:oak_planks")]), entities: vec![], bolt: [0, 3, 0] },
+        Scenario {
+            name: "a lightning rod on the pillar, stone all round the rod's top",
+            blocks: rod_pillar(&[([1, 2, 0], "minecraft:stone"), ([-1, 2, 0], "minecraft:stone"), ([0, 2, 1], "minecraft:stone"), ([0, 2, -1], "minecraft:stone"), ([1, 2, 1], "minecraft:stone"), ([1, 2, -1], "minecraft:stone"), ([-1, 2, 1], "minecraft:stone"), ([-1, 2, -1], "minecraft:stone")]),
+            entities: vec![],
+            bolt: [0, 3, 0],
+        },
     ]
+}
+
+/// (tickexact 2026-11-11) A lightning rod (facing up) on a 1-wide stone pillar at the scenario's
+/// origin (stone at y 0 and 1, the rod at y 2), and more blocks.
+fn rod_pillar(more: &[([i32; 3], &'static str)]) -> Vec<([i32; 3], &'static str)> {
+    let mut v = vec![([0, 0, 0], "minecraft:stone"), ([0, 1, 0], "minecraft:stone"), ([0, 2, 0], "minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]")];
+    v.extend_from_slice(more);
+    v
+}
+
+/// A scenario's lightning rod, if it has one.
+fn rod_of(x: &Scenario) -> Option<[i32; 3]> {
+    x.blocks.iter().find(|(_, s)| s.starts_with("minecraft:lightning_rod")).map(|(p, _)| *p)
 }
 
 /// What a scenario looks like 5 ticks after its bolt.
@@ -426,7 +452,21 @@ pub fn bolt_check_cmd(version: &str) -> Result<()> {
         let golem_burning = fire_ticks.split("has the following entity data: ").nth(1).and_then(|v| v.trim().trim_end_matches('s').parse::<i32>().ok()).is_some_and(|f| f > 0);
         let b = [o[0] + x.bolt[0], x.bolt[1], x.bolt[2]];
         let fire = s.cmd(&format!("execute if block {} {} {} minecraft:fire", b[0], b[1], b[2]))?.contains("passed");
-        game.push(outcome(villagers, witches, boats, zombie_hp, zombie_at, items, golem_hp, golem_burning, fire));
+        let mut line = outcome(villagers, witches, boats, zombie_hp, zombie_at, items, golem_hp, golem_burning, fire);
+        // (a rod scenario: the rod powered, and the fires within 1 of the bolt's block)
+        if let Some(r) = rod_of(x) {
+            let powered = s.cmd(&format!("execute if block {} {} {} minecraft:lightning_rod[powered=true]", o[0] + r[0], r[1], r[2]))?.contains("passed");
+            let mut fires = 0;
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        fires += s.cmd(&format!("execute if block {} {} {} minecraft:fire", b[0] + dx, b[1] + dy, b[2] + dz))?.contains("passed") as usize;
+                    }
+                }
+            }
+            line.push_str(&format!(", rod powered {} [info: fires within 1 of the bolt {fires}]", if powered { "yes" } else { "no" }));
+        }
+        game.push(line);
     }
     drop(s);
     // redsim: the same world, the same night
@@ -487,7 +527,20 @@ pub fn bolt_check_cmd(version: &str) -> Result<()> {
         let golem_burning = w.entities.list.iter().filter(|e| near(e)).any(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::IronGolem && m.fire_ticks > 0));
         let b = BlockPos::new(o[0] + x.bolt[0], x.bolt[1], x.bolt[2]);
         let fire = matches!(w.get(b), Block::Fire { .. });
-        sim.push(outcome(mobs(MobType::Villager), mobs(MobType::Witch), boats, hp(MobType::Zombie), riders_at[k], items, hp(MobType::IronGolem), golem_burning, fire));
+        let mut line = outcome(mobs(MobType::Villager), mobs(MobType::Witch), boats, hp(MobType::Zombie), riders_at[k], items, hp(MobType::IronGolem), golem_burning, fire);
+        if let Some(r) = rod_of(x) {
+            let powered = w.get(BlockPos::new(o[0] + r[0], r[1], r[2])).to_string().contains("powered=true");
+            let mut fires = 0;
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        fires += matches!(w.get(BlockPos::new(b.x + dx, b.y + dy, b.z + dz)), Block::Fire { .. }) as usize;
+                    }
+                }
+            }
+            line.push_str(&format!(", rod powered {} [info: fires within 1 of the bolt {fires}]", if powered { "yes" } else { "no" }));
+        }
+        sim.push(line);
     }
     // a model error is a difference too (a rider's dismount, a vehicle's drop)
     for e in &w.errors {
@@ -495,7 +548,10 @@ pub fn bolt_check_cmd(version: &str) -> Result<()> {
     }
     let mut same = 0;
     for (k, x) in sc.iter().enumerate() {
-        let ok = game[k] == sim[k];
+        // (a rod scenario's fire count rides after " [info": the bolt's 4 extra fire sources are
+        // its own random draws, a vanilla summon's random seeded from the clock: not compared)
+        let fixed = |s: &str| s.split(" [info").next().unwrap_or("").to_string();
+        let ok = fixed(&game[k]) == fixed(&sim[k]);
         same += ok as usize;
         println!("{} {}: game: {} | redsim: {}", if ok { "SAME" } else { "DIFF" }, x.name, game[k], sim[k]);
     }

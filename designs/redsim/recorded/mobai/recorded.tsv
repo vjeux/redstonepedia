@@ -31,12 +31,14 @@ cart-merge.rec	40f99e6f21c43b4d		26.3	2026-11-11T11:42Z on 388d91c58	mctas mobai
 cart-queue-bend.rec	777599cc15248ab8		26.3	2026-11-10T14:22Z on cf641f4683	mctas mobai record cart-queue-bend --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-queue-slope.rec	ec9ecf71f00527e3		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue-slope --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-queue.rec	03e88b32b3410e96		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
+cart-rules.rec	884cf6a33ce0a68a		26.3	2026-11-11T15:01Z on 0bf0bdaab4	mctas mobai record cart-rules --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
 cart-train.rec	17ec81151bf10b6f		26.3	2026-11-10T07:00Z on d811d6f2a	mctas mobai record cart-train --seed 1 --ticks 1400 --dir designs/redsim/recorded/mobai
 cat-creeper.rec	95089d65a7437d0c		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 chicken-jockey-flag.rec	8fa3fe767611d11e		26.3	2026-11-09T09:18Z on 05e0d74842	mctas mobai record chicken-jockey-flag --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 contact6-unload.rec	567ae988487f9e5e		26.3	2026-11-11T03:50Z on 162fbd76d	mctas mobai record contact6-unload --seed 1 --ticks 1100 --dir designs/redsim/recorded/mobai
 contact6.rec	9a04fbba1032ed0f		26.3	2026-11-11T03:50Z on 162fbd76d	mctas mobai record contact6 --seed 1 --ticks 1400 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+curve-wrong-side.rec	a5d4dd68e0fe1501		26.3	2026-11-11T15:04Z on 0bf0bdaab4	mctas mobai record curve-wrong-side --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 door-halves.rec	b527d9b71d4e4c0f		26.3	2026-11-11T05:09Z on b799dde74	mctas mobai record door-halves --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 drowned-trident.rec	37b7967c66fa587d		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-flower.rec	380b5c44d8b814db		26.3	uncommitted	recorded before manifests: see the recording's header and its commit

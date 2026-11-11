@@ -2781,6 +2781,110 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's comb-stand option S2: a wrong-side entry into a curve) 24
+    // lines along x, each a straight east-west run to x 9 into a curve cell at x 10 entered from
+    // its unconnected west side: lines 0..11 a north_east curve (its exits north, onto a north-south
+    // run, and east, onto an east-west run), 12..23 a south_east one; per shape the cart at x 9.5
+    // moving +x at 0.05, 0.1, 0.2, 0.4 b/t and a stored 0.8 and 2.0 (the speed off boosters past the
+    // 0.4 cap), empty and with a villager riding
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 112, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let speeds = [0.05, 0.1, 0.2, 0.4, 0.8, 2.0];
+        for k in 0..24usize {
+            let z = 2 + 4 * k as i32;
+            let north = k < 12;
+            for x in 2..=9 {
+                b.push(([x, 64, z], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            }
+            b.push(([1, 64, z], stone.to_string()));
+            b.push(([10, 64, z], format!("minecraft:rail[shape={},waterlogged=false]", if north { "north_east" } else { "south_east" })));
+            for x in 11..=24 {
+                b.push(([x, 64, z], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            }
+            b.push(([25, 64, z], stone.to_string()));
+            let dz = if north { -1 } else { 1 };
+            b.push(([10, 64, z + dz], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([10, 64, z + 2 * dz], stone.to_string()));
+            let v = speeds[k % 6];
+            let ridden = (k % 12) >= 6;
+            let nbt = if ridden { format!("{{Motion:[{v:.2}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}") } else { format!("{{Motion:[{v:.2}d,0.0d,0.0d]}}") };
+            mobs.push(("minecraft:minecart".into(), [9.5, 64.0, z as f64 + 0.5], Some(nbt)));
+        }
+        v.push(Scene {
+            name: "curve-wrong-side".into(),
+            chunks: [0, 0, 1, 6],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 66, 111]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's code reads bridged) east-west lines (rails x 2..29), night,
+    // every empty cart still at 0.1 b/t or more when its inflated box first meets the mob: A (z 2)
+    // at 0.15 onto a zombie standing on the track (the pickup); B (z 6) at 0.08 (below 0.1: no
+    // pickup); D (z 14) at 0.3 toward a glass pane across the track (x 7) with a zombie pressed
+    // behind it, the cart's box 0.05 short of the pane when its inflated box meets the zombie (picked
+    // up through the pane: pushAndPickupEntities reads the box only); G (z 28) at 0.3 past a zombie
+    // behind a glass pane along the track (z 29: the pane keeps it out of the box); E (z 20) an empty
+    // cart and F (z 24) a cart with a villager rider, both at 0.4 on the flat (the natural slowdown,
+    // 0.96 against 0.997). (The game also boards a boat, with the zombie in it, into a moving empty
+    // cart: redsim's named gap, "a moving minecart picking up a boat", not in this scene.)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 32, 63, stone);
+        for z in [2, 6, 10, 14, 20, 24, 28] {
+            for x in 2..=29 {
+                if !(z == 14 && x == 7) {
+                    b.push(([x, 64, z], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+                }
+            }
+            b.push(([1, 64, z], stone.to_string()));
+            b.push(([30, 64, z], stone.to_string()));
+        }
+        for y in [64, 65] {
+            b.push(([7, y, 14], "minecraft:glass_pane[east=false,north=true,south=true,waterlogged=false,west=false]".to_string()));
+            b.push(([7, y, 13], stone.to_string()));
+            b.push(([7, y, 15], stone.to_string()));
+            for x in 7..=14 {
+                b.push(([x, y, 29], "minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=true]".to_string()));
+            }
+            b.push(([6, y, 29], stone.to_string()));
+            b.push(([15, y, 29], stone.to_string()));
+        }
+        let zombie = || Some("{PersistenceRequired:1b}".to_string());
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = vec![
+            ("minecraft:minecart".into(), [5.5, 64.0, 2.5], Some("{Motion:[0.15d,0.0d,0.0d]}".into())),
+            ("minecraft:zombie".into(), [7.0, 64.0, 2.5], zombie()),
+            ("minecraft:minecart".into(), [5.5, 64.0, 6.5], Some("{Motion:[0.08d,0.0d,0.0d]}".into())),
+            ("minecraft:zombie".into(), [6.9, 64.0, 6.5], zombie()),
+            ("minecraft:minecart".into(), [6.0701, 64.0, 14.5], Some("{Motion:[0.3d,0.0d,0.0d]}".into())),
+            ("minecraft:zombie".into(), [7.87, 64.0, 14.5], zombie()),
+            ("minecraft:minecart".into(), [3.5, 64.0, 20.5], Some("{Motion:[0.4d,0.0d,0.0d]}".into())),
+            ("minecraft:minecart".into(), [3.5, 64.0, 24.5], Some("{Motion:[0.4d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into())),
+            ("minecraft:minecart".into(), [5.5, 64.0, 28.5], Some("{Motion:[0.3d,0.0d,0.0d]}".into())),
+            ("minecraft:zombie".into(), [10.5, 64.0, 29.87], zombie()),
+        ];
+        v.push(Scene {
+            name: "cart-rules".into(),
+            chunks: [0, 0, 1, 1],
+            blocks: b,
+            mobs,
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
     // reloaded sleeper's wake) a villager asleep in its bed, a zombie walled in stone 4 blocks east;
     // the whole sandbox unloaded at t200, loaded at t240 and the zombie's west wall taken away at
