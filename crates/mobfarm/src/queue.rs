@@ -1390,6 +1390,10 @@ pub struct LoopTiming {
     pub pulse_at: Option<BlockPos>,
     /// The slots' phase: slot +K on the villagers' summon tick (gameTime % 100 == 0).
     pub summon_at: Option<i64>,
+    /// Fault injection (`--act`): each sets a block at a slot offset, and with a hold restores
+    /// the block it replaced that many gt later; while held, the bench's own drive of that cell
+    /// (the wired stand's REL) leaves it.
+    pub acts: [Option<Act>; 8],
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
     /// (an ideal-input lab for a wired trigger): G1, then G2, shut this many gt after the first
     /// cart's centre passes this x (a detector rail at cell x0 fires at x0 - 0.29).
@@ -1462,6 +1466,33 @@ struct VisitRun {
     back: Option<(i64, usize)>,
 }
 
+/// One injected block (`--act SLOT,DT,X,Y,Z,BLOCK[,FOR]`): set at slot `slot` + `dt`; with
+/// `hold`, the block it replaced put back `hold` gt later.
+#[derive(Clone, Copy, Debug)]
+pub struct Act {
+    pub slot: i64,
+    pub dt: i64,
+    pub cell: [i32; 3],
+    pub block: Block,
+    pub hold: Option<i64>,
+}
+
+/// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets).
+pub fn parse_act(s: &str) -> Result<Act, String> {
+    let mut parts = s.splitn(6, ',');
+    let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
+    let (slot, dt, x, y, z) = (num("SLOT")?, num("DT")?, num("X")?, num("Y")?, num("Z")?);
+    let rest = parts.next().ok_or(format!("--act {s}: no BLOCK"))?.trim();
+    // (a trailing ",FOR" outside the brackets)
+    let (block, hold) = match rest.rsplit_once(',') {
+        Some((b, f)) if f.trim().chars().all(|ch| ch.is_ascii_digit()) && !f.trim().is_empty() && b.matches('[').count() == b.matches(']').count() => (b.trim(), Some(f.trim().parse::<i64>().map_err(|e| e.to_string())?)),
+        _ => (rest, None),
+    };
+    let name = if block.contains(':') { block.to_string() } else { format!("minecraft:{block}") };
+    let block = Block::parse(&name).map_err(|e| format!("--act {s}: {e}"))?;
+    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold })
+}
+
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
 /// it comes back by a side rail beside slot `slot`'s braked slope, moving toward it at `speed`
 /// b/t, or (`staged`) arriving at `speed` 20 gt earlier onto a braked staging slope that is
@@ -1479,7 +1510,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8] }
     }
 }
 
@@ -2169,6 +2200,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut pocket_released_at: Option<i64> = None;
     // (the wired stand: when the bench turns REL off again)
     let mut rel_off_at: Option<i64> = None;
+    // (`acts`' restores due: (gt, cell, the block the act replaced)); the bench's own REL state
+    let mut act_restores: Vec<(i64, BlockPos, Block)> = Vec::new();
+    let mut rel_want = false;
+    // (the lap order: carts in the order they leave the pocket stand, up its departure climb)
+    let mut laps: Vec<usize> = Vec::new();
+    let mut on_climb: Vec<bool> = vec![false; 64];
     // (the slot-boundary order check: the last slot's queue, train and stand batch; clean slots)
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
     let mut order_dep2: Option<Vec<u32>> = None;
@@ -2316,6 +2353,31 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut tail_rest_at: Vec<i64> = Vec::new();
     for t in 0..cycles * 100 + 150 {
         let (c, dt) = (t / 100, t % 100);
+        // (`acts`, fault injection: each block set at its slot offset, then the block it replaced
+        // put back after its hold, before the bench's own controls this gt)
+        for a in tm.acts.iter().flatten() {
+            if a.slot == c && a.dt == dt {
+                let p = BlockPos::new(a.cell[0], a.cell[1], a.cell[2]);
+                let was = run.world.get(p);
+                run.world.set_block(p, a.block, redsim::world::flags::ALL);
+                drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, a.block));
+                if let Some(h) = a.hold {
+                    act_restores.push((t + h.max(1), p, was));
+                }
+            }
+        }
+        act_restores.retain(|(at, p, was)| {
+            if *at != t {
+                return true;
+            }
+            // (the bench's REL cell back to what the bench's own schedule wants now: an extra
+            // pulse is ORed with the bench's, a held-off one misses it)
+            let back = if Some(*p) == rel_bench { if rel_want { on } else { off } } else { *was };
+            run.world.set_block(*p, back, redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, back));
+            false
+        });
+        let rel_held = |p: BlockPos| act_restores.iter().any(|(_, q, _)| *q == p);
         if c < cycles && dt == 0 {
             // (who sits in a slot's slope cell, moving or not)
             let in_slot = |id: u32, cell: [i32; 3]| pos_of(&run.world, id).is_some_and(|p| p.x.floor() as i32 == cell[0] && p.z.floor() as i32 == cell[2] && p.y < 1.5);
@@ -2668,10 +2730,14 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 let fire = if rel >= 0 { dt == rel } else { (c + 1 < cycles && dt == 100 + rel) || (c == 0 && dt == 0) };
                 if fire && o.stand_wired {
                     // the wired stand: REL on (the design's latch and gates do the rest), off
-                    // `rel_for` gt later; a file whose REL cell is not glass drives it itself
+                    // `rel_for` gt later; a file whose REL cell is not glass drives it itself; an
+                    // injected act holding the cell keeps it
                     if let Some(r) = rel_bench {
-                        run.world.set_block(r, on.clone(), redsim::world::flags::ALL);
-                        drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, r.x, r.y, r.z));
+                        rel_want = true;
+                        if !rel_held(r) {
+                            run.world.set_block(r, on.clone(), redsim::world::flags::ALL);
+                            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, r.x, r.y, r.z));
+                        }
                         // (`rel_on` moves the start alone: the end stays at the nominal start +
                         // `rel_for`)
                         rel_off_at = Some((t - tm.rel_on + tm.rel_for).max(t + 1));
@@ -2762,8 +2828,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // (the wired stand's REL back to glass, whatever slot that falls in)
         if rel_off_at == Some(t) {
             if let Some(r) = rel_bench {
-                run.world.set_block(r, off.clone(), redsim::world::flags::ALL);
-                drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:glass", run.world.time - t_origin, r.x, r.y, r.z));
+                rel_want = false;
+                if !rel_held(r) {
+                    run.world.set_block(r, off.clone(), redsim::world::flags::ALL);
+                    drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:glass", run.world.time - t_origin, r.x, r.y, r.z));
+                }
             }
             rel_off_at = None;
         }
@@ -2799,7 +2868,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
         hold_day(&mut run.world);
-        // (`slept`: every rider's LAST_SLEPT now, at the start and each night from day time
+        // (the lap order: each cart onto the pocket stand's departure climb, its first cell)
+        if o.stand_stop {
+            let xd = (-o.row_gap + 12) as f64 + 0.5;
+            for (k, id) in carts.iter().enumerate() {
+                let up = pos_of(&run.world, *id).is_some_and(|p| (p.x - xd).abs() < 0.6 && p.z >= 1.5 && p.z < 3.0);
+                if up && !on_climb[k] {
+                    laps.push(k);
+                }
+                on_climb[k] = up;
+            }
+        }
         // 13,000: the bench's stand-in for the siding's naps, as the station's linear bench does)
         if tm.slept {
             let night = (run.world.day_time() - 13000).div_euclid(24000);
@@ -3393,6 +3472,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     out.push(format!("{} settled snapshots, {} clean 3-place moves", snaps.len(), moves));
     if o.stand_stop {
         out.push(format!("slot-boundary order: {order_ok} clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)"));
+        // the lap order: the last 21 departures the same cycle as the first 21 (a swap or a lost
+        // cart changes it for good: a phase inversion)
+        let n = carts.len();
+        if laps.len() >= 2 * n {
+            let (first, last) = (&laps[..n], &laps[laps.len() - n..]);
+            let distinct = |v: &[usize]| v.iter().collect::<std::collections::BTreeSet<_>>().len() == n;
+            let kept = distinct(first) && distinct(last) && first.iter().position(|k| *k == last[0]).is_some_and(|p0| (0..n).all(|i| last[i] == first[(p0 + i) % n]));
+            out.push(format!("lap order: {} ({} departures; the last {n} {} the first {n}'s cycle)", if kept { "kept" } else { "CHANGED" }, laps.len(), if kept { "are" } else { "are not" }));
+        }
         // (one line in a fixed form, read back by `queue-loop-run --seeds`: min and max of each)
         let mm = |f: &dyn Fn(&(i64, i64, i64, i64)) -> i64| (margins.iter().map(f).min().unwrap_or(0), margins.iter().map(f).max().unwrap_or(0));
         let ((a0, a1), (f0, f1), (b0, b1), (c0, c1)) = (mm(&|m| m.0), mm(&|m| m.1), mm(&|m| m.2), mm(&|m| m.3));
@@ -3512,7 +3600,25 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             out.push(format!("  stand rail {:?}: {:?} on {:?}", c, run.world.get(p), run.world.get(BlockPos::new(c[0], c[1] - 1, c[2]))));
         }
     }
-    Ok(format!("{}\n{} problems{}", out.join("\n"), problems.len(), if problems.is_empty() { String::new() } else { format!(":\n  {}", problems.iter().take(20).cloned().collect::<Vec<_>>().join("\n  ")) }))
+    // (which slots had a problem, and how many each: a fault's reach at a glance; a returning train
+    // still missing from the tail is counted once, at its first report, not again every slot)
+    if !problems.is_empty() {
+        let mut by: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+        let mut trains_seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for p in &problems {
+            if let Some((_, rest)) = p.split_once(": ")
+                && rest.ends_with("returning train not in the queue's tail at the advance")
+                && !trains_seen.insert(rest.to_string())
+            {
+                continue;
+            }
+            if let Some(n) = p.strip_prefix("slot ").and_then(|r| r.split(|ch: char| !ch.is_ascii_digit()).next()).and_then(|d| d.parse::<i64>().ok()) {
+                *by.entry(n).or_default() += 1;
+            }
+        }
+        out.push(format!("problem slots: {}", by.iter().map(|(s, n)| format!("{s}x{n}")).collect::<Vec<_>>().join(" ")));
+    }
+    Ok(format!("{}\n{} problems{}", out.join("\n"), problems.len(), if problems.is_empty() { String::new() } else { format!(":\n  {}", problems.iter().take(if verbose { 2000 } else { 20 }).cloned().collect::<Vec<_>>().join("\n  ")) }))
 }
 
 #[cfg(test)]
