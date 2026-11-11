@@ -471,25 +471,19 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
         }
     } else if !s.simulated() {
         for e in &s.design.entities {
-            let pos = [e.pos[0] as f32, e.pos[1] as f32, e.pos[2] as f32];
-            let yaw = entity_yaw(e.nbt.as_deref());
-            let mob = still_mob(&e.kind, yaw, false);
-            // a mob's light at its eye (`getLightProbePosition`)
-            let probe = mob.as_ref().map(|m| [pos[0], pos[1] + m.eye_standing, pos[2]]);
-            b.entity(&EntityDraw { kind: e.kind.clone(), pos, yaw, mob, probe, ..Default::default() });
-            // its passengers (`Passengers:[{id:"minecraft:villager"}]`), seated: a minecart's at
-            // its seat (`AbstractMinecart.getPassengerAttachmentPoint`: 0.1875 up), a boat's at its
-            // floor (0.25 up: `AbstractBoat`'s first seat), legs forward (`isPassenger`)
-            for id in passenger_ids(e.nbt.as_deref()) {
-                let up = if e.kind.ends_with("boat") || e.kind.ends_with("raft") { 0.25 } else { 0.1875 };
-                let mob = still_mob(&id, yaw, true);
-                let probe = mob.as_ref().map(|m| [pos[0], pos[1] + up + m.eye_standing, pos[2]]);
-                b.entity(&EntityDraw { kind: id.clone(), pos: [pos[0], pos[1] + up, pos[2]], yaw, mob, probe, ..Default::default() });
-            }
+            design_entity(b, &e.kind, e.pos, e.nbt.as_deref());
         }
     } else {
         for e in s.entities(partial) {
             b.entity(&e);
+        }
+        // a still's design entities redsim would not place, as placed
+        if s.still {
+            for &i in &s.unspawned {
+                if let Some(e) = s.design.entities.get(i) {
+                    design_entity(b, &e.kind, e.pos, e.nbt.as_deref());
+                }
+            }
         }
         // an explosion's cloud for 10 ticks after each of redsim's blasts (the game client draws
         // its particles; a blast in mid-air breaks nothing and showed nothing at all: critique on
@@ -576,12 +570,77 @@ pub fn passenger_ids(nbt: Option<&str>) -> Vec<String> {
     out
 }
 
+/// A design's entity as placed (a still's, or an unsimulated design's): its kind at its
+/// position, a mob with its model and the equipment its data gives it ([`still_mob`]), lit at its
+/// eye (`getLightProbePosition`), and its passengers (`Passengers:[{id:"minecraft:villager"}]`),
+/// seated: a minecart's at its seat (`AbstractMinecart.getPassengerAttachmentPoint`: 0.1875 up),
+/// a boat's at its floor (0.25 up: `AbstractBoat`'s first seat), legs forward (`isPassenger`).
+fn design_entity(b: &mut Builder, kind: &str, at: [f64; 3], nbt: Option<&str>) {
+    let pos = [at[0] as f32, at[1] as f32, at[2] as f32];
+    let yaw = entity_yaw(nbt);
+    let mob = still_mob(kind, yaw, false, nbt);
+    let probe = mob.as_ref().map(|m| [pos[0], pos[1] + m.eye_standing, pos[2]]);
+    b.entity(&EntityDraw { kind: kind.to_string(), pos, yaw, mob, probe, ..Default::default() });
+    for id in passenger_ids(nbt) {
+        let up = if kind.ends_with("boat") || kind.ends_with("raft") { 0.25 } else { 0.1875 };
+        let mob = still_mob(&id, yaw, true, None);
+        let probe = mob.as_ref().map(|m| [pos[0], pos[1] + up + m.eye_standing, pos[2]]);
+        b.entity(&EntityDraw { kind: id.clone(), pos: [pos[0], pos[1] + up, pos[2]], yaw, mob, probe, ..Default::default() });
+    }
+}
+
 /// A still's mob as placed (a design entity: standing, or seated as a passenger), drawn with the
-/// game's model like a mob farm's (None: not a mob the viewer models: its own stand-in).
-pub fn still_mob(kind: &str, yaw: f32, riding: bool) -> Option<crate::mesh::MobDraw> {
+/// game's model like a mob farm's (None: not a mob the viewer models: its own stand-in), with the
+/// equipment its data gives it ([`still_equipment`]).
+pub fn still_mob(kind: &str, yaw: f32, riding: bool, nbt: Option<&str>) -> Option<crate::mesh::MobDraw> {
     let ty = redsim::entity::mob::types::MobType::from_id(kind)?;
     let def = ty.def();
-    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, ..Default::default() })
+    let (held, armor) = still_equipment(nbt);
+    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, held, armor, ..Default::default() })
+}
+
+/// A design mob's equipment from its data (`equipment:{mainhand:{id:"minecraft:bow"},
+/// head:{id:"minecraft:golden_helmet"},...}`, the 26.3 entity format): its main hand's item and
+/// each armor slot's material (a piece of leather, copper, golden, chainmail, iron or diamond
+/// armor, in its own slot; anything else there is not drawn).
+pub fn still_equipment(nbt: Option<&str>) -> (Option<String>, [Option<u8>; 4]) {
+    // (its own data only: a jockey's rider's equipment is inside its `Passengers:[...]`)
+    let own: Option<String> = nbt.map(|s| match s.find("Passengers:[") {
+        Some(p) => {
+            let mut depth = 0i32;
+            let mut end = s.len();
+            for (i, c) in s[p..].char_indices() {
+                match c {
+                    '[' => depth += 1,
+                    ']' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = p + i + 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            format!("{}{}", &s[..p], &s[end..])
+        }
+        None => s.to_string(),
+    });
+    let Some(eq) = own.as_deref().and_then(|s| s.find("equipment:{").map(|i| &s[i + "equipment:{".len()..])) else { return (None, [None; 4]) };
+    let id = |key: &str| -> Option<String> {
+        let at = eq.find(&format!("{key}:{{"))?;
+        let rest = &eq[at..];
+        let s = rest.find("id:\"")? + "id:\"".len();
+        Some(rest[s..s + rest[s..].find('"')?].to_string())
+    };
+    let materials = ["leather", "copper", "golden", "chainmail", "iron", "diamond"];
+    let piece = |key: &str, suffix: &str| -> Option<u8> {
+        let item = id(key)?;
+        let name = item.strip_prefix("minecraft:").unwrap_or(&item);
+        let mat = name.strip_suffix(suffix)?;
+        materials.iter().position(|m| *m == mat).map(|p| p as u8)
+    };
+    (id("mainhand"), [piece("head", "_helmet"), piece("chest", "_chestplate"), piece("legs", "_leggings"), piece("feet", "_boots")])
 }
 
 /// The box the default camera frames: the design (and marker), 0.25 margin like the pictures.
@@ -1881,6 +1940,35 @@ fn cell_entry(o: [f32; 3], d: [f32; 3], c: Pos) -> Option<f32> {
 mod tests {
     use super::*;
     use crate::session::Options;
+
+    /// A still draws every mob its design places, those redsim will not place too (an armored
+    /// one: redsim models only a main hand's item in a design's data): the page's first picture,
+    /// a still (`Options::still`), had dropped them while the same design drew them all once
+    /// played (unsimulated: the design's own entities).
+    #[test]
+    fn a_still_draws_the_mobs_redsim_refuses() {
+        let text = "name: armored\npalette:\n  G minecraft:grass_block[snowy=false]\nlayer 0:\n  GGGG\n  GGGG\n\
+            entity: minecraft:zombie 0.5 1 0.5\nentity: minecraft:zombie 2.5 1 0.5 {equipment:{head:{id:\"minecraft:iron_helmet\",count:1}}}\n";
+        let s = Session::new(text, &Options::still()).unwrap();
+        assert!(s.still);
+        assert_eq!(s.unspawned, vec![1], "the armored zombie refused by redsim");
+        let atlas = crate::atlas::Atlas::build();
+        let m = build(&atlas, &s, 0.0, &viewer_look(&s));
+        let at = |x0: f32, x1: f32| m.solid.iter().filter(|v| v.pos[0] > x0 && v.pos[0] < x1 && v.pos[1] > 1.05).count();
+        assert!(at(0.0, 1.0) > 0 && at(2.0, 3.0) > 0, "both drawn: {} and {} vertices", at(0.0, 1.0), at(2.0, 3.0));
+    }
+
+    /// A design mob's equipment from its data: the main hand and each armor piece in its own slot
+    /// (`equipment:{...}`, 26.3's entity format), a jockey's rider's kept out of its mount's.
+    #[test]
+    fn a_design_mob_wears_its_equipment() {
+        let (held, armor) = still_equipment(Some(r#"{Rotation:[0f,0f],equipment:{mainhand:{id:"minecraft:iron_spear",count:1},head:{id:"minecraft:golden_helmet",count:1},legs:{id:"minecraft:leather_leggings",count:1},feet:{id:"minecraft:diamond_helmet",count:1}}}"#));
+        assert_eq!(held.as_deref(), Some("minecraft:iron_spear"));
+        assert_eq!(armor, [Some(2), None, Some(0), None], "a helmet on the feet is not boots");
+        let (held, armor) = still_equipment(Some(r#"{Passengers:[{id:"minecraft:skeleton",equipment:{mainhand:{id:"minecraft:bow",count:1}}}]}"#));
+        assert_eq!((held, armor), (None, [None; 4]), "the rider's bow is not the spider's");
+        assert_eq!(still_equipment(None), (None, [None; 4]));
+    }
 
     /// A mob is lit by the light at its eye (the parent 2026-11-11, "light each mob the way the
     /// 26.3 client does": `EntityRenderer.getPackedLightCoords` reads the block at

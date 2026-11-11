@@ -1145,13 +1145,16 @@ impl Atlas {
         let mut order: Vec<(String, [u32; 4], Option<usize>)> = ent_rects.iter().map(|(k, r)| (k.clone(), *r, None)).collect();
         order.extend(composites.iter().enumerate().map(|(i, (k, _, r))| (k.clone(), *r, Some(i))));
         order.sort_by(|a, b| b.1[3].cmp(&a.1[3]).then(a.0.cmp(&b.0)));
+        // (a shelf that starts below the item atlas starts at the left edge: the space under the
+        // items was left empty, and the armor's textures took the texture past WebGL2's 2048)
+        let below_items = bh + ih;
         let (mut x, mut y, mut row_h) = (x_start, bh, 0u32);
         let mut placed: Vec<(String, [u32; 4], [u32; 2], Option<usize>)> = Vec::new();
         for (k, r, src) in order {
             if x + r[2] > bw {
-                x = x_start;
                 y += row_h;
                 row_h = 0;
+                x = if y >= below_items { 0 } else { x_start };
             }
             placed.push((k, r, [x, y], src));
             x += r[2];

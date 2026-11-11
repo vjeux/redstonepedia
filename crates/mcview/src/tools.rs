@@ -50,6 +50,10 @@ pub struct DrawnKind {
     /// The first tick it is drawn, and where (the view's coordinates: `web framecost --look-at`).
     pub first: u32,
     pub at: [f32; 3],
+    /// What a mob of the kind holds (its main hand's items) and wears (each armor material and
+    /// slot, `iron head`), over the run: each with the first tick it is seen and where.
+    pub held: std::collections::BTreeMap<String, (u32, [f32; 3])>,
+    pub armor: std::collections::BTreeMap<String, (u32, [f32; 3])>,
 }
 
 /// The entities a design's view draws over `ticks` ticks played as the page plays them
@@ -72,8 +76,20 @@ pub fn drawn_kinds(text: &str, ticks: u32) -> Result<(Vec<DrawnKind>, u32, Optio
             n.0 += 1;
         }
         for (k, (n, mob, at)) in now {
-            let d = seen.entry(k.to_string()).or_insert(DrawnKind { kind: k.to_string(), mob, most: 0, first: s.tick, at });
+            let d = seen.entry(k.to_string()).or_insert(DrawnKind { kind: k.to_string(), mob, most: 0, first: s.tick, at, held: Default::default(), armor: Default::default() });
             d.most = d.most.max(n);
+        }
+        const MATERIALS: [&str; 6] = ["leather", "copper", "golden", "chainmail", "iron", "diamond"];
+        for e in &drawn {
+            let (Some(m), Some(d)) = (&e.mob, seen.get_mut(e.kind.as_str())) else { continue };
+            if let Some(h) = &m.held {
+                d.held.entry(h.clone()).or_insert((s.tick, e.pos));
+            }
+            for sl in 0..4 {
+                if let Some(mat) = m.armor[sl] {
+                    d.armor.entry(format!("{} {}", MATERIALS.get(mat as usize).copied().unwrap_or("?"), ["head", "chest", "legs", "feet"][sl])).or_insert((s.tick, e.pos));
+                }
+            }
         }
         if s.halted.is_some() {
             break;

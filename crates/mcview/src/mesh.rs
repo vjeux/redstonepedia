@@ -96,6 +96,10 @@ pub struct MobDraw {
     pub height: f32,
     /// The main hand's item id (`getMainHandItem`: a skeleton's bow), if any: its arm's pose.
     pub held: Option<String>,
+    /// The armor it wears, by slot (0 head, 1 chest, 2 legs, 3 feet: `HumanoidArmorLayer`'s), each
+    /// piece's material (redsim's `Armor::material`: 0 leather, 1 copper, 2 golden, 3 chainmail,
+    /// 4 iron, 5 diamond); the head's while its helmet holds.
+    pub armor: [Option<u8>; 4],
     /// `isAggressive` (a skeleton drawing its bow at a target).
     pub aggressive: bool,
     /// A sheep's wool `DyeColor` id (0 white).

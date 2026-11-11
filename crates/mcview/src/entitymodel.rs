@@ -889,6 +889,21 @@ pub const MOB_TEXTURES: &[&str] = &[
     "entity/sheep/sheep_wool",
     "entity/sheep/sheep_wool_undercoat",
     "entity/horse/horse_zombie",
+    // armor (`EquipmentLayerRenderer`: each material's `humanoid` and `humanoid_leggings` layers)
+    "entity/equipment/humanoid/leather",
+    "entity/equipment/humanoid/leather_overlay",
+    "entity/equipment/humanoid/copper",
+    "entity/equipment/humanoid/gold",
+    "entity/equipment/humanoid/chainmail",
+    "entity/equipment/humanoid/iron",
+    "entity/equipment/humanoid/diamond",
+    "entity/equipment/humanoid_leggings/leather",
+    "entity/equipment/humanoid_leggings/leather_overlay",
+    "entity/equipment/humanoid_leggings/copper",
+    "entity/equipment/humanoid_leggings/gold",
+    "entity/equipment/humanoid_leggings/chainmail",
+    "entity/equipment/humanoid_leggings/iron",
+    "entity/equipment/humanoid_leggings/diamond",
 ];
 
 /// A mob's eyes layer (`EyesLayer`: the model again with this texture through the `eyes`
@@ -963,10 +978,112 @@ fn mob_transform(k: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> M {
     m.scale([-1.0, -1.0, 1.0]).translate([0.0, -1.501, 0.0])
 }
 
+/// The equipment asset of each armor material (redsim's `Armor::material` order: golden armor's
+/// asset is `gold`), whose `humanoid` and `humanoid_leggings` layers draw it.
+const ARMOR_ASSETS: [&str; 6] = ["leather", "copper", "gold", "chainmail", "iron", "diamond"];
+
+/// A humanoid mob's parts' poses as its `setupAnim` left them (head, body, right arm, left arm,
+/// right leg, left leg, from the built model): what its armor model, an instance of its own model
+/// class posed by the same `setupAnim`, takes. None: not a humanoid (or a baby zombie, whose armor
+/// is the `humanoid_baby` mesh: not drawn yet).
+fn humanoid_pose(k: &str, parts: &[EPart]) -> Option<[[f32; 3]; 6]> {
+    match k {
+        "zombie" | "skeleton" if parts.len() >= 6 => Some(std::array::from_fn(|i| parts[i].rot)),
+        _ => None,
+    }
+}
+
+/// `HumanoidModel.createArmorMeshSet(0.5, 1.0)`'s model of an armor slot (0 head, 1 chest, 2 legs,
+/// 3 feet: `ADULT_ARMOR_PARTS_PER_SLOT`; the legs' with the inner deformation 0.5, the others'
+/// the outer 1.0, a leg's box 0.1 less: `createBaseArmorMesh`), each part at the humanoid mesh's
+/// offset turned by the mob's pose ([`humanoid_pose`]); texture 64 x 32.
+fn armor_parts(slot: usize, pose: &[[f32; 3]; 6]) -> Vec<EPart> {
+    let g = if slot == 2 { 0.5 } else { 1.0 };
+    let mirrored = |u: f32, v: f32, from: [f32; 3], size: [f32; 3], grow: f32| Cube { mirror: true, grow, ..cube(u, v, from, size) };
+    let body = part(vec![cube_grown(16.0, 16.0, [-4.0, 0.0, -2.0], [8.0, 12.0, 4.0], g)], [0.0; 3], pose[1]);
+    let legs = || {
+        vec![
+            part(vec![cube_grown(0.0, 16.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0], g - 0.1)], [-1.9, 12.0, 0.0], pose[4]),
+            part(vec![mirrored(0.0, 16.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0], g - 0.1)], [1.9, 12.0, 0.0], pose[5]),
+        ]
+    };
+    match slot {
+        0 => {
+            let hat = part(vec![cube_grown(32.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0], g + 0.5)], [0.0; 3], [0.0; 3]);
+            vec![part_with(vec![cube_grown(0.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0], g)], [0.0; 3], pose[0], vec![hat])]
+        }
+        1 => vec![
+            body,
+            part(vec![cube_grown(40.0, 16.0, [-3.0, -2.0, -2.0], [4.0, 12.0, 4.0], g)], [-5.0, 2.0, 0.0], pose[2]),
+            part(vec![mirrored(40.0, 16.0, [-1.0, -2.0, -2.0], [4.0, 12.0, 4.0], g)], [5.0, 2.0, 0.0], pose[3]),
+        ],
+        2 => {
+            let mut v = legs();
+            v.insert(0, body);
+            v
+        }
+        _ => legs(),
+    }
+}
+
+/// The layers of a slot's armor of a material (`EquipmentLayerRenderer.renderLayers` over the
+/// asset's `humanoid` layers, the legs' `humanoid_leggings`): each texture and its colour
+/// (leather's base dyeable, undyed `color_when_undyed` 0xA06540, then its overlay as drawn).
+fn armor_layers(slot: usize, material: u8) -> Vec<(String, [u8; 3])> {
+    let kind = if slot == 2 { "humanoid_leggings" } else { "humanoid" };
+    let asset = ARMOR_ASSETS.get(material as usize).copied().unwrap_or("iron");
+    let tex = |a: &str| format!("entity/equipment/{kind}/{a}");
+    if asset == "leather" { vec![(tex("leather"), [0xA0, 0x65, 0x40]), (tex("leather_overlay"), [255; 3])] } else { vec![(tex(asset), [255; 3])] }
+}
+
+/// An item's `thirdperson_righthand` display (its model's or its parent's: rotation in degrees,
+/// translation in pixels, scale) and the sprite its in-hand model shows: the bow's own; a spear's
+/// `<spear>_in_hand` model (`spear_in_hand`); a tool's, a stick's, a bone's `item/handheld`; any
+/// other item's `item/generated`.
+fn held_display(id: &str) -> ([f32; 3], [f32; 3], [f32; 3], String) {
+    let name = id.strip_prefix("minecraft:").unwrap_or(id);
+    let handheld = ["_sword", "_shovel", "_axe", "_pickaxe", "_hoe"].iter().any(|s| name.ends_with(s)) || matches!(name, "stick" | "bone" | "blaze_rod" | "breeze_rod");
+    if name == "bow" {
+        ([-80.0, 260.0, -40.0], [-1.0, -2.0, 2.5], [0.9; 3], "item/bow".into())
+    } else if name.ends_with("_spear") {
+        ([5.0, 270.0, -40.0], [0.0, 2.0, 2.0], [1.7, 1.7, 0.85], format!("item/{name}_in_hand"))
+    } else if handheld {
+        ([0.0, -90.0, 55.0], [0.0, 4.0, 0.5], [0.85; 3], format!("item/{name}"))
+    } else {
+        ([0.0; 3], [0.0, 3.0, 1.0], [0.55; 3], format!("item/{name}"))
+    }
+}
+
+/// Where the item in a humanoid's right hand is drawn (`ItemInHandLayer.submitArmWithItem`): the
+/// mob's transform, `translateToHand` (the root, the arm: a skeleton's a pixel further in,
+/// `SkeletonModel.translateToHand`), a quarter turn about x back, a half turn about y, the hand's
+/// offset (1, 2, -10 pixels; a baby's 0, 1, -4.5), then the item's display (`ItemTransform.apply`:
+/// translate, rotate x then y then z, scale, its unit cube centred) to the middle of its cube: the
+/// sprite's plane.
+fn held_transform(m: &M, arm_offset: [f32; 3], arm_rot: [f32; 3], baby: bool, display: &([f32; 3], [f32; 3], [f32; 3], String)) -> M {
+    let (r, t, s) = (display.0, display.1, display.2);
+    let hand = if baby { [0.0, 1.0, -4.5] } else { [1.0, 2.0, -10.0] };
+    m.translate(arm_offset.map(|v| v / 16.0))
+        .rot(2, arm_rot[2])
+        .rot(1, arm_rot[1])
+        .rot(0, arm_rot[0])
+        .rot(0, -PI / 2.0)
+        .rot(1, PI)
+        .translate(hand.map(|v| v / 16.0))
+        .translate(t.map(|v| v / 16.0))
+        .rot(0, r[0].to_radians())
+        .rot(1, r[1].to_radians())
+        .rot(2, r[2].to_radians())
+        .scale(s)
+        .translate([-0.5, -0.5, 0.0])
+}
+
 /// A mob drawn like the game (`LivingEntityRenderer.submit` with its renderer's model and
 /// `setupRotations`): a sleeper moved toward its pillow and laid on its bed, a dying mob falling
 /// sideways over 20 ticks, a walking golem's sway, the model flipped and lowered 1.501, then the
-/// red overlay of a hurt or dying mob (`OverlayTexture`: 30% red, [`crate::atlas::GAME_LAYER_RED`]).
+/// red overlay of a hurt or dying mob (`OverlayTexture`: 30% red, [`crate::atlas::GAME_LAYER_RED`]),
+/// then its layers without it: a humanoid's armor (`HumanoidArmorLayer`) and the item in its hand
+/// (`ItemInHandLayer`), the eyes.
 /// None: not a mob the viewer has, or its texture is not packed.
 pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> Option<Vec<Vertex>> {
     let k = kind.strip_prefix("minecraft:").unwrap_or(kind);
@@ -1022,6 +1139,34 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
         for v in &mut out {
             v.layer = crate::atlas::GAME_LAYER_RED;
             v.color[3] = 178;
+        }
+    }
+    // its armor (`HumanoidArmorLayer`: chest, legs, feet, head; `NO_OVERLAY`), each layer's texture
+    // times its colour
+    if let Some(pose) = humanoid_pose(k, &parts) {
+        for slot in [1, 2, 3, 0] {
+            let Some(material) = d.armor[slot] else { continue };
+            for (tex, tint) in armor_layers(slot, material) {
+                let Some(ar) = rect(g, &tex) else { continue };
+                let n = out.len();
+                emit(&mut out, &armor_parts(slot, &pose), &m, [64.0, 32.0], ar, tw, th);
+                for v in &mut out[n..] {
+                    for c in 0..3 {
+                        v.color[c] = (v.color[c] as u32 * tint[c] as u32 / 255) as u8;
+                    }
+                }
+            }
+        }
+    }
+    // the item in its right hand (`ItemInHandLayer`, `NO_OVERLAY`): its sprite, flat (the game
+    // extrudes a generated item's sprite a pixel deep)
+    if let (Some(item), true) = (&d.held, matches!(k, "zombie" | "baby_zombie" | "skeleton") && parts.len() >= 3) {
+        let arm = &parts[2];
+        let offset = if k == "skeleton" { [arm.offset[0] + 1.0, arm.offset[1], arm.offset[2]] } else { arm.offset };
+        let display = held_display(item);
+        let hm = held_transform(&m, offset, arm.rot, k == "baby_zombie", &display);
+        if let Some(t) = sprite_triangles_of(g, &display.3, &hm) {
+            out.extend(t);
         }
     }
     // its eyes layer over it, unshaded, never lit (`RenderTypes.eyes`: no lightmap) and without
@@ -1225,6 +1370,61 @@ mod tests {
         let (ir, iw, ih) = crate::tools::decode_png(&ip).unwrap();
         atlas.add_game_entities((&er, ew, eh, &ei), (&ir, iw, ih, &ii)).unwrap();
         atlas.game.clone().unwrap()
+    }
+
+    /// A humanoid's armor and the item in its hand (the census: skeletons' bows, zombies' spears and
+    /// shovels, leather, golden and copper armor in the terrain farms): each slot's pieces over the
+    /// model (`ADULT_ARMOR_PARTS_PER_SLOT`: head 2 boxes, chest 3, legs 3, feet 2; leather twice,
+    /// its base and overlay), never under the red overlay; the item a double-sided square at the
+    /// right hand, below the shoulder and in front of the body.
+    #[test]
+    fn a_humanoid_wears_its_armor_and_holds_its_item() {
+        let g = browser_game();
+        let bare = crate::mesh::MobDraw { eye_standing: 1.74, ..Default::default() };
+        let n0 = mob_triangles(&g, "minecraft:zombie", [0.0; 3], &bare).unwrap().len();
+        let box_v = 36;
+        let gold = crate::mesh::MobDraw { armor: [Some(2); 4], red: true, ..bare.clone() };
+        let t = mob_triangles(&g, "minecraft:zombie", [0.0; 3], &gold).unwrap();
+        assert_eq!(t.len(), n0 + (2 + 3 + 3 + 2) * box_v, "golden armor: 10 boxes");
+        assert!(t[n0..].iter().all(|v| v.layer != crate::atlas::GAME_LAYER_RED) && t[..n0].iter().all(|v| v.layer == crate::atlas::GAME_LAYER_RED), "armor without the red overlay");
+        let (lo, hi) = bounds(&t[n0..]);
+        let (mlo, mhi) = bounds(&t[..n0]);
+        assert!(hi[1] > mhi[1] && lo[0] < mlo[0], "the armor over the model: {lo:?}..{hi:?} vs {mlo:?}..{mhi:?}");
+        let leather = crate::mesh::MobDraw { armor: [Some(0), None, None, None], ..bare.clone() };
+        assert_eq!(mob_triangles(&g, "minecraft:skeleton", [0.0; 3], &leather).unwrap().len() - mob_triangles(&g, "minecraft:skeleton", [0.0; 3], &bare).unwrap().len(), 2 * 2 * box_v, "a leather helmet: its base and its overlay");
+        for item in ["minecraft:iron_shovel", "minecraft:bow", "minecraft:iron_spear", "minecraft:iron_ingot"] {
+            let holding = crate::mesh::MobDraw { held: Some(item.into()), ..bare.clone() };
+            let t = mob_triangles(&g, "minecraft:zombie", [0.0; 3], &holding).unwrap();
+            assert_eq!(t.len(), n0 + 12, "{item}: a double-sided square");
+            let (lo, hi) = bounds(&t[n0..]);
+            let c = [0, 1, 2].map(|k| (lo[k] + hi[k]) / 2.0);
+            // the zombie faces south (+z), its right hand at x < 0, its arms forward
+            assert!(c[0] < 0.0 && c[1] > 0.6 && c[1] < 1.9 && c[2] > 0.2, "{item}: at the right hand {c:?}");
+        }
+    }
+
+    /// The browser's game texture (the blocks, the items, the entities, the particles: as
+    /// `mcview-web` packs it) fits the renderer's limits (`Limits::downlevel_webgl2_defaults`:
+    /// 2048 on each side, what every WebGL2 phone has): the armor's textures had made it 2080
+    /// tall, and wgpu refused it (no picture at all).
+    #[test]
+    fn the_game_texture_fits_webgl2() {
+        let mut atlas = crate::atlas::Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, w, h) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, w, h, &idx, &defs, &models).unwrap();
+        let blocks = (atlas.game.as_ref().unwrap().width, atlas.game.as_ref().unwrap().height);
+        let ((ep, ei), (ip, ii)) = crate::tools::vanilla_entity_assets().unwrap();
+        let (er, ew, eh) = crate::tools::decode_png(&ep).unwrap();
+        let (ir, iw, ih) = crate::tools::decode_png(&ip).unwrap();
+        atlas.add_game_entities((&er, ew, eh, &ei), (&ir, iw, ih, &ii)).unwrap();
+        let with_entities = atlas.game.as_ref().unwrap().height;
+        atlas.add_game_particles(&crate::tools::vanilla_particle_assets().unwrap()).unwrap();
+        let g = atlas.game.clone().unwrap();
+        let limit = wgpu::Limits::downlevel_webgl2_defaults().max_texture_dimension_2d;
+        eprintln!("blocks {blocks:?}, items {iw}x{ih}, with the entities {with_entities} tall, with the particles {}x{}", g.width, g.height);
+        assert!(g.width <= limit && g.height <= limit, "{}x{} over {limit}", g.width, g.height);
     }
 
     /// Bounds (min, max) of triangles.

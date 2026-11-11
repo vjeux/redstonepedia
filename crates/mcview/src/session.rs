@@ -361,6 +361,10 @@ pub struct Session {
     /// A still ([`Options::simulate`] false): the design as placed, never stepped (the browser's
     /// cards; a page's view until it plays: `Player::wake`).
     pub still: bool,
+    /// A still's design entities redsim refused to place (a mob whose data it does not model: an
+    /// armored one), by index: the still draws them as placed (`scene::entities_into`, in the
+    /// design's coordinates); they had vanished from the page's first picture.
+    pub unspawned: Vec<usize>,
     /// A mob farm's run (`circuit: mob-farm ...`): redsim's own farm runner, the judge's run
     /// ([`crate::mobfarm`]); its world is `world` between ticks.
     pub mob: Option<crate::mobfarm::MobRun>,
@@ -860,6 +864,7 @@ impl Session {
             outside_start: Default::default(),
             period_memo: Default::default(),
             still: false,
+            unspawned: Vec::new(),
             mob: None,
             mob_initial: None,
             blocks_version: 0,
@@ -918,9 +923,11 @@ impl Session {
                         let mut w = m.take_world();
                         let off = t.offset();
                         s.design_base = w.entities.next_id;
-                        for e in &s.design.entities {
+                        for (i, e) in s.design.entities.iter().enumerate() {
                             let pos = [e.pos[0] + off[0] as f64, e.pos[1] + off[1] as f64, e.pos[2] + off[2] as f64];
-                            let _ = redsim::entity::spawn(&mut w, &e.kind, pos, e.nbt.as_deref());
+                            if redsim::entity::spawn(&mut w, &e.kind, pos, e.nbt.as_deref()).is_err() {
+                                s.unspawned.push(i);
+                            }
                         }
                         w.errors.clear();
                         let (lo, hi) = t.farm_box;
@@ -940,8 +947,10 @@ impl Session {
             let mut v = as_built(&blocks);
             v.extend(crate::circuit::still_judge_blocks(&s.design));
             world.place_raw(&v);
-            for e in &s.design.entities {
-                let _ = redsim::entity::spawn(&mut world, &e.kind, e.pos, e.nbt.as_deref());
+            for (i, e) in s.design.entities.iter().enumerate() {
+                if redsim::entity::spawn(&mut world, &e.kind, e.pos, e.nbt.as_deref()).is_err() {
+                    s.unspawned.push(i);
+                }
             }
             if let Some(f) = &s.floor {
                 world.place_raw(&f.blocks());
@@ -3075,6 +3084,7 @@ impl Session {
             outside_start: self.outside_start.clone(),
             period_memo: Default::default(),
             still: self.still,
+            unspawned: self.unspawned.clone(),
             mob: self.mob_initial.clone(),
             mob_initial: None,
             blocks_version: 0,
