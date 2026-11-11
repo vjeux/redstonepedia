@@ -2401,6 +2401,10 @@ pub struct LoopTiming {
     /// computes, on a copy of the rider's navigation, whether a path from its cart reaches within 1
     /// of its bed (an open bed top's counterfactual).
     pub reach_probe: bool,
+    /// (tickexact 2026-11-11) Every exposed rider-tick (`freeze exposure:`) as an `exposure ..`
+    /// line (`--exposure-out FILE`): game time, slot, offset, rider, position, streak, panicked
+    /// within 20 gt (1/0), its PATH (reaching / partial / none).
+    pub exposure_log: bool,
     /// Every villager's block position each tick, printed at the end (`--record-positions`: the
     /// golem-spots check's positions over a full bench night).
     pub record_positions: bool,
@@ -2628,7 +2632,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, start_random: false }
     }
 }
 
@@ -3295,6 +3299,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut expose_max: (usize, String) = (0, String::new());
     let mut expose_multi = 0u64;
     let mut last_panic = vec![i64::MIN / 2; riders.len()];
+    let mut exposure_lines: Vec<String> = Vec::new();
+    // (ironspec / the reviewer: a calm rider following a path pushes its neighbour; at the pressed
+    // positions, the queue's slots and the stand's, each calm rider-tick's PATH: reaching, partial,
+    // none)
+    let mut pressed_paths = [0u64; 3];
     let mut expose_map: std::collections::BTreeMap<[i32; 3], (u64, i64, u64, u64)> = std::collections::BTreeMap::new();
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
     // the loop's places in travel order: slot 0 .. slot q-1, S3, S2, S1
@@ -5382,12 +5391,32 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 let (Some(b), Some(x)) = (m.brain.as_deref(), m.brain.as_deref().and_then(|b| b.ex.as_deref())) else { continue };
                 if x.active == redsim::entity::mob::ai::brain::Act::Panic {
                     last_panic[k] = run.world.time;
+                } else {
+                    let p = run.world.entities.list[i].pos;
+                    let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+                    let near = |q: &[i32; 3]| q[0] == cell[0] && q[2] == cell[2] && (q[1] - cell[1]).abs() <= 1;
+                    if lay.slot_cells.iter().any(near) || lay.stand_cells.iter().any(near) || lay.pockets.iter().any(|(_, q)| near(q)) {
+                        let slot = match &x.mem.path {
+                            Some(pp) if pp.reached => 0,
+                            Some(_) => 1,
+                            None => 2,
+                        };
+                        pressed_paths[slot] += 1;
+                    }
                 }
                 if let (Some(home), redsim::entity::mob::ai::brain::Act::Rest, Some(since)) = (b.home, x.active, x.mem.cant_reach_since) {
                     expose_ticks[k] += 1;
                     let p = run.world.entities.list[i].pos;
                     let streak = run.world.time - since;
                     exposed.push(format!("e{k} at {:.1},{:.1},{:.1} ({streak} gt)", p.x, p.y, p.z));
+                    if tm.exposure_log {
+                        let path = match &x.mem.path {
+                            Some(pp) if pp.reached => "reaching",
+                            Some(_) => "partial",
+                            None => "none",
+                        };
+                        exposure_lines.push(format!("exposure {} {c} {dt} e{k} {:.2} {:.2} {:.2} {streak} {} {path}", run.world.time, p.x, p.y, p.z, (run.world.time - last_panic[k] <= 20) as u8));
+                    }
                     // (the position map: per block cell, the exposed rider-ticks, the longest
                     // streak, and how many of those ticks the rider had panicked within 20 gt)
                     let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
@@ -6000,6 +6029,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if tm.reach_probe {
             out.push(format!("reach probe: of {total} exposed rider-ticks, {reachable} ({:.1}%) had a path from the cart to within 1 of the bed (an open bed top would clear their stamps on the next HOME walk); the rest only panic coverage clears", if total > 0 { 100.0 * reachable as f64 / total as f64 } else { 0.0 }));
         }
+        out.push(format!("calm riders' paths at the pressed positions (the queue's slots, the stand's), deep night: following a reaching path {} rider-ticks, a partial path {}, no path {}", pressed_paths[0], pressed_paths[1], pressed_paths[2]));
+        out.extend(exposure_lines);
     }
     if let Some(v) = tm.visit {
         out.extend(visit_lines.iter().cloned());

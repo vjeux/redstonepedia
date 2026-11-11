@@ -160,6 +160,9 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             v
         }
+        // (tickexact 2026-11-11) the rider push: each rider's HOME at t1 (R's and P's beds' tickets
+        // taken; N's in an unloaded chunk)
+        "rider-push" => vec![(1, vec![s([16, 64, 6], "home:e1.p0"), s([16, 64, 6], "poi-take"), s([16, 64, 11], "home:e3.p0"), s([16, 64, 11], "poi-take"), s([100, 64, 13], "home:e5.p0")])],
         "home-reach-open" => vec![(1, vec![s([10, 64, 11], "home:e0.p0"), s([10, 64, 11], "poi-take"), s([26, 64, 11], "home:e1.p0"), s([26, 64, 11], "poi-take")])],
         // (tickexact 2026-11-11) the freeze across a cant-reach streak: each rider's HOME and its
         // bed's POI at t1, then R1's chunk (0, 0) frozen from t900 for 1500 (or 5000) gt
@@ -2532,6 +2535,63 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, the reviewer via ironspec: does a calm rider following a partial path
+    // push its neighbour?) three lines, each a slope down east (rails ascending west x 14..19, y
+    // 69..64) against two stones at its foot (20, 64..65): an empty cart at the foot and a ridden
+    // one pressed behind it up the slope, as a queue presses them; night, no hostile (the riders
+    // calm in REST, each walking to its HOME): R (z 3) HOME on a bed on the open floor (its path
+    // reaches: the control), P (z 8) HOME on a bed boxed in glass with the roof two over it (the
+    // siding's: the cell over the bed not standable, so a partial path), N (z 13) HOME in an
+    // unloaded chunk (x 100: no path to it; MoveToTargetSink's random fallback toward it)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        for z in [3, 8, 13] {
+            for (k, x) in (14..=19).rev().enumerate() {
+                let y = 64 + k as i32;
+                for yy in 64..y {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, y, z], "minecraft:rail[shape=ascending_west,waterlogged=false]".to_string()));
+            }
+            b.push(([20, 64, z], stone.to_string()));
+            b.push(([20, 65, z], stone.to_string()));
+        }
+        // R's bed on the floor; P's in a glass box, roofed at y 66 (the cell over the bed air)
+        b.push(([16, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([16, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        for x in 15..=17 {
+            for z in 9..=12 {
+                for y in 64..=66 {
+                    let inside = x == 16 && (z == 10 || z == 11) && y <= 65;
+                    if !inside {
+                        b.push(([x, y, z], "minecraft:glass".to_string()));
+                    }
+                }
+            }
+        }
+        b.push(([16, 64, 10], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([16, 64, 11], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for z in [3.5, 8.5, 13.5] {
+            mobs.push(("minecraft:minecart".into(), [19.5, 64.5, z], None));
+            mobs.push(("minecraft:minecart".into(), [18.5, 65.5, z], Some(rider.into())));
+        }
+        v.push(Scene {
+            name: "rider-push".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 74, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-10, the boarding cooldown across a reload) a ridden minecart over a
     // powered activator rail throws its villager out (`ejectPassengers`: boardingCooldown 60);
     // a second, empty cart on the parallel line behind it comes through the villager's cell
@@ -4143,7 +4203,7 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
             {
                 for e in f.entities.iter().filter(|e| e.ty.ends_with("villager")) {
                     let mem = |k: &str| e.memories.as_ref().and_then(|m| m.get(k).cloned());
-                    eprintln!("t {} #{} villager at {:.2} {:.2} {:.2} riding {:?} activities {:?} home {:?} walk_target {:?} cant_reach {:?}", f.t, e.n, e.pos[0], e.pos[1], e.pos[2], e.vehicle, e.activities, mem("home"), mem("walk_target"), mem("cant_reach_walk_target_since"));
+                    eprintln!("t {} #{} villager at {:.2} {:.2} {:.2} riding {:?} activities {:?} home {:?} walk_target {:?} path {:?} cant_reach {:?}", f.t, e.n, e.pos[0], e.pos[1], e.pos[2], e.vehicle, e.activities, mem("home"), mem("walk_target"), mem("path").or_else(|| e.path.clone()), mem("cant_reach_walk_target_since"));
                 }
             }
             // (tickexact probe: MOBAI_SHOW_BLOCKS="T0:T1": the game's block and container changes
