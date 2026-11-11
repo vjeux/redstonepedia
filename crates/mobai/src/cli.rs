@@ -184,6 +184,14 @@ pub enum MobaiCmd {
         /// Recording files or directories of them.
         paths: Vec<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-11, ironspec's slope merge) A recorded scene's minecarts lane by lane
+    /// (the carts sharing a block x): positions, speeds, riders, the gaps between neighbours
+    /// (MERGED under 0.01), every `--every` ticks and at every merge
+    RecCarts {
+        path: std::path::PathBuf,
+        #[arg(long, default_value_t = 0)]
+        every: u32,
+    },
     /// A farm design's redsim run as the exact compare runs it, the level random's (or an
     /// entity's) draws of one game tick printed by call site.
     FarmTrace {
@@ -307,6 +315,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
         }
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
+        MobaiCmd::RecCarts { path, every } => crate::fixture::rec_carts(&path, every),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
         MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger, make_pad, piglins, ticket } => match (nether, overworld, nether_design) {

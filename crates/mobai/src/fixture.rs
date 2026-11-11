@@ -3207,6 +3207,77 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's / farmopt's slope merge: cc767b78's bench showed a cart
+    // arriving behind an empty cart pressed on a closed gate on a slope land on its exact spot) 13
+    // lanes 2 apart (x = 1 + 2i), each a closed oak gate at (x,64,3) at the foot of three ascending
+    // rails (x,64,4), (x,65,5), (x,66,6) rising south, then flat rails at y 67 to z 12; lanes 0..4 an
+    // empty cart pressed on the gate and a ridden follower set off down the slope from (x,66,6.5)
+    // at stored 0, 0.04, 0.2, 0.5 and 2.0; lanes 5..9 the same with an empty follower; lanes 10..12 a
+    // pressed queue of three carts let go at rest (z 4.5, 5.5, 6.5), the empty one at the front, the
+    // middle, the back, the others ridden
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 47, 0, 15, 63, stone);
+        let rail = |shape: &str| format!("minecraft:rail[shape={shape},waterlogged=false]");
+        for i in 0..23 {
+            let x = 1 + 2 * i;
+            b.push(([x, 64, 3], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+            b.push(([x, 64, 4], rail("ascending_south")));
+            b.push(([x, 64, 5], stone.to_string()));
+            b.push(([x, 65, 5], rail("ascending_south")));
+            for y in 64..=65 {
+                b.push(([x, y, 6], stone.to_string()));
+            }
+            b.push(([x, 66, 6], rail("ascending_south")));
+            for z in 7..=12 {
+                for y in 64..=66 {
+                    b.push(([x, y, z], stone.to_string()));
+                }
+                b.push(([x, 67, z], rail("north_south")));
+            }
+        }
+        let cart = |x: i32, y: f64, z: f64, v: f64, ridden: bool| {
+            let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+            ("minecraft:minecart".to_string(), [x as f64 + 0.5, y, z], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", -v)))
+        };
+        let mut mobs = Vec::new();
+        let speeds = [0.0, 0.04, 0.2, 0.5, 2.0];
+        for (k, sp) in speeds.iter().enumerate() {
+            for (lane, ridden) in [(k, true), (k + 5, false)] {
+                let x = 1 + 2 * lane as i32;
+                mobs.push(cart(x, 64.0, 4.5, 0.0, false));
+                mobs.push(cart(x, 66.0, 6.5, *sp, ridden));
+            }
+        }
+        for (q, empty_at) in [(10, 0), (11, 1), (12, 2)] {
+            let x = 1 + 2 * q;
+            for (j, (y, z)) in [(64.0, 4.5), (65.0, 5.5), (66.0, 6.5)].into_iter().enumerate() {
+                mobs.push(cart(x, y, z, 0.0, j != empty_at));
+            }
+        }
+        // (lanes 13..22: the merge's threshold, followers at stored 0.6, 0.8, 1.0, 1.2 and 1.5,
+        // ridden then empty)
+        for (k, sp) in [0.6, 0.8, 1.0, 1.2, 1.5].iter().enumerate() {
+            for (lane, ridden) in [(13 + k, true), (18 + k, false)] {
+                let x = 1 + 2 * lane as i32;
+                mobs.push(cart(x, 64.0, 4.5, 0.0, false));
+                mobs.push(cart(x, 66.0, 6.5, *sp, ridden));
+            }
+        }
+        v.push(Scene {
+            name: "slope-merge".into(),
+            chunks: [0, 0, 2, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [47, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
     // reloaded sleeper's wake) a villager asleep in its bed, a zombie walled in stone 4 blocks east;
     // the whole sandbox unloaded at t200, loaded at t240 and the zombie's west wall taken away at
@@ -5431,6 +5502,62 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32) -> Result<()> 
 
 /// `mctas mobai replay`: every recording replayed on redsim against its frames (no game). A scene
 /// changed since it was recorded fails (its hash), as does any difference.
+/// (tickexact 2026-11-11, ironspec's slope merge) `mctas mobai rec-carts <recording>`: a recorded
+/// scene's minecarts lane by lane (a lane: the carts sharing a block x), each `every` ticks: their
+/// positions along z, speeds, which are ridden, and the gaps between neighbours (centres under 0.01
+/// apart: MERGED); then per lane the closest pair over the run and where each cart ended.
+pub fn rec_carts(path: &std::path::Path, every: u32) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    // per lane x: per tick, (n, pos, motion, ridden)
+    type Cart = (u64, [f64; 3], [f64; 3], bool);
+    let mut lanes: std::collections::BTreeMap<i64, Vec<(usize, Vec<Cart>)>> = std::collections::BTreeMap::new();
+    for (t, l) in lines.enumerate() {
+        let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
+        let ents = f["entities"].as_array().cloned().unwrap_or_default();
+        let v3 = |v: &serde_json::Value| [v[0].as_f64().unwrap_or(0.0), v[1].as_f64().unwrap_or(0.0), v[2].as_f64().unwrap_or(0.0)];
+        let ridden: std::collections::HashSet<u64> = ents.iter().filter_map(|e| e["vehicle"].as_str().and_then(|s| s.strip_prefix('#')).and_then(|s| s.parse().ok())).collect();
+        let mut by_lane: std::collections::BTreeMap<i64, Vec<Cart>> = std::collections::BTreeMap::new();
+        for e in ents.iter().filter(|e| e["type"] == "minecart") {
+            let n = e["n"].as_u64().unwrap_or(0);
+            let p = v3(&e["pos"]);
+            by_lane.entry(p[0].floor() as i64).or_default().push((n, p, v3(&e["motion"]), ridden.contains(&n)));
+        }
+        for (x, mut cs) in by_lane {
+            cs.sort_by(|a, b| a.1[2].total_cmp(&b.1[2]));
+            lanes.entry(x).or_default().push((t, cs));
+        }
+    }
+    let gap = |a: &Cart, b: &Cart| ((a.1[0] - b.1[0]).powi(2) + (a.1[1] - b.1[1]).powi(2) + (a.1[2] - b.1[2]).powi(2)).sqrt();
+    let cart = |c: &Cart| format!("#{}{} z {:.4} y {:.4} vz {:+.4}", c.0, if c.3 { "R" } else { "E" }, c.1[2], c.1[1], c.2[2]);
+    for (x, ticks) in &lanes {
+        println!("lane x {x}:");
+        let mut closest: Option<(f64, usize, u64, u64)> = None;
+        let mut was_merged = false;
+        for (t, cs) in ticks {
+            let gaps: Vec<f64> = cs.windows(2).map(|w| gap(&w[0], &w[1])).collect();
+            for (k, g) in gaps.iter().enumerate() {
+                if closest.is_none_or(|c| *g < c.0) {
+                    closest = Some((*g, *t, cs[k].0, cs[k + 1].0));
+                }
+            }
+            // (every `every` ticks, the ticks a merge begins or ends, and the last)
+            let merged = gaps.iter().any(|g| *g < 0.01);
+            if (every > 0 && *t as u32 % every == 0) || merged != was_merged || *t + 1 == ticks.len() {
+                let parts: Vec<String> = cs.iter().map(cart).collect();
+                let gs: Vec<String> = gaps.iter().map(|g| format!("{g:.4}")).collect();
+                println!("  t{t}: {} | gaps {}{}", parts.join(", "), gs.join(" "), if merged { "  MERGED" } else { "" });
+            }
+            was_merged = merged;
+        }
+        if let Some((g, t, a, b)) = closest {
+            println!("  closest pair: #{a} #{b} {g:.4} apart at t{t}{}", if g < 0.01 { " (MERGED)" } else { "" });
+        }
+    }
+    Ok(())
+}
+
 pub fn replay(paths: &[std::path::PathBuf]) -> Result<()> {
     let mut files = Vec::new();
     for p in paths {
