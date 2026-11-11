@@ -266,8 +266,9 @@ post at z 21: on day-1's pocket loop (851a583a9) rider e0 took 3 damage every 7 
 moves a post in reach north a cell at a time (up to 4) or drops it: z 21 -> z 23. Pocket loop after:
 3 seeds x 240 slots clean, no rider hurt, PANIC 98.65/99.03% (98.70/99.13% before). Every run now
 reports each rider's damage and any rider gone from the world (a problem). The published wired v2
-file has the post at z 21: no rider hurt in 3 seeds x 480 slots on its own timing; 10 seeds x 1,440
-slots running.
+file has the post at z 21: on its own timing no rider is ever hurt (10 seeds x 1,440 slots: all
+clean, 0 damage events), but a timing change could expose it; its next revision should take the
+moved post.
 
 ## The stand catch's window (open)
 
