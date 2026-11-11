@@ -2044,6 +2044,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
     let mut order_dep2: Option<Vec<u32>> = None;
     let mut order_ok = 0;
+    // (the pocket stand's measured margins, per slot: [cart 1 at D2 (x 2), cart 2 at D2, cart 2's
+    // tail past G2 (x 1.29), cart 3 at G2 (x -0.2), G2 shut]; then (cart 1->2 spacing at D2, G2
+    // shut after cart 2 cleared it, G2 shut before cart 3 reached it))
+    let mut margin_rec: [Option<i64>; 6] = [None; 6];
+    let mut margins: Vec<(i64, i64, i64, i64)> = Vec::new();
+    let mut g2_was_open = false;
     // (a nap visit's state: the carts off the loop, the visiting cart and its batch, what it did)
     let mut away: std::collections::HashSet<u32> = std::collections::HashSet::new();
     // (the stand's batch at the latest slot start: an observed visit's batch and place in it)
@@ -2219,6 +2225,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 returned.clear();
             }
             stand_train = Some((c, rel, if wired.is_some() && tm.stand_reset.is_none() && !tm.bench_stand { 2 } else { 0 }));
+            // (the pocket stand's margins of the slot before, then a fresh record for this one)
+            if let [Some(a), Some(b), Some(fr), Some(cl), Some(ar), Some(g)] = margin_rec {
+                margins.push((b - a, g - fr, g - cl, ar - g));
+            }
+            margin_rec = [None; 6];
             detect_at = None;
             rise_at = None;
             each_at = [None; 3];
@@ -2830,6 +2841,27 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     }
                 }
             }
+            // (the margins: each crossing the first tick past its mark, on the stand's line; G2's
+            // shutting the tick it goes from open to shut)
+            if let Some((_, tr, _)) = &stand_train
+                && tr.len() == 3
+                && lay.pockets.len() == 3
+            {
+                let x_of = |id: u32| pos_of(&run.world, id).filter(|p| (p.z - 0.5).abs() < 0.6 && p.y < 1.5).map(|p| p.x);
+                // (cart 2 "in" the gate once its front is past the gate's near face (a shutting
+                // gate no longer stops a cart it already overlaps), "clear" once its tail is past)
+                let marks = [(0usize, 0usize, 2.0), (1, 1, 2.0), (2, 1, -0.1), (3, 1, 1.29), (4, 2, -0.2)];
+                for (slot, cart, x) in marks {
+                    if margin_rec[slot].is_none() && x_of(tr[cart]).is_some_and(|px| px >= x) {
+                        margin_rec[slot] = Some(t);
+                    }
+                }
+                let g2_open = format!("{}", run.world.get(lay.pockets[2].0)).contains("open=true");
+                if g2_was_open && !g2_open {
+                    margin_rec[5] = Some(t);
+                }
+                g2_was_open = g2_open;
+            }
             // the pocket stand catches with no rail control: the batch is in once its three carts
             // rest in S1, S2, S3 (each against its own gate)
             if let Some((c0, tr, st)) = &mut stand_train
@@ -3017,6 +3049,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     out.push(format!("{} settled snapshots, {} clean 3-place moves", snaps.len(), moves));
     if o.stand_stop {
         out.push(format!("slot-boundary order: {order_ok} clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)"));
+        // (one line in a fixed form, read back by `queue-loop-run --seeds`: min and max of each)
+        let mm = |f: &dyn Fn(&(i64, i64, i64, i64)) -> i64| (margins.iter().map(f).min().unwrap_or(0), margins.iter().map(f).max().unwrap_or(0));
+        let ((a0, a1), (f0, f1), (b0, b1), (c0, c1)) = (mm(&|m| m.0), mm(&|m| m.1), mm(&|m| m.2), mm(&|m| m.3));
+        out.push(format!("stand margins: gap12 {a0} {a1} in {f0} {f1} clear {b0} {b1} arrive {c0} {c1} slots {}", margins.len()));
     }
     let span = |v: &[i64]| if v.is_empty() { "-".to_string() } else { format!("+{}..+{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
     out.push(format!("stand braked at {} after its slot's start; tail slots 1-2 braked at {}, slot 0 at {} after the train's departure", span(&stand_braked_at), span(&intake_braked_at.iter().filter(|x| x.1 == 1).map(|x| x.0).collect::<Vec<_>>()), span(&intake_braked_at.iter().filter(|x| x.1 == 0).map(|x| x.0).collect::<Vec<_>>())));
