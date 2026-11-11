@@ -1238,6 +1238,20 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         left -= n;
         if mobstate_at == Some(t) {
             let v = game.w.call(json!({"op": "mobstate", "sandbox": game.sb}))?;
+            // (mob-AI 2026-11-11) MCTAS_EXACT_STATE=N,..: those entities' saved data on the game's
+            // side (the bridge's key state: a cat's variant, a llama's, a villager's data) beside
+            // redsim's stored variant
+            if let Ok(ids) = std::env::var("MCTAS_EXACT_STATE") {
+                let all = game.w.call(json!({"op": "entities", "sandbox": game.sb}))?;
+                for id in ids.split(',').filter_map(|s| s.trim().parse::<i64>().ok()) {
+                    let state = all["entities"].as_array().into_iter().flatten().find(|e| e["net_id"].as_i64() == Some(id)).map(|e| format!("{} {}", e["type"].as_str().unwrap_or("?"), e["state"].as_str().unwrap_or("?")));
+                    let ours = redsim::entity::index_of(&run.world, id as u32).and_then(|i| match &run.world.entities.list[i].kind {
+                        redsim::entity::EntityKind::Mob(m) => Some(format!("{} variant {:?} left-handed {}", m.ty.def().game_id, m.variant, m.left_handed)),
+                        _ => None,
+                    });
+                    eprintln!("state t{t} #{id}: game {} | redsim {}", state.unwrap_or_else(|| "-".into()), ours.unwrap_or_else(|| "-".into()));
+                }
+            }
             for m in v["mobs"].as_array().into_iter().flatten() {
                 if let Some(p) = m["path"].as_str() {
                     eprintln!("mobstate t{t}: {} at {} {} {}: path {p}", m["type"].as_str().unwrap_or("?"), m["x"].as_str().unwrap_or("?"), m["y"].as_str().unwrap_or("?"), m["z"].as_str().unwrap_or("?"));

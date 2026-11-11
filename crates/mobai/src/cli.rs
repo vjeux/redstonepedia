@@ -200,6 +200,27 @@ pub enum MobaiCmd {
         /// One line a lane (its carts, the first contact, the closest centres, a merge)
         #[arg(long)]
         summary: bool,
+        /// Each cart's x and x speed too (carts through curves)
+        #[arg(long)]
+        xz: bool,
+    },
+    /// (tickexact 2026-11-11, ironspec's junction-settle) Scene junction-settle's recording: each lane's
+    /// settled junction shape and each cart's route through it
+    RecJunction {
+        path: std::path::PathBuf,
+    },
+    /// (tickexact 2026-11-11, ironspec's hatch sight lines) redsim's line of sight from the siding's
+    /// napper (stand-up cell, sleeper, T rider) to the dorm zombie, the hatch closed and open
+    HatchSweep {
+        path: std::path::PathBuf,
+    },
+    /// (tickexact 2026-11-11, ironspec's side push) A recorded scene's carts in pairs of lanes
+    /// (`--pairs xa:xb,...`, one cart a lane): each tick their pushing boxes overlap, both carts'
+    /// motion and its departure from free running
+    RecSide {
+        path: std::path::PathBuf,
+        #[arg(long, value_delimiter = ',')]
+        pairs: Vec<String>,
     },
     /// (tickexact 2026-11-11, 58f770cc's plate question) A recorded scene's pressure plates tick by
     /// tick: their on/off ticks and how far each mob in a plate's column reaches into its cell
@@ -347,10 +368,16 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
         }
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
-        MobaiCmd::RecCarts { path, every, band, summary } => crate::fixture::rec_carts(&path, every, band, summary),
+        MobaiCmd::RecCarts { path, every, band, summary, xz } => crate::fixture::rec_carts(&path, every, band, summary, xz),
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
+        MobaiCmd::RecJunction { path } => crate::fixture::rec_junction(&path),
+        MobaiCmd::HatchSweep { path } => crate::fixture::hatch_sweep(&path),
+        MobaiCmd::RecSide { path, pairs } => {
+            let p: Vec<(i64, i64)> = pairs.iter().filter_map(|s| s.split_once(':').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?)))).collect();
+            crate::fixture::rec_side(&path, &p)
+        }
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
         MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger, make_pad, piglins, ticket } => match (nether, overworld, nether_design) {

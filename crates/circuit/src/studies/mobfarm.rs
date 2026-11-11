@@ -320,7 +320,10 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
     let build_s: Vec<Option<(f64, f64)>> = jobs.iter().map(|(s, _, _)| site_bill(c, Some(*s), stage).ok().map(|bill| (bill.seconds, bill.collect_s))).collect();
     let (base, runs, exposures, tkit) = std::thread::scope(|s| {
         let ex = s.spawn(|| exposures_of(jobs[0].0, &jobs[0].1));
-        let base = s.spawn(|| base_checks(c, &jobs[0].1, &jobs[0].2));
+        let base = s.spawn(|| {
+            let builds: Vec<(&FarmSpec, &JudgeOpts)> = jobs.iter().map(|(_, spec, o)| (spec, o)).collect();
+            base_checks_with(c, &jobs[0].1, &jobs[0].2, &builds)
+        });
         let hs: Vec<_> = jobs.iter().enumerate().map(|(k, (_, spec, o))| s.spawn(move || build_runs(spec, o, k as u32, WalkMode::Random))).collect();
         let hand = c.clock.design.meta.get("restart").map(|r| r.trim()) != Some("yes");
         // (iteration 16: each T ends with the trip down to the chest for the 24 iron)
@@ -984,6 +987,14 @@ pub fn absence_probe(spec: &FarmSpec, o: &JudgeOpts) -> std::result::Result<Vec<
 
 /// The base checks of a farm.
 pub fn base_checks(c: &Circuit, spec: &FarmSpec, o: &JudgeOpts) -> std::result::Result<BaseChecks, String> {
+    base_checks_with(c, spec, o, &[(spec, o)])
+}
+
+/// The base checks of a farm judged over several builds (`builds`, build 0 first: each build's
+/// spec and options, as its headline runs take them): every check at build 0 but the rain and
+/// thunder windows, whose runs are spread over the builds as the headline's are
+/// ([`windows_probe_builds`]).
+pub fn base_checks_with(c: &Circuit, spec: &FarmSpec, o: &JudgeOpts, builds: &[(&FarmSpec, &JudgeOpts)]) -> std::result::Result<BaseChecks, String> {
     let refused = redsim::entity::mob::refuse::static_checks_in(spec, o.site);
     if !refused.is_empty() {
         return Err(format!("refused: {}", refused.join("; ")));
@@ -997,7 +1008,7 @@ pub fn base_checks(c: &Circuit, spec: &FarmSpec, o: &JudgeOpts) -> std::result::
         let worst = s.spawn(|| if redsim::entity::mob::farm::judge_ai() { Ok(Vec::new()) } else { worst_policy(spec, o) });
         let restart = s.spawn(|| if restart_claimed { restart_probe(spec, o).map(Some) } else { Ok(None) });
         let away = s.spawn(|| if restart_claimed { absence_probe(spec, o) } else { Ok(Vec::new()) });
-        let windows = s.spawn(|| windows_probe(spec, o));
+        let windows = s.spawn(|| windows_probe_builds(builds));
         let exit = exit::golem_exit_in(spec, o.site, o.seed0, o.threads);
         fn join<T>(h: std::thread::ScopedJoinHandle<'_, std::result::Result<T, String>>) -> std::result::Result<T, String> {
             h.join().unwrap_or_else(|_| Err("a probe panicked".to_string()))
@@ -1019,9 +1030,27 @@ pub const WINDOW_RUNS: u32 = 16;
 /// natural day, then a forced day of rain, then a forced day of thunder (`weather::Plan::Windows`,
 /// from the cycle's stationary state, as the game gate runs them).
 pub fn windows_probe(spec: &FarmSpec, o: &JudgeOpts) -> std::result::Result<Vec<RunReport>, String> {
+    windows_probe_builds(&[(spec, o)])
+}
+
+/// [`windows_probe`] over builds (tickexact 2026-11-11, ironspec's weather gap: the card's clear
+/// day measured as the headline is): run k at build k mod B, on that build's k div B-th headline
+/// seed (`seed0 + build x 1000 + k div B`, [`build_runs`]'), so the probe's natural first day is the
+/// headline's own runs' and its rain and thunder days are set against the same builds.
+pub fn windows_probe_builds(builds: &[(&FarmSpec, &JudgeOpts)]) -> std::result::Result<Vec<RunReport>, String> {
     let plan = redsim::weather::Plan::Windows { at: 24000, rain: 24000, thunder: 24000 };
-    let jobs: Vec<RunOpts> = (0..WINDOW_RUNS).map(|k| ropts(o, o.seed0 + 4242 + k as i64, 72000, WalkMode::Random).with_weather(plan)).collect();
-    run_all(spec, &jobs).into_iter().collect()
+    let n = builds.len().max(1);
+    let jobs: Vec<(&FarmSpec, RunOpts)> = (0..WINDOW_RUNS as usize)
+        .map(|k| {
+            let b = k % n;
+            let (spec, o) = builds[b];
+            (spec, ropts(o, o.seed0 + b as i64 * 1000 + (k / n) as i64, 72000, WalkMode::Random).with_weather(plan))
+        })
+        .collect();
+    std::thread::scope(|s| {
+        let hs: Vec<_> = jobs.iter().map(|(spec, j)| s.spawn(move || farm::run(spec, j))).collect();
+        hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a run panicked".to_string()))).collect()
+    })
 }
 
 /// "about every N game days" (or "never") for a rate a game day.
@@ -1059,7 +1088,17 @@ pub fn lightning_line(m: &redsim::weather::lightning::Measure) -> String {
             k => format!("villagers turned into witches {} (one strike can take up to {k})", every(m.witch * per_day)),
         },
         format!("the zombie's boat broken {}", every(m.vehicle * per_day)),
-        format!("a fire beside a flammable block {}", every(m.fire * per_day)),
+        // (ironspec 2026-11-11, the fire rules: a fire counts against the farm only when the
+        // game's spread can carry it to the farm's flammable blocks, mobs or drop path; the rest
+        // is the site's, a note; a strike on the AFK player is its own line, not the farm
+        // breaking) (no ", " inside a part: the site splits a card's metrics there)
+        format!("a fire that can reach the farm (its flammable blocks or mobs or drop path) {}", every(m.fire * per_day)),
+        format!("site note: a fire on the site that cannot reach the farm {}", every(m.site_fire * per_day)),
+        format!("AFK spot struck: {} (a 7 x 7 opaque non-flammable roof over the player's column with its block 4 above the player's feet prevents it: a single block over its column does not)", every(m.afk_struck * per_day)),
+        // (ironspec's rule 5) natural flammables a fire reaching the farm passes through: none
+        // comes back on its own once cleared, so clearing them at the build closes that way (the
+        // count above still includes them)
+        if m.natural_in_reach > 0 { format!("{} natural flammable blocks lie on a fire's way to the farm (counted above: they do not grow back so clearing them at the build closes that way)", m.natural_in_reach) } else { "no natural flammable block lies on a fire's way to the farm".to_string() },
         // (iteration 23: per game day of thunder too, and the part that prevents it)
         if m.trap > 0.0 {
             format!("a skeleton trap horse on the farm {} (every {} game days of thunder; a lightning rod topping its column within 128 blocks prevents it)", every(m.trap * per_day), days(1.0 / (m.trap * 24000.0)))
@@ -1072,7 +1111,7 @@ pub fn lightning_line(m: &redsim::weather::lightning::Measure) -> String {
         format!("a skeleton trap horse that triggers (within 10 blocks of the AFK spot) {} (a lightning rod within 128 blocks, topping its column, takes the bolts: none then)", every(m.trap_player * per_day)),
     ];
     if m.breaks > 0.0 {
-        let first = [(m.witch, "a villager made a witch"), (m.vehicle, "the zombie's boat broken"), (m.fire, "a fire")].into_iter().max_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1).unwrap_or("");
+        let first = [(m.witch, "a villager made a witch"), (m.vehicle, "the zombie's boat broken"), (m.fire, "a fire reaching the farm")].into_iter().max_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1).unwrap_or("");
         v.push(format!("the farm breaks in about {} game days ({first} first)", days(1.0 / (m.breaks * per_day))));
     } else {
         v.push("lightning never breaks the farm".to_string());
@@ -1587,7 +1626,10 @@ pub fn judge(c: &Circuit, o: &Options, jo: &JudgeOpts) -> std::result::Result<Ve
     }
     // the base checks alongside the builds (tickexact 2026-11-08: the builds waited for them)
     let (base, runs): (std::result::Result<BaseChecks, String>, Vec<std::result::Result<Vec<RunReport>, String>>) = std::thread::scope(|s| {
-        let b = s.spawn(|| base_checks(&jobs[0].2, &jobs[0].3, jo));
+        let b = s.spawn(|| {
+            let builds: Vec<(&FarmSpec, &JudgeOpts)> = jobs.iter().map(|(_, _, _, spec)| (spec, jo)).collect();
+            base_checks_with(&jobs[0].2, &jobs[0].3, jo, &builds)
+        });
         let hs: Vec<_> = jobs.iter().enumerate().map(|(k, (_, _, _, spec))| s.spawn(move || build_runs(spec, jo, k as u32, WalkMode::Random))).collect();
         let runs = hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect();
         (b.join().unwrap_or_else(|_| Err("the base checks panicked".to_string())), runs)

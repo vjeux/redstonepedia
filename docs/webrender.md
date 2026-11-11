@@ -640,8 +640,48 @@ each build's page.
   no horse animation; its tail's swish is the client's own random), the zombie's arms higher
   when aggressive and a baby's down while it holds an item (`animateZombieArms`). Tests
   `a_spider_is_drawn_with_the_games_model`, `natural_mobs_stand_like_the_game` (each model's
-  feet and top from its layer definition). Not drawn yet: held items and armor, the sulfur cube,
-  the zombie villager (its profession and the skeleton's handedness wait on redsim keeping them). Lava is drawn as the game draws it: its
+  feet and top from its layer definition). A humanoid's (zombie, baby zombie, skeleton) item in
+  its right hand and its armor (2026-11-11; `web kinds` lists what each kind holds and wears and
+  where it is first seen: the terrain farms' skeletons hold bows, natural zombies iron spears and
+  shovels, and they wear leather, golden or copper armor): the item through
+  `ItemInHandLayer.submitArmWithItem` (the arm, a skeleton's a pixel in, a quarter turn back, a
+  half turn, the hand's offset, a baby's smaller) and its model's `thirdperson_righthand` display
+  (the bow's own, a spear's `spear_in_hand` with its `_in_hand` sprite, a tool's `item/handheld`,
+  else `item/generated`), its sprite a flat double-sided square like a dropped item's (the game
+  extrudes it a pixel deep); the armor as `HumanoidArmorLayer` draws it: each worn slot's
+  `createArmorMeshSet(0.5, 1.0)` parts (the legs' the inner deformation) posed like the model,
+  each layer of its material's equipment asset (`humanoid`, `humanoid_leggings`; leather's base
+  dyed its undyed 0xA06540, then its overlay), neither under the red overlay (`NO_OVERLAY`). A
+  still's mob wears what its data gives it (`equipment:{mainhand:..., head:...}`:
+  `scene::still_equipment`); one redsim refuses to place (only a main hand's item is modeled in
+  a design's data) is drawn as placed in a still (`Session::unspawned`: the page's first
+  picture had dropped it; test `a_still_draws_the_mobs_redsim_refuses`). Their textures took the game texture past WebGL2's 2048: a shelf
+  of entity textures that starts below the item atlas now starts at the left edge (1984 tall
+  with the zombie villagers' and the sulfur cube's; test `the_game_texture_fits_webgl2`). Tests
+  `a_humanoid_wears_its_armor_and_holds_its_item`, `a_design_mob_wears_its_equipment`. A
+  left-handed mob (redsim's `left_handed`, the spawn roll's 5%; a design's `LeftHanded:1b`) holds
+  its item in its left hand: the left arm, the hand's offset the other way, its model's
+  `thirdperson_lefthand` (else the right's) with `ItemTransform`'s left-hand fix (the
+  translation's x and the rotation's y and z negated), a skeleton's bow aimed with its left arm
+  (`poseLeftArm`'s BOW_AND_ARROW). A zombie (or zombie villager) holding a spear does not raise
+  its arms (`animateZombieArms` skips a SPEAR arm pose): the humanoid walk swing, the spear's arm
+  held out along the look (`SpearAnimations.thirdPersonHandUse`, not in use). The zombie villager
+  and its baby (2026-11-11) draw with their own models (`ZombieVillagerModel`,
+  `BabyZombieVillagerModel`: a villager's head, nose, hat and robe, a zombie's arms) and
+  textures, their biome's type a layer over the whole model (`VillagerProfessionLayer`: redsim's
+  `variant`, plains when it gives none; a baby's own type textures), the adult's armor on its own
+  mesh (`ZombieVillagerModel.createBaseArmorMesh`). Tests
+  `a_left_handed_mob_holds_its_item_in_its_left_hand`, `a_zombie_villager_wears_its_biome`. The
+  sulfur cube (2026-11-11; cross-4-underground's, from tick 7964) is two translucent cubes, its
+  inner body inside its outer (`SulfurCubeInnerLayer`, `SulfurCubeModel`; a baby's
+  `SmallSulfurCubeModel`; `entityTranslucent`: quads sorted with the frame's other translucent
+  faces, `entitymodel::mob_translucent`), sized and lifted by `SulfurCubeRenderer.scale` (test
+  `a_sulfur_cube_is_two_translucent_cubes`). Not
+  drawn yet: a baby's armor (`humanoid_baby`), an enchanted item's or piece's glint, a drawn
+  bow's pull, the witch's potion, a zombie villager's profession (redsim keeps none), the farm
+  animals' warm and cold variants (every terrain site is temperate), a cube mob's squish (redsim
+  keeps none), a sulfur cube's swallowed block (redsim refuses one) and the red overlay on
+  translucent faces (the translucent pass draws none). Lava is drawn as the game draws it: its
   `lava_still` texture, solid, lit by its own light 15 (it was water tinted orange). The time
   badge is the readout (`mobfarm::readout`): the game's day and clock, the golems so far and the
   iron in the farm's chests (`day 1, 13:23 · 2 golems, 9 iron`, two lines on a phone); the left
@@ -1023,7 +1063,7 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
 | `mctas web mobdiff <design> --build B --seed S [--ticks 120000]` | one of a mob farm's judge runs (its build B of the 8, seed S) played both ways, the judge's runner (`farm::Run` with the card's hand step) and the viewer's session, every tick's worlds compared (time, mob random, every entity's kind, position and motion): the first tick they part and how (or the view stopping, with the judge's world errors then), else the same to the end; fails when they part. 2026-11-09: D1U's build 7 seed 1769114314 had stopped `web check` at t103206 and looked like a wasm divergence; both runs were the same every tick and both hit natural water past the sample's edge (fixed in b686373716); `cargo test -p web-cli -- --ignored d1u_build7` keeps it so |
 | `mctas web compare <designs> -o <dir> [--zoom x,y,w,h] [--floor-margin m] [--still] [--before <dir>]` | real-game picture (`designs/clocks/img`) next to the viewer's frame of the same moment and camera (without the viewer's input outlines) and where they differ (red), with the pixel difference, the difference over the build alone (the grass's noise left out) and the edge offset (where ours sits against the picture, 1/8 px steps); ours is the game's whole window passed through the pictures' own encoder (`clock::shot::encode_picture`: the same integer crop, lanczos and JPEG; resampled apart, it sat a third of a pixel off); `<dir>/sheet.png` and `report.tsv` hold them all; `--zoom` writes a 4x crop of both and their mean colours, `--floor-margin` tries another floor reach, `--still` takes still frames from `web snapshot` as written (tick 0), `--before` an earlier run's folder (another viewer build): `before-after.png` and both means |
 | `mctas web snapshot <designs> -o <dir>` | each design's still frame in the viewer (a door at rest, a circuit settled with its judge's rig, a clock at its still moment) as a plain design of the blocks drawn there, at the height the real game pictures it (lowest cell y = 72: the same random block variants); `mctas clock shot --still` pictures them in the game, `web compare --still` in the viewer: the fidelity pass's pairs (same blocks, same camera) |
-| `mctas web kinds <designs> [--ticks N]` | each view played as the page plays it (default 120000 ticks: the judge's 5 days), every entity it draws: each kind (a mob or not), the most at once, the first tick and where (`--look-at` for a frame of it), the ticks played and why it stopped early; the census behind the mob models (`tools::drawn_kinds`) |
+| `mctas web kinds <designs> [--ticks N]` | each view played as the page plays it (default 120000 ticks: the judge's 5 days), every entity it draws: each kind (a mob or not), the most at once, the first tick and where (`--look-at` for a frame of it), the ticks played and why it stopped early; what a mob kind holds and wears (`holding minecraft:bow @tick x,y,z`, `wearing golden head @...`: each first seen); the census behind the mob models (`tools::drawn_kinds`) |
 | `mctas web strip <design> -o <png>` | a grid of frames over time (a door from its flip, a clock from its still moment), half ticks apart: the animation |
 | `mctas web sheet <pngs> -o <png>` | textures scaled up in a grid, to compare them by eye |
 | `mctas web bundle -o web/viewer` | the wasm bundle (needs `rustup target add wasm32-unknown-unknown` and `cargo install wasm-bindgen-cli --version =0.2.129`) |

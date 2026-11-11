@@ -427,6 +427,103 @@ fn lightning_fire_counts_the_farms_blocks() {
     assert!(mine.fire > 0.0, "{mine:?}");
     let elsewhere = lightning::measure(&w, &[], &[], inner, (BlockPos::new(4, 0, 4), BlockPos::new(7, 23, 7))).unwrap();
     assert_eq!(elsewhere.fire, 0.0, "{elsewhere:?}");
+    // (ironspec 2026-11-11, the fire rules) the planks outside the farm's box burn the site, not
+    // the farm: a site note
+    assert!(elsewhere.site_fire > 0.0, "{elsewhere:?}");
+}
+
+/// ironspec 2026-11-11's fire rules: a fire reaches the farm along the game's spread, through
+/// natural flammables as well as built ones, and the storm's rain stops what the game's rain
+/// stops (a bolt falls only in rain: `FireBlock.tick` lights no cell near rain, and a burnt block
+/// turns to fire only where it is not raining at its own cell (`!isRainingAt`, checked while it
+/// stands: a solid block holds the rain off its own cell, a grass tuft does not)). A natural fuse
+/// leads from a fire to the farm's own planks five blocks away: of grass, it carries the fire under
+/// a roof and not in the open; of planks, in the open too; without a fuse, nowhere.
+#[test]
+fn fire_reach_follows_the_spread_and_stops_in_the_rain() {
+    let grass = Block::Terrain(crate::terrain::blocks::id_of("minecraft:short_grass").expect("short grass in the table"));
+    let scene = |roof: bool, fuse: Option<&str>| {
+        let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 12, 16]);
+        for x in -8..8 {
+            for z in -8..8 {
+                put(&mut w, x, 0, z, "minecraft:stone");
+            }
+        }
+        put(&mut w, 6, 1, 1, "minecraft:oak_planks");
+        if roof {
+            for x in -2..=7 {
+                for z in -3..=4 {
+                    put(&mut w, x, 3, z, "minecraft:stone");
+                }
+            }
+        }
+        // (the fuse last, the grass placed raw: on stone it could not stay)
+        for x in 1..=5 {
+            match fuse {
+                Some("grass") => w.place_raw(&[(BlockPos::new(x, 1, 1), grass)]),
+                Some(s) => put(&mut w, x, 1, 1, s),
+                None => {}
+            }
+        }
+        w
+    };
+    {
+        let w = scene(true, Some("grass"));
+        assert!((1..=5).all(|x| w.get(BlockPos::new(x, 1, 1)) == grass), "the grass fuse stands");
+    }
+    let own = [BlockPos::new(6, 1, 1)];
+    let start = BlockPos::new(1, 1, 0);
+    assert!(lightning::fire_can_reach(&scene(true, Some("grass")), &own, &[], start), "under a roof the fire follows the grass to the farm");
+    assert!(!lightning::fire_can_reach(&scene(false, Some("grass")), &own, &[], start), "in the rain a grass fuse carries nothing");
+    assert!(lightning::fire_can_reach(&scene(false, Some("minecraft:oak_planks")), &own, &[], start), "a fuse of planks carries it in the rain");
+    assert!(!lightning::fire_can_reach(&scene(true, None), &own, &[], start), "no fuse: the fire goes nowhere");
+    // a fire beside the farm's own planks burns them, rain or not; one in a cell the farm depends
+    // on (a mob's, the drop path, the AFK spot) reaches it at once
+    assert!(lightning::fire_can_reach(&scene(false, None), &own, &[], BlockPos::new(5, 1, 1)));
+    assert!(lightning::fire_can_reach(&scene(false, None), &[], &[BlockPos::new(-3, 1, -3)], BlockPos::new(-3, 1, -3)));
+}
+
+/// ironspec 2026-11-11: a strike on the AFK player is its own line (`afk_struck`), not the farm
+/// breaking. A bolt hurts every entity in x and z +-3, y -3..+9 of its strike point, so a block
+/// over the player's column alone does not shelter it (the strikes on that block land 3 above it,
+/// the ground's around it within 3); an opaque 7 x 7 roof over its column, its block 4 above the
+/// player's feet, does. The player also draws the strikes near it (a living entity that sees the
+/// sky is a target).
+#[test]
+fn the_afk_player_struck_and_its_roof() {
+    let world = |roof: Option<(i32, i32)>| {
+        let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
+        for x in -8..8 {
+            for z in -8..8 {
+                put(&mut w, x, 0, z, "minecraft:stone");
+            }
+        }
+        if let Some((half, y)) = roof {
+            for x in -half..=half {
+                for z in -half..=half {
+                    put(&mut w, x, y, z, "minecraft:stone");
+                }
+            }
+        }
+        w
+    };
+    let inner = Aabb::new(-8.0, 0.0, -8.0, 8.0, 24.0, 8.0);
+    let farm = (BlockPos::new(-8, 0, -8), BlockPos::new(7, 23, 7));
+    let player = Some(Vec3::new(0.5, 1.0, 0.5));
+    // (the player standing there: a terrain site's AFK spot)
+    let at = |w: &World| lightning::measure_own(w, &[], &[], inner, player, player, &[]).unwrap();
+    let open = at(&world(None));
+    let column = at(&world(Some((0, 3))));
+    let roofed = at(&world(Some((3, 5))));
+    // (a void build's convention spot is no target: no struck line)
+    assert_eq!(lightning::measure_at(&world(None), &[], &[], inner, farm, player).unwrap().afk_struck, 0.0);
+    assert!(open.afk_struck > 0.0 && open.breaks == 0.0, "{open:?}");
+    assert!(column.afk_struck > 0.0, "a block over its column alone: {column:?}");
+    assert_eq!(roofed.afk_struck, 0.0, "{roofed:?}");
+    // (49 columns' strikes within 3 of it: every one reaches it in the open)
+    let q = lightning::CHUNK_STRIKE / 256.0;
+    let harm = 1.0 - lightning::trap_chance(&lightning::Settings::default());
+    assert!((open.afk_struck / q - 49.0 * harm).abs() < 1e-6, "{open:?}");
 }
 
 /// Java's Float.toString for the bridge's weather text.

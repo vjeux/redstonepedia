@@ -771,7 +771,21 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                 let text = std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))?;
                 match mcview::tools::drawn_kinds(&text, ticks) {
                     Ok((kinds, played, halted)) => {
-                        let list: Vec<String> = kinds.iter().map(|k| format!("{}{} x{} (from tick {} at {:.1},{:.1},{:.1})", k.kind, if k.mob { " [mob]" } else { "" }, k.most, k.first, k.at[0], k.at[1], k.at[2])).collect();
+                        let worn = |k: &mcview::tools::DrawnKind| {
+                            let first = |m: &std::collections::BTreeMap<String, (u32, [f32; 3])>| m.iter().map(|(n, (t, p))| format!("{n} @{t} {:.1},{:.1},{:.1}", p[0], p[1], p[2])).collect::<Vec<_>>().join("/");
+                            let mut s = String::new();
+                            if !k.held.is_empty() {
+                                s += &format!(" holding {}", first(&k.held));
+                            }
+                            if !k.armor.is_empty() {
+                                s += &format!(" wearing {}", first(&k.armor));
+                            }
+                            if !k.looks.is_empty() {
+                                s += &format!(" looking {}", first(&k.looks));
+                            }
+                            s
+                        };
+                        let list: Vec<String> = kinds.iter().map(|k| format!("{}{} x{} (from tick {} at {:.1},{:.1},{:.1}){}", k.kind, if k.mob { " [mob]" } else { "" }, k.most, k.first, k.at[0], k.at[1], k.at[2], worn(k))).collect();
                         let stop = halted.map(|h| format!(", STOPPED: {h}")).unwrap_or_default();
                         println!("{} ({played} ticks{stop}): {}", p.display(), if list.is_empty() { "no entities".to_string() } else { list.join(", ") });
                     }
