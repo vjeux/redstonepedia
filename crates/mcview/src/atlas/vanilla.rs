@@ -28,9 +28,13 @@ pub const MODELS: &str = "model.min.json";
 /// The particle sprites' subdirectory (`particle/<name>.png`).
 pub const PARTICLE_DIR: &str = "particle";
 
-/// The particle sprites the viewer draws (`crate::particles`): the explosion's 16 frames.
+/// The particle sprites the viewer draws (`crate::particles`): the explosion's 16 frames; and the
+/// enchantment glint textures (`misc/enchanted_glint_item`, `_armor`: 128 x 128, sampled
+/// repeating by the solid shader, `render::glint`), packed the same way.
 pub fn particle_names() -> Vec<String> {
-    (0..crate::particles::FRAMES).map(|i| format!("explosion_{i}")).collect()
+    let mut v: Vec<String> = (0..crate::particles::FRAMES).map(|i| format!("explosion_{i}")).collect();
+    v.extend(["enchanted_glint_item".to_string(), "enchanted_glint_armor".to_string()]);
+    v
 }
 
 /// How a game texture becomes a tile.

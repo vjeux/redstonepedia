@@ -1158,11 +1158,15 @@ fn mob_transform(k: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> M {
     }
     let m = m.scale([-1.0, -1.0, 1.0]);
     // the renderer's own `scale`: a sulfur cube's (`SulfurCubeRenderer.scale`: `downscaleSlightly`,
-    // its size, unsquished (redsim keeps no squish), an adult's half and lift, a baby's)
+    // its size and squish (`applySizeAndSquish`: no block swallowed, so `squish / (size / 2 + 1)`
+    // widens it by 1 / (that + 1) and heightens it by its inverse), an adult's half and lift, a
+    // baby's)
     let m = match sulfur_cube(k) {
         Some((size, baby)) => {
             let (lift, extra) = if baby { (1.24, 1.0) } else { (0.98, 0.5) };
-            m.scale([0.999; 3]).translate([0.0, 0.001, 0.0]).scale([size; 3]).scale([extra; 3]).translate([0.0, lift - 1.0 / 16.0, 0.0])
+            let ss = d.squish / (size * 0.5 + 1.0);
+            let w = 1.0 / (ss + 1.0);
+            m.scale([0.999; 3]).translate([0.0, 0.001, 0.0]).scale([w * size, size / w, w * size]).scale([extra; 3]).translate([0.0, lift - 1.0 / 16.0, 0.0])
         }
         None => m,
     };
@@ -1200,6 +1204,11 @@ pub fn mob_translucent(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mes
         if let Some(r) = rect(g, t) {
             emit(&mut tris, &[part(vec![c], [0.0; 3], [0.0; 3])], &m, size, r, tw, th);
         }
+    }
+    // a hurt or dying cube's faces with the red overlay (`getOverlayCoords`: its inner body's too;
+    // the translucent pass mixes it like the solid one)
+    if d.red {
+        tris.iter_mut().for_each(|v| v.layer = crate::atlas::GAME_LAYER_RED);
     }
     // `emit`'s faces as two triangles each (0 1 2, 0 2 3): back to quads
     tris.chunks_exact(6).map(|f| [f[0], f[1], f[2], f[5]]).collect()
@@ -1270,14 +1279,25 @@ fn armor_layers(slot: usize, material: u8) -> Vec<(String, [u8; 3])> {
 /// or `thirdperson_lefthand` for the left, which defaults to the right's; then, in the left,
 /// `ItemTransform.apply`'s left-hand fix: the translation's x and the rotation's y and z
 /// negated): rotation in degrees, translation in pixels, scale, and the sprite its in-hand model
-/// shows: the bow's own; a spear's `<spear>_in_hand` model (`spear_in_hand`); a tool's, a stick's,
-/// a bone's `item/handheld`; any other item's `item/generated`.
-fn held_display(id: &str, left: bool) -> ([f32; 3], [f32; 3], [f32; 3], String) {
+/// shows: the bow's own, or while it is drawn (`items/bow.json`: `using_item`, then
+/// `use_duration` at scale 0.05: `bow_pulling_0`, from 0.65 `_1`, from 0.9 `_2`, the
+/// `bow_pulling_*` models' parent the bow's display); a spear's `<spear>_in_hand` model
+/// (`spear_in_hand`); a tool's, a stick's, a bone's `item/handheld`; any other item's
+/// `item/generated`.
+fn held_display(id: &str, left: bool, use_remaining: Option<i32>) -> ([f32; 3], [f32; 3], [f32; 3], String) {
     let name = id.strip_prefix("minecraft:").unwrap_or(id);
     let handheld = ["_sword", "_shovel", "_axe", "_pickaxe", "_hoe"].iter().any(|s| name.ends_with(s)) || matches!(name, "stick" | "bone" | "blaze_rod" | "breeze_rod");
     // (rotation, translation, scale) right, then left as the model writes it
     let ((rr, rt, rs), (lr, lt, ls), tex) = if name == "bow" {
-        (([-80.0, 260.0, -40.0], [-1.0, -2.0, 2.5], [0.9; 3]), ([-80.0, -280.0, 40.0], [-1.0, -2.0, 2.5], [0.9; 3]), "item/bow".to_string())
+        // `UseDuration`: the bow's use duration (72000) less the ticks left, times the scale
+        let tex = match use_remaining {
+            Some(r) => {
+                let v = (72000 - r) as f32 * 0.05;
+                format!("item/bow_pulling_{}", if v >= 0.9 { 2 } else if v >= 0.65 { 1 } else { 0 })
+            }
+            None => "item/bow".to_string(),
+        };
+        (([-80.0, 260.0, -40.0], [-1.0, -2.0, 2.5], [0.9; 3]), ([-80.0, -280.0, 40.0], [-1.0, -2.0, 2.5], [0.9; 3]), tex)
     } else if name.ends_with("_spear") {
         (([5.0, 270.0, -40.0], [0.0, 2.0, 2.0], [1.7, 1.7, 0.85]), ([5.0, -270.0, 40.0], [0.0, 2.0, 2.0], [1.7, 1.7, 0.85]), format!("item/{name}_in_hand"))
     } else if handheld {
@@ -1402,13 +1422,19 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
     if let Some(pose) = humanoid_pose(k, &parts) {
         for slot in [1, 2, 3, 0] {
             let Some(material) = d.armor[slot] else { continue };
-            for (tex, tint) in armor_layers(slot, material) {
+            // (an enchanted piece's first layer with the glint: `EquipmentLayerRenderer`'s
+            // `renderShaderGlint`, false after it)
+            for (li, (tex, tint)) in armor_layers(slot, material).into_iter().enumerate() {
                 let Some(ar) = rect(g, &tex) else { continue };
                 let n = out.len();
                 emit(&mut out, &armor_parts(slot, &pose, k == "zombie_villager"), &m, [64.0, 32.0], ar, tw, th);
+                let glint = li == 0 && d.foil[slot + 1];
                 for v in &mut out[n..] {
                     for c in 0..3 {
                         v.color[c] = (v.color[c] as u32 * tint[c] as u32 / 255) as u8;
+                    }
+                    if glint {
+                        v.layer = crate::atlas::GAME_LAYER_GLINT_ARMOR;
                     }
                 }
             }
@@ -1419,9 +1445,34 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
     if let (Some(item), true) = (&d.held, matches!(k, "zombie" | "baby_zombie" | "skeleton" | "zombie_villager" | "baby_zombie_villager") && parts.len() >= 4) {
         let (arm, side) = if d.left_handed { (&parts[3], -1.0) } else { (&parts[2], 1.0) };
         let offset = if k == "skeleton" { [arm.offset[0] + side, arm.offset[1], arm.offset[2]] } else { arm.offset };
-        let display = held_display(item, d.left_handed);
+        let display = held_display(item, d.left_handed, d.use_remaining);
         let hm = held_transform(&m, offset, arm.rot, matches!(k, "baby_zombie" | "baby_zombie_villager"), d.left_handed, &display);
-        if let Some(t) = sprite_triangles_of(g, &display.3, &hm) {
+        if let Some(mut t) = sprite_triangles_of(g, &display.3, &hm) {
+            // an enchanted item's glint (`FoilType.STANDARD`: `itemGlintRenderType`)
+            if d.foil[0] {
+                t.iter_mut().for_each(|v| v.layer = crate::atlas::GAME_LAYER_GLINT_ITEM);
+            }
+            out.extend(t);
+        }
+    }
+    // a witch's potion at its nose (`WitchItemLayer`, `isHoldingPotion`), a wandering trader's
+    // drink in its crossed arms (`CrossedArmsItemLayer`): its ground display, `NO_OVERLAY`
+    if let (Some(item), true) = (&d.held, matches!(k, "witch" | "wandering_trader") && parts.len() == 1 && parts[0].children.len() >= 3) {
+        let root = part_pose(&m, &parts[0]);
+        let at = if k == "witch" {
+            let head = &parts[0].children[0];
+            let nose = part_pose(&part_pose(&root, head), &head.children[1]);
+            nose.translate([0.0625, 0.25, 0.0]).rot(2, PI).rot(0, 140f32.to_radians()).rot(2, 10f32.to_radians()).rot(0, PI)
+        } else {
+            // `VillagerModel.translateToArms`, then `CrossedArmsItemLayer.applyTranslation`
+            part_pose(&root, &parts[0].children[2]).rot(0, 0.75).scale([1.07; 3]).translate([0.0, 0.13, -0.34]).rot(0, PI)
+        };
+        // `item/generated`'s ground display: 2 pixels up, half size; its unit square centred
+        let hm = at.translate([0.0, 2.0 / 16.0, 0.0]).scale([0.5; 3]).translate([-0.5, -0.5, 0.0]);
+        if let Some(mut t) = layered_sprite_triangles(g, &item_layers(item, d.held_color), &hm) {
+            if d.foil[0] {
+                t.iter_mut().for_each(|v| v.layer = crate::atlas::GAME_LAYER_GLINT_ITEM);
+            }
             out.extend(t);
         }
     }
@@ -1573,6 +1624,46 @@ pub fn sprite_triangles_of(g: &GameAssets, name: &str, m: &M) -> Option<Vec<Vert
     Some(out)
 }
 
+/// A part's pose under `m` (`ModelPart.translateAndRotate`: its offset in pixels, its rotation
+/// about z, then y, then x, its scale), as [`emit`] poses it.
+fn part_pose(m: &M, p: &EPart) -> M {
+    let pm = m.translate([p.offset[0] / 16.0, p.offset[1] / 16.0, p.offset[2] / 16.0]).rot(2, p.rot[2]).rot(1, p.rot[1]).rot(0, p.rot[0]);
+    if p.scale != 1.0 { pm.scale([p.scale; 3]) } else { pm }
+}
+
+/// A held item's sprite layers and their tints (its model's `layer0`, `layer1`; its `tints`): a
+/// potion's overlay tinted by its contents (`minecraft:potion`: water's 0x385DC6 without any)
+/// under its bottle; any other item's one sprite, untinted.
+fn item_layers(item: &str, color: Option<[u8; 3]>) -> Vec<(String, Option<[u8; 3]>)> {
+    match item.strip_prefix("minecraft:").unwrap_or(item) {
+        "potion" => vec![("item/potion_overlay".to_string(), Some(color.unwrap_or([0x38, 0x5D, 0xC6]))), ("item/potion".to_string(), None)],
+        name => vec![(format!("item/{name}"), None)],
+    }
+}
+
+/// A generated item's layers as flat double-sided squares through `m` (`ItemModelGenerator`: one
+/// sprite a layer, the later over the earlier: drawn a hair nearer on each side, the game's
+/// equal depths otherwise fighting), each layer's shading times its tint.
+fn layered_sprite_triangles(g: &GameAssets, layers: &[(String, Option<[u8; 3]>)], m: &M) -> Option<Vec<Vertex>> {
+    let mut out = Vec::new();
+    for (k, (name, tint)) in layers.iter().enumerate() {
+        let lift = k as f32 * 0.004;
+        // `sprite_triangles_of`'s six front vertices, then its six back ones
+        let mut v = sprite_triangles_of(g, name, &m.translate([0.0, 0.0, lift]))?;
+        v.truncate(6);
+        v.extend_from_slice(&sprite_triangles_of(g, name, &m.translate([0.0, 0.0, -lift]))?[6..]);
+        if let Some(t) = tint {
+            for x in &mut v {
+                for c in 0..3 {
+                    x.color[c] = (x.color[c] as u32 * t[c] as u32 / 255) as u8;
+                }
+            }
+        }
+        out.extend(v);
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1678,6 +1769,91 @@ mod tests {
         }
     }
 
+    /// A skeleton drawing its bow (redsim's `using_item`: `RangedBowAttackGoal`) holds the bow's
+    /// pulling sprite of the ticks it has drawn it (`items/bow.json`: `bow_pulling_0` under 13
+    /// ticks, `_1` from 13, `_2` from 18: the `use_duration` at scale 0.05 against 0.65 and 0.9,
+    /// in floats as the game compares them), the bow's own sprite when it does not draw it.
+    #[test]
+    fn a_skeleton_draws_its_bow() {
+        let g = browser_game();
+        let sprite = |use_remaining: Option<i32>| {
+            let d = crate::mesh::MobDraw { eye_standing: 1.74, held: Some("minecraft:bow".into()), aggressive: true, use_remaining, ..Default::default() };
+            let t = mob_triangles(&g, "minecraft:skeleton", [0.0; 3], &d).unwrap();
+            let item = &t[t.len() - 12..];
+            ["item/bow", "item/bow_pulling_0", "item/bow_pulling_1", "item/bow_pulling_2"]
+                .into_iter()
+                .find(|name| {
+                    let r = rect(&g, name).unwrap();
+                    item.iter().all(|v| {
+                        let (u, w) = (v.uv[0] * g.width as f32, v.uv[1] * g.height as f32);
+                        u >= r[0] as f32 - 0.5 && u <= (r[0] + r[2]) as f32 + 0.5 && w >= r[1] as f32 - 0.5 && w <= (r[1] + r[3]) as f32 + 0.5
+                    })
+                })
+                .unwrap_or("none")
+        };
+        assert_eq!(sprite(None), "item/bow");
+        for (ticks, want) in [(0, "item/bow_pulling_0"), (12, "item/bow_pulling_0"), (13, "item/bow_pulling_1"), (17, "item/bow_pulling_1"), (18, "item/bow_pulling_2"), (40, "item/bow_pulling_2")] {
+            assert_eq!(sprite(Some(72000 - ticks)), want, "{ticks} ticks drawn");
+        }
+    }
+
+    /// A drinking witch holds its potion at its nose (`WitchItemLayer`: in front of its face, at
+    /// its head's height), the bottle over the contents' overlay tinted by the potion
+    /// (fire resistance's 0xFF9900); a wandering trader holds its drink in its crossed arms
+    /// (`CrossedArmsItemLayer`: in front of its chest, below its head), the milk bucket one
+    /// sprite.
+    #[test]
+    fn a_drink_is_held_where_the_game_holds_it() {
+        let g = browser_game();
+        let centre = |v: &[Vertex]| {
+            let (lo, hi) = bounds(v);
+            [0, 1, 2].map(|k| (lo[k] + hi[k]) / 2.0)
+        };
+        let bare = crate::mesh::MobDraw { eye_standing: 1.62, ..Default::default() };
+        let n0 = mob_triangles(&g, "minecraft:witch", [0.0; 3], &bare).unwrap().len();
+        let drinking = crate::mesh::MobDraw { held: Some("minecraft:potion".into()), held_color: Some([0xFF, 0x99, 0x00]), ..bare.clone() };
+        let t = mob_triangles(&g, "minecraft:witch", [0.0; 3], &drinking).unwrap();
+        // (its nose lifted toward its mouth: the same parts, then the potion's two layers)
+        assert_eq!(t.len(), n0 + 24, "the overlay and the bottle, both sides");
+        let c = centre(&t[n0..]);
+        assert!(c[1] > 1.3 && c[1] < 2.0 && c[2] > 0.2 && c[0].abs() < 0.3, "at the witch's face: {c:?}");
+        let overlay = &t[n0..n0 + 12];
+        assert!(overlay.iter().all(|v| v.color[2] == 0 && v.color[0] > v.color[1]), "the overlay fire resistance's orange: {:?}", overlay[0].color);
+        let n1 = mob_triangles(&g, "minecraft:wandering_trader", [0.0; 3], &bare).unwrap().len();
+        let milk = crate::mesh::MobDraw { held: Some("minecraft:milk_bucket".into()), ..bare.clone() };
+        let t = mob_triangles(&g, "minecraft:wandering_trader", [0.0; 3], &milk).unwrap();
+        assert_eq!(t.len(), n1 + 12);
+        let c = centre(&t[n1..]);
+        assert!(c[1] > 0.8 && c[1] < 1.4 && c[2] > 0.2 && c[0].abs() < 0.3, "in the trader's arms: {c:?}");
+    }
+
+    /// An enchanted piece (redsim's spawn enchantments: `hasFoil`) draws its first layer with the
+    /// armor glint (`EquipmentLayerRenderer`: a leather piece's dyed base, not its overlay); an
+    /// enchanted held item all of it with the item glint; a hurt sulfur cube's translucent faces
+    /// with the red overlay.
+    #[test]
+    fn an_enchanted_piece_glints() {
+        use crate::atlas::{GAME_LAYER_GLINT_ARMOR, GAME_LAYER_GLINT_ITEM, GAME_LAYER_RED};
+        let g = browser_game();
+        let bare = crate::mesh::MobDraw { eye_standing: 1.74, ..Default::default() };
+        let n0 = mob_triangles(&g, "minecraft:zombie", [0.0; 3], &bare).unwrap().len();
+        let box_v = 36;
+        // leather: each slot twice (base, overlay), in the order chest, legs, feet, head
+        let d = crate::mesh::MobDraw { armor: [Some(0); 4], foil: [false, true, false, false, false], ..bare.clone() };
+        let t = mob_triangles(&g, "minecraft:zombie", [0.0; 3], &d).unwrap();
+        let (chest, legs, feet) = (3 * box_v, 3 * box_v, 2 * box_v);
+        let head = n0 + 2 * (chest + legs + feet);
+        assert!(t[n0..head].iter().all(|v| v.layer != GAME_LAYER_GLINT_ARMOR), "the plain pieces");
+        assert!(t[head..head + 2 * box_v].iter().all(|v| v.layer == GAME_LAYER_GLINT_ARMOR), "the enchanted helmet's base");
+        assert!(t[head + 2 * box_v..].iter().all(|v| v.layer != GAME_LAYER_GLINT_ARMOR), "its overlay without");
+        let bow = crate::mesh::MobDraw { held: Some("minecraft:bow".into()), foil: [true, false, false, false, false], ..bare.clone() };
+        let t = mob_triangles(&g, "minecraft:skeleton", [0.0; 3], &bow).unwrap();
+        assert!(t[t.len() - 12..].iter().all(|v| v.layer == GAME_LAYER_GLINT_ITEM) && t[..t.len() - 12].iter().all(|v| v.layer != GAME_LAYER_GLINT_ITEM));
+        let hurt = crate::mesh::MobDraw { red: true, ..bare.clone() };
+        assert!(mob_translucent(&g, "minecraft:sulfur_cube_2", [0.0; 3], &hurt).iter().flatten().all(|v| v.layer == GAME_LAYER_RED));
+        assert!(mob_translucent(&g, "minecraft:sulfur_cube_2", [0.0; 3], &bare).iter().flatten().all(|v| v.layer != GAME_LAYER_RED));
+    }
+
     /// A zombie villager (the census: d1u-side's, adult and baby) draws with its own model and
     /// texture, its biome's type a layer over the whole model (`VillagerProfessionLayer`: a baby's
     /// own type textures; no profession, redsim keeps none), plains when redsim gives none.
@@ -1756,6 +1932,36 @@ mod tests {
         }
         let design = crate::scene::still_mob("minecraft:cat", 0.0, false, Some("{variant:\"minecraft:siamese\"}"));
         assert_eq!(design.and_then(|m| m.variant), Some("siamese"), "a design cat's own variant");
+    }
+
+    /// A sulfur cube flattens when it lands and stretches when it leaps (`AbstractCubeMob.tick`'s
+    /// squish: -0.5 at a landing, 1 at a leap, eased and decaying; `applySizeAndSquish`: wider and
+    /// lower flattened, narrower and taller stretched).
+    #[test]
+    fn a_sulfur_cube_squishes() {
+        use crate::mobfarm::squish_step;
+        // in the air, a landing, then resting on the ground
+        let mut s = [0.0f32; 4];
+        s = squish_step(s, false);
+        s = squish_step(s, true);
+        assert!(s[2] < 0.0, "a landing flattens it: {s:?}");
+        s = squish_step(s, true);
+        assert!(s[1] < 0.0, "flattened the tick after: {s:?}");
+        for _ in 0..40 {
+            s = squish_step(s, true);
+        }
+        assert!(s[1].abs() < 0.01, "back to its shape at rest: {s:?}");
+        s = squish_step(s, false);
+        s = squish_step(s, false);
+        assert!(s[1] > 0.0, "a leap stretches it: {s:?}");
+        let g = browser_game();
+        let size = |squish: f32| {
+            let d = crate::mesh::MobDraw { squish, ..Default::default() };
+            let (lo, hi) = bounds(&mob_translucent(&g, "minecraft:sulfur_cube_2", [0.0; 3], &d).into_iter().flatten().collect::<Vec<_>>());
+            (hi[0] - lo[0], hi[1] - lo[1])
+        };
+        let ((w0, h0), (wf, hf), (ws, hs)) = (size(0.0), size(-0.5), size(0.5));
+        assert!(wf > w0 && hf < h0 && ws < w0 && hs > h0, "flat {wf}x{hf}, at rest {w0}x{h0}, stretched {ws}x{hs}");
     }
 
     /// The browser's game texture (the blocks, the items, the entities, the particles: as

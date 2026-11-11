@@ -629,7 +629,7 @@ pub fn still_mob(kind: &str, yaw: f32, riding: bool, nbt: Option<&str>) -> Optio
         .then(|| own_data(nbt))
         .flatten()
         .and_then(|s| CAT_VARIANTS.iter().copied().find(|v| s.contains(&format!("variant:\"minecraft:{v}\""))));
-    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, held, armor, left_handed, variant, ..Default::default() })
+    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, held, armor, left_handed, variant, foil: still_foil(nbt), ..Default::default() })
 }
 
 /// A design mob's equipment from its data (`equipment:{mainhand:{id:"minecraft:bow"},
@@ -653,6 +653,32 @@ pub fn still_equipment(nbt: Option<&str>) -> (Option<String>, [Option<u8>; 4]) {
         materials.iter().position(|m| *m == mat).map(|p| p as u8)
     };
     (id("mainhand"), [piece("head", "_helmet"), piece("chest", "_chestplate"), piece("legs", "_leggings"), piece("feet", "_boots")])
+}
+
+/// Which of a design mob's items its data enchants (`components:{"minecraft:enchantments":
+/// {...}}` in the item's own data: the glint), its main hand then its head, chest, legs, feet.
+pub fn still_foil(nbt: Option<&str>) -> [bool; 5] {
+    let own = own_data(nbt);
+    let Some(eq) = own.as_deref().and_then(|s| s.find("equipment:{").map(|i| &s[i + "equipment:{".len()..])) else { return [false; 5] };
+    // the slot's item data: its braces matched
+    let data = |key: &str| -> Option<&str> {
+        let at = eq.find(&format!("{key}:{{"))? + key.len() + 1;
+        let mut depth = 0i32;
+        for (i, c) in eq[at..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(&eq[at..at + i + 1]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    };
+    ["mainhand", "head", "chest", "legs", "feet"].map(|k| data(k).is_some_and(|d| d.contains("minecraft:enchantments")))
 }
 
 /// The box the default camera frames: the design (and marker), 0.25 margin like the pictures.

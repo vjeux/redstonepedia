@@ -29,6 +29,14 @@ struct U {
     moon: vec4<f32>,
     sunrise: vec4<f32>,
     stars: vec4<f32>,
+    // the enchantment glint: its scroll (`setupGlintTexturing`'s clock: -u, v) and strength
+    // (`GlintAlpha`), the item and armor glint textures' rects in the game texture (texels), and
+    // the scales from a vertex's texture coordinates to the game's own (`UV0`: in the item atlas,
+    // in an armor texture), item then armor
+    glint: vec4<f32>,
+    glint_item: vec4<f32>,
+    glint_armor: vec4<f32>,
+    glint_uv: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var tex: texture_2d_array<f32>;
@@ -37,8 +45,9 @@ struct U {
 @group(0) @binding(3) var gtex: texture_2d<f32>;
 
 fn texel(uv: vec2<f32>, layer: u32) -> vec4<f32> {
-    // layer 65535 (and 65534: the same with the game's red overlay) samples the game texture
-    let game = layer >= 65534u;
+    // layers 65532 to 65535 (65535; 65534 the same with the game's red overlay; 65533 and 65532
+    // with the item's or the armor's glint) sample the game texture
+    let game = layer >= 65532u;
     // both sampled (uniform control flow), one kept
     let a = textureSample(tex, samp, uv, select(layer, 0u, game));
     let b = textureSample(gtex, samp, uv);
@@ -146,14 +155,51 @@ fn fs_solid(i: VOut) -> @location(0) vec4<f32> {
     // dying mob's red overlay the same way (layer 65534: `OverlayTexture`'s red), lit like the
     // texel it mixes into
     let flash = select(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 0.0), i.layer == 65534u);
-    let lit = mix(t.rgb * i.color.rgb, flash * i.lm, 1.0 - i.color.a);
+    var lit = mix(t.rgb * i.color.rgb, flash * i.lm, 1.0 - i.color.a);
+    // an enchanted item's or armor piece's glint, over the lightmap (`entity.fsh`)
+    if (i.layer == 65533u || i.layer == 65532u) {
+        lit = lit + glint(i.uv, i.layer == 65532u);
+    }
     return vec4<f32>(fogged(lit, i.world), 1.0);
+}
+
+/// A texel of a glint texture (its rect `r` in the game texture) at whole texel `p`, wrapped
+/// (the glint textures repeat).
+fn glint_texel(r: vec4<f32>, p: vec2<f32>) -> vec4<f32> {
+    let q = p - floor(p / r.zw) * r.zw;
+    return textureLoad(gtex, vec2<i32>(r.xy + q), 0);
+}
+
+/// The enchantment glint added to a texel (`entity.fsh`'s GLINT: `GlintAlpha` times the glint
+/// texture, squared): the glint texture's coordinates the vertex's own (`UV0`) through
+/// `TextureTransform.setupGlintTexturing` (scaled 8 for an item, 0.16 for armor, turned 10
+/// degrees, scrolled with the clock), sampled bilinearly and repeating (`blur`).
+fn glint(uv: vec2<f32>, armor: bool) -> vec3<f32> {
+    let r = select(u.glint_item, u.glint_armor, armor);
+    if (r.z < 1.0) {
+        return vec3<f32>(0.0);
+    }
+    let b = uv * select(u.glint_uv.xy, u.glint_uv.zw, armor) * select(8.0, 0.16, armor);
+    let c = 0.98480775;
+    let s = 0.17364818;
+    let g = vec2<f32>(c * b.x - s * b.y, s * b.x + c * b.y) + u.glint.xy;
+    let p = fract(g) * r.zw - vec2<f32>(0.5);
+    let p0 = floor(p);
+    let f = p - p0;
+    let t0 = mix(glint_texel(r, p0), glint_texel(r, p0 + vec2<f32>(1.0, 0.0)), f.x);
+    let t1 = mix(glint_texel(r, p0 + vec2<f32>(0.0, 1.0)), glint_texel(r, p0 + vec2<f32>(1.0, 1.0)), f.x);
+    let k = u.glint.z * mix(t0, t1, f.y).rgb;
+    return k * k;
 }
 
 @fragment
 fn fs_blend(i: VOut) -> @location(0) vec4<f32> {
     let t = texel(i.uv, i.layer);
-    return vec4<f32>(fogged(t.rgb * i.color.rgb, i.world), t.a * i.color.a);
+    // a hurt or dying mob's translucent faces (a sulfur cube's) mix in the red overlay too
+    // (`OverlayTexture`: 0xB2 of the colour kept), lit like the texel
+    let red = select(0.0, 1.0 - 178.0 / 255.0, i.layer == 65534u);
+    let c = mix(t.rgb * i.color.rgb, vec3<f32>(1.0, 0.0, 0.0) * i.lm, red);
+    return vec4<f32>(fogged(c, i.world), t.a * i.color.a);
 }
 
 struct SkyOut {
@@ -245,6 +291,10 @@ struct Uniforms {
     moon: [f32; 4],
     sunrise: [f32; 4],
     stars: [f32; 4],
+    glint: [f32; 4],
+    glint_item: [f32; 4],
+    glint_armor: [f32; 4],
+    glint_uv: [f32; 4],
 }
 
 /// What one frame draws.
@@ -321,6 +371,26 @@ pub struct Renderer {
     /// colours, the sun, the moon and the stars, and the lightmap of every lit vertex. None: the
     /// pictures' noon sky and light.
     pub env: Option<crate::daylight::Env>,
+    /// The clock the enchantment glint scrolls by, in milliseconds (`Util.getMillis`: the
+    /// browser's; a native picture's the run's own, 50 a tick, so it draws the same each time).
+    pub glint_ms: f64,
+    /// The glint textures' rects in the game texture and the texture coordinate scales
+    /// ([`glint_geom`]), of the game texture uploaded.
+    glint_geom: [[f32; 4]; 3],
+}
+
+/// The glint uniforms of an atlas's game texture: the item and armor glint textures' rects
+/// (texels; zero when they are not packed) and the scales from a vertex's coordinates in the
+/// game texture to the game's own texture coordinates (`UV0`): an item's in the item atlas
+/// (its rect `atlas/items`, `Atlas::add_game_entities`), an armor piece's in its 64 x 32
+/// texture (only the scale matters: an offset is a phase of the scroll).
+fn glint_geom(atlas: &Atlas) -> [[f32; 4]; 3] {
+    let Some(g) = &atlas.game else { return [[0.0; 4]; 3] };
+    let rect = |n: &str| g.tex.get(n).map(|t| t.rect.map(|x| x as f32)).unwrap_or([0.0; 4]);
+    let (tw, th) = (g.width as f32, g.height as f32);
+    let items = rect("atlas/items");
+    let item_scale = if items[2] > 0.0 && items[3] > 0.0 { [tw / items[2], th / items[3]] } else { [0.0; 2] };
+    [rect("particle/enchanted_glint_item"), rect("particle/enchanted_glint_armor"), [item_scale[0], item_scale[1], tw / 64.0, th / 32.0]]
 }
 
 /// The game texture of an atlas (its game assets' mip levels), or a 1x1 placeholder.
@@ -495,7 +565,7 @@ impl Renderer {
         // (drawn after the opaque faces: only where the depth is still the far plane's)
         let sky = sky_pipeline(wgpu::CompareFunction::LessEqual, "sky");
         let sky_always = sky_pipeline(wgpu::CompareFunction::Always, "sky (first)");
-        Renderer { device, queue, format, samples, solid, blend, sky, sky_always, sky_first: false, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, fixed_visible_cpu: None, fixed_provisional: false, fixed_blend: None, fixed_blend_visible: None, fixed_blend_visible_cpu: None, last_exact_kept: 0, carried_kept: 0, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
+        Renderer { device, queue, format, samples, solid, blend, sky, sky_always, sky_first: false, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, fixed_visible_cpu: None, fixed_provisional: false, fixed_blend: None, fixed_blend_visible: None, fixed_blend_visible_cpu: None, last_exact_kept: 0, carried_kept: 0, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None, glint_ms: 0.0, glint_geom: glint_geom(atlas) }
     }
 
     fn bind_group(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, uniforms: &wgpu::Buffer, tiles: &wgpu::TextureView, sampler: &wgpu::Sampler, game: &wgpu::Texture) -> wgpu::BindGroup {
@@ -531,6 +601,7 @@ impl Renderer {
             self.bind = Self::bind_group(&self.device, &self.bgl, &self.uniforms, &self.tiles_view, &self.sampler, &t);
             self.game_tex = t;
             self.game_of = of;
+            self.glint_geom = glint_geom(atlas);
         }
     }
 
@@ -877,6 +948,15 @@ impl Renderer {
             moon: [moon[0], moon[1], moon[2], if self.env.is_some() { 1.0 } else { 0.0 }],
             sunrise: e.sunrise,
             stars: [e.sun_angle.to_radians().cos(), e.sun_angle.to_radians().sin(), rain_dim, 0.0],
+            // `setupGlintTexturing`: the clock times the glint speed (0.5, the default) times 8,
+            // its layers' offsets over 110 and 30 seconds; `GlintAlpha` the strength's 0.75
+            glint: {
+                let t = (self.glint_ms * 0.5 * 8.0) as i64;
+                [-((t.rem_euclid(110_000)) as f32 / 110_000.0), (t.rem_euclid(30_000)) as f32 / 30_000.0, 0.75, 0.0]
+            },
+            glint_item: self.glint_geom[0],
+            glint_armor: self.glint_geom[1],
+            glint_uv: self.glint_geom[2],
         };
         self.queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&u));
         let n_solid = frame.solid.len() as u32;

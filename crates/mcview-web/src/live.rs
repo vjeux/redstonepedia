@@ -1612,6 +1612,8 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                 // the game's day (a mob farm's run: its sky, sun, moon and light)
                 // (a Nether scene: the Nether's own sky, before its run plays too)
                 g.r.env = if nether_scene { Some(mcview::daylight::nether()) } else { p.daylight() };
+                // the glint's clock: the browser's (`Util.getMillis`)
+                g.r.glint_ms = now_ms();
                 match g.draw(&Frame { solid: &solid, translucent: &translucent, camera: p.camera, width: w, height: h }) {
                     Ok(()) => need_ready = true,
                     Err(e) => log(&e),
@@ -1849,6 +1851,7 @@ impl Live {
         // (the recording's own run: every triangle its own, none the live view kept on the GPU)
         g.r.set_fixed(None);
         g.r.env = r.player.daylight();
+        g.r.glint_ms = r.player.glint_ms();
         if let Err(e) = g.draw(&Frame { solid: &solid, translucent: &translucent, camera: r.player.camera, width: v.w.max(1), height: v.h.max(1) }) {
             log(&format!("record: {e}"));
             return false;

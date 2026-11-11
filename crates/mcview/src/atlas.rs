@@ -1020,6 +1020,18 @@ pub const GAME_LAYER: u32 = 65535;
 /// 1 - the vertex alpha.
 pub const GAME_LAYER_RED: u32 = 65534;
 
+/// [`GAME_LAYER`] of an enchanted item (`hasFoil`: an enchanted bow in a skeleton's hand): the
+/// solid shader adds the item glint (`ITEM_CUTOUT_GLINT`: `enchanted_glint_item`, the texture
+/// coordinates scaled 8).
+pub const GAME_LAYER_GLINT_ITEM: u32 = 65533;
+
+/// [`GAME_LAYER`] of an enchanted armor piece: the armor glint (`ARMOR_CUTOUT_NO_CULL_GLINT`:
+/// `enchanted_glint_armor`, the texture coordinates scaled 0.16).
+pub const GAME_LAYER_GLINT_ARMOR: u32 = 65532;
+
+/// The lowest layer that samples the game texture.
+pub const GAME_LAYER_MIN: u32 = 65532;
+
 /// The game's models with its block atlas as one 2D texture and that texture's mip levels (and,
 /// once loaded, the game's entity and item textures packed below the block atlas).
 pub struct GameAssets {
@@ -1190,6 +1202,9 @@ impl Atlas {
         };
         blit(items.0, iw, 0, 0, iw.min(bw), ih, 0, bh);
         let mut tex = g.tex.clone();
+        // the item atlas's own rect (no sprite's: the glint's texture coordinates are an item's
+        // in it, `render::glint_geom`)
+        tex.insert("atlas/items".to_string(), crate::gamemodel::TexRect { rect: [0, bh, iw, ih], transparent: true });
         for (k, r) in parse(items.3)? {
             if r[0] + r[2] <= iw && r[1] + r[3] <= ih {
                 tex.insert(k, crate::gamemodel::TexRect { rect: [r[0], bh + r[1], r[2], r[2].min(r[3])], transparent: true });
