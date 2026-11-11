@@ -3921,6 +3921,11 @@ pub struct MeterState {
     s_shape: String,
     s_flips: usize,
     s_flip_on_cart: Vec<String>,
+    /// the liveness clocks' probes (`MCTAS_CLOCK_PROBES`): cells, last state, rising edges (t, c, dt)
+    clock_cells: Vec<[i32; 3]>,
+    clock_prev: Vec<bool>,
+    clock_edges: Vec<Vec<(i64, i64, i64)>>,
+    clock_on_ticks: Vec<i64>,
     /// P2: the transit latch (set when a cart passes H's plane, cleared by its count edge), its
     /// live gt, a held REL, and the counts
     tl: Option<i64>,
@@ -4107,6 +4112,28 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     // the junction gets its update from a signal source both ways)
     // (S's z on the approach: 16 on C's approach, 12 on approach 5's h0 (`MCTAS_ROUTER_Z`))
     let rz = std::env::var("MCTAS_ROUTER_Z").ok().and_then(|v| v.parse::<i32>().ok()).unwrap_or(16);
+    // (`MCTAS_CLOCK_PROBES` X,Y,Z;...: the liveness clocks' detector rails, in the file's frame;
+    // each one's rising edges, for the period and the phase against the cycle)
+    if !s.stand_b && let Ok(v) = std::env::var("MCTAS_CLOCK_PROBES") {
+        let probes: Vec<[i32; 3]> = v.split(';').filter_map(|p| {
+            let n: Vec<i32> = p.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            (n.len() == 3).then(|| [n[0], n[1], n[2]])
+        }).collect();
+        s.clock_prev.resize(probes.len(), false);
+        s.clock_edges.resize(probes.len(), Vec::new());
+        s.clock_cells = probes.clone();
+        for (i, p) in probes.iter().enumerate() {
+            let on = w.get(BlockPos::new(p[0], p[1], p[2])).to_string().contains("powered=true");
+            if on && !s.clock_prev[i] && s.clock_edges[i].len() < 2000 {
+                s.clock_edges[i].push((t, c, dt));
+            }
+            if on {
+                s.clock_on_ticks.resize(probes.len(), 0);
+                s.clock_on_ticks[i] += 1;
+            }
+            s.clock_prev[i] = on;
+        }
+    }
     if m.wired_b && !s.stand_b && dt == 0 {
         let p = at(xb + 2, 0, rz);
         let want = if c % 2 == 0 { "minecraft:redstone_block" } else { "minecraft:glass" };
@@ -4515,6 +4542,9 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
                 s.done_at.push(t);
             }
             s.p3 = true;
+            if s.rel_pending.is_some() && s.tl.is_some() {
+                log(s, format!("{c}+{dt} transit latch cleared by the Dh edge (P3) after {} live gt", s.tl_live));
+            }
             s.tl = None;
             s.tl_live = 0;
         } else {
@@ -4537,6 +4567,9 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         } else if !s.l1 {
             s.l1 = true;
             s.face_wait[1] = Some(t);
+            if s.rel_pending.is_some() && s.tl.is_some() {
+                log(s, format!("{c}+{dt} transit latch cleared by the D1 edge (L1) after {} live gt", s.tl_live));
+            }
             s.tl = None;
             s.tl_live = 0;
         }
@@ -4544,6 +4577,9 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     if rise[3] && !s.rel_open && s.l1 && !s.l2 {
         s.l2 = true;
         s.face_wait[2] = Some(t);
+        if s.rel_pending.is_some() && s.tl.is_some() {
+            log(s, format!("{c}+{dt} transit latch cleared by the D2 edge (L2) after {} live gt", s.tl_live));
+        }
         s.tl = None;
         s.tl_live = 0;
     }
@@ -5290,6 +5326,13 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
         }
         out.push(format!("meter router S (the switch rule: never a shape change with a cart's box in S's cell): {} changes, {} with a cart in the cell{}", s.s_flips.saturating_sub(1), s.s_flip_on_cart.len(), if s.s_flip_on_cart.is_empty() { String::new() } else { format!(" ({})", s.s_flip_on_cart.join("; ")) }));
         out.push(format!("meter P2 (a REL held while a cart is in transit from H to its count edge; the latch's live-time timeout): {} RELs held{}, {} transit timeouts", s.rels_held, if s.rel_late.is_empty() { String::new() } else { format!(" (released {} gt late)", s.rel_late.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) }, s.transit_timeouts));
+        for (i, p) in s.clock_cells.iter().enumerate() {
+            let e = s.clock_edges.get(i).cloned().unwrap_or_default();
+            let gaps: Vec<i64> = e.windows(2).map(|w| w[1].0 - w[0].0).collect();
+            let (lo, hi) = (gaps.iter().copied().min().unwrap_or(0), gaps.iter().copied().max().unwrap_or(0));
+            let first: Vec<String> = e.iter().take(6).map(|(_, c, dt)| format!("{c}+{dt}")).collect();
+            out.push(format!("meter clock {} ({},{},{}): {} rising edges, period {}..{} gt, on {:.1} gt per edge, first edges {}", i + 1, p[0], p[1], p[2], e.len(), lo, hi, s.clock_on_ticks.get(i).copied().unwrap_or(0) as f64 / e.len().max(1) as f64, first.join(", ")));
+        }
         if !s.s_flip_on_cart.is_empty() {
             problems.push(format!("router S flipped with a cart in its cell: {}", s.s_flip_on_cart[0]));
         }
@@ -6480,6 +6523,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         run.own = (first..run.world.entities.next_id).collect();
     }
     let mut carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| e.id).collect();
+    // (the liveness clocks' carts, `MCTAS_CLOCK_PROBES` X,Y,Z;... (each clock's detector rail, the
+    // south edge of its 3 x 3 ring): a cart on a ring is the clock's, not the loop's)
+    if let Ok(v) = std::env::var("MCTAS_CLOCK_PROBES") {
+        let probes: Vec<[f64; 3]> = v.split(';').filter_map(|p| {
+            let n: Vec<f64> = p.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            (n.len() == 3).then(|| [n[0], n[1], n[2]])
+        }).collect();
+        carts.retain(|id| run.world.entities.list.iter().find(|e| e.id == *id).is_none_or(|e| !probes.iter().any(|p| e.pos.x >= p[0] - 1.0 && e.pos.x < p[0] + 2.0 && e.pos.y >= p[1] - 0.5 && e.pos.y < p[1] + 1.0 && e.pos.z >= p[2] - 2.0 && e.pos.z < p[2] + 1.0)));
+    }
     if carts.len() != 21 {
         return Err(format!("{} carts, not 21", carts.len()));
     }
