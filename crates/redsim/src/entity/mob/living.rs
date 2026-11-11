@@ -638,6 +638,9 @@ fn move_relative(w: &mut World, i: usize, speed: f32, input: Vec3) {
     let c = mth::cos((y_rot * (std::f32::consts::PI / 180.0f32)) as f64);
     let d = Vec3::new(mv.x * c as f64 - mv.z * s as f64, mv.y, mv.z * c as f64 + mv.x * s as f64);
     let e = &mut w.entities.list[i];
+    if std::env::var("MCTAS_TRACE_MOVE").is_ok_and(|v| v.parse::<u32>().ok() == Some(e.id)) {
+        eprintln!("move t{} #{}: input {:?} speed {speed} y_rot {y_rot} sin {s} cos {c} mv {:?} d {:?} motion before {:?}", w.time, e.id, (input.x, input.y, input.z), (mv.x, mv.y, mv.z), (d.x, d.y, d.z), (e.delta_movement.x, e.delta_movement.y, e.delta_movement.z));
+    }
     e.delta_movement = e.delta_movement.add_v(d);
 }
 
@@ -683,6 +686,10 @@ fn travel_in_air(w: &mut World, i: usize, input: Vec3) {
     let friction = block_friction * modified_friction(0.91);
     let vertical = modified_friction(0.98);
     w.entities.list[i].delta_movement = Vec3::new(movement.x * friction as f64, movement_y * vertical as f64, movement.z * friction as f64);
+    if std::env::var("MCTAS_TRACE_MOVE").is_ok_and(|v| v.parse::<u32>().ok() == Some(w.entities.list[i].id)) {
+        let d = w.entities.list[i].delta_movement;
+        eprintln!("travel t{} #{}: after move {:?} friction {friction} motion {:?}", w.time, w.entities.list[i].id, (movement.x, movement.y, movement.z), (d.x, d.y, d.z));
+    }
 }
 
 /// `LivingEntity.getFluidFallingAdjustedMovement`.
@@ -1283,16 +1290,39 @@ fn push_entities(w: &mut World, i: usize) {
             hurt(w, i, Damage::Cramming, 6.0);
         }
     }
-    for k in players {
-        super::ai::player_body::pushed_by_mob(w, k, i);
+    // Level.getPushableEntities: the sections in key order, each section's entities in the order
+    // they entered it, the AFK player first in its section (it entered the level before any mob
+    // there; as lightning::targets keys it). (mob-AI 2026-11-11) The players used to come first:
+    // d1u-underground village-edge b9 t74075, a llama pushed by the other llama and then the
+    // player summed its motion in the other order, a bit apart.
+    let mut order: Vec<(((i32, u32, u32), u64), Result<usize, usize>)> = Vec::with_capacity(players.len() + others.len());
+    for &k in &players {
+        let p = w.mob.ai.players[k].pos;
+        let s = [(p.x.floor() as i32) >> 4, (p.y.floor() as i32) >> 4, (p.z.floor() as i32) >> 4];
+        order.push(((crate::entity::section_order(s), k as u64), Err(k)));
     }
-    for j in others {
+    for &j in &others {
+        let e = &w.entities.list[j];
+        order.push(((crate::entity::section_order(e.section), 1 + e.section_seq), Ok(j)));
+    }
+    order.sort_by_key(|(key, _)| *key);
+    for (_, who) in order {
+        match who {
+            Err(k) => super::ai::player_body::pushed_by_mob(w, k, i),
+            Ok(j) => push_one(w, i, j),
+        }
+    }
+}
+
+/// `doPush(e)` of mob `i` on entity `j` (a mob, a minecart, a boat).
+fn push_one(w: &mut World, i: usize, j: usize) {
+    {
         match &w.entities.list[j].kind {
             EntityKind::Mob(_) => {}
             // `doPush(cart)` = `AbstractMinecart.push(mob)`
             EntityKind::Minecart(_) => {
                 crate::entity::minecart::pushed_by_mob(w, j, i);
-                continue;
+                return;
             }
             // `doPush(boat)` = `AbstractBoat.push(mob)`: `Entity.push` when the mob's box is no
             // higher than the boat's
@@ -1300,14 +1330,14 @@ fn push_entities(w: &mut World, i: usize) {
                 if w.entities.list[i].bb.min_y <= w.entities.list[j].bb.min_y {
                     crate::entity::push::generic(w, j, i);
                 }
-                continue;
+                return;
             }
             k => {
                 let why = format!("a mob touching a {} (its push) is not modeled", super::kind_name(k));
                 if !w.errors.contains(&why) {
                     w.errors.push(why);
                 }
-                continue;
+                return;
             }
         }
         if super::ai::has_ai(w, i) {
@@ -1317,7 +1347,7 @@ fn push_entities(w: &mut World, i: usize) {
         // sleeper: neither moves (tickexact 2026-11-09, golem-summon: a panicking villager
         // walking over a sleeping one's bed)
         if mob(w, j).sleeping_pos.is_some() {
-            continue;
+            return;
         }
         push_pair(w, j, i);
         // (tickexact 2026-11-10) AbstractCubeMob.push(golem): a slime bigger than 1 hurts an iron
@@ -1388,6 +1418,13 @@ fn push_pair(w: &mut World, j: usize, i: usize) {
         if w.entities.list[i].passengers.is_empty() && pushable(&w.entities.list[i]) {
             let e = &mut w.entities.list[i];
             e.delta_movement = e.delta_movement.add(xa, 0.0, za);
+        }
+        if let Ok(v) = std::env::var("MCTAS_TRACE_MOVE")
+            && let Ok(id) = v.parse::<u32>()
+            && (w.entities.list[i].id == id || w.entities.list[j].id == id)
+        {
+            let (ei, ej) = (&w.entities.list[i], &w.entities.list[j]);
+            eprintln!("push t{}: #{} by #{}: xa {xa} za {za}; #{} motion {:?}, #{} motion {:?}", w.time, ej.id, ei.id, ej.id, (ej.delta_movement.x, ej.delta_movement.z), ei.id, (ei.delta_movement.x, ei.delta_movement.z));
         }
     }
 }

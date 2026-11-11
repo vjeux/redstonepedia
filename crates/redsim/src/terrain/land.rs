@@ -731,7 +731,29 @@ impl World {
             return 15;
         }
         if p.y < self.min.y {
-            return 0;
+            // (mob-AI 2026-11-11, tickexact's reading of SkyLightSectionStorage.getLightValue) the
+            // storage keeps one extra section under the world (minSection - 1): a cell in it reads
+            // its own value, a deeper one that section's bottom row (getFlatIndex, y = minY - 16).
+            // That section is not in the sample: the light engine fills it from the column's sky
+            // sources (propagateLightSources), and the import's saved light then overwrites only
+            // the sample's own sections. So a column with no block at all (its sources at the
+            // bottom: the sample's air ring past the box) has 15 under the world even where its
+            // imported light above is dark (module-underground plains b0 t42022: an enderman
+            // falling past the box's edge saw the sky at y -66 and -68, not at -64). A covered
+            // column's light falls by 1 a block from the world's bottom.
+            let y = p.y.max(self.min.y - 16);
+            // past the box every column was air when the light engine filled that section (the
+            // import's air ring, the sandbox's void chunks); a block formed there later darkens
+            // only cells still lit above it, so the section keeps its 15
+            let open = match Land::col(self.min, self.size, p.x, p.z) {
+                Some(c) => l.sources[c] <= self.min.y,
+                None => true,
+            };
+            if open {
+                return 15;
+            }
+            let bottom = self.sky_light(BlockPos::new(p.x, self.min.y, p.z)).unwrap_or(0);
+            return (bottom - (self.min.y - y)).max(0);
         }
         let Some(imported) = self.outside_chunk(p) else { return 15 };
         if p.y >> 4 >= self.chunk_top_section(l, p.x.div_euclid(16), p.z.div_euclid(16)) {
