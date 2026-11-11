@@ -73,6 +73,48 @@ pub fn block_shape(b: Block) -> Vec<B16> {
     }
 }
 
+/// [`block_shape`] in blocks, exact: a terrain state's boxes straight from the game's table (an
+/// iron chain's 6.5..9.5 px column is not a whole number of pixels: tickexact 2026-11-11, cart-pole),
+/// every other block's from its 1/16 boxes. Boxes as [x0, y0, z0, x1, y1, z1].
+pub fn block_shape_exact(b: Block) -> Vec<[f64; 6]> {
+    if let Block::Terrain(id) = b {
+        return crate::terrain::blocks::props(id).boxes.clone();
+    }
+    let f = |v: i32| v as f64 / 16.0;
+    block_shape(b).into_iter().map(|c| [f(c.0[0]), f(c.0[2]), f(c.0[4]), f(c.0[1]), f(c.0[3]), f(c.0[5])]).collect()
+}
+
+/// [`moving_noclip`] in blocks, exact ([`block_shape_exact`] for the moved block), relative to
+/// the cell, boxes as [x0, y0, z0, x1, y1, z1].
+pub fn moving_noclip_exact(w: &World, p: BlockPos, noclip: Option<Dir>) -> Vec<[f64; 6]> {
+    let Some(be) = w.piston.be(p) else { return vec![] };
+    let f = |c: B16| -> [f64; 6] {
+        let g = |v: i32| v as f64 / 16.0;
+        [g(c.0[0]), g(c.0[2]), g(c.0[4]), g(c.0[1]), g(c.0[3]), g(c.0[5])]
+    };
+    let mut out = Vec::new();
+    if !be.extending && be.source {
+        if let Block::Piston { facing, .. } = be.moved {
+            out.extend(base_extended(facing).into_iter().map(f));
+        }
+    }
+    if be.progress < 2 && noclip == Some(be.push_direction()) {
+        return out;
+    }
+    let prog16 = be.progress as i32 * 8;
+    let moved: Vec<[f64; 6]> = if be.source {
+        let short = be.extending != (16 - prog16 < 4);
+        head(be.direction, short).into_iter().map(f).collect()
+    } else {
+        block_shape_exact(be.moved)
+    };
+    let ext = (if be.extending { prog16 - 16 } else { 16 - prog16 }) as f64 / 16.0;
+    let st = be.direction.step();
+    let (dx, dy, dz) = (st[0] as f64 * ext, st[1] as f64 * ext, st[2] as f64 * ext);
+    out.extend(moved.into_iter().map(|b| [b[0] + dx, b[1] + dy, b[2] + dz, b[3] + dx, b[4] + dy, b[5] + dz]));
+    out
+}
+
 /// `PistonMovingBlockEntity.getCollisionShape` (no entity being moved: no no-clip direction).
 pub fn moving(w: &World, p: BlockPos) -> Vec<B16> {
     moving_noclip(w, p, None)

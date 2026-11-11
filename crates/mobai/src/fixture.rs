@@ -208,6 +208,73 @@ fn repath_lanes() -> Vec<(i32, u8)> {
 /// The tick scene repath-nap's riders lie down (all lanes alike).
 const REPATH_DROP: u32 = 135;
 
+/// (tickexact 2026-11-11, ironspec's cart-pole bridge for R1's buffer gates) scene cart-pole's
+/// lanes: (x, dz, the obstacle's state, its place, the cart's stored speed, ridden, the extra, t).
+/// Extra 0: a pole met descending, at A (place 0: the cell over the slope's foot rail (x,65,4)) or
+/// B (place 1: over the first flat rail (x,65,3)); 1: the pole placed at A at tick `t`, into the
+/// cart's box when the cart is there; 2: a piston at (x,65,2) facing south pushing a chain from B
+/// into A, powered at tick `t`; 3: a low full-cell stopper in the cell ahead of the slope's foot
+/// ((x,64,3), rails beyond it) met descending; 4: an obstacle met climbing, the cart set off up the
+/// slope from the flat (z 1.5), at A (place 0) or over the second slope rail (place 1: (x,66,5)).
+/// 26 to a row 3 apart in x, rows 14 apart in z (from z 2).
+#[allow(clippy::type_complexity)]
+fn cartpole_lanes(name: &str) -> Vec<(i32, i32, &'static str, u8, f64, bool, u8, u32)> {
+    let poles = ["minecraft:iron_chain[axis=y,waterlogged=false]", "minecraft:iron_bars[east=false,north=false,south=false,waterlogged=false,west=false]", "minecraft:end_rod[facing=up]"];
+    let fast = [0.1, 0.2, 0.4, 0.6, 0.8, 1.2, 1.6, 2.0, 2.4];
+    let mut v = Vec::new();
+    let mut push = |pole: &'static str, at: u8, sp: f64, ridden: bool, extra: u8, t: u32| {
+        let mine = match name {
+            "cart-pole" => extra == 0,
+            "cart-pole-push" => extra == 1 || extra == 2,
+            "cart-pole-stop" => extra == 3,
+            _ => extra == 4,
+        };
+        if mine {
+            let k = v.len() as i32;
+            v.push((1 + 3 * (k % 26), 2 + 14 * (k / 26), pole, at, sp, ridden, extra, t));
+        }
+    };
+    for pole in poles {
+        for at in [0u8, 1] {
+            for sp in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8] {
+                for ridden in [true, false] {
+                    for _ in 0..2 {
+                        push(pole, at, sp, ridden, 0, 0);
+                    }
+                }
+            }
+        }
+    }
+    for extra in [1u8, 2] {
+        for ridden in [true, false] {
+            for t in 1..=12 {
+                push(poles[0], 0, 0.4, ridden, extra, t);
+            }
+        }
+    }
+    for stopper in ["minecraft:smooth_stone_slab[type=bottom,waterlogged=false]", "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]"] {
+        for sp in fast {
+            for ridden in [true, false] {
+                for _ in 0..2 {
+                    push(stopper, 0, sp, ridden, 3, 0);
+                }
+            }
+        }
+    }
+    for obstacle in ["minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]", poles[0]] {
+        for at in [0u8, 1] {
+            for sp in fast {
+                for ridden in [true, false] {
+                    for _ in 0..2 {
+                        push(obstacle, at, sp, ridden, 4, 0);
+                    }
+                }
+            }
+        }
+    }
+    v
+}
+
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
 /// during the freeze, and whether the cart is ridden.
@@ -227,6 +294,19 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, ironspec's cart-pole) the overlap lanes' chain placed at A at their
+        // tick; the push lanes' piston powered (a redstone block behind it) at theirs
+        "cart-pole-push" => {
+            let mut by: std::collections::BTreeMap<u32, Vec<([i32; 3], String)>> = std::collections::BTreeMap::new();
+            for (x, dz, pole, _, _, _, extra, t) in cartpole_lanes(name) {
+                match extra {
+                    1 => by.entry(t).or_default().push(([x, 65, dz + 4], pole.to_string())),
+                    2 => by.entry(t).or_default().push(([x, 65, dz + 1], "minecraft:redstone_block".to_string())),
+                    _ => {}
+                }
+            }
+            by.into_iter().collect()
+        }
         // (tickexact 2026-11-11, the re-path proof) the two cells west of each lane's corridor (x0-1,
         // 64, 33 and 35: near the middle of a rider's flee path, from the line near the bed back to
         // its flee target behind the corridor's west wall): set from air in one tick 14 gt before
@@ -4701,6 +4781,127 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's cart-pole: R1's buffer gates as a thin pole 1.0 tall at the
+    // cell's centre) cartpole_lanes: a lane is a stone stop at z -1, flat rails z 0..3 (y 64), 3
+    // slope rails rising south ((x,64+s,4+s)), a top flat z 7..11 (y 67) and a stone at z 12; the
+    // pole at A (x,65,4: over the slope's foot rail) or B (x,65,3: over the first flat rail); the
+    // cart set off from the top flat (z 8.5) down the slope at its stored speed. Four scenes:
+    // cart-pole (poles met descending), cart-pole-push (a pole placed into the cart's cell, a chain
+    // pushed into it), cart-pole-stop (low stoppers met descending), cart-pole-climb (a gate or a
+    // pole met climbing); each lane's cart starts 0.0007 k further along (no two riders at exactly
+    // the same distances: the sensors' ties)
+    for name in ["cart-pole", "cart-pole-push", "cart-pole-stop", "cart-pole-climb"] {
+        let lanes = cartpole_lanes(name);
+        let rows = (lanes.len() as i32 + 25) / 26;
+        let mut b = Vec::new();
+        floor(&mut b, 0, 80, 0, 14 * rows + 4, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let ns = "minecraft:rail[shape=north_south,waterlogged=false]";
+        for (k, (x, dz, pole, at, sp, ridden, extra, _)) in lanes.into_iter().enumerate() {
+            b.push(([x, 64, dz - 1], stone.to_string()));
+            for z in 0..=3 {
+                if extra == 3 && z == 3 {
+                    // (the low stopper in the rail's place, the run-out beyond it)
+                    b.push(([x, 64, dz + z], pole.to_string()));
+                } else {
+                    b.push(([x, 64, dz + z], ns.to_string()));
+                }
+            }
+            for s in 0..3 {
+                for y in 64..64 + s {
+                    b.push(([x, y, dz + 4 + s], stone.to_string()));
+                }
+                b.push(([x, 64 + s, dz + 4 + s], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            }
+            for z in 7..=11 {
+                for y in 64..67 {
+                    b.push(([x, y, dz + z], stone.to_string()));
+                }
+                b.push(([x, 67, dz + z], ns.to_string()));
+            }
+            b.push(([x, 67, dz + 12], stone.to_string()));
+            match extra {
+                0 => b.push(([x, 65, dz + 4 - at as i32], pole.to_string())),
+                2 => {
+                    b.push(([x, 65, dz + 2], "minecraft:piston[extended=false,facing=south]".to_string()));
+                    b.push(([x, 65, dz + 3], pole.to_string()));
+                }
+                4 => b.push(([x, 65 + at as i32, dz + 4 + at as i32], pole.to_string())),
+                _ => {}
+            }
+            let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+            let jitter = 0.0007 * k as f64;
+            if extra == 4 {
+                mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, 64.0625, dz as f64 + 1.5 + jitter], Some(format!("{{Motion:[0.0d,0.0d,{sp:.4}d]{rider}}}"))));
+            } else {
+                mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, 67.0625, dz as f64 + 8.5 - jitter], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", -sp))));
+            }
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 4, (14 * rows + 3) / 16],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [79, 70, 14 * rows + 3]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, cart-pole-push's late lanes, localized) a cart left at rest on the
+    // slope's foot rail (local z 4.08375, y 64.14625: where the push lanes' late carts lay) creeping
+    // down under: 0 an extended south piston at (x,65,2) with its head at (x,65,3) and a chain at A
+    // (x,65,4); 1 the piston and head, no chain; 2 the chain at A alone; 3 nothing; 4 the chain at B
+    // (x,65,3) alone; 4 copies each
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 64, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let ns = "minecraft:rail[shape=north_south,waterlogged=false]";
+        let chain = "minecraft:iron_chain[axis=y,waterlogged=false]";
+        for k in 0..20 {
+            let (x, dz, case) = (1 + 3 * k, 2, k / 4);
+            b.push(([x, 64, dz - 1], stone.to_string()));
+            for z in 0..=3 {
+                b.push(([x, 64, dz + z], ns.to_string()));
+            }
+            for s in 0..3 {
+                for y in 64..64 + s {
+                    b.push(([x, y, dz + 4 + s], stone.to_string()));
+                }
+                b.push(([x, 64 + s, dz + 4 + s], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            }
+            b.push(([x, 66, dz + 7], stone.to_string()));
+            if case <= 1 {
+                b.push(([x, 65, dz + 1], "minecraft:redstone_block".to_string()));
+                b.push(([x, 65, dz + 2], "minecraft:piston[extended=true,facing=south]".to_string()));
+                b.push(([x, 65, dz + 3], "minecraft:piston_head[facing=south,short=false,type=normal]".to_string()));
+            }
+            if case == 0 || case == 2 {
+                b.push(([x, 65, dz + 4], chain.to_string()));
+            }
+            if case == 4 {
+                b.push(([x, 65, dz + 3], chain.to_string()));
+            }
+            mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, 64.14625, dz as f64 + 4.08375], None));
+        }
+        v.push(Scene {
+            name: "cart-pole-head".into(),
+            chunks: [0, 0, 3, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 70, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
@@ -7846,6 +8047,89 @@ pub fn rec_hcontact(path: &std::path::Path) -> Result<()> {
             per.join(", "),
             if clean.is_nan() { "none".to_string() } else { format!("{clean}") }
         );
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's cart-pole bridge) `mctas mobai rec-cartpole <rec>`: per lane of
+/// scene cart-pole, cart-pole-push, cart-pole-stop or cart-pole-climb (the recording's name) how far
+/// the cart got (its nearest local z to the stop, descending; its farthest, climbing), whether it
+/// passed the obstacle, where it came to rest, and the rider's eye point's closest distance to the
+/// obstacle's box (0: inside).
+pub fn rec_cartpole(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let scene = path.file_stem().and_then(|s| s.to_str()).unwrap_or("cart-pole").trim_end_matches(".rec").to_string();
+    let lanes = cartpole_lanes(&scene);
+    let ents = |f: &serde_json::Value| -> Vec<(u64, String, [f64; 3], f64, String)> {
+        f["entities"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|e| {
+                let p = [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)];
+                (e["n"].as_u64().unwrap_or(0), e["type"].as_str().unwrap_or("").to_string(), p, e["motion"][2].as_f64().unwrap_or(0.0), e["vehicle"].as_str().unwrap_or("none").to_string())
+            })
+            .collect()
+    };
+    let first = ents(&frames[0]);
+    let short = |s: &str| s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+    for (x, dz, obstacle, at, sp, ridden, extra, t) in lanes {
+        let Some(cart) = first.iter().find(|(_, ty, p, ..)| ty == "minecart" && p[0] as i32 == x && p[2] >= dz as f64 - 1.0 && p[2] < dz as f64 + 13.0).map(|e| e.0) else {
+            continue;
+        };
+        // the obstacle's box (half-width w about the cell's centre), its cell
+        let w = match short(obstacle).as_str() {
+            "iron_chain" => 0.09375,
+            "iron_bars" => 0.0625,
+            "end_rod" => 0.125,
+            _ => 0.5,
+        };
+        let cell: Option<[i32; 3]> = match extra {
+            0 => Some([x, 65, dz + 4 - at as i32]),
+            1 | 2 => Some([x, 65, dz + 4]),
+            4 => Some([x, 65 + at as i32, dz + 4 + at as i32]),
+            _ => None,
+        };
+        let (mut zmin, mut zmax) = (f64::MAX, f64::MIN);
+        let mut eye = f64::MAX;
+        let mut last = ([0.0; 3], 0.0);
+        for f in &frames {
+            let es = ents(f);
+            if let Some((_, _, p, vz, _)) = es.iter().find(|e| e.0 == cart) {
+                let lz = p[2] - dz as f64;
+                zmin = zmin.min(lz);
+                zmax = zmax.max(lz);
+                last = (*p, *vz);
+            }
+            if let Some(c) = cell
+                && let Some((_, _, rp, ..)) = es.iter().find(|e| e.4 == format!("#{cart}"))
+            {
+                let e = [rp[0], rp[1] + 1.62, rp[2]];
+                let lo = [c[0] as f64 + 0.5 - w, c[1] as f64, c[2] as f64 + 0.5 - w];
+                let hi = [c[0] as f64 + 0.5 + w, c[1] as f64 + 1.0, c[2] as f64 + 0.5 + w];
+                let d: f64 = (0..3).map(|k| (lo[k] - e[k]).max(0.0).max(e[k] - hi[k])).map(|v| v * v).sum::<f64>().sqrt();
+                eye = eye.min(d);
+            }
+        }
+        let rest = format!("rests at local z {:.3} y {:.4}{}", last.0[2] - dz as f64, last.0[1], if last.1.abs() > 1.0e-4 { format!(" (moving {:.3})", last.1) } else { String::new() });
+        let what = match extra {
+            0 => {
+                let pz = (dz + 4 - at as i32) as f64 + 0.5 - dz as f64;
+                format!("{} at {} met descending: nearest z {zmin:.3} ({}); {rest}", short(obstacle), if at == 0 { "A" } else { "B" }, if zmin < pz - 0.6 { "PASSED" } else { "held" })
+            }
+            1 => format!("chain placed at A at t{t}: nearest z {zmin:.3}; {rest}"),
+            2 => format!("chain pushed into A at t{t}: nearest z {zmin:.3}; {rest}"),
+            3 => format!("{} in the cell ahead met descending: nearest z {zmin:.3} ({}); {rest}", short(obstacle), if zmin < 3.0 { "PASSED" } else { "held" }),
+            _ => {
+                let oz = (4 + at as i32) as f64 + 0.5;
+                format!("{} over slope rail {} met climbing: farthest z {zmax:.3} ({}); {rest}", short(obstacle), at + 1, if zmax > oz + 0.6 { "PASSED" } else { "held" })
+            }
+        };
+        let eye_s = if ridden && cell.is_some() { format!("; eye to the obstacle min {:.3}{}", eye, if eye == 0.0 { " (INSIDE)" } else { "" }) } else { String::new() };
+        println!("lane x {x} z {dz}: {} {sp}: {what}{eye_s}", if ridden { "R" } else { "E" });
     }
     Ok(())
 }

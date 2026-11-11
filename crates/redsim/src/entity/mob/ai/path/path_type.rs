@@ -246,6 +246,10 @@ pub fn pathfindable_land(b: &Block) -> bool {
         | Block::Lava { .. } => false,
         Block::Door { open, .. } | Block::Trapdoor { open, .. } | Block::FenceGate { open, .. } => open,
         Block::PowderSnow => true,
+        // (tickexact 2026-11-11, cart-pole) RodBlock.isPathfindable is false (an end rod blocks a
+        // path), and so are PistonBaseBlock's (an extended base too), PistonHeadBlock's and
+        // MovingPistonBlock's
+        Block::EndRod { .. } | Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => false,
         _ => !crate::behavior::full_cube(b),
     }
 }

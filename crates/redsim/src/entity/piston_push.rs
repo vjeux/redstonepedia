@@ -50,13 +50,13 @@ fn to_aabb(b: B16) -> Aabb {
     Aabb::new(f(b.0[0]), f(b.0[2]), f(b.0[4]), f(b.0[1]), f(b.0[3]), f(b.0[5]))
 }
 
-/// `getCollisionRelatedBlockState().getCollisionShape(level, pos)`.
+/// `getCollisionRelatedBlockState().getCollisionShape(level, pos)` (a moved terrain block's boxes
+/// exact: tickexact 2026-11-11, cart-pole).
 fn related_shape(be: &MovingBe) -> Vec<Aabb> {
-    let boxes = match be.moved {
-        Block::Piston { facing, .. } if !be.extending && be.source => shape::head(facing, be.progress >= 1),
-        b => shape::block_shape(b),
-    };
-    boxes.into_iter().map(to_aabb).collect()
+    match be.moved {
+        Block::Piston { facing, .. } if !be.extending && be.source => shape::head(facing, be.progress >= 1).into_iter().map(to_aabb).collect(),
+        b => shape::block_shape_exact(b).into_iter().map(|c| Aabb::new(c[0], c[1], c[2], c[3], c[4], c[5])).collect(),
+    }
 }
 
 /// `PistonMath.getMovementArea(box, direction, amount)`.
