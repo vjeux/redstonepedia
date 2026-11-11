@@ -58,6 +58,146 @@ fn difficulty_name(d: Difficulty) -> &'static str {
     }
 }
 
+/// (tickexact 2026-11-11, farmopt's hold H: its release width and its shut on a passing cart)
+/// scene gate-hold-w's lanes: (pressed carts, ridden, H's open ticks). The first 8: a pressed train
+/// of 3 released for W = 1, 3, 5, 7 gt, ridden and empty; then one pressed cart, ridden and empty,
+/// with H shut 1..10 gt after it opens.
+fn gate_hold_lanes() -> Vec<(usize, bool, u32)> {
+    let mut v = Vec::new();
+    for ridden in [true, false] {
+        for w in [1, 3, 5, 7] {
+            v.push((3, ridden, w));
+        }
+    }
+    for ridden in [true, false] {
+        for s in 1..=10 {
+            v.push((1, ridden, s));
+        }
+    }
+    v
+}
+
+/// (tickexact 2026-11-11, ironspec's junction-settle) scene junction-settle's lanes: (J, the missing
+/// arm (0 N, 1 E, 2 S, 3 W), the settle (0 unpowered; 1 placed, then powered by a repeater (its
+/// input a redstone block at t3: the repeater's own update re-settles it, as router S's does); 2
+/// placed onto power (a redstone block under it from t0); 3 placed, then a redstone block put under
+/// it at t3 (Level.setBlock updates the neighbours with the OLD block, stone, not a signal source:
+/// RailBlock.updateState does not re-settle)), the carts: (entry arm, stored speed, ridden, the
+/// follower's gap in gt or 0), router S's arms (its west arm turning south as built)). The generic
+/// lanes: each missing arm, each settle, one empty cart at 0.4 from each arm; router S (missing E,
+/// entered from the south): unpowered and repeater-powered after placement, stored 0.3, 0.6, 1.0,
+/// ridden and empty, a follower 11 or 12 gt behind.
+fn junction_lanes() -> Vec<([i32; 3], u8, u8, (u8, f64, bool, u32), bool)> {
+    let mut v = Vec::new();
+    let mut i = 0;
+    let at = |i: i32| [6 + 12 * (i % 10), 64, 6 + 16 * (i / 10)];
+    for missing in 0..4u8 {
+        for settle in 0..4u8 {
+            for entry in (0..4u8).filter(|a| *a != missing) {
+                v.push((at(i), missing, settle, (entry, 0.4, false, 0), false));
+                i += 1;
+            }
+        }
+    }
+    for settle in [0u8, 1] {
+        for sp in [0.3, 0.6, 1.0] {
+            for ridden in [true, false] {
+                for gap in [11u32, 12] {
+                    // (router S's lanes below the generic ones, 28 apart in z: its exits 12 long, so
+                    // no leader comes back off a stop while its follower passes)
+                    let k = v.len() as i32 - 48;
+                    v.push(([6 + 12 * (k % 10), 64, 110 + 28 * (k / 10)], 1, settle, (2, sp, ridden, gap), true));
+                    i += 1;
+                }
+            }
+        }
+    }
+    v
+}
+
+/// The unit step of arm `a` (0 N, 1 E, 2 S, 3 W).
+fn arm_step(a: u8) -> [i32; 2] {
+    [[0, -1], [1, 0], [0, 1], [-1, 0]][a as usize]
+}
+
+/// (tickexact 2026-11-11, farmopt's and ironspec's H rest-place contacts) scene h-contact's lanes:
+/// (x, dz, flat cells before the slope, the waiting carts (z, ridden), the arrival (stored speed,
+/// ridden), label). Each lane a closed gate at (x,64,3+dz), `flat` flat rails (0 sloped, 1 the
+/// hybrid: place 1 on a flat cell against the gate, place 2 on the last slope; 2 flat: places 1 and
+/// 2 flat), 3 slope rails rising south, then flat track; the waiting carts at H's rest places (place
+/// 1 against the gate z 4.115, place 2 0.79 behind a ridden front (its rider's box) or 0.98 behind
+/// an empty one, as scene queue-settle found them; on the slope y = 64.0625 + its height), the
+/// arrival set off down the slope from the top flat at 1.5 past its start. Waiting: place 1 ridden
+/// or empty; place 2 behind a ridden front ridden or empty, behind an empty front ridden. Arrivals
+/// ridden and empty at stored 0.2, 0.3, 0.4, 0.45, 0.5, 0.633, 0.8, 1.0, 1.12, 1.5, 2.014; and
+/// farmopt's (b) on the sloped approach. Scene h-contact-farmopt: the same pairs and geometries at
+/// farmopt's measured H arrival speeds (7b90c3f1's "meter H arrivals"): 0.01, 0.03, 0.06, 0.10,
+/// 0.13, 0.82, 0.89, 1.05, 1.08, 1.40. Scene h-contact-sweep (ironspec's threshold sweep): the
+/// sloped geometry, place 1 empty, place 2 ridden front + empty 2nd and ridden + ridden (the
+/// control), ridden and empty arrivals at 0.2, 0.25, 0.3, 0.35, each in 16 copies whose arrival
+/// starts 1/16 block apart (the contact's phase) at its own place in the world (its entity order).
+/// The last field: the arrival's start offset back from 1.5 past the top flat's start.
+#[allow(clippy::type_complexity)]
+fn hcontact_lanes(name: &str) -> Vec<(i32, i32, i32, Vec<(f64, bool)>, (f64, bool), String, f64)> {
+    let speeds: &[f64] = match name {
+        "h-contact-farmopt" => &[0.01, 0.03, 0.06, 0.10, 0.13, 0.82, 0.89, 1.05, 1.08, 1.40],
+        "h-contact-sweep" => &[0.2, 0.25, 0.3, 0.35],
+        _ => &[0.2, 0.3, 0.4, 0.45, 0.5, 0.633, 0.8, 1.0, 1.12, 1.5, 2.014],
+    };
+    let copies = if name == "h-contact-sweep" { 16 } else { 1 };
+    let mut v = Vec::new();
+    let (p1, p2r, p2e) = (4.1150, 4.9050, 5.0950);
+    let mut add = |flat: i32, waits: Vec<(f64, bool)>, arrive_ridden: bool, label: &str| {
+        for &sp in speeds {
+            for c in 0..copies {
+                let k = v.len() as i32;
+                v.push((1 + 2 * (k % 26), 12 * (k / 26), flat, waits.clone(), (sp, arrive_ridden), label.to_string(), c as f64 / 16.0));
+            }
+        }
+    };
+    if name == "h-contact-sweep" {
+        for ar in [true, false] {
+            let a = if ar { "R" } else { "E" };
+            add(0, vec![(p1, false)], ar, &format!("sloped place 1: E waiting, {a} arriving"));
+            add(0, vec![(p1, true), (p2r, false)], ar, &format!("sloped place 2: R front, E waiting, {a} arriving"));
+            add(0, vec![(p1, true), (p2r, true)], ar, &format!("sloped place 2: R front, R waiting, {a} arriving"));
+        }
+        return v;
+    }
+    for flat in [0, 1, 2] {
+        let f = ["sloped", "hybrid", "flat"][flat as usize];
+        for ar in [true, false] {
+            let a = if ar { "R" } else { "E" };
+            add(flat, vec![(p1, true)], ar, &format!("{f} place 1: R waiting, {a} arriving"));
+            add(flat, vec![(p1, false)], ar, &format!("{f} place 1: E waiting, {a} arriving"));
+            add(flat, vec![(p1, true), (p2r, true)], ar, &format!("{f} place 2: R front, R waiting, {a} arriving"));
+            add(flat, vec![(p1, true), (p2r, false)], ar, &format!("{f} place 2: R front, E waiting, {a} arriving"));
+            add(flat, vec![(p1, false), (p2e, true)], ar, &format!("{f} place 2: E front, R waiting, {a} arriving"));
+        }
+    }
+    // (farmopt's (b): the 2nd cart pushed back by the front rider's jiggle, its gap to the arrival
+    // under the wall when the arrival comes: the 2nd 0.1 and 0.2 behind its rest)
+    if name == "h-contact" {
+        for d in [0.1, 0.2] {
+            add(0, vec![(p1, true), (p2r + d, true)], true, &format!("sloped place 2: R front, R waiting {d} back, R arriving"));
+        }
+    }
+    v
+}
+
+/// (tickexact 2026-11-11, the re-path of a napper off its bed: ironspec's targeted proof) scene
+/// repath-nap's lanes: (x0, the change: 0 none, 1 two cells set from air to stone in one tick 14 gt
+/// before the drop, 2 the same two cells swapped stone -> redstone_block (no collision change), 3
+/// the two cells from air 25 gt before the drop, 4 the two cells from air 30 gt into the nap (the
+/// sleeper holding no path and no delayed recompute)), 4 copies of each (the flee target is a random
+/// draw); lanes 20 apart, so no lane's cells come within a neighbour's path range.
+fn repath_lanes() -> Vec<(i32, u8)> {
+    (0..20).map(|k| (2 + 20 * k, (k / 4) as u8)).collect()
+}
+
+/// The tick scene repath-nap's riders lie down (all lanes alike).
+const REPATH_DROP: u32 = 135;
+
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
 /// during the freeze, and whether the cart is ridden.
@@ -77,6 +217,82 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, the re-path proof) the two cells west of each lane's corridor (x0-1,
+        // 64, 33 and 35: near the middle of a rider's flee path, from the line near the bed back to
+        // its flee target behind the corridor's west wall): set from air in one tick 14 gt before
+        // the drop (change 1) or 25 gt before (change 3), or swapped stone -> redstone_block 14 gt
+        // before (change 2)
+        "repath-nap" => {
+            let lanes = repath_lanes();
+            let cells = |x0: i32| [[x0 - 1, 64, 33], [x0 - 1, 64, 35]];
+            let at = |c: u8, st: &str| -> Vec<([i32; 3], String)> { lanes.iter().filter(|(_, k)| *k == c).flat_map(|(x0, _)| cells(*x0).map(|p| (p, st.to_string()))).collect() };
+            let mut v = vec![(REPATH_DROP - 25, at(3, "minecraft:stone"))];
+            let mut t14 = at(1, "minecraft:stone");
+            t14.extend(at(2, "minecraft:redstone_block"));
+            v.push((REPATH_DROP - 14, t14));
+            v.push((REPATH_DROP + 30, at(4, "minecraft:stone")));
+            v
+        }
+        // (tickexact 2026-11-11, ironspec's junction-settle) every lane's junction placed at t1 (like a
+        // player: onPlace settles it), the placed-then-powered lanes' floor under it a redstone
+        // block at t3 (the first power update after placement)
+        "junction-settle" => {
+            let lanes = junction_lanes();
+            vec![
+                (1, lanes.iter().map(|(j, ..)| (*j, "minecraft:rail[shape=north_south,waterlogged=false]".to_string())).collect()),
+                (
+                    3,
+                    lanes
+                        .iter()
+                        .filter(|(_, _, s, ..)| *s == 1 || *s == 3)
+                        .map(|(j, m, s, ..)| {
+                            if *s == 3 {
+                                ([j[0], j[1] - 1, j[2]], "minecraft:redstone_block".to_string())
+                            } else {
+                                let d = arm_step(*m);
+                                ([j[0] + 2 * d[0], j[1] - 1, j[2] + 2 * d[1]], "minecraft:redstone_block".to_string())
+                            }
+                        })
+                        .collect(),
+                ),
+            ]
+        }
+        // (tickexact 2026-11-11, ironspec's curve spacing) the from-rest pairs' powered rails powered
+        // at t5 (redstone blocks for the floor under them: lanes x0 49 and 61 of row B)
+        "curve-pair" => vec![(1, [49, 61].iter().flat_map(|x| [([*x, 63, 32], "minecraft:redstone_block".to_string()), ([*x, 63, 33], "minecraft:redstone_block".to_string())]).collect())],
+        // (tickexact 2026-11-11, ironspec's hatch sight lines) every lane's hatch shut at t300 (a
+        // top-half trapdoor closed: the sight lines should be clear) and opened again at t600
+        "siding-hatch" => {
+            let hatch = |open: bool| format!("minecraft:iron_trapdoor[facing=west,half=top,open={open},powered=false,waterlogged=false]");
+            vec![(300, (0..3).map(|l| (siding_hatch_at(l), hatch(false))).collect()), (600, (0..3).map(|l| (siding_hatch_at(l), hatch(true))).collect())]
+        }
+        // (tickexact 2026-11-11, farmopt's hold H) every lane's H opened at t30, shut its lane's
+        // ticks later
+        "gate-hold-w" => {
+            let gate = |open: bool| format!("minecraft:oak_fence_gate[facing=north,in_wall=false,open={open},powered=false]");
+            let lanes = gate_hold_lanes();
+            let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = vec![(30, (0..lanes.len()).map(|k| ([1 + 2 * k as i32, 64, 7], gate(true))).collect())];
+            for (k, (_, _, w)) in lanes.iter().enumerate() {
+                let t = 30 + w;
+                let p = ([1 + 2 * k as i32, 64, 7], gate(false));
+                match v.iter_mut().find(|(tt, _)| *tt == t) {
+                    Some((_, b)) => b.push(p),
+                    None => v.push((t, vec![p])),
+                }
+            }
+            v.sort_by_key(|(t, _)| *t);
+            v
+        }
+        // (tickexact 2026-11-11, ironspec's frozen-rider sensors) chunk (1,0) frozen at level 32 from
+        // t40 to t240; at t260 the two powered rails powered (a redstone block for the floor under
+        // each) to kick their carts on
+        "rider-sensors" => vec![
+            (40, vec![s([0, 0, 0], "unload:1,0,1,0")]),
+            (240, vec![s([0, 0, 0], "load:1,0,1,0")]),
+            (260, vec![s([20, 63, 16], "minecraft:redstone_block"), s([28, 63, 16], "minecraft:redstone_block")]),
+        ],
+        // (tickexact 2026-11-11, G1's VillageBoundRandomStroll question) the bed's ticket taken
+        "stroll-village-taken" => vec![(1, vec![s([8, 64, 3], "poi-take")])],
         // (tickexact 2026-11-11, farmopt's H retry on a frozen cart) the lanes' chunk (1,0) frozen
         // (its ticket dropped: level 32 beside the forced chunk 0,0) from the summon; every gate shut
         // at t7; the retry lanes' gates opened at t30 and shut at t42; the chunk back at t80
@@ -349,7 +565,7 @@ pub fn ledge(version: &str, ticks: u32, only: &[String]) -> Result<()> {
     let runs: Vec<(String, f64, i32)> = LEDGE_SPEEDS
         .iter()
         .map(|(tag, sp)| (format!("ledge-r1-{tag}"), *sp, 24))
-        .chain([("ledge-r1n-182".to_string(), 1.82, 25), ("ledge-r1s-182".to_string(), 1.82, 24)])
+        .chain([("ledge-r1n-182".to_string(), 1.82, 25), ("ledge-r1s-182".to_string(), 1.82, 24), ("takeoff-clamp".to_string(), 0.0, 24)])
         .filter(|(n, _, _)| only.is_empty() || only.iter().any(|o| o == n))
         .collect();
     for (name, sp, line) in runs {
@@ -651,6 +867,31 @@ const CAROUSEL_SHIFT: [i32; 3] = [34, 64, 10];
 /// (4,11,24) then (3,10,24), the slopes (2,9,24) (1,8,24), the curve (0,8,24) and the descent south.
 const LEDGE_ESCR1: &str = include_str!("../scenes/ledge-escR1.txt");
 
+/// (tickexact 2026-11-11, ironspec's hatch sight lines) 58f770cc's siding (b) FC on the tight cage
+/// by itself (explore/farmopt-station 10d6461ab, `carousel-siding-b-fc-alone.txt`), frozen.
+const SIDING_B_FC: &str = include_str!("../scenes/siding-b-fc-alone.txt");
+
+/// A siding block as geometry for a sight-line scene: redstone components gone (no collision box,
+/// or a slab's: repeaters and comparators as smooth stone slabs; redstone blocks and droppers as
+/// stone), rails and trapdoors unpowered, leaves off any log (distance 7); every collision shape
+/// a sight ray meets kept.
+fn siding_geometry(st: &str) -> Option<String> {
+    let id = st.split('[').next().unwrap_or(st);
+    match id {
+        "minecraft:redstone_wire" | "minecraft:redstone_torch" | "minecraft:redstone_wall_torch" | "minecraft:tripwire" | "minecraft:tripwire_hook" => None,
+        "minecraft:repeater" | "minecraft:comparator" => Some("minecraft:smooth_stone_slab[type=bottom,waterlogged=false]".to_string()),
+        "minecraft:redstone_block" | "minecraft:dropper" | "minecraft:observer" | "minecraft:hopper" => Some("minecraft:stone".to_string()),
+        "minecraft:powered_rail" | "minecraft:activator_rail" | "minecraft:detector_rail" | "minecraft:iron_trapdoor" => Some(st.replace("powered=true", "powered=false")),
+        "minecraft:oak_leaves" => Some(st.replace("distance=1", "distance=7")),
+        _ => Some(st.to_string()),
+    }
+}
+
+/// The hatch's cell in scene siding-hatch's lane `lane` (design (3,7,3)).
+fn siding_hatch_at(lane: i32) -> [i32; 3] {
+    [3 + 8, 7 + 68, 3 + 5 + 20 * lane]
+}
+
 /// (tickexact 2026-11-11) ironfarm's R1 contact scenes (explore/ironfarm 5d930291e, `mobfarm
 /// contact-scenes`): the escapement column copied from escR1 (x 0, z 26..34, y -1..8: the slopes
 /// (0,7..3,26..30), G0 (0,3,31) shut over P (0,2,31) on its redstone block, G_P (0,2,32) over R,
@@ -685,12 +926,12 @@ fn slope_lane_at(b: &mut Vec<([i32; 3], String)>, x: i32, dz: i32, n: i32, stone
 /// before a closed gate (slope_lane's), its front and middle ridden and its back empty, at rest
 /// where scene queue-settle found them (z 4.1150 / 4.9050 / 5.6950, y 64.1775 / 64.9675 / 65.7575:
 /// each 0.79 behind the one ahead, its rider's box), and an arrival set off from the flat just
-/// behind the slope's top (z 4.5 + n) at stored 0.02 k (101 lanes, 0 to 2.0, 26 to a row 2 apart,
+/// behind the slope's top (z 4.5 + n, at least 7.5: 1.8 behind the back cart) at stored 0.02 k (101 lanes, 0 to 2.0, 26 to a row 2 apart,
 /// rows 12 apart), ridden or empty.
 fn queue_back_scene(name: &str, n: i32, arrive_ridden: bool) -> Scene {
     let stone = "minecraft:stone";
     let mut b = Vec::new();
-    floor(&mut b, 0, 64, 0, 48, 63, stone);
+    floor(&mut b, 0, 64, 0, 64, 63, stone);
     let mut mobs = Vec::new();
     let cart = |x: f64, y: f64, z: f64, v: f64, ridden: bool| {
         let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
@@ -704,17 +945,17 @@ fn queue_back_scene(name: &str, n: i32, arrive_ridden: bool) -> Scene {
         mobs.push(cart(xf, 64.1775, 4.1150 + dz as f64, 0.0, true));
         mobs.push(cart(xf, 64.9675, 4.9050 + dz as f64, 0.0, true));
         mobs.push(cart(xf, 65.7575, 5.6950 + dz as f64, 0.0, false));
-        mobs.push(cart(xf, (64 + n) as f64, 4.5 + n as f64 + dz as f64, 0.02 * k as f64, arrive_ridden));
+        mobs.push(cart(xf, (64 + n) as f64, (4.5 + n as f64).max(7.5) + dz as f64, 0.02 * k as f64, arrive_ridden));
     }
     Scene {
         name: name.to_string(),
-        chunks: [0, 0, 3, 2],
+        chunks: [0, 0, 3, 3],
         blocks: b,
         mobs,
         day_time: 6000,
         difficulty: Difficulty::Normal,
         mob_griefing: true,
-        watch: ([0, 62, 0], [63, 72, 47]),
+        watch: ([0, 62, 0], [63, 72, 63]),
         player: None,
         player_creative: false,
         random_tick_speed: 0,
@@ -804,8 +1045,38 @@ pub fn ledge_sweep_rows() -> Vec<(Option<f64>, bool)> {
 
 /// The rows of a ledge scene by name.
 pub fn ledge_rows_of(name: &str) -> Vec<(Option<f64>, bool)> {
+    if name == "takeoff-clamp" {
+        return TAKEOFF_ROWS.iter().map(|(_, r)| (None, *r)).collect();
+    }
     if name.starts_with("ledge-r1s-") { ledge_sweep_rows() } else { LEDGE_ROWS.to_vec() }
 }
+
+/// (tickexact 2026-11-11, ironspec's take-off clamp) scene takeoff-clamp's rows: a lone cart leaving
+/// R1's take-off at each stored speed, ridden (the visible step on a rail is 0.75 x stored for a cart
+/// with a passenger: the 0.4 cap from 0.5333) or empty (1.0 x stored: from 0.4); comeOffTrack clamps
+/// the stored speed per axis to 0.4 the tick it leaves the rail.
+pub const TAKEOFF_ROWS: [(f64, bool); 20] = [
+    (1.95, true),
+    (1.2, true),
+    (0.8, true),
+    (0.6, true),
+    (0.55, true),
+    (0.54, true),
+    (0.53, true),
+    (0.5, true),
+    (0.45, true),
+    (0.35, true),
+    (0.25, true),
+    (1.95, false),
+    (1.2, false),
+    (0.6, false),
+    (0.45, false),
+    (0.42, false),
+    (0.4, false),
+    (0.38, false),
+    (0.35, false),
+    (0.3, false),
+];
 
 /// One ledge scene: the design's cells x -1..9, y 4..13, z 23..29 copied into each row (x + 2,
 /// y + 60, z + 8k - 22: row k's take-off line at z 2 + 8k), the corner (9,13,24) and the run north
@@ -820,6 +1091,13 @@ fn ledge_scene(tag: &str, v: f64) -> Scene {
 /// north (the take-off flats, the gap, the landing and the slopes at design z 25), the curve (0,8,25)
 /// turning straight onto the descent's first slope (0,7,26) (escR1's flat (0,8,25) gone).
 fn ledge_scene_row(name: &str, v: f64, north: bool, rows: &[(Option<f64>, bool)]) -> Scene {
+    let rows: Vec<(Option<f64>, bool, f64)> = rows.iter().map(|(g, r)| (*g, *r, v)).collect();
+    ledge_scene_speeds(name, north, &rows)
+}
+
+/// (tickexact 2026-11-11, ironspec's take-off clamp) [`ledge_scene_row`] with each row's own stored
+/// speed (`rows`: the follower's gap, ridden, the speed).
+fn ledge_scene_speeds(name: &str, north: bool, rows: &[(Option<f64>, bool, f64)]) -> Scene {
     let d = mctas::design::Design::parse(LEDGE_ESCR1).expect("the frozen escR1 parses");
     let mut b: Vec<([i32; 3], String)> = Vec::new();
     // (the rows' extent: row k from z 2 + 8k - 1 to its stop at 2 + 8k + 7)
@@ -827,7 +1105,8 @@ fn ledge_scene_row(name: &str, v: f64, north: bool, rows: &[(Option<f64>, bool)]
     floor(&mut b, 0, 32, 0, 16 * chunks_z, 63, "minecraft:stone");
     let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
     let line = if north { 25 } else { 24 };
-    for (k, (gap, ridden)) in rows.iter().enumerate() {
+    for (k, (gap, ridden, v)) in rows.iter().enumerate() {
+        let v = *v;
         let dz = 8 * k as i32 - 22;
         let at = |p: [i32; 3]| [p[0] + 2, p[1] + 60, p[2] + dz];
         for (p, st) in &d.blocks {
@@ -2920,6 +3199,8 @@ fn scenes_raw() -> Vec<Scene> {
     }
     v.push(ledge_scene_row("ledge-r1n-182", 1.82, true, &LEDGE_ROWS));
     v.push(ledge_scene_row("ledge-r1s-182", 1.82, false, &ledge_sweep_rows()));
+    // (tickexact 2026-11-11, ironspec's take-off clamp) a lone cart at each stored speed, ridden, then empty
+    v.push(ledge_scene_speeds("takeoff-clamp", false, &TAKEOFF_ROWS.iter().map(|(s, r)| (None, *r, *s)).collect::<Vec<_>>()));
     // (tickexact 2026-11-11, 58f770cc's HOME finding: a panicking rider's flee target) two lanes in a
     // void (no floor; the sandbox's edge walls kept beyond 16 of every rider, the lanes 24 apart): a
     // villager in a cart on a rail on glass, a zombie in a boat on glass 3 blocks north of it
@@ -3577,6 +3858,877 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's frozen-rider sensors: the router interlock's tripwire at the
+    // hump top and the siding's SP plate) a tripwire at rider height (y 65, P + 1) across a track
+    // along z (P = 64): hooks at x0 -/+ 3 on stones at x0 -/+ 4, the string x0-2..x0+2 at z 16. In
+    // the forced chunks: seated riders moving +z at 0.1, 0.25, 0.4 and 0.5, one at rest under the
+    // string, a bare cart at 0.4, and a standing adult under it (held: glass at z 15 and 17, under
+    // and over the string beside it: the positive control). In chunk 1, frozen at level 32 from t40
+    // to t240 (scene_actions: "rider-sensors"): a seated rider at rest under a string (x0 20) and one
+    // under a stone plate at P + 2 on glass (x 28), each on a powered rail against a stone at its
+    // -z end, powered at t260 to kick it on +z
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 112, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let string = |b: &mut Vec<([i32; 3], String)>, x0: i32| {
+            b.push(([x0 - 4, 65, 16], stone.to_string()));
+            b.push(([x0 + 4, 65, 16], stone.to_string()));
+            b.push(([x0 - 3, 65, 16], "minecraft:tripwire_hook[attached=true,facing=east,powered=false]".to_string()));
+            b.push(([x0 + 3, 65, 16], "minecraft:tripwire_hook[attached=true,facing=west,powered=false]".to_string()));
+            for x in x0 - 2..=x0 + 2 {
+                b.push(([x, 65, 16], "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]".to_string()));
+            }
+        };
+        let track = |b: &mut Vec<([i32; 3], String)>, x0: i32| {
+            b.push(([x0, 64, 0], stone.to_string()));
+            b.push(([x0, 64, 31], stone.to_string()));
+            for z in 1..=30 {
+                b.push(([x0, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+        };
+        // the forced chunks' lanes
+        for (k, kind) in ["r0.1", "r0.25", "r0.4", "r0.5", "r0", "e0.4"].iter().enumerate() {
+            let x0 = 38 + 10 * k as i32;
+            string(&mut b, x0);
+            track(&mut b, x0);
+            let v: f64 = kind[1..].parse().unwrap_or(0.0);
+            let z0 = if v == 0.0 { 16.5 } else { 16.5 - (v * 10.0 + 2.5).round() };
+            let nbt = if kind.starts_with('r') { rider.replace("{Passengers", &format!("{{Motion:[0.0d,0.0d,{v:.2}d],Passengers")) } else { format!("{{Motion:[0.0d,0.0d,{v:.2}d]}}") };
+            mobs.push(("minecraft:minecart".into(), [x0 as f64 + 0.5, 64.0625, z0], Some(nbt)));
+        }
+        // the positive control: a standing adult under a string, held
+        {
+            let x0 = 98;
+            string(&mut b, x0);
+            for z in [15, 17] {
+                for y in 64..=65 {
+                    b.push(([x0, y, z], "minecraft:glass".to_string()));
+                }
+            }
+            for x in [x0 - 1, x0 + 1] {
+                b.push(([x, 64, 16], "minecraft:glass".to_string()));
+                b.push(([x, 66, 16], "minecraft:glass".to_string()));
+            }
+            mobs.push(("minecraft:villager".into(), [x0 as f64 + 0.5, 64.0, 16.5], Some("{PersistenceRequired:1b}".into())));
+        }
+        // the frozen chunk's lanes: a string (x0 20) and a stone plate (x 28)
+        for (x0, plate) in [(20, false), (28, true)] {
+            if plate {
+                b.push(([x0, 65, 16], "minecraft:glass".to_string()));
+                b.push(([x0, 66, 16], "minecraft:stone_pressure_plate[powered=false]".to_string()));
+            } else {
+                string(&mut b, x0);
+            }
+            track(&mut b, x0);
+            b.push(([x0, 64, 15], stone.to_string()));
+            b.push(([x0, 64, 16], "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]".to_string()));
+            mobs.push(("minecraft:minecart".into(), [x0 as f64 + 0.5, 64.0625, 16.5], Some(rider.to_string())));
+        }
+        v.push(Scene {
+            name: "rider-sensors".into(),
+            chunks: [0, 0, 6, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [111, 68, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's eye-in-block riders: the siding's glass cap over its booster,
+    // and a closed gate over a rider) seated riders in carts held on one rail cell (P = 64) with,
+    // in the cell over the cart (where the rider's eye sits, P + 1.68): glass (x 4), a closed oak
+    // fence gate facing north (its 1.5-high collision box across the eye, x 12), nothing (the
+    // control, x 20); each with a zombie in a boat 7 blocks +z in plain view, under a roof (so it
+    // does not burn): the sight ray (ClipContext COLLIDER from the eye) starts inside the block's
+    // collision shape
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 32, 63, stone);
+        floor(&mut b, 0, 32, 0, 32, 72, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        for (x, cap) in [(4, Some("minecraft:glass")), (12, Some("minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]")), (20, None)] {
+            b.push(([x, 64, 7], stone.to_string()));
+            b.push(([x, 64, 8], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([x, 64, 9], stone.to_string()));
+            if let Some(c) = cap {
+                b.push(([x, 65, 8], c.to_string()));
+            }
+            mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, 64.0625, 8.5], Some(rider.to_string())));
+            mobs.push(("minecraft:oak_boat".into(), [x as f64 + 0.5, 64.0, 15.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: "rider-eye-block".into(),
+            chunks: [0, 0, 1, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 70, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's roll-back question ahead of 58f770cc's geometry: a halted
+    // empty cart on an unpowered powered-rail slope must roll back) lanes along z: three rails
+    // ascending south ((x,64,4), (x,65,5), (x,66,6), each on stone), flat rails at y 64 from z 1 to 3
+    // below them (a stone at z 0) and at y 67 from z 7 to 12 above (a stone at z 13); the slope of
+    // unpowered powered rails or of plain rails; a cart at rest on the middle slope rail, empty or
+    // ridden, or one rolling up it from the flat below at 0.3
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        // (lane x, powered-rail slope, the cart: "rest-e" / "rest-r" / "up-e")
+        for (x, powered, cart) in [(2, true, "rest-e"), (5, true, "rest-r"), (8, true, "up-e"), (11, false, "rest-e"), (14, false, "rest-r"), (17, false, "up-e")] {
+            b.push(([x, 64, 0], stone.to_string()));
+            for z in 1..=3 {
+                b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for (k, z) in (4..=6).enumerate() {
+                let y = 64 + k as i32;
+                for yy in 64..y {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, y, z], if powered { "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]" } else { "minecraft:rail[shape=ascending_south,waterlogged=false]" }.to_string()));
+            }
+            for z in 7..=12 {
+                for yy in 64..67 {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, 67, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for yy in 64..68 {
+                b.push(([x, yy, 13], stone.to_string()));
+            }
+            let (pos, nbt) = match cart {
+                "rest-e" => ([x as f64 + 0.5, 65.5625, 5.5], None),
+                "rest-r" => ([x as f64 + 0.5, 65.5625, 5.5], Some(rider.to_string())),
+                _ => ([x as f64 + 0.5, 64.0625, 2.5], Some("{Motion:[0.0d,0.0d,0.3d]}".to_string())),
+            };
+            mobs.push(("minecraft:minecart".into(), pos, nbt));
+        }
+        v.push(Scene {
+            name: "rollback-halt".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, 58f770cc's roll-back after the booster: the exit branch's rise past a
+    // booster the ridden signal powers; an empty cart gets no boost, stalls on the plain slope and
+    // must roll back west through the booster) lanes along z: flat rails z 1..5 (a stone at z 0), an
+    // unpowered powered rail (the booster, flat) at z 6, two plain rails ascending south (z 7, 8),
+    // flat rails at y 66 z 9..12 (a stone at z 13); an empty cart from z 2.5 at stored 0.1..1.0
+    // (x 2..29, every 3), and the same lanes with a plain rail for the booster (x 32..59)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 64, 0, 16, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for (k, booster) in (0..20).map(|k| (k, k < 10)) {
+            let x = 2 + 3 * k as i32;
+            let v = 0.1 * ((k % 10) + 1) as f64;
+            b.push(([x, 64, 0], stone.to_string()));
+            for z in 1..=5 {
+                b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            b.push(([x, 64, 6], if booster { "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]" } else { "minecraft:rail[shape=north_south,waterlogged=false]" }.to_string()));
+            b.push(([x, 64, 7], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            b.push(([x, 64, 8], stone.to_string()));
+            b.push(([x, 65, 8], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            for z in 9..=12 {
+                b.push(([x, 64, z], stone.to_string()));
+                b.push(([x, 65, z], stone.to_string()));
+                b.push(([x, 66, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for yy in 64..67 {
+                b.push(([x, yy, 13], stone.to_string()));
+            }
+            mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, 64.0625, 2.5], Some(format!("{{Motion:[0.0d,0.0d,{v:.2}d]}}"))));
+        }
+        v.push(Scene {
+            name: "rollback-booster".into(),
+            chunks: [0, 0, 3, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, farmopt's hold H: (a) the pressed train's release through H for W =
+    // 1, 3, 5, 7 gt, ridden and empty; (b) H shut 1..10 gt after it opens on one pressed cart, so
+    // it shuts with the cart in its box at each tick of the passage) gate-frozen's geometry: a
+    // fence gate at (x,64,7) at the foot of three rails rising south ((x,64,8), (x,65,9),
+    // (x,66,10)), a flat at y 67 to z 14, the gate's cell over a rail one level down ((x,63,4..7),
+    // stone at z 3); the carts pressed down the slope against the shut gate (front at z 8.115, the
+    // next 0.79 behind each); lanes x 1, 3, ... (gate_hold_lanes; scene_actions: H opened at t30)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 64, 0, 16, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        for (k, (n, ridden, _)) in gate_hold_lanes().into_iter().enumerate() {
+            let x = 1 + 2 * k as i32;
+            b.push(([x, 64, 7], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+            for (s, z) in (8..=10).enumerate() {
+                let y = 64 + s as i32;
+                for yy in 64..y {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, y, z], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            }
+            for z in 11..=14 {
+                for yy in 64..67 {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, 67, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for z in 4..=7 {
+                b.push(([x, 62, z], stone.to_string()));
+                b.push(([x, 63, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for c in 0..n {
+                let z = 8.115 + 0.79 * c as f64;
+                // (on a slope rail: its height 64 + (z - 8) + 0.0625)
+                let y = 64.0625 + (z - 8.0);
+                mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, y, z], if ridden { Some(rider.to_string()) } else { None }));
+            }
+        }
+        v.push(Scene {
+            name: "gate-hold-w".into(),
+            chunks: [0, 0, 3, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's side push: S3's stand B branch beside A's approach one block
+    // apart) pairs of level rails along z (z 1..30 between stones), a cart on each: centres 1 apart
+    // in x at the same level (carts passing at 0.1, 0.2, 0.4 in opposite directions, ridden or
+    // empty; then one at rest mid-rail, the other passing it at those speeds), and the controls at
+    // 0.4 and at rest: centres 2 apart, 1 apart one level up, 1 apart one level down (in a trench).
+    // A pair every 4 blocks of x (the first rail at x 1 + 4k); cart A from z 5.5 moving +z, cart B
+    // from z 25.5 moving -z (or at rest at z 15.5)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 112, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        // (the second rail's offset: dx, dy; the speed; B: 0 passing, 1 at rest as placed (yaw 0:
+        // facing +x, across its rail), 2 at rest turned along its rail (Rotation 90), 3 set rolling
+        // at 0.04 from z 13.5 (its yaw follows its motion); ridden)
+        let mut pairs: Vec<(i32, i32, f64, u8, bool)> = Vec::new();
+        for rest in [0, 1] {
+            for ridden in [true, false] {
+                for v in [0.1, 0.2, 0.4] {
+                    pairs.push((1, 0, v, rest, ridden));
+                }
+            }
+        }
+        for (dx, dy) in [(2, 0), (1, 1), (1, -1)] {
+            for rest in [0, 1] {
+                for ridden in [true, false] {
+                    pairs.push((dx, dy, 0.4, rest, ridden));
+                }
+            }
+        }
+        for kind in [2, 3] {
+            for ridden in [true, false] {
+                pairs.push((1, 0, 0.4, kind, ridden));
+            }
+        }
+        let track = |b: &mut Vec<([i32; 3], String)>, x: i32, y: i32| {
+            for yy in 64..y {
+                for z in 0..=31 {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+            }
+            if y < 64 {
+                for z in 0..=31 {
+                    b.push(([x, y - 1, z], stone.to_string()));
+                    b.push(([x, y, z], "minecraft:air".to_string()));
+                }
+            }
+            b.push(([x, y, 0], stone.to_string()));
+            b.push(([x, y, 31], stone.to_string()));
+            for z in 1..=30 {
+                b.push(([x, y, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+        };
+        for (k, (dx, dy, v, rest, ridden)) in pairs.iter().enumerate() {
+            let xa = 1 + 4 * k as i32;
+            let (xb, yb) = (xa + dx, 64 + dy);
+            track(&mut b, xa, 64);
+            track(&mut b, xb, yb);
+            let nbt = |m: f64, extra: &str| {
+                let motion = format!("Motion:[0.0d,0.0d,{m:.2}d]{extra}");
+                if *ridden { Some(format!("{{{motion},Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")) } else { Some(format!("{{{motion}}}")) }
+            };
+            let _ = rider;
+            mobs.push(("minecraft:minecart".into(), [xa as f64 + 0.5, 64.0625, 5.5], nbt(*v, "")));
+            match rest {
+                1 => mobs.push(("minecraft:minecart".into(), [xb as f64 + 0.5, yb as f64 + 0.0625, 15.5], nbt(0.0, ""))),
+                2 => mobs.push(("minecraft:minecart".into(), [xb as f64 + 0.5, yb as f64 + 0.0625, 15.5], nbt(0.0, ",Rotation:[90.0f,0.0f]"))),
+                3 => mobs.push(("minecraft:minecart".into(), [xb as f64 + 0.5, yb as f64 + 0.0625, 13.5], nbt(0.04, ""))),
+                _ => mobs.push(("minecraft:minecart".into(), [xb as f64 + 0.5, yb as f64 + 0.0625, 25.5], nbt(-*v, ""))),
+            }
+        }
+        v.push(Scene {
+            name: "side-push".into(),
+            chunks: [0, 0, 6, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [111, 68, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's hatch sight lines: the siding (b) FC's wake post, a zombie in
+    // a boat in a glass box whose one open cell (3,7,3) holds the hatch, a top-half iron trapdoor
+    // facing west: closed should leave the lines clear, open should block them) three copies of the
+    // siding's geometry (siding_geometry: its redstone gone) 20 apart in z, design (x, y, z) at
+    // (x + 8, y + 68, z + 5 + 20 lane), each with the design's zombie boat at (4.5,7,3.5), the hatch
+    // open: lane 0 a villager at the stand-up cell (1.4,0,2.5) remembering the bed (0,0,2) as HOME
+    // (it lies down: the sleeper); lane 1 a villager held at the stand-up cell (glass at (1,0,1),
+    // (1,1,1) and over the bed cells (0,1,2), (0,1,3), the bed taken out); lane 2 a villager in a cart at rest on the T
+    // (1,0,0). Night (REST); the hatches shut at t300, open again at t600 (scene_actions)
+    {
+        let d = mctas::design::Design::parse(SIDING_B_FC).expect("the frozen siding parses");
+        let mut b: Vec<([i32; 3], String)> = Vec::new();
+        floor(&mut b, 0, 32, 0, 64, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for lane in 0..3 {
+            let at = |p: [i32; 3]| [p[0] + 8, p[1] + 68, p[2] + 5 + 20 * lane];
+            let atf = |p: [f64; 3]| [p[0] + 8.0, p[1] + 68.0, p[2] + 5.0 + 20.0 * lane as f64];
+            for (p, st) in &d.blocks {
+                if p[1] < -4 {
+                    continue;
+                }
+                // (lane 1: no bed, so its villager claims none and stays awake at the stand-up cell)
+                if lane == 1 && st.contains("_bed[") {
+                    continue;
+                }
+                if let Some(s) = siding_geometry(st) {
+                    b.push((at([p[0], p[1], p[2]]), s));
+                }
+            }
+            if lane != 2 {
+                for p in [[1, 0, 1], [1, 1, 1]] {
+                    b.push((at(p), "minecraft:glass".to_string()));
+                }
+            }
+            if lane == 1 {
+                for p in [[0, 1, 2], [0, 1, 3]] {
+                    b.push((at(p), "minecraft:glass".to_string()));
+                }
+            }
+            mobs.push(("minecraft:oak_boat".into(), atf([4.5, 7.0, 3.5]), Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+            match lane {
+                0 => {
+                    let bed = at([0, 0, 2]);
+                    mobs.push(("minecraft:villager".into(), atf([1.4, 0.0, 2.5]), Some(format!("{{PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}", bed[0], bed[1], bed[2]))));
+                }
+                1 => mobs.push(("minecraft:villager".into(), atf([1.4, 0.0, 2.5]), Some("{PersistenceRequired:1b}".into()))),
+                _ => mobs.push(("minecraft:minecart".into(), atf([1.5, 0.0625, 0.5]), Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into()))),
+            }
+        }
+        v.push(Scene {
+            name: "siding-hatch".into(),
+            chunks: [0, 0, 1, 3],
+            blocks: b,
+            mobs,
+            day_time: 12500,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 80, 63]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's curve spacing: stand B's stagger-3 failure, cart 2 reaching a
+    // curve while cart 1 still turns in it) two carts in sequence at a visible 0.4 a tick (stored
+    // 0.4 empty, 0.6 ridden: a rider's 0.75 scale) down a straight run along +z into a 90-degree curve
+    // ((x0, 64, z0 + 10), north_east) and on east; row A (z0 0): spaced 1.0, 1.2, 1.4, 1.6 blocks,
+    // ridden and empty; row B (z0 24): an S-bend (a second curve (x0 + 1, 64, z0 + 10), south_west,
+    // then south) at 1.0 and 1.4, ridden and empty, and a pair touching at the curve's foot, set
+    // creeping at 0.02 on powered rails against a stone, powered from t1 (scene_actions); row C (z0
+    // 48): the 90-degree curve at 1.8, 2.0, 2.2, 2.4; lanes x0 = 1 + 12k
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 96, 0, 64, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let cart = |x: f64, z: f64, v: f64, ridden: bool| {
+            let motion = format!("Motion:[0.0d,0.0d,{v:.2}d]");
+            let nbt = if ridden { format!("{{{motion},Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}") } else { format!("{{{motion}}}") };
+            ("minecraft:minecart".to_string(), [x, 64.0625, z], Some(nbt))
+        };
+        let ns = "minecraft:rail[shape=north_south,waterlogged=false]";
+        let ew = "minecraft:rail[shape=east_west,waterlogged=false]";
+        // (kind: 0 the 90-degree curve, 1 the S-bend, 2 from rest at the foot; spacing; ridden)
+        let mut lanes: Vec<(i32, i32, u8, f64, bool)> = Vec::new();
+        let mut k = 0;
+        for s in [1.0, 1.2, 1.4, 1.6] {
+            for ridden in [true, false] {
+                lanes.push((1 + 12 * k, 0, 0, s, ridden));
+                k += 1;
+            }
+        }
+        k = 0;
+        for s in [1.0, 1.4] {
+            for ridden in [true, false] {
+                lanes.push((1 + 12 * k, 24, 1, s, ridden));
+                k += 1;
+            }
+        }
+        for ridden in [true, false] {
+            lanes.push((1 + 12 * k, 24, 2, 1.0, ridden));
+            k += 1;
+        }
+        // (row C, z0 48: the 90-degree curve at wider spacings)
+        k = 0;
+        for s in [1.8, 2.0, 2.2, 2.4] {
+            for ridden in [true, false] {
+                lanes.push((1 + 12 * k, 48, 0, s, ridden));
+                k += 1;
+            }
+        }
+        for (x0, z0, kind, s, ridden) in lanes {
+            b.push(([x0, 64, z0], stone.to_string()));
+            for z in z0 + 1..=z0 + 9 {
+                b.push(([x0, 64, z], ns.to_string()));
+            }
+            b.push(([x0, 64, z0 + 10], "minecraft:rail[shape=north_east,waterlogged=false]".to_string()));
+            if kind == 1 {
+                b.push(([x0 + 1, 64, z0 + 10], "minecraft:rail[shape=south_west,waterlogged=false]".to_string()));
+                for z in z0 + 11..=z0 + 19 {
+                    b.push(([x0 + 1, 64, z], ns.to_string()));
+                }
+                b.push(([x0 + 1, 64, z0 + 20], stone.to_string()));
+            } else {
+                for x in x0 + 1..=x0 + 9 {
+                    b.push(([x, 64, z0 + 10], ew.to_string()));
+                }
+                b.push(([x0 + 10, 64, z0 + 10], stone.to_string()));
+            }
+            let xf = x0 as f64 + 0.5;
+            if kind == 2 {
+                b.push(([x0, 64, z0 + 7], stone.to_string()));
+                for z in [z0 + 8, z0 + 9] {
+                    b.push(([x0, 64, z], "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]".to_string()));
+                }
+                mobs.push(cart(xf, z0 as f64 + 9.5, 0.02, ridden));
+                mobs.push(cart(xf, z0 as f64 + 8.5, 0.02, ridden));
+            } else {
+                let v = if ridden { 0.6 } else { 0.4 };
+                mobs.push(cart(xf, z0 as f64 + 5.5, v, ridden));
+                mobs.push(cart(xf, z0 as f64 + 5.5 - s, v, ridden));
+            }
+        }
+        v.push(Scene {
+            name: "curve-pair".into(),
+            chunks: [0, 0, 5, 3],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [95, 68, 63]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, 58f770cc's sleeper walking off its bed in redsim: a napper dropped
+    // beside its bed falls asleep, then walks off it 8 gt later in 8 of 168 visits) the siding's drop:
+    // a bed (head (x0, 64, 6), foot (x0, 64, 7)) beside a rail line along x0 + 1 running +z, a
+    // powered activator rail (on a redstone block) at (x0 + 1, 64, 6) beside the bed's head, the
+    // line on south to a stone at z 18; a villager remembering the bed as HOME rides a cart from z
+    // 1.5 + k/16 at stored 0.3, night (REST: its walk to HOME set while riding), ejected at the
+    // activator beside the bed; lanes x0 = 2 + 5k, k 0..15
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 80, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for k in 0..16 {
+            let x0 = 2 + 5 * k;
+            b.push(([x0, 64, 6], "minecraft:red_bed[facing=north,occupied=false,part=head]".to_string()));
+            b.push(([x0, 64, 7], "minecraft:red_bed[facing=north,occupied=false,part=foot]".to_string()));
+            b.push(([x0 + 1, 64, 0], stone.to_string()));
+            for z in 1..=17 {
+                if z == 6 {
+                    b.push(([x0 + 1, 63, z], "minecraft:redstone_block".to_string()));
+                    b.push(([x0 + 1, 64, z], "minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]".to_string()));
+                } else {
+                    b.push(([x0 + 1, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+                }
+            }
+            b.push(([x0 + 1, 64, 18], stone.to_string()));
+            let bed = [x0, 64, 6];
+            let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", bed[0], bed[1], bed[2]);
+            mobs.push(("minecraft:minecart".into(), [x0 as f64 + 1.5, 64.0625, 1.5 + k as f64 / 16.0], Some(format!("{{Motion:[0.0d,0.0d,0.3d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,{home}}}]}}"))));
+        }
+        v.push(Scene {
+            name: "sleep-drop".into(),
+            chunks: [0, 0, 4, 1],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [79, 68, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's junction-settle: day-1's W siding, half-turned, routed every
+    // cart to the exit; router S as built) three-arm junctions (junction_lanes): the junction cell
+    // empty at t0 and placed at t1 (scene_actions), each arm 4 rails and a stone, the
+    // placed-onto-power lanes' floor under it a redstone block from t0; router S's lanes with its
+    // west arm turning south (a south_east curve 2 west, then south) and a longer south arm (8 rails)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 128, 0, 192, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let ns = "minecraft:rail[shape=north_south,waterlogged=false]";
+        let ew = "minecraft:rail[shape=east_west,waterlogged=false]";
+        for (j, missing, settle, (entry, sp, ridden, gap), router) in junction_lanes() {
+            if settle == 2 {
+                b.push(([j[0], 63, j[2]], "minecraft:redstone_block".to_string()));
+            }
+            if settle == 1 {
+                // the repeater under the missing arm's first cell, its output into the stone under
+                // the junction (a repeater's facing is its input side), on stone
+                let d = arm_step(missing);
+                let facing = ["north", "east", "south", "west"][missing as usize];
+                b.push(([j[0] + d[0], 62, j[2] + d[1]], stone.to_string()));
+                b.push(([j[0] + d[0], 63, j[2] + d[1]], format!("minecraft:repeater[delay=1,facing={facing},locked=false,powered=false]")));
+            }
+            for a in (0..4u8).filter(|a| *a != missing) {
+                let d = arm_step(a);
+                let len = if router && a == 2 { 8 } else if router && a == 3 { 1 } else if router { 12 } else { 4 };
+                for k in 1..=len {
+                    b.push(([j[0] + d[0] * k, 64, j[2] + d[1] * k], if d[0] == 0 { ns } else { ew }.to_string()));
+                }
+                if router && a == 3 {
+                    // the west arm's curve 2 west (south_east), then south 12 and a stone
+                    b.push(([j[0] - 2, 64, j[2]], "minecraft:rail[shape=south_east,waterlogged=false]".to_string()));
+                    for k in 1..=12 {
+                        b.push(([j[0] - 2, 64, j[2] + k], ns.to_string()));
+                    }
+                    b.push(([j[0] - 2, 64, j[2] + 13], stone.to_string()));
+                } else {
+                    b.push(([j[0] + d[0] * (len + 1), 64, j[2] + d[1] * (len + 1)], stone.to_string()));
+                }
+            }
+            let d = arm_step(entry);
+            let cart = |k: f64, ridden: bool| {
+                let motion = format!("Motion:[{:.3}d,0.0d,{:.3}d]", -d[0] as f64 * sp, -d[1] as f64 * sp);
+                let nbt = if ridden { format!("{{{motion},Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}") } else { format!("{{{motion}}}") };
+                ("minecraft:minecart".to_string(), [j[0] as f64 + 0.5 + d[0] as f64 * k, 64.0625, j[2] as f64 + 0.5 + d[1] as f64 * k], Some(nbt))
+            };
+            if router {
+                mobs.push(cart(3.0, ridden));
+                let visible = (if ridden { 0.75 } else { 1.0 } * sp).min(0.4);
+                mobs.push(cart(3.0 + visible * gap as f64, ridden));
+            } else {
+                mobs.push(cart(4.0, ridden));
+            }
+        }
+        v.push(Scene {
+            name: "junction-settle".into(),
+            chunks: [0, 0, 7, 11],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [127, 68, 191]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, 58f770cc's sleeper walking off its bed in redsim, second bridge: the
+    // siding (b) FC's own drop) 16 copies of the siding's geometry (siding_geometry, a 4 x 4 grid 20
+    // apart: design (x, y, z) at (x + 8 + 20 cx, y + 68, z + 5 + 20 cz)) with its boosters (1,0,1),
+    // (1,0,2) and the activator slope (1,-1,3) powered by redstone blocks under them, a ridden cart on
+    // the entry detector rail (0,0,0) moving +x at 0.20 + 0.02 k (the T turns it south down the bed
+    // line, the activator drops its rider beside the bed's head (0,0,2), the park's brake (1,-1,5)
+    // holds the cart), the rider remembering the bed as HOME; no dorm zombie; night (REST)
+    {
+        let d = mctas::design::Design::parse(SIDING_B_FC).expect("the frozen siding parses");
+        let mut b: Vec<([i32; 3], String)> = Vec::new();
+        floor(&mut b, 0, 80, 0, 80, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for k in 0..16 {
+            let (cx, cz) = (k % 4, k / 4);
+            let at = |p: [i32; 3]| [p[0] + 8 + 20 * cx, p[1] + 68, p[2] + 5 + 20 * cz];
+            for (p, st) in &d.blocks {
+                if p[1] < -4 {
+                    continue;
+                }
+                if let Some(s) = siding_geometry(st) {
+                    b.push((at([p[0], p[1], p[2]]), s));
+                }
+            }
+            for (p, st) in [
+                ([1, -1, 1], "minecraft:redstone_block"),
+                ([1, -1, 2], "minecraft:redstone_block"),
+                ([1, -2, 3], "minecraft:redstone_block"),
+                ([1, 0, 1], "minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]"),
+                ([1, 0, 2], "minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]"),
+                ([1, -1, 3], "minecraft:activator_rail[powered=true,shape=ascending_north,waterlogged=false]"),
+            ] {
+                b.push((at(p), st.to_string()));
+            }
+            let bed = at([0, 0, 2]);
+            let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", bed[0], bed[1], bed[2]);
+            let start = at([0, 0, 0]);
+            let v = 0.20 + 0.02 * k as f64;
+            mobs.push(("minecraft:minecart".into(), [start[0] as f64 + 0.5, start[1] as f64 + 0.0625, start[2] as f64 + 0.5], Some(format!("{{Motion:[{v:.2}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,{home}}}]}}"))));
+        }
+        v.push(Scene {
+            name: "sleep-siding".into(),
+            chunks: [0, 0, 4, 4],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [79, 78, 79]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, farmopt's and ironspec's H rest-place contacts: a ridden arrival into a
+    // ridden cart pressed at H's 2nd place, the riderless rows' empty waiting carts, and the flat
+    // last approach, and the hybrid) hcontact_lanes: 352 lanes, 26 to a row 2 apart, rows 12 apart;
+    // h-contact-farmopt (300 lanes) and h-contact-sweep (384) the same way
+    for name in ["h-contact", "h-contact-farmopt", "h-contact-sweep"] {
+        let lanes = hcontact_lanes(name);
+        let rows = (lanes.len() as i32 + 25) / 26;
+        let mut b = Vec::new();
+        floor(&mut b, 0, 64, 0, 12 * rows + 8, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let cart = |x: f64, y: f64, z: f64, v: f64, ridden: bool| {
+            let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+            ("minecraft:minecart".to_string(), [x, y, z], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", -v)))
+        };
+        for (x, dz, flat, waits, (sp, ar), _, back) in lanes {
+            b.push(([x, 64, 3 + dz], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+            for z in 4..4 + flat {
+                b.push(([x, 64, z + dz], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for s in 0..3 {
+                for yy in 64..64 + s {
+                    b.push(([x, yy, 4 + flat + s + dz], stone.to_string()));
+                }
+                b.push(([x, 64 + s, 4 + flat + s + dz], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            }
+            for z in (7 + flat)..=11 {
+                for yy in 64..67 {
+                    b.push(([x, yy, z + dz], stone.to_string()));
+                }
+                b.push(([x, 67, z + dz], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            b.push(([x, 67, 12 + dz], stone.to_string()));
+            let xf = x as f64 + 0.5;
+            // (a cart's y on this lane at z: flat 64.0625 before the slope, then 1 per block up it)
+            let y_at = |z: f64| 64.0625 + (z - 4.0 - flat as f64).clamp(0.0, 3.0);
+            for (z, r) in waits {
+                mobs.push(cart(xf, y_at(z), z + dz as f64, 0.0, r));
+            }
+            let za = 8.5 + flat as f64 + back;
+            mobs.push(cart(xf, y_at(za), za + dz as f64, sp, ar));
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 3, (12 * rows + 7) / 16],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 72, 12 * rows + 7]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's grazing eye: blindness counted from the eye point inside a
+    // collision shape, as hasLineOfSight clips from the eye point, not from isInWall's eye box,
+    // ±0.24) seated riders in carts at rest on a rail along z (x 4, P = 64; rails z0-1 .. z0+2), each
+    // with its eye (P + 1.68) at z0 + e beside a shape at eye height: a closed oak fence gate facing
+    // north at (4,65,z0) (its box z0+0.375 .. z0+0.625) with e 0.10 (clear), 0.20, 0.30, 0.36 (the
+    // eye box overlaps it, the point outside), 0.40, 0.50 (the point inside); glass at (4,65,z0+1)
+    // (its face z0+1: not suffocating) with e 0.70 (clear), 0.80, 0.90, 0.98 (grazing), 1.02, 1.10
+    // (inside); a zombie in a boat 7 blocks +x at the eye's z (the sight ray runs along x, outside
+    // the shape unless it starts in it); lanes 10 apart in z (another lane's zombie over 12 away);
+    // a roof at y 72
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 128, 63, stone);
+        floor(&mut b, 0, 16, 0, 128, 72, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let gate = "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]";
+        let lanes: Vec<(bool, f64)> = [0.10, 0.20, 0.30, 0.36, 0.40, 0.50].iter().map(|e| (true, *e)).chain([0.70, 0.80, 0.90, 0.98, 1.02, 1.10].iter().map(|e| (false, *e))).collect();
+        for (k, (is_gate, e)) in lanes.into_iter().enumerate() {
+            let z0 = 4 + 10 * k as i32;
+            b.push(([4, 64, z0 - 2], stone.to_string()));
+            for z in z0 - 1..=z0 + 2 {
+                b.push(([4, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            b.push(([4, 64, z0 + 3], stone.to_string()));
+            if is_gate {
+                b.push(([4, 65, z0], gate.to_string()));
+            } else {
+                b.push(([4, 65, z0 + 1], "minecraft:glass".to_string()));
+            }
+            let z = z0 as f64 + e;
+            mobs.push(("minecraft:minecart".into(), [4.5, 64.0625, z], Some(rider.to_string())));
+            mobs.push(("minecraft:oak_boat".into(), [11.5, 64.0, z], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: "rider-eye-graze".into(),
+            chunks: [0, 0, 0, 7],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 72, 127]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, the re-path of a napper off its bed: ironspec's targeted proof of the
+    // mechanism behind 58f770cc's early wakes) repath_lanes, 20 apart in x: a bed (head (x0,64,56),
+    // foot (x0,64,57)) beside a rail line along x0+1 from z 2 to 62 (a stone at 63), a powered
+    // activator rail beside the bed's head (on a redstone block); a ridden cart from z 2.5 at stored
+    // 1.0 (visible 0.4), its rider remembering the bed as HOME; a zombie in a boat 3 blocks east of
+    // the line at z 6.5 (the rider panics and takes a flee path), stone walls 3 high on both sides
+    // of the line from z 12 to 48 (it calms down: REST, the flee path kept while it rides); night
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 400, 0, 64, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for (x0, change) in repath_lanes() {
+            b.push(([x0, 64, 56], "minecraft:red_bed[facing=north,occupied=false,part=head]".to_string()));
+            b.push(([x0, 64, 57], "minecraft:red_bed[facing=north,occupied=false,part=foot]".to_string()));
+            b.push(([x0 + 1, 64, 1], stone.to_string()));
+            for z in 2..=62 {
+                if z == 56 {
+                    b.push(([x0 + 1, 63, z], "minecraft:redstone_block".to_string()));
+                    b.push(([x0 + 1, 64, z], "minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]".to_string()));
+                } else {
+                    b.push(([x0 + 1, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+                }
+            }
+            b.push(([x0 + 1, 64, 63], stone.to_string()));
+            for z in 12..=48 {
+                for y in 64..67 {
+                    b.push(([x0, y, z], stone.to_string()));
+                    b.push(([x0 + 2, y, z], stone.to_string()));
+                }
+            }
+            if change == 2 {
+                for z in [33, 35] {
+                    b.push(([x0 - 1, 64, z], stone.to_string()));
+                }
+            }
+            let bed = [x0, 64, 56];
+            let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", bed[0], bed[1], bed[2]);
+            mobs.push(("minecraft:minecart".into(), [x0 as f64 + 1.5, 64.0625, 2.5], Some(format!("{{Motion:[0.0d,0.0d,1.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,{home}}}]}}"))));
+            mobs.push(("minecraft:oak_boat".into(), [x0 as f64 + 4.5, 64.0, 6.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: "repath-nap".into(),
+            chunks: [0, 0, 24, 3],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [399, 68, 63]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
+    // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
+    // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
+    // as JOB_SITE, a bell 30 and 60 east as MEETING_POINT, each walled in stone (no path reaches it)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 96, 0, 32, 63, stone);
+        let mem = |key: &str, p: [i32; 3]| format!("\"minecraft:{key}\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}", p[0], p[1], p[2]);
+        let mut mobs = Vec::new();
+        for (z, key, poi, state) in [
+            (4, "job_site", [38, 64, 4], "minecraft:composter[level=0]"),
+            (10, "job_site", [68, 64, 10], "minecraft:composter[level=0]"),
+            (16, "meeting_point", [38, 64, 16], "minecraft:bell[attachment=floor,facing=north,powered=false]"),
+            (22, "meeting_point", [68, 64, 22], "minecraft:bell[attachment=floor,facing=north,powered=false]"),
+        ] {
+            b.push(([8, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([8, 64, z - 1], stone.to_string()));
+            b.push(([8, 64, z + 1], stone.to_string()));
+            b.push((poi, state.to_string()));
+            for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]] {
+                b.push(([poi[0] + d[0], poi[1] + d[1], poi[2] + d[2]], stone.to_string()));
+            }
+            mobs.push(("minecraft:minecart".to_string(), [8.5, 64.0, z as f64 + 0.5], Some(format!("{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{{}}}}}}}]}}", mem(key, poi)))));
+        }
+        v.push(Scene {
+            name: "jobsite-near".into(),
+            chunks: [0, 0, 5, 1],
+            blocks: b,
+            mobs,
+            day_time: 0,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [95, 66, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's job-site rows: a villager brought in still remembering a job
     // site or a meeting point) three riders in carts held between stones, through a day from day
     // time 0: A remembers a composter 30 blocks east as its JOB_SITE (WORK, 2000..9000: the walk to
@@ -3771,6 +4923,125 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [31, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, 58f770cc's plate question: does a stone pressure plate see a seated
+    // villager passing under it?) the siding's plate: a stone pressure plate at y 66 on glass, over
+    // a flat rail at y 64 (P = 64), at z 15 of each lane (lanes 3 apart in x, rails z 1..30 between
+    // stones): seated villagers in carts moving +z at 0.1, 0.25 and 0.4 (from 3.5, 4.5 and 5.5
+    // blocks before the plate) and one at rest under it; bare carts at the same speeds; standing
+    // under the plate in a glass cell, an adult (its top at P + 1.95), a baby, and an adult on a
+    // bottom slab (its top at P + 2.45: the positive control); a seated baby at rest under it (the
+    // babies in plate-rider-baby, run in the game alone: redsim refuses a baby villager)
+    for (name, kinds) in [("plate-rider", &["r0.1", "r0.25", "r0.4", "r0", "e0.1", "e0.25", "e0.4", "stand", "slab"][..]), ("plate-rider-baby", &["baby", "rbaby0", "stand", "slab"][..])] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let baby_rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b,Age:-2147483000}]}";
+        // (lane, its kind)
+        for (k, kind) in kinds.iter().enumerate() {
+            let x = 2 + 3 * k as i32;
+            b.push(([x, 65, 15], "minecraft:glass".to_string()));
+            b.push(([x, 66, 15], "minecraft:stone_pressure_plate[powered=false]".to_string()));
+            let xf = x as f64 + 0.5;
+            let cart_lane = kind.starts_with('r') || kind.starts_with('e');
+            if cart_lane {
+                b.push(([x, 64, 0], stone.to_string()));
+                b.push(([x, 64, 31], stone.to_string()));
+                for z in 1..=30 {
+                    b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+                }
+                let v: f64 = kind[1..].parse().unwrap_or(0.0);
+                let z0 = if v == 0.0 { 15.5 } else { 15.5 - (v * 10.0 + 2.5).round() };
+                let nbt = match *kind {
+                    "rbaby0" => baby_rider.to_string(),
+                    k if k.starts_with('r') => rider.replace("{Passengers", &format!("{{Motion:[0.0d,0.0d,{v:.2}d],Passengers")),
+                    _ => format!("{{Motion:[0.0d,0.0d,{v:.2}d]}}"),
+                };
+                mobs.push(("minecraft:minecart".into(), [xf, 64.0625, z0], Some(nbt)));
+            } else {
+                // a glass cell around the plate's column (the plate's glass over the mob's head)
+                for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    for y in 64..=65 {
+                        b.push(([x + dx, y, 15 + dz], "minecraft:glass".to_string()));
+                    }
+                }
+                let (y, nbt) = match *kind {
+                    "slab" => {
+                        b.push(([x, 64, 15], "minecraft:stone_slab[type=bottom,waterlogged=false]".to_string()));
+                        (64.5, "{PersistenceRequired:1b}")
+                    }
+                    "baby" => (64.0, "{PersistenceRequired:1b,Age:-2147483000}"),
+                    _ => (64.0, "{PersistenceRequired:1b}"),
+                };
+                mobs.push(("minecraft:villager".into(), [xf, y, 15.5], Some(nbt.to_string())));
+            }
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 2, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [47, 68, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, G1's VillageBoundRandomStroll question: the panic stroll (2/2) picks
+    // with LandRandomPos where `isVillage` holds (an occupied village POI's section within 1) or no
+    // section within 2 is closer to one, and with DefaultRandomPos.getPosTowards (a half-plane toward
+    // the closer section's centre) otherwise; the shared bed is a village POI only while its ticket
+    // is taken) a bed at (8,64,2..3) in section (0,4,0), and riders in carts held on one rail cell
+    // between stones at section distances 0 (x 4, 12), 1 (x 20, 28) and 2 (x 36, 44), z 8, each
+    // panicking at a zombie in a boat 7 blocks away (+z: panic, no flee); open stone floor around;
+    // stroll-village with the bed's ticket free, stroll-village-taken with it taken at t1
+    // (scene_actions)
+    for name in ["stroll-village", "stroll-village-taken"] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 32, 63, stone);
+        // (a roof, so the zombies do not burn: flee-distance's)
+        floor(&mut b, 0, 48, 0, 32, 72, stone);
+        b.push(([8, 64, 2], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([8, 64, 3], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        // (the bed walled in, so no rider's AcquirePoi reaches it: its ticket stays free unless the
+        // scene takes it)
+        for x in 7..=9 {
+            for z in 1..=4 {
+                if !(x == 8 && (z == 2 || z == 3)) {
+                    for y in 64..=65 {
+                        b.push(([x, y, z], stone.to_string()));
+                    }
+                }
+            }
+        }
+        b.push(([8, 65, 2], stone.to_string()));
+        b.push(([8, 65, 3], stone.to_string()));
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        for x in [4, 12, 20, 28, 36, 44] {
+            b.push(([x, 64, 7], stone.to_string()));
+            b.push(([x, 64, 8], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([x, 64, 9], stone.to_string()));
+            mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, 64.0625, 8.5], Some(rider.to_string())));
+            mobs.push(("minecraft:oak_boat".into(), [x as f64 + 0.5, 64.0, 15.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 2, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [47, 70, 31]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
@@ -5981,6 +7252,8 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
     let actions = scene_actions(&s.name);
     let mut last: std::collections::BTreeMap<(u64, &'static str), String> = Default::default();
     let mut mem_last: std::collections::BTreeMap<String, String> = Default::default();
+    let mut walks: std::collections::BTreeMap<u64, Vec<(i64, i64, i64)>> = Default::default();
+    let mut stamps: std::collections::BTreeMap<u64, usize> = Default::default();
     let mut left = ticks;
     let mut done: i64 = 0;
     while left > 0 {
@@ -5990,7 +7263,12 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
         }
         for f in game.trace_raw(n, false)? {
             let t = f["t"].as_i64().unwrap_or(0);
-            for (p, b) in f["blocks"].as_array().into_iter().flatten().filter_map(|x| Some((x.get(0)?, x.get(1)?.as_str()?))) {
+            // (a change is [x, y, z, state], or [pos, state])
+            for x in f["blocks"].as_array().into_iter().flatten() {
+                let (p, b) = match x.as_array().map(|a| a.len()) {
+                    Some(4) => (format!("[{},{},{}]", x[0], x[1], x[2]), x[3].as_str().unwrap_or("?").to_string()),
+                    _ => (x.get(0).map_or("?".to_string(), |p| p.to_string()), x.get(1).and_then(|b| b.as_str()).unwrap_or("?").to_string()),
+                };
                 println!("t {t} block {p}: {b}");
             }
             for e in f["entities"].as_array().into_iter().flatten() {
@@ -6014,6 +7292,18 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
                     let key = format!("{n} {m}");
                     if mem_last.insert(key, now.clone()).as_ref() != Some(&now) {
                         println!("t {t} #{n} {ty} at {at} memory {m}: {now}");
+                        // (with `also` walk_target: the pick's offset from the mob's block, for the
+                        // summary at the end)
+                        if m == "walk_target" {
+                            let c: Vec<i64> = now.trim_matches('"').strip_prefix("walk block ").map(|r| r.split(' ').take(3).filter_map(|s| s.parse().ok()).collect()).unwrap_or_default();
+                            let p: Vec<f64> = e["pos"].as_array().map(|a| a.iter().map(|c| c.as_f64().unwrap_or(0.0)).collect()).unwrap_or_default();
+                            if c.len() == 3 && p.len() == 3 {
+                                walks.entry(n).or_default().push((c[0] - p[0].floor() as i64, c[1] - p[1].floor() as i64, c[2] - p[2].floor() as i64));
+                            }
+                        }
+                        if m == "cant_reach_walk_target_since" {
+                            *stamps.entry(n).or_default() += 1;
+                        }
                     }
                 }
                 let keys: Vec<String> = e["memories"].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
@@ -6031,6 +7321,20 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
             game.apply(b, &ActCtx::default())?;
         }
     }
+    // (with `also` walk_target: each mob's picks by their offset from its block (a pick repeated at
+    // once counts once), and its can't-reach stamps)
+    for (n, w) in &walks {
+        let hist = |f: fn(&(i64, i64, i64)) -> i64| {
+            let mut h: std::collections::BTreeMap<i64, usize> = Default::default();
+            for x in w {
+                *h.entry(f(x)).or_default() += 1;
+            }
+            h.iter().map(|(k, c)| format!("{k:+}:{c}")).collect::<Vec<_>>().join(" ")
+        };
+        let neg = w.iter().filter(|x| x.0 < 0).count();
+        let pos = w.iter().filter(|x| x.0 > 0).count();
+        println!("walk picks #{n}: {} picks, dx<0 {neg}, dx=0 {}, dx>0 {pos}; dx {}; dz {}; stamps {}", w.len(), w.len() - neg - pos, hist(|x| x.0), hist(|x| x.2), stamps.get(n).copied().unwrap_or(0));
+    }
     Ok(())
 }
 
@@ -6042,13 +7346,16 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
 /// and the gaps between neighbours (centres under 0.01 apart: MERGED); then per lane the closest
 /// pair over the run and the first contact, with the arriving (faster) cart's stored speed the tick
 /// before. `summary`: one line a lane, nothing per tick.
-pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -> Result<()> {
+pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool, xz: bool) -> Result<()> {
     let text = mctas::recorded::read_text(path)?;
     let mut lines = text.lines();
     let _header = lines.next();
     // per lane x: per tick, (n, pos, motion, ridden)
     type Cart = (u64, [f64; 3], [f64; 3], bool);
     let mut lanes: std::collections::BTreeMap<(i64, i64), Vec<(usize, Vec<Cart>)>> = std::collections::BTreeMap::new();
+    // (each cart stays in the lane it starts in, its x and z band at its first frame: a cart that
+    // bounces across a band's edge is not counted as a lane of its own)
+    let mut lane_of: std::collections::HashMap<u64, (i64, i64)> = std::collections::HashMap::new();
     for (t, l) in lines.enumerate() {
         let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
         let ents = f["entities"].as_array().cloned().unwrap_or_default();
@@ -6059,7 +7366,8 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             let n = e["n"].as_u64().unwrap_or(0);
             let p = v3(&e["pos"]);
             let zb = if band > 0 { (p[2].floor() as i64).div_euclid(band as i64) } else { 0 };
-            by_lane.entry((p[0].floor() as i64, zb)).or_default().push((n, p, v3(&e["motion"]), ridden.contains(&n)));
+            let key = *lane_of.entry(n).or_insert((p[0].floor() as i64, zb));
+            by_lane.entry(key).or_default().push((n, p, v3(&e["motion"]), ridden.contains(&n)));
         }
         for (x, mut cs) in by_lane {
             cs.sort_by(|a, b| a.1[2].total_cmp(&b.1[2]));
@@ -6067,7 +7375,13 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
         }
     }
     let gap = |a: &Cart, b: &Cart| ((a.1[0] - b.1[0]).powi(2) + (a.1[1] - b.1[1]).powi(2) + (a.1[2] - b.1[2]).powi(2)).sqrt();
-    let cart = |c: &Cart| format!("#{}{} z {:.4} y {:.4} vz {:+.4}", c.0, if c.3 { "R" } else { "E" }, c.1[2], c.1[1], c.2[2]);
+    let cart = |c: &Cart| {
+        if xz {
+            format!("#{}{} x {:.4} z {:.4} y {:.4} vx {:+.4} vz {:+.4}", c.0, if c.3 { "R" } else { "E" }, c.1[0], c.1[2], c.1[1], c.2[0], c.2[2])
+        } else {
+            format!("#{}{} z {:.4} y {:.4} vz {:+.4}", c.0, if c.3 { "R" } else { "E" }, c.1[2], c.1[1], c.2[2])
+        }
+    };
     // (with `summary`: per lane the faster cart's starting speed, the contact speed, the closest
     // centres, merged; printed at the end in starting-speed order as runs of merged and not)
     let mut sweep: Vec<(f64, Option<f64>, f64, bool)> = Vec::new();
@@ -6078,16 +7392,20 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
         let mut closest: Option<(f64, usize, u64, u64)> = None;
         let mut was_merged = false;
         let mut merged_at: Option<usize> = None;
+        let mut merged_pair: Option<(Cart, Cart)> = None;
         // (the first contact: neighbours whose boxes, inflated 0.2 sideways as pushAndPickupEntities
         // reads them, overlap: horizontal centres under 1.18 and heights under 0.7 apart; the
-        // arriving cart's (the faster one's) stored speed the tick before)
+        // arriving cart's (the faster one's) stored speed the tick before; a pair already touching
+        // at the lane's first frame (a pressed queue) is not a contact)
+        let touching = |a: &Cart, b: &Cart| ((a.1[0] - b.1[0]).powi(2) + (a.1[2] - b.1[2]).powi(2)).sqrt() < 1.18 && (a.1[1] - b.1[1]).abs() < 0.7;
+        let start_pairs: std::collections::HashSet<(u64, u64)> = ticks.first().map(|(_, cs)| cs.windows(2).filter(|w| touching(&w[0], &w[1])).map(|w| (w[0].0.min(w[1].0), w[0].0.max(w[1].0))).collect()).unwrap_or_default();
         let mut contact: Option<(usize, f64, f64)> = None;
         let mut prev: Option<&Vec<Cart>> = None;
         for (t, cs) in ticks {
             if contact.is_none() {
                 for w in cs.windows(2) {
                     let h = ((w[0].1[0] - w[1].1[0]).powi(2) + (w[0].1[2] - w[1].1[2]).powi(2)).sqrt();
-                    if h < 1.18 && (w[0].1[1] - w[1].1[1]).abs() < 0.7 {
+                    if touching(&w[0], &w[1]) && !start_pairs.contains(&(w[0].0.min(w[1].0), w[0].0.max(w[1].0))) {
                         let speed = |n: u64| prev.and_then(|p| p.iter().find(|c| c.0 == n)).map_or(f64::NAN, |c| c.2[0].hypot(c.2[2]));
                         contact = Some((*t, speed(w[0].0).max(speed(w[1].0)), h));
                         break;
@@ -6105,6 +7423,9 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             let merged = gaps.iter().any(|g| *g < 0.01);
             if merged && merged_at.is_none() {
                 merged_at = Some(*t);
+                if let Some(k) = gaps.iter().position(|g| *g < 0.01) {
+                    merged_pair = Some((cs[k], cs[k + 1]));
+                }
             }
             if !summary && ((every > 0 && *t as u32 % every == 0) || merged != was_merged || *t + 1 == ticks.len()) {
                 let parts: Vec<String> = cs.iter().map(cart).collect();
@@ -6121,8 +7442,9 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             let end_merged = ticks.last().is_some_and(|(_, cs)| cs.windows(2).any(|w| gap(&w[0], &w[1]) < 0.01));
             let c = contact.map_or("no contact".to_string(), |(t, s, h)| format!("contact t{t} at {s:.4} (centres {h:.3})"));
             let g = closest.map_or(f64::NAN, |c| c.0);
+            let pair = merged_pair.map_or(String::new(), |(a, b)| format!(" #{}{} with #{}{}", a.0, if a.3 { "R" } else { "E" }, b.0, if b.3 { "R" } else { "E" }));
             println!("x {x} z band {zb}: {} | {c} | closest {g:.4}{}", carts.join(" "), match merged_at {
-                Some(t) => format!(" | MERGED t{t}{}", if end_merged { " to the end" } else { ", parted" }),
+                Some(t) => format!(" | MERGED t{t}{pair}{}", if end_merged { " to the end" } else { ", parted" }),
                 None => String::new(),
             });
             let start = first.iter().map(|c| c.2[0].hypot(c.2[2])).fold(0.0f64, f64::max);
@@ -6157,6 +7479,363 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             );
             k = j + 1;
         }
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, 58f770cc's plate question) A recorded scene's pressure plates tick by tick:
+/// each plate's powered state (the scene's, then the recording's block changes) and every mob whose
+/// box overlaps the plate's touch box (`BasePressurePlateBlock.TOUCH_AABB`: x and z 1/16..15/16, y
+/// 0..4/16 of its cell) in x and z, with how far its top reaches into the cell (an adult villager
+/// 1.95 tall, a baby (age < 0) 0.975); the least such reach while a mob is in the column, and the
+/// ticks the plate turns on and off.
+pub fn rec_plate(path: &std::path::Path, scene: &str) -> Result<()> {
+    let s = scenes().into_iter().find(|s| s.name == scene).ok_or_else(|| anyhow!("no scene {scene}"))?;
+    // (a tripwire's string too: its box `TripWireBlock.SHAPE_ATTACHED`, y 1/16..2.5/16 of its cell,
+    // the whole cell across; any entity counts, a cart too)
+    let mut plates: Vec<([i32; 3], bool)> = scene_placed_blocks(&s).iter().filter(|(_, st)| st.contains("pressure_plate") || st.starts_with("minecraft:tripwire[")).map(|(p, st)| (*p, st.contains("powered=true"))).collect();
+    plates.sort();
+    let wire: Vec<bool> = {
+        let placed = scene_placed_blocks(&s);
+        plates.iter().map(|(p, _)| placed.iter().any(|(q, st)| q == p && st.starts_with("minecraft:tripwire["))).collect()
+    };
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    // per plate: (the least reach while in the column, its tick), the on/off ticks, the first tick
+    // a mob's top is in the cell
+    let mut least: Vec<Option<(f64, usize, u64)>> = vec![None; plates.len()];
+    let mut first_in: Vec<Option<usize>> = vec![None; plates.len()];
+    let mut edges: Vec<Vec<(usize, bool)>> = vec![Vec::new(); plates.len()];
+    for (t, l) in lines.enumerate() {
+        let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
+        for c in f["blocks"].as_array().into_iter().flatten() {
+            let p = [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32, c[2].as_i64().unwrap_or(0) as i32];
+            if let Some(k) = plates.iter().position(|(q, _)| *q == p) {
+                let on = c[3].as_str().unwrap_or("").contains("powered=true");
+                if on != plates[k].1 {
+                    plates[k].1 = on;
+                    edges[k].push((t, on));
+                }
+            }
+        }
+        for e in f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] != "boat") {
+            let p = [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)];
+            let baby = e["age"].as_i64().is_some_and(|a| a < 0);
+            let cart = e["type"] == "minecart";
+            let (h, hw) = if cart { (0.7, 0.49) } else if baby { (0.975, 0.15) } else { (1.95, 0.3) };
+            for (k, (q, _)) in plates.iter().enumerate() {
+                // (a plate's touch box is inset 1/16 and counts mobs only; a string's box is the
+                // whole cell across and counts any entity)
+                if cart && !wire[k] {
+                    continue;
+                }
+                let (inset, width) = if wire[k] { (0.0, 1.0) } else { (0.0625, 0.875) };
+                let (x0, z0) = (q[0] as f64 + inset, q[2] as f64 + inset);
+                if p[0] + hw > x0 && p[0] - hw < x0 + width && p[2] + hw > z0 && p[2] - hw < z0 + width {
+                    // (a plate: how far the top reaches into the cell; a string: the vertical
+                    // overlap with its box, y + 1/16 .. y + 2.5/16)
+                    let reach = if wire[k] { (p[1] + h).min(q[1] as f64 + 0.15625) - p[1].max(q[1] as f64 + 0.0625) } else { p[1] + h - q[1] as f64 };
+                    let n = e["n"].as_u64().unwrap_or(0);
+                    if least[k].is_none_or(|(r, _, _)| reach < r) {
+                        least[k] = Some((reach, t, n));
+                    }
+                    if reach > 0.0 && first_in[k].is_none() {
+                        first_in[k] = Some(t);
+                    }
+                }
+            }
+        }
+    }
+    for (k, (q, _)) in plates.iter().enumerate() {
+        let l = least[k].map_or("no mob in its column".to_string(), |(r, t, n)| format!("least reach into the cell {r:+.4} (#{n} at t{t})"));
+        let fi = first_in[k].map_or(String::new(), |t| format!(", a top first in the cell at t{t}"));
+        let ed: Vec<String> = edges[k].iter().map(|(t, on)| format!("{} t{t}", if *on { "on" } else { "off" })).collect();
+        println!("plate {},{},{}: {l}{fi}; {}", q[0], q[1], q[2], if ed.is_empty() { "never powered".to_string() } else { ed.join(", ") });
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's side push) A recorded scene's carts in pairs of lanes (`pairs`:
+/// each the block x of two lanes, one cart each): every tick their boxes, inflated 0.2 sideways as
+/// pushAndPickupEntities reads them, overlap the other's, with both carts' positions and velocities
+/// and each velocity's departure from free running (its own the tick before times the rail's
+/// friction, 0.997 ridden, 0.96 empty: a push shows as a departure); then each pair's largest
+/// departure.
+pub fn rec_side(path: &std::path::Path, pairs: &[(i64, i64)]) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    type C = ([f64; 3], [f64; 3], bool);
+    let mut frames: Vec<std::collections::HashMap<i64, C>> = Vec::new();
+    for (t, l) in lines.enumerate() {
+        let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
+        let ents = f["entities"].as_array().cloned().unwrap_or_default();
+        let v3 = |v: &serde_json::Value| [v[0].as_f64().unwrap_or(0.0), v[1].as_f64().unwrap_or(0.0), v[2].as_f64().unwrap_or(0.0)];
+        let ridden: std::collections::HashSet<u64> = ents.iter().filter_map(|e| e["vehicle"].as_str().and_then(|s| s.strip_prefix('#')).and_then(|s| s.parse().ok())).collect();
+        let mut m = std::collections::HashMap::new();
+        for e in ents.iter().filter(|e| e["type"] == "minecart") {
+            let p = v3(&e["pos"]);
+            m.insert(p[0].floor() as i64, (p, v3(&e["motion"]), ridden.contains(&e["n"].as_u64().unwrap_or(0))));
+        }
+        frames.push(m);
+    }
+    for &(xa, xb) in pairs {
+        println!("pair x {xa} / {xb}:");
+        let mut worst = (0.0f64, 0usize);
+        for t in 1..frames.len() {
+            let (Some(a), Some(b), Some(pa), Some(pb)) = (frames[t].get(&xa), frames[t].get(&xb), frames[t - 1].get(&xa), frames[t - 1].get(&xb)) else { continue };
+            let dev = |c: &C, p: &C| {
+                let f = if c.2 { 0.997 } else { 0.96 };
+                ((c.1[0] - p.1[0] * f).powi(2) + (c.1[2] - p.1[2] * f).powi(2)).sqrt()
+            };
+            let (da, db) = (dev(a, pa), dev(b, pb));
+            let near = (a.0[0] - b.0[0]).abs() < 1.18 && (a.0[2] - b.0[2]).abs() < 1.18 && (a.0[1] - b.0[1]).abs() < 0.7;
+            if near {
+                println!("  t{t}: A z {:.4} vz {:+.4} (dev {:.4}) | B z {:.4} y {:.3} vz {:+.4} (dev {:.4})", a.0[2], a.1[2], da, b.0[2], b.0[1], b.1[2], db);
+                if da.max(db) > worst.0 {
+                    worst = (da.max(db), t);
+                }
+            }
+        }
+        println!("  largest departure while overlapping: {:.4} at t{}", worst.0, worst.1);
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's hatch sight lines) `mctas mobai hatch-sweep <rec>`: redsim's line
+/// of sight (bridged by scene siding-hatch, 0 differences) from the napper's eye over its whole range
+/// to the dorm zombie's eye, the hatch closed and open, with the sensor's 8-block reach between their
+/// feet: the stand-up cell (feet x 1.3..1.5, z 2.3..2.7, y 0; eye 1.62), the sleeper (in the bed,
+/// eye 0.2 over its 0.6875) and a rider on the T (seated eye 1.68 over the rail). The zombie's place
+/// from the recording's first frame (lane 0).
+pub fn hatch_sweep(path: &std::path::Path) -> Result<()> {
+    let s = scenes().into_iter().find(|s| s.name == "siding-hatch").ok_or_else(|| anyhow!("no scene siding-hatch"))?;
+    let text = mctas::recorded::read_text(path)?;
+    let f: serde_json::Value = serde_json::from_str(text.lines().nth(1).ok_or_else(|| anyhow!("no frame"))?)?;
+    let z = f["entities"].as_array().into_iter().flatten().find(|e| e["type"] == "zombie" && e["pos"][2].as_f64().is_some_and(|z| z < 20.0)).ok_or_else(|| anyhow!("no zombie in lane 0"))?;
+    let zp = [z["pos"][0].as_f64().unwrap_or(0.0), z["pos"][1].as_f64().unwrap_or(0.0), z["pos"][2].as_f64().unwrap_or(0.0)];
+    let zeye = redsim::entity::Vec3::new(zp[0], zp[1] + 1.74, zp[2]);
+    println!("the zombie at {:.3},{:.3},{:.3} (design {:.3},{:.3},{:.3}), its eye {:.3} up", zp[0], zp[1], zp[2], zp[0] - 8.0, zp[1] - 68.0, zp[2] - 5.0, 1.74);
+    let mut w = redsim_world(&s, 1)?;
+    let at = |p: [f64; 3]| [p[0] + 8.0, p[1] + 68.0, p[2] + 5.0];
+    for open in [false, true] {
+        let st = format!("minecraft:iron_trapdoor[facing=west,half=top,open={open},powered=false,waterlogged=false]");
+        let h = siding_hatch_at(0);
+        w.set_block(BlockPos::new(h[0], h[1], h[2]), Block::parse(&st).map_err(|e| anyhow!(e))?, redsim::world::flags::RAW);
+        println!("hatch {}:", if open { "open" } else { "closed" });
+        let mut probe = |what: &str, feet: [f64; 3], eye: f64| {
+            let p = at(feet);
+            let from = redsim::entity::Vec3::new(p[0], p[1] + eye, p[2]);
+            let sees = redsim::entity::mob::los::has_line_of_sight(&w, from, zeye);
+            let dist = ((p[0] - zp[0]).powi(2) + (p[1] - zp[1]).powi(2) + (p[2] - zp[2]).powi(2)).sqrt();
+            format!("{what} {}{}", if sees { "SEES" } else { "blocked" }, if dist <= 8.0 { String::new() } else { format!(" (feet {dist:.2} apart: past the sensor's 8)") })
+        };
+        let mut row = Vec::new();
+        for x in [1.3, 1.35, 1.4, 1.45, 1.5] {
+            for zz in [2.3, 2.4, 2.5, 2.6, 2.7] {
+                row.push(probe(&format!("({x:.2},{zz:.1})"), [x, 0.0, zz], 1.62));
+            }
+            println!("  stand-up cell: {}", row.join("; "));
+            row.clear();
+        }
+        println!("  sleeper: {}", probe("(0.50,0.6875,2.50)", [0.5, 0.6875, 2.5], 0.2));
+        let t: Vec<String> = [[1.5, 0.0625, 0.5], [1.25, 0.0625, 0.75], [1.5, 0.0625, 1.0], [1.0, 0.0625, 0.5], [0.5, 0.0625, 0.5]].iter().map(|p| probe(&format!("({:.2},{:.2})", p[0], p[2]), *p, 1.62)).collect();
+        println!("  T rider: {}", t.join("; "));
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's junction-settle) `mctas mobai rec-junction <rec>`: per lane of scene
+/// junction-settle its junction's settled shape (its last state in the recording) and each cart's
+/// route: the arm it ends on (N, E, S, W from the junction, or beyond the west arm's curve: "W→S")
+/// and its distance out, with its yaw.
+pub fn rec_junction(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let lanes = junction_lanes();
+    let arm = ["N", "E", "S", "W"];
+    let settle = ["unpowered", "placed, then powered by a repeater", "placed onto power", "placed, then a redstone block put under it"];
+    let carts = |f: &serde_json::Value| -> Vec<(u64, [f64; 3], f64)> {
+        f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] == "minecart").map(|e| (e["n"].as_u64().unwrap_or(0), [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)], e["yaw"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0))).collect()
+    };
+    let (first, last) = (carts(&frames[0]), carts(frames.last().ok_or_else(|| anyhow!("no frames"))?));
+    for (k, (j, missing, s, (entry, sp, ridden, gap), router)) in lanes.iter().enumerate() {
+        // the junction's last state
+        let mut shape = "(never placed)".to_string();
+        for f in &frames {
+            for c in f["blocks"].as_array().into_iter().flatten() {
+                if c[0].as_i64() == Some(j[0] as i64) && c[1].as_i64() == Some(j[1] as i64) && c[2].as_i64() == Some(j[2] as i64) {
+                    shape = c[3].as_str().unwrap_or("?").trim_start_matches("minecraft:").to_string();
+                }
+            }
+        }
+        let inside = |p: &[f64; 3]| (p[0] - j[0] as f64 - 0.5).abs() <= 5.6 && p[2] - j[2] as f64 - 0.5 >= -5.6 && p[2] - j[2] as f64 - 0.5 <= 9.6;
+        let mine: Vec<u64> = first.iter().filter(|(_, p, _)| inside(p)).map(|(n, ..)| *n).collect();
+        let mut ends = Vec::new();
+        let place = |p: &[f64; 3]| -> (String, f64) {
+            let (dx, dz) = (p[0] - j[0] as f64 - 0.5, p[2] - j[2] as f64 - 0.5);
+            if *router && dx < -1.5 && dz > 0.5 {
+                ("W→S".to_string(), dz)
+            } else if dx.abs() > dz.abs() {
+                ((if dx > 0.0 { "E" } else { "W" }).to_string(), dx.abs())
+            } else {
+                ((if dz > 0.0 { "S" } else { "N" }).to_string(), dz.abs())
+            }
+        };
+        for n in &mine {
+            // (the route: the first arm the cart reaches 1.5 out on that is not its entry arm; a
+            // leader coming back off a stop later does not count)
+            let entry_arm = arm[*entry as usize];
+            let route = frames.iter().enumerate().find_map(|(t, f)| {
+                carts(f).into_iter().find(|(m, ..)| m == n).and_then(|(_, p, yaw)| {
+                    let (a, d) = place(&p);
+                    (a != entry_arm && d >= 1.5).then(|| format!("{a} by t{t} (yaw {yaw:.0})"))
+                })
+            });
+            let Some((_, p, _)) = last.iter().find(|(m, ..)| m == n) else { continue };
+            let (a, d) = place(p);
+            ends.push(format!("#{n} {}; ends {a} {d:.2}", route.map_or("never left its arm".to_string(), |r| format!("out {r}"))));
+        }
+        println!(
+            "lane {k}{}: missing {}, {}, from {} at {sp}{}{}; junction {shape}; {}",
+            if *router { " (router S)" } else { "" },
+            arm[*missing as usize],
+            settle[*s as usize],
+            arm[*entry as usize],
+            if *ridden { " ridden" } else { " empty" },
+            if *gap > 0 { format!(", a follower {gap} gt behind") } else { String::new() },
+            ends.join("; ")
+        );
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, farmopt's and ironspec's H rest-place contacts) `mctas mobai rec-hcontact
+/// <rec>`: per lane of scene h-contact the arrival's closest centre distance to the cart ahead of it
+/// (and the tick), the closest of any two of the lane's carts, a merge (centres within 0.05), how
+/// far back up the slope each waiting cart went (and whether one reached the top flat: T's cell), and
+/// where the arrival came to rest.
+pub fn rec_hcontact(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let carts = |f: &serde_json::Value| -> Vec<(u64, [f64; 3])> {
+        f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] == "minecart").map(|e| (e["n"].as_u64().unwrap_or(0), [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)])).collect()
+    };
+    let first = carts(&frames[0]);
+    let d3 = |a: [f64; 3], b: [f64; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    // (per lane kind: arrival merges, other pair merges, T's cell, closest without a merge, front offset)
+    #[allow(clippy::type_complexity)]
+    let mut summary: std::collections::BTreeMap<String, (Vec<f64>, Vec<f64>, Vec<f64>, f64, f64)> = std::collections::BTreeMap::new();
+    // (per lane kind and speed: the lanes run, those with a merge or a cart into T's cell)
+    let mut lanes_at: std::collections::BTreeMap<(String, String), (u32, u32)> = std::collections::BTreeMap::new();
+    let scene = path.file_stem().and_then(|s| s.to_str()).unwrap_or("h-contact").trim_end_matches(".rec").to_string();
+    for (x, dz, flat, waits, (sp, _), label, _) in hcontact_lanes(&scene) {
+        let mut mine: Vec<(u64, f64)> = first.iter().filter(|(_, p)| p[0] >= x as f64 && p[0] < x as f64 + 1.0 && p[2] >= dz as f64 + 3.0 && p[2] < dz as f64 + 13.0).map(|(n, p)| (*n, p[2])).collect();
+        mine.sort_by(|a, b| a.1.total_cmp(&b.1));
+        if mine.len() != waits.len() + 1 {
+            println!("{label} at {sp}: {} carts found, expected {}", mine.len(), waits.len() + 1);
+            continue;
+        }
+        let ids: Vec<u64> = mine.iter().map(|(n, _)| *n).collect();
+        let arr = *ids.last().unwrap_or(&0);
+        let ahead = ids[ids.len() - 2];
+        let (mut close, mut close_t) = (f64::MAX, 0usize);
+        let (mut pair, mut pair_t, mut pair_ab) = (f64::MAX, 0usize, (0u64, 0u64));
+        let mut back: Vec<f64> = vec![f64::MIN; waits.len()];
+        let mut last = Vec::new();
+        for (t, f) in frames.iter().enumerate() {
+            let c = carts(f);
+            let at: Vec<Option<[f64; 3]>> = ids.iter().map(|n| c.iter().find(|(m, _)| m == n).map(|(_, p)| *p)).collect();
+            if let (Some(a), Some(b)) = (at[ids.len() - 1], at[ids.len() - 2]) {
+                let d = d3(a, b);
+                if d < close {
+                    (close, close_t) = (d, t);
+                }
+            }
+            for i in 0..ids.len() {
+                for j in i + 1..ids.len() {
+                    if let (Some(a), Some(b)) = (at[i], at[j]) {
+                        let d = d3(a, b);
+                        if d < pair {
+                            (pair, pair_t, pair_ab) = (d, t, (ids[i], ids[j]));
+                        }
+                    }
+                }
+            }
+            for (k, p) in at.iter().take(waits.len()).enumerate() {
+                if let Some(p) = p {
+                    back[k] = back[k].max(p[2] - dz as f64);
+                }
+            }
+            last = at;
+        }
+        let top = (7 + flat) as f64;
+        let backs: Vec<String> = back.iter().zip(&waits).map(|(m, (z0, _))| format!("{:+.3}{}", m - z0, if *m >= top { " (into T's cell)" } else { "" })).collect();
+        let into_t = back.iter().any(|m| *m >= top);
+        let rest = match (last.last().copied().flatten(), last[last.len() - 2]) {
+            (Some(a), Some(b)) => format!("{:.3}", d3(a, b)),
+            _ => "?".to_string(),
+        };
+        // (the front cart's distance from its place against the gate at the end)
+        let front_off = last[0].map(|p| p[2] - dz as f64 - 4.115).unwrap_or(f64::NAN);
+        println!(
+            "{label} at {sp}: arrival #{arr} closest {close:.3} to #{ahead} at t{close_t}{}; any pair {pair:.3} (#{} #{} t{pair_t}){}; waiting carts back {}; arrival rests {rest} behind; front ends {front_off:+.3} from the gate",
+            if close < 0.05 { " MERGED" } else { "" },
+            pair_ab.0,
+            pair_ab.1,
+            if pair < 0.05 && close >= 0.05 { " PAIR MERGED" } else { "" },
+            backs.join(", ")
+        );
+        let s = summary.entry(label.clone()).or_insert_with(|| (Vec::new(), Vec::new(), Vec::new(), f64::MAX, 0.0f64));
+        if close < 0.05 {
+            s.0.push(sp);
+        } else if pair < 0.05 {
+            s.1.push(sp);
+        }
+        if into_t {
+            s.2.push(sp);
+        }
+        if close >= 0.05 {
+            s.3 = s.3.min(close);
+        }
+        s.4 = s.4.max(front_off.abs());
+        let n = lanes_at.entry((label.clone(), format!("{sp}"))).or_insert((0u32, 0u32));
+        n.0 += 1;
+        if close < 0.05 || pair < 0.05 || into_t {
+            n.1 += 1;
+        }
+    }
+    println!("\nsummary (per lane kind: the arrival speeds that merge with the cart ahead, that merge two other carts, that put a cart into T's cell; the closest approach without a merge; the front's largest end offset from the gate; then per speed the lanes with a merge or a cart into T's cell, of the lanes run):");
+    for (label, (m, pm, t, c, f)) in &summary {
+        let fmt = |v: &Vec<f64>| {
+            if v.is_empty() {
+                return "none".to_string();
+            }
+            let mut u: Vec<String> = Vec::new();
+            for x in v {
+                let s = format!("{x}");
+                if !u.contains(&s) {
+                    u.push(s);
+                }
+            }
+            u.join(" ")
+        };
+        let per: Vec<String> = lanes_at.iter().filter(|((l, _), _)| l == label).map(|((_, s), (k, bad))| format!("{s}: {bad}/{k}")).collect();
+        let clean = lanes_at.iter().filter(|((l, _), (_, bad))| l == label && *bad == 0).map(|((_, s), _)| s.parse::<f64>().unwrap_or(0.0)).fold(f64::NAN, f64::max);
+        println!(
+            "  {label}: merges at {}; other pair merges at {}; into T's cell at {}; closest without a merge {}; front off the gate up to {f:.3}; per speed {}; highest clean speed {}",
+            fmt(m),
+            fmt(pm),
+            fmt(t),
+            if *c == f64::MAX { "-".to_string() } else { format!("{c:.3}") },
+            per.join(", "),
+            if clean.is_nan() { "none".to_string() } else { format!("{clean}") }
+        );
     }
     Ok(())
 }
@@ -6244,6 +7923,30 @@ pub fn flee_control(name: &str) -> Result<()> {
         );
     }
     println!("flee-control on {name}: {} of {} lanes as recorded{}", lanes.len() - bad, lanes.len(), if bad == 0 { " (PASS)" } else { "" });
+    // (the reachability controls: flee-check's paths are the villager's own navigation, 48 long,
+    // the search stopping after 767 nodes; ironspec Nov 11 11:48)
+    let rc = mobfarm::fleecheck::reach_control().map_err(|e| anyhow!(e))?;
+    for (what, reached, nodes, ok) in &rc {
+        println!("  reach {what}: {} ({nodes} nodes){}", if *reached { "reachable" } else { "unreachable" }, if *ok { "" } else { "  DIFFERS" });
+    }
+    let rbad = rc.iter().filter(|r| !r.3).count();
+    println!("reach-control: {} of {} as expected{}", rc.len() - rbad, rc.len(), if rbad == 0 { " (PASS)" } else { "" });
+    // (the eye check's positive control: a stone at a seated rider's eye must fail it)
+    let (n, hits) = mobfarm::fleecheck::eye_check(&spec, true).map_err(|e| anyhow!(e))?;
+    let (_, eye_fails) = mobfarm::fleecheck::eye_lines(n, &hits, 0);
+    println!("eye-control (a stone at the first rail cell's rider eye): the suffocation gate {}", if eye_fails { "FAILS, as it must (PASS)" } else { "passes  DIFFERS" });
+    // (the blindness pair, ironspec Nov 11 14:08: the eye point inside a shape is blind; an eye
+    // box only grazing a shape, the point outside, is sighted)
+    let bc = mobfarm::fleecheck::blind_control().map_err(|e| anyhow!(e))?;
+    for (what, blind, ok) in &bc {
+        println!("  blind {what}: {}{}", if *blind { "blind" } else { "sighted" }, if *ok { "" } else { "  DIFFERS" });
+    }
+    let bbad = bc.iter().filter(|b| !b.2).count();
+    println!("blind-control: {} of {} as expected{}", bc.len() - bbad, bc.len(), if bbad == 0 { " (PASS)" } else { "" });
+    // (the pickup gate's positive control: a boated zombie 0.1 beside a cart's box must fail it)
+    let (_, pk) = mobfarm::fleecheck::pickup_check(&spec, true);
+    println!("pickup-control (a boated zombie 0.1 beside the first rail cell's cart): the pickup gate {}", if pk { "FAILS, as it must (PASS)" } else { "passes  DIFFERS" });
+    let bad = bad + rbad + (!eye_fails) as usize + bbad + (!pk) as usize;
     if bad > 0 {
         bail!("flee-control: {bad} lanes differ");
     }

@@ -30,6 +30,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub const MAX_STARTS: usize = 4000;
 /// Under still, this many ticks without moving, out of lava and fire: pinned.
 pub const PINNED_TICKS: i64 = 100;
+/// In a part's flood ([`golem_exit_part`]), this many ticks with no new cell stood on end a run:
+/// the golem has shown what it reaches from there (a golem walking into a wall jumps in place, so
+/// it never stands still), and nothing in a part kills it.
+pub const PART_IDLE_TICKS: i64 = 200;
 
 /// The flood's record.
 #[derive(Clone, Debug, Default)]
@@ -51,6 +55,22 @@ pub struct ExitReport {
     /// Lips the flood reached: cells where a golem stood on a dry top with its box in water (a
     /// current cannot carry it there; iteration 13's G1 note: reported, never refused).
     pub lips: usize,
+    /// (ironspec Nov 11 14:00) A part's flood ([`golem_exit_part`]: the file holds no bed).
+    pub part: bool,
+    /// The summoners the spawn spots came from: the villagers, and a part's extra positions.
+    pub summoners: usize,
+    /// A part's runs whose golem ended alive (it stopped moving, or reached the limit): a part has
+    /// no kill.
+    pub rested: usize,
+    /// A part's runs whose golem walked out of the part, with the first few.
+    pub left: usize,
+    pub left_at: Vec<String>,
+    /// A part's runs whose golem went through a nether portal (the pad's way to the kill in the
+    /// farm's Nether part), with the first few.
+    pub portal: usize,
+    pub portal_at: Vec<String>,
+    /// The box of every cell a golem stood on (the spawn spots and the cells the flood reached).
+    pub stood: Option<(BlockPos, BlockPos)>,
 }
 
 /// Every cell where a golem can spawn in this world: for each villager, its 17 x 17 columns
@@ -71,24 +91,13 @@ pub fn spawn_spots_of(w: &World, own: &[u32]) -> Vec<BlockPos> {
         }
         // its cell as built and the cell above (a villager woken in a 1-cell pod stands at its
         // bed + 1.1 until it falls back: `site::summoner_starts`)
-        for start in [e.block_position(), e.block_position().above()] {
-            for dz in -8..=8 {
-                for dx in -8..=8 {
-                    let top = BlockPos::new(start.x + dx, start.y + 6, start.z + dz);
-                    if let Some(cell) = possible_spawn_position(w, top, 6)
-                        && !out.contains(&cell)
-                        && check_spawn_obstruction(w, cell, Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5))
-                    {
-                        out.push(cell);
-                    }
-                }
-            }
-        }
+        spots_from(w, e.block_position(), &mut out);
     }
     out
 }
 
 /// One drift run's outcome.
+#[derive(Default)]
 struct Drift {
     died_at: Option<i64>,
     visited: Vec<(BlockPos, Vec3)>,
@@ -98,6 +107,13 @@ struct Drift {
     /// Lips: cells where the golem stood on a dry top while its box touched water (iteration 13's
     /// G1 note: a current cannot move a golem whose feet are dry; reported, never refused).
     lips: Vec<BlockPos>,
+    /// (a part's flood) The golem ended alive: it stood still [`PINNED_TICKS`], or reached the
+    /// limit, with nothing to kill it (a part has no kill).
+    rested: bool,
+    /// (a part's flood) Where the golem walked out of the part (the farm it joins takes it on).
+    left: Option<Vec3>,
+    /// (a part's flood) Where the golem went through a nether portal (the pad's way to the kill).
+    portal: Option<Vec3>,
 }
 
 /// Whether a golem standing at `feet` with box `bb` is on a lip: its feet cell dry, its box in
@@ -133,10 +149,10 @@ pub fn envelope_add(bb: crate::entity::Aabb) {
     }
 }
 
-fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) -> Drift {
+fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk, part: bool) -> Drift {
     let mut w = base.clone();
     let id = super::add(&mut w, MobType::IronGolem, start, false);
-    let Some(g) = crate::entity::index_of(&w, id) else { return Drift { died_at: None, visited: Vec::new(), fail: Some("the golem could not be added".into()), stall: None, lips: Vec::new() } };
+    let Some(g) = crate::entity::index_of(&w, id) else { return Drift { died_at: None, visited: Vec::new(), fail: Some("the golem could not be added".into()), stall: None, lips: Vec::new(), ..Default::default() } };
     mob_mut(&mut w, g).walk = policy;
     w.mob.events.clear();
     let inner = spec.inner();
@@ -144,15 +160,33 @@ fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) 
     let mut lips: Vec<BlockPos> = Vec::new();
     let mut last = start;
     let mut still_for = 0;
-    let fail = |visited, why: String| Drift { died_at: None, visited, fail: Some(why), stall: None, lips: Vec::new() };
+    let mut since_new = 0;
+    let mut at = start;
+    let fail = |visited, why: String| Drift { died_at: None, visited, fail: Some(why), stall: None, lips: Vec::new(), ..Default::default() };
     for t in 1..=MAX_GOLEM_LIFE {
         w.tick();
         let died = w.mob.events.iter().any(|e| matches!(e, MobEvent::Death { id: d, .. } if *d == id));
+        // (removed without dying: through a nether portal, `portal::leave`)
+        let removed = w.mob.events.iter().any(|e| matches!(e, MobEvent::Removed { id: d, .. } if *d == id));
         w.mob.events.clear();
         if died {
-            return Drift { died_at: Some(t), visited, fail: None, stall: None, lips };
+            return Drift { died_at: Some(t), visited, fail: None, stall: None, lips, ..Default::default() };
+        }
+        // a part's golem through the farm's own nether portal: the pad's way to the kill (the
+        // Nether part of the farm it joins)
+        if part && removed && crate::entity::index_of(&w, id).is_none() {
+            return Drift { visited, lips, portal: Some(at), ..Default::default() };
         }
         let Some(g) = crate::entity::index_of(&w, id) else { return fail(visited, "the golem vanished without dying".into()) };
+        at = w.entities.list[g].pos;
+        // a part's golem walking out of the part ends its run: the farm it joins takes it on (the
+        // whole farm's flood judges that way; a part has no kill)
+        if part {
+            let e = &w.entities.list[g];
+            if !mob(&w, g).dead && (!inner.intersects(e.bb) || e.bb.min_y < inner.min_y) {
+                return Drift { visited, lips, left: Some(e.pos), ..Default::default() };
+            }
+        }
         if let Some(why) = golem_breaks_rule(&w, g, inner, t, own) {
             return fail(visited, why);
         }
@@ -166,35 +200,47 @@ fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) 
                 eprintln!("drift {} t {t}: {:.2} {:.2} {:.2} ground {}", policy.name(), e.pos.x, e.pos.y, e.pos.z, e.on_ground);
             }
         }
+        since_new += 1;
         if e.on_ground {
             let c = e.block_position();
             if !visited.iter().any(|(q, _)| *q == c) {
                 visited.push((c, e.pos));
+                since_new = 0;
             }
             if !lips.contains(&c) && on_lip(&w, c, e.bb) {
                 lips.push(c);
             }
         }
+        // under still a golem that stops moving ends its run (a refusal, or in a part its rest)
         if policy == Walk::Still && !mob(&w, g).dead {
             let moved = e.pos.distance_to_sqr(last) > 1.0e-10;
             let burning = touches_lava(&w, e.bb) || mob(&w, g).fire_ticks > 0;
             still_for = if moved || burning { 0 } else { still_for + 1 };
             last = e.pos;
             if still_for >= PINNED_TICKS {
+                if part {
+                    return Drift { visited, lips, rested: true, ..Default::default() };
+                }
                 return fail(visited, format!("pinned at {:.2} {:.2} {:.2}: it stood still {PINNED_TICKS} gt out of the lava (no current carries it)", e.pos.x, e.pos.y, e.pos.z));
             }
+        }
+        if part && since_new >= PART_IDLE_TICKS && !mob(&w, g).dead {
+            return Drift { visited, lips, rested: true, ..Default::default() };
         }
     }
     // alive at the limit: under still a refusal (dead water: nothing carries it), under a walking
     // input a stall the card reports (brief rev 9 iteration 13: a constant walk is no golem's
-    // goal; the AI-on runs and the game gate judge walking)
+    // goal; the AI-on runs and the game gate judge walking); in a part, the run's end (no kill)
+    if part {
+        return Drift { visited, lips, rested: true, ..Default::default() };
+    }
     let p = crate::entity::index_of(&w, id).map(|g| w.entities.list[g].pos);
     let at = p.map_or(String::new(), |p| format!(" (at {:.2} {:.2} {:.2})", p.x, p.y, p.z));
     let why = format!("alive {MAX_GOLEM_LIFE} gt after it started{at}: nothing kills it");
     if policy == Walk::Still {
         fail(visited, why)
     } else {
-        Drift { died_at: None, visited, fail: None, stall: Some(why), lips }
+        Drift { died_at: None, visited, fail: None, stall: Some(why), lips, ..Default::default() }
     }
 }
 
@@ -207,9 +253,44 @@ pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitRepo
 /// golems drift in the farm built into the sample, natural rock for its walls, with no natural
 /// spawning (a lone golem's own physics).
 pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, seed: i64, threads: usize) -> Result<ExitReport, String> {
+    flood(spec, site, seed, threads, None)
+}
+
+/// The golem exit flood of a part file that holds no bed ([`FarmSpec::has_bed`]; ironspec Nov 11
+/// 14:00: a station or loop part's golem flood runs before the farm is assembled): no villager
+/// gets a HOME, every declared villager position (each villager's cell and the cell above, as
+/// [`spawn_spots_of`] takes them) and every `extra` position is a summoner, and a run ends
+/// without a refusal when its golem stops moving, finds no new cell for [`PART_IDLE_TICKS`],
+/// reaches the limit, walks out of the part or goes through a nether portal (a part has no kill:
+/// the farm it joins takes the golem on, its pad's portal leading to the kill). A golem that
+/// reaches a zombie or touches a vehicle, or a part too open to flood, still fails.
+pub fn golem_exit_part(spec: &FarmSpec, extra: &[BlockPos], seed: i64, threads: usize) -> Result<ExitReport, String> {
+    flood(spec, None, seed, threads, Some(extra))
+}
+
+/// Every cell where a golem can spawn for a summoner at `start` (its cell and the cell above), into
+/// `out` once each: [`spawn_spots_of`]'s scan for one position.
+fn spots_from(w: &World, start: BlockPos, out: &mut Vec<BlockPos>) {
+    for s in [start, start.above()] {
+        for dz in -8..=8 {
+            for dx in -8..=8 {
+                let top = BlockPos::new(s.x + dx, s.y + 6, s.z + dz);
+                if let Some(cell) = possible_spawn_position(w, top, 6)
+                    && !out.contains(&cell)
+                    && check_spawn_obstruction(w, cell, Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5))
+                {
+                    out.push(cell);
+                }
+            }
+        }
+    }
+}
+
+/// The flood of [`golem_exit_in`] (`part`: [`golem_exit_part`]'s extra summoners).
+fn flood(spec: &FarmSpec, site: Option<&'static super::site::Site>, seed: i64, threads: usize, part: Option<&[BlockPos]>) -> Result<ExitReport, String> {
     // the drift under the walking policies (a probe of the farm's walls, the mob AI off)
     let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, slept_rest: false, site, weather: crate::weather::Plan::Off, ai: false, raw: false };
-    let r = super::farm::Run::new(spec, &o)?;
+    let r = if part.is_some() { super::farm::Run::new_homeless(spec, &o)? } else { super::farm::Run::new(spec, &o)? };
     let own = r.own.clone();
     let mut base = r.world;
     base.mob.golem_spawning = false;
@@ -221,11 +302,17 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
     // surface escaped), and the site's caps cover every villager's search (`site::covers_at`)
     let starters: Vec<u32> = own.clone();
     let _ = site;
-    let spots = spawn_spots_of(&base, &starters);
+    let mut spots = spawn_spots_of(&base, &starters);
+    if let Some(extra) = part {
+        for p in extra {
+            spots_from(&base, *p, &mut spots);
+        }
+    }
     if spots.is_empty() {
         return Err("no golem can spawn anywhere in the build".into());
     }
-    let mut rep = ExitReport { spawn_spots: spots.len(), ..Default::default() };
+    let villagers = base.entities.list.iter().filter(|e| matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ty == MobType::Villager)).count();
+    let mut rep = ExitReport { spawn_spots: spots.len(), part: part.is_some(), summoners: villagers + part.map_or(0, |x| x.len()), ..Default::default() };
     let mut seen: HashSet<BlockPos> = spots.iter().copied().collect();
     let mut lips: HashSet<BlockPos> = HashSet::new();
     let mut edges: HashSet<[i64; 3]> = HashSet::new();
@@ -240,13 +327,14 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
     while done < starts.len() {
         let jobs: Vec<(Vec3, Walk)> = starts[done..].iter().flat_map(|s| policies.iter().map(move |p| (*s, *p))).collect();
         done = starts.len();
-        let results = run_parallel(&base, spec, &own, &jobs, threads);
+        let results = run_parallel(&base, spec, &own, &jobs, threads, part.is_some());
         for ((s, p), d) in jobs.iter().zip(results) {
             rep.runs += 1;
             if let Some(f) = d.fail {
                 rep.failures.push(format!("a golem from {:.4} {:.2} {:.4} walking {}: {f}", s.x, s.y, s.z, p.name()));
                 if rep.failures.len() >= 6 {
                     rep.starts = starts.len();
+                    rep.stood = stood_box(&seen);
                     return Ok(rep);
                 }
             }
@@ -258,12 +346,28 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
             {
                 rep.walk_stalls.push(format!("a golem from {:.4} {:.2} {:.4} walking {}: {st}", s.x, s.y, s.z, p.name()));
             }
+            if d.rested {
+                rep.rested += 1;
+            }
+            if let Some(at) = d.left {
+                rep.left += 1;
+                if rep.left_at.len() < 6 {
+                    rep.left_at.push(format!("a golem from {:.4} {:.2} {:.4} walking {} left the part at {:.2} {:.2} {:.2}", s.x, s.y, s.z, p.name(), at.x, at.y, at.z));
+                }
+            }
+            if let Some(at) = d.portal {
+                rep.portal += 1;
+                if rep.portal_at.len() < 6 {
+                    rep.portal_at.push(format!("a golem from {:.4} {:.2} {:.4} walking {} went through a nether portal at {:.2} {:.2} {:.2}", s.x, s.y, s.z, p.name(), at.x, at.y, at.z));
+                }
+            }
             lips.extend(d.lips.iter().copied());
             for (c, pos) in d.visited {
                 if seen.insert(c) {
                     if starts.len() >= MAX_STARTS {
                         rep.failures.push(format!("a golem can stand on more than {MAX_STARTS} positions: too open for the exit flood"));
                         rep.starts = starts.len();
+                        rep.stood = stood_box(&seen);
                         return Ok(rep);
                     }
                     starts.push(pos);
@@ -274,7 +378,20 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
     }
     rep.starts = starts.len();
     rep.lips = lips.len();
+    rep.stood = stood_box(&seen);
     Ok(rep)
+}
+
+/// The box (lowest and highest corner) of the cells a golem stood on.
+fn stood_box(seen: &HashSet<BlockPos>) -> Option<(BlockPos, BlockPos)> {
+    let mut it = seen.iter();
+    let first = *it.next()?;
+    let (mut lo, mut hi) = (first, first);
+    for c in it {
+        lo = BlockPos::new(lo.x.min(c.x), lo.y.min(c.y), lo.z.min(c.z));
+        hi = BlockPos::new(hi.x.max(c.x), hi.y.max(c.y), hi.z.max(c.z));
+    }
+    Some((lo, hi))
 }
 
 /// How far a start at the edge of the blocks under a golem still overlaps them.
@@ -338,7 +455,7 @@ fn edge_starts(w: &World, start: Vec3, seen: &mut HashSet<[i64; 3]>) -> Vec<Vec3
     out
 }
 
-fn run_parallel(base: &World, spec: &FarmSpec, own: &[u32], jobs: &[(Vec3, Walk)], threads: usize) -> Vec<Drift> {
+fn run_parallel(base: &World, spec: &FarmSpec, own: &[u32], jobs: &[(Vec3, Walk)], threads: usize, part: bool) -> Vec<Drift> {
     let next = AtomicUsize::new(0);
     let out: Mutex<Vec<Option<Drift>>> = Mutex::new((0..jobs.len()).map(|_| None).collect());
     std::thread::scope(|s| {
@@ -352,11 +469,65 @@ fn run_parallel(base: &World, spec: &FarmSpec, own: &[u32], jobs: &[(Vec3, Walk)
                     if k >= jobs.len() {
                         break;
                     }
-                    let d = drift(&mine, spec, own, jobs[k].0, jobs[k].1);
+                    let d = drift(&mine, spec, own, jobs[k].0, jobs[k].1, part);
                     out.lock().unwrap()[k] = Some(d);
                 }
             });
         }
     });
-    out.into_inner().unwrap().into_iter().map(|d| d.unwrap_or(Drift { died_at: None, visited: Vec::new(), fail: Some("not run".into()), stall: None, lips: Vec::new() })).collect()
+    out.into_inner().unwrap().into_iter().map(|d| d.unwrap_or(Drift { died_at: None, visited: Vec::new(), fail: Some("not run".into()), stall: None, lips: Vec::new(), ..Default::default() })).collect()
+}
+
+#[cfg(test)]
+mod part_tests {
+    use super::*;
+    use crate::block::Block;
+
+    /// A stone room, 5 x 5 inside and 4 high (floor y 10), its walls 3 thick (a golem spawns with
+    /// its box up to 0.2 into a wall and walks through what it overlaps, as in the game) and its
+    /// roof 5 thick (no golem spot on it), with a villager in a corner of its floor and no bed: a
+    /// part's file. `zombie`: a zombie in a boat in the opposite corner as well.
+    fn room(zombie: bool) -> FarmSpec {
+        let stone = Block::parse("minecraft:stone").unwrap();
+        let mut blocks = Vec::new();
+        for x in -5..=5 {
+            for z in -5..=5 {
+                blocks.push((BlockPos::new(x, 10, z), stone.clone()));
+                let wall = x.abs() >= 3 || z.abs() >= 3;
+                for y in 11..=19 {
+                    if wall || y >= 15 {
+                        blocks.push((BlockPos::new(x, y, z), stone.clone()));
+                    }
+                }
+            }
+        }
+        let mut entities = vec![("minecraft:villager".to_string(), [-1.5, 11.0, -1.5], Some("{PersistenceRequired:1b}".to_string()))];
+        if zombie {
+            entities.push(("minecraft:oak_boat".to_string(), [2.0, 11.0, 2.0], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".to_string())));
+        }
+        FarmSpec { blocks, entities, output: BlockPos::new(0, 11, -2), lo: BlockPos::new(-9, 6, -9), hi: BlockPos::new(9, 24, 9), block_entities: Vec::new(), rock: false, nether: None, land: false }
+    }
+
+    #[test]
+    fn a_part_with_no_bed_floods_and_still_fails_on_a_zombie() {
+        let spec = room(false);
+        assert!(!spec.has_bed());
+        // the whole farm's flood pairs every villager with a bed: a part has none
+        let whole = golem_exit(&spec, 1, 4);
+        assert!(whole.as_ref().is_err_and(|e| e.contains("no bed of its own")), "{:?}", whole.map(|r| r.failures));
+        // the part's flood: its villager summons, the golem rests in the room, nothing fails
+        let rep = golem_exit_part(&spec, &[], 1, 4).unwrap();
+        assert!(rep.part && rep.summoners == 1 && rep.spawn_spots > 0, "{} spots from {} summoners", rep.spawn_spots, rep.summoners);
+        assert!(rep.failures.is_empty(), "{:?}", rep.failures);
+        assert!(rep.rested > 0 && rep.left == 0 && rep.portal == 0, "rested {} left {} portal {}: {:?} stood {:?}", rep.rested, rep.left, rep.portal, rep.left_at, rep.stood);
+        // (inside the room, or at most into its walls' first layer)
+        let (lo, hi) = rep.stood.unwrap();
+        assert!(lo.x >= -4 && hi.x <= 4 && lo.z >= -4 && hi.z <= 4 && lo.y == 11 && hi.y == 11, "{lo:?} {hi:?}");
+        // an extra summoner position in the same room adds no new spot
+        let more = golem_exit_part(&spec, &[BlockPos::new(1, 11, 1)], 1, 4).unwrap();
+        assert_eq!((more.summoners, more.spawn_spots), (2, rep.spawn_spots));
+        // positive control: a zombie in reach fails the part's flood as it fails a farm's
+        let z = golem_exit_part(&room(true), &[], 1, 4).unwrap();
+        assert!(z.failures.iter().any(|f| f.contains("zombie") || f.contains("vehicle")), "{:?}", z.failures);
+    }
 }

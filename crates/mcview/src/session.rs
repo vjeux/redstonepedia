@@ -361,6 +361,10 @@ pub struct Session {
     /// A still ([`Options::simulate`] false): the design as placed, never stepped (the browser's
     /// cards; a page's view until it plays: `Player::wake`).
     pub still: bool,
+    /// A still's design entities redsim refused to place (a mob whose data it does not model: an
+    /// armored one), by index: the still draws them as placed (`scene::entities_into`, in the
+    /// design's coordinates); they had vanished from the page's first picture.
+    pub unspawned: Vec<usize>,
     /// A mob farm's run (`circuit: mob-farm ...`): redsim's own farm runner, the judge's run
     /// ([`crate::mobfarm`]); its world is `world` between ticks.
     pub mob: Option<crate::mobfarm::MobRun>,
@@ -860,6 +864,7 @@ impl Session {
             outside_start: Default::default(),
             period_memo: Default::default(),
             still: false,
+            unspawned: Vec::new(),
             mob: None,
             mob_initial: None,
             blocks_version: 0,
@@ -918,9 +923,11 @@ impl Session {
                         let mut w = m.take_world();
                         let off = t.offset();
                         s.design_base = w.entities.next_id;
-                        for e in &s.design.entities {
+                        for (i, e) in s.design.entities.iter().enumerate() {
                             let pos = [e.pos[0] + off[0] as f64, e.pos[1] + off[1] as f64, e.pos[2] + off[2] as f64];
-                            let _ = redsim::entity::spawn(&mut w, &e.kind, pos, e.nbt.as_deref());
+                            if redsim::entity::spawn(&mut w, &e.kind, pos, e.nbt.as_deref()).is_err() {
+                                s.unspawned.push(i);
+                            }
                         }
                         w.errors.clear();
                         let (lo, hi) = t.farm_box;
@@ -940,8 +947,10 @@ impl Session {
             let mut v = as_built(&blocks);
             v.extend(crate::circuit::still_judge_blocks(&s.design));
             world.place_raw(&v);
-            for e in &s.design.entities {
-                let _ = redsim::entity::spawn(&mut world, &e.kind, e.pos, e.nbt.as_deref());
+            for (i, e) in s.design.entities.iter().enumerate() {
+                if redsim::entity::spawn(&mut world, &e.kind, e.pos, e.nbt.as_deref()).is_err() {
+                    s.unspawned.push(i);
+                }
             }
             if let Some(f) = &s.floor {
                 world.place_raw(&f.blocks());
@@ -2306,9 +2315,55 @@ impl Session {
                 for k in 0..3 {
                     e.pos[k] -= off[k] as f32;
                 }
+                // its light probe with it (it had stayed in the world's coordinates, outside the
+                // drawn world: every terrain farm's mob lit by a cell hundreds of blocks off)
+                if let Some(p) = e.probe.as_mut() {
+                    for k in 0..3 {
+                        p[k] -= off[k] as f32;
+                    }
+                }
+                // and its lead's ends
+                if let Some(l) = e.leash.as_mut() {
+                    for p in [&mut l.start, &mut l.end, &mut l.start_eye, &mut l.end_eye] {
+                        for k in 0..3 {
+                            p[k] -= off[k] as f32;
+                        }
+                    }
+                }
             }
         }
         v
+    }
+
+    /// The lead from a leashed mob to its holder (`EntityRenderer.extractRenderState`'s single
+    /// lead): from its attach point (a llama's `getLeashOffset`: (0, 0.75 x its eye height, half
+    /// its width), turned by its body's yaw: `Vec3.yRot(-yaw)`) to its holder's rope hold (a
+    /// villager's or wandering trader's `AbstractVillager.getRopeHoldPosition`: (0, its height
+    /// - 1, 0.2) turned by its body's yaw; another's 0.7 of its eye height), in the world's
+    /// coordinates; None when it is not leashed or its holder is gone.
+    fn leash_draw(&self, e: &redsim::entity::Entity, draw: &crate::mesh::MobDraw, pos: [f32; 3], views: &[redsim::entity::mob::view::MobView], partial: f32) -> Option<crate::mesh::LeashDraw> {
+        use redsim::entity::EntityKind;
+        let l = e.leash?;
+        let h = self.world.entities.list.iter().find(|x| x.id == l.holder && !x.removed)?;
+        let lerp = |a: f64, b: f64| (a + (b - a) * partial as f64) as f32;
+        let hpos = [lerp(h.xo, h.pos.x), lerp(h.yo, h.pos.y), lerp(h.zo, h.pos.z)];
+        let turned = |yaw: f32, v: [f32; 3]| {
+            let (s, c) = (-yaw.to_radians()).sin_cos();
+            [v[0] * c + v[2] * s, v[1], v[2] * c - v[0] * s]
+        };
+        let add = |a: [f32; 3], b: [f32; 3]| [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+        let eye = e.kind.eye_height();
+        let start = add(pos, turned(draw.body_yaw, [0.0, 0.75 * eye, draw.width * 0.5]));
+        let heye = h.kind.eye_height();
+        let villager = matches!(&h.kind, EntityKind::Mob(m) if matches!(m.ty.def().id, "wandering_trader" | "villager"));
+        let end = match (villager, views.iter().find(|v| v.id == h.id), &h.kind) {
+            (true, Some(v), EntityKind::Mob(m)) => {
+                let body = v.body_yaw_o + crate::mobfarm::wrap_degrees(v.body_yaw - v.body_yaw_o) * partial;
+                add(hpos, turned(body, [0.0, m.dims().1 - 1.0, 0.2]))
+            }
+            _ => add(hpos, [0.0, heye * 0.7, 0.0]),
+        };
+        Some(crate::mesh::LeashDraw { start, end, start_eye: add(pos, [0.0, eye, 0.0]), end_eye: add(hpos, [0.0, heye, 0.0]) })
     }
 
     fn world_entities(&self, partial: f32) -> Vec<crate::mesh::EntityDraw> {
@@ -2388,7 +2443,8 @@ impl Session {
                         Some(run) => run.draw(&self.world, v, partial),
                         None => crate::mobfarm::draw_mob(&self.world, v, partial, Default::default()),
                     };
-                    return crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, mob: Some(draw), probe, ..Default::default() };
+                    let leash = self.leash_draw(e, &draw, pos, &mob_views, partial);
+                    return crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, mob: Some(draw), probe, leash, ..Default::default() };
                 }
                 crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, probe, ..Default::default() }
             })
@@ -3075,6 +3131,7 @@ impl Session {
             outside_start: self.outside_start.clone(),
             period_memo: Default::default(),
             still: self.still,
+            unspawned: self.unspawned.clone(),
             mob: self.mob_initial.clone(),
             mob_initial: None,
             blocks_version: 0,

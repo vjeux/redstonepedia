@@ -430,6 +430,54 @@ fn iron_golem(d: &crate::mesh::MobDraw) -> Vec<EPart> {
     ]
 }
 
+/// `AdultCatModel` (`AdultFelineModel.createBodyMesh`, texture 64 x 32, `CAT_TRANSFORMER`: scaled
+/// 0.8): its head with its nose and ears, its body upright, its tail in two pieces, four legs,
+/// posed by `setupAnim` as a cat walks (an untamed village cat never sits nor lies down; redsim
+/// keeps neither its crouch nor its sprint): the head's pitch and yaw, the legs swinging, the
+/// tail's tip swaying with the walk.
+fn cat(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let swing = |phase: f32| [(pos * 0.6662 + phase).cos() * speed, 0.0, 0.0];
+    let head = part(
+        vec![cube(0.0, 0.0, [-2.5, -2.0, -3.0], [5.0, 4.0, 5.0]), cube(0.0, 24.0, [-1.5, -0.001, -4.0], [3.0, 2.0, 2.0]), cube(0.0, 10.0, [-2.0, -3.0, 0.0], [1.0, 1.0, 2.0]), cube(6.0, 10.0, [1.0, -3.0, 0.0], [1.0, 1.0, 2.0])],
+        [0.0, 15.0, -9.0],
+        [hx, hy, 0.0],
+    );
+    let body = part(vec![cube(20.0, 0.0, [-2.0, 3.0, -8.0], [4.0, 16.0, 6.0])], [0.0, 12.0, -10.0], [PI / 2.0, 0.0, 0.0]);
+    let tail1 = part(vec![cube(0.0, 15.0, [-0.5, 0.0, 0.0], [1.0, 8.0, 1.0])], [0.0, 15.0, 8.0], [0.9, 0.0, 0.0]);
+    let tail2 = part(vec![cube_grown(4.0, 15.0, [-0.5, 0.0, 0.0], [1.0, 8.0, 1.0], -0.02)], [0.0, 20.0, 14.0], [1.7278761 + PI / 4.0 * pos.cos() * speed, 0.0, 0.0]);
+    let hind = |x: f32, r: [f32; 3]| part(vec![cube(8.0, 13.0, [-1.0, 0.0, 1.0], [2.0, 6.0, 2.0])], [x, 18.0, 5.0], r);
+    let front = |x: f32, r: [f32; 3]| part(vec![cube(40.0, 0.0, [-1.0, 0.0, 0.0], [2.0, 10.0, 2.0])], [x, 14.1, -5.0], r);
+    scaled(0.8, vec![head, body, tail1, tail2, hind(1.1, swing(0.0)), hind(-1.1, swing(PI)), front(1.2, swing(PI)), front(-1.2, swing(0.0))])
+}
+
+/// `LlamaModel.createBodyLayer(g)` (texture 128 x 64; a trader llama's `TRADER_LLAMA` is the
+/// llama's body layer, its decor's `LLAMA_DECOR` the same grown 0.5): its head with its neck and
+/// ears, its body turned upright, four legs (no chests: a trader llama carries none), posed by
+/// `setupAnim`: the head's pitch and yaw, the legs swinging with the walk (the hind right and the
+/// front left together).
+fn llama(d: &crate::mesh::MobDraw, g: f32) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let swing = |phase: f32| [(pos * 0.6662 + phase).cos() * 1.4 * speed, 0.0, 0.0];
+    let leg = |x: f32, z: f32, r: [f32; 3]| part(vec![cube_grown(29.0, 29.0, [-2.0, 0.0, -2.0], [4.0, 14.0, 4.0], g)], [x, 10.0, z], r);
+    let head = vec![
+        cube_grown(0.0, 0.0, [-2.0, -14.0, -10.0], [4.0, 4.0, 9.0], g),
+        cube_grown(0.0, 14.0, [-4.0, -16.0, -6.0], [8.0, 18.0, 6.0], g),
+        cube_grown(17.0, 0.0, [-4.0, -19.0, -4.0], [3.0, 3.0, 2.0], g),
+        cube_grown(17.0, 0.0, [1.0, -19.0, -4.0], [3.0, 3.0, 2.0], g),
+    ];
+    vec![
+        part(head, [0.0, 7.0, -6.0], [hx, hy, 0.0]),
+        part(vec![cube_grown(29.0, 0.0, [-6.0, -10.0, -7.0], [12.0, 18.0, 10.0], g)], [0.0, 5.0, 2.0], [PI / 2.0, 0.0, 0.0]),
+        leg(-3.5, 6.0, swing(0.0)),
+        leg(3.5, 6.0, swing(PI)),
+        leg(-3.5, -5.0, swing(PI)),
+        leg(3.5, -5.0, swing(0.0)),
+    ]
+}
+
 /// `VillagerModel.createBodyModel` (texture 64 x 64) with the villagers' `MeshTransformer.scaling
 /// (0.9375)` (`LayerDefinitions`: the root part scaled, 1.501 px down), posed by `setupAnim`: the
 /// head's yaw and pitch, the legs swinging with the walk (never unhappy: no trades).
@@ -448,12 +496,96 @@ fn villager(d: &crate::mesh::MobDraw) -> Vec<EPart> {
     vec![EPart { scale, ..part_with(Vec::new(), [0.0, 24.016 * (1.0 - scale), 0.0], [0.0; 3], vec![head, body, arms, right_leg, left_leg]) }]
 }
 
+/// A zombie's (or a zombie villager's) arms as its model's `setupAnim` leaves them (right, left):
+/// `AnimationUtils.animateZombieArms` (raised, higher when aggressive; a baby holding an item keeps
+/// them down), unless it holds a spear (`usingSpear`: its arm pose SPEAR, `animateZombieArms`
+/// does nothing): then the humanoid walk swing, the spear's arm (a left-handed one's left) held by
+/// `SpearAnimations.thirdPersonHandUse` (not in use: along the look, 0.8 down, clamped); then
+/// both bob (`AnimationUtils.bobModelPart`).
+fn zombie_arms(d: &crate::mesh::MobDraw, baby: bool) -> ([f32; 3], [f32; 3]) {
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let spear = d.held.as_deref().is_some_and(|h| h.ends_with("_spear"));
+    let (mut right, mut left) = if spear {
+        let swing = |phase: f32| (d.walk_pos * 0.6662 + phase).cos() * 2.0 * d.walk_speed * 0.5;
+        let (mut r, mut l) = ([swing(PI), 0.0, 0.0], [swing(0.0), 0.0, 0.0]);
+        if d.riding {
+            r[0] -= PI / 5.0;
+            l[0] -= PI / 5.0;
+        }
+        let invert = if d.left_handed { -1.0 } else { 1.0 };
+        let held = [(-PI / 2.0 + hx + 0.8).clamp((-120f32).to_radians(), 30f32.to_radians()), (-0.1 * invert + hy).clamp((-60f32).to_radians(), 60f32.to_radians()), 0.0];
+        if d.left_handed {
+            l = held;
+        } else {
+            r = held;
+        }
+        (r, l)
+    } else {
+        let raise = !baby || d.held.is_none();
+        let arm_x = if raise { -PI / if d.aggressive { 1.5 } else { 2.25 } } else { 0.0 };
+        let arm_y = if raise { 0.1 } else { -0.1 };
+        ([arm_x, -arm_y, 0.0], [arm_x, arm_y, 0.0])
+    };
+    let bob = |a: &mut [f32; 3], sign: f32| {
+        a[0] += sign * ((d.age * 0.067).sin() * 0.05);
+        a[2] += sign * ((d.age * 0.09).cos() * 0.05 + 0.05);
+    };
+    bob(&mut right, 1.0);
+    bob(&mut left, -1.0);
+    (right, left)
+}
+
+/// `ZombieVillagerModel.createBodyLayer` (texture 64 x 64): a villager's head with its nose, its
+/// hat and the hat's rim, a robe over its body, a zombie's arms, a villager's legs; or a baby's
+/// `BabyZombieVillagerModel` (its own texture, `zombie_villager_baby`); posed like a zombie
+/// (`HumanoidModel.setupAnim`, `setupAttackAnimation`'s [`zombie_arms`]).
+fn zombie_villager(d: &crate::mesh::MobDraw, baby: bool) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let mut rl = [(pos * 0.6662).cos() * 1.4 * speed, 0.005, 0.005];
+    let mut ll = [(pos * 0.6662 + PI).cos() * 1.4 * speed, -0.005, -0.005];
+    if d.riding {
+        rl = [-1.4137167, PI / 10.0, 0.07853982];
+        ll = [-1.4137167, -PI / 10.0, -0.07853982];
+    }
+    let (ra, la) = zombie_arms(d, baby);
+    if baby {
+        let head = part_with(
+            vec![cube(0.0, 0.0, [-4.0, -8.0, -3.5], [8.0, 8.0, 7.0])],
+            [0.0, 16.0, 0.0],
+            [hx, hy, 0.0],
+            vec![
+                part(vec![cube_grown(0.0, 31.0, [-4.0, -4.0, -3.5], [8.0, 8.0, 7.0], 0.3)], [0.0, -4.0, 0.0], [0.0; 3]),
+                part(vec![cube(0.0, 46.0, [-7.0, -0.5, -6.0], [14.0, 1.0, 12.0])], [0.0, -4.5, 0.0], [0.0; 3]),
+                part(vec![cube(23.0, 0.0, [-1.0, -1.0, -0.5], [2.0, 2.0, 1.0])], [0.0, -1.0, -4.0], [0.0; 3]),
+            ],
+        );
+        return vec![
+            head,
+            part(vec![cube(0.0, 15.0, [-2.0, -2.75, -1.5], [4.0, 5.0, 3.0]), cube_grown(16.0, 22.0, [-2.0, -2.75, -1.5], [4.0, 6.0, 3.0], 0.1)], [0.0, 18.75, 0.0], [0.0; 3]),
+            part(vec![cube(24.0, 15.0, [-1.0, -0.5, -1.0], [2.0, 5.0, 2.0])], [-3.0, 15.5, 0.0], ra),
+            part(vec![cube(16.0, 15.0, [-1.0, -0.5, -1.0], [2.0, 5.0, 2.0])], [3.0, 15.5, 0.0], la),
+            part(vec![cube(8.0, 23.0, [-1.0, -0.5, -1.0], [2.0, 3.0, 2.0])], [-1.0, 21.5, 0.0], rl),
+            part(vec![cube(0.0, 23.0, [-1.0, -0.5, -1.0], [2.0, 3.0, 2.0])], [1.0, 21.5, 0.0], ll),
+        ];
+    }
+    let rim = part(vec![cube(30.0, 47.0, [-8.0, -8.0, -6.0], [16.0, 16.0, 1.0])], [0.0; 3], [-PI / 2.0, 0.0, 0.0]);
+    let hat = part_with(vec![cube_grown(32.0, 0.0, [-4.0, -10.0, -4.0], [8.0, 10.0, 8.0], 0.5)], [0.0; 3], [0.0; 3], vec![rim]);
+    vec![
+        part_with(vec![cube(0.0, 0.0, [-4.0, -10.0, -4.0], [8.0, 10.0, 8.0]), cube(24.0, 0.0, [-1.0, -3.0, -6.0], [2.0, 4.0, 2.0])], [0.0; 3], [hx, hy, 0.0], vec![hat]),
+        part(vec![cube(16.0, 20.0, [-4.0, 0.0, -3.0], [8.0, 12.0, 6.0]), cube_grown(0.0, 38.0, [-4.0, 0.0, -3.0], [8.0, 20.0, 6.0], 0.05)], [0.0; 3], [0.0; 3]),
+        part(vec![cube(44.0, 22.0, [-3.0, -2.0, -2.0], [4.0, 12.0, 4.0])], [-5.0, 2.0, 0.0], ra),
+        part(vec![cube_mirrored(44.0, 22.0, [-1.0, -2.0, -2.0], [4.0, 12.0, 4.0])], [5.0, 2.0, 0.0], la),
+        part(vec![cube(0.0, 22.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [-2.0, 12.0, 0.0], rl),
+        part(vec![cube_mirrored(0.0, 22.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [2.0, 12.0, 0.0], ll),
+    ]
+}
+
 /// `HumanoidModel.createMesh(NONE, 0)` (the zombie's layer, texture 64 x 64), or a baby's
 /// `BabyZombieModel` (its own texture, `zombie_baby`: 64 x 64), posed by `HumanoidModel.setupAnim`
 /// and `ZombieModel.setupAttackAnimation`: the head's yaw and pitch, the walk, a passenger's legs
-/// forward (`isPassenger`), the arms held out (`AnimationUtils.animateZombieArms`: raised to
-/// -pi / 2.25, or -pi / 1.5 aggressive; a baby holding an item keeps them down; no swing) and
-/// bobbing with its age (`bobModelPart`).
+/// forward (`isPassenger`), the arms ([`zombie_arms`]: held out, raised higher when aggressive, a
+/// spear's held along the look; no swing) bobbing with its age (`bobModelPart`).
 fn zombie(d: &crate::mesh::MobDraw, baby: bool) -> Vec<EPart> {
     let (pos, speed) = (d.walk_pos, d.walk_speed);
     let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
@@ -463,13 +595,7 @@ fn zombie(d: &crate::mesh::MobDraw, baby: bool) -> Vec<EPart> {
         right_leg = [-1.4137167, PI / 10.0, 0.07853982];
         left_leg = [-1.4137167, -PI / 10.0, -0.07853982];
     }
-    let raise = !baby || d.held.is_none();
-    let arm_x = if raise { -PI / if d.aggressive { 1.5 } else { 2.25 } } else { 0.0 };
-    let arm_y = if raise { 0.1 } else { -0.1 };
-    let bob = |sign: f32| [sign * ((d.age * 0.067).sin() * 0.05), 0.0, sign * ((d.age * 0.09).cos() * 0.05 + 0.05)];
-    let (rb, lb) = (bob(1.0), bob(-1.0));
-    let right_arm = [arm_x + rb[0], -arm_y, rb[2]];
-    let left_arm = [arm_x + lb[0], arm_y, lb[2]];
+    let (right_arm, left_arm) = zombie_arms(d, baby);
     if baby {
         let head = part(vec![cube(3.0, 3.0, [-3.0, -6.25, -3.0], [6.0, 6.0, 6.0]), cube_grown(35.0, 3.0, [-3.0, -6.15, -3.0], [6.0, 6.0, 6.0], 0.25)], [0.0, 15.25, 0.0], [hx, hy, 0.0]);
         return vec![
@@ -531,8 +657,15 @@ fn skeleton(d: &crate::mesh::MobDraw) -> Vec<EPart> {
     }
     let bow = d.held.as_deref().is_some_and(|h| h.trim_start_matches("minecraft:") == "bow");
     if d.aggressive && bow {
-        ra = [-PI / 2.0 + hx, -0.1 + hy, ra[2]];
-        la = [-PI / 2.0 + hx, 0.1 + hy + 0.4, la[2]];
+        // `poseRightArm` / `poseLeftArm`'s BOW_AND_ARROW: the main arm (a left-handed one's
+        // left) aims along the look, the other 0.4 further in
+        if d.left_handed {
+            ra = [-PI / 2.0 + hx, -0.1 + hy - 0.4, ra[2]];
+            la = [-PI / 2.0 + hx, 0.1 + hy, la[2]];
+        } else {
+            ra = [-PI / 2.0 + hx, -0.1 + hy, ra[2]];
+            la = [-PI / 2.0 + hx, 0.1 + hy + 0.4, la[2]];
+        }
     }
     let bob = |a: &mut [f32; 3], s: f32| {
         a[2] += s * ((d.age * 0.09).cos() * 0.05 + 0.05);
@@ -849,13 +982,24 @@ fn spider(d: &crate::mesh::MobDraw, scale: f32) -> Vec<EPart> {
 /// The game texture each mob is drawn with (with its overlay layers composited in once the atlas
 /// is packed, `Atlas::add_game_entities`): an iron golem's base under its crackiness
 /// (`IronGolemCrackinessLayer`), a villager's base under its plains type (`VillagerProfessionLayer`:
-/// no profession, so the type's layer covers the whole model, hat included), a zombie's own.
-pub fn mob_texture(kind: &str, crack: u8) -> Option<(String, [f32; 2])> {
+/// no profession, so the type's layer covers the whole model, hat included), a zombie's own, a
+/// zombie villager's base (its type a layer over it: `mob_triangles`), a trader llama's of its
+/// variant (`LlamaRenderer.TEXTURES`, creamy by default).
+pub fn mob_texture(kind: &str, crack: u8, variant: Option<&str>) -> Option<(String, [f32; 2])> {
     match kind.strip_prefix("minecraft:").unwrap_or(kind) {
         "iron_golem" => Some((format!("mob/iron_golem/{}", crack.min(3)), [128.0, 128.0])),
         "villager" => Some(("mob/villager/plains".to_string(), [64.0, 64.0])),
         "zombie" => Some(("entity/zombie/zombie".to_string(), [64.0, 64.0])),
         "baby_zombie" => Some(("entity/zombie/zombie_baby".to_string(), [64.0, 64.0])),
+        "zombie_villager" => Some(("entity/zombie_villager/zombie_villager".to_string(), [64.0, 64.0])),
+        "baby_zombie_villager" => Some(("entity/zombie_villager/zombie_villager_baby".to_string(), [64.0, 64.0])),
+        "sulfur_cube" => Some(("entity/sulfur_cube/sulfur_cube_outer_small".to_string(), [64.0, 64.0])),
+        "sulfur_cube_2" | "sulfur_cube_4" => Some(("entity/sulfur_cube/sulfur_cube_outer".to_string(), [128.0, 128.0])),
+        "trader_llama" => Some((format!("entity/llama/llama_{}", variant.unwrap_or("creamy")), [128.0, 64.0])),
+        "wandering_trader" => Some(("entity/wandering_trader/wandering_trader".to_string(), [64.0, 64.0])),
+        // a cat's variant's (`CatVariant.assetInfo`), black without one (`Cat.DEFAULT_VARIANT`:
+        // its entity data before a variant is picked)
+        "cat" => Some((format!("entity/cat/cat_{}", variant.unwrap_or("black")), [64.0, 32.0])),
         "spider" => Some(("entity/spider/spider".to_string(), [64.0, 32.0])),
         "cave_spider" => Some(("entity/spider/cave_spider".to_string(), [64.0, 32.0])),
         "creeper" => Some(("entity/creeper/creeper".to_string(), [64.0, 32.0])),
@@ -875,6 +1019,43 @@ pub fn mob_texture(kind: &str, crack: u8) -> Option<(String, [f32; 2])> {
 pub const MOB_TEXTURES: &[&str] = &[
     "entity/zombie/zombie",
     "entity/zombie/zombie_baby",
+    "entity/zombie_villager/zombie_villager",
+    "entity/zombie_villager/zombie_villager_baby",
+    "entity/zombie_villager/type/desert",
+    "entity/zombie_villager/type/jungle",
+    "entity/zombie_villager/type/plains",
+    "entity/zombie_villager/type/savanna",
+    "entity/zombie_villager/type/snow",
+    "entity/zombie_villager/type/swamp",
+    "entity/zombie_villager/type/taiga",
+    "entity/zombie_villager/baby/desert",
+    "entity/zombie_villager/baby/jungle",
+    "entity/zombie_villager/baby/plains",
+    "entity/zombie_villager/baby/savanna",
+    "entity/zombie_villager/baby/snow",
+    "entity/zombie_villager/baby/swamp",
+    "entity/zombie_villager/baby/taiga",
+    "entity/sulfur_cube/sulfur_cube_inner",
+    "entity/sulfur_cube/sulfur_cube_outer",
+    "entity/sulfur_cube/sulfur_cube_inner_small",
+    "entity/sulfur_cube/sulfur_cube_outer_small",
+    "entity/llama/llama_creamy",
+    "entity/llama/llama_white",
+    "entity/llama/llama_brown",
+    "entity/llama/llama_gray",
+    "entity/equipment/llama_body/trader_llama",
+    "entity/wandering_trader/wandering_trader",
+    "entity/cat/cat_tabby",
+    "entity/cat/cat_black",
+    "entity/cat/cat_red",
+    "entity/cat/cat_siamese",
+    "entity/cat/cat_british_shorthair",
+    "entity/cat/cat_calico",
+    "entity/cat/cat_persian",
+    "entity/cat/cat_ragdoll",
+    "entity/cat/cat_white",
+    "entity/cat/cat_jellie",
+    "entity/cat/cat_all_black",
     "entity/spider/spider",
     "entity/spider/cave_spider",
     "entity/spider/spider_eyes",
@@ -889,6 +1070,21 @@ pub const MOB_TEXTURES: &[&str] = &[
     "entity/sheep/sheep_wool",
     "entity/sheep/sheep_wool_undercoat",
     "entity/horse/horse_zombie",
+    // armor (`EquipmentLayerRenderer`: each material's `humanoid` and `humanoid_leggings` layers)
+    "entity/equipment/humanoid/leather",
+    "entity/equipment/humanoid/leather_overlay",
+    "entity/equipment/humanoid/copper",
+    "entity/equipment/humanoid/gold",
+    "entity/equipment/humanoid/chainmail",
+    "entity/equipment/humanoid/iron",
+    "entity/equipment/humanoid/diamond",
+    "entity/equipment/humanoid_leggings/leather",
+    "entity/equipment/humanoid_leggings/leather_overlay",
+    "entity/equipment/humanoid_leggings/copper",
+    "entity/equipment/humanoid_leggings/gold",
+    "entity/equipment/humanoid_leggings/chainmail",
+    "entity/equipment/humanoid_leggings/iron",
+    "entity/equipment/humanoid_leggings/diamond",
 ];
 
 /// A mob's eyes layer (`EyesLayer`: the model again with this texture through the `eyes`
@@ -960,21 +1156,186 @@ fn mob_transform(k: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> M {
         let tri = ((wp % 13.0 - 6.5).abs() - 3.25) / 3.25;
         m = m.rot(2, (6.5 * tri).to_radians());
     }
-    m.scale([-1.0, -1.0, 1.0]).translate([0.0, -1.501, 0.0])
+    let m = m.scale([-1.0, -1.0, 1.0]);
+    // the renderer's own `scale`: a sulfur cube's (`SulfurCubeRenderer.scale`: `downscaleSlightly`,
+    // its size, unsquished (redsim keeps no squish), an adult's half and lift, a baby's)
+    let m = match sulfur_cube(k) {
+        Some((size, baby)) => {
+            let (lift, extra) = if baby { (1.24, 1.0) } else { (0.98, 0.5) };
+            m.scale([0.999; 3]).translate([0.0, 0.001, 0.0]).scale([size; 3]).scale([extra; 3]).translate([0.0, lift - 1.0 / 16.0, 0.0])
+        }
+        None => m,
+    };
+    m.translate([0.0, -1.501, 0.0])
+}
+
+/// A sulfur cube's size and whether it is a baby (redsim's kinds: `sulfur_cube` the baby, size 1;
+/// `sulfur_cube_2`, `sulfur_cube_4` adults), else None.
+fn sulfur_cube(k: &str) -> Option<(f32, bool)> {
+    match k {
+        "sulfur_cube" => Some((1.0, true)),
+        "sulfur_cube_2" => Some((2.0, false)),
+        "sulfur_cube_4" => Some((4.0, false)),
+        _ => None,
+    }
+}
+
+/// A mob's translucent faces (`RenderTypes.entityTranslucent`), each a quad sorted with the
+/// frame's other translucent faces: a sulfur cube's inner body (`SulfurCubeInnerLayer`: no block
+/// swallowed, redsim refuses one) and its outer body (`SulfurCubeModel`; a baby's
+/// `SmallSulfurCubeModel`), each with its own texture, lit like its other faces (no red overlay:
+/// the translucent pass draws none).
+pub fn mob_translucent(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> Vec<[Vertex; 4]> {
+    let k = kind.strip_prefix("minecraft:").unwrap_or(kind);
+    let Some((_, baby)) = sulfur_cube(k) else { return Vec::new() };
+    let (inner, outer, tex, size) = if baby {
+        (cube(0.0, 20.0, [-4.0; 3], [8.0; 3]), cube(0.0, 0.0, [-5.0; 3], [10.0; 3]), ["entity/sulfur_cube/sulfur_cube_inner_small", "entity/sulfur_cube/sulfur_cube_outer_small"], [64.0, 64.0])
+    } else {
+        (cube(0.0, 36.0, [-8.0; 3], [16.0; 3]), cube(0.0, 0.0, [-9.0; 3], [18.0; 3]), ["entity/sulfur_cube/sulfur_cube_inner", "entity/sulfur_cube/sulfur_cube_outer"], [128.0, 128.0])
+    };
+    let m = mob_transform(k, pos, d);
+    let (tw, th) = (g.width as f32, g.height as f32);
+    let mut tris = Vec::new();
+    for (c, t) in [(inner, tex[0]), (outer, tex[1])] {
+        if let Some(r) = rect(g, t) {
+            emit(&mut tris, &[part(vec![c], [0.0; 3], [0.0; 3])], &m, size, r, tw, th);
+        }
+    }
+    // `emit`'s faces as two triangles each (0 1 2, 0 2 3): back to quads
+    tris.chunks_exact(6).map(|f| [f[0], f[1], f[2], f[5]]).collect()
+}
+
+/// The equipment asset of each armor material (redsim's `Armor::material` order: golden armor's
+/// asset is `gold`), whose `humanoid` and `humanoid_leggings` layers draw it.
+const ARMOR_ASSETS: [&str; 6] = ["leather", "copper", "gold", "chainmail", "iron", "diamond"];
+
+/// A humanoid mob's parts' poses as its `setupAnim` left them (head, body, right arm, left arm,
+/// right leg, left leg, from the built model): what its armor model, an instance of its own model
+/// class posed by the same `setupAnim`, takes. None: not a humanoid (or a baby zombie, whose armor
+/// is the `humanoid_baby` mesh: not drawn yet).
+fn humanoid_pose(k: &str, parts: &[EPart]) -> Option<[[f32; 3]; 6]> {
+    match k {
+        "zombie" | "skeleton" | "zombie_villager" if parts.len() >= 6 => Some(std::array::from_fn(|i| parts[i].rot)),
+        _ => None,
+    }
+}
+
+/// `HumanoidModel.createArmorMeshSet(0.5, 1.0)`'s model of an armor slot (0 head, 1 chest, 2 legs,
+/// 3 feet: `ADULT_ARMOR_PARTS_PER_SLOT`; the legs' with the inner deformation 0.5, the others'
+/// the outer 1.0, a leg's box 0.1 less: `createBaseArmorMesh`), each part at the humanoid mesh's
+/// offset turned by the mob's pose ([`humanoid_pose`]); texture 64 x 32. A zombie villager's
+/// (`ZombieVillagerModel.createBaseArmorMesh`): its head's box two pixels higher, its body's and
+/// legs' boxes 0.1 more, its legs at 2 pixels out.
+fn armor_parts(slot: usize, pose: &[[f32; 3]; 6], villager: bool) -> Vec<EPart> {
+    let g = if slot == 2 { 0.5 } else { 1.0 };
+    let mirrored = |u: f32, v: f32, from: [f32; 3], size: [f32; 3], grow: f32| Cube { mirror: true, grow, ..cube(u, v, from, size) };
+    let (body_g, leg_g, leg_x, head_y) = if villager { (g + 0.1, g + 0.1, 2.0, -10.0) } else { (g, g - 0.1, 1.9, -8.0) };
+    let body = part(vec![cube_grown(16.0, 16.0, [-4.0, 0.0, -2.0], [8.0, 12.0, 4.0], body_g)], [0.0; 3], pose[1]);
+    let legs = || {
+        vec![
+            part(vec![cube_grown(0.0, 16.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0], leg_g)], [-leg_x, 12.0, 0.0], pose[4]),
+            part(vec![mirrored(0.0, 16.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0], leg_g)], [leg_x, 12.0, 0.0], pose[5]),
+        ]
+    };
+    match slot {
+        0 => {
+            let hat = part(vec![cube_grown(32.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0], g + 0.5)], [0.0; 3], [0.0; 3]);
+            vec![part_with(vec![cube_grown(0.0, 0.0, [-4.0, head_y, -4.0], [8.0, 8.0, 8.0], g)], [0.0; 3], pose[0], vec![hat])]
+        }
+        1 => vec![
+            body,
+            part(vec![cube_grown(40.0, 16.0, [-3.0, -2.0, -2.0], [4.0, 12.0, 4.0], g)], [-5.0, 2.0, 0.0], pose[2]),
+            part(vec![mirrored(40.0, 16.0, [-1.0, -2.0, -2.0], [4.0, 12.0, 4.0], g)], [5.0, 2.0, 0.0], pose[3]),
+        ],
+        2 => {
+            let mut v = legs();
+            v.insert(0, body);
+            v
+        }
+        _ => legs(),
+    }
+}
+
+/// The layers of a slot's armor of a material (`EquipmentLayerRenderer.renderLayers` over the
+/// asset's `humanoid` layers, the legs' `humanoid_leggings`): each texture and its colour
+/// (leather's base dyeable, undyed `color_when_undyed` 0xA06540, then its overlay as drawn).
+fn armor_layers(slot: usize, material: u8) -> Vec<(String, [u8; 3])> {
+    let kind = if slot == 2 { "humanoid_leggings" } else { "humanoid" };
+    let asset = ARMOR_ASSETS.get(material as usize).copied().unwrap_or("iron");
+    let tex = |a: &str| format!("entity/equipment/{kind}/{a}");
+    if asset == "leather" { vec![(tex("leather"), [0xA0, 0x65, 0x40]), (tex("leather_overlay"), [255; 3])] } else { vec![(tex(asset), [255; 3])] }
+}
+
+/// An item's third-person display in a hand (its model's or its parent's `thirdperson_righthand`,
+/// or `thirdperson_lefthand` for the left, which defaults to the right's; then, in the left,
+/// `ItemTransform.apply`'s left-hand fix: the translation's x and the rotation's y and z
+/// negated): rotation in degrees, translation in pixels, scale, and the sprite its in-hand model
+/// shows: the bow's own; a spear's `<spear>_in_hand` model (`spear_in_hand`); a tool's, a stick's,
+/// a bone's `item/handheld`; any other item's `item/generated`.
+fn held_display(id: &str, left: bool) -> ([f32; 3], [f32; 3], [f32; 3], String) {
+    let name = id.strip_prefix("minecraft:").unwrap_or(id);
+    let handheld = ["_sword", "_shovel", "_axe", "_pickaxe", "_hoe"].iter().any(|s| name.ends_with(s)) || matches!(name, "stick" | "bone" | "blaze_rod" | "breeze_rod");
+    // (rotation, translation, scale) right, then left as the model writes it
+    let ((rr, rt, rs), (lr, lt, ls), tex) = if name == "bow" {
+        (([-80.0, 260.0, -40.0], [-1.0, -2.0, 2.5], [0.9; 3]), ([-80.0, -280.0, 40.0], [-1.0, -2.0, 2.5], [0.9; 3]), "item/bow".to_string())
+    } else if name.ends_with("_spear") {
+        (([5.0, 270.0, -40.0], [0.0, 2.0, 2.0], [1.7, 1.7, 0.85]), ([5.0, -270.0, 40.0], [0.0, 2.0, 2.0], [1.7, 1.7, 0.85]), format!("item/{name}_in_hand"))
+    } else if handheld {
+        (([0.0, -90.0, 55.0], [0.0, 4.0, 0.5], [0.85; 3]), ([0.0, 90.0, -55.0], [0.0, 4.0, 0.5], [0.85; 3]), format!("item/{name}"))
+    } else {
+        let right = ([0.0; 3], [0.0, 3.0, 1.0], [0.55; 3]);
+        (right, right, format!("item/{name}"))
+    };
+    if left { ([lr[0], -lr[1], -lr[2]], [-lt[0], lt[1], lt[2]], ls, tex) } else { (rr, rt, rs, tex) }
+}
+
+/// Where the item in a humanoid's hand is drawn (`ItemInHandLayer.submitArmWithItem`): the
+/// mob's transform, `translateToHand` (the root, the arm: a skeleton's a pixel further in,
+/// `SkeletonModel.translateToHand`), a quarter turn about x back, a half turn about y, the hand's
+/// offset (1, 2, -10 pixels, the left hand's x the other way; a baby's 0, 1, -4.5), then the
+/// item's display (`ItemTransform.apply`: translate, rotate x then y then z, scale, its unit cube
+/// centred) to the middle of its cube: the sprite's plane.
+fn held_transform(m: &M, arm_offset: [f32; 3], arm_rot: [f32; 3], baby: bool, left: bool, display: &([f32; 3], [f32; 3], [f32; 3], String)) -> M {
+    let (r, t, s) = (display.0, display.1, display.2);
+    let side = if left { -1.0 } else { 1.0 };
+    let hand = if baby { [0.0, 1.0, -4.5] } else { [side, 2.0, -10.0] };
+    m.translate(arm_offset.map(|v| v / 16.0))
+        .rot(2, arm_rot[2])
+        .rot(1, arm_rot[1])
+        .rot(0, arm_rot[0])
+        .rot(0, -PI / 2.0)
+        .rot(1, PI)
+        .translate(hand.map(|v| v / 16.0))
+        .translate(t.map(|v| v / 16.0))
+        .rot(0, r[0].to_radians())
+        .rot(1, r[1].to_radians())
+        .rot(2, r[2].to_radians())
+        .scale(s)
+        .translate([-0.5, -0.5, 0.0])
 }
 
 /// A mob drawn like the game (`LivingEntityRenderer.submit` with its renderer's model and
 /// `setupRotations`): a sleeper moved toward its pillow and laid on its bed, a dying mob falling
 /// sideways over 20 ticks, a walking golem's sway, the model flipped and lowered 1.501, then the
-/// red overlay of a hurt or dying mob (`OverlayTexture`: 30% red, [`crate::atlas::GAME_LAYER_RED`]).
+/// red overlay of a hurt or dying mob (`OverlayTexture`: 30% red, [`crate::atlas::GAME_LAYER_RED`]),
+/// then its layers without it: a humanoid's armor (`HumanoidArmorLayer`) and the item in its hand
+/// (`ItemInHandLayer`), the eyes.
 /// None: not a mob the viewer has, or its texture is not packed.
 pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> Option<Vec<Vertex>> {
     let k = kind.strip_prefix("minecraft:").unwrap_or(kind);
-    let (tex, size) = mob_texture(k, d.crack)?;
+    let (tex, size) = mob_texture(k, d.crack, d.variant)?;
     let r = rect(g, &tex)?;
+    // an invisible mob (`isInvisible`: a wandering trader after its potion) is not drawn
+    if d.invisible {
+        return Some(Vec::new());
+    }
     let parts = match k {
         "iron_golem" => iron_golem(d),
         "villager" => villager(d),
+        // `WanderingTraderRenderer`: the villagers' model (`WANDERING_TRADER`: `villagerBodyLayer`)
+        "wandering_trader" => villager(d),
+        "trader_llama" => llama(d, 0.0),
+        "cat" => cat(d),
         "zombie" => zombie(d, false),
         "baby_zombie" => zombie(d, true),
         "spider" => spider(d, 1.0),
@@ -987,6 +1348,10 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
         "chicken" => chicken(d),
         "sheep" => sheep(d, false),
         "zombie_horse" => zombie_horse(d),
+        "zombie_villager" => zombie_villager(d, false),
+        "baby_zombie_villager" => zombie_villager(d, true),
+        // all translucent: `mob_translucent`
+        "sulfur_cube" | "sulfur_cube_2" | "sulfur_cube_4" => Vec::new(),
         _ => return None,
     };
     let m = mob_transform(k, pos, d);
@@ -994,21 +1359,29 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
     let mut out = Vec::new();
     emit(&mut out, &parts, &m, size, r, tw, th);
     // its tinted layers over it (`coloredCutoutModelCopyLayerRender`: the model's pose, the
-    // texture times the tint; a sheep's undercoat when dyed, then its wool)
-    let layers: Vec<(Vec<EPart>, &str, [u8; 3])> = match k {
+    // texture times the tint; a sheep's undercoat when dyed, then its wool; a zombie villager's
+    // type, `VillagerProfessionLayer`: its biome's, a baby's own, no profession: redsim keeps none)
+    let layers: Vec<(Vec<EPart>, String, [u8; 3])> = match k {
         "sheep" => {
             let tint = wool_tint(d.color);
             let mut l = Vec::new();
             if d.color != 0 {
-                l.push((sheep(d, false), "entity/sheep/sheep_wool_undercoat", tint));
+                l.push((sheep(d, false), "entity/sheep/sheep_wool_undercoat".to_string(), tint));
             }
-            l.push((sheep(d, true), "entity/sheep/sheep_wool", tint));
+            l.push((sheep(d, true), "entity/sheep/sheep_wool".to_string(), tint));
             l
         }
+        "zombie_villager" | "baby_zombie_villager" => {
+            let baby = k == "baby_zombie_villager";
+            vec![(zombie_villager(d, baby), format!("entity/zombie_villager/{}/{}", if baby { "baby" } else { "type" }, d.variant.unwrap_or("plains")), [255; 3])]
+        }
+        // a trader llama's decor (`LlamaDecorLayer`: the `trader_llama` equipment asset's
+        // `llama_body` layer on the decor model, `LLAMA_DECOR`: grown 0.5)
+        "trader_llama" => vec![(llama(d, 0.5), "entity/equipment/llama_body/trader_llama".to_string(), [255; 3])],
         _ => Vec::new(),
     };
     for (lp, tex, tint) in layers {
-        if let Some(lr) = rect(g, tex) {
+        if let Some(lr) = rect(g, &tex) {
             let n = out.len();
             emit(&mut out, &lp, &m, size, lr, tw, th);
             for v in &mut out[n..] {
@@ -1022,6 +1395,34 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
         for v in &mut out {
             v.layer = crate::atlas::GAME_LAYER_RED;
             v.color[3] = 178;
+        }
+    }
+    // its armor (`HumanoidArmorLayer`: chest, legs, feet, head; `NO_OVERLAY`), each layer's texture
+    // times its colour
+    if let Some(pose) = humanoid_pose(k, &parts) {
+        for slot in [1, 2, 3, 0] {
+            let Some(material) = d.armor[slot] else { continue };
+            for (tex, tint) in armor_layers(slot, material) {
+                let Some(ar) = rect(g, &tex) else { continue };
+                let n = out.len();
+                emit(&mut out, &armor_parts(slot, &pose, k == "zombie_villager"), &m, [64.0, 32.0], ar, tw, th);
+                for v in &mut out[n..] {
+                    for c in 0..3 {
+                        v.color[c] = (v.color[c] as u32 * tint[c] as u32 / 255) as u8;
+                    }
+                }
+            }
+        }
+    }
+    // the item in its main hand (`ItemInHandLayer`, `NO_OVERLAY`; a left-handed mob's left):
+    // its sprite, flat (the game extrudes a generated item's sprite a pixel deep)
+    if let (Some(item), true) = (&d.held, matches!(k, "zombie" | "baby_zombie" | "skeleton" | "zombie_villager" | "baby_zombie_villager") && parts.len() >= 4) {
+        let (arm, side) = if d.left_handed { (&parts[3], -1.0) } else { (&parts[2], 1.0) };
+        let offset = if k == "skeleton" { [arm.offset[0] + side, arm.offset[1], arm.offset[2]] } else { arm.offset };
+        let display = held_display(item, d.left_handed);
+        let hm = held_transform(&m, offset, arm.rot, matches!(k, "baby_zombie" | "baby_zombie_villager"), d.left_handed, &display);
+        if let Some(t) = sprite_triangles_of(g, &display.3, &hm) {
+            out.extend(t);
         }
     }
     // its eyes layer over it, unshaded, never lit (`RenderTypes.eyes`: no lightmap) and without
@@ -1227,6 +1628,160 @@ mod tests {
         atlas.game.clone().unwrap()
     }
 
+    /// A humanoid's armor and the item in its hand (the census: skeletons' bows, zombies' spears and
+    /// shovels, leather, golden and copper armor in the terrain farms): each slot's pieces over the
+    /// model (`ADULT_ARMOR_PARTS_PER_SLOT`: head 2 boxes, chest 3, legs 3, feet 2; leather twice,
+    /// its base and overlay), never under the red overlay; the item a double-sided square at the
+    /// right hand, below the shoulder and in front of the body.
+    #[test]
+    fn a_humanoid_wears_its_armor_and_holds_its_item() {
+        let g = browser_game();
+        let bare = crate::mesh::MobDraw { eye_standing: 1.74, ..Default::default() };
+        let n0 = mob_triangles(&g, "minecraft:zombie", [0.0; 3], &bare).unwrap().len();
+        let box_v = 36;
+        let gold = crate::mesh::MobDraw { armor: [Some(2); 4], red: true, ..bare.clone() };
+        let t = mob_triangles(&g, "minecraft:zombie", [0.0; 3], &gold).unwrap();
+        assert_eq!(t.len(), n0 + (2 + 3 + 3 + 2) * box_v, "golden armor: 10 boxes");
+        assert!(t[n0..].iter().all(|v| v.layer != crate::atlas::GAME_LAYER_RED) && t[..n0].iter().all(|v| v.layer == crate::atlas::GAME_LAYER_RED), "armor without the red overlay");
+        let (lo, hi) = bounds(&t[n0..]);
+        let (mlo, mhi) = bounds(&t[..n0]);
+        assert!(hi[1] > mhi[1] && lo[0] < mlo[0], "the armor over the model: {lo:?}..{hi:?} vs {mlo:?}..{mhi:?}");
+        let leather = crate::mesh::MobDraw { armor: [Some(0), None, None, None], ..bare.clone() };
+        assert_eq!(mob_triangles(&g, "minecraft:skeleton", [0.0; 3], &leather).unwrap().len() - mob_triangles(&g, "minecraft:skeleton", [0.0; 3], &bare).unwrap().len(), 2 * 2 * box_v, "a leather helmet: its base and its overlay");
+        for item in ["minecraft:iron_shovel", "minecraft:bow", "minecraft:iron_spear", "minecraft:iron_ingot"] {
+            let holding = crate::mesh::MobDraw { held: Some(item.into()), ..bare.clone() };
+            let t = mob_triangles(&g, "minecraft:zombie", [0.0; 3], &holding).unwrap();
+            assert_eq!(t.len(), n0 + 12, "{item}: a double-sided square");
+            let (lo, hi) = bounds(&t[n0..]);
+            let c = [0, 1, 2].map(|k| (lo[k] + hi[k]) / 2.0);
+            // the zombie faces south (+z), its right hand at x < 0, its arms forward
+            assert!(c[0] < 0.0 && c[1] > 0.6 && c[1] < 1.9 && c[2] > 0.2, "{item}: at the right hand {c:?}");
+        }
+    }
+
+    /// A left-handed mob (redsim's spawn roll, `setLeftHanded`) holds its item in its left hand,
+    /// the other side of its body (a skeleton's bow aimed with its left arm; a zombie's spear held
+    /// out by its left: `SpearAnimations.thirdPersonHandUse`).
+    #[test]
+    fn a_left_handed_mob_holds_its_item_in_its_left_hand() {
+        let g = browser_game();
+        for (kind, item) in [("minecraft:zombie", "minecraft:iron_shovel"), ("minecraft:skeleton", "minecraft:bow"), ("minecraft:zombie", "minecraft:iron_spear")] {
+            let right = crate::mesh::MobDraw { eye_standing: 1.74, held: Some(item.into()), aggressive: true, ..Default::default() };
+            let left = crate::mesh::MobDraw { left_handed: true, ..right.clone() };
+            let centre = |d: &crate::mesh::MobDraw| {
+                let t = mob_triangles(&g, kind, [0.0; 3], d).unwrap();
+                let (lo, hi) = bounds(&t[t.len() - 12..]);
+                [0, 1, 2].map(|k| (lo[k] + hi[k]) / 2.0)
+            };
+            let (r, l) = (centre(&right), centre(&left));
+            assert!(r[0] < -0.1 && l[0] > 0.1, "{kind} {item}: right hand {r:?}, left hand {l:?}");
+        }
+    }
+
+    /// A zombie villager (the census: d1u-side's, adult and baby) draws with its own model and
+    /// texture, its biome's type a layer over the whole model (`VillagerProfessionLayer`: a baby's
+    /// own type textures; no profession, redsim keeps none), plains when redsim gives none.
+    #[test]
+    fn a_zombie_villager_wears_its_biome() {
+        let g = browser_game();
+        let inside = |v: &crate::mesh::Vertex, r: [u32; 4]| {
+            let (u, w) = (v.uv[0] * g.width as f32, v.uv[1] * g.height as f32);
+            u >= r[0] as f32 - 0.5 && u <= (r[0] + r[2]) as f32 + 0.5 && w >= r[1] as f32 - 0.5 && w <= (r[1] + r[3]) as f32 + 0.5
+        };
+        for (kind, folder) in [("minecraft:zombie_villager", "type"), ("minecraft:baby_zombie_villager", "baby")] {
+            for variant in [None, Some("desert")] {
+                let d = crate::mesh::MobDraw { eye_standing: 1.74, variant, ..Default::default() };
+                let t = mob_triangles(&g, kind, [0.0; 3], &d).unwrap();
+                // the model, then its type layer: the same parts again
+                assert_eq!(t.len() % 2, 0, "{kind}");
+                let (model, layer) = t.split_at(t.len() / 2);
+                let base = rect(&g, mob_texture(kind, 0, None).unwrap().0.as_str()).unwrap();
+                let ty = rect(&g, &format!("entity/zombie_villager/{folder}/{}", variant.unwrap_or("plains"))).unwrap();
+                assert!(model.iter().all(|v| inside(v, base)) && layer.iter().all(|v| inside(v, ty)), "{kind} {variant:?}: its base, then its type");
+            }
+        }
+    }
+
+    /// A sulfur cube (cross-4-underground's, from tick 7964) is two translucent cubes, its inner
+    /// body inside its outer (`SulfurCubeInnerLayer`, `SulfurCubeModel`: 16 and 18 pixels, an
+    /// adult of size 2 at half scale; a baby's `SmallSulfurCubeModel` 8 and 10 at full), standing
+    /// a hair above its feet (`downscaleSlightly`, the lift less a pixel); no solid faces.
+    #[test]
+    fn a_sulfur_cube_is_two_translucent_cubes() {
+        let g = browser_game();
+        let d = crate::mesh::MobDraw { eye_standing: 0.6, ..Default::default() };
+        for (kind, outer) in [("minecraft:sulfur_cube_2", 18.0 / 16.0), ("minecraft:sulfur_cube", 10.0 / 16.0)] {
+            assert!(mob_triangles(&g, kind, [0.0; 3], &d).unwrap().is_empty(), "{kind}: no solid faces");
+            let q = mob_translucent(&g, kind, [0.0; 3], &d);
+            assert_eq!(q.len(), 12, "{kind}: two cubes of six faces");
+            let all: Vec<Vertex> = q.iter().flatten().copied().collect();
+            let inner: Vec<Vertex> = q[..6].iter().flatten().copied().collect();
+            let ((lo, hi), (ilo, ihi)) = (bounds(&all), bounds(&inner));
+            assert!((hi[0] - lo[0] - outer * 0.999).abs() < 0.001 && lo[1] > 0.0 && lo[1] < 0.025, "{kind}: {lo:?}..{hi:?}");
+            assert!(ilo[0] > lo[0] && ilo[1] > lo[1] && ihi[1] < hi[1], "{kind}: the inner body inside the outer");
+        }
+    }
+
+    /// A wandering trader is the villagers' model (`WANDERING_TRADER`: `villagerBodyLayer`) with
+    /// its own texture, and an invisible one (after its night's potion: redsim's `invisible`) is
+    /// not drawn at all.
+    #[test]
+    fn a_wandering_trader_is_a_villager_and_hides() {
+        let g = browser_game();
+        let d = crate::mesh::MobDraw::default();
+        let trader = mob_triangles(&g, "minecraft:wandering_trader", [0.0; 3], &d).unwrap();
+        let villager = mob_triangles(&g, "minecraft:villager", [0.0; 3], &d).unwrap();
+        assert_eq!(trader.len(), villager.len());
+        assert!(trader.iter().zip(&villager).all(|(a, b)| a.pos == b.pos), "the villager's geometry");
+        let r = rect(&g, "entity/wandering_trader/wandering_trader").unwrap();
+        assert!(trader.iter().all(|v| v.uv[0] * g.width as f32 >= r[0] as f32 && v.uv[0] * g.width as f32 <= (r[0] + r[2]) as f32), "its own texture");
+        let hidden = crate::mesh::MobDraw { invisible: true, ..d };
+        assert!(mob_triangles(&g, "minecraft:wandering_trader", [0.0; 3], &hidden).unwrap().is_empty());
+    }
+
+    /// A cat wears its variant's texture (redsim's `variant`, `CatSpawner`'s pick; a design's
+    /// `variant:"minecraft:jellie"`), black without one (`Cat.DEFAULT_VARIANT`).
+    #[test]
+    fn a_cat_wears_its_variant() {
+        let g = browser_game();
+        for (variant, tex) in [(Some("jellie"), "entity/cat/cat_jellie"), (Some("all_black"), "entity/cat/cat_all_black"), (None, "entity/cat/cat_black")] {
+            let d = crate::mesh::MobDraw { variant, ..Default::default() };
+            let t = mob_triangles(&g, "minecraft:cat", [0.0; 3], &d).unwrap();
+            let r = rect(&g, tex).unwrap();
+            let inside = |v: &Vertex| {
+                let (u, w) = (v.uv[0] * g.width as f32, v.uv[1] * g.height as f32);
+                u >= r[0] as f32 - 0.5 && u <= (r[0] + r[2]) as f32 + 0.5 && w >= r[1] as f32 - 0.5 && w <= (r[1] + r[3]) as f32 + 0.5
+            };
+            assert!(!t.is_empty() && t.iter().all(inside), "{variant:?}: {tex}");
+        }
+        let design = crate::scene::still_mob("minecraft:cat", 0.0, false, Some("{variant:\"minecraft:siamese\"}"));
+        assert_eq!(design.and_then(|m| m.variant), Some("siamese"), "a design cat's own variant");
+    }
+
+    /// The browser's game texture (the blocks, the items, the entities, the particles: as
+    /// `mcview-web` packs it) fits the renderer's limits (`Limits::downlevel_webgl2_defaults`:
+    /// 2048 on each side, what every WebGL2 phone has): the armor's textures had made it 2080
+    /// tall, and wgpu refused it (no picture at all).
+    #[test]
+    fn the_game_texture_fits_webgl2() {
+        let mut atlas = crate::atlas::Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, w, h) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, w, h, &idx, &defs, &models).unwrap();
+        let blocks = (atlas.game.as_ref().unwrap().width, atlas.game.as_ref().unwrap().height);
+        let ((ep, ei), (ip, ii)) = crate::tools::vanilla_entity_assets().unwrap();
+        let (er, ew, eh) = crate::tools::decode_png(&ep).unwrap();
+        let (ir, iw, ih) = crate::tools::decode_png(&ip).unwrap();
+        atlas.add_game_entities((&er, ew, eh, &ei), (&ir, iw, ih, &ii)).unwrap();
+        let with_entities = atlas.game.as_ref().unwrap().height;
+        atlas.add_game_particles(&crate::tools::vanilla_particle_assets().unwrap()).unwrap();
+        let g = atlas.game.clone().unwrap();
+        let limit = wgpu::Limits::downlevel_webgl2_defaults().max_texture_dimension_2d;
+        eprintln!("blocks {blocks:?}, items {iw}x{ih}, with the entities {with_entities} tall, with the particles {}x{}", g.width, g.height);
+        assert!(g.width <= limit && g.height <= limit, "{}x{} over {limit}", g.width, g.height);
+    }
+
     /// Bounds (min, max) of triangles.
     fn bounds(v: &[Vertex]) -> ([f32; 3], [f32; 3]) {
         let lo = [0, 1, 2].map(|k| v.iter().map(|x| x.pos[k]).fold(f32::MAX, f32::min));
@@ -1249,6 +1804,12 @@ mod tests {
             // its wool's head (grown 0.6) over the model
             ("minecraft:sheep", 0.0, 22.6 / 16.0),
             ("minecraft:baby_zombie", 0.0, 15.15 / 16.0),
+            // its decor (`LLAMA_DECOR`, grown 0.5) over the model: half a pixel under its hooves
+            // and over its ears (the ears' tops 12 px over the 24 px of its legs and body)
+            ("minecraft:trader_llama", -0.5 / 16.0, 36.5 / 16.0),
+            // `CAT_TRANSFORMER` (scaled 0.8 about 24.016 px): its ears' tops at 12 px, its front
+            // feet at 24.1 px (a front leg's 10 px from 14.1)
+            ("minecraft:cat", 1.501 - (24.1 * 0.8 + 24.016 * 0.2) / 16.0, 1.501 - (12.0 * 0.8 + 24.016 * 0.2) / 16.0),
         ] {
             let tris = mob_triangles(&g, kind, [0.0; 3], &d).unwrap_or_else(|| panic!("{kind}: no model"));
             let (lo, hi) = bounds(&tris);

@@ -63,6 +63,14 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
                 if matches!(on_state, Block::Farmland { .. }) {
                     crate::stems::fall_on(w);
                 }
+                // (mob-AI 2026-11-11) Block.fallOn's causeFallDamage: Entity's passes the fall on
+                // to the passengers (a minecart's riders; no modeled vehicle here is
+                // #fall_damage_immune)
+                if !w.entities.list[i].passengers.is_empty() {
+                    let distance = w.entities.list[i].fall_distance;
+                    let (_, mult, modifier) = super::mob::living::fall_on_factors(&on_state);
+                    super::mob::living::propagate_fall(w, i, distance * mult, modifier);
+                }
                 // the HIT_GROUND game event at the entity, its affected state the main
                 // supporting block's (else onState); an item of #dampens_vibrations is not heard
                 let e = &w.entities.list[i];

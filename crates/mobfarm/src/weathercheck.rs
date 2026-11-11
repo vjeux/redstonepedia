@@ -377,14 +377,15 @@ fn outcome(villagers: usize, witches: usize, boats: usize, zombie_hp: Option<f32
 /// (tickexact 2026-11-11, ironspec's weather gap: the card's "clear day" against the headline) The
 /// golems a game day, day by day, at the judge's site `build` of the design, under three weather
 /// plans with the judge's run options: the card's windows probe (`Windows`: a natural day, then a
-/// forced day of rain, then of thunder; its seeds), the headline's natural cycle (`Cycle`; the build
+/// forced day of rain, then of thunder; on the build's headline seeds, as the card's probe takes
+/// them since tickexact 2026-11-11), the headline's natural cycle (`Cycle`; the build
 /// runs' seeds, `days` long) and no weather (`Off`; the same seeds). Each day's golems an hour over
 /// the runs, with a 95% interval.
-pub fn weather_days_cmd(spec: &farm::FarmSpec, site: &'static redsim::entity::mob::site::Site, build: u32, runs: u32, days: u32) -> Result<()> {
+pub fn weather_days_cmd(spec: &farm::FarmSpec, site: &'static redsim::entity::mob::site::Site, build: u32, runs: u32, days: u32, bins: u32) -> Result<()> {
     let moved = site.spec(spec);
     let seed0 = farm::JUDGE_SEED0;
     let plans: Vec<(&str, Plan, Vec<i64>, u32)> = vec![
-        ("windows (the card's: day 1 natural, 2 rain, 3 thunder)", Plan::Windows { at: 24000, rain: 24000, thunder: 24000 }, (0..runs).map(|k| seed0 + 4242 + k as i64).collect(), 3),
+        ("windows (the card's: day 1 natural, 2 rain, 3 thunder; the build's headline seeds)", Plan::Windows { at: 24000, rain: 24000, thunder: 24000 }, (0..runs).map(|k| seed0 + build as i64 * 1000 + k as i64).collect(), 3),
         ("cycle (the headline's)", Plan::Cycle, (0..runs).map(|k| seed0 + build as i64 * 1000 + k as i64).collect(), days),
         ("off (no weather)", Plan::Off, (0..runs).map(|k| seed0 + build as i64 * 1000 + k as i64).collect(), days),
     ];
@@ -403,6 +404,18 @@ pub fn weather_days_cmd(spec: &farm::FarmSpec, site: &'static redsim::entity::mo
         let mean_all = reports.iter().map(|r| r.golems_per_hour()).sum::<f64>() / reports.len() as f64;
         line.push_str(&format!("; whole runs {mean_all:.1} golems/h"));
         println!("{line}");
+        // (with `bins`: each day's golems a run in `bins` equal parts of the day, from the settle)
+        if bins > 0 {
+            let w = 24000 / bins as i64;
+            for day in 0..d as i64 {
+                let a = farm::SETTLE_TICKS + day * 24000;
+                let parts: Vec<String> = (0..bins as i64).map(|k| {
+                    let (lo, hi) = (a + k * w, a + (k + 1) * w);
+                    format!("{:.2}", reports.iter().map(|r| r.spawn_times.iter().filter(|t| (lo..hi).contains(*t)).count()).sum::<usize>() as f64 / reports.len() as f64)
+                }).collect();
+                println!("  day {} by {w} gt from tick {a}: {}", day + 1, parts.join(" "));
+            }
+        }
     }
     Ok(())
 }

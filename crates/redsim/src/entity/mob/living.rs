@@ -783,7 +783,11 @@ fn jump_out_of_fluid(w: &mut World, i: usize, old_y: f64) {
 /// The block effects `checkInsideBlocks` collected this tick ([`entity_inside`], [`fluid_inside`]),
 /// applied step by step (`StepBasedCollector.flushStep`), each step's in the
 /// `InsideBlockEffectType` order: FIRE_IGNITE with its `inFire` hurt, LAVA_IGNITE (15 s of fire)
-/// with `lavaHurt` after it (4), then EXTINGUISH (water puts the fire out).
+/// with `lavaHurt` after it (4), then EXTINGUISH (water puts the fire out). (mob-AI 2026-11-11)
+/// The type's effect runs once a step, but its `runAfter` action once per cell the step met: a
+/// mob over 3 lava cells is hurt 3 times. The invulnerable time absorbs the repeats, but an
+/// enderman's hurtServer rolls its teleport on each one (d1u-underground village-edge b5
+/// t99362: three rolls and three teleports in one tick).
 fn apply_block_effects(w: &mut World, i: usize) {
     let fx = std::mem::take(&mut mob_mut(w, i).inside);
     // `StepBasedCollector.applyAndClear`: every effect runs only while the entity is alive (a
@@ -792,7 +796,7 @@ fn apply_block_effects(w: &mut World, i: usize) {
     for step in fx.steps {
         if step.fire && alive(w, i) {
             // mobinfra: FIRE_IGNITE (`BaseFireBlock.fireIgnite`: -1 counts up to 0, from 0 8 s of
-            // fire) then its 1 `inFire` damage, before LAVA_IGNITE
+            // fire) then each fire cell's 1 `inFire` damage, before LAVA_IGNITE
             let t160 = super::ignite_ticks(w, i, 160);
             let m = mob_mut(w, i);
             if !m.ty.def().fire_immune {
@@ -803,25 +807,36 @@ fn apply_block_effects(w: &mut World, i: usize) {
                     m.fire_ticks = t160;
                 }
             }
-            if alive(w, i) {
+            for _ in 0..step.fire_cells.max(1) {
+                if !alive(w, i) {
+                    break;
+                }
                 hurt(w, i, Damage::InFire, 1.0);
             }
         }
         if step.lava && alive(w, i) {
+            // LAVA_IGNITE (`lavaIgnite`: 15 s of fire unless fire immune), then each lava cell's
+            // `lavaHurt`: the 15 s again, then a hurt that lands plays GENERIC_BURN, its pitch from
+            // the entity's own random (`2.0F + random.nextFloat() * 0.4F`)
             let t300 = super::ignite_ticks(w, i, 300);
-            let m = mob_mut(w, i);
-            if !m.ty.def().fire_immune {
-                // igniteForTicks(300) (x BURNING_TIME) then lavaHurt: a hurt that lands plays
-                // GENERIC_BURN, its pitch from the entity's own random (`2.0F + random.nextFloat()
-                // * 0.4F`)
+            if !mob(w, i).ty.def().fire_immune {
+                let m = mob_mut(w, i);
                 if m.fire_ticks < t300 {
                     m.fire_ticks = t300;
                 }
-                if alive(w, i)
-                    && hurt(w, i, Damage::Lava, 4.0)
-                    && let Some(r) = w.entities.list[i].random.as_mut()
-                {
-                    r.next_float();
+                for _ in 0..step.lava_cells.max(1) {
+                    if !alive(w, i) {
+                        break;
+                    }
+                    let m = mob_mut(w, i);
+                    if m.fire_ticks < t300 {
+                        m.fire_ticks = t300;
+                    }
+                    if hurt(w, i, Damage::Lava, 4.0)
+                        && let Some(r) = w.entities.list[i].random.as_mut()
+                    {
+                        r.next_float();
+                    }
                 }
             }
         }
@@ -843,7 +858,9 @@ pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos) {
     let _ = p;
     match s {
         Block::Fire { .. } => {
-            mob_mut(w, i).inside.now().fire = true;
+            let st = mob_mut(w, i).inside.now();
+            st.fire = true;
+            st.fire_cells = st.fire_cells.saturating_add(1);
         }
         _ => {}
     }
@@ -854,7 +871,9 @@ pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos) {
 /// (`WaterFluid.entityInside`), collected for [`apply_block_effects`].
 pub fn fluid_inside(w: &mut World, i: usize, lava: bool) {
     if lava {
-        mob_mut(w, i).inside.now().lava = true;
+        let st = mob_mut(w, i).inside.now();
+        st.lava = true;
+        st.lava_cells = st.lava_cells.saturating_add(1);
     } else {
         mob_mut(w, i).inside.now().water = true;
     }
@@ -1400,29 +1419,13 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
         let on = entity::collide::get_on_pos(w, &w.entities.list[i], 0.2);
         let on_state = w.get(on);
         let distance = w.entities.list[i].fall_distance;
-        // (mob-AI 2026-11-10) the landing block's fallOn: a bed or a shelf mushroom halves the fall
-        // (fallDistanceReduction 0.5F), hay and honey take a 0.2F damage modifier, slime none;
-        // farmland's trampling roll (the level random) first
-        let id = match &on_state {
-            Block::Terrain(t) => crate::terrain::blocks::props(*t).block_id().to_string(),
-            Block::Bed { .. } => "minecraft:red_bed".to_string(),
-            Block::Simple(Simple::SlimeBlock) => "minecraft:slime_block".to_string(),
-            Block::Simple(Simple::HoneyBlock) => "minecraft:honey_block".to_string(),
-            Block::Farmland { .. } => "minecraft:farmland".to_string(),
-            _ => String::new(),
-        };
-        if id == "minecraft:farmland" {
+        let (farmland, mult, modifier) = fall_on_factors(&on_state);
+        if farmland {
             let (wd, ht) = mob(w, i).dims();
             let griefing = w.mob.ai.mob_griefing;
             crate::stems::mob_fall_on(w, on, distance, wd, ht, griefing);
         }
-        let bed = id.ends_with("_bed") || id == "minecraft:shelf_mushroom";
-        let distance = if bed { distance * (1.0f32 - 0.5f32) as f64 } else { distance };
-        let modifier = match id.as_str() {
-            "minecraft:slime_block" => 0.0f32,
-            "minecraft:hay_block" | "minecraft:honey_block" => 0.2f32,
-            _ => 1.0f32,
-        };
+        let distance = distance * mult;
         if modifier > 0.0 && !chicken {
             cause_fall_damage(w, i, distance, modifier);
         }
@@ -1436,9 +1439,35 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
     }
 }
 
+/// (mob-AI 2026-11-10) The landing block's `fallOn`: whether it is farmland (its trampling roll
+/// on the level random comes first), the fall's multiplier (a bed or a shelf mushroom halves it:
+/// fallDistanceReduction 0.5F) and the damage modifier (hay and honey 0.2F, slime none, else 1).
+pub(crate) fn fall_on_factors(on_state: &Block) -> (bool, f64, f32) {
+    let id = match on_state {
+        Block::Terrain(t) => crate::terrain::blocks::props(*t).block_id().to_string(),
+        Block::Bed { .. } => "minecraft:red_bed".to_string(),
+        Block::Simple(Simple::SlimeBlock) => "minecraft:slime_block".to_string(),
+        Block::Simple(Simple::HoneyBlock) => "minecraft:honey_block".to_string(),
+        Block::Farmland { .. } => "minecraft:farmland".to_string(),
+        _ => String::new(),
+    };
+    let bed = id.ends_with("_bed") || id == "minecraft:shelf_mushroom";
+    let mult = if bed { (1.0f32 - 0.5f32) as f64 } else { 1.0 };
+    let modifier = match id.as_str() {
+        "minecraft:slime_block" => 0.0f32,
+        "minecraft:hay_block" | "minecraft:honey_block" => 0.2f32,
+        _ => 1.0f32,
+    };
+    (id == "minecraft:farmland", mult, modifier)
+}
+
 /// `LivingEntity.causeFallDamage(distance, modifier, fall)`: `floor((distance + 1e-6 - 3) x
-/// modifier)` damage unless immune (`calculateFallDamage`).
-fn cause_fall_damage(w: &mut World, i: usize, distance: f64, modifier: f32) {
+/// modifier)` damage unless immune (`calculateFallDamage`). (mob-AI 2026-11-11) Its passengers
+/// first (`super.causeFallDamage`: Entity's `propagateFallToPassengers`, none from a
+/// `#fall_damage_immune` vehicle): a spider jockey's skeleton is hurt by the spider's landing
+/// (d1u-deep village-edge b10 t32541). A horse's or a trader llama's (`AbstractHorse` /
+/// `Llama.causeFallDamage`) pass it on only after their own damage, and only when they took some.
+pub(crate) fn cause_fall_damage(w: &mut World, i: usize, distance: f64, modifier: f32) {
     if mob(w, i).ty.def().fall_immune {
         return;
     }
@@ -1447,11 +1476,27 @@ fn cause_fall_damage(w: &mut World, i: usize, distance: f64, modifier: f32) {
         let dmg = mth::floor((distance + 1.0e-6 - 6.0) * modifier as f64 * 0.5);
         if dmg > 0 {
             hurt(w, i, Damage::Fall, dmg as f32);
+            propagate_fall(w, i, distance, modifier);
         }
         return;
     }
+    propagate_fall(w, i, distance, modifier);
     let dmg = mth::floor((distance + 1.0e-6 - 3.0) * modifier as f64);
     if dmg > 0 {
         hurt(w, i, Damage::Fall, dmg as f32);
+    }
+}
+
+/// `Entity.propagateFallToPassengers`: each mob passenger's `causeFallDamage` with the same fall,
+/// in passenger order (the caller checked the vehicle is not `#fall_damage_immune`).
+pub(crate) fn propagate_fall(w: &mut World, i: usize, distance: f64, modifier: f32) {
+    let passengers = w.entities.list[i].passengers.clone();
+    for p in passengers {
+        if let Some(j) = crate::entity::index_of(w, p)
+            && matches!(w.entities.list[j].kind, EntityKind::Mob(_))
+            && !w.entities.list[j].removed
+        {
+            cause_fall_damage(w, j, distance, modifier);
+        }
     }
 }

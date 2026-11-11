@@ -1477,6 +1477,9 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     if let Some(r) = &a.restore {
         return restore(&repo, &a.farm, &a.stage, &a.designs, r);
     }
+    if a.relight {
+        return relight(&repo, &a.farm, &a.stage, &a.designs);
+    }
     let study = "mobfarm";
     let dir = repo.join("designs/farms").join(&a.farm).join(&a.stage);
     std::fs::create_dir_all(&dir)?;
@@ -1544,6 +1547,62 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     write_verdicts(&dir, &rows)?;
     write_variations(&dir, &vars)?;
     Ok(())
+}
+
+/// `site variation --relight`: the lightning line of each variation named (or of every row of the
+/// stage) measured again on redsim, its `lightning` and `thunder loss` metrics replaced in its row
+/// and in its design's `# CIRCUIT:` line, nothing else touched: the row's other metrics (the
+/// real-game gate's lines among them) and its date stay (farmopt 2026-11-11, the fire measure's
+/// re-card: "that line only; gate lines and the rest untouched"). A row with no lightning line is
+/// left as it is, and said so.
+fn relight(repo: &Path, farm: &str, stage: &str, designs: &[PathBuf]) -> Result<()> {
+    let dir = repo.join("designs/farms").join(farm).join(stage);
+    let mut rows = circuit::archive::read_rows(&dir)?;
+    let paths: Vec<PathBuf> = if designs.is_empty() { rows.iter().map(|r| dir.join(&r.file)).collect() } else { designs.to_vec() };
+    let (mut done, mut left) = (0, Vec::new());
+    for path in &paths {
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let c = circuit::Circuit::load(path)?;
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let file = format!("{stem}.txt");
+        let Some(row) = rows.iter_mut().find(|r| r.file == file) else { bail!("{file}: no row in {stage}'s verdicts.tsv to re-light") };
+        let Some(old) = lightning_part(&row.metrics).map(str::to_string) else {
+            println!("{file}: no lightning line on its card: left as it is");
+            left.push(file);
+            continue;
+        };
+        let judged = judge_for_stage(path, &text, &c, stage, &file, false).map_err(|why| anyhow::anyhow!("{}: {why}", path.display()))?;
+        let Some(new) = lightning_part(&judged.metrics).map(str::to_string) else { bail!("{file}: its judge printed no lightning line") };
+        row.metrics = row.metrics.replacen(&old, &new, 1);
+        // (the row's `summary`, its `CIRCUIT:` line, carries the same metrics)
+        row.summary = row.summary.replacen(&old, &new, 1);
+        // (its design's `# CIRCUIT:` line carries the same metrics, or an older judge's: its own
+        // lightning part is replaced either way)
+        let design = dir.join(&file);
+        let body = std::fs::read_to_string(&design).with_context(|| format!("reading {}", design.display()))?;
+        if let Some(first) = body.lines().next().filter(|l| l.starts_with("# CIRCUIT: "))
+            && let Some(mine) = lightning_part(first)
+            && mine != new
+        {
+            let line = first.replacen(mine, &new, 1);
+            std::fs::write(&design, body.replacen(first, &line, 1))?;
+        }
+        println!("{file}:\n  before: {old}\n  after:  {new}");
+        done += 1;
+    }
+    write_verdicts(&dir, &rows)?;
+    println!("{stage}: {done} lightning lines measured again{}", if left.is_empty() { String::new() } else { format!("; no lightning line on {} ({})", left.len(), left.join(" ")) });
+    Ok(())
+}
+
+/// The `lightning …, thunder loss …` part of a mob farm's metrics: from its `lightning` metric up
+/// to its `sunburn` metric, the three the judge writes in that order (a line written before
+/// 2026-11-11 held ", " itself, so a split at ", " cannot find its end).
+fn lightning_part(metrics: &str) -> Option<&str> {
+    let start = metrics.find(", lightning ")? + 2;
+    let end = start + metrics[start..].find(", sunburn ")?;
+    let part = &metrics[start..end];
+    part.contains(", thunder loss ").then_some(part)
 }
 
 /// The pick `site variation` sets: `yes` for `--pick`, the fork value of `--pick-for` (a word:

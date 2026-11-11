@@ -337,7 +337,7 @@ pub struct PreviewArgs {
 pub struct VariationArgs {
     /// Farm design files (each passes its kind's judge on redsim, and a mob farm the real-game
     /// gate `circuit archive` runs).
-    #[arg(required_unless_present = "regate")]
+    #[arg(required_unless_present_any = ["regate", "relight"])]
     pub designs: Vec<PathBuf>,
     /// The farm (its folder under designs/farms/).
     #[arg(long, default_value = "iron")]
@@ -371,6 +371,13 @@ pub struct VariationArgs {
     /// kept. Nothing is judged or gated.
     #[arg(long, value_name = "REF", conflicts_with_all = ["regate", "no_gate", "pick", "pick_for", "name"])]
     pub restore: Option<String>,
+    /// Measure only the lightning line again, for the stage's every variation (or the designs
+    /// named): each is judged on redsim (no game gate) and its card's `lightning` and `thunder
+    /// loss` metrics are replaced, in its row and in its design's `# CIRCUIT:` line; the rest of
+    /// the row (the real-game gate's lines among them) and its date stay (farmopt 2026-11-11: the
+    /// fire measure's re-card, "that line only"). A row with no lightning line is left as it is.
+    #[arg(long, conflicts_with_all = ["regate", "no_gate", "pick", "pick_for", "name", "restore"])]
+    pub relight: bool,
 }
 
 #[derive(Args)]

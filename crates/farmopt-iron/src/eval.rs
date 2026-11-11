@@ -515,7 +515,11 @@ pub fn eval_full(c: &Cand, ctx: &Ctx, st: &Metrics) -> Result<Evaluation, String
     // after the other left most of the machine idle)
     let (base, results): (std::result::Result<mobfarm::BaseChecks, String>, Vec<std::result::Result<Vec<RunReport>, String>>) = std::thread::scope(|s| {
         let jo = &jo;
-        let b = s.spawn(|| mobfarm::base_checks(&builds[0].0, &builds[0].1, jo));
+        let bref = &builds;
+        let b = s.spawn(move || {
+            let specs: Vec<_> = bref.iter().map(|(_, sp)| (sp, jo)).collect();
+            mobfarm::base_checks_with(&bref[0].0, &bref[0].1, jo, &specs)
+        });
         let hs: Vec<_> = builds.iter().enumerate().map(|(k, (_, sp))| s.spawn(move || mobfarm::build_runs(sp, jo, k as u32, WalkMode::Random))).collect();
         let results = hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect();
         (b.join().unwrap_or_else(|_| Err("the base checks panicked".to_string())), results)

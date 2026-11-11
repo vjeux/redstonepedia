@@ -129,6 +129,12 @@ impl FarmSpec {
     pub fn inner(&self) -> Aabb {
         Aabb::new(self.lo.x as f64 + 1.0, self.lo.y as f64 + 1.0, self.lo.z as f64 + 1.0, self.hi.x as f64, self.hi.y as f64, self.hi.z as f64)
     }
+
+    /// Whether the design holds a bed head: a file with none is a part (a loop or station part
+    /// whose villagers ride), whose golem flood runs homeless ([`super::exit::golem_exit_part`]).
+    pub fn has_bed(&self) -> bool {
+        self.blocks.iter().any(|(_, b)| super::blocks::is_bed_head(b))
+    }
 }
 
 /// How the golems of a run walk.
@@ -507,6 +513,17 @@ impl Run {
     /// each villager's HOME (the bed head nearest its feet within 2.5) and, in the steady state, a
     /// LAST_SLEPT at the end of the last REST (day time 10); a fixed walking policy.
     pub fn arrive(&mut self) -> Result<(), String> {
+        self.arrive_with(true)
+    }
+
+    /// [`Run::arrive`] for a part file that holds no bed (ironspec Nov 11 14:00: a part's golem
+    /// flood runs before the farm is assembled): no villager gets a HOME (no bed search, no
+    /// ticket), each one stays at its declared position as a summoner; the rest is the same.
+    pub fn arrive_homeless(&mut self) -> Result<(), String> {
+        self.arrive_with(false)
+    }
+
+    fn arrive_with(&mut self, homes: bool) -> Result<(), String> {
         while self.settle_tick() {}
         self.place_detectors();
         let w = &mut self.world;
@@ -536,6 +553,14 @@ impl Run {
                     && b.last_slept.is_none()
                 {
                     b.last_slept = Some(slept);
+                }
+                continue;
+            }
+            if !homes {
+                if let EntityKind::Mob(m) = &mut w.entities.list[i].kind
+                    && let Some(b) = m.brain.as_deref_mut()
+                {
+                    b.last_slept = if self.o.slept { Some(slept) } else { None };
                 }
                 continue;
             }
@@ -583,6 +608,13 @@ impl Run {
             _ => {}
         }
         Ok(())
+    }
+
+    /// [`Run::start`], every settle tick, [`Run::arrive_homeless`]: a part file with no bed.
+    pub fn new_homeless(spec: &FarmSpec, o: &RunOpts) -> Result<Run, String> {
+        let mut r = Run::start(spec, o)?;
+        r.arrive_homeless()?;
+        Ok(r)
     }
 
     /// [`Run::start`], every settle tick, [`Run::arrive`].

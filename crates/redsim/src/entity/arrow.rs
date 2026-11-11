@@ -304,18 +304,24 @@ fn tick_spit(w: &mut World, i: usize) {
     let bh = los::clip_collider(w, from, to);
     let end = if bh.miss { to } else { bh.location };
     let entity_hit = find_hit_entity_spit(w, i, from, end);
-    if let Some((j, at)) = entity_hit {
-        hit_entity_spit(w, i, j, at);
-    } else if !bh.miss {
-        let state = w.get(bh.pos);
-        if !state.is_air() {
-            if reacts_to_projectiles(&state) {
-                refuse(w, "a llama's spit hitting a block that reacts to projectiles is not modeled");
+    match entity_hit {
+        Some(SpitHit::Entity(j, at)) => hit_entity_spit(w, i, j, at),
+        // (mob-AI 2026-11-11) a player hit: LlamaSpit.onHitEntity's hurtServer refuses on a
+        // creative player (abilities.invulnerable); Projectile.onHit's land game event at the
+        // hit; the spit flies on
+        Some(SpitHit::Player(at)) => w.game_event_at("projectile_land", [at.x, at.y, at.z], None, false),
+        None if !bh.miss => {
+            let state = w.get(bh.pos);
+            if !state.is_air() {
+                if reacts_to_projectiles(&state) {
+                    refuse(w, "a llama's spit hitting a block that reacts to projectiles is not modeled");
+                }
+                w.entities.list[i].removed = true;
+                let at = [bh.pos.x as f64 + 0.5, bh.pos.y as f64 + 0.5, bh.pos.z as f64 + 0.5];
+                w.game_event_at("projectile_land", at, Some(state), false);
             }
-            w.entities.list[i].removed = true;
-            let at = [bh.pos.x as f64 + 0.5, bh.pos.y as f64 + 0.5, bh.pos.z as f64 + 0.5];
-            w.game_event_at("projectile_land", at, Some(state), false);
         }
+        None => {}
     }
     let (x, y, z) = (from.x + movement.x, from.y + movement.y, from.z + movement.z);
     {
@@ -350,10 +356,19 @@ fn tick_spit(w: &mut World, i: usize) {
     w.entities.set_pos(i, Vec3::new(x, y, z));
 }
 
+/// What a spit's move hits first: an entity (its index) or a player, at the clip point.
+enum SpitHit {
+    Entity(usize, Vec3),
+    Player(Vec3),
+}
+
 /// `ProjectileUtil.getEntityHitResult` for a spit: over its box swept by its motion and grown by
 /// 1 (the level's section order), each entity it can hit whose box grown by the margin the
-/// segment crosses, the nearest clip point from `from` (the first of a tie).
-fn find_hit_entity_spit(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Option<(usize, Vec3)> {
+/// segment crosses, the nearest clip point from `from` (the first of a tie). (mob-AI 2026-11-11)
+/// The players are entities to that search too (`Player.isPickable`: not a spectator): the
+/// AFK player nearer than a mob takes the hit (bed-plate-dug12 village-edge b9 t84762: the spit
+/// hit the creative player, not the llama behind it).
+fn find_hit_entity_spit(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Option<SpitHit> {
     let e = &w.entities.list[i];
     let d = e.delta_movement;
     let area = e.bb.expand_towards(d.x, d.y, d.z).inflate(1.0, 1.0, 1.0);
@@ -361,19 +376,55 @@ fn find_hit_entity_spit(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Option
     let id = e.id;
     let candidates = w.get_entities(area, |x| x.id != id);
     let mut best: Option<(usize, Vec3, f64)> = None;
+    let trace = std::env::var("MCTAS_TRACE_SPIT").is_ok();
+    if trace {
+        let e = &w.entities.list[i];
+        eprintln!("spit t{} #{}: tick_count {} margin {m} from {:?} to {:?} candidates {:?}", w.time, e.id, e.tick_count, (from.x, from.y, from.z), (to.x, to.y, to.z), candidates.iter().map(|&j| w.entities.list[j].id).collect::<Vec<_>>());
+    }
     for j in candidates {
         if !can_hit(w, i, j) {
             continue;
         }
-        if let Some(p) = collide::clip(w.entities.list[j].bb.inflate(m, m, m), from, to) {
+        let hit = collide::clip(w.entities.list[j].bb.inflate(m, m, m), from, to);
+        if trace {
+            let b = w.entities.list[j].bb;
+            eprintln!("spit t{}:   #{} bb ({}, {}, {})..({}, {}, {}) clip {:?}", w.time, w.entities.list[j].id, b.min_x, b.min_y, b.min_z, b.max_x, b.max_y, b.max_z, hit.map(|p| (p.x, p.y, p.z)));
+        }
+        if let Some(p) = hit {
             let dd = from.distance_to_sqr(p);
             if best.as_ref().is_none_or(|b| dd < b.2) {
                 best = Some((j, p, dd));
             }
         }
     }
-    refuse_players_in_the_way(w, from, to, m);
-    best.map(|(j, p, _)| (j, p))
+    let mut player: Option<(Vec3, f64, bool)> = None;
+    for p in w.mob.ai.players.iter().filter(|p| p.mode != crate::entity::mob::ai::GameMode::Spectator) {
+        let pb = crate::entity::make_bounding_box(p.pos, crate::entity::mob::ai::target::PLAYER_WIDTH, crate::entity::mob::ai::target::PLAYER_HEIGHT);
+        if !pb.intersects(area) {
+            continue;
+        }
+        if let Some(hit) = collide::clip(pb.inflate(m, m, m), from, to) {
+            let dd = from.distance_to_sqr(hit);
+            if player.as_ref().is_none_or(|q| dd < q.1) {
+                // Player.hurtServer refuses while abilities.invulnerable (creative) or invulnerable
+                let unhurt = p.mode == crate::entity::mob::ai::GameMode::Creative || p.invulnerable;
+                player = Some((hit, dd, unhurt));
+            }
+        }
+    }
+    if trace {
+        eprintln!("spit t{}:   player {:?}", w.time, player.map(|(p, dd, u)| ((p.x, p.y, p.z), dd, u)));
+    }
+    match (best, player) {
+        (b, Some((at, dd, unhurt))) if b.as_ref().is_none_or(|b| dd < b.2) => {
+            if !unhurt {
+                refuse(w, "a llama's spit hurting a player is not modeled");
+            }
+            Some(SpitHit::Player(at))
+        }
+        (Some((j, p, _)), _) => Some(SpitHit::Entity(j, p)),
+        _ => None,
+    }
 }
 
 /// `LlamaSpit.onHitEntity` (no entity here deflects it), then the land game event: 1 `spit`
