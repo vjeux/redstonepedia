@@ -478,7 +478,8 @@ pub enum MobfarmCmd {
         stand_wired: bool,
         /// With --stand-wired: the stand's fault guard: the booster-ups plain rails, each gate
         /// slope powered from its own gate's driver dust (boosting only while its gate is open),
-        /// so no cart drifting back from a crowded pocket is boosted back through G1/G2.
+        /// so no cart drifting back from a crowded pocket is boosted back through G1/G2; and C, the
+        /// D1 fallback: the latch set at REL's fall + 39 gt if D1 has not set it (a timer on REL).
         #[arg(long)]
         stand_guard: bool,
         #[arg(long)]

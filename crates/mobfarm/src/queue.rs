@@ -399,7 +399,8 @@ pub struct LoopOpts {
     /// plain rails, and each gate slope powered from its own gate's driver dust (a stone under the
     /// dust) instead of a redstone block, so it boosts only while its gate is open: a cart that
     /// drifts back from a crowded pocket is braked and held on a shut gate's slope, then launched
-    /// forward when the gate opens; none is boosted back through G1/G2.
+    /// forward when the gate opens; none is boosted back through G1/G2. With it, C: the D1
+    /// fallback (`stand_circuit`), the latch set at REL's fall + 39 gt when D1 has not set it.
     pub stand_guard: bool,
 }
 
@@ -1088,6 +1089,63 @@ pub fn stand_circuit(ox: i32, guard: bool) -> Vec<([i32; 3], String)> {
         put(0, -3, 2, "glass");
         put(0, -2, 1, &r(2, "south"));
         put(0, -3, 1, "glass");
+        // C, the D1 fallback's set input F: G1's step dust a stone, G1's driver fed from a dust on
+        // it (down its north side, still instant), a stone over F (cuts F's diagonals to that
+        // dust and to the bus; glass over it: no golem spawns there), F pointing into Y from its
+        // stone, which torch T3 under it strongly powers
+        put(4, -1, 2, "stone");
+        put(4, 0, 2, &wire("side", "none", "side", "none", 0));
+        put(5, 0, 2, "stone");
+        put(5, 1, 2, "glass");
+        put(5, -1, 2, &wire("side", "side", "side", "side", 15));
+        put(5, -2, 2, "stone");
+        put(5, -3, 2, "redstone_torch[lit=true]");
+        // C's timer: REL tapped from G0's stone by TP into S; the dust under S, down a dust line to
+        // repeater Dr (direct) and, through the stone under its first dust, the chain K1..K5
+        // (delayed); the two meet at the dust Xd (its east stone and its support, both strongly
+        // powered), which points into a dust Rq reads, Rq through a dust into B3: T3 on B3 is not
+        // (REL or REL delayed): lit from REL's fall + 37 gt to the next REL + 9, so the latch is
+        // set at REL's fall + 39 if D1 has not set it, and released 11 gt into the next REL
+        put(7, -3, 1, &r(1, "east"));
+        put(7, -4, 1, "glass");
+        put(6, -3, 1, "stone");
+        put(6, -4, 1, &wire("side", "none", "side", "none", 0));
+        put(6, -5, 1, "stone");
+        put(6, -4, 2, &wire("side", "side", "none", "none", 0));
+        put(6, -5, 2, "glass");
+        put(7, -4, 2, &wire("none", "none", "side", "side", 0));
+        put(7, -5, 2, "glass");
+        put(7, -4, 3, &wire("side", "none", "side", "none", 0));
+        put(7, -5, 3, "glass");
+        put(7, -4, 4, &r(1, "north"));
+        put(7, -5, 4, "glass");
+        put(7, -4, 5, "stone");
+        put(7, -3, 5, "glass");
+        let kd = [4, 4, 2, 2, 3];
+        put(7, -5, 1, &r(kd[0], "west"));
+        put(7, -6, 1, "glass");
+        put(8, -5, 1, "stone");
+        for (i, z) in [2, 3, 4].into_iter().enumerate() {
+            put(8, -5, z, &r(kd[1 + i], "north"));
+            put(8, -6, z, "glass");
+        }
+        // (a dust turn, not a stone: no golem spawns on it)
+        put(8, -5, 5, &wire("side", "none", "none", "side", 0));
+        put(8, -6, 5, "glass");
+        put(7, -5, 5, &r(kd[4], "east"));
+        put(7, -6, 5, "glass");
+        put(6, -5, 5, "stone");
+        put(6, -4, 5, &wire("none", "side", "none", "side", 0));
+        put(5, -4, 5, &wire("side", "side", "none", "none", 0));
+        put(5, -5, 5, "glass");
+        put(5, -4, 4, &r(2, "south"));
+        put(5, -5, 4, "glass");
+        put(5, -4, 3, &wire("side", "none", "side", "none", 0));
+        put(5, -5, 3, "glass");
+        put(5, -4, 2, "stone");
+    } else {
+        put(4, -1, 2, &wire("side", "none", "up", "none", 0));
+        put(4, -2, 2, "glass");
     }
     put(8, -2, 2, "glass");
     // REL's dust, up a glass step into O
@@ -1100,7 +1158,6 @@ pub fn stand_circuit(ox: i32, guard: bool) -> Vec<([i32; 3], String)> {
     put(6, 0, 3, &wire("side", "side", "side", "side", 0));
     put(5, 0, 3, &wire("none", "side", "none", "side", 0));
     put(4, 0, 3, &wire("side", "side", "none", "side", 0));
-    put(4, -1, 2, &wire("side", "none", "up", "none", 0));
     for x in 1..=3 {
         put(x, 0, 3, &wire("none", "side", "none", "side", 0));
     }
@@ -1112,7 +1169,6 @@ pub fn stand_circuit(ox: i32, guard: bool) -> Vec<([i32; 3], String)> {
     // (a stone step: power goes down it, a glass one would only let it up)
     put(4, -1, 3, "stone");
     put(0, -1, 2, "glass");
-    put(4, -2, 2, "glass");
     put(6, 0, 4, &wire("side", "none", "side", "none", 0));
     put(6, -1, 4, "stone");
     put(6, -1, 5, &wire("up", "none", "side", "none", 0));
