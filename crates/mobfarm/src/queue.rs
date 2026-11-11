@@ -8132,12 +8132,16 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
             // (the game's summon: a panicking villager's spawnGolemIfNeeded with 3 villagers near
             // that want a golem (none golem-locked); the pulse is the golem it spawns on the pad)
-            if n_panic >= 1 && ready.len() >= 3 {
+            let pulsed = n_panic >= 1 && ready.len() >= 3;
+            if pulsed {
                 for r in &ready {
                     summon_lock.insert(*r, t);
                 }
                 h.a_pulse(t);
             }
+            // (ironspec: every margin against a summoning moment from the run's own summon
+            // events: each summon tick, A's riders at rest in its pockets and whether it pulsed)
+            h.summon_checks.push((t, in_pockets, pulsed));
         }
         if run.world.time % 100 == 0 {
             for r in riders.iter() {
@@ -8700,7 +8704,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     }
                     // (BRANCH_EMPTY_X, emulated: a cart on the approach column between DEP_X and
                     // the hold, above D_arr's cell)
-                    if (lx - (xb + 0.5)).abs() < 0.45 && lz > 3.0 && lz <= zp && e.pos.y > 1.5 {
+                    if (lx - (xb + 0.5)).abs() < 0.45 && lz > 3.0 && lz <= zp {
                         on_branch = true;
                     }
                     dep_prev_z.insert(*id, lz);
@@ -8711,6 +8715,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if meter_state.done_at.len() > dh3_seen {
                 dh3_seen = meter_state.done_at.len();
                 h.dh3_since_dep = true;
+                if let Some(t3) = meter_state.done_at.last() {
+                    h.dh3_times.push(*t3);
+                }
             }
             let cp: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
             h.pre_tick(&run.world, &cp, t);
