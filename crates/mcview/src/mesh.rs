@@ -86,6 +86,25 @@ pub struct MobDraw {
     /// The bounding box (the flames' size).
     pub width: f32,
     pub height: f32,
+    /// The main hand's item id (`getMainHandItem`: a skeleton's bow), if any: its arm's pose.
+    pub held: Option<String>,
+    /// `isAggressive` (a skeleton drawing its bow at a target).
+    pub aggressive: bool,
+    /// A sheep's wool `DyeColor` id (0 white).
+    pub color: u8,
+    /// A bat hanging upside down (`isResting`).
+    pub resting: bool,
+    /// The tick its keyframe animation started (a bat's: `AnimationState.startTick`).
+    pub anim_start: i32,
+    /// Its entity id (`getId`: a witch's nose wobbles at `id % 10`'s pace).
+    pub entity_id: u32,
+    /// A chicken's wing beat at the frame (`ChickenRenderState.flap`, `flapSpeed`).
+    pub flap: [f32; 2],
+    /// A sheep eating grass (`EatBlockGoal`): its head's drop and angle at the frame
+    /// (`getHeadEatPositionScale`, `getHeadEatAngleScale`).
+    pub eat: Option<[f32; 2]>,
+    /// An enderman's carried block (`getCarriedBlock`), as a block state.
+    pub carried: Option<String>,
 }
 
 /// Everything a frame needs.
@@ -1063,6 +1082,14 @@ impl<'a> Builder<'a> {
         if let Some(mob) = &e.mob {
             let Some(tris) = em::mob_triangles(g, &e.kind, e.pos, mob) else { return false };
             push(self, tris);
+            // an enderman's carried block (`CarriedBlockLayer`): its block model in its arms
+            if let Some(state) = &mob.carried
+                && let Some(m) = self.model(state)
+            {
+                self.xf = Some(em::carried_block_transform(e.pos, mob));
+                self.add_model(&m, [0.0; 3], None, None);
+                self.xf = None;
+            }
             if mob.fire
                 && let Some(uv) = em::fire_uvs(g)
             {

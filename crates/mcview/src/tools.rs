@@ -39,6 +39,50 @@ pub fn snapshot(text: &str) -> Result<(Vec<(crate::design::Pos, String)>, Vec<cr
     Ok((blocks, s.design.entities.clone(), what))
 }
 
+/// One kind of entity a view draws over a run ([`drawn_kinds`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DrawnKind {
+    pub kind: String,
+    /// Drawn as a mob (a `LivingEntityRenderState`: `EntityDraw::mob`).
+    pub mob: bool,
+    /// The most drawn at once.
+    pub most: usize,
+    /// The first tick it is drawn, and where (the view's coordinates: `web framecost --look-at`).
+    pub first: u32,
+    pub at: [f32; 3],
+}
+
+/// The entities a design's view draws over `ticks` ticks played as the page plays them
+/// (`Session::step`, `Session::entities` every tick; `mctas web kinds`): each kind with the most
+/// drawn at once and the first tick, sorted by kind, with the ticks played and why the run
+/// stopped early (`Session::halted`). The census behind the viewer's mob models: which kinds the
+/// site's views show. Err when redsim does not run it.
+pub fn drawn_kinds(text: &str, ticks: u32) -> Result<(Vec<DrawnKind>, u32, Option<String>), String> {
+    let mut s = Session::new(text, &Options::default())?;
+    if let Some(why) = &s.unsimulated {
+        return Err(format!("not simulated: {why}"));
+    }
+    let mut seen: std::collections::BTreeMap<String, DrawnKind> = Default::default();
+    let start = s.tick;
+    while s.tick - start <= ticks {
+        let mut now: std::collections::BTreeMap<&str, (usize, bool, [f32; 3])> = Default::default();
+        let drawn = s.entities(0.0);
+        for e in &drawn {
+            let n = now.entry(e.kind.as_str()).or_insert((0, e.mob.is_some(), e.pos));
+            n.0 += 1;
+        }
+        for (k, (n, mob, at)) in now {
+            let d = seen.entry(k.to_string()).or_insert(DrawnKind { kind: k.to_string(), mob, most: 0, first: s.tick, at });
+            d.most = d.most.max(n);
+        }
+        if s.halted.is_some() {
+            break;
+        }
+        s.step();
+    }
+    Ok((seen.into_values().collect(), s.tick - start, s.halted.clone()))
+}
+
 /// Knobs of [`shot`].
 #[derive(Clone, Debug)]
 pub struct ShotOptions {

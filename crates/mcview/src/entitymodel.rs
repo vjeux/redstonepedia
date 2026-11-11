@@ -448,12 +448,13 @@ fn villager(d: &crate::mesh::MobDraw) -> Vec<EPart> {
     vec![EPart { scale, ..part_with(Vec::new(), [0.0, 24.016 * (1.0 - scale), 0.0], [0.0; 3], vec![head, body, arms, right_leg, left_leg]) }]
 }
 
-/// `HumanoidModel.createMesh(NONE, 0)` (the zombie's layer, texture 64 x 64) posed by
-/// `HumanoidModel.setupAnim` and `ZombieModel.setupAttackAnimation`: the head's yaw and pitch, the
-/// walk, a passenger's legs forward (`isPassenger`), the zombie's arms held out
-/// (`AnimationUtils.animateZombieArms`, not aggressive: the farm's zombie targets nothing it can
-/// reach) and bobbing with its age (`bobModelPart`).
-fn zombie(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+/// `HumanoidModel.createMesh(NONE, 0)` (the zombie's layer, texture 64 x 64), or a baby's
+/// `BabyZombieModel` (its own texture, `zombie_baby`: 64 x 64), posed by `HumanoidModel.setupAnim`
+/// and `ZombieModel.setupAttackAnimation`: the head's yaw and pitch, the walk, a passenger's legs
+/// forward (`isPassenger`), the arms held out (`AnimationUtils.animateZombieArms`: raised to
+/// -pi / 2.25, or -pi / 1.5 aggressive; a baby holding an item keeps them down; no swing) and
+/// bobbing with its age (`bobModelPart`).
+fn zombie(d: &crate::mesh::MobDraw, baby: bool) -> Vec<EPart> {
     let (pos, speed) = (d.walk_pos, d.walk_speed);
     let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
     let mut right_leg = [(pos * 0.6662).cos() * 1.4 * speed, 0.005, 0.005];
@@ -462,12 +463,24 @@ fn zombie(d: &crate::mesh::MobDraw) -> Vec<EPart> {
         right_leg = [-1.4137167, PI / 10.0, 0.07853982];
         left_leg = [-1.4137167, -PI / 10.0, -0.07853982];
     }
-    // animateZombieArms (an adult: arms raised to -pi / 2.25; no swing), then the arms' bob
-    let arm_x = -PI / 2.25;
+    let raise = !baby || d.held.is_none();
+    let arm_x = if raise { -PI / if d.aggressive { 1.5 } else { 2.25 } } else { 0.0 };
+    let arm_y = if raise { 0.1 } else { -0.1 };
     let bob = |sign: f32| [sign * ((d.age * 0.067).sin() * 0.05), 0.0, sign * ((d.age * 0.09).cos() * 0.05 + 0.05)];
     let (rb, lb) = (bob(1.0), bob(-1.0));
-    let right_arm = [arm_x + rb[0], -0.1, rb[2]];
-    let left_arm = [arm_x + lb[0], 0.1, lb[2]];
+    let right_arm = [arm_x + rb[0], -arm_y, rb[2]];
+    let left_arm = [arm_x + lb[0], arm_y, lb[2]];
+    if baby {
+        let head = part(vec![cube(3.0, 3.0, [-3.0, -6.25, -3.0], [6.0, 6.0, 6.0]), cube_grown(35.0, 3.0, [-3.0, -6.15, -3.0], [6.0, 6.0, 6.0], 0.25)], [0.0, 15.25, 0.0], [hx, hy, 0.0]);
+        return vec![
+            part(vec![cube(16.0, 16.0, [-2.0, -2.5, -1.0], [4.0, 5.0, 2.0])], [0.0, 17.5, 0.0], [0.0; 3]),
+            head,
+            part(vec![cube(36.0, 16.0, [-1.0, -0.5, -1.0], [2.0, 5.0, 2.0])], [-3.0, 15.5, 0.0], right_arm),
+            part(vec![cube(28.0, 16.0, [-1.0, -0.5, -1.0], [2.0, 5.0, 2.0])], [3.0, 15.5, 0.0], left_arm),
+            part(vec![cube(8.0, 16.0, [-1.0, 0.0, -1.0], [2.0, 4.0, 2.0])], [-1.0, 20.0, 0.0], right_leg),
+            part(vec![cube(0.0, 16.0, [-1.0, 0.0, -1.0], [2.0, 4.0, 2.0])], [1.0, 20.0, 0.0], left_leg),
+        ];
+    }
     let head = part_with(vec![cube(0.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0])], [0.0; 3], [hx, hy, 0.0], vec![part(vec![cube_grown(32.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0], 0.5)], [0.0; 3], [0.0; 3])]);
     vec![
         head,
@@ -479,6 +492,360 @@ fn zombie(d: &crate::mesh::MobDraw) -> Vec<EPart> {
     ]
 }
 
+/// `CreeperModel.createBodyLayer(NONE)` (texture 64 x 32) posed by `setupAnim`: the head's yaw
+/// and pitch, the legs walking (its fields cross the parts' names: the part `right_hind_leg`
+/// swings as its `leftHindLeg`). Never swelling (`CreeperRenderer.scale`: a creeper swells at a
+/// player within reach, and the views have none) nor charged.
+fn creeper(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let swing = |phase: f32| (d.walk_pos * 0.6662 + phase).cos() * 1.4 * d.walk_speed;
+    let leg = || vec![cube(0.0, 16.0, [-2.0, 0.0, -2.0], [4.0, 6.0, 4.0])];
+    vec![
+        part(vec![cube(0.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0])], [0.0, 6.0, 0.0], [hx, hy, 0.0]),
+        part(vec![cube(16.0, 16.0, [-4.0, 0.0, -2.0], [8.0, 12.0, 4.0])], [0.0, 6.0, 0.0], [0.0; 3]),
+        part(leg(), [-2.0, 18.0, 4.0], [swing(PI), 0.0, 0.0]),
+        part(leg(), [2.0, 18.0, 4.0], [swing(0.0), 0.0, 0.0]),
+        part(leg(), [-2.0, 18.0, -4.0], [swing(0.0), 0.0, 0.0]),
+        part(leg(), [2.0, 18.0, -4.0], [swing(PI), 0.0, 0.0]),
+    ]
+}
+
+/// `SkeletonModel.createBodyLayer` (texture 64 x 32: `HumanoidModel.createMesh` with its thin
+/// arms and legs) posed by `HumanoidModel.setupAnim`: the head's yaw and pitch, the arms and legs
+/// walking, a passenger's legs forward; the arms hanging (26.3's `HumanoidMobRenderer.getArmPose`:
+/// EMPTY, a bow included) or, aggressive with its bow, both raised along its look
+/// (`AbstractSkeletonRenderer.getArmPose`: BOW_AND_ARROW; right-handed: redsim draws
+/// `setLeftHanded`'s roll but does not keep it), then bobbing with its age (`bobModelPart`).
+fn skeleton(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let (pos, speed) = (d.walk_pos * 0.6662, d.walk_speed);
+    let mut ra = [(pos + PI).cos() * speed, 0.0, 0.0];
+    let mut la = [pos.cos() * speed, 0.0, 0.0];
+    let mut rl = [pos.cos() * 1.4 * speed, 0.005, 0.005];
+    let mut ll = [(pos + PI).cos() * 1.4 * speed, -0.005, -0.005];
+    if d.riding {
+        ra[0] -= PI / 5.0;
+        la[0] -= PI / 5.0;
+        rl = [-1.4137167, PI / 10.0, 0.07853982];
+        ll = [-1.4137167, -PI / 10.0, -0.07853982];
+    }
+    let bow = d.held.as_deref().is_some_and(|h| h.trim_start_matches("minecraft:") == "bow");
+    if d.aggressive && bow {
+        ra = [-PI / 2.0 + hx, -0.1 + hy, ra[2]];
+        la = [-PI / 2.0 + hx, 0.1 + hy + 0.4, la[2]];
+    }
+    let bob = |a: &mut [f32; 3], s: f32| {
+        a[2] += s * ((d.age * 0.09).cos() * 0.05 + 0.05);
+        a[0] += s * ((d.age * 0.067).sin() * 0.05);
+    };
+    bob(&mut ra, 1.0);
+    bob(&mut la, -1.0);
+    let hat = part(vec![cube_grown(32.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0], 0.5)], [0.0; 3], [0.0; 3]);
+    vec![
+        part_with(vec![cube(0.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0])], [0.0; 3], [hx, hy, 0.0], vec![hat]),
+        part(vec![cube(16.0, 16.0, [-4.0, 0.0, -2.0], [8.0, 12.0, 4.0])], [0.0; 3], [0.0; 3]),
+        part(vec![cube(40.0, 16.0, [-1.0, -2.0, -1.0], [2.0, 12.0, 2.0])], [-5.0, 2.0, 0.0], ra),
+        part(vec![cube_mirrored(40.0, 16.0, [-1.0, -2.0, -1.0], [2.0, 12.0, 2.0])], [5.0, 2.0, 0.0], la),
+        part(vec![cube(0.0, 16.0, [-1.0, 0.0, -1.0], [2.0, 12.0, 2.0])], [-2.0, 12.0, 0.0], rl),
+        part(vec![cube_mirrored(0.0, 16.0, [-1.0, 0.0, -1.0], [2.0, 12.0, 2.0])], [2.0, 12.0, 0.0], ll),
+    ]
+}
+
+/// `EndermanModel.createBodyLayer` (texture 64 x 32: `HumanoidModel.createMesh` 14 px up with its
+/// long limbs) posed by `setupAnim`: `HumanoidModel`'s (the head, the walk, a passenger's legs,
+/// the arms hanging and bobbing) with each limb's swing halved and held within 0.4, the arms
+/// forward holding a carried block (drawn by [`carried_block_transform`]); never creepy (its jaw
+/// drops at a player who looked at it, and the views have none).
+fn enderman(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let (pos, speed) = (d.walk_pos * 0.6662, d.walk_speed);
+    let mut ra = [(pos + PI).cos() * speed, 0.0, 0.0];
+    let mut la = [pos.cos() * speed, 0.0, 0.0];
+    let mut rl = [pos.cos() * 1.4 * speed, 0.005, 0.005];
+    let mut ll = [(pos + PI).cos() * 1.4 * speed, -0.005, -0.005];
+    if d.riding {
+        ra[0] -= PI / 5.0;
+        la[0] -= PI / 5.0;
+        rl = [-1.4137167, PI / 10.0, 0.07853982];
+        ll = [-1.4137167, -PI / 10.0, -0.07853982];
+    }
+    let bob = |a: &mut [f32; 3], s: f32| {
+        a[2] += s * ((d.age * 0.09).cos() * 0.05 + 0.05);
+        a[0] += s * ((d.age * 0.067).sin() * 0.05);
+    };
+    bob(&mut ra, 1.0);
+    bob(&mut la, -1.0);
+    for a in [&mut ra, &mut la, &mut rl, &mut ll] {
+        a[0] = (a[0] * 0.5).clamp(-0.4, 0.4);
+    }
+    if d.carried.is_some() {
+        ra = [-0.5, ra[1], 0.05];
+        la = [-0.5, la[1], -0.05];
+    }
+    let jaw = part(vec![cube_grown(0.0, 16.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0], -0.5)], [0.0; 3], [0.0; 3]);
+    vec![
+        part_with(vec![cube(0.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0])], [0.0, -13.0, 0.0], [hx, hy, 0.0], vec![jaw]),
+        part(vec![cube(32.0, 16.0, [-4.0, 0.0, -2.0], [8.0, 12.0, 4.0])], [0.0, -14.0, 0.0], [0.0; 3]),
+        part(vec![cube(56.0, 0.0, [-1.0, -2.0, -1.0], [2.0, 30.0, 2.0])], [-5.0, -12.0, 0.0], ra),
+        part(vec![cube_mirrored(56.0, 0.0, [-1.0, -2.0, -1.0], [2.0, 30.0, 2.0])], [5.0, -12.0, 0.0], la),
+        part(vec![cube(56.0, 0.0, [-1.0, 0.0, -1.0], [2.0, 30.0, 2.0])], [-2.0, -5.0, 0.0], rl),
+        part(vec![cube_mirrored(56.0, 0.0, [-1.0, 0.0, -1.0], [2.0, 30.0, 2.0])], [2.0, -5.0, 0.0], ll),
+    ]
+}
+
+/// An enderman's carried block's transform (`CarriedBlockLayer`: under the model's, 0.6875 down
+/// and 0.75 forward, tilted 20 degrees and turned 45, half size and flipped): the block model's
+/// unit cube goes through it.
+pub fn carried_block_transform(pos: [f32; 3], d: &crate::mesh::MobDraw) -> M {
+    mob_transform("enderman", pos, d).translate([0.0, 0.6875, -0.75]).rot(0, 20f32.to_radians()).rot(1, 45f32.to_radians()).translate([0.25, 0.1875, 0.25]).scale([-0.5, -0.5, 0.5]).rot(1, PI / 2.0)
+}
+
+/// A keyframe channel of an animation (`AnimationChannel`, every keyframe LINEAR): its part,
+/// whether it moves the part (`Targets.POSITION`: px, `posVec`'s y already flipped) or turns it
+/// (`ROTATION`: degrees), and its keyframes (seconds, value).
+type Channel = (&'static str, bool, &'static [(f32, [f32; 3])]);
+
+/// `BatAnimation.BAT_RESTING` (looping, 0.5 s): hung upside down, wings folded.
+const BAT_RESTING: &[Channel] = &[
+    ("head", false, &[(0.0, [180.0, 0.0, 0.0])]),
+    ("head", true, &[(0.0, [0.0, -0.5, 0.0])]),
+    ("body", false, &[(0.0, [180.0, 0.0, 0.0])]),
+    ("body", true, &[(0.0, [0.0, -0.5, 0.0])]),
+    ("feet", false, &[(0.0, [0.0, 0.0, 0.0])]),
+    ("right_wing", false, &[(0.0, [0.0, -10.0, 0.0])]),
+    ("right_wing", true, &[(0.0, [0.0, 0.0, 1.0])]),
+    ("right_wing_tip", false, &[(0.0, [0.0, -120.0, 0.0])]),
+    ("left_wing", false, &[(0.0, [0.0, 10.0, 0.0])]),
+    ("left_wing", true, &[(0.0, [0.0, 0.0, 1.0])]),
+    ("left_wing_tip", false, &[(0.0, [0.0, 120.0, 0.0])]),
+];
+
+/// The flight's bob (`BAT_FLYING`'s head and body positions).
+const BAT_BOB: &[(f32, [f32; 3])] = &[(0.0, [0.0; 3]), (0.125, [0.0, -2.0, 0.0]), (0.25, [0.0, -1.0, 0.0]), (0.375, [0.0; 3]), (0.4583, [0.0, 1.0, 0.0]), (0.5, [0.0; 3])];
+
+/// `BatAnimation.BAT_FLYING` (looping, 0.5 s): the wings beating, the body bobbing.
+const BAT_FLYING: &[Channel] = &[
+    ("head", false, &[(0.0, [0.0; 3]), (0.125, [20.0, 0.0, 0.0]), (0.5, [0.0; 3])]),
+    ("head", true, BAT_BOB),
+    ("body", false, &[(0.0, [40.0, 0.0, 0.0]), (0.25, [52.5, 0.0, 0.0]), (0.5, [40.0, 0.0, 0.0])]),
+    ("body", true, BAT_BOB),
+    ("feet", false, &[(0.0, [10.0, 0.0, 0.0]), (0.125, [-21.25, 0.0, 0.0]), (0.25, [-12.5, 0.0, 0.0]), (0.5, [10.0, 0.0, 0.0])]),
+    ("right_wing", false, &[(0.0, [0.0, 85.0, 0.0]), (0.125, [0.0, -55.0, 0.0]), (0.25, [0.0, 50.0, 0.0]), (0.375, [0.0, 70.0, 0.0]), (0.5, [0.0, 85.0, 0.0])]),
+    ("right_wing_tip", false, &[(0.0, [0.0, 10.5, 0.0]), (0.0417, [0.0, 65.5, 0.0]), (0.2083, [0.0, -135.0, 0.0]), (0.5, [0.0, 10.5, 0.0])]),
+    ("left_wing", false, &[(0.0, [0.0, -85.0, 0.0]), (0.125, [0.0, 55.0, 0.0]), (0.25, [0.0, -50.0, 0.0]), (0.375, [0.0, -70.0, 0.0]), (0.5, [0.0, -85.0, 0.0])]),
+    ("left_wing_tip", false, &[(0.0, [0.0, -10.5, 0.0]), (0.0417, [0.0, -65.5, 0.0]), (0.2083, [0.0, 135.0, 0.0]), (0.5, [0.0, -10.5, 0.0])]),
+];
+
+/// A channel's value at `t` seconds (`KeyframeAnimation.Entry.apply`: the keyframe before `t`
+/// and the next, linearly).
+fn channel_at(k: &[(f32, [f32; 3])], t: f32) -> [f32; 3] {
+    let prev = k.iter().position(|f| t <= f.0).unwrap_or(k.len()).saturating_sub(1);
+    let next = (prev + 1).min(k.len() - 1);
+    let a = if next != prev { ((t - k[prev].0) / (k[next].0 - k[prev].0)).clamp(0.0, 1.0) } else { 0.0 };
+    [0, 1, 2].map(|i| k[prev].1[i] + (k[next].1[i] - k[prev].1[i]) * a)
+}
+
+/// `BatModel.createBodyLayer` (texture 32 x 32) posed by `setupAnim`: resting, its head turned by
+/// its yaw; then its keyframe animation (`BAT_RESTING` or `BAT_FLYING`) at the time since it
+/// started (`AnimationState.getTimeInMillis`: whole milliseconds, looped every 0.5 s), each
+/// channel added to its part's offset or rotation.
+fn bat(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let millis = ((d.age - d.anim_start as f32) * 50.0) as i64;
+    let t = (millis as f32 / 1000.0) % 0.5;
+    let anim = if d.resting { BAT_RESTING } else { BAT_FLYING };
+    // (offset, rotation in radians) of a part: its pose plus the animation's channels
+    let pose = |name: &str, offset: [f32; 3], rot: [f32; 3]| -> ([f32; 3], [f32; 3]) {
+        let (mut o, mut r) = (offset, rot);
+        for (part_name, moves, keys) in anim {
+            if *part_name == name {
+                let v = channel_at(keys, t);
+                for i in 0..3 {
+                    if *moves {
+                        o[i] += v[i];
+                    } else {
+                        r[i] += v[i].to_radians();
+                    }
+                }
+            }
+        }
+        (o, r)
+    };
+    let head_yaw = if d.resting { d.head_yaw.to_radians() } else { 0.0 };
+    let posed = |name: &str, offset: [f32; 3], rot: [f32; 3], cubes: Vec<Cube>, children: Vec<EPart>| {
+        let (o, r) = pose(name, offset, rot);
+        part_with(cubes, o, r, children)
+    };
+    let tip_r = posed("right_wing_tip", [-2.0, 0.0, 0.0], [0.0; 3], vec![cube(16.0, 0.0, [-6.0, -2.0, 0.0], [6.0, 8.0, 0.0])], Vec::new());
+    let tip_l = posed("left_wing_tip", [2.0, 0.0, 0.0], [0.0; 3], vec![cube(16.0, 8.0, [0.0, -2.0, 0.0], [6.0, 8.0, 0.0])], Vec::new());
+    let wing_r = posed("right_wing", [-1.5, 0.0, 0.0], [0.0; 3], vec![cube(12.0, 0.0, [-2.0, -2.0, 0.0], [2.0, 7.0, 0.0])], vec![tip_r]);
+    let wing_l = posed("left_wing", [1.5, 0.0, 0.0], [0.0; 3], vec![cube(12.0, 7.0, [0.0, -2.0, 0.0], [2.0, 7.0, 0.0])], vec![tip_l]);
+    let feet = posed("feet", [0.0, 5.0, 0.0], [0.0; 3], vec![cube(16.0, 16.0, [-1.5, 0.0, 0.0], [3.0, 2.0, 0.0])], Vec::new());
+    let ears = vec![
+        part(vec![cube(1.0, 15.0, [-2.5, -4.0, 0.0], [3.0, 5.0, 0.0])], [-1.5, -2.0, 0.0], [0.0; 3]),
+        part(vec![cube(8.0, 15.0, [-0.1, -3.0, 0.0], [3.0, 5.0, 0.0])], [1.1, -3.0, 0.0], [0.0; 3]),
+    ];
+    vec![
+        posed("body", [0.0, 17.0, 0.0], [0.0; 3], vec![cube(0.0, 0.0, [-1.5, 0.0, -1.0], [3.0, 5.0, 2.0])], vec![wing_r, wing_l, feet]),
+        posed("head", [0.0, 17.0, 0.0], [0.0, head_yaw, 0.0], vec![cube(0.0, 7.0, [-2.0, -3.0, -1.0], [4.0, 3.0, 2.0])], ears),
+    ]
+}
+
+/// `WitchModel.createBodyLayer` (texture 64 x 128: `VillagerModel.createBodyModel` with its own
+/// head and pointed hat; a part added again keeps its children, so the villager's hat rim and
+/// nose stay, the nose with a mole) scaled 0.9375 like a villager (`LayerDefinitions`), posed by
+/// `setupAnim`: the head's yaw and pitch, the legs at half the walk's swing, the nose wobbling at
+/// `entityId % 10`'s pace, or lifted toward the mouth while it holds an item.
+fn witch(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let swing = |phase: f32| (d.walk_pos * 0.6662 + phase).cos() * 1.4 * d.walk_speed * 0.5;
+    let pace = 0.01 * (d.entity_id % 10) as f32;
+    let (nose_at, nose_rot) = if d.held.is_some() {
+        ([0.0, 1.0, -1.5], [-0.9, 0.0, (d.age * pace).cos() * 2.5f32.to_radians()])
+    } else {
+        ([0.0, -2.0, 0.0], [(d.age * pace).sin() * 4.5f32.to_radians(), 0.0, (d.age * pace).cos() * 2.5f32.to_radians()])
+    };
+    let mole = part(vec![cube_grown(0.0, 0.0, [0.0, 3.0, -6.75], [1.0, 1.0, 1.0], -0.25)], [0.0, -2.0, 0.0], [0.0; 3]);
+    let nose = part_with(vec![cube(24.0, 0.0, [-1.0, -1.0, -6.0], [2.0, 4.0, 2.0])], nose_at, nose_rot, vec![mole]);
+    let hat4 = part(vec![cube_grown(0.0, 95.0, [0.0; 3], [1.0, 2.0, 1.0], 0.25)], [1.75, -2.0, 2.0], [-PI / 15.0, 0.0, 0.10471976]);
+    let hat3 = part_with(vec![cube(0.0, 87.0, [0.0; 3], [4.0, 4.0, 4.0])], [1.75, -4.0, 2.0], [-0.10471976, 0.0, 0.05235988], vec![hat4]);
+    let hat2 = part_with(vec![cube(0.0, 76.0, [0.0; 3], [7.0, 4.0, 7.0])], [1.75, -4.0, 2.0], [-0.05235988, 0.0, 0.02617994], vec![hat3]);
+    let rim = part(vec![cube(30.0, 47.0, [-8.0, -8.0, -6.0], [16.0, 16.0, 1.0])], [0.0; 3], [-PI / 2.0, 0.0, 0.0]);
+    let hat = part_with(vec![cube(0.0, 64.0, [0.0; 3], [10.0, 2.0, 10.0])], [-5.0, -10.03125, -5.0], [0.0; 3], vec![rim, hat2]);
+    let head = part_with(vec![cube(0.0, 0.0, [-4.0, -10.0, -4.0], [8.0, 10.0, 8.0])], [0.0; 3], [hx, hy, 0.0], vec![hat, nose]);
+    let body = part_with(vec![cube(16.0, 20.0, [-4.0, 0.0, -3.0], [8.0, 12.0, 6.0])], [0.0; 3], [0.0; 3], vec![part(vec![cube_grown(0.0, 38.0, [-4.0, 0.0, -3.0], [8.0, 20.0, 6.0], 0.5)], [0.0; 3], [0.0; 3])]);
+    let arms = part(vec![cube(44.0, 22.0, [-8.0, -2.0, -2.0], [4.0, 8.0, 4.0]), cube_mirrored(44.0, 22.0, [4.0, -2.0, -2.0], [4.0, 8.0, 4.0]), cube(40.0, 38.0, [-4.0, 2.0, -2.0], [8.0, 4.0, 4.0])], [0.0, 3.0, -1.0], [-0.75, 0.0, 0.0]);
+    let right_leg = part(vec![cube(0.0, 22.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [-2.0, 12.0, 0.0], [swing(0.0), 0.0, 0.0]);
+    let left_leg = part(vec![cube_mirrored(0.0, 22.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [2.0, 12.0, 0.0], [swing(PI), 0.0, 0.0]);
+    scaled(0.9375, vec![head, body, arms, right_leg, left_leg])
+}
+
+/// `AdultChickenModel.createBodyLayer` (texture 64 x 32; the plains' one variant, temperate:
+/// redsim draws `selectVariantToSpawn`'s candidate but keeps no variant) posed by `setupAnim`: the
+/// head's yaw and pitch, the legs walking, the wings beating while it is off the ground
+/// (`(sin(flap) + 1) * flapSpeed`).
+fn chicken(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let swing = |phase: f32| (d.walk_pos * 0.6662 + phase).cos() * 1.4 * d.walk_speed;
+    let wing = (d.flap[0].sin() + 1.0) * d.flap[1];
+    let leg = || vec![cube(26.0, 0.0, [-1.0, 0.0, -3.0], [3.0, 5.0, 3.0])];
+    let beak = part(vec![cube(14.0, 0.0, [-2.0, -4.0, -4.0], [4.0, 2.0, 2.0])], [0.0; 3], [0.0; 3]);
+    let wattle = part(vec![cube(14.0, 4.0, [-1.0, -2.0, -3.0], [2.0, 2.0, 2.0])], [0.0; 3], [0.0; 3]);
+    vec![
+        part_with(vec![cube(0.0, 0.0, [-2.0, -6.0, -2.0], [4.0, 6.0, 3.0])], [0.0, 15.0, -4.0], [hx, hy, 0.0], vec![beak, wattle]),
+        part(vec![cube(0.0, 9.0, [-3.0, -4.0, -3.0], [6.0, 8.0, 6.0])], [0.0, 16.0, 0.0], [PI / 2.0, 0.0, 0.0]),
+        part(leg(), [-2.0, 19.0, 1.0], [swing(0.0), 0.0, 0.0]),
+        part(leg(), [1.0, 19.0, 1.0], [swing(PI), 0.0, 0.0]),
+        part(vec![cube(24.0, 13.0, [0.0, 0.0, -3.0], [1.0, 4.0, 6.0])], [-4.0, 13.0, 0.0], [0.0, 0.0, wing]),
+        part(vec![cube(24.0, 13.0, [-1.0, 0.0, -3.0], [1.0, 4.0, 6.0])], [4.0, 13.0, 0.0], [0.0, 0.0, -wing]),
+    ]
+}
+
+/// `SheepModel.createBodyLayer` (texture 64 x 32: `QuadrupedModel.createBodyMesh(12, false,
+/// true)`, its right legs mirrored, with its own head and body), or with `fur` its wool's
+/// `SheepFurModel.createFurLayer` (the same boxes grown: head 0.6, body 1.75, legs 0.5), posed
+/// by `setupAnim`: `QuadrupedModel`'s (the head's yaw and pitch, the legs walking), the head
+/// lowered and tilted while it eats grass.
+fn sheep(d: &crate::mesh::MobDraw, fur: bool) -> Vec<EPart> {
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let swing = |phase: f32| (d.walk_pos * 0.6662 + phase).cos() * 1.4 * d.walk_speed;
+    let (head_y, head_x) = match d.eat {
+        Some([drop, angle]) => (6.0 + drop * 9.0, angle),
+        None => (6.0, hx),
+    };
+    let (gh, gb, gl) = if fur { (0.6, 1.75, 0.5) } else { (0.0, 0.0, 0.0) };
+    let head = if fur { cube_grown(0.0, 0.0, [-3.0, -4.0, -4.0], [6.0, 6.0, 6.0], gh) } else { cube(0.0, 0.0, [-3.0, -4.0, -6.0], [6.0, 6.0, 8.0]) };
+    let leg = |mirror: bool| vec![Cube { mirror: mirror && !fur, ..cube_grown(0.0, 16.0, [-2.0, 0.0, -2.0], [4.0, if fur { 6.0 } else { 12.0 }, 4.0], gl) }];
+    vec![
+        part(vec![head], [0.0, head_y, -8.0], [head_x, hy, 0.0]),
+        part(vec![cube_grown(28.0, 8.0, [-4.0, -10.0, -7.0], [8.0, 16.0, 6.0], gb)], [0.0, 5.0, 2.0], [PI / 2.0, 0.0, 0.0]),
+        part(leg(true), [-3.0, 12.0, 7.0], [swing(0.0), 0.0, 0.0]),
+        part(leg(false), [3.0, 12.0, 7.0], [swing(PI), 0.0, 0.0]),
+        part(leg(true), [-3.0, 12.0, -5.0], [swing(PI), 0.0, 0.0]),
+        part(leg(false), [3.0, 12.0, -5.0], [swing(0.0), 0.0, 0.0]),
+    ]
+}
+
+/// `DyeColor.textureDiffuseColor` of each dye by id (white, orange, ... black).
+const DYE_DIFFUSE: [u32; 16] = [16383998, 16351261, 13061821, 3847130, 16701501, 8439583, 15961002, 4673362, 10329495, 1481884, 8991416, 3949738, 8606770, 6192150, 11546150, 1908001];
+
+/// A sheep's wool tint (`ColorLerper.Type.SHEEP`: white 0xE6E6E6, any other dye its diffuse
+/// colour x 0.75, floored).
+fn wool_tint(color: u8) -> [u8; 3] {
+    if color == 0 {
+        return [230, 230, 230];
+    }
+    let c = DYE_DIFFUSE[(color as usize).min(15)];
+    [(c >> 16) & 255, (c >> 8) & 255, c & 255].map(|v| (v as f32 * 0.75).floor() as u8)
+}
+
+/// `AbstractEquineModel.createBodyMesh(NONE)` (texture 64 x 64; an undead horse's layer is not
+/// scaled, a living horse's is 1.1) posed by `setupAnim`: the neck at 30 degrees plus the head's
+/// pitch (nodding when it trots), turned by its yaw within 20 degrees, the legs walking, the tail
+/// lifting with the walk; never rearing, eating or feeding (redsim keeps no horse animation), the
+/// tail not swishing (`moveTail` runs on the client's own random).
+fn zombie_horse(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let mut head_x = d.head_pitch.to_radians();
+    if speed > 0.2 {
+        head_x += (pos * 0.8).cos() * 0.15 * speed;
+    }
+    let head_y = d.head_yaw.clamp(-20.0, 20.0).to_radians();
+    let leg = (pos * 0.6662 + PI).cos();
+    let front = leg * 0.8 * speed;
+    let hind = leg * 0.5 * speed;
+    let tail = part(vec![cube(42.0, 36.0, [-1.5, 0.0, 0.0], [3.0, 14.0, 4.0])], [0.0, -5.0 + speed, 2.0 + speed * 2.0], [PI / 6.0 + speed * 0.75, 0.0, 0.0]);
+    let ears = vec![
+        part(vec![cube_grown(19.0, 16.0, [0.55, -13.0, 4.0], [2.0, 3.0, 1.0], -0.001)], [0.0; 3], [0.0; 3]),
+        part(vec![cube_grown(19.0, 16.0, [-2.55, -13.0, 4.0], [2.0, 3.0, 1.0], -0.001)], [0.0; 3], [0.0; 3]),
+    ];
+    let head = part_with(vec![cube(0.0, 13.0, [-3.0, -11.0, -2.0], [6.0, 5.0, 7.0])], [0.0; 3], [0.0; 3], ears);
+    let mane = part(vec![cube(56.0, 36.0, [-1.0, -11.0, 5.01], [2.0, 16.0, 2.0])], [0.0; 3], [0.0; 3]);
+    let mouth = part(vec![cube(0.0, 25.0, [-2.0, -11.0, -7.0], [4.0, 5.0, 5.0])], [0.0; 3], [0.0; 3]);
+    vec![
+        part_with(vec![cube_grown(0.0, 32.0, [-5.0, -8.0, -17.0], [10.0, 10.0, 22.0], 0.05)], [0.0, 11.0, 5.0], [0.0; 3], vec![tail]),
+        part_with(vec![cube(0.0, 35.0, [-2.05, -6.0, -2.0], [4.0, 12.0, 7.0])], [0.0, 4.0, -12.0], [PI / 6.0 + head_x, head_y, 0.0], vec![head, mane, mouth]),
+        part(vec![cube_mirrored(48.0, 21.0, [-3.0, -1.01, -1.0], [4.0, 11.0, 4.0])], [4.0, 14.0, 7.0], [-hind, 0.0, 0.0]),
+        part(vec![cube(48.0, 21.0, [-1.0, -1.01, -1.0], [4.0, 11.0, 4.0])], [-4.0, 14.0, 7.0], [hind, 0.0, 0.0]),
+        part(vec![cube_mirrored(48.0, 21.0, [-3.0, -1.01, -1.9], [4.0, 11.0, 4.0])], [4.0, 14.0, -10.0], [front, 0.0, 0.0]),
+        part(vec![cube(48.0, 21.0, [-1.0, -1.01, -1.9], [4.0, 11.0, 4.0])], [-4.0, 14.0, -10.0], [-front, 0.0, 0.0]),
+    ]
+}
+
+/// A layer definition through `MeshTransformer.scaling(scale)` (`LayerDefinitions`: the root part
+/// scaled, `24.016 * (1 - scale)` px down so the feet stay on the ground).
+fn scaled(scale: f32, parts: Vec<EPart>) -> Vec<EPart> {
+    if scale == 1.0 {
+        return parts;
+    }
+    vec![EPart { scale, ..part_with(Vec::new(), [0.0, 24.016 * (1.0 - scale), 0.0], [0.0; 3], parts) }]
+}
+
+/// `SpiderModel.createSpiderBodyLayer` (texture 64 x 32) posed by `setupAnim`: the head's yaw and
+/// pitch, each pair of legs swinging (`yRot`) and stepping (`zRot`) with the walk, a quarter
+/// period apart; the cave spider's layer is it scaled 0.7 (`LayerDefinitions`).
+fn spider(d: &crate::mesh::MobDraw, scale: f32) -> Vec<EPart> {
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let (pos, speed) = (d.walk_pos * 0.6662, d.walk_speed);
+    let swing = |phase: f32| -((pos * 2.0 + phase).cos() * 0.4) * speed;
+    let step = |phase: f32| ((pos + phase).sin() * 0.4).abs() * speed;
+    let right = || vec![cube(18.0, 0.0, [-15.0, -1.0, -1.0], [16.0, 2.0, 2.0])];
+    let left = || vec![cube_mirrored(18.0, 0.0, [-1.0, -1.0, -1.0], [16.0, 2.0, 2.0])];
+    let (q, e, m) = (PI / 4.0, PI / 8.0, 0.58119464f32);
+    // (z, the default yaw and roll of the right leg; the left one mirrors them) and its phase
+    let legs = [(2.0, q, -q, 0.0), (1.0, e, -m, PI), (0.0, -e, -m, PI / 2.0), (-1.0, -q, -q, PI * 3.0 / 2.0)];
+    let mut parts = vec![
+        part(vec![cube(32.0, 4.0, [-4.0, -4.0, -8.0], [8.0, 8.0, 8.0])], [0.0, 15.0, -3.0], [hx, hy, 0.0]),
+        part(vec![cube(0.0, 0.0, [-3.0, -3.0, -3.0], [6.0, 6.0, 6.0])], [0.0, 15.0, 0.0], [0.0; 3]),
+        part(vec![cube(0.0, 12.0, [-5.0, -4.0, -6.0], [10.0, 8.0, 12.0])], [0.0, 15.0, 9.0], [0.0; 3]),
+    ];
+    for (z, yaw, roll, phase) in legs {
+        let (s, t) = (swing(phase), step(phase));
+        parts.push(part(right(), [-4.0, 15.0, z], [0.0, yaw + s, roll + t]));
+        parts.push(part(left(), [4.0, 15.0, z], [0.0, -yaw - s, -roll - t]));
+    }
+    scaled(scale, parts)
+}
+
 /// The game texture each mob is drawn with (with its overlay layers composited in once the atlas
 /// is packed, `Atlas::add_game_entities`): an iron golem's base under its crackiness
 /// (`IronGolemCrackinessLayer`), a villager's base under its plains type (`VillagerProfessionLayer`:
@@ -488,7 +855,61 @@ pub fn mob_texture(kind: &str, crack: u8) -> Option<(String, [f32; 2])> {
         "iron_golem" => Some((format!("mob/iron_golem/{}", crack.min(3)), [128.0, 128.0])),
         "villager" => Some(("mob/villager/plains".to_string(), [64.0, 64.0])),
         "zombie" => Some(("entity/zombie/zombie".to_string(), [64.0, 64.0])),
+        "baby_zombie" => Some(("entity/zombie/zombie_baby".to_string(), [64.0, 64.0])),
+        "spider" => Some(("entity/spider/spider".to_string(), [64.0, 32.0])),
+        "cave_spider" => Some(("entity/spider/cave_spider".to_string(), [64.0, 32.0])),
+        "creeper" => Some(("entity/creeper/creeper".to_string(), [64.0, 32.0])),
+        "skeleton" => Some(("entity/skeleton/skeleton".to_string(), [64.0, 32.0])),
+        "enderman" => Some(("entity/enderman/enderman".to_string(), [64.0, 32.0])),
+        "bat" => Some(("entity/bat/bat".to_string(), [32.0, 32.0])),
+        "witch" => Some(("entity/witch/witch".to_string(), [64.0, 128.0])),
+        "chicken" => Some(("entity/chicken/chicken_temperate".to_string(), [64.0, 32.0])),
+        "sheep" => Some(("entity/sheep/sheep".to_string(), [64.0, 32.0])),
+        "zombie_horse" => Some(("entity/horse/horse_zombie".to_string(), [64.0, 64.0])),
         _ => None,
+    }
+}
+
+/// The game textures the mob models draw as they are (packed from the vendored entity atlas by
+/// `Atlas::add_game_entities`; the composited ones are [`MOB_COMPOSITES`]).
+pub const MOB_TEXTURES: &[&str] = &[
+    "entity/zombie/zombie",
+    "entity/zombie/zombie_baby",
+    "entity/spider/spider",
+    "entity/spider/cave_spider",
+    "entity/spider/spider_eyes",
+    "entity/creeper/creeper",
+    "entity/skeleton/skeleton",
+    "entity/enderman/enderman",
+    "entity/enderman/enderman_eyes",
+    "entity/bat/bat",
+    "entity/witch/witch",
+    "entity/chicken/chicken_temperate",
+    "entity/sheep/sheep",
+    "entity/sheep/sheep_wool",
+    "entity/sheep/sheep_wool_undercoat",
+    "entity/horse/horse_zombie",
+];
+
+/// A mob's eyes layer (`EyesLayer`: the model again with this texture through the `eyes`
+/// pipeline: the texel times white, no cardinal lighting, no lightmap, no overlay, alpha-blended
+/// over the model). Its texels are opaque or empty (`a_spiders_eyes_are_opaque_or_empty`), so it is
+/// drawn as solid faces over the model's, at full brightness.
+fn mob_eyes(kind: &str) -> Option<&'static str> {
+    match kind {
+        // SpiderRenderer's SpiderEyesLayer (CaveSpiderRenderer extends it)
+        "spider" | "cave_spider" => Some("entity/spider/spider_eyes"),
+        // EndermanRenderer's EnderEyesLayer
+        "enderman" => Some("entity/enderman/enderman_eyes"),
+        _ => None,
+    }
+}
+
+/// `LivingEntityRenderer.getFlipDegrees`: how far a dying mob falls over (a spider onto its back).
+fn flip_degrees(kind: &str) -> f32 {
+    match kind {
+        "spider" | "cave_spider" => 180.0,
+        _ => 90.0,
     }
 }
 
@@ -514,6 +935,34 @@ fn sleep_rotation(d: redsim::Dir) -> f32 {
     }
 }
 
+/// The transform a mob's model is drawn under (`LivingEntityRenderer.submit`: at its position, a
+/// sleeper moved toward its pillow and laid on its bed, else turned by its body's yaw; a dying mob
+/// falling over (`getFlipDegrees`), a walking golem's sway; the model flipped and lowered 1.501).
+fn mob_transform(k: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> M {
+    let mut m = M::id().translate(pos);
+    if let Some(dir) = d.sleeping {
+        let off = d.eye_standing - 0.1;
+        let s = dir.step();
+        m = m.translate([-s[0] as f32 * off, 0.0, -s[2] as f32 * off]);
+    }
+    if d.sleeping.is_none() {
+        m = m.rot(1, (180.0 - d.body_yaw).to_radians());
+    }
+    if d.death_time > 0.0 {
+        let fall = ((d.death_time - 1.0) / 20.0 * 1.6).max(0.0).sqrt().min(1.0);
+        m = m.rot(2, (fall * flip_degrees(k)).to_radians());
+    } else if let Some(dir) = d.sleeping {
+        m = m.rot(1, sleep_rotation(dir).to_radians()).rot(2, PI / 2.0).rot(1, 270f32.to_radians());
+    }
+    // IronGolemRenderer.setupRotations: a walking golem sways
+    if k == "iron_golem" && d.walk_speed >= 0.01 {
+        let wp = d.walk_pos + 6.0;
+        let tri = ((wp % 13.0 - 6.5).abs() - 3.25) / 3.25;
+        m = m.rot(2, (6.5 * tri).to_radians());
+    }
+    m.scale([-1.0, -1.0, 1.0]).translate([0.0, -1.501, 0.0])
+}
+
 /// A mob drawn like the game (`LivingEntityRenderer.submit` with its renderer's model and
 /// `setupRotations`): a sleeper moved toward its pillow and laid on its bed, a dying mob falling
 /// sideways over 20 ticks, a walking golem's sway, the model flipped and lowered 1.501, then the
@@ -526,38 +975,61 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
     let parts = match k {
         "iron_golem" => iron_golem(d),
         "villager" => villager(d),
-        "zombie" => zombie(d),
+        "zombie" => zombie(d, false),
+        "baby_zombie" => zombie(d, true),
+        "spider" => spider(d, 1.0),
+        "cave_spider" => spider(d, 0.7),
+        "creeper" => creeper(d),
+        "skeleton" => skeleton(d),
+        "enderman" => enderman(d),
+        "bat" => bat(d),
+        "witch" => witch(d),
+        "chicken" => chicken(d),
+        "sheep" => sheep(d, false),
+        "zombie_horse" => zombie_horse(d),
         _ => return None,
     };
-    let mut m = M::id().translate(pos);
-    if let Some(dir) = d.sleeping {
-        let off = d.eye_standing - 0.1;
-        let s = dir.step();
-        m = m.translate([-s[0] as f32 * off, 0.0, -s[2] as f32 * off]);
-    }
-    if d.sleeping.is_none() {
-        m = m.rot(1, (180.0 - d.body_yaw).to_radians());
-    }
-    if d.death_time > 0.0 {
-        let fall = ((d.death_time - 1.0) / 20.0 * 1.6).max(0.0).sqrt().min(1.0);
-        m = m.rot(2, (fall * 90.0).to_radians());
-    } else if let Some(dir) = d.sleeping {
-        m = m.rot(1, sleep_rotation(dir).to_radians()).rot(2, PI / 2.0).rot(1, 270f32.to_radians());
-    }
-    // IronGolemRenderer.setupRotations: a walking golem sways
-    if k == "iron_golem" && d.walk_speed >= 0.01 {
-        let wp = d.walk_pos + 6.0;
-        let tri = ((wp % 13.0 - 6.5).abs() - 3.25) / 3.25;
-        m = m.rot(2, (6.5 * tri).to_radians());
-    }
-    let m = m.scale([-1.0, -1.0, 1.0]).translate([0.0, -1.501, 0.0]);
+    let m = mob_transform(k, pos, d);
     let (tw, th) = (g.width as f32, g.height as f32);
     let mut out = Vec::new();
     emit(&mut out, &parts, &m, size, r, tw, th);
+    // its tinted layers over it (`coloredCutoutModelCopyLayerRender`: the model's pose, the
+    // texture times the tint; a sheep's undercoat when dyed, then its wool)
+    let layers: Vec<(Vec<EPart>, &str, [u8; 3])> = match k {
+        "sheep" => {
+            let tint = wool_tint(d.color);
+            let mut l = Vec::new();
+            if d.color != 0 {
+                l.push((sheep(d, false), "entity/sheep/sheep_wool_undercoat", tint));
+            }
+            l.push((sheep(d, true), "entity/sheep/sheep_wool", tint));
+            l
+        }
+        _ => Vec::new(),
+    };
+    for (lp, tex, tint) in layers {
+        if let Some(lr) = rect(g, tex) {
+            let n = out.len();
+            emit(&mut out, &lp, &m, size, lr, tw, th);
+            for v in &mut out[n..] {
+                for c in 0..3 {
+                    v.color[c] = (v.color[c] as u32 * tint[c] as u32 / 255) as u8;
+                }
+            }
+        }
+    }
     if d.red {
         for v in &mut out {
             v.layer = crate::atlas::GAME_LAYER_RED;
             v.color[3] = 178;
+        }
+    }
+    // its eyes layer over it, unshaded and without the red overlay
+    if let Some(eyes) = mob_eyes(k).and_then(|e| rect(g, e)) {
+        let n = out.len();
+        emit(&mut out, &parts, &m, size, eyes, tw, th);
+        for v in &mut out[n..] {
+            v.color = [255; 4];
         }
     }
     Some(out)
@@ -701,6 +1173,138 @@ pub fn sprite_triangles_of(g: &GameAssets, name: &str, m: &M) -> Option<Vec<Vert
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The vendored entity atlas (`web/textures/26.3`): its RGBA, width and index.
+    fn vendored_entities() -> (Vec<u8>, u32, String) {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/textures/26.3");
+        let dec = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(dir.join("entities.png")).unwrap()));
+        let mut r = dec.read_info().unwrap();
+        let mut buf = vec![0; r.output_buffer_size().unwrap()];
+        let info = r.next_frame(&mut buf).unwrap();
+        assert_eq!(info.color_type, png::ColorType::Rgba);
+        (buf, info.width, std::fs::read_to_string(dir.join("entities.min.json")).unwrap())
+    }
+
+    /// A texture's rect in the vendored index.
+    fn index_rect(index: &str, name: &str) -> [u32; 4] {
+        let at = index.find(&format!("\"{name}\":[")).unwrap_or_else(|| panic!("{name} not in the index")) + name.len() + 4;
+        let v: Vec<u32> = index[at..at + index[at..].find(']').unwrap()].split(',').map(|x| x.parse().unwrap()).collect();
+        [v[0], v[1], v[2], v[3]]
+    }
+
+    #[test]
+    fn a_spiders_eyes_are_opaque_or_empty() {
+        // the eyes pipeline blends its layer over the model (TRANSLUCENT): an opaque texel replaces
+        // the model's there, an empty one leaves it, so the viewer draws it as solid faces
+        let (img, w, index) = vendored_entities();
+        for (name, eyes_texels) in [("entity/spider/spider_eyes", 20), ("entity/enderman/enderman_eyes", 6)] {
+            let eyes = index_rect(&index, name);
+            let mut lit = 0;
+            for y in 0..eyes[3] {
+                for x in 0..eyes[2] {
+                    let a = img[(((eyes[1] + y) * w + eyes[0] + x) * 4 + 3) as usize];
+                    assert!(a == 0 || a == 255, "{name} ({x}, {y}): alpha {a}");
+                    lit += (a == 255) as u32;
+                }
+            }
+            assert_eq!(lit, eyes_texels, "{name}: its eyes' texels");
+        }
+    }
+
+    /// The browser's game texture: the block atlas and the vendored entity and item atlases.
+    fn browser_game() -> std::rc::Rc<GameAssets> {
+        let mut atlas = crate::atlas::Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, w, h) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, w, h, &idx, &defs, &models).unwrap();
+        let ((ep, ei), (ip, ii)) = crate::tools::vanilla_entity_assets().unwrap();
+        let (er, ew, eh) = crate::tools::decode_png(&ep).unwrap();
+        let (ir, iw, ih) = crate::tools::decode_png(&ip).unwrap();
+        atlas.add_game_entities((&er, ew, eh, &ei), (&ir, iw, ih, &ii)).unwrap();
+        atlas.game.clone().unwrap()
+    }
+
+    /// Bounds (min, max) of triangles.
+    fn bounds(v: &[Vertex]) -> ([f32; 3], [f32; 3]) {
+        let lo = [0, 1, 2].map(|k| v.iter().map(|x| x.pos[k]).fold(f32::MAX, f32::min));
+        let hi = [0, 1, 2].map(|k| v.iter().map(|x| x.pos[k]).fold(f32::MIN, f32::max));
+        (lo, hi)
+    }
+
+    /// Each natural mob's model stands like the game's: its lowest and highest points from its
+    /// layer definition (the creeper's head top 26 px up; the skeleton's 32 px plus its hat's half
+    /// pixel; the enderman's 45 px, its long legs one pixel into the ground, as the game's are).
+    #[test]
+    fn natural_mobs_stand_like_the_game() {
+        let g = browser_game();
+        let d = crate::mesh::MobDraw::default();
+        for (kind, feet, top) in [
+            ("minecraft:creeper", 0.0, 26.0 / 16.0),
+            ("minecraft:skeleton", 0.0, 32.5 / 16.0),
+            ("minecraft:enderman", -1.0 / 16.0, 45.0 / 16.0),
+            ("minecraft:chicken", 0.0, 15.0 / 16.0),
+            // its wool's head (grown 0.6) over the model
+            ("minecraft:sheep", 0.0, 22.6 / 16.0),
+            ("minecraft:baby_zombie", 0.0, 15.15 / 16.0),
+        ] {
+            let tris = mob_triangles(&g, kind, [0.0; 3], &d).unwrap_or_else(|| panic!("{kind}: no model"));
+            let (lo, hi) = bounds(&tris);
+            assert!((lo[1] - feet).abs() < 0.002 && (hi[1] - top).abs() < 0.002, "{kind}: {lo:?} .. {hi:?}");
+        }
+        // the witch's pointed hat; the horse's ears (the neck at 4 px tilted 30 degrees: the ear's
+        // corner at y -13, z 5 rises to 33.76 px)
+        for (kind, top) in [("minecraft:witch", 2.5..2.7), ("minecraft:zombie_horse", 2.1..2.12)] {
+            let (lo, hi) = bounds(&mob_triangles(&g, kind, [0.0; 3], &d).unwrap_or_else(|| panic!("{kind}: no model")));
+            eprintln!("{kind}: {lo:?} .. {hi:?}");
+            assert!(lo[1].abs() < 0.002 && top.contains(&hi[1]), "{kind}: {lo:?} .. {hi:?}");
+        }
+        // a dyed sheep: its undercoat and wool tinted by the dye (orange: 249,128,29 x 0.75)
+        let plain = mob_triangles(&g, "minecraft:sheep", [0.0; 3], &d).unwrap();
+        let dyed = mob_triangles(&g, "minecraft:sheep", [0.0; 3], &crate::mesh::MobDraw { color: 1, ..Default::default() }).unwrap();
+        assert_eq!(dyed.len(), plain.len() + 6 * 6 * 6, "the undercoat: the body's 6 boxes again");
+        assert_eq!(wool_tint(1), [186, 96, 21]);
+        assert_eq!(wool_tint(0), [230, 230, 230]);
+        // a bat: flying, its wings beat over the half second; resting, hung upside down
+        let at = |resting: bool, age: f32| mob_triangles(&g, "minecraft:bat", [0.0; 3], &crate::mesh::MobDraw { resting, age, ..Default::default() }).unwrap();
+        let (a, b) = (at(false, 0.0), at(false, 2.5));
+        assert!(a.iter().zip(&b).any(|(x, y)| x.pos != y.pos), "the wings move");
+        assert_eq!(at(false, 0.0).iter().map(|v| v.pos).collect::<Vec<_>>(), at(false, 10.0).iter().map(|v| v.pos).collect::<Vec<_>>(), "a 10-tick loop");
+        let (lo, hi) = bounds(&at(true, 0.0));
+        eprintln!("resting bat: {lo:?} .. {hi:?}");
+        assert!(hi[1] < 0.9 + 0.01 && lo[1] > 0.0, "inside its 0.9-high box: {lo:?} .. {hi:?}");
+    }
+
+    /// A spider and a cave spider drawn with the game's model: on their feet (the legs' tips at
+    /// the ground), the spider's body 13 px tall (the head's and the abdomen's tops at 13 px), its
+    /// legs reaching about a block to each side (the middle legs: 4 + 15 cos(0.58) cos(pi/8) px,
+    /// wider than its 1.4-block box); the cave spider 0.7 of it; each with its eyes layer (the
+    /// model again, unshaded) over it.
+    #[test]
+    fn a_spider_is_drawn_with_the_games_model() {
+        let g = browser_game();
+        let d = crate::mesh::MobDraw::default();
+        for (kind, scale) in [("minecraft:spider", 1.0f32), ("minecraft:cave_spider", 0.7)] {
+            let tris = mob_triangles(&g, kind, [0.0; 3], &d).unwrap_or_else(|| panic!("{kind}: no model"));
+            // 11 boxes x 6 faces x 2 triangles, then the eyes layer's as many
+            assert_eq!(tris.len(), 11 * 6 * 6 * 2, "{kind}");
+            let (base, eyes) = tris.split_at(tris.len() / 2);
+            assert!(eyes.iter().all(|v| v.color == [255; 4]) && base.iter().any(|v| v.color[0] < 255), "{kind}: the eyes unshaded over the shaded model");
+            assert!(base.iter().zip(eyes).all(|(a, b)| a.pos == b.pos), "{kind}: the eyes layer on the model's own faces");
+            let (lo, hi) = bounds(base);
+            eprintln!("{kind}: {lo:?} .. {hi:?}");
+            assert!(lo[1].abs() < 0.04 * scale, "{kind}: feet at {}", lo[1]);
+            assert!((hi[1] - 13.0 / 16.0 * scale).abs() < 0.01, "{kind}: top at {}", hi[1]);
+            let span = hi[0] - lo[0];
+            assert!((span - 2.056 * scale).abs() < 0.01, "{kind}: legs span {span}");
+        }
+        // walking: the legs move, the body stays
+        let walk = crate::mesh::MobDraw { walk_pos: 3.0, walk_speed: 1.0, ..Default::default() };
+        let (still, moving) = (mob_triangles(&g, "minecraft:spider", [0.0; 3], &d).unwrap(), mob_triangles(&g, "minecraft:spider", [0.0; 3], &walk).unwrap());
+        let body = 3 * 6 * 6;
+        assert_eq!(still[..body].iter().map(|v| v.pos).collect::<Vec<_>>(), moving[..body].iter().map(|v| v.pos).collect::<Vec<_>>());
+        assert!(still[body..].iter().zip(&moving[body..]).any(|(a, b)| a.pos != b.pos));
+    }
 
     #[test]
     fn transforms_like_joml() {

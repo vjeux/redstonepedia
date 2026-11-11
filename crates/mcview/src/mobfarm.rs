@@ -204,6 +204,12 @@ pub struct WalkAnim {
     pub speed_old: f32,
     pub speed: f32,
     pub position: f32,
+    /// A bat's animation state (`Bat.setupAnimationStates` each tick: the resting or the flying
+    /// `AnimationState`, started at the tick it changed): whether it rests, since which tick.
+    pub bat: Option<(bool, i32)>,
+    /// A chicken's wings (`Chicken.aiStep` each tick from its `onGround`): oFlap, flap,
+    /// oFlapSpeed, flapSpeed, flapping.
+    pub chicken: Option<[f32; 5]>,
 }
 
 impl WalkAnim {
@@ -215,7 +221,7 @@ impl WalkAnim {
     }
 
     fn stop(&mut self) {
-        *self = WalkAnim::default();
+        *self = WalkAnim { bat: self.bat, chicken: self.chicken, ..WalkAnim::default() };
     }
 
     /// `position(partialTicks)`.
@@ -522,6 +528,16 @@ impl MobRun {
             } else {
                 a.stop();
             }
+            if m.ty.def().id == "bat" && a.bat.is_none_or(|(r, _)| r != m.bat_resting) {
+                a.bat = Some((m.bat_resting, e.tick_count as i32));
+            }
+            if matches!(m.ty.def().id, "chicken" | "baby_chicken") {
+                // Chicken.aiStep: the wings beat while it is off the ground
+                let [_, flap, _, speed, flapping] = a.chicken.unwrap_or([0.0, 0.0, 0.0, 0.0, 1.0]);
+                let new_speed = (speed + (if e.on_ground { -1.0 } else { 4.0 }) * 0.3).clamp(0.0, 1.0);
+                let flapping = (if !e.on_ground && flapping < 1.0 { 1.0 } else { flapping }) * 0.9;
+                a.chicken = Some([flap, flap + flapping * 2.0, speed, new_speed, flapping]);
+            }
         }
         self.walk.retain(|id, _| seen.contains(id));
     }
@@ -747,8 +763,43 @@ pub fn draw_mob(w: &World, v: &redsim::entity::mob::view::MobView, partial: f32,
         age: e.tick_count as f32 + partial,
         width: m.dims().0,
         height: m.dims().1,
+        held: m.mainhand.as_ref().map(|h| h.item.clone()),
+        aggressive: m.ai.as_ref().is_some_and(|a| a.aggressive),
+        color: m.color,
+        resting: m.bat_resting,
+        anim_start: a.bat.map_or(0, |(_, since)| since),
+        entity_id: e.id,
+        flap: a.chicken.map_or([0.0; 2], |[of, f, os, s, _]| [of + (f - of) * partial, os + (s - os) * partial]),
+        eat: sheep_eat(m, partial),
+        carried: m.ai.as_ref().and_then(|a| a.enderman.as_ref()).and_then(|s| s.carried.as_ref()).map(crate::session::drawn_state),
     }
 }
+
+/// A sheep eating grass at `partial` (its `EatBlockGoal`'s `eatAnimationTick`, the client's
+/// `Sheep.eatAnimationTick` that the goal's start event sets): its head's drop
+/// (`getHeadEatPositionScale`) and angle (`getHeadEatAngleScale`); None while it does not eat.
+fn sheep_eat(m: &redsim::entity::mob::MobState, partial: f32) -> Option<[f32; 2]> {
+    use redsim::entity::mob::ai::goal::{Goal, animal::AnimalGoal};
+    let tick = m.ai.as_ref()?.goals.goals.iter().find_map(|g| match &g.goal {
+        Goal::Animal(AnimalGoal::EatBlock { tick }) => Some(*tick),
+        _ => None,
+    })?;
+    if tick <= 0 {
+        return None;
+    }
+    let t = tick as f32;
+    let drop = if (4..=36).contains(&tick) {
+        1.0
+    } else if tick < 4 {
+        (t - partial) / 4.0
+    } else {
+        -(t - 40.0 - partial) / 4.0
+    };
+    let angle = if tick > 4 && tick <= 36 { PI_F / 5.0 + 0.21991149 * ((t - 4.0 - partial) / 32.0 * 28.7).sin() } else { PI_F / 5.0 };
+    Some([drop, angle])
+}
+
+const PI_F: f32 = std::f32::consts::PI;
 
 /// `Crackiness.GOLEM.byFraction` (0.75, 0.5, 0.25): 0 none, 1 low, 2 medium, 3 high.
 pub fn crackiness(fraction: f32) -> u8 {

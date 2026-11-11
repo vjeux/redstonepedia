@@ -1087,9 +1087,9 @@ impl Atlas {
         n
     }
 
-    /// Pack the game's entity textures (boats, chest boats, the minecart, the armor stand: from
-    /// the vendored entity atlas) and its whole item atlas below the block atlas: a new game
-    /// texture. Returns how many textures were packed.
+    /// Pack the game's entity textures (boats, chest boats, the minecart, the armor stand, the
+    /// mobs' `entitymodel::MOB_TEXTURES`: from the vendored entity atlas) and its whole item atlas
+    /// below the block atlas: a new game texture. Returns how many textures were packed.
     pub fn add_game_entities(&mut self, ent: (&[u8], u32, u32, &str), items: (&[u8], u32, u32, &str)) -> Result<usize, String> {
         let Some(g) = self.game.clone() else { return Err("no game assets".into()) };
         let (bw, bh) = (g.width, g.height);
@@ -1109,7 +1109,7 @@ impl Atlas {
         let all_ent = parse(ent.3)?;
         let ent_rects: Vec<(String, [u32; 4])> = all_ent
             .iter()
-            .filter(|(k, r)| (k.starts_with("entity/boat/") || k.starts_with("entity/chest_boat/") || k == "entity/minecart/minecart" || k == "entity/armorstand/armorstand" || k == "entity/chest/normal" || k.starts_with("entity/shulker/shulker") || k == "entity/zombie/zombie") && r[0] + r[2] <= ent.1 && r[1] + r[3] <= ent.2)
+            .filter(|(k, r)| (k.starts_with("entity/boat/") || k.starts_with("entity/chest_boat/") || k == "entity/minecart/minecart" || k == "entity/armorstand/armorstand" || k == "entity/chest/normal" || k.starts_with("entity/shulker/shulker") || crate::entitymodel::MOB_TEXTURES.contains(&k.as_str())) && r[0] + r[2] <= ent.1 && r[1] + r[3] <= ent.2)
             .cloned()
             .collect();
         // the mob farms' mobs: each texture with its overlay layers composited in
