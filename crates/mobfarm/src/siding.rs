@@ -209,22 +209,33 @@ pub fn park7() -> bool {
     std::env::var("MCTAS_SIDING_PARK").is_ok_and(|v| v == "7")
 }
 
+/// Design (b)'s self-retrying kick (MCTAS_SIDING_RETRY=1, ironspec 2026-11-11 08:40): the bed line
+/// past the free cell one block down. The activator a slope rising north to the free cell
+/// (1,-1,3), a plain rail (1,-1,4), the park rail (1,-1,5) against K's powered block (1,-1,6), now
+/// the stop. A kicked cart that meets the napper inside its boarding cooldown stops on the slope,
+/// rolls back down onto the powered park rail and into the stop, and is kicked again while K holds:
+/// a level-32 freeze (redstone running, entities frozen) can no longer leave it stalled for good.
+pub fn retry() -> bool {
+    std::env::var("MCTAS_SIDING_RETRY").is_ok_and(|v| v == "1")
+}
+
 /// [`layout`] moved `dx` east and `dz` south (the bench's world shifted so the loop's chunk lines
 /// fall on the siding as day-1 pastes it: `BenchOpts::shift_x`, `shift_z`).
 pub fn layout_at(dx: i32, dz: i32) -> Siding {
     let p = |x: i32, y: i32, z: i32| BlockPos::new(x + dx, y, z + dz);
     let pz = if park7() { 7 } else { 6 };
+    let r = retry();
     Siding {
         entry: p(0, 0, 0),
         tee: p(1, 0, 0),
         tee_ctrl: p(1, -1, 0),
         boost: p(1, 0, 1),
         free_cell: p(1, 0, 2),
-        activator_rail: p(1, 0, 3),
-        activator: p(1, -1, 3),
-        park_rail: p(1, 0, pz),
+        activator_rail: if r { p(1, -1, 3) } else { p(1, 0, 3) },
+        activator: if r { p(1, -2, 3) } else { p(1, -1, 3) },
+        park_rail: if r { p(1, -1, 5) } else { p(1, 0, pz) },
         park: p(1, -1, pz),
-        stop: p(1, 0, pz + 1),
+        stop: if r { p(1, -1, 6) } else { p(1, 0, pz + 1) },
         bed_head: p(0, 0, 2),
         bed_foot: p(0, 0, 3),
         hatch: p(2, 1, 2),
@@ -279,17 +290,37 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     put(b, [s.boost.x, s.boost.y - 1, s.boost.z], "redstone_block")?;
     put(b, at(s.free_cell), &rail("north_south"))?;
     put(b, [s.free_cell.x, -1, s.free_cell.z], "glass")?;
-    put(b, at(s.activator_rail), "activator_rail[powered=true,shape=north_south,waterlogged=false]")?;
-    put(b, at(s.activator), "redstone_block")?;
-    for z in s.activator_rail.z + 1..s.park_rail.z {
-        put(b, [s.free_cell.x, 0, z], &rail("north_south"))?;
-        put(b, [s.free_cell.x, -1, z], "glass")?;
+    if retry() {
+        // (the self-retrying kick: the activator a slope down south from the free cell, a plain
+        // rail and the park rail one block down, the stop the park's block (K's, wired); glass over
+        // the low rails at y 0 and a top-half iron trapdoor over the slope (the cart passes under
+        // it at 0.7, a villager's 1.95 does not fit): no villager stands in the low line)
+        put(b, at(s.activator_rail), "activator_rail[powered=true,shape=ascending_north,waterlogged=false]")?;
+        put(b, at(s.activator), "redstone_block")?;
+        put(b, [1, -1, 4], &rail("north_south"))?;
+        put(b, [1, -2, 4], "glass")?;
+        put(b, at(s.park_rail), "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
+        put(b, [1, -2, 5], "glass")?;
+        put(b, at(s.park), "glass")?;
+        put(b, [1, 0, 3], "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")?;
+        // (a top trapdoor over the first low rail too: the cart's front comes under (1,0,4) still
+        // 0.2 up on the slope, where full glass stopped it)
+        put(b, [1, 0, 4], "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")?;
+        put(b, [1, 0, 5], "glass")?;
+        put(b, [1, 0, 6], "glass")?;
+    } else {
+        put(b, at(s.activator_rail), "activator_rail[powered=true,shape=north_south,waterlogged=false]")?;
+        put(b, at(s.activator), "redstone_block")?;
+        for z in s.activator_rail.z + 1..s.park_rail.z {
+            put(b, [s.free_cell.x, 0, z], &rail("north_south"))?;
+            put(b, [s.free_cell.x, -1, z], "glass")?;
+        }
+        put(b, at(s.park_rail), "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
+        put(b, at(s.park), "glass")?;
+        put(b, at(s.stop), "cobblestone")?;
+        put(b, [s.stop.x, s.stop.y + 1, s.stop.z], "glass")?;
+        put(b, [s.stop.x, s.stop.y - 1, s.stop.z], "glass")?;
     }
-    put(b, at(s.park_rail), "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
-    put(b, at(s.park), "glass")?;
-    put(b, at(s.stop), "cobblestone")?;
-    put(b, [s.stop.x, s.stop.y + 1, s.stop.z], "glass")?;
-    put(b, [s.stop.x, s.stop.y - 1, s.stop.z], "glass")?;
     // the exit branch: a plain rail, the slot (a braked powered rail sloping down east: the
     // returning cart stops on it, 0.2 in; the release powers it alone, so the cart leaves at the
     // slope's gravity and boost, not the cap), a plain flat, the exit and the bench's run-out
@@ -413,11 +444,21 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     } else {
         on(b, [1, -2, 0], torch)?; // Ta (1,-3,0) under it
     }
-    on(b, [1, -2, 3], torch)?; // Aa (1,-3,3)
+    // (the self-retrying kick: the activator's control is the slope's support (1,-2,3), Aa one
+    // lower at (1,-3,3) on (1,-4,3), its repeater (0,-4,3) reading the H line's support (-1,-4,3))
+    if retry() {
+        on(b, [1, -3, 3], torch)?;
+    } else {
+        on(b, [1, -2, 3], torch)?; // Aa (1,-3,3)
+    }
     on(b, [2, -1, 2], torch)?; // Ha (2,-2,2)
     // their feeds: repeaters into Ta and Aa from the H line at x -1, into Ha from the south
     on(b, [0, -3, 0], &rep("west", 1))?;
-    on(b, [0, -3, 3], &rep("west", 1))?;
+    if retry() {
+        on(b, [0, -4, 3], &rep("west", 1))?;
+    } else {
+        on(b, [0, -3, 3], &rep("west", 1))?;
+    }
     on(b, [2, -2, 3], &rep("south", 1))?;
     // the H line: x -1, z 0..5, then east along z 5 and up north into the Ha repeater's back
     // (z 5, not 4: dust beside Aa, which its repeater powers strongly, would feed the line back)
@@ -469,7 +510,14 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
             on(b, [-3, 0, z], dust)?;
         }
     } else {
-        on(b, [0, 0, 5], dust)?;
+        // (the self-retrying kick: the S dust on glass, not stone: dust powers the block under it,
+        // and a powered (0,-1,5) powers the low park rail beside it at every S pulse)
+        if retry() {
+            put(b, [0, -1, 5], "glass")?;
+            put(b, [0, 0, 5], dust)?;
+        } else {
+            on(b, [0, 0, 5], dust)?;
+        }
         for (i, x) in [-1, -2, -3].into_iter().enumerate() {
             on(b, [x, 0, 5], &if i < mv.min(2) { rep("east", 4) } else { dust.to_string() })?;
         }
@@ -532,7 +580,11 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     }
     if !std::env::var("MCTAS_SIDING_BOOST").is_ok_and(|v| v == "0") {
         swap(b, at(s.free_cell), "powered_rail[powered=true,shape=north_south,waterlogged=false]")?;
-        swap(b, [s.free_cell.x, -1, s.free_cell.z], "redstone_block")?;
+        // (the self-retrying kick: no redstone block under the free cell, which would power the low
+        // activator beside it at all times; the booster north of it powers it along the line)
+        if !retry() {
+            swap(b, [s.free_cell.x, -1, s.free_cell.z], "redstone_block")?;
+        }
     }
     for x in -6..=1 {
         on(b, [x, -3, 9], if x == -2 { "repeater[delay=1,facing=west,locked=false,powered=false]" } else { dust })?;
@@ -1223,7 +1275,7 @@ fn declared_of(b: &Builder, s: &Siding, wired: bool) -> Vec<crate::declared::Dec
     }
     cells.push((s.activator_rail, if wired { on } else { &[] }, false));
     for z in s.activator_rail.z + 1..s.park_rail.z {
-        cells.push((BlockPos::new(s.free_cell.x, 0, z), &[], false));
+        cells.push((BlockPos::new(s.free_cell.x, s.park_rail.y, z), &[], false));
     }
     cells.extend([(s.park_rail, off, false), (BlockPos::new(2, 0, 0), &[][..], false), (BlockPos::new(3, 0, 0), &[][..], false), (s.slot_rails[0], &[][..], false), (s.slot_rails[1], &[][..], false), (s.exit, &[][..], false)]);
     cells.push((s.hatch, &[("open", "true")], false));
@@ -1251,7 +1303,7 @@ pub fn check(spec: &FarmSpec, turn: i32) -> Result<Vec<String>, String> {
     let w = &run.world;
     let mut cells: Vec<BlockPos> = vec![s.entry, s.tee, s.boost, s.free_cell, s.activator_rail];
     for z in 4..=layout().park_rail.z {
-        cells.push(fr.blk(1, 0, z));
+        cells.push(fr.blk(1, layout().park_rail.y, z));
     }
     cells.extend([fr.blk(2, 0, 0), fr.blk(3, 0, 0), s.slot_rails[0], s.slot_rails[1], s.exit]);
     let mut out = Vec::new();
@@ -2071,7 +2123,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 "no-drop" | "bed-taken" => {
                     let cells: Vec<(BlockPos, String, String)> = if kind == "no-drop" {
                         let r = |st: &str| clock::canon::rotate_state(st, fr.turn.rem_euclid(4) as u8);
-                        vec![(s.activator_rail, r("rail[shape=north_south,waterlogged=false]"), r("activator_rail[powered=false,shape=north_south,waterlogged=false]"))]
+                        vec![(s.activator_rail, r(if retry() { "rail[shape=ascending_north,waterlogged=false]" } else { "rail[shape=north_south,waterlogged=false]" }), r(if retry() { "activator_rail[powered=false,shape=ascending_north,waterlogged=false]" } else { "activator_rail[powered=false,shape=north_south,waterlogged=false]" }))]
                     } else {
                         [s.bed_head, s.bed_foot].iter().map(|&c| {
                             let st = run.world.get(c).to_string().trim_start_matches("minecraft:").to_string();
@@ -2207,6 +2259,22 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         // siding holding no cart (ARR and the carts from the entry to the park), 20 gt held)
         let b_bulb = bo.resync.is_some() && matches!(run.world.get(fr.blk(-2, 0, 2)), Block::Bulb { lit: true, .. });
         let vr_blocked = (bo.b_emul.is_some() && (matches!(run.world.get(bed), Block::Bed { occupied: true, .. }) || (bo.b_fc && be.cart_seen.is_some_and(|c| now - c <= 20)))) || (bo.resync.is_some() && (b_bulb || be.cart_seen.is_some_and(|c| now - c <= 20)));
+        // (a one-tick dump for tracing: MCTAS_BENCH_DUMP_AT=gt1,gt2,... prints every cart and mob
+        // inside the siding's box at those ticks after t0, local, with riders and sleep)
+        if bo.trace && let Ok(v) = std::env::var("MCTAS_BENCH_DUMP_AT") && v.split(',').filter_map(|x| x.trim().parse::<i64>().ok()).any(|g| g == now - t0) {
+            for e in run.world.entities.list.iter().filter(|e| !e.removed) {
+                let l = fr.local(e.pos);
+                if l.x < -8.0 || l.x > 8.0 || l.z < -5.0 || l.z > 10.0 || l.y < -8.0 || l.y > 5.0 {
+                    continue;
+                }
+                let what = match &e.kind {
+                    EntityKind::Minecart(_) => "cart".to_string(),
+                    EntityKind::Mob(_) => format!("mob{}", if let Some(i) = index_of(&run.world, e.id) { if redsim::entity::mob::mob(&run.world, i).sleeping_pos.is_some() { " asleep" } else { "" } } else { "" }),
+                    _ => continue,
+                };
+                eprintln!("dump gt {}: {what} #{} at {:.2} {:.2} {:.2} v {:.3} {:.3} vehicle {:?}", now - t0, e.id, l.x, l.y, l.z, e.delta_movement.x, e.delta_movement.z, e.vehicle);
+            }
+        }
         if bo.trace && vr_at.contains(&now) {
             eprintln!("VR gt {}: {} (DA {} | DB {})", now - t0, if vr_blocked { "held back" } else { "fires" }, run.world.get(fr.blk(0, -1, -1)), run.world.get(fr.blk(0, -1, -2)));
         }
@@ -2366,7 +2434,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             if bo.b_fc && b != be.act_off {
                 be.act_off = b;
                 let r = |st: &str| clock::canon::rotate_state(st, fr.turn.rem_euclid(4) as u8);
-                let st = if b { r("rail[shape=north_south,waterlogged=false]") } else { r("activator_rail[powered=false,shape=north_south,waterlogged=false]") };
+                let sh = if retry() { "ascending_north" } else { "north_south" };
+                let st = if b { r(&format!("rail[shape={sh},waterlogged=false]")) } else { r(&format!("activator_rail[powered=false,shape={sh},waterlogged=false]")) };
                 set(&mut run.world, s.activator_rail, &st);
                 drive.act(now, format!("set {} {} {} minecraft:{st}", s.activator_rail.x, s.activator_rail.y, s.activator_rail.z));
             }
@@ -2798,7 +2867,11 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("d27", [2, -2, 7]),
                 ("chain", [-6, -3, 8]),
                 ("Tk", [1, -2, 6]),
-                ("park", [1, 0, 6]),
+                ("park", if retry() { [1, -1, 5] } else { [1, 0, 6] }),
+                ("act", if retry() { [1, -1, 3] } else { [1, 0, 3] }),
+                ("Aa", if retry() { [1, -3, 3] } else { [1, -2, 3] }),
+                ("AaR", if retry() { [0, -4, 3] } else { [0, -3, 3] }),
+                ("Hs3", [-1, -4, 3]),
                 // (the give-up's, when it has one)
                 ("ARR", [0, 0, 0]),
                 ("Aset", [0, -2, -5]),
