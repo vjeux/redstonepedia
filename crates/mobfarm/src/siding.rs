@@ -1531,6 +1531,8 @@ pub struct BenchReport {
     pub day_visits: bool,
     /// The partial unload: when the chunks were dropped and when they came back.
     pub unload: Option<(i64, Option<i64>)>,
+    /// The unload's day times (dropped, back; -1 not back).
+    pub unload_day: (i64, i64),
     /// The divert gate (`BenchOpts::divert_gate`): the scheduled visits it held back (when), and
     /// the reset pulses VR fired (when).
     pub held_back: Vec<i64>,
@@ -2270,6 +2272,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                             drive.act(now, format!("unload {}", bx(u.drop)));
                         }
                         rep.unload = Some((now, None));
+                        rep.unload_day = (run.world.day_time().rem_euclid(24000), -1);
                     }
                 }
                 Some((from, None)) if now >= from + u.n => {
@@ -2293,6 +2296,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         drive.act(now, format!("load {}", bx(u.drop)));
                     }
                     rep.unload = Some((from, Some(now)));
+                    rep.unload_day.1 = run.world.day_time().rem_euclid(24000);
                 }
                 _ => {}
             }

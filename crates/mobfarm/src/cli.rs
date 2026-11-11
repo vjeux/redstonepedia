@@ -3818,6 +3818,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let ticks: i64 = oks.iter().map(|r| r.b_wrong.1).sum();
                     let first: Vec<String> = oks.iter().enumerate().filter_map(|(i, r)| r.b_wrong.2.map(|(t, lit)| format!("run {} at t0+{t} ({})", i + 1, if lit { "lit, the bed free" } else { "unlit, the bed occupied" }))).take(4).collect();
                     println!("B's bulb against the bed (design (b)): {runs} runs of disagreement over 20 gt, {ticks} ticks{}", if first.is_empty() { String::new() } else { format!(" ({})", first.join("; ")) });
+                    // (ironspec 07:00 item 2: does each unload span a resync time)
+                    let spans: Vec<String> = oks.iter().enumerate().filter(|(_, r)| r.unload.is_some()).map(|(i, r)| {
+                        let (a, b) = r.unload_day;
+                        let across = |t: i64| if b < 0 { false } else if a <= b { a <= t && t < b } else { t >= a || t < b };
+                        let rs: Vec<&str> = [(1000, "1,000"), (11000, "11,000")].iter().filter(|x| across(x.0)).map(|x| x.1).collect();
+                        format!("run {} day {a}->{b}{}", i + 1, if rs.is_empty() { String::new() } else { format!(" (across the {} resync)", rs.join(" and ")) })
+                    }).collect();
+                    if !spans.is_empty() {
+                        println!("the unload's day times: {}", spans.join("; "));
+                    }
                 }
                 println!("detector edges: arrival (0,0,0) {} against {} carts in; return (3,0,0) {} against {} carts out{}", ed[0], ed[2], ed[1], ed[3], if ed[0] == ed[2] && ed[1] == ed[3] { "" } else { " (MISMATCH)" });
                 // (farmopt 03:55: per napped visit, the wake, the napper's first step off the free
