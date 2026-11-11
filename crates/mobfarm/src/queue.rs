@@ -472,13 +472,17 @@ pub struct LoopOpts {
     /// return run's take-off, the curve north and one flat transition cell upstream of z 25|26,
     /// then the `tail_esc` slopes north into G0 and P (0: the column queue).
     pub adm_xq: u32,
+    /// The x-queue's ledge: the gap's width in cells (default 1) and the landing's drop below the
+    /// take-off's level (default 2).
+    pub xq_gap: u32,
+    pub xq_drop: u32,
     /// The zombie post beside the escapement (loop z 29) moved to this x (default the strip's).
     pub tail_post_x: Option<i32>,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, tail_post_x: None }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, xq_gap: 1, xq_drop: 2, tail_post_x: None }
     }
 }
 
@@ -1024,6 +1028,13 @@ pub struct TailWatch {
     by_state: [usize; 6],
     /// The highest closing speed of the arrivals of each kind.
     closing_by_state: [f64; 6],
+    /// The merge rule's numbers: every contact's rear cart's stored speed along the track (the
+    /// most), the first arrivals' (the most), the cart at P's, the contacts, the closest centres.
+    contact_max: (f64, String),
+    arr_contact_max: (f64, String),
+    admit_contact_max: (f64, String),
+    contacts: usize,
+    closest: Option<(f64, String)>,
     arrival_log: Vec<String>,
     impacts: usize,
     back_cross: usize,
@@ -1051,6 +1062,8 @@ pub struct TailWatch {
     /// The register's schedule (the first advance's gt in the slot, the advances' period), to
     /// tell a G0 opening's advance.
     pub sched: Option<(i64, i64)>,
+    /// The stand's release (REL) gt in the slot, to time each batch's take-off from its release.
+    pub rel_at: Option<i64>,
     end_other: Option<(f64, f64, String)>,
     /// Every arrival printed (`--arrival-log`).
     pub verbose: bool,
@@ -1136,6 +1149,16 @@ impl TailWatch {
             now.push((*id, k, i, s, vs, v.horizontal_distance()));
         }
         now.sort_by(|a, b| a.3.total_cmp(&b.3));
+        // (the closest centres of two tail carts, every tick: a merge's mark)
+        for p in now.windows(2) {
+            let (ea, eb) = (w.entities.list.iter().find(|e| e.id == p[0].0), w.entities.list.iter().find(|e| e.id == p[1].0));
+            if let (Some(ea), Some(eb)) = (ea, eb) {
+                let d = ((ea.pos.x - eb.pos.x).powi(2) + (ea.pos.y - eb.pos.y).powi(2) + (ea.pos.z - eb.pos.z).powi(2)).sqrt();
+                if self.closest.as_ref().is_none_or(|x| d < x.0) {
+                    self.closest = Some((d, format!("slot {c} +{dt}: carts {} and {} at {:?}", p[0].1, p[1].1, self.cells[p[1].2])));
+                }
+            }
+        }
         // (the occupancy: downstream of the curve (not P), upstream of it)
         let down = now.iter().filter(|q| q.2 >= self.curve_idx && q.2 < p_idx).count();
         let up = now.iter().filter(|q| q.2 < self.curve_idx).count();
@@ -1275,10 +1298,23 @@ impl TailWatch {
                             self.impacted.insert(b.0);
                             let pb = self.prev.get(&b.0).map_or(0.0, |p| p.1);
                             let closing = pvs - pb;
+                            // (the merge rule, tick-exact's bridge Nov 11 09:45: a cart reaching a
+                            // waiting cart at a stored speed of about 1.0 or more merges onto its
+                            // spot; the rear cart's stored speed along the track at contact)
+                            if pvs > self.contact_max.0 {
+                                self.contact_max = (pvs, format!("slot {c} +{dt}: cart {k} into cart {} at {:?}", b.1, self.cells[i]));
+                            }
+                            if i + 1 >= self.cells.len() && pvs > self.admit_contact_max.0 {
+                                self.admit_contact_max = (pvs, format!("slot {c} +{dt}: cart {k} at P into cart {}", b.1));
+                            }
+                            self.contacts += 1;
                             if closing > self.closing_max.0 {
                                 self.closing_max = (closing, format!("slot {c} +{dt}: cart {k} into cart {} at {:?}", b.1, self.cells[i]));
                             }
                             if let Some((t_land, s_land)) = self.landed.remove(&id) {
+                                if pvs > self.arr_contact_max.0 {
+                                    self.arr_contact_max = (pvs, format!("slot {c} +{dt}: cart {k} into cart {} at {:?}", b.1, self.cells[i]));
+                                }
                                 self.arrivals += 1;
                                 let roll = s - s_land;
                                 self.roll_min = self.roll_min.min(roll);
@@ -1384,6 +1420,17 @@ impl TailWatch {
                 self.end_third.as_ref().map_or("-".to_string(), |e| format!("{:.2} cells at {:.3} b/t ({})", e.0, e.1, e.2)),
                 self.end_other.as_ref().map_or("-".to_string(), |e| format!("{:.2} cells at {:.3} b/t ({})", e.0, e.1, e.2))
             ),
+            format!(
+                "the merge rule's speeds (a cart reaching a waiting cart at a stored speed of about 1.0 or more merges onto its spot, tick-exact's bridge Nov 11; the rear cart's stored speed along the track at contact): {} contacts, the most {:.3} b/t{}; first arrivals the most {:.3} b/t{}; at P the most {:.3} b/t{}; the closest centres {}",
+                self.contacts,
+                self.contact_max.0,
+                if self.contact_max.1.is_empty() { String::new() } else { format!(" ({})", self.contact_max.1) },
+                self.arr_contact_max.0,
+                if self.arr_contact_max.1.is_empty() { String::new() } else { format!(" ({})", self.arr_contact_max.1) },
+                self.admit_contact_max.0,
+                if self.admit_contact_max.1.is_empty() { String::new() } else { format!(" ({})", self.admit_contact_max.1) },
+                self.closest.as_ref().map_or("-".to_string(), |x| format!("{:.3} ({})", x.0, x.1))
+            ),
             {
                 // (the gaps at the take-off plane, fractional gt; tick-exact's quarter-tick bridge
                 // aec62262a: 3.75 or less lands clean (a pushed pair), 4 to 6.75 sticks or merges,
@@ -1393,8 +1440,31 @@ impl TailWatch {
                 let gaps: Vec<(f64, &String)> = ts.windows(2).map(|p| (p[1].0 - p[0].0, &p[1].1)).collect();
                 let bad: Vec<String> = gaps.iter().filter(|g| g.0 >= 3.875 && g.0 < 6.875).map(|g| format!("{:.2} gt at {}", g.0, g.1)).collect();
                 let least = gaps.iter().min_by(|a, b| a.0.total_cmp(&b.0)).map_or("-".to_string(), |g| format!("{:.2} gt ({})", g.0, g.1));
+                // (each slot's first crossing, gt after the slot's start (the golem pulse), from
+                // slot 2 on: the arrival frame a REL-keyed escapement is set in)
+                let mut first: std::collections::BTreeMap<i64, f64> = Default::default();
+                for (tc, _) in &self.cross_ts {
+                    let c = (tc.floor() as i64).div_euclid(100);
+                    let e = first.entry(c).or_insert(f64::INFINITY);
+                    *e = e.min(tc - (c * 100) as f64);
+                }
+                let fs: Vec<f64> = first.iter().filter(|(c, _)| **c >= 2).map(|(_, v)| *v).collect();
+                let first_span = if fs.is_empty() { "-".to_string() } else { format!("{:.2}..{:.2} gt", fs.iter().cloned().fold(f64::INFINITY, f64::min), fs.iter().cloned().fold(f64::NEG_INFINITY, f64::max)) };
+                // (each batch's first crossing from its own release: a crossing belongs to the
+                // batch released last at least 40 gt before it)
+                let from_rel = self.rel_at.map(|r| {
+                    let mut by_b: std::collections::BTreeMap<i64, f64> = Default::default();
+                    for (tc, _) in &self.cross_ts {
+                        let b = ((tc - r as f64 - 40.0) / 100.0).floor() as i64;
+                        let e = by_b.entry(b).or_insert(f64::INFINITY);
+                        *e = e.min(tc - (b * 100 + r) as f64);
+                    }
+                    let v: Vec<f64> = by_b.iter().filter(|(b, _)| **b >= 1).map(|(_, x)| *x).collect();
+                    if v.is_empty() { "-".to_string() } else { format!("{:.2}..{:.2} gt", v.iter().cloned().fold(f64::INFINITY, f64::min), v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)) }
+                });
+                let first_span = match from_rel { Some(f) => format!("{first_span}; each batch's first crossing {f} after its release (REL at +{})", self.rel_at.unwrap_or(0)), None => first_span };
                 format!(
-                    "the take-off plane{} (each cart's crossing interpolated between ticks): {} crossings, gaps the least {least}; {} pushed pairs (3.75 gt or less), {} in the bad band 4-6.75 gt{}; the lone carts' landing to pressed at G0: {}",
+                    "the take-off plane{} (each cart's crossing interpolated between ticks): {} crossings, gaps the least {least}; {} pushed pairs (3.75 gt or less), {} in the bad band 4-6.75 gt{}; each slot's first crossing {first_span} after the slot's start (bench gt; world +1); the lone carts' landing to pressed at G0: {}",
                     self.takeoff.map_or(String::new(), |(tc, _, _)| format!(" at ({},{},{})", tc[0], tc[1], tc[2])),
                     ts.len(),
                     gaps.iter().filter(|g| g.0 < 3.875).count(),
@@ -1504,6 +1574,66 @@ pub fn emulated_signals(o: &LoopOpts, tm: &LoopTiming) -> (String, bool) {
     (line, all)
 }
 
+/// Job-site blocks and bells within a rider's reach (ironspec Nov 11 08:53: a rider walks toward
+/// any job-site block or bell within 48 blocks, and a walk it can't finish ages its can't-reach
+/// count): every composter, barrel, lectern, smoker, blast furnace, grindstone, loom, stonecutter,
+/// cartography table, fletching table, brewing stand, cauldron (any filling), smithing table and
+/// bell within `range` (block distance, squared as the game's POI search squares it) of a place a
+/// rider can be: a rail cell or the cell above it, or a bed. Returns the line and the hits.
+pub fn jobsite_check(spec: &redsim::entity::mob::farm::FarmSpec, range: f64) -> (String, usize) {
+    let blocks: Vec<([i32; 3], String)> = spec.blocks.iter().map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
+    jobsite_check_blocks(&blocks, range)
+}
+
+/// The job-site check on a design's blocks as (position, block string) pairs (a part without the
+/// farm's ports included).
+pub fn jobsite_check_blocks(blocks: &[([i32; 3], String)], range: f64) -> (String, usize) {
+    const KINDS: [&str; 14] = ["composter", "barrel", "lectern", "smoker", "blast_furnace", "grindstone", "loom", "stonecutter", "cartography_table", "fletching_table", "brewing_stand", "cauldron", "smithing_table", "bell"];
+    let name_of = |s: &str| {
+        let s = s.strip_prefix("minecraft:").unwrap_or(s);
+        s.split('[').next().unwrap_or("").to_string()
+    };
+    let mut places: Vec<[i32; 3]> = Vec::new();
+    let (mut rails, mut beds) = (0usize, 0usize);
+    for (p, b) in blocks {
+        let n = name_of(b);
+        if matches!(n.as_str(), "rail" | "powered_rail" | "detector_rail" | "activator_rail") {
+            places.push(*p);
+            places.push([p[0], p[1] + 1, p[2]]);
+            rails += 1;
+        } else if n.ends_with("_bed") {
+            places.push(*p);
+            beds += 1;
+        }
+    }
+    let mut hits: Vec<String> = Vec::new();
+    let mut found = 0usize;
+    for (p, b) in blocks {
+        let n = name_of(b);
+        let kind = KINDS.iter().find(|k| n == **k || (**k == "cauldron" && n.ends_with("_cauldron")));
+        let Some(kind) = kind else { continue };
+        found += 1;
+        let best = places.iter().map(|q| {
+            let (dx, dy, dz) = ((q[0] - p[0]) as f64, (q[1] - p[1]) as f64, (q[2] - p[2]) as f64);
+            ((dx * dx + dy * dy + dz * dz).sqrt(), *q)
+        }).min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((d, q)) = best
+            && d <= range
+        {
+            hits.push(format!("{n} at ({},{},{}) {d:.1} from the rider place ({},{},{})", p[0], p[1], p[2], q[0], q[1], q[2]));
+        }
+        let _ = kind;
+    }
+    let n = hits.len();
+    (
+        format!(
+            "job-site blocks and bells within {range} of a place a rider can be ({rails} rail cells, {beds} bed cells; {found} such blocks in the design): {n}{}",
+            if hits.is_empty() { String::new() } else { format!(" ({})", hits.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }
+        ),
+        n,
+    )
+}
+
 /// Two release traces (`MCTAS_RELEASE_TRACE` lines `t T c C dt D R bits S rel E gates | k:x,y,z
 /// ...`) compared on
 /// the ticks both have: the release rails' power and the carts on the release run (the same carts,
@@ -1590,6 +1720,9 @@ pub struct Headers {
     /// sight; `sight_ok:` the blocks allowed to stop a line.
     pub sight: Vec<([i32; 3], [i32; 3])>,
     pub sight_ok: Vec<[i32; 3]>,
+    /// Static checks run once before the bench (each line, and whether it fails the run): the
+    /// walk-target check's flee verdict (`mobfarm flee-check`, ironspec Nov 11 09:03: the gate).
+    pub static_checks: Vec<(String, bool)>,
 }
 
 /// The design's `declared:`, `flights:` and `rider_space_ok:` headers.
@@ -1601,7 +1734,39 @@ pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<H
         rider_space_control: Vec::new(),
         sight: match meta.get("sight") { Some(s) => crate::declared::parse_boxes(s).map_err(|e| format!("sight: {e}"))?, None => Vec::new() },
         sight_ok: match meta.get("sight_ok") { Some(s) => crate::declared::parse_cells(s).map_err(|e| format!("sight_ok: {e}"))?, None => Vec::new() },
+        static_checks: Vec::new(),
     })
+}
+
+/// The walk-target static check (`mobfarm flee-check`, tick-exact 8ab79c1dc) as the bench's default
+/// static check (ironspec Nov 11 09:03): its flee verdict gates the run (every flee candidate from a
+/// rider place within 6 of a hostile reachable); the calm sources' verdicts are report only. The
+/// bed for REST's walk: the design's `port home:` line.
+pub fn flee_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
+    let port = design_text.lines().find_map(|l| l.strip_prefix("port home:")).map(|r| r.split_whitespace().filter_map(|t| t.parse::<i32>().ok()).collect::<Vec<_>>());
+    let bed = port.filter(|v| v.len() == 3).map(|v| BlockPos::new(v[0], v[1], v[2]));
+    match crate::fleecheck::check(spec, bed, &[]) {
+        Ok(places) => {
+            let bad = |f: &dyn Fn(&crate::fleecheck::Place) -> Option<&crate::fleecheck::Source>| places.iter().filter(|p| f(p).is_some_and(|s| s.live() > 0)).count();
+            let flee = bad(&|p| (p.flee_from > 0).then_some(&p.flee));
+            let panic = bad(&|p| (p.panic_from > 0).then_some(&p.panic_stroll));
+            let stroll = bad(&|p| Some(&p.stroll));
+            let others = bad(&|p| Some(&p.others));
+            let v = |n: usize| if n == 0 { "PASS".to_string() } else { format!("FAIL at {n} places") };
+            (
+                format!(
+                    "walk targets (mobfarm flee-check, static, {} rider places): the flee {} (the gate); report only: the panic stroll {}, the idle stroll {}, walks to villagers {}",
+                    places.len(),
+                    v(flee),
+                    v(panic),
+                    v(stroll),
+                    v(others)
+                ),
+                flee > 0,
+            )
+        }
+        Err(e) => (format!("walk targets (mobfarm flee-check): not run ({e})"), false),
+    }
 }
 
 /// The rider-space check on a run's world at tick 0: every rail block of the spec (moved by dx, dz),
@@ -1756,7 +1921,7 @@ pub fn esc_ye(o: &LoopOpts) -> i32 {
         // with the ledge the return run (the pre-ledge) one higher; with the x-queue (`adm_xq` N)
         // its N slopes and the drop over the gap on top)
         if o.adm_xq > 0 {
-            return o.tail_esc as i32 + 3 + o.adm_xq as i32 + 1;
+            return o.tail_esc as i32 + 3 + o.adm_xq as i32 + o.xq_drop.max(2) as i32 - 1;
         }
         return o.tail_esc as i32 + 3 + if o.adm_ledge { 1 } else { 0 };
     }
@@ -1967,16 +2132,19 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     let mut z = zr + 1;
     let xq_top = if o.adm_xq > 0 {
         let n = o.adm_xq as i32;
+        // (`xq_gap` G cells of gap (default 1) and `xq_drop` D: the landing D below the take-off's
+        // level (default 2), the ledge's geometry for the S3 merge's band-free search)
+        let (g, d) = (o.xq_gap.max(1) as i32, o.xq_drop.max(2) as i32);
         let xd = -o.row_gap + 12;
-        for x in (n + 2..xd).rev() {
+        for x in (n + 1 + g..xd).rev() {
             path.push(([x, ye, 24], Cell::Plain));
         }
         for k in 0..n {
             let x = n - k;
-            let cell = [x, ye - 2 - k, 24];
+            let cell = [x, ye - d - k, 24];
             path.push((cell, if o.adm_sensors && k == 1 { Cell::Detector } else { Cell::Plain }));
         }
-        let yf = ye - 1 - n;
+        let yf = ye - d + 1 - n;
         path.push(([0, yf, 24], Cell::Plain));
         path.push(([0, yf, 25], Cell::Plain));
         z = 26;
@@ -2016,9 +2184,10 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             // (the x-queue's flight: off the last take-off flat over the gap onto the first or
             // second slope down, within 6 gt; its queue cells the x-queue's slopes)
             let n = o.adm_xq as i32;
-            flights.push(crate::flight::Flight { take_off: [n + 2, ye, 24], landing: vec![[n, ye - 2, 24], [n - 1, ye - 3, 24]], max_air: 6 });
+            let (g, d) = (o.xq_gap.max(1) as i32, o.xq_drop.max(2) as i32);
+            flights.push(crate::flight::Flight { take_off: [n + 1 + g, ye, 24], landing: vec![[n, ye - d, 24], [n - 1, ye - d - 1, 24]], max_air: (6 + 3 * (g - 1) + 3 * (d - 2)) as u32 });
             for k in 0..n {
-                queue_cells.push([n - k, ye - 2 - k, 24]);
+                queue_cells.push([n - k, ye - d - k, 24]);
             }
             yf
         } else if o.adm_ledge && o.adm_short {
@@ -3109,7 +3278,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() } + &o.tail_post_x.map(|x| format!(" tail_post_x={x}")).unwrap_or_default())));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() } + &if o.xq_gap > 1 { format!(" xq_gap={}", o.xq_gap) } else { String::new() } + &if o.xq_drop > 2 { format!(" xq_drop={}", o.xq_drop) } else { String::new() } + &o.tail_post_x.map(|x| format!(" tail_post_x={x}")).unwrap_or_default())));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
@@ -3197,6 +3366,8 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "adm_room_k" => o.adm_room_k = v.parse().unwrap_or(2),
             "adm_latch_reset" => o.adm_latch_reset = v == "1",
             "adm_xq" => o.adm_xq = v.parse().unwrap_or(0),
+            "xq_gap" => o.xq_gap = v.parse().unwrap_or(1),
+            "xq_drop" => o.xq_drop = v.parse().unwrap_or(2),
             "tail_post_x" => o.tail_post_x = v.parse().ok(),
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
@@ -4711,6 +4882,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // the jump's spacing and the landing's clearance, the queue's occupancy: escapement designs)
     let mut tail_watch = TailWatch::new(&lay);
     tail_watch.sched = Some((tm.advance_at, tm.advance_every));
+    tail_watch.rel_at = o.stand_stop.then_some(tm.pocket_release);
     let mut cart_count = CartCount::new(&lay);
     tail_watch.verbose = tm.arrival_log;
     let mut held_back: Option<(u32, redsim::entity::Vec3, i64)> = None;
@@ -4909,7 +5081,39 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the signals this run emulates, each validated against the wired controller or not; any
     // unvalidated one labels the run, ironspec Nov 11 07:32)
     out.push(emulated_signals(o, tm).0);
+    // (each villager's remembered places at the start, ironspec Nov 11 08:57: every villager enters
+    // with no remembered job site, potential job site or meeting point; HOME as the design gives it)
+    {
+        let mut lines: Vec<String> = Vec::new();
+        let (mut n, mut remembering) = (0usize, 0usize);
+        let fmt = |p: Option<BlockPos>| p.map_or("-".to_string(), |p| format!("({},{},{})", p.x, p.y, p.z));
+        for e in &run.world.entities.list {
+            let redsim::entity::EntityKind::Mob(m) = &e.kind else { continue };
+            let Some(b) = m.brain.as_deref() else { continue };
+            n += 1;
+            let mem = b.ex.as_deref().map(|x| &x.mem);
+            let (js, pj, mp) = (mem.and_then(|x| x.job_site), mem.and_then(|x| x.potential_job_site), mem.and_then(|x| x.meeting_point));
+            if js.is_some() || pj.is_some() || mp.is_some() {
+                remembering += 1;
+                if lines.len() < 8 {
+                    lines.push(format!("e{} JOB_SITE {} POTENTIAL_JOB_SITE {} MEETING_POINT {} HOME {}", e.id, fmt(js), fmt(pj), fmt(mp), fmt(b.home)));
+                }
+            }
+        }
+        let homes = run.world.entities.list.iter().filter(|e| matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.home.is_some()))).count();
+        out.push(format!(
+            "villagers' remembered places at the start: {n} villagers, {remembering} remembering a job site, potential job site or meeting point{}; {homes} holding HOME",
+            if lines.is_empty() { String::new() } else { format!(" ({})", lines.join("; ")) }
+        ));
+    }
     let mut problems = Vec::new();
+    // (the static checks run once before the bench: each line, a failing one a problem)
+    for (line, fails) in &hdr.static_checks {
+        out.push(line.clone());
+        if *fails {
+            problems.push(format!("static check: {line}"));
+        }
+    }
     // (the bed's nearest awake villager while it is taken: its distance and where; see the tick
     // loop)
     let mut bed_near: Option<(f64, String)> = None;

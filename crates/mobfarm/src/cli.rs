@@ -659,6 +659,12 @@ pub enum MobfarmCmd {
         /// drivers east of G0 and G_P (day-1: x 6).
         #[arg(long, allow_hyphen_values = true)]
         tail_post_x: Option<i32>,
+        /// The x-queue's ledge: the gap's width in cells.
+        #[arg(long, default_value_t = 1)]
+        xq_gap: u32,
+        /// The x-queue's ledge: the landing's drop below the take-off's level.
+        #[arg(long, default_value_t = 2)]
+        xq_drop: u32,
         #[arg(long)]
         out: PathBuf,
     },
@@ -902,6 +908,37 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 0.0001)]
         tol: f64,
     },
+    /// The static job-site check (ironspec Nov 11 08:53): every job-site block (composter, barrel,
+    /// lectern, smoker, blast furnace, grindstone, loom, stonecutter, cartography table,
+    /// fletching table, brewing stand, cauldron, smithing table) or bell within `--range` of a
+    /// place a rider can be (a rail cell or the cell above it, a bed), per design; any hit fails.
+    JobsiteCheck {
+        designs: Vec<PathBuf>,
+        #[arg(long, default_value_t = 48.0)]
+        range: f64,
+        /// A block added before the check (`X,Y,Z,BLOCK`, e.g. a composter: the positive control).
+        #[arg(long)]
+        add: Vec<String>,
+    },
+    /// The ledge's follower-gap sweep on redsim: the design's first declared flight, two carts off
+    /// its take-off, the follower GAP gt behind (fractional), at each stored speed, empty and
+    /// ridden; each pair clean, stuck, merged or derailed, printed as bands.
+    LedgeSweep {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', default_values_t = [1.5, 1.82, 1.96, 2.2])]
+        speeds: Vec<f64>,
+        #[arg(long, default_value_t = 0.0)]
+        gap_from: f64,
+        #[arg(long, default_value_t = 10.0)]
+        gap_to: f64,
+        #[arg(long, default_value_t = 0.25)]
+        gap_step: f64,
+        /// Which riders: `both` (default), `ridden` or `empty`.
+        #[arg(long, default_value = "both")]
+        riders: String,
+        #[arg(long, default_value_t = 60)]
+        ticks: u32,
+    },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
     QueueLoopRun {
@@ -1047,6 +1084,14 @@ pub enum MobfarmCmd {
         /// --release-offs 41,47,43).
         #[arg(long, value_delimiter = ',')]
         release_offs: Vec<i64>,
+        /// Fail the run on the walk-target static check's flee verdict (`mobfarm flee-check`,
+        /// printed by default; ironspec Nov 11 09:29: a void bench's verdict neither passes nor
+        /// fails a design, so it gates only when asked until runs are grounded).
+        #[arg(long)]
+        flee_gate: bool,
+        /// Skip the walk-target static check altogether.
+        #[arg(long)]
+        no_flee_check: bool,
         /// The release group's first slope (the head) on this many gt into the slot: 3 is main's
         /// wired controller (q17's rail powered at +3 here, its +4), found by the
         /// bench-against-wired check (Nov 11 07:00, IDENTICAL with --release-stagger 4
@@ -2444,7 +2489,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2453,7 +2498,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x };
+            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2736,7 +2781,47 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::TraceDiff { a, b, tol } => {
             println!("{}", crate::queue::trace_diff(&std::fs::read_to_string(&a)?, &std::fs::read_to_string(&b)?, tol));
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs } => {
+        MobfarmCmd::JobsiteCheck { designs, range, add } => {
+            let mut total = 0usize;
+            for d in &designs {
+                let c = match circuit::Circuit::load(d) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        println!("{}: not a design ({e})", d.display());
+                        continue;
+                    }
+                };
+                let mut blocks: Vec<([i32; 3], String)> = c.clock.design.block_list().into_iter().map(|(q, s)| ([q[0], q[1], q[2]], s)).collect();
+                for a in &add {
+                    let f: Vec<&str> = a.splitn(4, ',').collect();
+                    let [x, y, z, blk] = f.as_slice() else { anyhow::bail!("--add takes X,Y,Z,BLOCK") };
+                    blocks.push(([x.parse()?, y.parse()?, z.parse()?], blk.to_string()));
+                }
+                let (line, n) = crate::queue::jobsite_check_blocks(&blocks, range);
+                total += n;
+                println!("{}: {line}", d.display());
+            }
+            println!("job-site check: {total} hits in {} designs", designs.len());
+            if total > 0 {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::LedgeSweep { design, speeds, gap_from, gap_to, gap_step, riders, ticks } => {
+            let (c, spec) = load(version, &design)?;
+            let hdr = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            let fl = hdr.flights.first().cloned().ok_or_else(|| anyhow::anyhow!("no `flights:` line in the design"))?;
+            let ridden: Vec<bool> = match riders.as_str() {
+                "both" => vec![false, true],
+                "ridden" => vec![true],
+                "empty" => vec![false],
+                _ => anyhow::bail!("--riders: both, ridden or empty"),
+            };
+            anyhow::ensure!(gap_step > 0.0, "--gap-step must be positive");
+            for l in crate::ledge_sweep::sweep(&spec, &fl, &speeds, gap_from, gap_to, gap_step, &ridden, ticks).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -2857,6 +2942,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for s in &shift {
                 let (n, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--shift takes name=gt"))?;
                 tm = crate::queue::loop_shifted(&tm, n, v.parse()?).map_err(|e| anyhow::anyhow!(e))?;
+            }
+            // (the walk-target static check, printed by default; its flee verdict fails the run with
+            // --flee-gate (ironspec Nov 11 09:29: (ii) until runs are grounded); printed once here
+            // for a sweep, whose runs don't carry the headers)
+            if !no_flee_check {
+                let g = crate::queue::flee_gate(&spec, &std::fs::read_to_string(&design)?);
+                let g = (format!("{}{}", g.0, if flee_gate { "" } else { " (printed only: a void bench's verdict; --flee-gate fails the run on it)" }), g.1 && flee_gate);
+                if !sweep.is_empty() || phase_sweep.is_some() {
+                    println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
+                }
+                hdr.static_checks.push(g);
             }
             if !sweep.is_empty() {
                 // the tolerance lines: one control at a time, to the first failure each way
