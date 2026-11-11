@@ -701,23 +701,32 @@ fn ride_tick(w: &mut World, j: usize) {
 }
 
 /// `Entity.positionRider(passenger)`: the passenger's position is the vehicle's plus its
-/// passenger attachment point (a minecart's: 0.1875 up, the same at every yaw), minus the
-/// passenger's vehicle attachment (at its feet for every modeled rider), `setPos`.
+/// passenger attachment point (a minecart's: 0.1875 up, the same at every yaw; a villager's lowered
+/// seat at the cart's own y), minus the passenger's vehicle attachment (a mob's riding offset, as
+/// `mob::ride_tick` seats it: (y + seat) + offset), `setPos`. (tickexact 2026-11-10: a bench's
+/// `tp` of a cart, `teleportPassengers`, seated its villager 0.1875 high for the tick after.)
 pub fn position_rider(w: &mut World, vi: usize, j: usize) {
     let v = &w.entities.list[vi];
     let rider = w.entities.list[j].id;
     if !v.passengers.contains(&rider) {
         return;
     }
-    let up = match v.kind {
-        EntityKind::Minecart(_) => 0.1875f32 as f64,
-        ref k => {
+    let (up, offset) = match (&v.kind, &w.entities.list[j].kind) {
+        (EntityKind::Minecart(_), EntityKind::Mob(m)) => match mob::rider_seat(&v.kind, m) {
+            Some(s) => s,
+            None => {
+                w.errors.push(format!("a {:?} riding a minecart (its seat) is not modeled", m.ty));
+                return;
+            }
+        },
+        (EntityKind::Minecart(_), _) => (0.1875f32 as f64, 0.0),
+        (k, _) => {
             w.errors.push(format!("a passenger of {k:?} (its attachment points) is not modeled"));
             return;
         }
     };
     let p = v.pos.add(0.0, up, 0.0);
-    w.entities.set_pos(j, p);
+    w.entities.set_pos(j, Vec3::new(p.x, p.y + offset, p.z));
 }
 
 /// `Entity.stopRiding` of entity `i` (`removeVehicle`; a living one then `dismountVehicle`): it

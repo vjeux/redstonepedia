@@ -125,11 +125,16 @@ fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<
 
 /// redsim's side of an action: each block set with flags 3; a container's fill (`nbt:<snbt>`)
 /// merged as the game's data merge does ([`redsim::redstone::container::apply_block_entities`]).
-fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)]) -> Result<()> {
+fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> Result<()> {
     for (p, s) in blocks {
         let pos = BlockPos::new(p[0], p[1], p[2]);
         if let Some(snbt) = s.strip_prefix("nbt:") {
             redsim::redstone::container::apply_block_entities(w, [(pos, snbt)]).map_err(|e| anyhow!(e))?;
+            continue;
+        }
+        // a bench's entity act: redsim's drive replay (`drive::apply`)
+        if let Some(act) = entity_act(*p, s)? {
+            redsim::entity::mob::drive::apply(w, &ctx.lines, ctx.g0, &act);
             continue;
         }
         let b = Block::parse(s).or_else(|_| redsim::terrain::land::block_of(s)).map_err(|e| anyhow!("action block {s}: {e}"))?;
@@ -255,6 +260,15 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
 ///   its 21 control lines, 791 redstone blocks; 8 zombies in boats), `--wired=-7,-1,5
 ///   --tail-check-at 43 --cycles 60`: WIRED, the only bench input the golem pulse (a redstone block
 ///   at (-7,-1,5) for 10 gt at each slot's start); every control is the design's own redstone.
+/// - siding-raw / siding-built: farmopt's bed siding with its give-up (explore/farmopt-station
+///   ee139b64b, `carousel-siding-wired.txt`, written settled: an entry detector rail, an arrival
+///   latch, day-1's 220 gt comparator timer), placed as written / built in order, its
+///   `siding-bench --wired --launch --from 1 --to 1 --nights 1` drive logs: WIRED (the siding's
+///   own redstone switches the T, the activator, the hatch and the kick); the bench launches each
+///   cart from rest on its launcher and moves it back to its hold after the exit (`tp`) and places
+///   the release as a redstone block for 10 gt. The one bed's shared claim is the design's (`port
+///   home`, R1's end state: [`scene_home`]): every villager loads HOME = the bed, the bed's one
+///   ticket taken.
 const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
@@ -262,13 +276,16 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-wired-raw", include_str!("../scenes/carousel-wired.txt"), include_str!("../scenes/carousel-wired-raw.drive")),
     ("carousel-wired-v2", include_str!("../scenes/carousel-wired-v2.txt"), include_str!("../scenes/carousel-wired-v2-raw.drive")),
     ("carousel-wired-built", include_str!("../scenes/carousel-wired-v2.txt"), include_str!("../scenes/carousel-wired-v2-built.drive")),
+    ("siding-raw", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/siding-wired-raw.drive")),
+    ("siding-built", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/siding-wired-built.drive")),
 ];
 
 /// A drive scene's day time at its spawn in its bench's run: the bench's world is
 /// `RunOpts::steady(seed, ..)` of the drive log's `seed` line (its `day0`).
 fn drive_day0(name: &str) -> Option<i64> {
     let (_, _, t) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
-    let seed: i64 = t.lines().find_map(|l| l.strip_prefix("seed "))?.trim().parse().ok()?;
+    // (`seed N`, or `# seed N` as farmopt's benches write it)
+    let seed: i64 = t.lines().find_map(|l| l.trim_start_matches('#').trim_start().strip_prefix("seed "))?.trim().parse().ok()?;
     Some(redsim::entity::mob::farm::RunOpts::steady(seed, 0, redsim::entity::mob::farm::WalkMode::Random).day0)
 }
 
@@ -276,6 +293,27 @@ fn drive_day0(name: &str) -> Option<i64> {
 fn drive_design(name: &str) -> Option<mctas::design::Design> {
     let (_, d, _) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
     Some(mctas::design::Design::parse(d).unwrap_or_else(|e| panic!("the frozen design of {name}: {e}")))
+}
+
+/// (tickexact 2026-11-10, farmopt's siding since main 7f8152452) A drive scene's `port home`: R1's
+/// one shared bed. Every villager of the design holds HOME = the bed, loaded as data as
+/// circuit::studies::mobfarm writes it ([`with_home`]): no POI ticket taken, on either side (a
+/// load takes none; redsim's AI world starts with every ticket free).
+fn scene_home(name: &str) -> Option<[i32; 3]> {
+    drive_design(name)?.ports.get("home").copied()
+}
+
+/// A design entity's data with HOME = `h` for a villager (its own compound, or a villager
+/// passenger's: the carts' riders), `Brain:{memories:{"minecraft:home":..}}` as a load reads it.
+fn with_home(kind: &str, nbt: Option<String>, h: [i32; 3]) -> Option<String> {
+    let brain = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2]);
+    if kind.trim_start_matches("minecraft:") == "villager" {
+        return Some(match nbt.as_deref().map(str::trim) {
+            Some(n) if n.len() > 2 => format!("{},{brain}}}", n.strip_suffix('}').unwrap_or(n)),
+            _ => format!("{{{brain}}}"),
+        });
+    }
+    nbt.map(|n| n.replace("{id:\"minecraft:villager\"}", &format!("{{id:\"minecraft:villager\",{brain}}}")))
 }
 
 /// A drive scene's drive log: the frozen one, or `MOBAI_DRIVE=<file>` (another drive log of the
@@ -293,13 +331,32 @@ fn drive_text(name: &str) -> Option<String> {
 fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
     let text = drive_text(name)?;
     let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
+    let bad = |line: &str| -> ! { panic!("the drive log of {name}: {line:?} is not `act T set|nbt x y z <state|snbt>`, `tp eN x y z`, `home eN.pK x y z`, `last-slept eN.pK t` or `poi-take x y z`") };
     for line in text.lines().filter(|l| l.starts_with("act ")) {
         let f: Vec<&str> = line.splitn(7, ' ').collect();
-        let parsed = (f.len() == 7 && (f[2] == "set" || f[2] == "nbt")).then(|| Some((f[1].parse::<u32>().ok()?, [f[3].parse::<i32>().ok()?, f[4].parse::<i32>().ok()?, f[5].parse::<i32>().ok()?]))).flatten();
-        let Some((t, p)) = parsed else { panic!("the drive log of {name}: {line:?} is not `act T set x y z <state>` or `act T nbt x y z <snbt>`") };
-        // (a container's fill in a built-in-order log: `nbt:<snbt>`, merged like the game's
-        // data merge; [`apply_redsim`], [`GameScene::apply`])
-        let c = (p, if f[2] == "nbt" { format!("nbt:{}", f[6].trim()) } else { f[6].trim().to_string() });
+        let int = |i: usize| f.get(i).and_then(|x| x.trim().parse::<i32>().ok());
+        let Some(t) = f.get(1).and_then(|x| x.parse::<u32>().ok()) else { bad(line) };
+        // (block acts as states; a container's fill as `nbt:<snbt>` (the game's data merge); a
+        // bench's entity acts as `tp:` / `home:` / `last-slept:` / `poi-take` (redsim's
+        // `drive::Act`, the bridge's `teleport` / `memory` / `poi_take`): [`apply_redsim`],
+        // [`GameScene::apply`])
+        let c = match f.get(2).copied() {
+            Some("set") | Some("nbt") if f.len() == 7 => {
+                let (Some(x), Some(y), Some(z)) = (int(3), int(4), int(5)) else { bad(line) };
+                ([x, y, z], if f[2] == "nbt" { format!("nbt:{}", f[6].trim()) } else { f[6].trim().to_string() })
+            }
+            Some("tp") if f.len() == 7 => ([0, 0, 0], format!("tp:{}:{}:{}:{}", f[3], f[4], f[5], f[6].trim())),
+            Some("home") if f.len() == 7 => {
+                let (Some(x), Some(y), Some(z)) = (int(4), int(5), int(6)) else { bad(line) };
+                ([x, y, z], format!("home:{}", f[3]))
+            }
+            Some("last-slept") if f.len() == 5 => ([0, 0, 0], format!("last-slept:{}:{}", f[3], f[4].trim())),
+            Some("poi-take") if f.len() == 6 => {
+                let (Some(x), Some(y), Some(z)) = (int(3), int(4), int(5)) else { bad(line) };
+                ([x, y, z], "poi-take".to_string())
+            }
+            _ => bad(line),
+        };
         match v.last_mut() {
             Some((lt, b)) if *lt == t => b.push(c),
             _ => v.push((t, vec![c])),
@@ -308,24 +365,85 @@ fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
     Some(v)
 }
 
+/// (tickexact 2026-11-10) What a drive's entity acts need on both sides: line N's entity number
+/// (its vehicle, in summon order), each line's passengers in order (`eN.pK`), and the game time of
+/// the drive's origin (`last-slept eN.pK t'`: `t0 + t'`).
+#[derive(Clone, Debug, Default)]
+pub struct ActCtx {
+    pub lines: Vec<u32>,
+    pub riders: Vec<Vec<u32>>,
+    pub g0: i64,
+}
+
+impl ActCtx {
+    /// From redsim's world right after the summon (`ids`: the summon's entity numbers in order).
+    fn of(w: &World, ids: &[u64], g0: i64) -> ActCtx {
+        let mut c = ActCtx { g0, ..Default::default() };
+        for &id in ids {
+            if let Some(e) = w.entities.list.iter().find(|e| e.id as u64 == id)
+                && e.vehicle.is_none()
+            {
+                c.lines.push(e.id);
+                c.riders.push(e.passengers.clone());
+            }
+        }
+        c
+    }
+
+    /// The entity number of a drive's `eN` / `eN.pK`.
+    fn number(&self, who: redsim::entity::mob::drive::Who) -> Result<u32> {
+        use redsim::entity::mob::drive::Who;
+        match who {
+            Who::Line(n) => self.lines.get(n).copied(),
+            Who::Rider(n, k) => self.riders.get(n).and_then(|r| r.get(k)).copied(),
+        }
+        .ok_or_else(|| anyhow!("the drive names {who:?}: no such entity in the scene"))
+    }
+}
+
+/// A drive's `eN` / `eN.pK`.
+fn parse_who(s: &str) -> Result<redsim::entity::mob::drive::Who> {
+    use redsim::entity::mob::drive::Who;
+    let bad = || anyhow!("{s:?}: eN or eN.pK");
+    let s = s.strip_prefix('e').ok_or_else(bad)?;
+    Ok(match s.split_once(".p") {
+        Some((n, k)) => Who::Rider(n.parse().map_err(|_| bad())?, k.parse().map_err(|_| bad())?),
+        None => Who::Line(s.parse().map_err(|_| bad())?),
+    })
+}
+
+/// An action that is one of a bench's entity acts (`tp:` / `home:` / `last-slept:` / `poi-take`),
+/// as redsim's drive act.
+fn entity_act(p: [i32; 3], s: &str) -> Result<Option<redsim::entity::mob::drive::Act>> {
+    use redsim::entity::mob::drive::Act;
+    let f: Vec<&str> = s.split(':').collect();
+    let num = |i: usize| -> Result<f64> { f.get(i).and_then(|x| x.parse().ok()).ok_or_else(|| anyhow!("{s:?}: a number")) };
+    let pos = BlockPos::new(p[0], p[1], p[2]);
+    Ok(Some(match f[0] {
+        "tp" => Act::Tp(parse_who(f.get(1).copied().unwrap_or(""))?, redsim::entity::Vec3::new(num(2)?, num(3)?, num(4)?)),
+        "home" => Act::Home(parse_who(f.get(1).copied().unwrap_or(""))?, pos),
+        "last-slept" => Act::LastSlept(parse_who(f.get(1).copied().unwrap_or(""))?, num(2)? as i64),
+        "poi-take" => Act::PoiTake(pos),
+        _ => return Ok(None),
+    }))
+}
+
 /// A built-in-order drive log's spawn tick (`# spawn S`, counted from the build's start).
 fn drive_spawn(name: &str) -> Option<u32> {
     drive_text(name)?.lines().find_map(|l| l.strip_prefix("# spawn "))?.trim().parse().ok()
 }
 
-/// The drive log's `expect T pos eK x y z` lines (the design's minecart K at tick T, the bench's
-/// redsim run): (T, the cart's entity number in the scene, its position). Each entity line is
-/// numbered in summon order with its passengers after it (one per `id:"` in its data). The fixture
-/// checks the game's frames against them: the scripted replay reproduces the bench's run (a
-/// positive control on the drive log's timing).
+/// The drive log's `expect T pos eK x y z` lines (line K's entity at tick T, the bench's redsim
+/// run): (T, the entity's number in the scene, its position). Each entity line is numbered in
+/// summon order with its passengers after it (one per `id:"` in its data). The fixture checks the
+/// game's frames against them: the scripted replay reproduces the bench's run (a positive control
+/// on the drive log's timing).
 fn drive_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
     let (Some(d), Some(text)) = (drive_design(name), drive_text(name)) else { return Vec::new() };
-    let mut carts = Vec::new();
+    let mut lines = Vec::new();
     let mut n = 0u32;
     for e in &d.entities {
-        if e.kind == "minecraft:minecart" {
-            carts.push(n);
-        }
+        lines.push(n);
         n += 1 + e.nbt.as_deref().map(|s| s.matches("id:\"").count() as u32).unwrap_or(0);
     }
     text.lines()
@@ -337,7 +455,7 @@ fn drive_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
             }
             let k: usize = f[3].strip_prefix('e')?.parse().ok()?;
             let p = [f[4].parse::<f64>().ok()?, f[5].parse::<f64>().ok()?, f[6].parse::<f64>().ok()?];
-            Some((f[1].parse().ok()?, *carts.get(k)?, p))
+            Some((f[1].parse().ok()?, *lines.get(k)?, p))
         })
         .collect()
 }
@@ -396,7 +514,8 @@ fn scene_placement(name: &str) -> Placement {
     match name {
         "carousel-wired" => Placement::Judge,
         "carousel-wired-raw" | "carousel-wired-v2" => Placement::Merged,
-        "carousel-wired-built" => Placement::Built,
+        "carousel-wired-built" | "siding-built" => Placement::Built,
+        "siding-raw" => Placement::Merged,
         _ => Placement::Raw,
     }
 }
@@ -2174,7 +2293,15 @@ fn scenes_raw() -> Vec<Scene> {
     for (name, _, _) in DRIVE_SCENES {
         let d = drive_design(name).expect("a drive scene's design");
         let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, st)| (*p, st.clone())).collect();
-        let mobs: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+        let home = scene_home(name);
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = d
+            .entities
+            .iter()
+            .map(|e| (e.kind.clone(), e.pos, match home {
+                Some(h) => with_home(&e.kind, e.nbt.clone(), h),
+                None => e.nbt.clone(),
+            }))
+            .collect();
         let max_x = blocks.iter().map(|(p, _)| p[0]).chain(mobs.iter().map(|m| m.1[0] as i32)).max().unwrap_or(0);
         let max_z = blocks.iter().map(|(p, _)| p[2]).chain(mobs.iter().map(|m| m.1[2] as i32)).max().unwrap_or(0);
         let min_x = blocks.iter().map(|(p, _)| p[0]).chain(mobs.iter().map(|m| m.1[0].floor() as i32)).min().unwrap_or(0);
@@ -2186,7 +2313,7 @@ fn scenes_raw() -> Vec<Scene> {
         // seed, less the settle before the summon)
         let day_time = if first {
             1000
-        } else if name.starts_with("carousel-wired") {
+        } else if name.starts_with("carousel-wired") || name.starts_with("siding") {
             // (the bench's world: day0 at the end of its settle, which the raw paste skips)
             drive_day0(name).unwrap_or(200) - redsim::entity::mob::farm::SETTLE_TICKS
         } else {
@@ -2290,16 +2417,20 @@ impl GameScene {
     }
 
     /// A scripted action on the game's side: the blocks set like a player's (flags 3).
-    pub fn apply(&mut self, blocks: &[([i32; 3], String)]) -> Result<()> {
-        // in order: runs of block sets (placed with updates), each container fill merged
+    pub fn apply(&mut self, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> Result<()> {
+        // in order: runs of block sets (placed with updates), each container fill merged, each
+        // entity act through its bridge op
         let mut run: Vec<([i32; 3], &str)> = Vec::new();
         for (p, s) in blocks {
+            let special = s.starts_with("nbt:") || entity_act(*p, s)?.is_some();
+            if special && !run.is_empty() {
+                self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+                run.clear();
+            }
             if let Some(snbt) = s.strip_prefix("nbt:") {
-                if !run.is_empty() {
-                    self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
-                    run.clear();
-                }
                 self.w.merge_block_entity(self.sb, *p, snbt)?;
+            } else if let Some(act) = entity_act(*p, s)? {
+                self.apply_act(&act, ctx)?;
             } else {
                 run.push((*p, s.as_str()));
             }
@@ -2308,6 +2439,26 @@ impl GameScene {
             self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
         }
         Ok(())
+    }
+
+    /// A bench's entity act in the game (`teleport`, `memory`, `poi_take`), its entities by number.
+    fn apply_act(&mut self, a: &redsim::entity::mob::drive::Act, ctx: &ActCtx) -> Result<()> {
+        use redsim::entity::mob::drive::Act;
+        let sb = self.sb;
+        match a {
+            Act::Tp(who, v) => self.w.call(json!({"op": "teleport", "sandbox": sb, "entity": ctx.number(*who)?, "pos": [v.x, v.y, v.z]}))?,
+            Act::Home(who, p) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": ctx.number(*who)?, "memories": {"home": [p.x, p.y, p.z]}}))?,
+            Act::LastSlept(who, t) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": ctx.number(*who)?, "memories": {"last_slept": ctx.g0 + t}}))?,
+            Act::PoiTake(p) => self.w.call(json!({"op": "poi_take", "sandbox": sb, "pos": [p.x, p.y, p.z]}))?,
+            Act::Set(..) => bail!("a block act through apply_act"),
+        };
+        Ok(())
+    }
+
+    /// The sandbox's game time now (`status`).
+    pub fn time_now(&mut self) -> Result<i64> {
+        let v = self.w.call(json!({"op": "status", "sandbox": self.sb}))?;
+        v["time"].as_i64().ok_or_else(|| anyhow!("status: no time"))
     }
 
     /// The bridge's `mobstate` (debugging): each mob's controls and path, one line each.
@@ -2433,6 +2584,23 @@ impl Source {
             Source::Recorded { .. } => Ok(Vec::new()),
         }
     }
+
+    /// The game time before the next tick: the bridge's `status`, or a recording's next frame's
+    /// time less one.
+    fn time_now(&mut self) -> Result<i64> {
+        match self {
+            Source::Live(g) => g.time_now(),
+            Source::Recorded { frames, .. } => Ok(frames.front().and_then(|f| f["t"].as_i64()).map(|t| t - 1).unwrap_or(0)),
+        }
+    }
+
+    /// A scripted action on the game's side (a recording has it in its frames already).
+    fn apply(&mut self, b: &[([i32; 3], String)], ctx: &ActCtx) -> Result<()> {
+        match self {
+            Source::Live(g) => g.apply(b, ctx),
+            Source::Recorded { .. } => Ok(()),
+        }
+    }
 }
 
 /// Run a scene on both sides for `ticks` ticks; the compare. `trace`: at that game time, the game's
@@ -2468,11 +2636,12 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
     let actions = scene_actions(&s.name);
     let (wlo, whi) = (BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2]));
     let mut cmp = Compare { probe_at: trace.map(|t| t.0), ..Default::default() };
+    // the game time before the first tick (a built scene's drive counts from it)
+    let g_start = game.time_now()?;
+    let no_entities = ActCtx { g0: g_start, ..Default::default() };
     if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t == 0) {
-        if let Source::Live(g) = game {
-            g.apply(b)?;
-        }
-        apply_redsim(&mut ours, b)?;
+        game.apply(b, &no_entities)?;
+        apply_redsim(&mut ours, b, &no_entities)?;
     }
     // (the watch's baseline after the actions at 0, as the game's first traced tick has it)
     let mut early_watch = from_start.then(|| Watch::new(&ours, wlo, whi));
@@ -2501,11 +2670,13 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
             }
         }
         pre += frames.len() as i64;
-        if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre) {
-            if let Source::Live(g) = game {
-                g.apply(b)?;
-            }
-            apply_redsim(&mut ours, b)?;
+        // (the acts at the summon's tick come after it)
+        if from_start
+            && pre < spawn as i64
+            && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre)
+        {
+            game.apply(b, &no_entities)?;
+            apply_redsim(&mut ours, b, &no_entities)?;
         }
         if cmp.first.is_some() && !full {
             break;
@@ -2526,10 +2697,20 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
     let settled_watch = early_watch.or_else(|| (spawn > 0).then(|| Watch::new(&ours, wlo, whi)));
     // the game time a drive log's ticks count from: the summon's after a settle, else the start
     let t_summon = if spawn > 0 && !from_start { ours.time } else { 0 };
+    let g_summon = game.time_now()?;
     let game_ids = game.summon(s)?;
     let our_ids = redsim_summon(&mut ours, s)?;
     if game_ids != our_ids {
         bail!("the game's mobs entered as {game_ids:?}, redsim's as {our_ids:?}");
+    }
+    let ctx = ActCtx::of(&ours, &our_ids, if from_start { g_start } else { g_summon });
+    // the acts at the summon's tick (a drive's t0: the bench's memories, its POI claim), before the
+    // game's first traced tick of a scene with nothing before its summon (then the watch's
+    // baseline comes after them, as the game's)
+    let at_summon = if from_start { spawn as i64 } else { 0 };
+    if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == at_summon) {
+        game.apply(b, &ctx)?;
+        apply_redsim(&mut ours, b, &ctx)?;
     }
     let mut watch = settled_watch.unwrap_or_else(|| Watch::new(&ours, wlo, whi));
     let show = std::env::var("MOBAI_SHOW").is_ok();
@@ -2633,10 +2814,8 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         // a scripted action between the two ticks, on both sides (a recording has the game's in
         // its frames)
         if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
-            if let Source::Live(g) = game {
-                g.apply(b)?;
-            }
-            apply_redsim(&mut ours, b)?;
+            game.apply(b, &ctx)?;
+            apply_redsim(&mut ours, b, &ctx)?;
         }
         left -= n;
         if cmp.first.is_some() && !full {
@@ -2692,8 +2871,10 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
         let actions = scene_actions(&s.name);
         let from_start = scene_counts_from_start(&s.name);
         let spawn = scene_spawn(&s.name) as i64;
+        let g_start = game.time_now()?;
+        let no_entities = ActCtx { g0: g_start, ..Default::default() };
         if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t == 0) {
-            game.apply(b)?;
+            game.apply(b, &no_entities)?;
         }
         let mut pre: i64 = 0;
         while pre < spawn {
@@ -2703,11 +2884,26 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
             }
             frames.extend(game.trace_raw(n, false)?);
             pre += n as i64;
-            if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre) {
-                game.apply(b)?;
+            if from_start
+                && pre < spawn
+                && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre)
+            {
+                game.apply(b, &no_entities)?;
             }
         }
+        let g_summon = game.time_now()?;
         let game_ids = game.summon(s)?;
+        // the drive's entities by line: from redsim's summon of the same scene (its numbers are the
+        // game's: the compare checks they agree)
+        let ctx = {
+            let mut scratch = redsim_world(s, seed)?;
+            let ids = redsim_summon(&mut scratch, s)?;
+            ActCtx::of(&scratch, &ids, if from_start { g_start } else { g_summon })
+        };
+        let at_summon = if from_start { spawn } else { 0 };
+        if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == at_summon) {
+            game.apply(b, &ctx)?;
+        }
         let mut left = ticks;
         let mut done: i64 = if from_start { pre } else { 0 };
         while left > 0 {
@@ -2720,7 +2916,7 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
             left -= n;
             done += n as i64;
             if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
-                game.apply(b)?;
+                game.apply(b, &ctx)?;
             }
         }
         let header = json!({
@@ -2790,7 +2986,7 @@ pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Pat
         if done < reveal as i64
             && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done)
         {
-            apply_redsim(&mut ours, b)?;
+            apply_redsim(&mut ours, b, &ActCtx::default())?;
         }
     }
     let (_, shown) = actions.iter().find(|(t, _)| *t == reveal).ok_or_else(|| anyhow!("no action of {name} at {reveal}"))?;
@@ -2804,7 +3000,7 @@ pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Pat
         }
     };
     let wake = |mut w: World| -> Result<Option<u32>> {
-        apply_redsim(&mut w, shown)?;
+        apply_redsim(&mut w, shown, &ActCtx::default())?;
         for d in 1..=80u32 {
             w.tick();
             if !sleeping(&w) {
@@ -2899,7 +3095,7 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32) -> Result<()> 
         done += n as i64;
         if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
             println!("(scene action after {done} ticks: {b:?})");
-            game.apply(b)?;
+            game.apply(b, &ActCtx::default())?;
         }
     }
     Ok(())

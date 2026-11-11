@@ -35,6 +35,8 @@ loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai recor
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+siding-raw.rec	04aee9029e5c9d6f		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-raw --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 skeleton-golem.rec	201cbec2967abec0		26.3	2026-11-10T16:07Z on 4b8e206c1	mctas mobai record skeleton-golem --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 skeleton-night.rec	0c0593037b2d3fb3		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-night --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 skeleton-sun.rec	2c1222b87fbd3641		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-sun --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
