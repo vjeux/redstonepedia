@@ -71,6 +71,8 @@ pub fn base_attack_damage_by_id(id: &str) -> f32 {
         // ZombifiedPiglin.createAttributes
         "zombified_piglin" | "baby_zombified_piglin" => 5.0,
         "iron_golem" => 15.0,
+        // (mob-AI 2026-11-10) Phantom.updatePhantomSizeInfo: 6 + its size (0)
+        "phantom" => 6.0,
         "spider" | "cave_spider" => 2.0,
         "skeleton" | "stray" | "bogged" => 2.0,
         "pillager" | "vindicator" => 5.0,

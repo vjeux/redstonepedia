@@ -178,6 +178,7 @@ public final class Protocol {
             case "memory" -> memory(r);
             case "teleport" -> teleport(r);
             case "poi_take" -> poiTake(r);
+            case "poi_free" -> poiFree(r);
             case "golem_spots" -> golemSpots(r);
             case "trace" -> trace(r);
             case "terrain" -> Terrain.load(this, sandbox(r), r);
@@ -1109,6 +1110,22 @@ public final class Protocol {
         sb.level.getPoiManager().take(t -> true, (t, q) -> q.equals(pos), pos, 1)
                 .orElseThrow(() -> new IllegalArgumentException("poi_take: no free POI at " + pos.toShortString()));
         return new JsonObject();
+    }
+
+    /** (tickexact 2026-11-11) The free tickets of the POI record at {@code pos} ({@code free}: -1 when there is none). */
+    private JsonObject poiFree(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int[] p = ints(r.getAsJsonArray("pos"));
+        BlockPos pos = new BlockPos(p[0], p[1], p[2]);
+        int free = sb.level.getPoiManager()
+                .getInSquare(t -> true, pos, 0, net.minecraft.world.entity.ai.village.poi.PoiManager.Occupancy.ANY)
+                .filter(rec -> rec.getPos().equals(pos))
+                .findFirst()
+                .map(net.minecraft.world.entity.ai.village.poi.PoiRecord::getFreeTickets)
+                .orElse(-1);
+        JsonObject o = new JsonObject();
+        o.addProperty("free", free);
+        return o;
     }
 
     /**
