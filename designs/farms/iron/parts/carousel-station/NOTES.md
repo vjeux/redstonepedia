@@ -95,6 +95,33 @@ and `carousel-linear-stand-built.drive.txt` (the build: the Nether part as `act 
 `act t set` lines; `# spawn 8500`), both `linear-bench --from 1 --to 1 --days 1 --lead 60`. The
 viewer's `carousel-linear-stand.drive.txt`, recorded again from the settled file, is byte-identical.
 
+## The pad under the wired pocket stand (the assembly's part)
+
+The parent's step (17:01): the pad in, nothing bench-driven. `carousel-station-pad.txt` is the pad
+and its Nether part alone, pasted at the loop's origin under the pocket stand (riders at x -1, 3, 7,
+y 0, -1, -2, z 0): `mobfarm linear --stand=-1,0,0 --pitch 4 --drop 1 --slab-floor
+"-2,2,-1;-1,2,-1" --alone`. 178 blocks (2 planes at z -5 and -2, frames x -2..8, trench rows z -6,
+-4, -3, -1 with floors at y 2, the tripwire lines, the output line along x 9), the Nether part's
+124. Ports: `output.pulse` 9 6 -2 (the dust: on 1 gt after a golem's spawn, 10 gt long; day-1's
+controller input), `nether-anchor`, `nether-axis`, `nether-output`. Pasted with `mobfarm paste`
+(explore/farmopt-assembly, ironfarm's runner).
+
+- Two floor cells are top slabs: riders leave the release curve (-3,1,0) with the cart thrown to
+  z 0.12..0.19 for a tick at x -1.7, the eye at y 2.68, and its box met the cobblestone at
+  (-2,2,-1): one suffocation damage a pass, every rider once a slot (found on ironfarm's bench).
+  A top slab is still a golem floor (solid, its top full) and does not suffocate.
+- `linear-check` with the pocket stand's cells: 40/44/40 spots, 0 strays, 99.03% at 3 callers.
+- On the loop (`queue-loop --stand-stop --stand-wired` + the pad; the release and the queue
+  bench-driven, LAST_SLEPT set by the bench each night as the station bench does, `--slept
+  --summon-at 99`), 20 seeds x 1,440 slots (40 h): 20 of 20 clean; 28,490 golems (712/h) in 98.92%
+  of slots; all through the portal 2 gt after the summon, 28,450 killed in the Nether (40 alive at
+  the runs' ends); 28,490 pulses, 0 without a golem; 113,858 iron into storage (2,846/h, 4.00 a
+  golem); 0 summons out of turn; no rider hurt.
+- `queue-loop-spots --pad=-3,2,-7,9,5,0`: 0 cells off the pad; every pad cell is also seen from
+  positions other than the stand's (the release run x -3 z 2..7, the curve, the departure), the
+  brief's out-of-turn flag. Those positions are empty at the summon tick (gameTime % 100 == 0) in
+  every run above: the bench checks each summoner's position as it summons.
+
 ## What did not work
 
 - A 2-long pit with an end wall 1 over the frame's row: a golem pushed by the pit's crowd stepped
