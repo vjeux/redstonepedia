@@ -3762,6 +3762,9 @@ pub struct MeterState {
     /// per detector (Dh, Darr, D1, D2): gaps between consecutive rising edges under 100 gt
     spacing: [Vec<i64>; 4],
     shut_on_cart: Vec<String>,
+    /// (cc767b78) each stand gate shut on a cart: (the cart, when, which gate, the gate's cell, its
+    /// fate 10 and 40 gt later)
+    shut_fate: Vec<(u32, i64, usize, BlockPos, String)>,
     /// per H close: gt until a cart's box touches H's face (99: none within 60 gt)
     h_touch: Vec<i64>,
     h_pending: Option<i64>,
@@ -4105,6 +4108,20 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     }
     // (the gates and their slopes)
     let g: Vec<BlockPos> = lay.pockets.iter().take(3).map(|p| p.0).collect();
+    // (cc767b78: each gate shut on a cart, the cart's fate 10 and 40 gt later: still in the gate's
+    // cell, or where it went, and at what stored speed)
+    for f in s.shut_fate.iter_mut() {
+        let age = t - f.1;
+        if age == 10 || age == 40 {
+            let at = carts.iter().position(|id| *id == f.0).and_then(|ki| pos.get(ki).copied().flatten());
+            let what = match at {
+                Some(p) if in_g(&p, f.3) => format!("+{age}: still in G{}'s cell at {:.2},{:.2},{:.2} (stored {:.3})", f.2, p.0, p.1, p.2, p.3),
+                Some(p) => format!("+{age}: out, at {:.2},{:.2},{:.2} (stored {:.3})", p.0, p.1, p.2, p.3),
+                None => format!("+{age}: gone"),
+            };
+            f.4 = if f.4.is_empty() { what } else { format!("{}; {what}", f.4) };
+        }
+    }
     if g.len() == 3 {
         let want = [s.rel_open, s.rel_open || !s.l1, s.rel_open || !s.l2];
         for k in 0..3 {
@@ -4112,9 +4129,12 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             let open_now = cur.contains("open=true");
             if want[k] != open_now {
                 if !want[k]
-                    && let Some(p) = pos.iter().flatten().find(|p| in_g(p, g[k]))
+                    && let Some((ki, p)) = pos.iter().enumerate().find_map(|(ki, p)| p.filter(|p| in_g(p, g[k])).map(|p| (ki, p)))
                 {
-                    s.shut_on_cart.push(format!("G{k} at slot {c} +{dt} (a cart at {:.2},{:.2},{:.2})", p.0, p.1, p.2));
+                    let id = carts.get(ki).copied().unwrap_or(0);
+                    let dz = s.prev.get(ki).copied().flatten().map_or(0.0, |q| (p.0 - q.0).hypot(p.2 - q.2));
+                    s.shut_on_cart.push(format!("G{k} at slot {c} +{dt} (e{id} at {:.2},{:.2},{:.2}, stored {:.3}, {})", p.0, p.1, p.2, p.3, if dz > 0.001 { "moving" } else { "not moving" }));
+                    s.shut_fate.push((id, t, k, g[k], String::new()));
                 }
                 let st = cur.replace("open=true", &format!("open={}", want[k])).replace("open=false", &format!("open={}", want[k])).replace("powered=true", "powered=false");
                 if let Some(b) = parse(&st) {
@@ -4156,7 +4176,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             let Some(pj) = pj.filter(|p| j != i && on_col(p) && p.3 < 0.01) else { continue };
             let d = (pi.0 - pj.0).hypot(pi.2 - pj.2);
             if d < 1.0 && !s.contacts.contains_key(&(i, j)) && !s.contacts.contains_key(&(j, i)) {
-                s.contacts.insert((i, j), (t, s.prev_v[i], d, format!("slot {c} +{dt}")));
+                s.contacts.insert((i, j), (t, s.prev_v[i], d, format!("slot {c} +{dt}, e{} at z {:.2} onto e{} at z {:.2}{}", carts.get(i).copied().unwrap_or(0), pi.2, carts.get(j).copied().unwrap_or(0), pj.2, if s.prev_v[i] > 1.0 { ", over 1.0" } else { "" })));
             }
         }
     }
@@ -4271,6 +4291,7 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     }
     if !s.shut_on_cart.is_empty() {
         out.push(format!("meter: gates shut on a cart: {} ({})", s.shut_on_cart.len(), s.shut_on_cart.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
+        out.push(format!("meter: the carts' fates after a stand gate shut on them: {}", s.shut_fate.iter().take(6).map(|f| format!("e{} (G{} at t {}): {}", f.0, f.2, f.1, if f.4.is_empty() { "-" } else { &f.4 })).collect::<Vec<_>>().join(" | ")));
         problems.push(format!("meter: {} gate closes on a cart", s.shut_on_cart.len()));
     }
     (out, problems)
