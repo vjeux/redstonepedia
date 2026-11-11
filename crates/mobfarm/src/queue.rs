@@ -1838,9 +1838,13 @@ pub struct Act {
     /// chunks next to a loaded one tick their blocks at level 32, entities frozen; level 33
     /// nothing), back `hold` gt later. `cell` and `block` unused then.
     pub unload: Option<Option<[i32; 4]>>,
+    /// `SLOT,DT,place,K,X,Y,Z`: cart K (the bench's numbering) and its rider set at (X, Y, Z) in
+    /// the loop's frame, at rest (a lab act: the merged-pairs control, a cart stopped anywhere).
+    pub place: Option<(usize, [f64; 3])>,
 }
 
 /// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets),
+/// `SLOT,DT,place,K,X,Y,Z` (cart K and its rider set at a loop-frame point, at rest),
 /// `SLOT,DT,unload,N` (the whole part away N gt) or `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box).
 pub fn parse_act(s: &str) -> Result<Act, String> {
     let f: Vec<&str> = s.split(',').map(|t| t.trim()).collect();
@@ -1853,7 +1857,13 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
             _ => return Err(format!("--act {s}: give SLOT,DT,unload,N or SLOT,DT,unload,X0,Z0,X1,Z1,N (a chunk box)")),
         };
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
-        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload) });
+        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload), place: None });
+    }
+    if f.len() == 7 && f[2] == "place" {
+        let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
+        let fl = |t: &str, what: &str| t.parse::<f64>().map_err(|e| format!("--act {s}: {what}: {e}"));
+        let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
+        return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: None, unload: None, place: Some((num(f[3], "K")? as usize, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?])) });
     }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
@@ -1866,7 +1876,7 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
     };
     let name = if block.contains(':') { block.to_string() } else { format!("minecraft:{block}") };
     let block = Block::parse(&name).map_err(|e| format!("--act {s}: {e}"))?;
-    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None })
+    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None, place: None })
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -2829,6 +2839,22 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // put back after its hold, before the bench's own controls this gt)
         for a in tm.acts.iter().flatten() {
             if a.slot == c && a.dt == dt {
+                if let Some((k, [x, y, z])) = a.place {
+                    // (a lab act: cart k and its rider set at a loop-frame point, at rest)
+                    let p = redsim::entity::Vec3::new(x + fx, y, z + fz);
+                    if let Some(i) = carts.get(k).and_then(|id| redsim::entity::index_of(&run.world, *id)) {
+                        run.world.entities.set_pos(i, p);
+                        run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
+                        for r in run.world.entities.list[i].passengers.clone() {
+                            if let Some(j) = redsim::entity::index_of(&run.world, r) {
+                                run.world.entities.set_pos(j, p);
+                                run.world.entities.list[j].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
+                            }
+                        }
+                        drive.borrow_mut().push(format!("act {} tp e{k} {:.3} {:.3} {:.3}", run.world.time - t_origin, p.x, p.y, p.z));
+                    }
+                    continue;
+                }
                 if let Some(u) = a.unload {
                     let n = a.hold.unwrap_or(1).max(1);
                     match u {
@@ -2927,7 +2953,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let xr = -o.row_gap as f64 + 0.5 + fx;
             let head_z = lay.slot_cells[q - 1][2] as f64;
             let in_region = |p: redsim::entity::Vec3| ((p.z - 0.5 - fz).abs() < 0.6 && p.y < 1.5 && p.x > xr - 0.6 && p.x < 9.0 + fx) || ((p.x - xr).abs() < 0.6 && p.z < head_z - 0.5 && p.y > 0.5);
-            let keep = |id: u32| !tm.reset_stand_carts && (place_of(&run.world, id).is_some_and(|k| k >= q) || (!tm.reset_stragglers && pos_of(&run.world, id).is_some_and(in_region)));
+            // (a cart in a chunk whose entities don't tick (a partial unload's level 32 or 33) is
+            // kept where it is: frozen, it is no tail's to move; no cart is put on a spot a kept cart
+            // holds)
+            let frozen = |id: u32| !run.world.unforced.is_empty() && pos_of(&run.world, id).is_some_and(|p| run.world.chunk_level(p.x.floor() as i32 >> 4, p.z.floor() as i32 >> 4) > 31);
+            let keep = |id: u32| frozen(id) || (!tm.reset_stand_carts && (place_of(&run.world, id).is_some_and(|k| k >= q) || (!tm.reset_stragglers && pos_of(&run.world, id).is_some_and(in_region))));
             // (front first: carts before the stand (the queue, the release run) by their place along
             // the loop, then those past it (the departure, the return), likewise)
             let mut others: Vec<(usize, u32)> = carts.iter().copied().filter(|id| !keep(*id)).filter_map(|id| pos_of(&run.world, id).map(|p| (index_of(p), id))).collect();
@@ -2943,6 +2973,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 let (cell, d, off) = (lay.slot_cells[s], lay.slot_dir[s], 0.32);
                 spots.push(redsim::entity::Vec3::new(cell[0] as f64 + 0.5 + d[0] as f64 * (off - 0.5), cell[1] as f64 + 1.0 - off + 0.05, cell[2] as f64 + 0.5 + d[1] as f64 * (off - 0.5)));
             }
+            let held: Vec<redsim::entity::Vec3> = carts.iter().copied().filter(|id| keep(*id)).filter_map(|id| pos_of(&run.world, id)).collect();
+            spots.retain(|s| held.iter().all(|h| (h.x - s.x).abs() > 0.6 || (h.z - s.z).abs() > 0.6 || (h.y - s.y).abs() > 0.7));
             let placed = others.len().min(spots.len());
             for ((_, id), p) in others.iter().zip(spots.iter()) {
                 let p = *p;
