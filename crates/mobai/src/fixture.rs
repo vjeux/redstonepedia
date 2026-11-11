@@ -632,6 +632,69 @@ const CAROUSEL_SHIFT: [i32; 3] = [34, 64, 10];
 /// (4,11,24) then (3,10,24), the slopes (2,9,24) (1,8,24), the curve (0,8,24) and the descent south.
 const LEDGE_ESCR1: &str = include_str!("../scenes/ledge-escR1.txt");
 
+/// (tickexact 2026-11-11) ironfarm's R1 contact scenes (explore/ironfarm 5d930291e, `mobfarm
+/// contact-scenes`): the escapement column copied from escR1 (x 0, z 26..34, y -1..8: the slopes
+/// (0,7..3,26..30), G0 (0,3,31) shut over P (0,2,31) on its redstone block, G_P (0,2,32) over R,
+/// slot 0 (0,0,33)), case g0 (G0 shut) and case p (G0 open).
+const R1_CONTACT_G0: &str = include_str!("../scenes/r1-contact-g0.txt");
+const R1_CONTACT_P: &str = include_str!("../scenes/r1-contact-p.txt");
+
+/// (tickexact 2026-11-11) A lane at `x`: a closed oak gate at (x,64,3) at the foot of `n` ascending
+/// rails rising south ((x,64+s,4+s), each on stone), then flat rails at y 64+n to z 14.
+fn slope_lane(b: &mut Vec<([i32; 3], String)>, x: i32, n: i32, stone: &str) {
+    b.push(([x, 64, 3], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+    for s in 0..n {
+        for yy in 64..64 + s {
+            b.push(([x, yy, 4 + s], stone.to_string()));
+        }
+        b.push(([x, 64 + s, 4 + s], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+    }
+    for z in (4 + n)..=14 {
+        for yy in 64..64 + n {
+            b.push(([x, yy, z], stone.to_string()));
+        }
+        b.push(([x, 64 + n, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+    }
+}
+
+/// (tickexact 2026-11-11, ironspec's pinned-front sweep) R1's column (`file`, its x 0 lane) copied to
+/// 101 lanes, 26 to a row 2 apart in x, rows 12 apart in z: in lane k a waiting cart at rest at
+/// `wait` (pinned: G0's rest, or P's cart on G_P) and an arrival at `arrive` (mid-slope) set off
+/// down the slope (+z) at stored 0.02 k (0 to 2.0); the waiting cart's and the arrival's riders as
+/// given.
+fn r1_sweep_scene(name: &str, file: &str, wait: [f64; 3], arrive: [f64; 3], wait_ridden: bool, arrive_ridden: bool) -> Scene {
+    let d = mctas::design::Design::parse(file).expect("ironfarm's contact scene parses");
+    let column: Vec<([i32; 3], String)> = d.blocks.iter().filter(|(p, _)| p[0] == 0).map(|(p, s)| (*p, s.clone())).collect();
+    let mut b: Vec<([i32; 3], String)> = Vec::new();
+    let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+    let cart = |p: [f64; 3], v: f64, ridden: bool| {
+        let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+        ("minecraft:minecart".to_string(), p, Some(format!("{{Motion:[0.0d,0.0d,{v:.4}d]{rider}}}")))
+    };
+    for k in 0..101 {
+        let (col, row) = (k % 26, k / 26);
+        let (dx, dz) = (1 + 2 * col as i32, 2 + 12 * row as i32 - 26);
+        for (p, s) in &column {
+            b.push(([p[0] + dx, p[1] + 64, p[2] + dz], s.clone()));
+        }
+        mobs.push(cart([wait[0] + dx as f64, wait[1] + 64.0, wait[2] + dz as f64], 0.0, wait_ridden));
+        mobs.push(cart([arrive[0] + dx as f64, arrive[1] + 64.0, arrive[2] + dz as f64], 0.02 * k as f64, arrive_ridden));
+    }
+    Scene {
+        name: name.to_string(),
+        chunks: [0, 0, 3, 2],
+        blocks: b,
+        mobs,
+        day_time: 6000,
+        difficulty: Difficulty::Normal,
+        mob_griefing: true,
+        watch: ([0, 62, 0], [63, 75, 47]),
+        player: None,
+        player_creative: false,
+        random_tick_speed: 0,
+    }
+}
+
 /// The ledge scenes' stored speeds (b/t): the take-off's measured 1.82..1.96 and a band round it.
 pub const LEDGE_SPEEDS: [(&str, f64); 4] = [("150", 1.5), ("182", 1.82), ("196", 1.96), ("220", 2.2)];
 
@@ -3479,6 +3542,50 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's queue-back sweep, its first step: where a pressed 3-cart
+    // queue rests) a closed gate at (x,64,3) at the foot of N ascending rails rising south
+    // ((x,64+s,4+s)), the flat at y 64+N to z 14; a ridden front, a ridden middle and an empty back
+    // let go at rest at z 4.5, 5.5, 6.5; N = 2, 3, 5 (lanes x 1, 3, 5)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 63, stone);
+        let mut mobs = Vec::new();
+        for (k, n) in [2, 3, 5].into_iter().enumerate() {
+            let x = 1 + 2 * k as i32;
+            slope_lane(&mut b, x, n, stone);
+            for (j, z) in [4.5f64, 5.5, 6.5].into_iter().enumerate() {
+                let cell = z.floor() as i32;
+                let y = 64 + (cell - 4).clamp(0, n);
+                let rider = if j < 2 { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+                mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, y as f64, z], Some(format!("{{Motion:[0.0d,0.0d,0.0d]{rider}}}"))));
+            }
+        }
+        v.push(Scene {
+            name: "queue-settle".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 72, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's pinned-front sweep on R1's own column: ironfarm's redsim
+    // runs merge from 0.44 stored with the front at rest pinned on G0, against slope-merge's
+    // 0.74..0.96 with the front still rolling in) eight scenes of 101 lanes, arrivals at stored
+    // 0..2.0 in steps of 0.02: case g0 (the front at rest at G0's rest (0.5,3.1775,30.885), the
+    // arrival from mid-slope (0,5,28)) and case p (P's cart at rest on P against G_P
+    // (0.5,2.1775,31.885), the arrival from (0,4,29) through G0 open), each with the waiting cart and
+    // the arrival ridden or empty (rr, re, er, ee)
+    for (case, file, wait, arrive) in [("g0", R1_CONTACT_G0, [0.5, 3.1775, 30.885], [0.5, 5.5625, 28.5]), ("p", R1_CONTACT_P, [0.5, 2.1775, 31.885], [0.5, 4.5625, 29.5])] {
+        for (tag, wr, ar) in [("rr", true, true), ("re", true, false), ("er", false, true), ("ee", false, false)] {
+            v.push(r1_sweep_scene(&format!("r1-sweep-{case}-{tag}"), file, wait, arrive, wr, ar));
+        }
+    }
     // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
     // reloaded sleeper's wake) a villager asleep in its bed, a zombie walled in stone 4 blocks east;
     // the whole sandbox unloaded at t200, loaded at t240 and the zombie's west wall taken away at
@@ -5704,26 +5811,29 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32) -> Result<()> 
 /// `mctas mobai replay`: every recording replayed on redsim against its frames (no game). A scene
 /// changed since it was recorded fails (its hash), as does any difference.
 /// (tickexact 2026-11-11, ironspec's slope merge) `mctas mobai rec-carts <recording>`: a recorded
-/// scene's minecarts lane by lane (a lane: the carts sharing a block x), each `every` ticks: their
-/// positions along z, speeds, which are ridden, and the gaps between neighbours (centres under 0.01
-/// apart: MERGED); then per lane the closest pair over the run and where each cart ended.
-pub fn rec_carts(path: &std::path::Path, every: u32) -> Result<()> {
+/// scene's minecarts lane by lane (a lane: the carts sharing a block x, and with `band` > 0 a band
+/// of `band` blocks of z), each `every` ticks: their positions along z, speeds, which are ridden,
+/// and the gaps between neighbours (centres under 0.01 apart: MERGED); then per lane the closest
+/// pair over the run and the first contact, with the arriving (faster) cart's stored speed the tick
+/// before. `summary`: one line a lane, nothing per tick.
+pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -> Result<()> {
     let text = mctas::recorded::read_text(path)?;
     let mut lines = text.lines();
     let _header = lines.next();
     // per lane x: per tick, (n, pos, motion, ridden)
     type Cart = (u64, [f64; 3], [f64; 3], bool);
-    let mut lanes: std::collections::BTreeMap<i64, Vec<(usize, Vec<Cart>)>> = std::collections::BTreeMap::new();
+    let mut lanes: std::collections::BTreeMap<(i64, i64), Vec<(usize, Vec<Cart>)>> = std::collections::BTreeMap::new();
     for (t, l) in lines.enumerate() {
         let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
         let ents = f["entities"].as_array().cloned().unwrap_or_default();
         let v3 = |v: &serde_json::Value| [v[0].as_f64().unwrap_or(0.0), v[1].as_f64().unwrap_or(0.0), v[2].as_f64().unwrap_or(0.0)];
         let ridden: std::collections::HashSet<u64> = ents.iter().filter_map(|e| e["vehicle"].as_str().and_then(|s| s.strip_prefix('#')).and_then(|s| s.parse().ok())).collect();
-        let mut by_lane: std::collections::BTreeMap<i64, Vec<Cart>> = std::collections::BTreeMap::new();
+        let mut by_lane: std::collections::BTreeMap<(i64, i64), Vec<Cart>> = std::collections::BTreeMap::new();
         for e in ents.iter().filter(|e| e["type"] == "minecart") {
             let n = e["n"].as_u64().unwrap_or(0);
             let p = v3(&e["pos"]);
-            by_lane.entry(p[0].floor() as i64).or_default().push((n, p, v3(&e["motion"]), ridden.contains(&n)));
+            let zb = if band > 0 { (p[2].floor() as i64).div_euclid(band as i64) } else { 0 };
+            by_lane.entry((p[0].floor() as i64, zb)).or_default().push((n, p, v3(&e["motion"]), ridden.contains(&n)));
         }
         for (x, mut cs) in by_lane {
             cs.sort_by(|a, b| a.1[2].total_cmp(&b.1[2]));
@@ -5732,13 +5842,19 @@ pub fn rec_carts(path: &std::path::Path, every: u32) -> Result<()> {
     }
     let gap = |a: &Cart, b: &Cart| ((a.1[0] - b.1[0]).powi(2) + (a.1[1] - b.1[1]).powi(2) + (a.1[2] - b.1[2]).powi(2)).sqrt();
     let cart = |c: &Cart| format!("#{}{} z {:.4} y {:.4} vz {:+.4}", c.0, if c.3 { "R" } else { "E" }, c.1[2], c.1[1], c.2[2]);
-    for (x, ticks) in &lanes {
-        println!("lane x {x}:");
+    // (with `summary`: per lane the faster cart's starting speed, the contact speed, the closest
+    // centres, merged; printed at the end in starting-speed order as runs of merged and not)
+    let mut sweep: Vec<(f64, Option<f64>, f64, bool)> = Vec::new();
+    for ((x, zb), ticks) in &lanes {
+        if !summary {
+            println!("lane x {x}{}:", if band > 0 { format!(" z band {zb}") } else { String::new() });
+        }
         let mut closest: Option<(f64, usize, u64, u64)> = None;
         let mut was_merged = false;
+        let mut merged_at: Option<usize> = None;
         // (the first contact: neighbours whose boxes, inflated 0.2 sideways as pushAndPickupEntities
         // reads them, overlap: horizontal centres under 1.18 and heights under 0.7 apart; the
-        // follower's stored speed the tick before)
+        // arriving cart's (the faster one's) stored speed the tick before)
         let mut contact: Option<(usize, f64, f64)> = None;
         let mut prev: Option<&Vec<Cart>> = None;
         for (t, cs) in ticks {
@@ -5746,8 +5862,8 @@ pub fn rec_carts(path: &std::path::Path, every: u32) -> Result<()> {
                 for w in cs.windows(2) {
                     let h = ((w[0].1[0] - w[1].1[0]).powi(2) + (w[0].1[2] - w[1].1[2]).powi(2)).sqrt();
                     if h < 1.18 && (w[0].1[1] - w[1].1[1]).abs() < 0.7 {
-                        let before = prev.and_then(|p| p.iter().find(|c| c.0 == w[1].0)).map_or(f64::NAN, |c| c.2[0].hypot(c.2[2]));
-                        contact = Some((*t, before, h));
+                        let speed = |n: u64| prev.and_then(|p| p.iter().find(|c| c.0 == n)).map_or(f64::NAN, |c| c.2[0].hypot(c.2[2]));
+                        contact = Some((*t, speed(w[0].0).max(speed(w[1].0)), h));
                         break;
                     }
                 }
@@ -5761,16 +5877,59 @@ pub fn rec_carts(path: &std::path::Path, every: u32) -> Result<()> {
             }
             // (every `every` ticks, the ticks a merge begins or ends, and the last)
             let merged = gaps.iter().any(|g| *g < 0.01);
-            if (every > 0 && *t as u32 % every == 0) || merged != was_merged || *t + 1 == ticks.len() {
+            if merged && merged_at.is_none() {
+                merged_at = Some(*t);
+            }
+            if !summary && ((every > 0 && *t as u32 % every == 0) || merged != was_merged || *t + 1 == ticks.len()) {
                 let parts: Vec<String> = cs.iter().map(cart).collect();
                 let gs: Vec<String> = gaps.iter().map(|g| format!("{g:.4}")).collect();
                 println!("  t{t}: {} | gaps {}{}", parts.join(", "), gs.join(" "), if merged { "  MERGED" } else { "" });
             }
             was_merged = merged;
         }
-        if let Some((g, t, a, b)) = closest {
-            let first = contact.map_or(String::new(), |(t, s, h)| format!("; first contact t{t} (horizontal centres {h:.4}), the follower's stored speed the tick before {s:.4}"));
+        if summary {
+            // (one line: the lane, its carts' riders in z order and their speeds at the first frame,
+            // the first contact, the closest centres, whether merged and whether still at the end)
+            let first = &ticks[0].1;
+            let carts: Vec<String> = first.iter().map(|c| format!("{}{:.2}", if c.3 { "R" } else { "E" }, c.2[0].hypot(c.2[2]))).collect();
+            let end_merged = ticks.last().is_some_and(|(_, cs)| cs.windows(2).any(|w| gap(&w[0], &w[1]) < 0.01));
+            let c = contact.map_or("no contact".to_string(), |(t, s, h)| format!("contact t{t} at {s:.4} (centres {h:.3})"));
+            let g = closest.map_or(f64::NAN, |c| c.0);
+            println!("x {x} z band {zb}: {} | {c} | closest {g:.4}{}", carts.join(" "), match merged_at {
+                Some(t) => format!(" | MERGED t{t}{}", if end_merged { " to the end" } else { ", parted" }),
+                None => String::new(),
+            });
+            let start = first.iter().map(|c| c.2[0].hypot(c.2[2])).fold(0.0f64, f64::max);
+            sweep.push((start, contact.map(|c| c.1), g, merged_at.is_some()));
+        } else if let Some((g, t, a, b)) = closest {
+            let first = contact.map_or(String::new(), |(t, s, h)| format!("; first contact t{t} (horizontal centres {h:.4}), the arriving cart's stored speed the tick before {s:.4}"));
             println!("  closest pair: #{a} #{b} {g:.4} apart at t{t}{}{first}", if g < 0.01 { " (MERGED)" } else { "" });
+        }
+    }
+    if summary && !sweep.is_empty() {
+        sweep.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut k = 0;
+        println!("by starting speed (runs): ");
+        while k < sweep.len() {
+            let m = sweep[k].3;
+            let mut j = k;
+            while j + 1 < sweep.len() && sweep[j + 1].3 == m {
+                j += 1;
+            }
+            let run = &sweep[k..=j];
+            let cs: Vec<f64> = run.iter().filter_map(|r| r.1).collect();
+            let (clo, chi) = (cs.iter().copied().fold(f64::INFINITY, f64::min), cs.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+            let near = run.iter().map(|r| r.2).fold(f64::INFINITY, f64::min);
+            println!(
+                "  start {:.2}..{:.2} ({} lanes): {}; contact speed {}{}",
+                run[0].0,
+                run[run.len() - 1].0,
+                run.len(),
+                if m { "MERGED" } else { "not merged" },
+                if cs.is_empty() { "none (no contact)".to_string() } else { format!("{clo:.4}..{chi:.4}") },
+                if m { String::new() } else { format!(", closest centres {near:.4}") }
+            );
+            k = j + 1;
         }
     }
     Ok(())

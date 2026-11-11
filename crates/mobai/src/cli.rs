@@ -191,6 +191,12 @@ pub enum MobaiCmd {
         path: std::path::PathBuf,
         #[arg(long, default_value_t = 0)]
         every: u32,
+        /// Lanes also split by bands of this many blocks of z (0: by x only)
+        #[arg(long, default_value_t = 0)]
+        band: i32,
+        /// One line a lane (its carts, the first contact, the closest centres, a merge)
+        #[arg(long)]
+        summary: bool,
     },
     /// A farm design's redsim run as the exact compare runs it, the level random's (or an
     /// entity's) draws of one game tick printed by call site.
@@ -315,7 +321,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
         }
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
-        MobaiCmd::RecCarts { path, every } => crate::fixture::rec_carts(&path, every),
+        MobaiCmd::RecCarts { path, every, band, summary } => crate::fixture::rec_carts(&path, every, band, summary),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
         MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger, make_pad, piglins, ticket } => match (nether, overworld, nether_design) {

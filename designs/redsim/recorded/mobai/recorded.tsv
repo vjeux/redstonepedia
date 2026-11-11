@@ -72,6 +72,15 @@ merge-threshold.rec	ded8d58396e39485		26.3	2026-11-11T17:48Z on b6dbc4de63	mctas
 pane-connect.rec	8106ec4b73502113		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record pane-connect --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+queue-settle.rec	5f95613b9b7cb311		26.3	2026-11-11T18:26Z on 0f28155bbe	mctas mobai record queue-settle --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+r1-sweep-g0-ee.rec	321b6374917f6b15		26.3	2026-11-11T18:23Z on 0f28155bbe	mctas mobai record r1-sweep-g0-ee --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
+r1-sweep-g0-er.rec	a804e96efb325bf9		26.3	2026-11-11T18:22Z on 0f28155bbe	mctas mobai record r1-sweep-g0-er --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
+r1-sweep-g0-re.rec	ef3cac57393c4770		26.3	2026-11-11T18:22Z on 0f28155bbe	mctas mobai record r1-sweep-g0-re --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
+r1-sweep-g0-rr.rec	24f6f9372e5dc5a0		26.3	2026-11-11T18:22Z on 0f28155bbe	mctas mobai record r1-sweep-g0-rr --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
+r1-sweep-p-ee.rec	a8535098ae4b28c6		26.3	2026-11-11T18:23Z on 0f28155bbe	mctas mobai record r1-sweep-p-ee --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
+r1-sweep-p-er.rec	a022d8dc64c1266c		26.3	2026-11-11T18:23Z on 0f28155bbe	mctas mobai record r1-sweep-p-er --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
+r1-sweep-p-re.rec	57cfafcff768c985		26.3	2026-11-11T18:23Z on 0f28155bbe	mctas mobai record r1-sweep-p-re --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
+r1-sweep-p-rr.rec	1994a691ca67ed3f		26.3	2026-11-11T18:23Z on 0f28155bbe	mctas mobai record r1-sweep-p-rr --seed 1 --ticks 120 --dir designs/redsim/recorded/mobai
 reclaim-backoff-1.rec	5bb1341f0fe9a2bb		26.3	2026-11-11T11:42Z on 388d91c58	mctas mobai record reclaim-backoff-1 --seed 1 --ticks 2500 --dir designs/redsim/recorded/mobai
 reclaim-backoff-day.rec	12ca16f30fb96ca3		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record reclaim-backoff-day --seed 1 --ticks 4700 --dir designs/redsim/recorded/mobai
 reclaim-backoff.rec	e8db94bea2811d7e		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record reclaim-backoff --seed 1 --ticks 4700 --dir designs/redsim/recorded/mobai
