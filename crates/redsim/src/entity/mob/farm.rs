@@ -488,14 +488,22 @@ impl Run {
         true
     }
 
+    /// The daylight detectors the start held back (they would read the settle's sky), placed as
+    /// [`Run::arrive`] places them: raw, then updates. A bench drive's start does the same
+    /// (`drive::spawn_lines`).
+    pub fn place_detectors(&mut self) {
+        let w = &mut self.world;
+        w.place_raw(&self.detectors);
+        w.place_updates(&self.detectors);
+    }
+
     /// The rest of the build (any settle tick left first): the daylight detectors, the entities,
     /// each villager's HOME (the bed head nearest its feet within 2.5) and, in the steady state, a
     /// LAST_SLEPT at the end of the last REST (day time 10); a fixed walking policy.
     pub fn arrive(&mut self) -> Result<(), String> {
         while self.settle_tick() {}
+        self.place_detectors();
         let w = &mut self.world;
-        w.place_raw(&self.detectors);
-        w.place_updates(&self.detectors);
         let first = w.entities.next_id;
         for (ty, pos, nbt) in &self.spec.entities {
             crate::entity::spawn(w, ty, *pos, nbt.as_deref())?;

@@ -154,6 +154,11 @@ slots per step, bench-driven controls, day-1's times):
   and passes at 40 and 44; s = 6 and 7 pass by luck (they hit the braked slope differently).
   --stagger-off does not help: it delays the slot released last, but all three carts cross the
   front slot. A wired controller holds the front slot's window to >= 2s + 30.
+- **The nap visits' couplings** (the joint table's visit rows; measured in "The nap visits wired"
+  below): a missed golem at the visit's release i+4 moves the hold kick +6 against an unmoved late
+  edge, leaving >= 13 gt of drop window (k1 at 0.21 b/t binding; k0 >= 26, k2 >= 28); the junction
+  lines divert -2..+6, kick -22..+18, T-set -17..+120 (bench controls), the early corner failing on
+  {divert -2, T-set -17} (the previous visit's cart not yet past the T's).
 
 ## The bed siding's merge: the side drop (day-1's (b))
 
@@ -219,6 +224,40 @@ Day-1's exit routes, measured (bench controls, S30, siding release -> roll-off; 
 With the hold the cart is ready on it at +330..+351 and stops 0.72 into the braked cell from 0.64
 b/t; slot 12 still misses the window (kick +400 rolls off at +546). Next: a hold on each drop line,
 ~3 rails before its end (T_kick ~15-20 gt for all three).
+
+### The nap visits wired (day-1's controller drives every junction; `--visits-observe`)
+
+Day-1's 9062078a8 wired-stand file (the pocket loop, day-1's controller with the stagger, farmopt's
+wired stand, the gated siding, a hold on each drop line, the night window from an inverted detector
+at 11, the night-close race latched), 100 seeds x 1,440 slots (6 nights each), the bench writing no
+control: **95 of 100 seeds clean**; 12,877 visits, every napper back in its own slot; roll-off speeds
+(min..max, median, 99th pct) cart 0 0.29..0.36 (0.29, 0.36), cart 1 0.21..0.28 (0.28, 0.28), cart 2
+0.29; 595 of 600 nights with every rider asleep; the pocket stand clean over 143,900 slots. The 5
+failures are all night 1 (seeds 14, 37, 45, 64, 76: rider e9 never asleep): each seed starts at its
+own day time, and at some phases the first night after power-on fits only 20 visits (the 21st falls
+after the window closes; the first visit lags the window's opening by ~7 slots); nights 2-6 are
+complete in every seed (day-1's: startup gives every villager its night-1 visit, or states the cost).
+
+**The drop's speed limit per slot** (side drop on 7d947146b, 2 seeds x 5 roll-off times +100..+124):
+slots 12 and 14 pass 0.30..0.44 b/t (the grid's top); slot 13 passes to 0.36 and fails 10 of 10 from
+0.37 (its control pulses and drop line are the same as 12's and 14's; the cause is open). So a 0.36
+roll-off into slot 13 has no speed margin (day-1 keeps k1's rest point, 0.28).
+
+**The drop's late edge** (side drop on 9062078a8, the last clean roll-off): ~+546 at 0.21 b/t into
+slot 13, >= +546 at 0.29 into 12 and 14, +539 at 0.36 into 14 (visit-relative).
+
+**A missed golem at release i+4** (`--golem-miss`): the kick moves +6, the drop's late edge (i+5's
+first advance) stays: roll-offs k0 +514 -> +520, k1 +527 -> +533 (0.21 b/t), k2 +512 -> +518, every
+napper back in its own slot, the loop recovers within the slot (the slot-start snapshot catches the
+late slot's third advance mid-move). Drop window left at that corner: k0 >= 26 gt, **k1 ~13 gt (the
+binding case)**, k2 >= 28 gt; a 0.36 roll-off >= 27 gt.
+
+**The junction timings** (bench-driven on 7d947146b's physical file, nightly visits k 0, 1, 2, 0 so
+T1/T2 switch between consecutive visits' lines, 2 seeds x 48 slots): divert -2..+6 gt, kick
+-22..+18 gt (from +470), T-set -17..+120 gt (the sweep's edge; from the divert +1). The early corner
+fails on {divert -2, T-set -17} together: the T's switched before the previous visit's cart had
+passed them (the coupling "the previous visit's cart clears the T's before the next T-set"); the
+late corner passes. Day-1's wired T-set is at the visit's +136, far inside.
 
 A T rail reshapes only on an update from a signal source, and a placed block updates its
 neighbours as the old block (vanilla's `blockUpdated(pos, oldState.getBlock())`, as redsim): a

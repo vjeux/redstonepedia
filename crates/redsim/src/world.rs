@@ -287,6 +287,13 @@ pub struct World {
     /// while a PORTAL ticket holds it. None (the default): an entity through a portal leaves the
     /// simulation (removed).
     pub nether: Option<Box<World>>,
+    /// (tickexact 2026-11-10, ironspec's fault rule) The world's chunks saved and unloaded, waiting
+    /// to load again (`reload::unload_all` / `load_all`): the level ticks on (its time; the
+    /// Nether), nothing of them does.
+    pub away: Option<Box<crate::reload::Away>>,
+    /// (tickexact 2026-11-10) Entities a load brought back under new ids: old id -> its current
+    /// id (`reload::load_all`; a drive's `eN` follows it).
+    pub renumbered: HashMap<u32, u32>,
     /// This world is the Nether (`DimensionType.ultraWarm`): lava flows every 10 gt, drops off by
     /// 1, looks 4 blocks for a slope and pushes entities by 0.007; a portal's random tick spawns
     /// nothing; an entity through a portal goes to the overworld (`outgoing`).
@@ -294,6 +301,13 @@ pub struct World {
     /// The PORTAL tickets on this world (chunk, game time made: `TicketType.PORTAL`, 300 gt, radius
     /// 3): entities tick within 1 chunk of one, blocks within 2.
     pub portal_tickets: Vec<([i32; 2], i64)>,
+    /// (tickexact 2026-11-10) When the PORTAL tickets' simulation began (the game time a ticket
+    /// was made while none held: a refresh keeps it; `None` with no ticket).
+    pub portal_since: Option<i64>,
+    /// (tickexact 2026-11-10) The entities of the other dimension this world's mobs target, as
+    /// they are after their own world's tick (`target::Who::Foreign`; the Nether's refreshed from
+    /// the overworld before each of its ticks).
+    pub foreign: Vec<crate::entity::mob::ai::target::Foreign>,
     /// Entities through a portal out of this Nether this tick, for the overworld to place.
     pub outgoing: Vec<crate::entity::portal::Crossing>,
     /// The crossings placed in this world or sent from it to the Nether (game time, the entity's
@@ -399,8 +413,12 @@ impl World {
             entity_chunks: None,
             frozen: Vec::new(),
             nether: None,
+            away: None,
+            renumbered: HashMap::new(),
             ultrawarm: false,
             portal_tickets: Vec::new(),
+            portal_since: None,
+            foreign: Vec::new(),
             outgoing: Vec::new(),
             crossings: Vec::new(),
             explosion_rolls: Default::default(),
@@ -417,6 +435,16 @@ impl World {
             outer: Default::default(),
             ticking_sections: None,
         }
+    }
+
+    /// (tickexact 2026-11-10) `Level.getMinY()` / `getMaxY()` of this world's dimension type: the
+    /// overworld's -64..319, the Nether's (redsim's ultrawarm world) 0..255.
+    pub fn level_min_y(&self) -> i32 {
+        if self.ultrawarm { 0 } else { -64 }
+    }
+
+    pub fn level_max_y(&self) -> i32 {
+        if self.ultrawarm { 255 } else { 319 }
     }
 
     /// Mirror the bridge sandbox's level random: seeded `seed` (`level.getRandom().setSeed`, at
@@ -1190,6 +1218,15 @@ impl World {
         // mobinfra: the weather (advanceWeatherCycle, first in ServerLevel.tick); off: nothing
         if self.weather.on {
             crate::weather::tick(self);
+        }
+        // (tickexact 2026-11-10, ironspec's fault rule) its chunks saved and unloaded: the level
+        // ticks on (its time; the Nether after it), nothing of them does (`reload::unload_all`)
+        if self.away.is_some() {
+            self.handling_tick = false;
+            if self.nether.is_some() {
+                crate::entity::portal::tick_nether(self);
+            }
+            return;
         }
         // a primed TNT explodes after its 80 gt fuse (it ticks from the tick it spawns in): not
         // modeled, unless the caller removes primed TNT before that (the TNT judge does); TNT

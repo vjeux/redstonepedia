@@ -81,6 +81,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
 fn drowned_ok(w: &World, t: Who) -> bool {
     let in_water = match t {
         Who::Entity(j) => w.entities.list[j].was_touching_water,
+        Who::Foreign(f) => w.foreign[f].in_water,
         Who::Player(_) => {
             let p = target::pos_of(w, t);
             let c = crate::pos::BlockPos::new(crate::entity::mth::floor(p.x), crate::entity::mth::floor(p.y), crate::entity::mth::floor(p.z));
@@ -131,7 +132,7 @@ pub fn stop(w: &mut World, i: usize, _g: &mut MeleeAttack) {
     // EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(target): a null target fails it too
     let keep = target::get_target(w, i).and_then(|id| target::who(w, id)).is_some_and(|t| match t {
         Who::Player(k) => w.mob.ai.players[k].mode == super::super::GameMode::Survival,
-        Who::Entity(_) => true,
+        Who::Entity(_) | Who::Foreign(_) => true,
     });
     if !keep {
         target::set_target(w, i, None);

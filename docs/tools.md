@@ -240,8 +240,15 @@ it after the settle, flowing fluids included, comparator outputs as `nbt:` lines
 the generator's own states); `siding --alone` writes the siding by itself (no launcher, approach,
 run-out, hold or carts), `--exit-brake` puts a braked powered rail past its exit cell and
 `--cage-only` closes the bed's open north front (the bed reachable only from the cage);
-`--wired` includes the give-up (an arrival latch, day-1's 220 gt comparator timer, and on timeout
-the visit latch set: a napper that cannot sleep still leaves; `--no-give-up` leaves it out);
+`--wired` includes the give-up: by default `--give-up scheduler` (one input, F (-5,-3,-4), which
+day-1's scheduler pulses 12 gt 118-150 gt after each arrival; the siding gates it with a copper bulb
+lit from the arrival to the return and sets its visit latch, so a napper that cannot sleep still
+leaves), `--give-up timer` (its own arrival latch and 220 gt comparator timer) or `none`;
+`siding-bench` drives F as day-1's scheduler would (`--force-at 118,150`, `--no-force`) and prints
+the pulses, the visits not asleep by them, the pulse to ready, the sleep onset after the arrival
+(the earliest F's bound) and the pulse to the cart past the exit (the latest F's);
+`--drop-force K` is the fault injection (visit K's napper cannot sleep and its F is dropped; it
+prints what the stuck cart and the next visits do);
 `siding-bench --day-visits` (every visit by day: no napper sleeps) and `--fail-no-home N` (the
 first N villagers' HOME erased before each of their visits) are its forced failures: every cart
 must still be on the slot with its villager within 500 gt of its arrival;

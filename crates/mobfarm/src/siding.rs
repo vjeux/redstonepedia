@@ -355,6 +355,51 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     Ok(())
 }
 
+/// The give-up, driven by day-1's scheduler (farmopt 2026-11-10: the parent's direction; day-1 16:34
+/// agreed the cell and the signal): one input cell F (-5,-3,-4), where day-1's line ends in a
+/// dust and pulses 10-12 gt at REL(i+3)+52, 150-170 gt after the visit's arrival, on every visit
+/// (its register cannot see the slot or the return). The siding gates it:
+/// - V, a visit under way: a waxed copper bulb (0,-1,-1) toggled by the arrival (the entry rail
+///   a detector rail, its block below a stone beside the bulb) and by the return (a repeater off
+///   the R line's support stone (0,-1,-3) into the bulb): lit from the arrival to the return;
+/// - the gate: a comparator at (-5,-3,-3) reading F at its back, subtracting not V at its side (a
+///   repeater from a torch on P (-3,-3,-2), P powered by V: dust from the bulb's comparator west and
+///   down onto P), into a repeater into the H latch's D2: F sets H only during a visit. A napper
+///   asleep by then has set H already (nothing changes); a cart already back has turned V off (the
+///   pulse dies at the gate); a napper still awake is sent out: the T to the exit, the hatch shut,
+///   the kick 20 gt later.
+pub const FORCE_CELL: [i32; 3] = [-5, -3, -4];
+
+fn giveup_sched(b: &mut Builder) -> Result<()> {
+    let rep = |f: &str| format!("repeater[delay=1,facing={f},locked=false,powered=false]");
+    let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+    let on = |b: &mut Builder, c: [i32; 3], part: &str| -> Result<()> {
+        put(b, [c[0], c[1] - 1, c[2]], "stone")?;
+        put(b, c, part)
+    };
+    // V: the arrival's detector rail and the stone under it, the bulb beside that stone, the
+    // return's repeater into the bulb from the north
+    swap(b, [0, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+    swap(b, [0, -1, 0], "stone")?;
+    put(b, [0, -1, -1], "waxed_copper_bulb[lit=false,powered=false]")?;
+    on(b, [0, -1, -2], &rep("north"))?;
+    // V out: a comparator west of the bulb, dust west, down north and west onto P (-3,-3,-2)
+    on(b, [-1, -1, -1], "comparator[facing=east,mode=compare,powered=false]")?;
+    on(b, [-2, -1, -1], dust)?;
+    on(b, [-2, -2, -2], dust)?;
+    put(b, [-3, -3, -2], "stone")?; // P
+    put(b, [-3, -2, -2], dust)?;
+    // not V: a torch on P's north face; a repeater west of it into the gate's side
+    put(b, [-3, -3, -3], "redstone_wall_torch[facing=north,lit=true]")?;
+    on(b, [-4, -3, -3], &rep("east"))?;
+    // the gate: F at its back (day-1's dust at FORCE_CELL), out south through a repeater into D2
+    on(b, [-5, -3, -3], "comparator[facing=north,mode=subtract,powered=false]")?;
+    on(b, [-5, -3, -2], &rep("north"))?;
+    // glass caps on its solid tops a golem could stand on (the bulb)
+    put(b, [0, 0, -1], "glass")?;
+    Ok(())
+}
+
 pub fn design() -> Result<String> {
     design_with(false)
 }
@@ -539,13 +584,22 @@ pub fn design_opts(wired: bool, alone: bool, exit_brake: bool) -> Result<String>
 /// high, so the bed head is reachable by path only from the cage's free cell (no villager off the
 /// siding finds a path to it for AcquirePoi).
 pub fn design_opts_cage(wired: bool, alone: bool, exit_brake: bool, cage_only: bool) -> Result<String> {
-    design_full(wired, alone, exit_brake, cage_only, false)
+    design_full(wired, alone, exit_brake, cage_only, GiveUp::None)
 }
 
-/// [`design_opts_cage`], and with `give_up` the wired siding's give-up ([`giveup`]).
-pub fn design_full(wired: bool, alone: bool, exit_brake: bool, cage_only: bool, give_up: bool) -> Result<String> {
+/// Which give-up the wired siding has: none, its own timer ([`giveup`]), or day-1's scheduler's
+/// force input ([`giveup_sched`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GiveUp {
+    None,
+    Timer,
+    Scheduler,
+}
+
+/// [`design_opts_cage`], and with `give_up` the wired siding's give-up.
+pub fn design_full(wired: bool, alone: bool, exit_brake: bool, cage_only: bool, give_up: GiveUp) -> Result<String> {
     let s = layout();
-    let name = format!("carousel-bed-siding{}{}{}{}{}", if wired { "-wired" } else { "" }, if give_up { "-giveup" } else { "" }, if exit_brake { "-brake" } else { "" }, if cage_only { "-cage" } else { "" }, if alone { "-alone" } else { "" });
+    let name = format!("carousel-bed-siding{}{}{}{}{}", if wired { "-wired" } else { "" }, match give_up { GiveUp::None => "", GiveUp::Timer => "-giveup", GiveUp::Scheduler => "-force" }, if exit_brake { "-brake" } else { "" }, if cage_only { "-cage" } else { "" }, if alone { "-alone" } else { "" });
     let mut b = Builder::new(&name);
     build(&mut b, &s, !alone)?;
     if cage_only {
@@ -565,7 +619,12 @@ pub fn design_full(wired: bool, alone: bool, exit_brake: bool, cage_only: bool, 
     if wired {
         wire(&mut b, &s)?;
     }
-    if give_up {
+    if give_up == GiveUp::Scheduler {
+        ensure!(wired, "the give-up is part of the wired siding (--wired)");
+        giveup_sched(&mut b)?;
+        // (the torch unlit... none: not V's torch is lit at rest; the cap after the bulb)
+    }
+    if give_up == GiveUp::Timer {
         ensure!(wired, "the give-up is part of the wired siding (--wired)");
         giveup(&mut b)?;
         // (its two torches unlit at rest go last too: W_A2, A's torch, the latch bistable as the
@@ -602,7 +661,7 @@ pub fn design_full(wired: bool, alone: bool, exit_brake: bool, cage_only: bool, 
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     // (the interface cells: a mob farm takes no input port)
-    b.d.meta.insert("siding".into(), format!("v1{}{} entry={},{},{} exit={},{},{} release={},{},{}", if wired { " wired" } else { "" }, if alone { " alone" } else { "" }, s.entry.x, s.entry.y, s.entry.z, s.exit.x, s.exit.y, s.exit.z, s.release.x, s.release.y, s.release.z));
+    b.d.meta.insert("siding".into(), format!("v1{}{} entry={},{},{} exit={},{},{} release={},{},{}{}", if wired { " wired" } else { "" }, if alone { " alone" } else { "" }, s.entry.x, s.entry.y, s.entry.z, s.exit.x, s.exit.y, s.exit.z, s.release.x, s.release.y, s.release.z, if give_up == GiveUp::Scheduler { format!(" force={},{},{}", FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]) } else { String::new() }));
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), at(s.bed_head));
     if alone {
@@ -695,6 +754,14 @@ pub struct BenchOpts {
     /// of by night: no napper can sleep, every visit must end with its cart on the slot and
     /// released within 500 gt (and every villager still holding HOME at each check).
     pub day_visits: bool,
+    /// Drive the force input (FORCE_CELL) as day-1's scheduler would: a 12 gt pulse this many gt
+    /// after each visit's arrival (spread over the range by the visit), every visit; only when the
+    /// design has the scheduler give-up's gate.
+    pub force: Option<(i64, i64)>,
+    /// Fault injection (ironspec 2026-11-10): on this visit (its index in the run) the napper
+    /// cannot sleep (its HOME erased) and the force input is not pulsed; the next visits are sent
+    /// on schedule all the same, as the loop would, with the dropped visit's cart still inside.
+    pub drop_force: Option<usize>,
 }
 
 /// One visit's record.
@@ -731,6 +798,17 @@ pub struct VisitRec {
     pub problem: Option<String>,
     /// A forced failure (`fail_no_home`): its villager's HOME erased just before the visit.
     pub failed: bool,
+    /// When the bench pulsed the force input for it (day-1's scheduler's place).
+    pub forced: Option<i64>,
+    /// When its cart left past the exit cell (x past its east edge).
+    pub exited: Option<i64>,
+    /// The fault injection (`drop_force`): its napper cannot sleep and its F is dropped.
+    pub force_dropped: bool,
+    /// The scheduler give-up's bulb V at the visit's start (before its arrival): lit = the bulb's
+    /// phase inverted (a visit before it never returned).
+    pub v_before: Option<bool>,
+    /// The fault injection: when its cart, left behind in the siding, came onto the exit branch.
+    pub unstuck: Option<i64>,
 }
 
 /// What the bench measured.
@@ -858,11 +936,16 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut night_of_visit: Vec<i64> = vec![-1; pairs.len()];
     let mut active: Option<usize> = None; // the visit inside (not yet on the exit branch)
     let mut waiting: Vec<usize> = Vec::new(); // visits on the slot (not yet released)
+    let mut stuck: Vec<usize> = Vec::new(); // the fault injection's visits left inside
     let mut out: Vec<(usize, i64)> = Vec::new(); // visits on the run-out (released)
     let mut occupied = false;
     let mut kick_at: Option<i64> = None;
     let mut park_off: Option<i64> = None;
     let mut release_off: Option<i64> = None;
+    // (the force input driven as day-1's scheduler would, when the design has the gate)
+    let gate = BlockPos::new(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2] + 1);
+    let force = (bo.force.is_some() && matches!(run.world.get(gate), Block::Comparator { .. })).then(|| bo.force.unwrap_or((150, 170)));
+    let mut force_off: Option<i64> = None;
     let mut reset_pending = false;
     let mut homes_seen: Vec<bool> = vec![true; pairs.len()];
     let mut home_now: Vec<bool> = pairs.iter().map(|(_, v, _)| index_of(&run.world, *v).is_some_and(|i| brain::brain(&run.world, i).home == Some(bed))).collect();
@@ -889,9 +972,14 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         {
             if !in_window {
                 next_visit = None;
-            } else if active.is_none() && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
+            } else if active.is_none_or(|a| rep.visits[a].force_dropped) && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
+                // (the fault injection: the dropped visit's cart left inside, the next sent as the
+                // loop would send it)
+                if let Some(a) = active.take() {
+                    stuck.push(a);
+                }
                 // the villager napped longest ago, not out already and not visited this night
-                let busy: Vec<u32> = waiting.iter().chain(out.iter().map(|(v, _)| v)).map(|&k| rep.visits[k].villager).collect();
+                let busy: Vec<u32> = waiting.iter().chain(out.iter().map(|(v, _)| v)).chain(stuck.iter()).map(|&k| rep.visits[k].villager).collect();
                 let pick = (0..pairs.len()).filter(|&k| !busy.contains(&pairs[k].1) && night_of_visit[k] != night_n).min_by_key(|&k| last_nap[k]);
                 if let Some(k) = pick {
                     let (cart, villager, _) = pairs[k];
@@ -907,11 +995,18 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     }
                     let eta = if bo.launch { 30 } else { ((-APPROACH_X - 0.0) / v).round() as i64 };
                     // (a forced failure: the villager cannot sleep, its HOME erased)
-                    let failed = (k as u32) < bo.fail_no_home || bo.day_visits;
-                    if (k as u32) < bo.fail_no_home && let Some(i) = index_of(&run.world, villager) {
+                    let dropped_f = bo.drop_force == Some(rep.visits.len());
+                    let failed = (k as u32) < bo.fail_no_home || bo.day_visits || dropped_f;
+                    if ((k as u32) < bo.fail_no_home || dropped_f) && let Some(i) = index_of(&run.world, villager) {
                         brain::brain_mut(&mut run.world, i).home = None;
                     }
-                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, failed, ..Default::default() });
+                    // (the fault injection's napper truly cannot sleep: the bed's ticket taken too,
+                    // as R1's end state leaves it, so it cannot claim the bed again either)
+                    if dropped_f {
+                        redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+                    }
+                    let v_before = force.is_some().then(|| matches!(run.world.get(BlockPos::new(0, -1, -1)), Block::Bulb { lit: true, .. }));
+                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, failed, force_dropped: dropped_f, v_before, ..Default::default() });
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
                     night_of_visit[k] = night_n;
@@ -957,7 +1052,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
             let (arrived, villager, released, ready) = (rep.visits[k].arrived, rep.visits[k].villager, rep.visits[k].released, rep.visits[k].ready);
             let due = arrived + bo.release.0 + ((villager as i64 * 7919) % (bo.release.1 - bo.release.0 + 1));
-            if now >= due && released.is_none() {
+            // (a fault-injected visit's cart, out late, is released once ready on the slot)
+            if now >= due && released.is_none() && (ready.is_some() || !rep.visits[k].force_dropped) {
                 if ready.is_none() {
                     rep.visits[k].problem.get_or_insert(format!("not ready at its release (gt {})", due - arrived));
                 }
@@ -973,6 +1069,31 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             set(&mut run.world, s.release, "glass");
             drive.act(now, format!("set {} {} {} minecraft:glass", s.release.x, s.release.y, s.release.z));
             release_off = None;
+        }
+        // day-1's scheduler on the force input (the siding's give-up driven by it): a 12 gt pulse
+        // from its visit register's D3 gating REL+20 (explore/day1-counter 7d947146b), on at visit
+        // +328..+340, 118-150 gt after the arrival as k shifts the arrival (+190..+210), every
+        // visit (its register cannot see the return)
+        if let Some((fa, fb)) = force {
+            let fc = BlockPos::new(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]);
+            let n = rep.visits.len();
+            for k in n.saturating_sub(2)..n {
+                let v = &rep.visits[k];
+                if v.forced.is_none() && !v.force_dropped && (!bo.launch || v.entered) {
+                    let delay = fa + ((v.villager as i64 * 104_729 + v.arrived) % (fb - fa + 1));
+                    if now >= v.arrived + delay {
+                        set(&mut run.world, fc, "redstone_block");
+                        drive.act(now, format!("set {} {} {} minecraft:redstone_block", fc.x, fc.y, fc.z));
+                        force_off = Some(now + 12);
+                        rep.visits[k].forced = Some(now);
+                    }
+                }
+            }
+            if force_off == Some(now) {
+                set(&mut run.world, fc, "air");
+                drive.act(now, format!("set {} {} {} minecraft:air", fc.x, fc.y, fc.z));
+                force_off = None;
+            }
         }
         run.tick();
         let t = run.world.time;
@@ -1064,6 +1185,23 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 active = None;
             }
         }
+        // (the fault injection: a dropped visit's cart left inside, onto the exit branch at last)
+        let mut freed: Vec<usize> = Vec::new();
+        for &k in &stuck {
+            if let Some(c) = w.entities.list.iter().find(|x| x.id == rep.visits[k].cart && !x.removed)
+                && c.pos.x >= 2.0
+                && c.pos.x < 3.0
+                && c.pos.z < 1.0
+                && c.delta_movement.x > 0.0
+            {
+                freed.push(k);
+            }
+        }
+        for k in freed {
+            stuck.retain(|&x| x != k);
+            rep.visits[k].unstuck = Some(t);
+            waiting.push(k);
+        }
         // (traced, wired: the circuit's parts whenever one changes, for the first 3000 gt)
         if bo.trace && bo.wired && t - t0 >= bo.trace_window.0 && t - t0 < bo.trace_window.1 {
             let probes: Vec<(&str, [i32; 3])> = vec![
@@ -1098,6 +1236,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("Rr", [3, -2, -9]),
                 ("Gr", [4, -2, -8]),
                 ("D2in", [-4, -3, -1]),
+                // (the scheduler give-up's)
+                ("bulb", [0, -1, -1]),
+                ("F", FORCE_CELL),
+                ("nV", [-3, -3, -3]),
+                ("gate", [-5, -3, -3]),
+                ("D2r", [-5, -3, -2]),
             ];
             let now_s: Vec<String> = probes.iter().map(|(n, c)| format!("{n}={}", short_state(&w.get(BlockPos::new(c[0], c[1], c[2])).to_string()))).collect();
             if now_s != probe_last {
@@ -1210,6 +1354,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
             if rep.visits[k].leave_speed.is_none() && c.pos.x >= s.exit.x as f64 + 1.0 {
                 rep.visits[k].leave_speed = Some(c.delta_movement.x);
+                rep.visits[k].exited = Some(t);
             }
             if c.pos.x >= s.exit.x as f64 + 2.5 || t - rt > 400 {
                 if c.pos.x < s.exit.x as f64 + 2.5 {

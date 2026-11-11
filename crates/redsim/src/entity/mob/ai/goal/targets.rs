@@ -129,6 +129,8 @@ pub enum TargetType {
     WolfPrey,
     /// `AbstractSkeleton` (skeletons, strays, bogged, parched, wither skeletons): the wolf's.
     Skeleton,
+    /// `Rabbit` (the cat's prey).
+    Rabbit,
 }
 
 /// `NearestAttackableTargetGoal`.
@@ -161,7 +163,7 @@ impl NearestAttackableTarget {
 pub fn non_tame_can_continue(w: &mut World, i: usize, g: &mut NearestAttackableTarget) -> bool {
     let Some(t) = g.found.and_then(|id| target::who(w, id)) else { return false };
     let selected = match t {
-        Who::Entity(_) => target::type_of(w, t).is_some_and(|ty| selects(g.target_type, ty)),
+        Who::Entity(_) | Who::Foreign(_) => target::type_of(w, t).is_some_and(|ty| selects(g.target_type, ty)),
         Who::Player(_) => false,
     };
     let d = follow_range(w, i);
@@ -178,6 +180,7 @@ fn selects(t: TargetType, ty: MobType) -> bool {
         TargetType::EnemyNotCreeper => is_enemy(ty),
         TargetType::WolfPrey => matches!(ty.game_id(), "minecraft:sheep" | "minecraft:rabbit" | "minecraft:fox"),
         TargetType::Skeleton => matches!(ty.game_id(), "minecraft:skeleton" | "minecraft:stray" | "minecraft:bogged" | "minecraft:parched" | "minecraft:wither_skeleton"),
+        TargetType::Rabbit => ty.game_id() == "minecraft:rabbit",
         TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer | TargetType::SlimePlayer => false,
     }
 }

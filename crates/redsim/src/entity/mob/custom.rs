@@ -335,14 +335,19 @@ fn cats(w: &mut World, c: &mut Custom) {
         return;
     }
     if close_to_village(w, at, 2) {
-        // spawnInVillage: more than 4 occupied HOMEs within 48, fewer than 5 cats near
+        // spawnInVillage: more than 4 occupied HOMEs within 48, fewer than 5 cats in the box
+        // inflated by (48, 8, 48), then spawnCat (not persistent)
         let homes = occupied_village_pois(w).iter().filter(|h| {
             let (dx, dy, dz) = ((h.x - at.x) as f64, (h.y - at.y) as f64, (h.z - at.z) as f64);
             dx * dx + dy * dy + dz * dz <= 48.0 * 48.0
         }).count();
         if homes > 4 {
-            c.log.push((w.time, format!("cat at {at}")));
-            model_error(w, format!("gt {}: a cat spawns at {at} (cats are not modeled)", w.time));
+            let area = crate::entity::Aabb::of_block(at).inflate(48.0, 8.0, 48.0);
+            let cats = w.get_entities(area, |e| !e.removed && matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ty.def().id == "cat")).len();
+            if cats < 5 {
+                let id = super::natural::spawn_cat(w, at, false);
+                c.log.push((w.time, format!("cat #{id} at {at}")));
+            }
         }
     }
     // a swamp hut (StructureTags.CATS_SPAWN_IN): none in the standard samples

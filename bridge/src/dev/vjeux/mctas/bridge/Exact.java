@@ -764,7 +764,8 @@ final class Exact {
 
         /** Compare the box with what it held (record changes when the arrays are given). */
         private void scan(Sandbox sb, JsonArray blocks, JsonArray bes, JsonArray containers) {
-            if (this.from == null) {
+            // (its chunks unloaded: a read would load them again; they hold what they held)
+            if (this.from == null || sb.away) {
                 return;
             }
             BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();

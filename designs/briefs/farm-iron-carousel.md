@@ -26,6 +26,10 @@ Every carousel part with timed controls prints its tolerance: how many ticks eac
 
 Each part's tolerance line also includes two corner runs: every timed control at its measured early limit together, then every one at its late limit, each with the entry-speed extreme, so a part whose margins hold only one at a time shows up; the assembly repeats the corners across its couplings.
 
+#### Every stateful element recovers by itself (fault injection)
+
+Every stateful element in a part (latch, copper bulb, counter, register, ring) recovers by itself from one missed pulse and from one extra pulse. The farm returns to clean operation within a stated number of cycles, with no permanent phase inversion and no hand reset. It's checked by fault injection on the part's bench: at each stateful element, drop one input pulse, and separately add one extra input pulse, in each distinct state the element can be in when the pulse is due, over several seeds. The part's line reports, per element, the worst-case cycles to recover and what was lost in the meantime (slots, naps, golems). An element that never recovers fails the part. The injected faults also include an unload and reload at each state (the player leaving and coming back mid-cycle, mid-pulse included), since that's how an AFK farm actually drops or doubles a pulse; the element's state must survive it or recover within the stated cycles. The unload/reload uses the shared act (`unload <chunks> <N>`; `queue-loop-run --act SLOT,DT,unload,N`) at each state, mid-cycle and mid-pulse, with N = 0, N = a few ticks, and N longer than the element's longest timer, and both the whole part and a partial unload with a chunk boundary through the part (chunks unload one by one as the player leaves). Why: the bed siding's give-up used a copper bulb, so one dropped F pulse inverted its phase and jammed the siding for good (6 of 6 seeds, recovery only by hand); a set/reset latch replaces it.
+
 #### Settled as placed, and built in order (every part)
 
 1. **Settled as placed.** The design file pasted raw, with no settle ticks and no shape or neighbour updates, passes the part's bench under the same criteria as the settled run. So every cell is written in its settled, self-consistent state (wire and rail shapes, repeater, comparator and powered states), and item stocks (a hopper's or dropper's stock, a sorter's fillers) are listed build steps, not pre-stocked file states. Why: the wired loop's release failed from slot 1 in the real game when its hopper's item stock was missing (the paste hadn't filled it); with the stock merged, the loop placed raw runs 60 slots at 0 differences against the 26.3 server. So item stocks are listed build steps, and a design must work from its file as placed.
@@ -37,7 +41,7 @@ Every loop or wired part that carries villagers who may have slept passes the go
 - runs from every position a villager can occupy: the loop's rail cells, plus every position the sleep routine or a branch puts a villager on (the siding or branch to the bed, the dismount spot, the walk to the bed, the bed, the stand-up cell and the way back), taken from a recorded full bench night together with the design's listed positions;
 - runs the game's summon search from each position (redsim's golem_spawn_cells_from) with entities ignored: a cell blocked only by a cart, a rider or the zombie at the moment of the check still counts as a spot, because they move.
 
-Pad cells count as allowed only when seen from the stand cells; a pad cell reachable from any other villager position (the arriving or returning batch, the queue, the napper's path) is an out-of-turn summon onto the pad, and the report flags it (`queue-loop-spots --pad --stand`).
+Pad cells count as allowed only when seen from the stand cells; a pad cell reachable from any other villager position (the arriving or returning batch, the queue, the napper's path) is an out-of-turn summon onto the pad, and the report flags it (`queue-loop-spots --pad --stand`). A flagged pad cell doesn't fail the part by itself: the full assembly bench measures the out-of-turn summon rate onto the pad and its slot cost, printed beside the flag, and the geometry changes only if those summons cost slots.
 
 Why: main's published wired v2 had 30 off-pad golem cells on its wiring, and on the day-1 lane's first wired night a golem spawned on one of them and jammed the tail. The loop benches missed it because their riders never sleep, so no golem was ever summoned away from the pad.
 
@@ -504,8 +508,14 @@ station needs no drop and no overworld kill.
   during its overworld dwell (T to T+2), the arriving batch included.
 - **Every way to summon, at every position a villager occupies** (the loop, the queue, the
   approach, the bed stop), judged along the loop: either the path cannot fire, or every spawn
-  search from there lands only on unspawnable cells (the pad counts only for the stand cells: a
-  willing, panicking villager anywhere else summons out of turn). The panic path cannot fire when the
+  search from there lands only on unspawnable cells or the pad. Off-pad golem spots are a hard 0.
+  Pad cells reachable from a non-stand villager position are a measured line, not a hard fail: the
+  full assembly bench prints the out-of-turn summon rate onto the pad and its slot cost, including
+  the lock spill (an out-of-turn summoner locks every villager in its 10.6 box for 600 gt,
+  neighbouring batches included, so one summon can cost several turns). The out-of-turn rate and
+  its cost are measured both on the healthy bench and under the fault-injection runs, since a
+  timing fault is what would put an approach or departure rider in view at a summon tick. The
+  pad's geometry changes only if that cost is non-zero. The panic path cannot fire when the
   villager is more than 8 from the farm's zombie or out of its sight except at the station, and no
   natural hostile can stand in its sight on a dark surface (the parent brief's every-villager
   rule); the gossip path (`InteractWith`, `TradeWithVillager`, `Villager.gossip`,

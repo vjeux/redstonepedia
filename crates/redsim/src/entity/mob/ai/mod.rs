@@ -100,6 +100,8 @@ pub struct MobAi {
     pub fish: Option<fish::FishState>,
     /// A wolf's shake ([`goal::wolf`]).
     pub wolf: Option<goal::wolf::WolfState>,
+    /// A cat's sprint and crouch ([`goal::cat`]).
+    pub cat: Option<goal::cat::CatState>,
     /// An enderman's carried block and target change time.
     pub enderman: Option<goal::enderman::EndermanState>,
     /// (tickexact 2026-11-10) A drowned's `searchingForLand` (its swim up's) and the entity's
@@ -201,6 +203,7 @@ impl MobAi {
             squid: None,
             fish: None,
             wolf: None,
+            cat: None,
             enderman: None,
             searching_for_land: false,
             swimming: false,
@@ -274,9 +277,13 @@ pub fn movement_speed(w: &World, i: usize) -> f64 {
     if ai(w, i).piglin.is_some_and(|p| p.attacking) {
         return base + 0.05;
     }
-    // a witch drinking: -0.25 (ADD_VALUE); the speed effect: x (1 + 0.2F) (ADD_MULTIPLIED_TOTAL)
+    // a witch drinking: -0.25 (ADD_VALUE); the speed effect: x (1 + 0.2F) (ADD_MULTIPLIED_TOTAL);
+    // a cat's sprint: x (1 + 0.3F)
     let add = if ai(w, i).witch_drink.is_some() { -0.25 } else { 0.0 };
     let v = base + add;
+    if ai(w, i).cat.is_some() {
+        return v * goal::cat::speed_factor(w, i);
+    }
     if mob(w, i).effects.speed > 0 {
         return v * (1.0 + 0.2f32 as f64);
     }
@@ -508,6 +515,8 @@ fn custom_server_ai_step(w: &mut World, i: usize) {
         goal::enderman::custom_server_ai_step(w, i);
     } else if ai(w, i).piglin.is_some() {
         goal::zombie::piglin_custom_server_ai_step(w, i);
+    } else if ai(w, i).cat.is_some() {
+        goal::cat::custom_server_ai_step(w, i);
     }
 }
 
@@ -840,9 +849,12 @@ fn update_control_flags(w: &mut World, i: usize) {
 /// `spawnSprintParticle` draws two `nextDouble`s (the particle's x and z) unless the block 0.2
 /// below (`getOnPosLegacy`) renders invisible (air, liquids, bubble columns, moving pistons...).
 pub fn before_base_tick(w: &mut World, i: usize) {
-    if mob(w, i).ty == MobType::IronGolem {
+    // a sprinting cat (Entity.canSpawnSprintParticle: no draw of its own) spawns one too
+    let cat_sprint = goal::cat::sprint_particle(w, i);
+    if mob(w, i).ty == MobType::IronGolem || cat_sprint {
         let d = w.entities.list[i].delta_movement;
-        if d.x * d.x + d.z * d.z > 2.5000003e-7f32 as f64 && w.entities.list[i].random.as_mut().expect("random").next_int(5) == 0 {
+        let golem = mob(w, i).ty == MobType::IronGolem;
+        if cat_sprint || (golem && d.x * d.x + d.z * d.z > 2.5000003e-7f32 as f64 && w.entities.list[i].random.as_mut().expect("random").next_int(5) == 0) {
             let p = crate::entity::collide::get_on_pos(w, &w.entities.list[i], 0.2);
             let invisible = matches!(w.get(p), crate::block::Block::Air | crate::block::Block::Water { .. } | crate::block::Block::Lava { .. } | crate::block::Block::BubbleColumn { .. } | crate::block::Block::MovingPiston { .. });
             if !invisible {
@@ -900,7 +912,7 @@ pub fn check_despawn(w: &mut World, i: usize) {
     // `removeWhenFarAway`: natural spawning's per-kind rule (an animal never, a fish not from a
     // bucket...), else villagers and golems never
     let removes_far = match super::natural::kind_of_type(m.ty) {
-        Some(k) => k.removes_far,
+        Some(k) => super::natural::removes_far_now(w, i, k),
         None => !matches!(m.ty, MobType::Villager | MobType::IronGolem),
     };
     let p = w.entities.list[i].pos;

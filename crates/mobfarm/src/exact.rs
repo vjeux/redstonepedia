@@ -956,6 +956,10 @@ pub fn parse_frame(v: &Value) -> Result<Frame> {
         .unwrap_or_default();
     f.containers.sort();
     f.player = v["player"].as_array().map(|a| [a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0), a[2].as_f64().unwrap_or(0.0)]);
+    // (tickexact 2026-11-10) the Nether's frame beside it (a traced Nether sandbox)
+    if v["nether"].is_object() {
+        f.nether = Some(Box::new(parse_frame(&v["nether"])?));
+    }
     Ok(f)
 }
 

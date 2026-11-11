@@ -866,7 +866,7 @@ impl Renderer {
             },
             sky_light: [e.sky_light_color[0], e.sky_light_color[1], e.sky_light_color[2], e.sky_light_factor],
             ambient: [e.ambient[0], e.ambient[1], e.ambient[2], 1.4],
-            block_tint: [e.block_tint[0], e.block_tint[1], e.block_tint[2], 0.5],
+            block_tint: [e.block_tint[0], e.block_tint[1], e.block_tint[2], e.brightness],
             sun: [sun[0], sun[1], sun[2], e.star_brightness],
             moon: [moon[0], moon[1], moon[2], if self.env.is_some() { 1.0 } else { 0.0 }],
             sunrise: e.sunrise,

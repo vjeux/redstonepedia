@@ -39,18 +39,22 @@ pub struct LinearOpts {
     pub along_x: bool,
     /// The far hold's z (the 18 other villagers' carts, a track along x).
     pub hold_z: i32,
+    /// The stand carts' spacing along the track (1: back to back) and each next cart's drop (a
+    /// stand of gate pockets: 3 cells apart, a block lower each).
+    pub pitch: i32,
+    pub drop: i32,
 }
 
 impl Default for LinearOpts {
     fn default() -> LinearOpts {
-        LinearOpts { x0: 2, y: 0, z: 0, along_x: true, hold_z: 60 }
+        LinearOpts { x0: 2, y: 0, z: 0, along_x: true, hold_z: 60, pitch: 1, drop: 0 }
     }
 }
 
 impl LinearOpts {
     /// The `linear:` line.
     pub fn meta(&self) -> String {
-        format!("x0={} y={} z={} along_x={} hold_z={}", self.x0, self.y, self.z, self.along_x as i32, self.hold_z)
+        format!("x0={} y={} z={} along_x={} hold_z={} pitch={} drop={}", self.x0, self.y, self.z, self.along_x as i32, self.hold_z, self.pitch, self.drop)
     }
 
     pub fn of(meta: &std::collections::BTreeMap<String, String>) -> Result<LinearOpts> {
@@ -65,15 +69,23 @@ impl LinearOpts {
                 "z" => o.z = n,
                 "along_x" => o.along_x = n != 0,
                 "hold_z" => o.hold_z = n,
+                "pitch" => o.pitch = n,
+                "drop" => o.drop = n,
                 _ => anyhow::bail!("unknown `linear:` entry {k:?}"),
             }
         }
         Ok(o)
     }
 
-    /// Stand cart `i`'s rail cell.
+    /// Stand cart `i`'s rail cell (`pitch` apart along the track, each `drop` lower; the end
+    /// stops at i = -1 and i = 3 one cell past the end carts).
     pub fn cell(&self, i: i32) -> BlockPos {
-        if self.along_x { BlockPos::new(self.x0 + i, self.y, self.z) } else { BlockPos::new(self.x0, self.y, self.z + i) }
+        let (k, dy) = match i {
+            -1 => (-1, 0),
+            i if i >= RIDERS => ((RIDERS - 1) * self.pitch + 1, -(RIDERS - 1) * self.drop),
+            i => (i * self.pitch, -i * self.drop),
+        };
+        if self.along_x { BlockPos::new(self.x0 + k, self.y + dy, self.z) } else { BlockPos::new(self.x0, self.y + dy, self.z + k) }
     }
 
     /// A cart's position on a flat rail at `c` (its feet: the rail's y + 1/16).
@@ -195,7 +207,30 @@ pub fn design(pad: &PadOpts, o: &LinearOpts) -> Result<String> {
     Ok(s)
 }
 
-/// The stand riders' parked boxes (carts and villagers).
+/// The pad and its Nether part alone, from a written (settled) bench design: the cells the pad
+/// owns ([`station::pad`]) as the file writes them, the whole Nether part, the ports another
+/// design needs (`output.pulse`, the Nether's anchor, axis and output) and the build steps; no
+/// stand track, zombies, hold, bed or entities. The part a loop pastes under its stand (the
+/// pocket stand's riders at x -1, 3, 7: `mobfarm linear --stand=-1,0,0 --pitch 4 --drop 1`).
+pub fn alone(text: &str, pad: &PadOpts) -> Result<String> {
+    let full = Design::parse(text)?;
+    let cells: std::collections::BTreeSet<[i32; 3]> = station::pad(pad)?.into_iter().map(|(p, _)| p).collect();
+    let mut d = full.clone();
+    d.name = "carousel-station-pad".into();
+    d.blocks.retain(|p, _| cells.contains(p));
+    d.block_entities.retain(|p, _| cells.contains(p));
+    d.entities.clear();
+    d.meta.remove("linear");
+    for k in ["home", "output"] {
+        d.ports.remove(k);
+    }
+    let pulse = pad.pulse();
+    let mut s = String::new();
+    s.push_str(&format!("# The carousel station's portal pad and its Nether part, alone: {} planes at z {:?} (frames x {}..{}, bottom row y {}, portals {} tall), a trench row on each side, a tripwire line on each frame's top row;\n", pad.planes.len(), pad.planes, pad.x0, pad.x1, pad.by, pad.h));
+    s.push_str(&format!("# the golem pulse out at the dust ({},{},{}) (`port output.pulse`: on 1 gt after a golem's spawn, 10 gt long); the Nether part's lava kill, hopper floor, sorter, iron-block crafter and double chest. Paste it at the loop's origin under the pocket stand.\n", pulse[0], pulse[1], pulse[2]));
+    s.push_str(&d.to_text());
+    Ok(s)
+}
 fn stand_boxes(o: &LinearOpts) -> Vec<Aabb> {
     let mut out = Vec::new();
     for i in 0..RIDERS {
