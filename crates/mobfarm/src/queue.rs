@@ -3876,6 +3876,10 @@ pub struct LoopTiming {
     /// `--speeds-out` (ironspec Nov 11 15:16): every cell a cart enters, its fastest entry
     /// (`speed X Y Z V` lines, design cells, blocks per tick) for site-check's `--speeds`.
     pub speeds: bool,
+    /// `--rise-list` (ironspec Nov 11 15:26, the register contract): every powered rail switching
+    /// on under a cart printed (`rise X,Y,Z cS +T: cart K ridden|empty vV down|rest|up|flat`); a
+    /// rise under a cart moving up its slope (backward) is a problem whether listed or not.
+    pub rise_list: bool,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -4223,7 +4227,7 @@ impl LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], cross_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, no_blind_check: false, blind_all: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, speeds: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], cross_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, no_blind_check: false, blind_all: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, speeds: false, rise_list: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -5292,6 +5296,14 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (`--speeds-out`: each cart's cell last tick, each cell's fastest entry)
     let mut speed_cell: std::collections::HashMap<usize, [i32; 3]> = Default::default();
     let mut cell_speed: std::collections::BTreeMap<[i32; 3], f64> = Default::default();
+    // (each cart's powered rail last tick: its cell and whether it was powered; the rises under
+    // carts counted by the cart's motion against the slope's downhill)
+    let mut rise_prev: std::collections::HashMap<usize, ([i32; 3], bool, f64, f64)> = Default::default();
+    let mut rise_counts = [0usize; 4];
+    // (each cart's first tick at rest on its current cell, and the least rest at a rise)
+    let mut rest_since: std::collections::HashMap<usize, i64> = Default::default();
+    let mut least_rest: Option<(i64, String)> = None;
+    let mut short_rest: std::collections::BTreeMap<[i32; 3], usize> = Default::default();
     tail_watch.list_takeoffs = tm.takeoff_list;
     tail_watch.sched = Some((tm.advance_at, tm.advance_every));
     tail_watch.rel_at = o.stand_stop.then_some(tm.pocket_release);
@@ -8015,6 +8027,62 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let wx = if dets.is_empty() { String::new() } else { format!(" | day {} rain {:.2} thunder {:.2} darken {}", run.world.day_time().rem_euclid(24000), run.world.rain_level(1.0), run.world.thunder_level(1.0), run.world.sky_darken()) };
             println!("c{c} +{dt}: {}{stand}{cells}{dets}{wx}", ps.join(" | "));
         }
+        // (a powered rail switching on under a cart: the cart's motion against the slope's downhill
+        // at the rise; up the slope (backward) fails the run, ironspec Nov 11 15:26)
+        for (k, id) in carts.iter().enumerate() {
+            let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id) else { continue };
+            let cell = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
+            let st = run.world.get(BlockPos::new(cell[0], cell[1], cell[2])).to_string();
+            if !st.contains("powered_rail") {
+                rise_prev.remove(&k);
+                continue;
+            }
+            let on = st.contains("powered=true");
+            let (vx_now, vz_now) = (e.delta_movement.x, e.delta_movement.z);
+            if let Some((c0, was, pvx, pvz)) = rise_prev.get(&k)
+                && *c0 == cell
+                && !*was
+                && on
+            {
+                // (the cart's motion the tick before the rise: what the pulse lands on)
+                let (vx, vz) = (*pvx, *pvz);
+                // (ascending_X rises toward X: downhill is the other way)
+                let down = if st.contains("ascending_east") { Some((-1.0, 0.0)) } else if st.contains("ascending_west") { Some((1.0, 0.0)) } else if st.contains("ascending_south") { Some((0.0, -1.0)) } else if st.contains("ascending_north") { Some((0.0, 1.0)) } else { None };
+                let (kind, idx) = match down {
+                    Some((dx, dz)) => {
+                        let d = vx * dx + vz * dz;
+                        if d > 0.005 { ("down", 0) } else if d < -0.005 { ("up", 2) } else { ("rest", 1) }
+                    }
+                    None => ("flat", 3),
+                };
+                rise_counts[idx] += 1;
+                let rider = if e.passengers.is_empty() { "empty" } else { "ridden" };
+                let v = (vx * vx + vz * vz).sqrt();
+                // (how long it had rested before the rise: the margin the contract asks >= 2 gt)
+                let rest = rest_since.get(&k).map(|t0| run.world.time as i64 - 1 - t0);
+                let rest_txt = rest.map(|r| format!(" rest {r}gt")).unwrap_or_default();
+                if let Some(r) = rest
+                    && least_rest.as_ref().is_none_or(|(m, _)| r < *m)
+                {
+                    least_rest = Some((r, format!("slot {c} +{dt} at {},{},{} cart {k} ({rider})", cell[0], cell[1], cell[2])));
+                }
+                if rest.is_some_and(|r| r < 2) {
+                    *short_rest.entry(cell).or_default() += 1;
+                }
+                if tm.rise_list {
+                    println!("rise {},{},{} c{c} +{dt}: cart {k} {rider} v{v:.3} {kind}{rest_txt}", cell[0], cell[1], cell[2]);
+                }
+                if idx == 2 {
+                    problems.push(format!("slot {c}: a powered rail rose at {},{},{} +{dt} under cart {k} ({rider}) moving up its slope (backward) at {v:.3} b/t", cell[0], cell[1], cell[2]));
+                }
+            }
+            rise_prev.insert(k, (cell, on, vx_now, vz_now));
+            if (vx_now * vx_now + vz_now * vz_now).sqrt() < 0.001 {
+                rest_since.entry(k).or_insert(run.world.time as i64);
+            } else {
+                rest_since.remove(&k);
+            }
+        }
         // (`--cross-list`: every cart entering each listed cell, its speed and the gap since the
         // cell's last entry: a passage's spacing, a brake's entry speeds)
         if tm.speeds {
@@ -8475,6 +8543,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     if !golem_log.is_empty() {
         out.push(format!("iron golems: {} first seen: {}", golem_log.len(), golem_log.iter().take(12).cloned().collect::<Vec<_>>().join("; ")));
+    }
+    // (the pulse rises under carts, by the cart's motion against the slope at the rise)
+    out.push(format!("pulse rises under carts: {} (down the slope {}, at rest {}, up the slope (backward) {}, on flat powered rails {}); the least rest before a rise: {}", rise_counts.iter().sum::<usize>(), rise_counts[0], rise_counts[1], rise_counts[2], rise_counts[3], least_rest.as_ref().map(|(r, w)| format!("{r} gt ({w})")).unwrap_or_else(|| "-".into())));
+    if !short_rest.is_empty() {
+        out.push(format!("rises on a cart at rest under 2 gt, by cell: {}", short_rest.iter().map(|(c, n)| format!("{},{},{}: {n}", c[0], c[1], c[2])).collect::<Vec<_>>().join("; ")));
     }
     // (`--speeds-out`: each cell's fastest entry, written by the CLI as `x y z v`)
     if tm.speeds {
