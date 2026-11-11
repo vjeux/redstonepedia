@@ -109,8 +109,9 @@ pub static DEFS: &[TypeDef] = &[
     row(39, "slime_4", "minecraft:slime", 2.08, 2.08, 1.3, 16.0, (0.2f32 + 0.1f32 * 4.0) as f64, true, false, 0.6),
     row(40, "sulfur_cube_2", "minecraft:sulfur_cube", 0.98, 0.98, 0.35, 8.0, (0.2f32 + 0.1f32 * 2.0) as f64, true, false, 0.6),
     row(41, "sulfur_cube_4", "minecraft:sulfur_cube", 1.96, 1.96, 0.7, 16.0, 0.2, true, false, 0.6),
-    // a village's cats and bees (CREATURE: they count toward the cap; not in these biomes' lists)
-    row(42, "cat", "minecraft:cat", 0.6, 0.7, 0.35, 10.0, 0.3, false, false, 0.6),
+    // a village's cats and bees (CREATURE: they count toward the cap; not in these biomes' lists).
+    // (mob-AI 2026-11-10) the cat's MOVEMENT_SPEED is 0.3F (Cat.createAttributes)
+    row(42, "cat", "minecraft:cat", 0.6, 0.7, 0.35, 10.0, 0.3f32 as f64, false, false, 0.6),
     row(43, "bee", "minecraft:bee", 0.7, 0.6, 0.3, 10.0, 0.3, false, false, 0.6),
     // AgeableWaterCreature babies (`Squid.BABY_DIMENSIONS`: 0.5 x 0.5, eye 0.37)
     row(44, "baby_glow_squid", "minecraft:glow_squid", 0.5, 0.5, 0.37, 10.0, 0.7, false, false, 0.6),
@@ -1480,6 +1481,53 @@ pub fn siege_zombie(w: &mut World, at: Vec3, special: f32) -> u32 {
     id
 }
 
+/// (mob-AI 2026-11-10) `CatSpawner.spawnCat(spawnPos, level, persistent)`: `EntityTypes.CAT.create`
+/// (a construction), then `finalizeSpawn` before `snapTo`, so at the origin: AgeableMob's (a new
+/// group, size 0: no baby roll), Mob's (the follow range's triangle, left-handed), the variant
+/// (`VariantUtils.selectVariantToSpawn`: the highest priority whose condition holds; all_black's
+/// structure selector, priority 1, never holds at the origin, so the priority-0 ones: ten, eleven
+/// at a full moon with all_black's moon selector; `Util.getRandom`) and the sound variant (one of
+/// two), all from the level random; persistent in a swamp hut; `snapTo(spawnPos, 0, 0)` (the
+/// cell's bottom centre, yaw 0); added. Returns its id.
+pub fn spawn_cat(w: &mut World, at: BlockPos, persistent: bool) -> u32 {
+    let temp = w.mob.natural.is_none();
+    if temp {
+        let players: Vec<Vec3> = w.afk.into_iter().collect();
+        w.mob.natural = Some(Natural::new(players, w.mob.ai.difficulty));
+    }
+    let _ctor = w.construct();
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.bonuses.clear();
+    }
+    mob_base(w);
+    let full_moon = crate::weather::lightning::moon_brightness(w.day_time()) >= 0.9;
+    rng(w).next_int(if full_moon { 11 } else { 10 });
+    rng(w).next_int(2);
+    let k = kind_of("minecraft:cat").expect("a cat row");
+    let f = Finalized { ty: k.ty, baby: false, jockey: Jockey::None, helmet: None, rider_helmet: None, breaks_doors: false, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None, hand: Hand::default(), rider_hand: Hand::default() };
+    let pos = Vec3::new(at.x as f64 + 0.5, at.y as f64, at.z as f64 + 0.5);
+    let id = spawn_mob(w, k, &f, pos, 0.0);
+    if persistent
+        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+    {
+        m.persistence_required = true;
+    }
+    if temp {
+        w.mob.natural = None;
+    }
+    id
+}
+
+/// `removeWhenFarAway(distSqr)` of mob `i`: its kind's, or a wild cat's past 2400 ticks
+/// (`Cat.removeWhenFarAway`: not tame and `tickCount > 2400`).
+pub fn removes_far_now(w: &World, i: usize, k: &Kind) -> bool {
+    if k.id == "minecraft:cat" {
+        return w.entities.list[i].tick_count > 2400;
+    }
+    k.removes_far
+}
+
 fn zombie_finalize_at(w: &mut World, special: f32, hard: bool, g: &mut GroupData, drowned: bool, pos: BlockPos, hand: &mut Hand) -> (bool, Jockey, Option<u8>, bool) {
     mob_base(w);
     hand.loot = rng(w).next_float() < 0.55 * special; // setCanPickUpLoot
@@ -2507,7 +2555,7 @@ pub fn check_despawn(w: &mut World, i: usize) {
     };
     let Some(k) = kind_of_type(ty) else { return };
     // removeWhenFarAway: the kind's, or a chicken jockey's (Chicken.removeWhenFarAway)
-    let removes_far = k.removes_far || jockey_chicken;
+    let removes_far = removes_far_now(w, i, k) || jockey_chicken;
     let id = w.entities.list[i].id;
     let difficulty = nat.difficulty;
     let rider = nat.riders.iter().any(|(r, _)| *r == id);

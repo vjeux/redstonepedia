@@ -129,6 +129,8 @@ pub enum TargetType {
     WolfPrey,
     /// `AbstractSkeleton` (skeletons, strays, bogged, parched, wither skeletons): the wolf's.
     Skeleton,
+    /// `Rabbit` (the cat's prey).
+    Rabbit,
 }
 
 /// `NearestAttackableTargetGoal`.
@@ -178,6 +180,7 @@ fn selects(t: TargetType, ty: MobType) -> bool {
         TargetType::EnemyNotCreeper => is_enemy(ty),
         TargetType::WolfPrey => matches!(ty.game_id(), "minecraft:sheep" | "minecraft:rabbit" | "minecraft:fox"),
         TargetType::Skeleton => matches!(ty.game_id(), "minecraft:skeleton" | "minecraft:stray" | "minecraft:bogged" | "minecraft:parched" | "minecraft:wither_skeleton"),
+        TargetType::Rabbit => ty.game_id() == "minecraft:rabbit",
         TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer | TargetType::SlimePlayer => false,
     }
 }

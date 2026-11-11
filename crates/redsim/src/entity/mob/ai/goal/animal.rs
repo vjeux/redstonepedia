@@ -195,6 +195,8 @@ pub fn adult_of(id: &str) -> Option<&'static str> {
         "skeleton_horse" => Some("skeleton_horse"),
         // (mob-AI 2026-11-10) the wolf (a TamableAnimal: an Animal; natural wolves are adults)
         "wolf" | "baby_wolf" => Some("wolf"),
+        // (mob-AI 2026-11-10) the cat (a TamableAnimal; the CatSpawner's are adults)
+        "cat" => Some("cat"),
         _ => None,
     }
 }
@@ -261,7 +263,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
             use super::targets::{HurtByTarget, NearestAttackableTarget, TargetType};
             g.add(1, Goal::Float);
             g.add(1, an(AnimalGoal::Panic { speed: 1.5, pos: crate::entity::Vec3::ZERO, mount: false, env: true }));
-            g.add(4, Goal::LeapAtTarget);
+            g.add(4, Goal::LeapAtTarget(0.4));
             g.add(5, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Melee, 1.0, true)));
             g.add(7, an(AnimalGoal::Breed));
             g.add(8, Goal::RandomStroll(RandomStroll::water_avoiding(1.0)));
@@ -278,6 +280,8 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
             a.malus.set(crate::entity::mob::ai::path::path_type::PathType::OnTopOfPowderSnow, -1.0);
             a.wolf = Some(WolfState::default());
         }
+        // (mob-AI 2026-11-10) a wild cat (goal::cat)
+        Some("cat") => super::cat::register(a),
         // AbstractHorse.registerGoals, then addBehaviourGoals (the goal selector keeps insertion
         // order): RunAroundLikeCrazy 1, Breed 2, FollowParent 4 (1.0), WaterAvoidingRandomStroll 6
         // (0.7), LookAtPlayer 7 (6), RandomLookAround 8, RandomStand 9 (canPerformRearing: every

@@ -21,6 +21,7 @@ pub mod drowned;
 pub mod spear;
 pub mod wolf;
 pub mod avoid;
+pub mod cat;
 
 use super::{MobAi, ai_mut};
 use crate::entity::mob::types::MobType;
@@ -72,8 +73,10 @@ pub enum Goal {
     FleeSun(skeleton::FleeSun),
     /// `RangedBowAttackGoal` (a skeleton's with a bow in hand).
     RangedBow(skeleton::RangedBow),
-    /// `LeapAtTargetGoal` (the spider's, 0.4 up).
-    LeapAtTarget,
+    /// `LeapAtTargetGoal(yd)` (the spider's and the wolf's 0.4F up, the cat's 0.3F).
+    LeapAtTarget(f32),
+    /// `OcelotAttackGoal` (the cat's bite).
+    OcelotAttack(cat::OcelotAttack),
     /// A cube mob's goals (`AbstractCubeMob`, the sulfur cube's).
     Cube(super::cube::CubeGoal),
     /// A farm animal's goals (panic, breeding, tempting, its parent, a sheep's grass).
@@ -113,7 +116,8 @@ impl Goal {
             Goal::RestrictSun => 0,
             Goal::FleeSun(_) => MOVE,
             Goal::RangedBow(_) => MOVE | LOOK,
-            Goal::LeapAtTarget => JUMP | MOVE,
+            Goal::LeapAtTarget(_) => JUMP | MOVE,
+            Goal::OcelotAttack(_) => MOVE | LOOK,
             Goal::Cube(c) => c.flags(),
             Goal::Animal(a) => a.flags(),
             Goal::Squid(_) => 0,
@@ -138,7 +142,7 @@ impl Goal {
         if let Goal::Drowned(d) = self {
             return d.every_tick();
         }
-        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow(_))
+        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow(_) | Goal::OcelotAttack(_))
     }
 
     /// `isInterruptable()`.
@@ -181,7 +185,8 @@ impl Goal {
             Goal::RestrictSun => "RestrictSunGoal",
             Goal::FleeSun(_) => "FleeSunGoal",
             Goal::RangedBow(_) => "RangedBowAttackGoal",
-            Goal::LeapAtTarget => "LeapAtTargetGoal",
+            Goal::LeapAtTarget(_) => "LeapAtTargetGoal",
+            Goal::OcelotAttack(_) => "OcelotAttackGoal",
             Goal::Cube(c) => c.name(),
             Goal::Animal(a) => a.name(),
             Goal::Squid(s) => s.name(),
@@ -350,7 +355,8 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
         Goal::FleeSun(g) => skeleton::flee_sun_can_use(w, i, g),
         Goal::RangedBow(_) => skeleton::bow_can_use(w, i),
-        Goal::LeapAtTarget => spider::leap_can_use(w, i),
+        Goal::LeapAtTarget(_) => spider::leap_can_use(w, i),
+        Goal::OcelotAttack(g) => cat::ocelot_can_use(w, i, g),
         Goal::Cube(c) => super::cube::can_use(w, i, c),
         Goal::Animal(a) => animal::can_use(w, i, a),
         Goal::Squid(s) => super::squid::can_use(w, i, s),
@@ -384,7 +390,8 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
         Goal::FleeSun(_) => !super::nav_of(w, i).is_done(),
         Goal::RangedBow(_) => skeleton::bow_can_continue(w, i),
-        Goal::LeapAtTarget => spider::leap_can_continue(w, i),
+        Goal::LeapAtTarget(_) => spider::leap_can_continue(w, i),
+        Goal::OcelotAttack(g) => cat::ocelot_can_continue(w, i, g),
         // Goal.canContinueToUse: canUse() (the slime's attack: its own)
         Goal::Cube(c) => super::cube::can_continue(w, i, c),
         Goal::Animal(a) => animal::can_continue(w, i, a),
@@ -420,7 +427,8 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = true,
         Goal::FleeSun(g) => skeleton::flee_sun_start(w, i, g),
         Goal::RangedBow(_) => skeleton::bow_start(w, i),
-        Goal::LeapAtTarget => spider::leap_start(w, i),
+        Goal::LeapAtTarget(yd) => spider::leap_start(w, i, *yd),
+        Goal::OcelotAttack(_) => {}
         Goal::Cube(c) => super::cube::start(w, i, c),
         Goal::Animal(a) => animal::start(w, i, a),
         Goal::Squid(_) => {}
@@ -452,7 +460,8 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::AvoidEntity(a) => avoid::stop(w, i, a),
         Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = false,
         Goal::RangedBow(g) => skeleton::bow_stop(w, i, g),
-        Goal::FleeSun(_) | Goal::LeapAtTarget | Goal::Cube(_) => {}
+        Goal::FleeSun(_) | Goal::LeapAtTarget(_) | Goal::Cube(_) => {}
+        Goal::OcelotAttack(g) => cat::ocelot_stop(w, i, g),
         Goal::Animal(a) => animal::stop(w, i, a),
         Goal::Squid(_) => {}
         Goal::Fish(f) => super::fish::stop(w, i, f),
@@ -481,7 +490,8 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Swell => creeper::swell_tick(w, i),
         Goal::AvoidEntity(a) => avoid::tick(w, i, a),
         Goal::RangedBow(g) => skeleton::bow_tick(w, i, g),
-        Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget => {}
+        Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget(_) => {}
+        Goal::OcelotAttack(g) => cat::ocelot_tick(w, i, g),
         Goal::Cube(c) => super::cube::tick(w, i, c),
         Goal::Animal(a) => animal::tick(w, i, a),
         Goal::Squid(s) => super::squid::tick(w, i, s),
