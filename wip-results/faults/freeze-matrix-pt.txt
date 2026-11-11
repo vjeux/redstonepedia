@@ -42,3 +42,31 @@ a5s+C'+60 departure box 0,0,0,0 N40 | s1 merged 0 back 0 3 problems: | s2 merged
 a5s+C'+60 departure box 0,0,0,0 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 1 [strip 1: cart 18 through G2 at slot 10 +28: reversed 39 gt before at strip x 2.68 on rail, cart 0 1.18 away)] 6 problems:
 a5s+C'+60 departure box 0,0,0,1 N40 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 1 problems:
 a5s+C'+60 departure box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 4 [climb 1, near the gate 1, strip 2: cart 18 through G1 at slot 9 +57: reversed 9 gt before at strip x 5.04 on rail; cart 17 through G1 at slot 9 +65: reversed 28 gt before at strip x 6.15 on detector_rail+, cart 5 0.99 away; cart 3 through G2 at slot 9 +71: re 5 problems: | s3 merged 0 back 1 [strip 1: cart 1 through G2 at slot 10 +55: reversed 15 gt before at strip x 2.44 on rail, cart 2 1.07 away)] 4 problems:
+a5s+C'+60 RELend box 0,0,0,0 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 1 problems:
+a5s+C'+60 RELend box 0,0,0,0 N240 | s1 merged 0 back 0 5 problems: | s2 merged 0 back 2 [near the gate 1, strip 1: cart 3 through G0 at slot 9 +40: reversed 1 gt before at strip x 8.60 on powered_rail+, cart 4 0.97 away; cart 19 through G1 at slot 9 +54: reversed 11 gt before at strip x 7.32 on rail, cart 3 0.79 away)] 3 problems: | s3 merged 0 back 0 3 problems:
+a5s+C'+60 RELend box 0,0,0,1 N40 | s1 merged 0 back 1 [climb 1: cart 0 through G0 at slot 6 +62: reversed 12 gt before at climb z 1.16 on powered_rail+)] 3 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+a5s+C'+60 RELend box 0,0,0,1 N240 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 3 problems:
+GC37s arriving box 0,0,0,0 N40 | s1 merged 1 back 0 7 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 3 problems:
+GC37s arriving box 0,0,0,0 N240 | s1 merged 1 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+GC37s arriving box 0,0,0,1 N40 | s1 merged 1 back 0 5 problems: | s2 merged 1 back 0 6 problems: | s3 merged 0 back 0 3 problems:
+GC37s arriving box 0,0,0,1 N240 | s1 merged 0 back 0 6 problems: | s2 merged 0 back 0 6 problems: | s3 merged 0 back 0 4 problems:
+GC37s D1 box 0,0,0,0 N40 | s1 merged 1 back 0 6 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+GC37s D1 box 0,0,0,0 N240 | s1 merged 0 back 0 6 problems: | s2 merged 0 back 0 6 problems: | s3 merged 0 back 0 6 problems:
+GC37s D1 box 0,0,0,1 N40 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+GC37s D1 box 0,0,0,1 N240 | s1 merged 0 back 0 5 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 5 problems:
+GC37s rest box 0,0,0,0 N40 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 1 problems:
+GC37s rest box 0,0,0,0 N240 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+GC37s rest box 0,0,0,1 N40 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+GC37s rest box 0,0,0,1 N240 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+GC37s RELstart box 0,0,0,0 N40 | s1 merged 1 back 0 6 problems: | s2 merged 0 back 0 1 problems: | s3 merged 1 back 0 7 problems:
+GC37s RELstart box 0,0,0,0 N240 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 3 problems:
+GC37s RELstart box 0,0,0,1 N40 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 1 [strip 1: cart 2 through G1 at slot 10 +22: reversed 45 gt before at strip x 6.11 on detector_rail+, cart 3 0.98 away)] 7 problems: | s3 merged 0 back 1 [strip 1: cart 2 through G1 at slot 10 +22: reversed 45 gt before at strip x 6.11 on detector_rail+, cart 3 0.98 away)] 6 problems:
+GC37s RELstart box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 6 problems: | s3 merged 1 back 0 7 problems:
+GC37s departure box 0,0,0,0 N40 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+GC37s departure box 0,0,0,0 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 5 problems: | s3 merged 0 back 0 4 problems:
+GC37s departure box 0,0,0,1 N40 | s1 merged 0 back 0 5 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 2 problems:
+GC37s departure box 0,0,0,1 N240 | s1 merged 1 back 0 4 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 4 problems:
+GC37s RELend box 0,0,0,0 N40 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 5 problems: | s3 merged 1 back 0 5 problems:
+GC37s RELend box 0,0,0,0 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 6 problems: | s3 merged 0 back 0 4 problems:
+GC37s RELend box 0,0,0,1 N40 | s1 merged 1 back 0 3 problems: | s2 merged 0 back 0 5 problems: | s3 merged 1 back 0 5 problems:
+GC37s RELend box 0,0,0,1 N240 | s1 merged 0 back 0 6 problems: | s2 merged 0 back 0 6 problems: | s3 merged 0 back 0 3 problems:
