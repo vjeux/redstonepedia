@@ -1820,6 +1820,11 @@ pub struct VisitRec {
     pub retries: u32,
     pub bump_at: Vec<[f64; 3]>,
     pub last_vz: f64,
+    /// (ironspec 13:09) A wake before F (the tick), where the napper lay down, and its largest
+    /// horizontal drift while asleep.
+    pub early_wake: Option<i64>,
+    pub sleep_at: Option<[f64; 3]>,
+    pub sleep_drift: f64,
 }
 
 /// What the bench measured.
@@ -2978,6 +2983,17 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 }
                 if vr.slept.is_some() && vr.woken.is_none() && !asleep {
                     vr.woken = Some(t);
+                    // (ironspec 13:09: every napper asleep from lying down until F; a wake before F fails)
+                    if force.is_some() && vr.forced.is_none_or(|f| t < f) {
+                        vr.early_wake = Some(t);
+                        vr.problem.get_or_insert(format!("woke {} gt after lying down, before F", t - vr.slept.unwrap_or(t)));
+                    }
+                }
+                // (the sleeper's drift: how far it moves from where it lay down while asleep)
+                if asleep && vr.woken.is_none() {
+                    let p = fr.local(e.pos);
+                    let s0 = *vr.sleep_at.get_or_insert([p.x, p.y, p.z]);
+                    vr.sleep_drift = vr.sleep_drift.max(((p.x - s0[0]).powi(2) + (p.z - s0[2]).powi(2)).sqrt());
                 }
                 if vr.woken.is_some() && vr.reboarded.is_none() && riding.is_some() {
                     vr.reboarded = Some(t);
@@ -3040,7 +3056,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 if bo.trace && vr.reboarded.is_none() && t % 3 == 0 && t - vr.arrived < 400 && t - t0 >= bo.trace_window.0 && t - t0 < bo.trace_window.1 {
                     let c = w.entities.list.iter().find(|x| x.id == cart).map(|c| (c.pos, c.delta_movement));
                     if let Some((cp, cv)) = c {
-                        eprintln!("gt {} (+{}): cart {:.3} {:.3} {:.3} v {:.3} {:.3} | napper {:.2} {:.2} {:.2} riding {} asleep {asleep} | park {} bed {}", t - t0, t - vr.arrived, cp.x, cp.y, cp.z, cv.x, cv.z, e.pos.x, e.pos.y, e.pos.z, riding.is_some(), w.get(s.park), matches!(w.get(bed), Block::Bed { occupied: true, .. }));
+                        let bi = index_of(w, villager);
+                        let act = bi.filter(|&i| brain::has_exact(w, i)).map(|i| format!("{:?}", brain::ex(w, i).active)).unwrap_or_default();
+                        let host = bi.map(|i| format!("{:?}", brain::brain(w, i).nearest_hostile)).unwrap_or_default();
+                        eprintln!("gt {} (+{}): cart {:.3} {:.3} {:.3} v {:.3} {:.3} | napper {:.2} {:.2} {:.2} dv {:.3} {:.3} {:.3} riding {} asleep {asleep} act {act} hostile {host} | park {} bed {}", t - t0, t - vr.arrived, cp.x, cp.y, cp.z, cv.x, cv.z, e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z, riding.is_some(), w.get(s.park), matches!(w.get(bed), Block::Bed { occupied: true, .. }));
                     }
                 }
                 // (traced: the first seed's visits between their drop and their nap, every 10 gt)

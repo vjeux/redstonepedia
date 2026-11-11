@@ -4260,6 +4260,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let retries: u32 = vs.iter().map(|v| v.retries).sum();
                     let maxb = vs.iter().map(|v| v.bumps).max().unwrap_or(0);
                     let mut wb: Vec<i64> = vs.iter().filter_map(|v| Some(v.reboarded? - v.woken?)).collect();
+                    // (ironspec 12:51: every visit boarding over 95 gt after its wake, with its F and kick)
+                    let long: Vec<String> = vs.iter().filter(|v| v.reboarded.zip(v.woken).is_some_and(|(r, w)| r - w > 95)).take(6).map(|v| format!("villager {}: arrival {}, drop +{:?}, F +{:?}, woken +{:?}, kicked cart at the free cell +{:?}, boarded +{:?}", v.villager, v.arrived, v.dropped, v.forced.map(|f| f - v.arrived), v.woken, v.kick_at_fc.map(|k| k - v.arrived), v.reboarded)).collect();
+                    let nlong = vs.iter().filter(|v| v.reboarded.zip(v.woken).is_some_and(|(r, w)| r - w > 95)).count();
+                    if nlong > 0 {
+                        println!("boarding over 95 gt after the wake: {nlong} visits; {}", long.join("; "));
+                    }
+                    let early = vs.iter().filter(|v| v.early_wake.is_some()).count();
+                    let drift = vs.iter().map(|v| v.sleep_drift).fold(0.0f64, f64::max);
+                    println!("sleepers (ironspec 13:09): woke before F {early} of {} napped{}; largest drift while asleep {drift:.2}", vs.iter().filter(|v| v.slept.is_some()).count(), if early > 0 { " (FAIL)" } else { "" });
                     wb.sort();
                     let pts: Vec<[f64; 3]> = vs.iter().flat_map(|v| v.bump_at.iter().copied()).collect();
                     let rng = |k: usize| pts.iter().map(|p| p[k]).fold((f64::INFINITY, f64::NEG_INFINITY), |a, x| (a.0.min(x), a.1.max(x)));
