@@ -661,6 +661,21 @@ pub enum MobfarmCmd {
         /// that cell, the wired stand's REL, leaves it). Repeat for more (up to 8).
         #[arg(long, allow_hyphen_values = true)]
         act: Vec<String>,
+        /// A diagnostic for the pocket stand: at this slot's start, a hand reset of the queue only
+        /// (every cart outside the stand's region put at rest in the queue's slots, in loop order,
+        /// the release group first; the stand's region (its strip and the release run), its carts
+        /// and every block left as they are). A clean run after it means the stand was back by
+        /// itself at that slot.
+        #[arg(long)]
+        reset_queue_at: Option<i64>,
+        /// With --reset-queue-at: the stand's stragglers (a cart in its region not at rest in a
+        /// pocket) moved to the queue too.
+        #[arg(long)]
+        reset_stragglers: bool,
+        /// With --reset-queue-at: every cart placed by hand, the stand's three pockets first (the
+        /// design's rest positions), then the queue; no block touched (the stand's redstone kept).
+        #[arg(long)]
+        reset_stand_carts: bool,
         /// With `--wired`: the stand latch's reset input (x,y,z), pulsed by the bench (a
         /// redstone block for 2 gt) at its own stand-brake trigger, until that brake is wired.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
@@ -1919,7 +1934,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let _ = std::fs::remove_file(&path);
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, drive_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             if let Some(sf) = &siding {
@@ -1982,7 +1997,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
             // (`--shift name=gt,...`: controls shifted as the sweep shifts them, e.g. to rerun a
             // corner without one of its controls)
             let mut tm = tm;
