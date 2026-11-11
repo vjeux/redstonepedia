@@ -1622,6 +1622,16 @@ pub enum MobfarmCmd {
         /// lets a partial case write a drive in the design's own coordinates.
         #[arg(long)]
         unload_shift: Option<String>,
+        /// V as day-1's divert gate, emulated (ironspec 2026-11-11): no visit is sent while the
+        /// siding's visit latch V is set (the loop's divert holds the cart back); prints the
+        /// visits held back.
+        #[arg(long)]
+        divert_gate: bool,
+        /// The gate's deadlock guard, emulated (day-1's scheduler's reset pulse VR): every
+        /// scheduled visit slot, sent or held back, pulses the R line (as R does) at its arrival
+        /// + this many gt.
+        #[arg(long)]
+        v_reset: Option<i64>,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -2969,7 +2979,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             let two_i = |s: &str| -> Result<(i64, i64)> {
@@ -3036,7 +3046,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, unload: unload_one.clone() });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, unload: unload_one.clone(), divert_gate, v_reset });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -3094,7 +3104,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&(c, seed)) = work.get(j) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, unload: Some(cfgs[c].1.clone()) });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset });
                             out.lock().unwrap().push((c, seed, r));
                         });
                     }
@@ -3320,6 +3330,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let n: usize = oks.iter().map(|r| r.merged.len()).sum();
                 let first: Vec<String> = rows.iter().filter_map(|(s, r)| r.as_ref().ok().and_then(|r| r.merged_first.first().map(|f| format!("seed {s}: {f}")))).take(3).collect();
                 println!("merged carts (horizontal distance under 0.01, boxes paired by the push; the game never separates them): {n} {}", first.join("; "));
+                // (the divert gate, emulated: the visits it held back and the resets VR fired)
+                if divert_gate {
+                    let held: usize = oks.iter().map(|r| r.held_back.len()).sum();
+                    let vr: usize = oks.iter().map(|r| r.v_resets.len()).sum();
+                    let longest = oks.iter().map(|r| {
+                        // (the longest run of consecutive held-back slots, in slots)
+                        let mut best = 0usize;
+                        let mut cur = 0usize;
+                        let mut last = i64::MIN;
+                        for &h in &r.held_back {
+                            cur = if h - last <= 650 { cur + 1 } else { 1 };
+                            best = best.max(cur);
+                            last = h;
+                        }
+                        best
+                    }).max().unwrap_or(0);
+                    println!("the divert gate (V or the bed occupied, emulated): {held} scheduled visits held back over the seeds, the longest run {longest} in a row; reset pulses VR fired: {vr}");
+                }
             }
             // (the force input: when the bench pulsed it, and for the visits whose villager had
             // not slept by then, the pulse to ready on the slot)
