@@ -468,6 +468,10 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
                             }
                         }
                     }
+                    if trace {
+                        let snap: Vec<String> = carts.iter().filter_map(|id| pos_of(&run.world, *id)).filter(|p| p.x > fx - 0.5 && p.x < fx + 1.5 && p.z > z_entry && p.z < pz_end + 1.0).map(|p| format!("{:.3},{:.3}", p.y, p.z)).collect();
+                        println!("  G0 shut at slot {c} +{dt}: inside {inside}, near {near:.3}; carts (y,z) {}", snap.join(" "));
+                    }
                     if inside >= 2 {
                         adm_double += 1;
                     }

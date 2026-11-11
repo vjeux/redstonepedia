@@ -626,6 +626,44 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// Slot feed from above: a ridden cart rolled off a ledge H above a register slot, west of it,
+    /// at a cycle's tick, onto the slot's cell; the register advancing at the loop's times; prints
+    /// the landing, the rest, the slot at each advance, falls, doubles, order, merges, the rider.
+    SlotDrop {
+        design: PathBuf,
+        /// The target slot (an index into the register's slots, 0 = the tail's end).
+        #[arg(long)]
+        slot: usize,
+        /// The ledge's rail height above the slot rail.
+        #[arg(long, default_value_t = 2)]
+        h: i32,
+        /// The cart's speed east on the ledge (b/t).
+        #[arg(long, default_value_t = 0.1)]
+        v: f64,
+        /// The tick within the cycle at which the cart starts on the ledge (cycle 1).
+        #[arg(long)]
+        dt: i64,
+        /// Leave the slot's own cart in place (a cart already in the slot).
+        #[arg(long)]
+        occupied: bool,
+        /// Cycles run after the drop's.
+        #[arg(long, default_value_t = 2)]
+        after: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        /// Run seeds 1..=N in parallel and print each one's verdict, then the clean count.
+        #[arg(long)]
+        seeds: Option<i64>,
+        #[arg(long, default_value_t = 38)]
+        advance_at: i64,
+        #[arg(long, default_value_t = 20)]
+        advance_every: i64,
+        #[arg(long, default_value_t = 9)]
+        pulse: i64,
+        /// The dropped cart's path for 60 gt in the report.
+        #[arg(long)]
+        trace: bool,
+    },
     /// The re-packing tail's arrival injector: a `queue-loop --tail-esc` design's tail benched
     /// alone, ridden carts spawned on the return run per `--pattern` (per cycle
     /// `N[/GAP][@DT][:SPEED][*REPEAT]`, defaults 3/12@76:1.2; 0 = nothing), the register's first
@@ -2085,6 +2123,44 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let _ = std::fs::remove_file(&path);
             }
         }
+        MobfarmCmd::SlotDrop { design, slot, h, v, dt, occupied, after, seed, seeds, advance_at, advance_every, pulse, trace } => {
+            let (c, spec) = load(version, &design)?;
+            let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
+            let tm = crate::queue::LoopTiming { advance_at, advance_every, pulse, ..Default::default() };
+            let case = crate::slot_drop::DropCase { slot, h, v, cycle: 1, dt, occupied, after, trace };
+            match seeds {
+                None => println!("{}", crate::slot_drop::run_slot_drop(&spec, &o, &tm, &case, seed).map_err(|e| anyhow::anyhow!(e))?),
+                Some(n) => {
+                    let out: Vec<(i64, Result<String, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = (1..=n).map(|s| {
+                            let (spec, o, tm, case) = (&spec, &o, &tm, &case);
+                            (s, sc.spawn(move || crate::slot_drop::run_slot_drop(spec, o, tm, case, s)))
+                        }).collect();
+                        hs.into_iter().map(|(s, h)| (s, h.join().unwrap_or_else(|_| Err("panicked".into())))).collect()
+                    });
+                    let mut bad = Vec::new();
+                    for (s, r) in &out {
+                        match r {
+                            Ok(t) => {
+                                let verdict = t.lines().last().unwrap_or("");
+                                if !verdict.ends_with(": clean") {
+                                    bad.push(*s);
+                                    let why: Vec<&str> = t.lines().filter(|l| l.starts_with("landed") || l.starts_with("at rest") || (l.starts_with("fell") && !l.starts_with("fell: 0")) || (l.starts_with("doubles") && !l.contains(": 0 ")) || (l.starts_with("out of order") && !l.contains(": 0 ")) || (l.starts_with("merged") && !l.contains("them): 0 ")) || l.starts_with("rider seated: false") || l.contains("seated at the end: false")).collect();
+                                    if bad.len() <= 3 {
+                                        println!("seed {s}: {}", why.join(" | "));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                bad.push(*s);
+                                println!("seed {s}: error {e}");
+                            }
+                        }
+                    }
+                    println!("slot drop: {} of {n} seeds clean{}", n as usize - bad.len(), if bad.is_empty() { String::new() } else { format!("; not clean: {bad:?}") });
+                }
+            }
+        }
         MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, trace, shift, from_climb, unload } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
@@ -2140,7 +2216,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 if !clean {
                                     bad.push(*s);
                                 }
-                                println!("seed {s}: lost {lost} starved {starv} doubles {dbl} out-of-order {ooo} fell {fell} rolled-back {rolled} gate {gate} backward-powered {back} villagers-hurt {hurt} carts-lost {lost_carts} merged {merged} | {} | {} | {}", line("at rest in the tail: "), line("creep while quiet"), line("the tail's most carts at once: "));
+                                println!("seed {s}: lost {lost} starved {starv} doubles {dbl} out-of-order {ooo} fell {fell} rolled-back {rolled} gate {gate} backward-powered {back} villagers-hurt {hurt} carts-lost {lost_carts} merged {merged} | {} | {} | {}{}", line("at rest in the tail: "), line("creep while quiet"), line("the tail's most carts at once: "), {
+                                    // (admission control's lines, when the design has G0)
+                                    let a = line("admission (G0): ");
+                                    if a.is_empty() {
+                                        String::new()
+                                    } else {
+                                        let grab = |pre: &str| a.split(pre).nth(1).and_then(|t| t.split(|c: char| c == ' ' || c == ';' || c == '(').next()).unwrap_or("?").to_string();
+                                        format!(" | adm-missed {} adm-doubles {} follow {} gp-run {}", grab("missed "), grab("doubles at G0's shut "), grab("front face at least "), grab("behind the launched one "))
+                                    }
+                                });
                             }
                             Err(e) => {
                                 bad.push(*s);
