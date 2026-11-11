@@ -944,6 +944,8 @@ pub fn mob_texture(kind: &str, crack: u8) -> Option<(String, [f32; 2])> {
         "baby_zombie" => Some(("entity/zombie/zombie_baby".to_string(), [64.0, 64.0])),
         "zombie_villager" => Some(("entity/zombie_villager/zombie_villager".to_string(), [64.0, 64.0])),
         "baby_zombie_villager" => Some(("entity/zombie_villager/zombie_villager_baby".to_string(), [64.0, 64.0])),
+        "sulfur_cube" => Some(("entity/sulfur_cube/sulfur_cube_outer_small".to_string(), [64.0, 64.0])),
+        "sulfur_cube_2" | "sulfur_cube_4" => Some(("entity/sulfur_cube/sulfur_cube_outer".to_string(), [128.0, 128.0])),
         "spider" => Some(("entity/spider/spider".to_string(), [64.0, 32.0])),
         "cave_spider" => Some(("entity/spider/cave_spider".to_string(), [64.0, 32.0])),
         "creeper" => Some(("entity/creeper/creeper".to_string(), [64.0, 32.0])),
@@ -979,6 +981,10 @@ pub const MOB_TEXTURES: &[&str] = &[
     "entity/zombie_villager/baby/snow",
     "entity/zombie_villager/baby/swamp",
     "entity/zombie_villager/baby/taiga",
+    "entity/sulfur_cube/sulfur_cube_inner",
+    "entity/sulfur_cube/sulfur_cube_outer",
+    "entity/sulfur_cube/sulfur_cube_inner_small",
+    "entity/sulfur_cube/sulfur_cube_outer_small",
     "entity/spider/spider",
     "entity/spider/cave_spider",
     "entity/spider/spider_eyes",
@@ -1079,7 +1085,53 @@ fn mob_transform(k: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> M {
         let tri = ((wp % 13.0 - 6.5).abs() - 3.25) / 3.25;
         m = m.rot(2, (6.5 * tri).to_radians());
     }
-    m.scale([-1.0, -1.0, 1.0]).translate([0.0, -1.501, 0.0])
+    let m = m.scale([-1.0, -1.0, 1.0]);
+    // the renderer's own `scale`: a sulfur cube's (`SulfurCubeRenderer.scale`: `downscaleSlightly`,
+    // its size, unsquished (redsim keeps no squish), an adult's half and lift, a baby's)
+    let m = match sulfur_cube(k) {
+        Some((size, baby)) => {
+            let (lift, extra) = if baby { (1.24, 1.0) } else { (0.98, 0.5) };
+            m.scale([0.999; 3]).translate([0.0, 0.001, 0.0]).scale([size; 3]).scale([extra; 3]).translate([0.0, lift - 1.0 / 16.0, 0.0])
+        }
+        None => m,
+    };
+    m.translate([0.0, -1.501, 0.0])
+}
+
+/// A sulfur cube's size and whether it is a baby (redsim's kinds: `sulfur_cube` the baby, size 1;
+/// `sulfur_cube_2`, `sulfur_cube_4` adults), else None.
+fn sulfur_cube(k: &str) -> Option<(f32, bool)> {
+    match k {
+        "sulfur_cube" => Some((1.0, true)),
+        "sulfur_cube_2" => Some((2.0, false)),
+        "sulfur_cube_4" => Some((4.0, false)),
+        _ => None,
+    }
+}
+
+/// A mob's translucent faces (`RenderTypes.entityTranslucent`), each a quad sorted with the
+/// frame's other translucent faces: a sulfur cube's inner body (`SulfurCubeInnerLayer`: no block
+/// swallowed, redsim refuses one) and its outer body (`SulfurCubeModel`; a baby's
+/// `SmallSulfurCubeModel`), each with its own texture, lit like its other faces (no red overlay:
+/// the translucent pass draws none).
+pub fn mob_translucent(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> Vec<[Vertex; 4]> {
+    let k = kind.strip_prefix("minecraft:").unwrap_or(kind);
+    let Some((_, baby)) = sulfur_cube(k) else { return Vec::new() };
+    let (inner, outer, tex, size) = if baby {
+        (cube(0.0, 20.0, [-4.0; 3], [8.0; 3]), cube(0.0, 0.0, [-5.0; 3], [10.0; 3]), ["entity/sulfur_cube/sulfur_cube_inner_small", "entity/sulfur_cube/sulfur_cube_outer_small"], [64.0, 64.0])
+    } else {
+        (cube(0.0, 36.0, [-8.0; 3], [16.0; 3]), cube(0.0, 0.0, [-9.0; 3], [18.0; 3]), ["entity/sulfur_cube/sulfur_cube_inner", "entity/sulfur_cube/sulfur_cube_outer"], [128.0, 128.0])
+    };
+    let m = mob_transform(k, pos, d);
+    let (tw, th) = (g.width as f32, g.height as f32);
+    let mut tris = Vec::new();
+    for (c, t) in [(inner, tex[0]), (outer, tex[1])] {
+        if let Some(r) = rect(g, t) {
+            emit(&mut tris, &[part(vec![c], [0.0; 3], [0.0; 3])], &m, size, r, tw, th);
+        }
+    }
+    // `emit`'s faces as two triangles each (0 1 2, 0 2 3): back to quads
+    tris.chunks_exact(6).map(|f| [f[0], f[1], f[2], f[5]]).collect()
 }
 
 /// The equipment asset of each armor material (redsim's `Armor::material` order: golden armor's
@@ -1219,6 +1271,8 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
         "zombie_horse" => zombie_horse(d),
         "zombie_villager" => zombie_villager(d, false),
         "baby_zombie_villager" => zombie_villager(d, true),
+        // all translucent: `mob_translucent`
+        "sulfur_cube" | "sulfur_cube_2" | "sulfur_cube_4" => Vec::new(),
         _ => return None,
     };
     let m = mob_transform(k, pos, d);
@@ -1563,6 +1617,26 @@ mod tests {
                 let ty = rect(&g, &format!("entity/zombie_villager/{folder}/{}", variant.unwrap_or("plains"))).unwrap();
                 assert!(model.iter().all(|v| inside(v, base)) && layer.iter().all(|v| inside(v, ty)), "{kind} {variant:?}: its base, then its type");
             }
+        }
+    }
+
+    /// A sulfur cube (cross-4-underground's, from tick 7964) is two translucent cubes, its inner
+    /// body inside its outer (`SulfurCubeInnerLayer`, `SulfurCubeModel`: 16 and 18 pixels, an
+    /// adult of size 2 at half scale; a baby's `SmallSulfurCubeModel` 8 and 10 at full), standing
+    /// a hair above its feet (`downscaleSlightly`, the lift less a pixel); no solid faces.
+    #[test]
+    fn a_sulfur_cube_is_two_translucent_cubes() {
+        let g = browser_game();
+        let d = crate::mesh::MobDraw { eye_standing: 0.6, ..Default::default() };
+        for (kind, outer) in [("minecraft:sulfur_cube_2", 18.0 / 16.0), ("minecraft:sulfur_cube", 10.0 / 16.0)] {
+            assert!(mob_triangles(&g, kind, [0.0; 3], &d).unwrap().is_empty(), "{kind}: no solid faces");
+            let q = mob_translucent(&g, kind, [0.0; 3], &d);
+            assert_eq!(q.len(), 12, "{kind}: two cubes of six faces");
+            let all: Vec<Vertex> = q.iter().flatten().copied().collect();
+            let inner: Vec<Vertex> = q[..6].iter().flatten().copied().collect();
+            let ((lo, hi), (ilo, ihi)) = (bounds(&all), bounds(&inner));
+            assert!((hi[0] - lo[0] - outer * 0.999).abs() < 0.001 && lo[1] > 0.0 && lo[1] < 0.025, "{kind}: {lo:?}..{hi:?}");
+            assert!(ilo[0] > lo[0] && ilo[1] > lo[1] && ihi[1] < hi[1], "{kind}: the inner body inside the outer");
         }
     }
 

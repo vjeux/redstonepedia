@@ -1114,6 +1114,18 @@ impl<'a> Builder<'a> {
         if let Some(mob) = &e.mob {
             let Some(tris) = em::mob_triangles(g, &e.kind, e.pos, mob) else { return false };
             push(self, tris);
+            // its translucent faces (a sulfur cube's bodies), sorted with the others
+            for v in em::mob_translucent(g, &e.kind, e.pos, mob) {
+                let mut center = [0.0; 3];
+                for p in &v {
+                    for k in 0..3 {
+                        self.mesh.lo[k] = self.mesh.lo[k].min(p.pos[k]);
+                        self.mesh.hi[k] = self.mesh.hi[k].max(p.pos[k]);
+                        center[k] += p.pos[k] / 4.0;
+                    }
+                }
+                self.mesh.translucent.push(Quad { v, center });
+            }
             // an enderman's carried block (`CarriedBlockLayer`): its block model in its arms
             if let Some(state) = &mob.carried
                 && let Some(m) = self.model(state)

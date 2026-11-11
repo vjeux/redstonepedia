@@ -656,8 +656,8 @@ each build's page.
   `scene::still_equipment`); one redsim refuses to place (only a main hand's item is modeled in
   a design's data) is drawn as placed in a still (`Session::unspawned`: the page's first
   picture had dropped it; test `a_still_draws_the_mobs_redsim_refuses`). Their textures took the game texture past WebGL2's 2048: a shelf
-  of entity textures that starts below the item atlas now starts at the left edge (1888 tall
-  with the zombie villagers'; test `the_game_texture_fits_webgl2`). Tests
+  of entity textures that starts below the item atlas now starts at the left edge (1984 tall
+  with the zombie villagers' and the sulfur cube's; test `the_game_texture_fits_webgl2`). Tests
   `a_humanoid_wears_its_armor_and_holds_its_item`, `a_design_mob_wears_its_equipment`. A
   left-handed mob (redsim's `left_handed`, the spawn roll's 5%; a design's `LeftHanded:1b`) holds
   its item in its left hand: the left arm, the hand's offset the other way, its model's
@@ -671,10 +671,17 @@ each build's page.
   textures, their biome's type a layer over the whole model (`VillagerProfessionLayer`: redsim's
   `variant`, plains when it gives none; a baby's own type textures), the adult's armor on its own
   mesh (`ZombieVillagerModel.createBaseArmorMesh`). Tests
-  `a_left_handed_mob_holds_its_item_in_its_left_hand`, `a_zombie_villager_wears_its_biome`. Not
+  `a_left_handed_mob_holds_its_item_in_its_left_hand`, `a_zombie_villager_wears_its_biome`. The
+  sulfur cube (2026-11-11; cross-4-underground's, from tick 7964) is two translucent cubes, its
+  inner body inside its outer (`SulfurCubeInnerLayer`, `SulfurCubeModel`; a baby's
+  `SmallSulfurCubeModel`; `entityTranslucent`: quads sorted with the frame's other translucent
+  faces, `entitymodel::mob_translucent`), sized and lifted by `SulfurCubeRenderer.scale` (test
+  `a_sulfur_cube_is_two_translucent_cubes`). Not
   drawn yet: a baby's armor (`humanoid_baby`), an enchanted item's or piece's glint, a drawn
-  bow's pull, the witch's potion, the sulfur cube, a zombie villager's profession (redsim keeps
-  none), the farm animals' warm and cold variants (every terrain site is temperate). Lava is drawn as the game draws it: its
+  bow's pull, the witch's potion, a zombie villager's profession (redsim keeps none), the farm
+  animals' warm and cold variants (every terrain site is temperate), a cube mob's squish (redsim
+  keeps none), a sulfur cube's swallowed block (redsim refuses one) and the red overlay on
+  translucent faces (the translucent pass draws none). Lava is drawn as the game draws it: its
   `lava_still` texture, solid, lit by its own light 15 (it was water tinted orange). The time
   badge is the readout (`mobfarm::readout`): the game's day and clock, the golems so far and the
   iron in the farm's chests (`day 1, 13:23 · 2 golems, 9 iron`, two lines on a phone); the left
