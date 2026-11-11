@@ -597,6 +597,61 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     // nothing (no power change), so K stays lit and the park rail powered; placed last, BK is
     // powered already.
     b.d.meta.insert("build".into(), crate::placing::BuildPlan { last: vec![BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, kz)], fills_last: false }.meta());
+    if std::env::var("MCTAS_SIDING_B").is_ok_and(|v| v == "1") {
+        ensure!(!slong && kz == 6, "design (b) wired: the short nap path (MCTAS_SIDING_SLONG=0), park at z 6");
+        wire_b(b)?;
+    }
+    Ok(())
+}
+
+/// Design (b), wired (MCTAS_SIDING_B=1, on the short nap path), step 1: B and the after-wake kick.
+/// - B: a waxed copper bulb under the S stair's foot (-3,-3,3), toggled by every S pulse (the
+///   bed observer pulses at the sleep and at the wake); its comparator (-3,-3,4) reads it.
+/// - The delay chain now carries not-X = not-H or B: B joins it at (-6,-3,5) through a repeater
+///   (-5,-3,5), and the chain is 4-tick repeaters all along (about 44 gt): X = H and not-B rises at
+///   the wake, the kick comes about 44 gt after it.
+/// - B now: a second bulb under the S dust (0,-1,5) (the same pulses), its comparator (0,-1,6),
+///   a repeater (0,-1,7) and dust (0,-1,8) whose block powers a repeater (1,-2,8) into the
+///   chain's end: BK = not-X delayed or B now or L, so K = X delayed and not-B and not-L.
+fn wire_b(b: &mut Builder) -> Result<()> {
+    let rep = |f: &str, d: u8| format!("repeater[delay={d},facing={f},locked=false,powered=false]");
+    let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+    let bulb = "waxed_copper_bulb[lit=false,powered=false]";
+    let cmp = |f: &str| format!("comparator[facing={f},mode=compare,powered=false]");
+    // (a block under, unless one is there; then the part, on an empty cell)
+    let on = |b: &mut Builder, c: [i32; 3], part: &str| -> Result<()> {
+        let below = [c[0], c[1] - 1, c[2]];
+        if !b.d.blocks.contains_key(&below) {
+            b.set(below[0], below[1], below[2], "stone");
+        }
+        put(b, c, part)
+    };
+    // B, a bulb west of the bed head: a second observer replaces the cage's west wall glass at
+    // (-1,0,2), watching the bed head as the first watches the foot, its pulses into the bulb
+    // (-2,0,2), glass over it (a golem spot otherwise). Not on the S stair: a copper bulb is no
+    // conductor and would cut the stair's climb, and the parts keep clear of the stair's cut cells
+    // (-3,0,4), (-3,-1,3), (-3,-2,2). Its comparator (-3,0,2) puts B out at (-4,0,2), down a stair
+    // (-5,-1,2) on N1's glass cap, (-6,-2,2), into D1 (-6,-3,3), the chain's start: not-H or B
+    swap(b, [-1, 0, 2], "observer[facing=east,powered=false]")?;
+    on(b, [-2, 0, 2], bulb)?;
+    put(b, [-2, 1, 2], "glass")?;
+    on(b, [-3, 0, 2], &cmp("east"))?;
+    on(b, [-4, 0, 2], dust)?;
+    put(b, [-5, -1, 2], dust)?;
+    on(b, [-6, -2, 2], dust)?;
+    // the chain: 4-tick repeaters all along (about 44 gt)
+    for z in 4..=8 {
+        swap(b, [-6, -3, z], &rep("north", 4))?;
+    }
+    for x in -5..=0 {
+        swap(b, [x, -3, 9], &rep("west", 4))?;
+    }
+    // B now, the second bulb under the S dust, into the chain's end through (1,-2,8)
+    swap(b, [0, -1, 5], bulb)?;
+    on(b, [0, -1, 6], &cmp("north"))?;
+    on(b, [0, -1, 7], &rep("north", 1))?;
+    on(b, [0, -1, 8], dust)?;
+    on(b, [1, -2, 8], &rep("west", 1))?;
     Ok(())
 }
 
@@ -2431,6 +2486,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         if bo.trace && bo.wired && t - t0 >= bo.trace_window.0 && t - t0 < bo.trace_window.1 {
             let probes: Vec<(&str, [i32; 3])> = vec![
                 ("obs", [0, 0, 4]),
+                ("s0", [0, 0, 5]),
+                ("s1", [-1, 0, 5]),
+                ("s3", [-3, 0, 5]),
+                ("s4", [-3, -1, 4]),
+                ("s5", [-3, -2, 3]),
+                ("s6", [-3, -3, 2]),
                 ("S4", [-4, -3, 2]),
                 ("W1", [-5, -3, 3]),
                 ("W2", [-6, -3, -1]),
