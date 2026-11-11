@@ -1032,6 +1032,59 @@ cites the 26.3 source line by line; the game checks are in the
   no lava either, and no collision box); two adjacent sources make every flowing cell beside both a
   new source (a pad fed from its edges turns into still water).
 
+## A villager riding a minecart: every way it stops riding or dies — track tickexact
+
+The census the iron farm's riderless rule rests on (2026-11-11): every caller of `stopRiding`,
+`removeVehicle`, `ejectPassengers`, `unRide` and `removePassenger` in the whole decompiled
+`net.minecraft` (26.3), classified for a villager in a minecart. "redsim" says whether the
+simulator models it.
+
+**A. It leaves the cart.**
+
+| # | path (26.3) | trigger | the farm holds | redsim |
+|---|---|---|---|---|
+| 1 | `Minecart.activateMinecart(state=true)` → `ejectPassengers` | the cart on a powered activator rail | activators only where meant (the siding's drop) | modelled |
+| 2 | the vehicle removed: `Entity.baseTick` (`isPassenger && vehicle.isRemoved` → `stopRiding`), `ServerLevel.tickPassenger`, `tickNonPassenger` | the cart destroyed (C) | C's conditions | modelled |
+| 3 | the rider removed: `Entity.setRemoved` → `stopRiding` when the reason destroys | death (removed after the 20-tick death animation), discard | B's conditions; farm villagers are persistent | modelled |
+| 4 | the rider teleported: `Entity.teleport` → `stopRiding` unless `asPassenger` | chorus fruit (`TeleportRandomlyConsumeEffect`), commands, pearls | villagers never teleport themselves | n/a |
+| 5 | the cart through a portal: `Entity.teleportCrossDimension` ejects, then re-mounts its passengers in the new level | a cart entering a nether portal | no portal on the track | cart portals modelled; the re-mount not bridged |
+| 6 | boarding another vehicle: `Entity.startRiding` stops riding first | — | never: cart and boat pickups skip passengers | modelled |
+| 7 | sleeping: `LivingEntity.startSleeping` → `stopRiding` | SleepInBed | SleepInBed refuses passengers (`checkExtraStartConditions`): only after a drop | modelled |
+| 8 | a lead: `Leashable.setLeashedTo` → `stopRiding` | leashing | no leads | n/a |
+| 9 | a spear's stab: `LivingEntity.stabAttack(..., dismounts)` (KineticWeapon, PiercingWeapon) | a zombie or zombified piglin holding a spear (SpearUseGoal) reaching the rider; natural zombies hold an iron spear in 1/6 of the 5% weapon chance (Hard) | no natural mob reaches a rider; the design's zombies hold nothing | modelled |
+| 10 | under water: `LivingEntity.baseTick`, only a vehicle in `#dismounts_underwater` (camel, chicken, donkey, happy_ghast, horse, llama, mule, pig, ravager, spider, strider, trader_llama, zombie_horse) | — | a minecart is not in it: its rider never gets off, it drowns (B) | modelled |
+| 11 | a conversion: `ConversionType.SINGLE` (`from.stopRiding(); to.startRiding(vehicle)`) | villager → witch (`Villager.thunderHit`), villager → zombie villager (killed by a zombie, Normal/Hard) | the cart stays taken, by a hostile: no bolt or zombie reaches a rider | modelled |
+| 12 | growing up in a boat (`AgeableMob.ageBoundaryReached`) | boats only | — | n/a |
+| 13 | chunk save and reload | none: passengers are saved with their root vehicle and restored on load; UNLOADED_TO_CHUNK does not destroy | — | modelled (the reload scenes) |
+
+The other callers never act on a villager in a cart: RideCommand, ServerPlayer, PlayerList, Player,
+DismountOrSkipMounting and PiglinAi (piglins, hoglins), ForceUnmount (the warden dismounts
+itself), BeehiveBlockEntity, Display, Shulker, RunAroundLikeCrazyGoal (horses), AbstractBoat's
+ejects, HappyGhast's and Cushion's `removePassenger`.
+
+**B. It dies** (removed by A3; the cart empty 20 ticks later). Riding protects from nothing:
+mob melee (an attack box meeting the rider's), projectiles, fire (1 every 20 fire ticks) and lava,
+suffocation (`isInWall`: the eye in a suffocating block, 1 a tick), drowning (the eye under water:
+air, then 2 a second), explosions, lightning (converts rather than kills: A11), cactus, berry
+bushes, magma, powder snow, the void. Falls: `Entity.causeFallDamage` hands the cart's fall to its
+passengers, but a cart's fall distance resets every tick on rails
+(`OldMinecartBehavior.moveAlongTrack`), so only an off-rail drop counts, and a villager takes
+floor(d - 3): a drop of 3 or less is safe (R1's 2-block jump is). redsim models each of them for
+mobs; the cart-to-rider fall hand-on is not bridged. The farm holds: no reachable mob, no fire,
+lava or water at a rider, no suffocating block at a rider's head, off-rail drops of 3 or less,
+lightning rods.
+
+**C. The cart is destroyed.** `VehicleEntity.hurtServer` adds 10 per point of damage and destroys
+the cart past 40; the damage decays 1 a tick (`AbstractMinecart.tick`). Lava (`lavaHurt`, 4 a
+tick) destroys it on its second tick in lava; a cactus (1 a contact tick) after about 5; lightning
+(5: 50) at once; explosions, projectiles and players as they hit. Fire alone does not (+10 every 20
+ticks against 20 of decay). redsim models explosions and lightning; a cart in lava or in a cactus's
+cell is refused by name.
+
+Bridged beside it (0 differences): a ridden cart frozen with its box in a fence gate's, the gate
+shut and opened again during the freeze, moves on at the thaw (scene gate-frozen), unless its box
+touches a chunk still unloaded then (it stopped in the gate's cell).
+
 ## Weather, lightning, fire and sunburn — redsim (track mobinfra)
 
 Modeled in `crates/redsim/src/weather/` and `entity/mob/sun.rs` (the judge's settings: Hard,

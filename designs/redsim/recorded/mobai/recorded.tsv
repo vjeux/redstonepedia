@@ -53,6 +53,7 @@ gate-admit.rec	1d942a5a0e26371b		26.3	2026-11-11T18:40Z on 1ccfb43c1e	mctas moba
 gate-escg6l-v3.rec	18c8b884d4d14dad		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record gate-escg6l-v3 --seed 1 --ticks 500 --dir designs/redsim/recorded/mobai
 gate-escg6l-v4.rec	e4bbd48cd962c77a		26.3	2026-11-11T11:13Z on a7485adf5	mctas mobai record gate-escg6l-v4 --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 gate-escg6l.rec	ae5a4517902540cd		26.3	2026-11-11T09:24Z on ad0b401dd	mctas mobai record gate-escg6l --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
+gate-frozen.rec	3d8ad8052d7316e8		26.3	2026-11-11T19:00Z on 0046b0abb5	mctas mobai record gate-frozen --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 golem-summon.rec	9211d49a03edc4b0		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record golem-summon --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 home-reach-open.rec	f272ae2768c14aa9		26.3	2026-11-11T11:13Z on a7485adf5	mctas mobai record home-reach-open --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

@@ -354,6 +354,10 @@ pub enum MobfarmCmd {
         /// bed are tried on foot already: a dropped napper)
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         foot: Vec<i32>,
+        /// Print every place's clearing line (what can clear a stamp there: the panic stroll's
+        /// reachable cells, or the calm stroll's reachable share), not only the places with none.
+        #[arg(long)]
+        clearing: bool,
     },
     /// One judge run of a design on redsim: its table.
     Run {
@@ -680,6 +684,10 @@ pub enum MobfarmCmd {
         /// The x-queue's ledge: the landing's drop below the take-off's level.
         #[arg(long, default_value_t = 2)]
         xq_drop: u32,
+        /// The x-queue's row (default 24): 25 lays it on farmopt's (c′) departure's corner row,
+        /// the curve (0,y,25) then the border's flat cell.
+        #[arg(long)]
+        xq_z: Option<i32>,
         /// The 6-8 rule's zombie posts beside R1's tail (each the boat's cell X,Y,Z, glass under,
         /// leaves 3 over; separated by `;`), replacing the strip's posts at z 21 and 29.
         #[arg(long, default_value = "", allow_hyphen_values = true)]
@@ -1002,6 +1010,9 @@ pub enum MobfarmCmd {
         margin: f64,
         #[arg(long, default_value_t = 4)]
         max_posts: usize,
+        /// Keep every post (glass, boat, zombie, leaves) inside the design's box.
+        #[arg(long)]
+        in_box: bool,
     },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
@@ -2603,7 +2614,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, tail_posts, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, tail_posts, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2612,7 +2623,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, tail_posts: {
+            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, tail_posts: {
                 let mut a = [None; 4];
                 for (i, s) in tail_posts.split(';').filter(|s| !s.trim().is_empty()).enumerate() {
                     anyhow::ensure!(i < 4, "--tail-posts takes up to 4 posts");
@@ -2944,7 +2955,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::PostSearch { design, remove, panic, area, margin, max_posts } => {
+        MobfarmCmd::PostSearch { design, remove, panic, area, margin, max_posts, in_box } => {
             let (_c, mut spec) = load(version, &design)?;
             anyhow::ensure!(panic.len() == 6 && area.len() == 6, "--panic and --area take X0,Y0,Z0,X1,Y1,Z1");
             let cols: Vec<(i32, i32)> = remove.split(';').filter(|s| !s.trim().is_empty()).map(|s| {
@@ -2964,8 +2975,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 !(cols.contains(&(p.x, p.z)) && (s.contains("glass") || s.contains("leaves")) && (1..=7).contains(&p.y))
             });
             let rails: Vec<[i32; 3]> = spec.blocks.iter().filter(|(p, b)| b.to_string().contains("rail") && (panic[0]..=panic[3]).contains(&p.x) && (panic[1]..=panic[4]).contains(&p.y) && (panic[2]..=panic[5]).contains(&p.z)).map(|(p, _)| [p.x, p.y, p.z]).collect();
-            println!("post search: {removed} posts removed, {} panic cells, area {:?}, margin {margin}", rails.len(), area);
-            let f = crate::postsearch::search(&spec, &rails, [area[0], area[1], area[2], area[3], area[4], area[5]], margin, max_posts).map_err(|e| anyhow::anyhow!(e))?;
+            let (blo, bhi) = crate::postsearch::design_box(&spec);
+            println!("post search: {removed} posts removed, {} panic cells, area {:?}, margin {margin}; the design's box ({},{},{})..({},{},{}){}", rails.len(), area, blo[0], blo[1], blo[2], bhi[0], bhi[1], bhi[2], if in_box { ", posts kept inside it" } else { "" });
+            let f = crate::postsearch::search_in(&spec, &rails, [area[0], area[1], area[2], area[3], area[4], area[5]], margin, max_posts, in_box).map_err(|e| anyhow::anyhow!(e))?;
+            let grows: Vec<String> = f.posts.iter().filter(|p| p[0] < blo[0] || p[0] > bhi[0] || p[2] < blo[2] || p[2] > bhi[2] || p[1] - 1 < blo[1] || p[1] + 3 > bhi[1]).map(|p| format!("({},{},{})", p[0], p[1], p[2])).collect();
+            println!("posts that grow the box: {}", if grows.is_empty() { "none".to_string() } else { grows.join(" ") });
             println!("posts (the boat's cell; glass under, leaves 3 over): {}", f.posts.iter().map(|p| format!("({},{},{})", p[0], p[1], p[2])).collect::<Vec<_>>().join(" "));
             println!("the least distance from any rider point to a post: {:.2}", f.least);
             let bad: Vec<String> = f.cover.iter().filter(|(_, d, seen)| *d > 8.0 - margin || !seen).map(|(c, d, seen)| format!("({},{},{}) {d:.2}{}", c[0], c[1], c[2], if *seen { "" } else { " unseen" })).collect();
@@ -3753,7 +3767,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing } => {
             let (_c, spec) = load(version, &design)?;
             // (the bed: --home, else the design's `port home:` line)
             let text = std::fs::read_to_string(&design)?;
@@ -3761,9 +3775,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let h = if home.len() == 3 { Some(home) } else { port.filter(|v| v.len() == 3) };
             let bed = h.map(|v| redsim::pos::BlockPos::new(v[0], v[1], v[2]));
             let foot: Vec<redsim::pos::BlockPos> = foot.chunks(3).filter(|c| c.len() == 3).map(|c| redsim::pos::BlockPos::new(c[0], c[1], c[2])).collect();
-            let places = crate::fleecheck::check(&spec, bed, &foot).map_err(|e| anyhow::anyhow!(e))?;
+            // (the design's `panic:` boxes: where its parts rely on panic, ironspec Nov 11 10:54)
+            let panic_boxes = match text.lines().find_map(|l| l.strip_prefix("panic:")) {
+                Some(s) => crate::declared::parse_boxes(s).map_err(|e| anyhow::anyhow!("panic: {e}"))?,
+                None => Vec::new(),
+            };
+            let places = crate::fleecheck::check(&spec, bed, &foot, &panic_boxes).map_err(|e| anyhow::anyhow!(e))?;
             let jobs = crate::fleecheck::job_and_bell_blocks(&spec);
-            for l in crate::fleecheck::report(&places, &jobs, show) {
+            for l in crate::fleecheck::report_with(&places, &jobs, show, clearing) {
                 println!("{l}");
             }
         }
