@@ -1044,7 +1044,7 @@ pub struct TailWatch {
     contacts: usize,
     /// Per waiting place (the cell of the arriving cart): contacts, those above a stored 0.2,
     /// the highest stored speed at contact and the closest approach of the two centres.
-    contact_by_cell: std::collections::BTreeMap<[i32; 3], (usize, usize, f64, f64)>,
+    pub contact_by_cell: std::collections::BTreeMap<[i32; 3], (usize, usize, f64, f64)>,
     closest: Option<(f64, String)>,
     arrival_log: Vec<String>,
     impacts: usize,
@@ -8742,6 +8742,14 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         out.extend(arr_stream.iter().cloned());
         out.push(det_edges.line(fx as i32, fz as i32));
         out.extend(tail_watch.lines());
+        // (the arrivals bullet, ironspec Nov 11 15:44: enforced, not only printed: any contact in a
+        // waiting queue above a stored 0.2 fails the run)
+        {
+            let above: Vec<String> = tail_watch.contact_by_cell.iter().filter(|(_, v)| v.1 > 0).map(|(c, v)| format!("{},{},{} {:.3} ({} of {})", c[0] as f64 - fx, c[1], c[2] as f64 - fz, v.2, v.1, v.0)).collect();
+            if !above.is_empty() {
+                problems.push(format!("arrivals into a waiting queue above a stored 0.2 at contact (the brief's bar): {}", above.join("; ")));
+            }
+        }
         out.push(cart_count.line(cycles as i64, 3));
         if lay.esc_adm_a1.is_some() {
             out.push(format!("launches into a full slot 0 (G_P opening while a cart rests on slot 0's cell): {launch_into_full}{}", if launch_full_log.is_empty() { String::new() } else { format!(" ({})", launch_full_log.join(", ")) }));
