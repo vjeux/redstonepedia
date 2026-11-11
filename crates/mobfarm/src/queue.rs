@@ -2771,6 +2771,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut late_total: i64 = 0;
     let mut out = Vec::new();
     let mut problems = Vec::new();
+    // (the bed's nearest awake villager while it is taken: its distance and where; see the tick
+    // loop)
+    let mut bed_near: Option<(f64, String)> = None;
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
     // (slots from a departure to the slot whose advance must find that batch in the queue's
     // tail: the line loop's long return takes two)
@@ -3825,6 +3828,25 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     slept_tonight[k] = true;
                 }
             }
+            // the bed's nearest awake villager while it is taken (ironspec 2026-11-11: a calm
+            // villager within 16 of an occupied bed loses HOME for good; traced, every tick): from
+            // each sleeper's bed block centre to every rider not asleep
+            for (k, a) in asleep_now.iter().enumerate() {
+                if !*a {
+                    continue;
+                }
+                let Some(bed) = redsim::entity::index_of(&run.world, riders[k]).and_then(|i| redsim::entity::mob::mob(&run.world, i).sleeping_pos) else { continue };
+                for (j, r) in riders.iter().enumerate() {
+                    if j == k || asleep_now[j] {
+                        continue;
+                    }
+                    let Some(p) = pos_of(&run.world, *r) else { continue };
+                    let d = ((p.x - (bed.x as f64 + 0.5)).powi(2) + (p.y - (bed.y as f64 + 0.5)).powi(2) + (p.z - (bed.z as f64 + 0.5)).powi(2)).sqrt();
+                    if bed_near.as_ref().is_none_or(|b: &(f64, String)| d < b.0) {
+                        bed_near = Some((d, format!("rider e{j} at {:.2},{:.2},{:.2}, bed {},{},{}, slot {c} +{dt}", p.x, p.y, p.z, bed.x, bed.y, bed.z)));
+                    }
+                }
+            }
             let homes_now: Vec<Option<BlockPos>> = riders.iter().map(|r| redsim::entity::index_of(&run.world, *r).and_then(|i| match &run.world.entities.list[i].kind { redsim::entity::EntityKind::Mob(m) => m.brain.as_deref().and_then(|b| b.home), _ => None })).collect();
             if home_at_start.is_none() {
                 home_at_start = Some(homes_now.clone());
@@ -4408,6 +4430,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.extend(visit_lines.iter().cloned());
         out.push(format!("visit: bed claims: {}", if bed_claims.is_empty() { "none".to_string() } else { bed_claims.join("; ") }));
         // (each visit: asleep, rolled off, back; a visit whose 6 slots outran the run is left out)
+        out.push(match &bed_near {
+            Some((d, at)) => format!("bed: the nearest awake villager while a bed was taken {d:.2} ({at}); margin over 16: {:+.2}", d - 16.0),
+            None => "bed: never taken".into(),
+        });
         let mut done = 0;
         for vr in &visits {
             if vr.slot + 6 > cycles {
