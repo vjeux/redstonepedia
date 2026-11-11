@@ -406,6 +406,24 @@ before the z 9|10 line: next section.
   - size: the loop file +24 blocks over C'' and 1 higher (the hump's top y 7); in the assemblies +1
     in y if their z holds (day-1 checking): 48,384 (+2.9%) for today's stand, 51,072 (+2.7%) for S3
     (on hold until the height is set).
+  - hump 4 with its first booster flat (`--boost-flat 1`; 7b90c3f1: DP two before S must not touch a
+    powered rail), wip/approach-c2-hump4-b-boosted.txt (80d9c6903): the head slot moves north 5 (loop
+    z 24, inside GO's chunk), S (-3,6,15), DP (-3,4,17) between plain slopes, the tripwire at y 7
+    (hooks z 13/17, anchors z 12/18), DEP_A (-3,4,13). ironspec's expected pick, conditional on the
+    head model's GO-needs-D_arr-low rows. A margin (`--summon-at 93 --pocket-release 14`, 27 corners,
+    worst): 27 (all-slopes hump 4 29, hump 5 23, C'' 40). The pocket release changes nothing on the
+    meter bench (its stand REL is bench-driven), nor does `--rel-sweep`.
+  - hump 4 (flat booster) rows on the same bench (4 seeds): the (c') departure's dip stops (z 9.5,
+    10.5, 11.5, at rest and crawling) 0 meetings, 0 merges; the hump chunk frozen 240 gt at every gt
+    the train crosses the boosters (+3..+30): 0 meetings on the flat booster or after it, the one
+    meeting a restart catch-up on the head slot's slope (+9: 0.374 onto 0.148, both moving); the
+    stand chunk's 240-gt thaw (chunks 0,0,0,0) 14 climb meetings and 7 pushed back over T (the head
+    model's second train, as above). Riderless (a consequence, not a bar: the siding releases ridden
+    carts only): an empty cart clears the hump's top at 0.09-0.12; 4 merges with an empty 1st or 2nd
+    cart.
+  - gravity places (tick-exact's rollback rule: an unpowered powered rail holds a cart): every cell
+    the approach rolls a cart by gravity is a plain rail (the falling face, the dip, T, the descent,
+    the snap turn); every booster on the run and the climb is powered=true over a redstone block.
 
 ## Declared states and flights (the brief's "No derails", Nov 11)
 
