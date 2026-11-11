@@ -2642,6 +2642,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // (the tail's entry: each cart reaching the return run's end, x 1 westward along z 20 at the
     // run's level, with its gap to the one before, contact and speed: what the tail sees)
     let mut tail_in: Vec<(i64, bool, f64)> = Vec::new();
+    // (every cart's state each tick: off the rails (no rail at its cell or the one under it) for
+    // 3 ticks or more, its rider not seated in it; and the latch's sets after +55 (T2 going out:
+    // D1's set, or C's), each a slot offset)
+    let mut off_rail: Vec<u32> = vec![0; 21];
+    let mut derails: Vec<String> = Vec::new();
+    let mut unseated: Vec<bool> = vec![false; 21];
+    let mut unseat_log: Vec<String> = Vec::new();
+    let mut latch_sets: Vec<i64> = Vec::new();
+    let mut t2_was_lit: Option<bool> = None;
     let mut ret_x: Vec<Option<f64>> = vec![None; 21];
     // (the slot-boundary order check: the last slot's queue, train and stand batch; clean slots)
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
@@ -3548,6 +3557,28 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // (the lap order: each cart onto the pocket stand's departure climb, its first cell)
         if o.stand_stop {
             // (backward through a gate: a cart on the stand's strip crossing a gate's wall westward;
+            // also each cart off the rails, a rider not seated, and the latch's sets)
+            for (k, id) in carts.iter().enumerate().take(21) {
+                let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id) else { continue };
+                let cell = BlockPos::new(e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32);
+                let on = redsim::rails::is_rail(&run.world.get(cell)) || redsim::rails::is_rail(&run.world.get(BlockPos::new(cell.x, cell.y - 1, cell.z)));
+                off_rail[k] = if on { 0 } else { off_rail[k] + 1 };
+                if off_rail[k] == 3 {
+                    derails.push(format!("slot {c} +{dt}: cart {k} off the rails at {:.2},{:.2},{:.2}", e.pos.x - fx, e.pos.y, e.pos.z - fz));
+                }
+                let seated = e.passengers.contains(&riders[k]);
+                if !seated && !unseated[k] {
+                    unseat_log.push(format!("slot {c} +{dt}: cart {k}'s rider not seated (cart at {:.2},{:.2},{:.2})", e.pos.x - fx, e.pos.y, e.pos.z - fz));
+                }
+                unseated[k] = !seated;
+            }
+            if o.stand_wired {
+                let lit = run.world.get(BlockPos::new(-o.row_gap + 9 + o.shift[0], 0, 2 + o.shift[1])).to_string().contains("lit=true");
+                if t2_was_lit == Some(true) && !lit && dt >= 55 && c < cycles {
+                    latch_sets.push(dt);
+                }
+                t2_was_lit = Some(lit);
+            }
             // the departure: each cart past x 9 (the curve) eastward, its gap to the one before)
             let gx = [-o.row_gap as f64 + 3.5, -o.row_gap as f64 + 7.5, -o.row_gap as f64 + 11.5];
             for (k, id) in carts.iter().enumerate() {
@@ -4442,6 +4473,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             out.push(format!("stand departures under 8 gt apart or touching: {}", small.join(", ")));
         }
         out.push(format!("back through a gate: {}{}", back_through.len(), if back_through.is_empty() { String::new() } else { format!(" ({})", back_through.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }));
+        out.push(format!("carts off the rails: {}{}; riders not seated: {}{}", derails.len(), if derails.is_empty() { String::new() } else { format!(" ({})", derails.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }, unseat_log.len(), if unseat_log.is_empty() { String::new() } else { format!(" ({})", unseat_log.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }));
+        if o.stand_wired && !latch_sets.is_empty() {
+            out.push(format!("latch set (T2 out after +55): +{}..+{} over {} slots", latch_sets.iter().min().unwrap(), latch_sets.iter().max().unwrap(), latch_sets.len()));
+        }
         // (bursts: departures under 30 gt apart; each burst's size, when it leaves in its slot,
         // its gaps, the pairs in contact, and the speeds where the climb ends; the biggest first)
         let mut bursts: Vec<Vec<usize>> = Vec::new();

@@ -49,7 +49,7 @@ nether nbt: 2 60 -1 {OutputSignal:2}
 nether nbt: 2 60 0 {Items:[{Slot:0b,id:"minecraft:poppy",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}}]}
 origin: 0 0 0
 palette:
-  ! minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  ! minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
   $ minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
   % minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
   & minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
@@ -66,10 +66,10 @@ palette:
   7 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
   8 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
   9 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
-  < minecraft:repeater[delay=3,facing=east,locked=false,powered=false]
+  < minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
   = minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
   > minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
-  ? minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  ? minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
   @ minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
   A minecraft:chest[facing=west,type=right,waterlogged=false]
   B minecraft:cobblestone
@@ -198,9 +198,9 @@ layer -5:
   .
   ............~^~
   ............gg>
-  ...........g.g?
-  ...........g.g?
-  ...........g~<0
+  ...........g.g!
+  ...........g.g!
+  ...........g~?0
   .
   .
   .
@@ -260,7 +260,7 @@ layer -4:
   ..........g.1g.t
   ..........g~@y
   ...........1.1
-  ...........!.+
+  ...........<.+
   ...........@7~
   .
   .
@@ -379,7 +379,7 @@ layer -2:
   .
   .
   ......~g.gYrgfo
-  ......!...g.g.%
+  ......<...g.g.%
   ......1....~w.gZ
   ......@7777*~..t
   ............=
