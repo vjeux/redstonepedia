@@ -66,11 +66,23 @@ pub enum MobfarmCmd {
         out: PathBuf,
     },
     /// The golem exit flood of a design (every position a golem can stand on, still and 8
-    /// inputs), with its spawn spots.
+    /// inputs), with its spawn spots. A file with no bed floods as a part by default (ironspec
+    /// Nov 11 14:00, `exit::golem_exit_part`): no villager gets a HOME, every declared villager
+    /// position is a summoner (its villagers, the design's `positions:` line and --positions,
+    /// moved by --offset), and a golem nothing kills or that walks out of the part is reported,
+    /// not refused (a part has no kill); a golem that reaches a zombie or touches a vehicle still
+    /// fails. It says when it ran as a part.
     Exit {
         design: PathBuf,
         #[arg(long, default_value_t = 1)]
         seed: i64,
+        /// A part's further summoner positions: files of x y z per line (`queue-loop-run
+        /// --record-positions` over a full bench night, or a stand's pocket cells).
+        #[arg(long, value_delimiter = ',')]
+        positions: Vec<PathBuf>,
+        /// Moves the --positions and `positions:` cells by dx,dy,dz (into the design's frame).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        offset: Vec<i32>,
     },
     /// The built farm (water settled) along a row: each cell's block from x0 to x1 at y, z.
     /// `--terrain`: built into its terrain sample at the judge's cheapest spot (design
@@ -2520,16 +2532,55 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, text)?;
             println!("{}", out.display());
         }
-        MobfarmCmd::Exit { design, seed } => {
-            let (_, spec) = load(version, &design)?;
-            let refused = redsim::entity::mob::refuse::static_checks(&spec);
-            for r in &refused {
-                println!("refused: {r}");
+        MobfarmCmd::Exit { design, seed, positions, offset } => {
+            let (c, spec) = load(version, &design)?;
+            let part = !spec.has_bed();
+            if part {
+                println!("static checks: not run (they pair every villager with its bed, and this file holds none)");
+            } else {
+                anyhow::ensure!(positions.is_empty(), "--positions adds summoners to a part's flood (a file with no bed); this file holds a bed");
+                let refused = redsim::entity::mob::refuse::static_checks(&spec);
+                for r in &refused {
+                    println!("refused: {r}");
+                }
             }
             let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(32);
             let t0 = std::time::Instant::now();
-            let rep = redsim::entity::mob::exit::golem_exit(&spec, seed, threads).map_err(|e| anyhow::anyhow!(e))?;
+            let rep = if part {
+                let off = match offset.as_slice() { [x, y, z] => [*x, *y, *z], [] => [0, 0, 0], _ => anyhow::bail!("--offset takes dx,dy,dz") };
+                let mut extra: Vec<redsim::pos::BlockPos> = Vec::new();
+                let mut take = |t: &str| -> Result<()> {
+                    let v: Vec<i32> = t.split([',', ' ']).filter(|s| !s.is_empty()).map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "a position takes x y z: {t}");
+                    extra.push(redsim::pos::BlockPos::new(v[0] + off[0], v[1] + off[1], v[2] + off[2]));
+                    Ok(())
+                };
+                for f in &positions {
+                    for line in std::fs::read_to_string(f)?.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                        take(line)?;
+                    }
+                }
+                if let Some(list) = c.clock.design.meta.get("positions") {
+                    for t in list.split_whitespace() {
+                        take(t)?;
+                    }
+                }
+                println!("a part's flood (no bed in the file): every villager and {} declared position(s) summon; a golem nothing kills, that walks out of the part or that goes through a nether portal is reported, not refused (a part has no kill)", extra.len());
+                redsim::entity::mob::exit::golem_exit_part(&spec, &extra, seed, threads)
+            } else {
+                redsim::entity::mob::exit::golem_exit(&spec, seed, threads)
+            }
+            .map_err(|e| anyhow::anyhow!(e))?;
             println!("{} spawn spots, {} positions, {} runs, worst life {} gt, {:.1} s", rep.spawn_spots, rep.starts, rep.runs, rep.worst_life, t0.elapsed().as_secs_f64());
+            if rep.part {
+                println!("part: {} summoners; {} runs ended with the golem alive (it stopped, found no new cell, or reached the limit); {} walked out of the part; {} went through a nether portal", rep.summoners, rep.rested, rep.left, rep.portal);
+                for l in rep.left_at.iter().chain(&rep.portal_at) {
+                    println!("  {l}");
+                }
+            }
+            if let Some((lo, hi)) = rep.stood {
+                println!("golems stood on cells within {} {} {} .. {} {} {}", lo.x, lo.y, lo.z, hi.x, hi.y, hi.z);
+            }
             for f in &rep.failures {
                 println!("FAIL {f}");
             }
