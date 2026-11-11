@@ -433,6 +433,9 @@ pub struct LoopOpts {
     /// The approach's last climb slope (the cell before T) an always-on booster (`approach`):
     /// a pusher slowed by a cart resting on T is driven on instead of rolling back.
     pub approach_boost: bool,
+    /// The approach's climb slopes all boosters but D (farmopt's (d) proposal: the acceleration
+    /// on the climb, the release run plain with `boost_first` 0).
+    pub approach_climb_boost: bool,
     /// The departure crest's dip past the line as plain flat rails (the boosted rise climbs
     /// alone): a cart stopped there meets the next on flat ground, nothing boosts it back.
     pub crest_plain_dip: bool,
@@ -504,7 +507,7 @@ pub struct LoopOpts {
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, approach_boost: false, crest_plain_dip: false, crest_descent: 0, cprime: None, adm_xq: 0, stand_comb: 0, comb_gravity: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, approach_boost: false, crest_plain_dip: false, crest_descent: 0, cprime: None, adm_xq: 0, stand_comb: 0, comb_gravity: false, approach_climb_boost: false }
     }
 }
 
@@ -2165,12 +2168,16 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         let n = o.approach as i32;
         let foot = 2 * n - 1;
         while z > foot {
-            path.push(([xb, 1, z], Cell::Boost));
+            // (`approach_climb_boost`: the run plain, the acceleration on the climb)
+            path.push(([xb, 1, z], if o.approach_climb_boost { Cell::Plain } else { Cell::Boost }));
             z -= 1;
         }
         for k in 0..n {
             let last_boosted = o.approach_boost && k == n - 1;
-            path.push(([xb, 1 + k, foot - k], if last_boosted { Cell::Boost } else if k == 2 && n >= 4 { Cell::Detector } else { Cell::Plain }));
+            // (`approach_climb_boost`: every climb slope a booster but the detector D, the
+            // acceleration on the climb instead of a flat booster run)
+            let climb_boosted = o.approach_climb_boost && !(k == 2 && n >= 4);
+            path.push(([xb, 1 + k, foot - k], if last_boosted || climb_boosted { Cell::Boost } else if k == 2 && n >= 4 { Cell::Detector } else { Cell::Plain }));
         }
         path.push(([xb, n + 1, n - 1], Cell::Plain));
         if o.stand_comb > 0 {
@@ -2746,7 +2753,7 @@ pub fn stand_circuit(ox: i32, guard: bool) -> Vec<([i32; 3], String)> {
 /// the forbidden ones, the climb with its crest top and the descent; the stand area's x extent);
 /// `handoff:` and the ports `input.g0` (G0's slope) and `output.handoff` (the return run's first
 /// cell, the tail's, not in the part).
-pub fn departure_part(o: &LoopOpts, design: &str, handoff_at: Option<(i32, i32)>) -> Result<String> {
+pub fn departure_part(o: &LoopOpts, design: &str, handoff_at: Option<(i32, i32)>, allowed_z: Option<(i32, i32)>) -> Result<String> {
     let d = mctas::design::Design::parse(design)?;
     let lay = loop_layout(o);
     let (g0, g0_rail) = *lay.pockets.first().ok_or_else(|| anyhow::anyhow!("the departure part needs the pocket stand (--stand-stop)"))?;
@@ -2837,12 +2844,20 @@ pub fn departure_part(o: &LoopOpts, design: &str, handoff_at: Option<(i32, i32)>
     // z + 3; every other cell forbidden; a boosted dip is forbidden-class whole)
     let plain_dip = dip.0 < dip.1 && (dip.0..dip.1).all(|i| p.blocks.get(&col_cells[i]).is_some_and(|s| s.starts_with("rail")));
     let desc_last_z = if desc.0 < desc.1 { col_cells[desc.1 - 1][2] } else { col_cells[top][2] };
-    let a0 = (dip.0..dip.1).find(|&i| col_cells[i][2] >= desc_last_z + 3).unwrap_or(dip.1);
-    let a1 = dip.1;
+    // (`allowed_z` Z0,Z1: the allowed cells taken from push-in rows instead (ironspec 2026-11-11:
+    // the keep-off distance is a minimum; every cell a cart can rest on needs its rows))
+    let (a0, a1) = match allowed_z {
+        Some((z0, z1)) => ((dip.0..dip.1).find(|&i| col_cells[i][2] >= z0).unwrap_or(dip.1), (dip.0..dip.1).rev().find(|&i| col_cells[i][2] <= z1).map_or(dip.0, |i| i + 1)),
+        None => ((dip.0..dip.1).find(|&i| col_cells[i][2] >= desc_last_z + 3).unwrap_or(dip.1), dip.1),
+    };
+    let why = if allowed_z.is_some() { "the dip's plain flat cells push-in rows show clean: a cart at rest or crawling there pushed through by the next at every corner, no reversal, no meeting on the rise" } else { "the dip's plain flat where a stop's pusher is 1.3 or more past the descent: the 1.2 rule" };
     let border = if plain_dip && a0 < a1 {
         format!(
-            "allowed {} (the dip's plain flat where a stop's pusher is 1.3 or more past the descent: the 1.2 rule); forbidden {} (the climb and its flat top); forbidden {} (the descent); forbidden {} (the dip short of that); forbidden {} (the rise and the corner); stand-x {}..{}",
-            span(a0, a1), span(0, top + 1), span(desc.0, desc.1), span(dip.0, a0), span(rise.0, col_cells.len()), -4 + sx, 9 + sx
+            "allowed {} ({why}); forbidden {} (the climb and its flat top); forbidden {} (the descent){}{}; forbidden {} (the rise and the corner); stand-x {}..{}",
+            span(a0, a1), span(0, top + 1), span(desc.0, desc.1),
+            if dip.0 < a0 { format!("; forbidden {} (the dip before the allowed cells)", span(dip.0, a0)) } else { String::new() },
+            if a1 < dip.1 { format!("; forbidden {} (the dip after them)", span(a1, dip.1)) } else { String::new() },
+            span(rise.0, col_cells.len()), -4 + sx, 9 + sx
         )
     } else {
         format!("allowed none; forbidden {} (the climb and its flat top); forbidden {} (the descent); forbidden {} (the dip: {}); forbidden {} (the rise and the corner); stand-x {}..{}", span(0, top + 1), span(desc.0, desc.1), span(dip.0, dip.1), if plain_dip { "no cell far enough past the descent for the 1.2 rule" } else { "boosters, forbidden-class" }, span(rise.0, col_cells.len()), -4 + sx, 9 + sx)
@@ -3182,7 +3197,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.set(c[0], c[1], c[2], s);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.approach_boost { " approach_boost=1" } else { "" } + if o.crest_plain_dip { " crest_plain_dip=1" } else { "" } + &(if o.crest_descent > 0 { format!(" crest_descent={}", o.crest_descent) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default() + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() })));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.approach_boost { " approach_boost=1" } else { "" } + if o.approach_climb_boost { " approach_climb_boost=1" } else { "" } + if o.crest_plain_dip { " crest_plain_dip=1" } else { "" } + &(if o.crest_descent > 0 { format!(" crest_descent={}", o.crest_descent) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default() + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     if o.stand_comb > 0
         && let Some(q) = b.d.meta.get_mut("queue")
@@ -3260,6 +3275,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "approach" => o.approach = v.parse()?,
             "depart_crest" => o.depart_crest = v.parse()?,
             "approach_boost" => o.approach_boost = v == "1",
+            "approach_climb_boost" => o.approach_climb_boost = v == "1",
             "crest_plain_dip" => o.crest_plain_dip = v == "1",
             "crest_descent" => o.crest_descent = v.parse()?,
             "cprime" => {
@@ -3595,6 +3611,11 @@ pub struct LoopTiming {
     /// farmopt's departure-clear input, emulated: REL_eff rises only while no cart is in this
     /// cell (loop frame).
     pub rel_clear: Option<[i32; 3]>,
+    /// With `rel_clear`: the queue head's release waits on the same input (farmopt's hand-off).
+    pub head_wait: bool,
+    /// The "train arrived since launch" latch: (K, the arrival cell); the head launches only
+    /// once the K-th cart since its last launch has entered the cell.
+    pub head_latch: Option<(usize, [i32; 3])>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -3723,7 +3744,7 @@ pub struct Act {
     pub unload: Option<Option<[i32; 4]>>,
     /// `SLOT,DT,place,K,X,Y,Z`: cart K (the bench's numbering) and its rider set at (X, Y, Z) in
     /// the loop's frame, at rest (a lab act: the merged-pairs control, a cart stopped anywhere).
-    pub place: Option<(usize, [f64; 4])>,
+    pub place: Option<(usize, [f64; 5])>,
     /// (tickexact 2026-11-11, the reload-order rule) A whole-part unload's load order
     /// (`SLOT,DT,unload,N,ORDER`: `save`, `reverse` or `seed:K`; `reload::load_all_ordered`).
     pub order: redsim::reload::Order,
@@ -3884,7 +3905,9 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
         // release group is one short and the placed cart is the one it misses, in order; `s1`,
         // `s2`, `s3`: the cart nearest that stand pocket's rest place)
         let k = match f[3] { "head" => usize::MAX, "s1" => usize::MAX - 1, "s2" => usize::MAX - 2, "s3" => usize::MAX - 3, _ => num(f[3], "K")? as usize };
-        return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: None, unload: None, place: Some((k, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?, if f.len() == 8 { fl(f[7], "VZ")? } else { 0.0 }])), order: redsim::reload::Order::Save, ride: None });
+        // (DT `rN`: N gt after the stand's REL rises in that slot, whatever the corner)
+        let (dt, rel) = match f[1].strip_prefix('r') { Some(r) => (num(r, "DT")?, 1.0), None => (num(f[1], "DT")?, 0.0) };
+        return Ok(Act { slot: num(f[0], "SLOT")?, dt, cell: [0; 3], block: air, hold: None, unload: None, place: Some((k, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?, if f.len() == 8 { fl(f[7], "VZ")? } else { 0.0 }, rel])), order: redsim::reload::Order::Save, ride: None });
     }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
@@ -3917,7 +3940,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None }
     }
 }
 
@@ -5081,6 +5104,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut bed_min: Option<(f64, String)> = None;
     let mut bed_min_app: Option<(f64, String)> = None;
     let mut approach_log: Vec<String> = Vec::new();
+    let (mut head_pending, mut head_off_at, mut head_held): (bool, Option<i64>, Vec<i64>) = (false, None, Vec::new());
+    let mut stand_emptied = true;
+    let (mut hl_set, mut hl_count, mut hl_in) = (true, 0usize, [false; 21]);
     let (mut clear_last_busy, mut clear_raw_was, mut clear_eff, mut clear_held): (Option<i64>, bool, bool, i64) = (None, false, false, 0);
     let mut clear_rises: Vec<(i64, i64, Option<i64>)> = Vec::new();
     let mut t_still = [0u32; 21];
@@ -5096,6 +5122,17 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut t_prev_v = [0f64; 21];
     let mut meet_n = [0usize; 3];
     let mut meet_min: [Option<(f64, String)>; 3] = [None, None, None];
+    let mut meet_cls = [0usize; 4];
+    let mut meet_cls_min: [Option<f64>; 4] = [None; 4];
+    let mut meet_cls_log: Vec<String> = Vec::new();
+    let mut upstream_max = 0usize;
+    let mut d_prev_vz = [0f64; 21];
+    let mut d_prev_v = [0f64; 21];
+    let mut d_pairs: Vec<(usize, usize)> = Vec::new();
+    let (mut d_meet, mut d_rev, mut d_rise) = (0usize, 0usize, 0usize);
+    let mut d_meet_min: Option<(f64, String)> = None;
+    let mut d_rise_min: Option<(f64, String)> = None;
+    let mut d_rev_log: Vec<String> = Vec::new();
     let mut latch_all: Vec<(i64, i64, bool)> = Vec::new();
     let mut t3_was_lit = false;
     let mut t3_rises: Vec<(i64, i64)> = Vec::new();
@@ -5345,8 +5382,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // (`acts`, fault injection: each block set at its slot offset, then the block it replaced
         // put back after its hold, before the bench's own controls this gt)
         for a in tm.acts.iter().flatten() {
-            if a.slot == c && a.dt == dt {
-                if let Some((k, [x, y, z, vz])) = a.place {
+            let adt = a.dt + if a.place.is_some_and(|(_, p)| p[4] > 0.5) { tm.pocket_release + if o.stand_wired { tm.rel_on } else { 0 } } else { 0 };
+            if a.slot == c && adt == dt {
+                if let Some((k, [x, y, z, vz, _])) = a.place {
                     // (a lab act: cart k and its rider set at a loop-frame point, at rest, or moving
                     // VZ along z (a crawl))
                     let p = redsim::entity::Vec3::new(x + fx, y, z + fz);
@@ -5801,6 +5839,67 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
+        // (`head_wait`, with `rel_clear`: the queue head's release waits on the departure-clear
+        // input too (farmopt's hand-off to day-1): while a cart is in the cell, the release group
+        // stays off; the release goes when the cell clears, for the window's length)
+        let dep_busy = tm.head_wait
+            && tm.rel_clear.is_some_and(|cell| {
+                carts.iter().any(|id| {
+                    run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| {
+                        let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                        lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                    })
+                })
+            });
+        // (and, cart evidence, the stand emptied since the head's last launch: no cart on the
+        // stand's strip (x xb+1 ..= xb+12, z 0) at some tick since; ironspec 2026-11-11)
+        if tm.head_wait {
+            let xb = -o.row_gap as f64;
+            let on_stand = carts.iter().any(|id| {
+                run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    lx >= xb + 1.0 && lx < xb + 13.0 && (0.0..1.0).contains(&lz)
+                })
+            });
+            if !on_stand {
+                stand_emptied = true;
+            }
+        }
+        // (`head_latch` K,X,Y,Z: the "train arrived since launch" latch (ironspec 2026-11-11): set
+        // when the K-th cart since the head's last launch enters the arrival cell X,Y,Z (loop frame;
+        // K 1 = the first cart's edge, 3 = the last's), reset by the launch; the head launches
+        // only while it is set)
+        if let Some((k_need, cell)) = tm.head_latch {
+            for (k, id) in carts.iter().enumerate().take(21) {
+                let inside = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                });
+                if inside && !hl_in[k] {
+                    hl_count += 1;
+                    if hl_count >= k_need {
+                        hl_set = true;
+                    }
+                }
+                hl_in[k] = inside;
+            }
+        }
+        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set);
+        if head_pending && !dep_busy {
+            if let Some(cr) = comb_run.as_mut() {
+                cr.on_launch(t, c);
+            }
+            set(&mut run.world, &release_group[..], true);
+            head_pending = false;
+            stand_emptied = false;
+            hl_set = false;
+            hl_count = 0;
+            head_off_at = Some(t + (tm.release_for - tm.release_start).max(1));
+        }
+        if head_off_at == Some(t) {
+            set(&mut run.world, &release_group[..], false);
+            head_off_at = None;
+        }
         // (`reg_interlock`, ideal sensors, bench-driven (ironspec Nov 11 04:38): the head releases
         // only into a stand that isn't holding a batch back (its last REL held or dropped by the
         // entry hold); a held release leaves the head's carts in place, and the register's
@@ -5809,10 +5908,16 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if c < cycles && dt == tm.release_start && stand_has_carts {
             reg_held.push(format!("slot {c}: release held (the stand holds carts)"));
         }
-        if c < cycles && dt == tm.release_start && !stand_has_carts {
+        if c < cycles && dt == tm.release_start && !stand_has_carts && dep_busy {
+            head_pending = true;
+            head_held.push(c);
+        } else if c < cycles && dt == tm.release_start && !stand_has_carts {
             if let Some(cr) = comb_run.as_mut() {
                 cr.on_launch(t, c);
             }
+            stand_emptied = false;
+            hl_set = false;
+            hl_count = 0;
             set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
             // (`entry_speed`: a speed kick along each release cart's slope, the tolerance probe)
             if tm.entry_speed != 0.0 {
@@ -6002,10 +6107,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let st_off = |k: usize| tm.release_offs.map(|o| o[k]).unwrap_or(tm.release_for + if tm.stagger_off && (tm.release_stagger > 0 || tm.release_gaps.is_some()) { st_on(k) } else { tm.release_start });
             let adv_on = |s: usize, dt: i64| (0..3usize).any(|k| { let a = tm.advance_at + k as i64 * tm.advance_every + tm.adv_shift[k] + tm.skew.get(s).copied().unwrap_or(0); dt >= a && dt < a + tm.pulse + tm.adv_width[k] });
             for k in 0..3usize {
-                if tm.release_stagger > 0 && k < 2 && dt == st_on(k) {
+                if tm.release_stagger > 0 && k < 2 && dt == st_on(k) && !head_pending && head_off_at.is_none() {
                     set(&mut run.world, &release_group[k..k + 1], true);
                 }
-                if dt == st_off(k) && !adv_on(q - 3 + k, dt) {
+                if dt == st_off(k) && !adv_on(q - 3 + k, dt) && !head_pending && head_off_at.is_none() {
                     set(&mut run.world, &release_group[k..k + 1], false);
                 }
             }
@@ -7367,7 +7472,67 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // (`approach_trace` C0,C1: every cart on the approach's column (x xb, z -0.5 ..= 21) each
             // tick of slots C0..=C1, front first: position, speed, and the gap to the cart ahead)
             if o.approach > 0 {
-                // (a cart at rest on the approach's flat top T for 5 ticks or more, and how it came
+                // (the departure crest's column: reversals onto a slope (a cart moving forward, +z,
+                // one tick and backward the next while on the climb, the descent or the rise), and
+                // meetings in the dip (a pair coming into contact there) with the slowest met cart)
+                if o.depart_crest > 0 {
+                    let xd = -o.row_gap as f64 + 12.5;
+                    let zc = 9 - o.depart_crest as i32;
+                    let dd = if o.crest_descent > 0 { o.crest_descent as i32 } else { o.depart_crest as i32 };
+                    let (dip0, dip_y) = ((zc + dd + 1) as f64, (-3 + (zc - 1) - dd) as f64);
+                    let mut dc: Vec<(usize, f64, f64, f64, f64)> = Vec::new();
+                    for (k, id) in carts.iter().enumerate().take(21) {
+                        if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) {
+                            let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                            if (lx - xd).abs() < 0.6 && lz > 0.5 && lz < 25.0 {
+                                dc.push((k, lz, e.pos.y, e.delta_movement.z, e.delta_movement.x));
+                                continue;
+                            }
+                        }
+                        d_prev_vz[k] = 0.0;
+                    }
+                    let on_flat = |z: f64, y: f64| (y - dip_y - 0.0625).abs() < 0.05 && z >= dip0;
+                    // (on the rise: past the dip's start, above its level)
+                    let on_rise = |z: f64, y: f64| z > dip0 && y > dip_y + 0.2;
+                    let mut pairs: Vec<(usize, usize)> = Vec::new();
+                    for a in 0..dc.len() {
+                        for b in a + 1..dc.len() {
+                            let (ka, za, ya, ..) = dc[a];
+                            let (kb, zb, yb, ..) = dc[b];
+                            // (the push reaches 1.25 between a cart on a slope and one on the flat)
+                            if (za - zb).abs() < 1.3 && (ya - yb).abs() < 1.2 {
+                                let pr = (ka.min(kb), ka.max(kb));
+                                pairs.push(pr);
+                                let (va, vb) = (d_prev_v[ka], d_prev_v[kb]);
+                                let (met, by, mz, my, mv) = if va <= vb { (ka, kb, za, ya, va) } else { (kb, ka, zb, yb, vb) };
+                                if !d_pairs.contains(&pr) && (on_flat(za, ya) || on_flat(zb, yb)) {
+                                    d_meet += 1;
+                                    if d_meet_min.as_ref().is_none_or(|(v, _)| mv < *v) {
+                                        d_meet_min = Some((mv, format!("cart {met} at z {mz:.2}, met by cart {by}, slot {c} +{dt}")));
+                                    }
+                                } else if !d_pairs.contains(&pr) && (on_rise(za, ya) || on_rise(zb, yb)) {
+                                    d_rise += 1;
+                                    if d_rise_min.as_ref().is_none_or(|(v, _)| mv < *v) {
+                                        d_rise_min = Some((mv, format!("cart {met} at z {mz:.2} y {my:.2}, met by cart {by}, slot {c} +{dt}")));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    d_pairs = pairs;
+                    for &(k, lz, y, vz, vx) in &dc {
+                        d_prev_v[k] = (vx * vx + vz * vz).sqrt();
+                        if vz.abs() > 0.001 {
+                            if !on_flat(lz, y) && d_prev_vz[k] > 0.001 && vz < -0.001 {
+                                d_rev += 1;
+                                if d_rev_log.len() < 4 {
+                                    d_rev_log.push(format!("slot {c} +{dt}: cart {k} at z {lz:.2} y {y:.2}"));
+                                }
+                            }
+                            d_prev_vz[k] = vz;
+                        }
+                    }
+                }
                 // there: (a) a forward arrival with no contact in the 40 gt before, (b) a backward
                 // arrival (from the stand's side), (c) a contact while carts rest on the descent
                 // ahead (a held train), or another contact; `other`: no arrival seen (placed). Also
@@ -7401,6 +7566,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // stopped one does); the slowest met cart on the climb and on T is kept)
                 let in_t = |z: f64, y: f64| z >= n - 1.0 && z < n && (y - ty).abs() < 0.3;
                 let in_climb = |z: f64| z >= n && z < 2.0 * n;
+                // (carts on the release run between the head and the line z 9|10: the most at once)
+                let up = col.iter().filter(|&&(_, z, ..)| (10.0..19.0).contains(&z)).count();
+                upstream_max = upstream_max.max(up);
+                // (the run's flat below the climb's foot: farmopt's border flat for `approach` 4)
+                let in_flat = |z: f64| z >= 2.0 * n && z < 2.0 * n + 3.0;
                 let mut pairs: Vec<(usize, usize)> = Vec::new();
                 for a in 0..col.len() {
                     for b in a + 1..col.len() {
@@ -7410,9 +7580,23 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         if (za - zb).abs() < 1.2 && (ya - yb).abs() < 1.2 {
                             let pr = (ka.min(kb), ka.max(kb));
                             pairs.push(pr);
-                            if !t_pairs.contains(&pr) && (in_t(za, ya) || in_t(zb, yb) || in_climb(za) || in_climb(zb)) {
+                            if !t_pairs.contains(&pr) && (in_t(za, ya) || in_t(zb, yb) || in_climb(za) || in_climb(zb) || in_flat(za) || in_flat(zb)) {
                                 let (va, vb) = (t_prev_v[ka], t_prev_v[kb]);
                                 let (met, by, mz, my, mv) = if va <= vb { (ka, kb, za, ya, va) } else { (kb, ka, zb, yb, vb) };
+                                let pz = if met == ka { zb } else { za };
+                                // (the class by where the met cart is: the flat run below the climb,
+                                // the climb's slopes, T, the descent)
+                                let cls = if in_t(mz, my) { 2 } else if mz < n - 1.0 { 3 } else if in_climb(mz) { 1 } else { 0 };
+                                meet_cls[cls] += 1;
+                                if meet_cls_min[cls].is_none_or(|v| mv < v) {
+                                    meet_cls_min[cls] = Some(mv);
+                                }
+                                if meet_cls_log.len() < 6 {
+                                    meet_cls_log.push(format!("{} slot {c} +{dt}: cart {met} at z {mz:.2} y {my:.2} v {mv:.3}, pusher cart {by} at z {pz:.2}", ["flat", "climb", "T", "descent"][cls]));
+                                }
+                                if in_flat(mz) && !in_climb(za) && !in_climb(zb) && !in_t(za, ya) && !in_t(zb, yb) {
+                                    continue;
+                                }
                                 // (where the met cart is: the climb's slopes, T, or the descent below T)
                                 let slot = if in_t(mz, my) { 1 } else if mz < n - 1.0 { 2 } else { 0 };
                                 meet_n[slot] += 1;
@@ -9413,12 +9597,30 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 min.map_or("- (never occupied)".to_string(), |(m, c, d)| format!("{m} gt (slot {c} +{d})"))
             ));
         }
+        if tm.head_wait || tm.head_latch.is_some() {
+            out.push(format!("head release waited (departure-clear, the stand emptied since its last launch, the arrival latch) in {} slots{}", head_held.len(), if head_held.is_empty() { String::new() } else { format!(" ({})", head_held.iter().take(8).map(|c| format!("slot {c}")).collect::<Vec<_>>().join(", ")) }));
+        }
         if o.approach > 0 {
             let [ca, cb, cc, ck, co] = t_causes;
             out.push(format!("carts at rest on T: {} (a {ca}, b {cb}, c {cc}, contact {ck}, other {co}){}", t_rests.len(), if t_rests.is_empty() { String::new() } else { format!(" ({})", t_rests.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
             out.push(format!("climb reversals: {climb_rev}{}", if climb_rev_log.is_empty() { String::new() } else { format!(" ({})", climb_rev_log.join("; ")) }));
             let m = |i: usize| meet_min[i].as_ref().map_or("-".to_string(), |(v, at)| format!("{v:.3} ({at})"));
             out.push(format!("meetings on the climb: {} (slowest met {}); on T: {} (slowest met {}); below T on the descent: {} (slowest met {})", meet_n[0], m(0), meet_n[1], m(1), meet_n[2], m(2)));
+            let cm = |i: usize| meet_cls_min[i].map_or("-".to_string(), |v| format!("{v:.3}"));
+            out.push(format!(
+                "meetings by the met cart's place: flat run below the climb {} (slowest {}), climb {} (slowest {}), T {} (slowest {}), descent {} (slowest {}){}",
+                meet_cls[0], cm(0), meet_cls[1], cm(1), meet_cls[2], cm(2), meet_cls[3], cm(3),
+                if meet_cls_log.is_empty() { String::new() } else { format!(" ({})", meet_cls_log.join("; ")) }
+            ));
+            out.push(format!("carts on the release run upstream of the line z 9|10 at once: at most {upstream_max}"));
+            if o.depart_crest > 0 {
+                out.push(format!(
+                    "departure: meetings in the dip: {d_meet} (slowest met {}); reversals onto a slope: {d_rev}{}; meetings on the rise: {d_rise} (slowest met {})",
+                    d_meet_min.as_ref().map_or("-".to_string(), |(v, at)| format!("{v:.3} ({at})")),
+                    if d_rev_log.is_empty() { String::new() } else { format!(" ({})", d_rev_log.join("; ")) },
+                    d_rise_min.as_ref().map_or("-".to_string(), |(v, at)| format!("{v:.3} ({at})"))
+                ));
+            }
         }
         if o.stand_wired && !latch_sets.is_empty() {
             out.push(format!("latch set (T2 out after +55): +{}..+{} over {} slots", latch_sets.iter().min().unwrap(), latch_sets.iter().max().unwrap(), latch_sets.len()));

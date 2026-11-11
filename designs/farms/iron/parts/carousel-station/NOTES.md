@@ -283,6 +283,45 @@ before the z 9|10 line: next section.
   sooner at 10 of 12 corners x staggers; nominal stagger 2 not (2 merges, 1 cart off the rails at
   the turn) nor stagger 3 (one seed's tail hole).
 
+### T, the census, and the departure crest's dip (Nov 11, bench, not yet validated)
+
+- **Why a cart on T is not pushed in.** The next train's first cart meets a cart resting (or crawling)
+  on T while its own centre is still on the climb's last slope (z 5.48-5.58, y 5.49-5.58, wherever on
+  T the cart rests): the contact reverses the pusher (0.05 back) and gives the met cart 0.05 forward;
+  the train rolls back down the climb, over the release run's boosters to the queue's head. The met
+  cart leaves T by itself 30-40 gt later. The climb's last slope as a booster (`--approach-boost`)
+  drives the reversed pusher back harder and drags the met cart with it (0-2 of 12 clean): rejected.
+  So the rule (ironspec): on a slope or a boosted cell, a moving cart never meets a stopped, crawling
+  or frozen cart.
+- **What strands a cart on T** (`carts at rest on T` by cause, `meetings` on the climb, on T and below
+  T with the slowest cart met, `climb reversals`; contact within 1.2, a held train = carts at rest or
+  under 0.15 on the descent). Every fault case x 12 corners x 2 seeds (2,016 runs, approach 5 + C' +
+  crest): 4 stops on T: 0 slow forward arrivals, 3 backward from the stand (REL extra, the z 9|10
+  split), 1 behind a crawling train (after a 40-gt stand-chunk freeze). Normal, D1/C/C' faults and
+  every whole unload: 0 meetings, 0 reversals. A frozen stand chunk with the release run running:
+  1,019 climb meetings with frozen carts, 883 climb reversals (the arrival side's border problem).
+- **The acceleration on the climb** (`--approach-climb-boost --boost-first 0`: the climb's slopes
+  boosters but D, the release run plain; 8 cells changed): normal flow identical (arrivals at G2 at
+  every corner), the split rows nearly clean (0 / 4 meetings), the frozen stand chunk not (484 climb
+  meetings, 259 reversals).
+- **The departure crest's dip.** The boosted dip is forbidden-class (a cart bounced backward there is
+  boosted back). Plain dips: `--crest-descent N --crest-plain-dip`; farmopt's (c') (two plain slopes
+  down from the crest, the flat dip at y 0 from z 9 across the line; R1's part with 13 boosted slopes
+  to (9,13,25): wip/stand-departure-crest-r1.txt, `--part-handoff 13,25`). A leaked batch (chunk
+  (0,1) frozen as cart 1 enters the dip) rests pressed: cart 1 frozen at z 10.25, cart 2 against it
+  on the flat, cart 3 on the second slope; it restarts by itself after the thaw. With one plain slope
+  ((c)) cart 3 rests on the flat and never restarts by itself. The departure-clear input
+  (`--rel-clear 9,0,10`, emulated: REL_eff rises only while the cell is empty) holds the next batch
+  (margin in normal flow 39 gt at every corner); `--head-wait` holds the queue head's release too.
+- **Allowed cells from push-in rows** (`dip stop z Z at rest|crawling`: the head's cart set in the dip
+  30 gt after REL; perfect tail, 12 corners x 2 seeds): z 9.5 and 10.5 clean (no reversal, no meeting
+  on the rise), z 11.5 not (the pusher reverses onto a slope, meetings on the rise) — the opposite of
+  the 1.2-contact distance rule, so the part's `border:` lists (9,0,9..10) (`--part-allowed 9,10`).
+- **The tail must never back carts onto the rise:** with the bench's own tail, an extra cart in a
+  departing group overflows the tail at the U-turn; the carts it backs onto the rise are boosted
+  backward to the cap, clear the 2-block crest and roll down the climb through G0 (every unexplained
+  back-crossing in the push-in rows traced to it).
+
 ## Declared states and flights (the brief's "No derails", Nov 11)
 
 Both station files carry the lines `mobfarm::declared` and `mobfarm::flight` read:
