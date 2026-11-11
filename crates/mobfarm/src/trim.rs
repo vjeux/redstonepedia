@@ -230,15 +230,22 @@ fn facts(pl: &Place, d: &Design, exit: Option<usize>, hostile: bool) -> Result<F
 }
 
 /// How high the player can climb from beside the chest (a 0.6 x 1.8 box walking, jumping 1.25,
-/// dropping up to 3; blocks without a collision box pass, a fence gate is a door it opens): the
-/// highest floor reached.
+/// dropping up to 3; blocks without a collision box pass, a fence gate or a wooden door or
+/// trapdoor is a door it opens): the highest floor reached.
 fn climb(w: &World, chest: BlockPos) -> f64 {
     use redsim::entity::collide::{block_collisions, boxes_at};
-    // a fence gate is a door the player opens: its box never blocks
+    // a fence gate is a door the player opens: its box never blocks, and it is no floor
     let gate = |p: BlockPos| format!("{}", w.get(p)).contains("fence_gate");
+    // (ironspec 2026-11-11, d1u-deep's access closed by oak trapdoors that do not burn) a wooden
+    // door or trapdoor the player opens by hand: its box never blocks (an iron one needs redstone);
+    // a closed trapdoor stays a floor
+    let opens = |p: BlockPos| {
+        let s = format!("{}", w.get(p));
+        gate(p) || ((s.contains("_trapdoor") || s.contains("_door")) && !s.contains("iron_"))
+    };
     let free = |x: i32, z: i32, from: f64, to: f64| {
         let bb = Aabb::new(x as f64 + 0.2, from + 1.0e-3, z as f64 + 0.2, x as f64 + 0.8, to, z as f64 + 0.8);
-        block_collisions(w, bb).iter().all(|(p, bs)| gate(*p) || bs.iter().all(|b| !b.intersects(bb)))
+        block_collisions(w, bb).iter().all(|(p, bs)| opens(*p) || bs.iter().all(|b| !b.intersects(bb)))
     };
     // the floors a player can stand on in column (x, z) between `lo` and `hi`: the tops of the
     // collision boxes there (a slab's half, a block's top), each with 1.8 free above it
