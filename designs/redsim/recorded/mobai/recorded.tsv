@@ -108,6 +108,7 @@ salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: se
 side-push.rec	99d33582e58d1134		26.3	2026-11-11T20:45Z on 37d74a3853	mctas mobai record side-push --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 siding-fault-nap40.rec	f1df1678c77517e6		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record siding-fault-nap40 --seed 1 --ticks 3300 --dir designs/redsim/recorded/mobai
+siding-hatch.rec	62a8033311740dd0		26.3	2026-11-11T21:03Z on fda56e3afc	mctas mobai record siding-hatch --seed 1 --ticks 900 --dir designs/redsim/recorded/mobai
 siding-raw.rec	04aee9029e5c9d6f		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-raw --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 siding-sleepfail-nodrop3.rec	b47ddf17af593783		26.3	2026-11-11T11:13Z on a7485adf5	mctas mobai record siding-sleepfail-nodrop3 --seed 1 --ticks 3300 --dir designs/redsim/recorded/mobai
 skeleton-golem.rec	201cbec2967abec0		26.3	2026-11-10T16:07Z on 4b8e206c1	mctas mobai record skeleton-golem --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai

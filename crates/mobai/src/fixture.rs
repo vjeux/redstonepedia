@@ -96,6 +96,12 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, ironspec's hatch sight lines) every lane's hatch shut at t300 (a
+        // top-half trapdoor closed: the sight lines should be clear) and opened again at t600
+        "siding-hatch" => {
+            let hatch = |open: bool| format!("minecraft:iron_trapdoor[facing=west,half=top,open={open},powered=false,waterlogged=false]");
+            vec![(300, (0..3).map(|l| (siding_hatch_at(l), hatch(false))).collect()), (600, (0..3).map(|l| (siding_hatch_at(l), hatch(true))).collect())]
+        }
         // (tickexact 2026-11-11, farmopt's hold H) every lane's H opened at t30, shut its lane's
         // ticks later
         "gate-hold-w" => {
@@ -696,6 +702,31 @@ const CAROUSEL_SHIFT: [i32; 3] = [34, 64, 10];
 /// frozen here: its take-off flats (8,13,24) (7,13,24) (6,13,24), the gap at x 5, the landing
 /// (4,11,24) then (3,10,24), the slopes (2,9,24) (1,8,24), the curve (0,8,24) and the descent south.
 const LEDGE_ESCR1: &str = include_str!("../scenes/ledge-escR1.txt");
+
+/// (tickexact 2026-11-11, ironspec's hatch sight lines) 58f770cc's siding (b) FC on the tight cage
+/// by itself (explore/farmopt-station 10d6461ab, `carousel-siding-b-fc-alone.txt`), frozen.
+const SIDING_B_FC: &str = include_str!("../scenes/siding-b-fc-alone.txt");
+
+/// A siding block as geometry for a sight-line scene: redstone components gone (no collision box,
+/// or a slab's: repeaters and comparators as smooth stone slabs; redstone blocks and droppers as
+/// stone), rails and trapdoors unpowered, leaves off any log (distance 7); every collision shape
+/// a sight ray meets kept.
+fn siding_geometry(st: &str) -> Option<String> {
+    let id = st.split('[').next().unwrap_or(st);
+    match id {
+        "minecraft:redstone_wire" | "minecraft:redstone_torch" | "minecraft:redstone_wall_torch" | "minecraft:tripwire" | "minecraft:tripwire_hook" => None,
+        "minecraft:repeater" | "minecraft:comparator" => Some("minecraft:smooth_stone_slab[type=bottom,waterlogged=false]".to_string()),
+        "minecraft:redstone_block" | "minecraft:dropper" | "minecraft:observer" | "minecraft:hopper" => Some("minecraft:stone".to_string()),
+        "minecraft:powered_rail" | "minecraft:activator_rail" | "minecraft:detector_rail" | "minecraft:iron_trapdoor" => Some(st.replace("powered=true", "powered=false")),
+        "minecraft:oak_leaves" => Some(st.replace("distance=1", "distance=7")),
+        _ => Some(st.to_string()),
+    }
+}
+
+/// The hatch's cell in scene siding-hatch's lane `lane` (design (3,7,3)).
+fn siding_hatch_at(lane: i32) -> [i32; 3] {
+    [3 + 8, 7 + 68, 3 + 5 + 20 * lane]
+}
 
 /// (tickexact 2026-11-11) ironfarm's R1 contact scenes (explore/ironfarm 5d930291e, `mobfarm
 /// contact-scenes`): the escapement column copied from escR1 (x 0, z 26..34, y -1..8: the slopes
@@ -4019,6 +4050,69 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's hatch sight lines: the siding (b) FC's wake post, a zombie in
+    // a boat in a glass box whose one open cell (3,7,3) holds the hatch, a top-half iron trapdoor
+    // facing west: closed should leave the lines clear, open should block them) three copies of the
+    // siding's geometry (siding_geometry: its redstone gone) 20 apart in z, design (x, y, z) at
+    // (x + 8, y + 68, z + 5 + 20 lane), each with the design's zombie boat at (4.5,7,3.5), the hatch
+    // open: lane 0 a villager at the stand-up cell (1.4,0,2.5) remembering the bed (0,0,2) as HOME
+    // (it lies down: the sleeper); lane 1 a villager held at the stand-up cell (glass at (1,0,1),
+    // (1,1,1) and over the bed cells (0,1,2), (0,1,3), the bed taken out); lane 2 a villager in a cart at rest on the T
+    // (1,0,0). Night (REST); the hatches shut at t300, open again at t600 (scene_actions)
+    {
+        let d = mctas::design::Design::parse(SIDING_B_FC).expect("the frozen siding parses");
+        let mut b: Vec<([i32; 3], String)> = Vec::new();
+        floor(&mut b, 0, 32, 0, 64, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for lane in 0..3 {
+            let at = |p: [i32; 3]| [p[0] + 8, p[1] + 68, p[2] + 5 + 20 * lane];
+            let atf = |p: [f64; 3]| [p[0] + 8.0, p[1] + 68.0, p[2] + 5.0 + 20.0 * lane as f64];
+            for (p, st) in &d.blocks {
+                if p[1] < -4 {
+                    continue;
+                }
+                // (lane 1: no bed, so its villager claims none and stays awake at the stand-up cell)
+                if lane == 1 && st.contains("_bed[") {
+                    continue;
+                }
+                if let Some(s) = siding_geometry(st) {
+                    b.push((at([p[0], p[1], p[2]]), s));
+                }
+            }
+            if lane != 2 {
+                for p in [[1, 0, 1], [1, 1, 1]] {
+                    b.push((at(p), "minecraft:glass".to_string()));
+                }
+            }
+            if lane == 1 {
+                for p in [[0, 1, 2], [0, 1, 3]] {
+                    b.push((at(p), "minecraft:glass".to_string()));
+                }
+            }
+            mobs.push(("minecraft:oak_boat".into(), atf([4.5, 7.0, 3.5]), Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+            match lane {
+                0 => {
+                    let bed = at([0, 0, 2]);
+                    mobs.push(("minecraft:villager".into(), atf([1.4, 0.0, 2.5]), Some(format!("{{PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}", bed[0], bed[1], bed[2]))));
+                }
+                1 => mobs.push(("minecraft:villager".into(), atf([1.4, 0.0, 2.5]), Some("{PersistenceRequired:1b}".into()))),
+                _ => mobs.push(("minecraft:minecart".into(), atf([1.5, 0.0625, 0.5]), Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into()))),
+            }
+        }
+        v.push(Scene {
+            name: "siding-hatch".into(),
+            chunks: [0, 0, 1, 3],
+            blocks: b,
+            mobs,
+            day_time: 12500,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 80, 63]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
@@ -6921,6 +7015,49 @@ pub fn rec_side(path: &std::path::Path, pairs: &[(i64, i64)]) -> Result<()> {
             }
         }
         println!("  largest departure while overlapping: {:.4} at t{}", worst.0, worst.1);
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's hatch sight lines) `mctas mobai hatch-sweep <rec>`: redsim's line
+/// of sight (bridged by scene siding-hatch, 0 differences) from the napper's eye over its whole range
+/// to the dorm zombie's eye, the hatch closed and open, with the sensor's 8-block reach between their
+/// feet: the stand-up cell (feet x 1.3..1.5, z 2.3..2.7, y 0; eye 1.62), the sleeper (in the bed,
+/// eye 0.2 over its 0.6875) and a rider on the T (seated eye 1.68 over the rail). The zombie's place
+/// from the recording's first frame (lane 0).
+pub fn hatch_sweep(path: &std::path::Path) -> Result<()> {
+    let s = scenes().into_iter().find(|s| s.name == "siding-hatch").ok_or_else(|| anyhow!("no scene siding-hatch"))?;
+    let text = mctas::recorded::read_text(path)?;
+    let f: serde_json::Value = serde_json::from_str(text.lines().nth(1).ok_or_else(|| anyhow!("no frame"))?)?;
+    let z = f["entities"].as_array().into_iter().flatten().find(|e| e["type"] == "zombie" && e["pos"][2].as_f64().is_some_and(|z| z < 20.0)).ok_or_else(|| anyhow!("no zombie in lane 0"))?;
+    let zp = [z["pos"][0].as_f64().unwrap_or(0.0), z["pos"][1].as_f64().unwrap_or(0.0), z["pos"][2].as_f64().unwrap_or(0.0)];
+    let zeye = redsim::entity::Vec3::new(zp[0], zp[1] + 1.74, zp[2]);
+    println!("the zombie at {:.3},{:.3},{:.3} (design {:.3},{:.3},{:.3}), its eye {:.3} up", zp[0], zp[1], zp[2], zp[0] - 8.0, zp[1] - 68.0, zp[2] - 5.0, 1.74);
+    let mut w = redsim_world(&s, 1)?;
+    let at = |p: [f64; 3]| [p[0] + 8.0, p[1] + 68.0, p[2] + 5.0];
+    for open in [false, true] {
+        let st = format!("minecraft:iron_trapdoor[facing=west,half=top,open={open},powered=false,waterlogged=false]");
+        let h = siding_hatch_at(0);
+        w.set_block(BlockPos::new(h[0], h[1], h[2]), Block::parse(&st).map_err(|e| anyhow!(e))?, redsim::world::flags::RAW);
+        println!("hatch {}:", if open { "open" } else { "closed" });
+        let mut probe = |what: &str, feet: [f64; 3], eye: f64| {
+            let p = at(feet);
+            let from = redsim::entity::Vec3::new(p[0], p[1] + eye, p[2]);
+            let sees = redsim::entity::mob::los::has_line_of_sight(&w, from, zeye);
+            let dist = ((p[0] - zp[0]).powi(2) + (p[1] - zp[1]).powi(2) + (p[2] - zp[2]).powi(2)).sqrt();
+            format!("{what} {}{}", if sees { "SEES" } else { "blocked" }, if dist <= 8.0 { String::new() } else { format!(" (feet {dist:.2} apart: past the sensor's 8)") })
+        };
+        let mut row = Vec::new();
+        for x in [1.3, 1.35, 1.4, 1.45, 1.5] {
+            for zz in [2.3, 2.4, 2.5, 2.6, 2.7] {
+                row.push(probe(&format!("({x:.2},{zz:.1})"), [x, 0.0, zz], 1.62));
+            }
+            println!("  stand-up cell: {}", row.join("; "));
+            row.clear();
+        }
+        println!("  sleeper: {}", probe("(0.50,0.6875,2.50)", [0.5, 0.6875, 2.5], 0.2));
+        let t: Vec<String> = [[1.5, 0.0625, 0.5], [1.25, 0.0625, 0.75], [1.5, 0.0625, 1.0], [1.0, 0.0625, 0.5], [0.5, 0.0625, 0.5]].iter().map(|p| probe(&format!("({:.2},{:.2})", p[0], p[2]), *p, 1.62)).collect();
+        println!("  T rider: {}", t.join("; "));
     }
     Ok(())
 }
