@@ -43,6 +43,10 @@ pub struct Summary {
     pub t_rests: usize,
     pub t_causes: [usize; 5],
     pub climb_rev: usize,
+    /// Meetings (a pair coming into contact) on the climb and on T, and the slowest met cart's
+    /// speed at each (ironspec's crawl rule).
+    pub meet_n: [usize; 3],
+    pub meet_min: [Option<f64>; 3],
 }
 
 fn num_after(l: &str, key: &str) -> Option<i64> {
@@ -95,6 +99,13 @@ pub fn summarize(out: &str) -> Summary {
             s.t_rests = v.first().copied().unwrap_or(0);
             for i in 0..5 {
                 s.t_causes[i] = v.get(i + 1).copied().unwrap_or(0);
+            }
+        } else if let Some(r) = l.strip_prefix("meetings on the climb: ") {
+            let (cl, rest) = r.split_once("; on T: ").unwrap_or((r, ""));
+            let (t, de) = rest.split_once("; below T on the descent: ").unwrap_or((rest, ""));
+            for (i, part) in [cl, t, de].iter().enumerate() {
+                s.meet_n[i] = part.split(|c: char| !c.is_ascii_digit()).next().and_then(|t| t.parse().ok()).unwrap_or(0);
+                s.meet_min[i] = part.split_once("slowest met ").and_then(|(_, v)| v.split_whitespace().next()).and_then(|v| v.parse().ok());
             }
         } else if let Some(r) = l.strip_prefix("climb reversals: ") {
             s.climb_rev = r.split(|c: char| !c.is_ascii_digit()).next().and_then(|t| t.parse().ok()).unwrap_or(0);
@@ -306,7 +317,9 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let tr: usize = ss.iter().map(|s| s.t_rests).sum();
         let tc: Vec<usize> = (0..5).map(|i| ss.iter().map(|s| s.t_causes[i]).sum()).collect();
         let rv: usize = ss.iter().map(|s| s.climb_rev).sum();
-        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv}", tc[0], tc[1], tc[2], tc[3], tc[4]) } else { pad };
+        let mn: Vec<usize> = (0..3).map(|i| ss.iter().map(|s| s.meet_n[i]).sum()).collect();
+        let mm: Vec<String> = (0..3).map(|i| ss.iter().filter_map(|s| s.meet_min[i]).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.min(v)))).map_or("-".into(), |v| format!("{v:.3}"))).collect();
+        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv} | met climb {} (slowest {}) T {} (slowest {}) descent {} (slowest {})", tc[0], tc[1], tc[2], tc[3], tc[4], mn[0], mm[0], mn[1], mm[1], mn[2], mm[2]) } else { pad };
         let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 || derails > 0 || dbad > 0 || oot > 0 { " <--" } else { "" };
         out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
     }
