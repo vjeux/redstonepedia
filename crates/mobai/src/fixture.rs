@@ -103,6 +103,64 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             v
         }
+        // (tickexact 2026-11-11) the re-claim delay: each pen's west wall opened at its time
+        "reclaim-backoff" | "reclaim-backoff-day" => {
+            let open = |x: i32| vec![s([x - 1, 64, 6], "minecraft:air"), s([x - 1, 65, 6], "minecraft:air")];
+            vec![(300, open(6)), (1500, open(16)), (4000, open(26))]
+        }
+        "reclaim-backoff-1" => vec![(300, vec![s([5, 64, 6], "minecraft:air"), s([5, 65, 6], "minecraft:air")])],
+        // (tickexact 2026-11-11) the recoverability scenes: HOME and tickets at t1-t3, the freeze
+        // 900..2400, the pens opened at t2500
+        "recover-single" | "recover-shared" | "recover-occupied" => {
+            let bed = [5, 64, 6];
+            let open = |x: i32, z: i32| vec![s([x - 1, 64, z], "minecraft:air"), s([x - 1, 65, z], "minecraft:air")];
+            // the bed broken and placed again in one go (no tick sees it missing)
+            let replace = vec![
+                s([5, 64, 5], "minecraft:air"),
+                s([5, 64, 6], "minecraft:air"),
+                s([5, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]"),
+                s([5, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]"),
+            ];
+            match name {
+                "recover-single" => vec![
+                    (1, vec![s(bed, "home:e0"), s(bed, "poi-take")]),
+                    (900, vec![s([0, 0, 0], "unload:0,0,0,0")]),
+                    (2400, vec![s([0, 0, 0], "load:0,0,0,0")]),
+                    (2500, open(8, 6)),
+                ],
+                "recover-shared" => vec![
+                    (1, vec![s(bed, "home:e0"), s(bed, "poi-take")]),
+                    (2, replace),
+                    (3, vec![s(bed, "home:e1"), s(bed, "poi-take")]),
+                    (900, vec![s([0, 0, 0], "unload:0,0,0,0")]),
+                    (2400, vec![s([0, 0, 0], "load:0,0,0,0")]),
+                    (2500, [open(8, 6), open(8, 9)].concat()),
+                ],
+                _ => vec![
+                    (1, vec![s(bed, "home:e1"), s(bed, "poi-take")]),
+                    (2, replace),
+                    (3, vec![s(bed, "home:e0"), s(bed, "poi-take")]),
+                    (100, open(8, 6)),
+                    (900, vec![s([0, 0, 0], "unload:1,0,1,0")]),
+                    (2400, vec![s([0, 0, 0], "load:1,0,1,0")]),
+                    (2500, open(22, 6)),
+                ],
+            }
+        }
+        // (tickexact 2026-11-11) the bed radius: S's HOME and the bed's ticket, the riders' HOME,
+        // at t1; S let out at t100; "-reload": the whole part away 1 gt at t300
+        "bed-radius" | "bed-radius-zombie" | "bed-radius-zombie-reload" | "bed-radius-reload" => {
+            let mut v = vec![
+                (1, vec![s([5, 64, 6], "home:e0"), s([5, 64, 6], "poi-take"), s([5, 64, 6], "home:e1.p0"), s([5, 64, 6], "home:e2.p0")]),
+                (100, vec![s([7, 64, 6], "minecraft:air"), s([7, 65, 6], "minecraft:air")]),
+            ];
+            if name.ends_with("-reload") {
+                v.push((300, vec![s([0, 0, 0], "unload")]));
+                v.push((301, vec![s([0, 0, 0], "load")]));
+            }
+            v
+        }
+        "home-reach-open" => vec![(1, vec![s([10, 64, 11], "home:e0.p0"), s([10, 64, 11], "poi-take"), s([26, 64, 11], "home:e1.p0"), s([26, 64, 11], "poi-take")])],
         // (tickexact 2026-11-11) the freeze across a cant-reach streak: each rider's HOME and its
         // bed's POI at t1, then R1's chunk (0, 0) frozen from t900 for 1500 (or 5000) gt
         "freeze-cantreach" | "freeze-cantreach-5000" | "freeze-cantreach-zombie" | "freeze-cantreach-zombie-5000" => {
@@ -463,6 +521,10 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     // (ironfarm's escG6L-v3: the same cells, G0 at G_P +2 for 4 gt at advances 1 and 2, at G_P +10
     // for 4 gt at advance 3 (the binding case); one full cycle from the scene's 4 tail carts)
     ("gate-escg6l-v3", include_str!("../scenes/gate-escg6l-v3.txt"), include_str!("../scenes/gate-escg6l-v3.drive")),
+    // (ironfarm's longer escG6L-v3 scene: 6 tail carts with riders as its tail bench had them at
+    // cycle 6's start (positions, motions, facings), G_P 2 gt at advance +6, G0 at G_P +4 for 6 gt
+    // on advances 1 and 2 and at G_P +10 for 6 gt on advance 3, over 3 cycles)
+    ("gate-escg6l-v4", include_str!("../scenes/gate-escg6l-v4.txt"), include_str!("../scenes/gate-escg6l-v4.drive")),
     // (tickexact 2026-11-11, 58f770cc's plate: main's faults/carousel-siding-wired-plate.txt, a
     // stone pressure plate (1,2,1) on the glass ceiling over the booster rail (1,0,1), and its three
     // drives (`siding-bench --wired --launch --nights 1 --drive-out`): a normal night (seed 1), a
@@ -470,6 +532,12 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("siding-plate-normal", include_str!("../scenes/siding-plate.txt"), include_str!("../scenes/siding-plate-normal-seed1.drive")),
     ("siding-plate-day", include_str!("../scenes/siding-plate.txt"), include_str!("../scenes/siding-plate-day-seed1.drive")),
     ("siding-plate-kick3", include_str!("../scenes/siding-plate.txt"), include_str!("../scenes/siding-plate-whole-kick-3-seed4.drive")),
+    // (tickexact 2026-11-11, ironspec's night-time sleep failure with the bed free: 58f770cc's two
+    // drives on explore/farmopt-station 16ba69af8's member file carousel-siding-wired.txt, seed 1,
+    // the fault on visit 3: the activator a plain rail 2729..3356 (the napper stays aboard and parks
+    // with its cart), or the bed set occupied with nobody in it 2759..3355)
+    ("siding-sleepfail-nodrop3", include_str!("../scenes/siding-member.txt"), include_str!("../scenes/siding-no-drop-3-seed1.drive")),
+    ("siding-sleepfail-bedtaken3", include_str!("../scenes/siding-member.txt"), include_str!("../scenes/siding-bed-taken-3-seed1.drive")),
 ];
 
 /// (tickexact 2026-11-10, ironspec's chunk alignment) Drive scenes moved in the sandbox, with
@@ -867,7 +935,7 @@ fn scene_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
 /// from the state its redstone settles in with no cart on its detector rails. Its actions count
 /// from the summon.
 fn scene_settle(name: &str) -> u32 {
-    if name == "carousel-wired" || name == "gate-escg6l" || name == "gate-escg6l-v3" || scene_bench_start(name) { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
+    if name == "carousel-wired" || name == "gate-escg6l" || name == "gate-escg6l-v3" || name == "gate-escg6l-v4" || scene_bench_start(name) { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
 }
 
 /// The ticks before a scene's mobs are summoned: a built-in-order scene's build (its drive log's
@@ -911,7 +979,7 @@ fn scene_placement(name: &str) -> Placement {
         return scene_placement(base);
     }
     match name {
-        "carousel-wired" | "carousel-wired-pocket" | "siding-fault-kick3" | "siding-fault-asleep700" | "siding-fault-nap40" | "gate-escg6l" | "gate-escg6l-v3" | "siding-plate-normal" | "siding-plate-day" | "siding-plate-kick3" => Placement::Judge,
+        "carousel-wired" | "carousel-wired-pocket" | "siding-fault-kick3" | "siding-fault-asleep700" | "siding-fault-nap40" | "gate-escg6l" | "gate-escg6l-v3" | "gate-escg6l-v4" | "siding-plate-normal" | "siding-plate-day" | "siding-plate-kick3" | "siding-sleepfail-nodrop3" | "siding-sleepfail-bedtaken3" => Placement::Judge,
         "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" | "unload-v3-raw" | "unload-part-v3-raw" => Placement::Merged,
         "carousel-wired-built" | "carousel-wired-v3-built" | "siding-built" | "station-built" => Placement::Built,
         "siding-raw" | "station-raw" | "unload-siding-raw" => Placement::Merged,
@@ -929,7 +997,7 @@ fn scene_judge_placed(name: &str) -> bool {
 /// summon (they would read the settle's sky), then placed raw with their updates; its output chest
 /// (`port output`) set when it is not one, and emptied.
 fn scene_bench_start(name: &str) -> bool {
-    name == "carousel-wired-pocket" || name.starts_with("siding-fault-") || name.starts_with("siding-plate-") || moved(name).is_some_and(|(base, ..)| scene_bench_start(base))
+    name == "carousel-wired-pocket" || name.starts_with("siding-fault-") || name.starts_with("siding-plate-") || name.starts_with("siding-sleepfail-") || moved(name).is_some_and(|(base, ..)| scene_bench_start(base))
 }
 
 /// The chest a bench start sets at the output.
@@ -2258,15 +2326,19 @@ fn scenes_raw() -> Vec<Scene> {
     // never frozen (the control: its release at 1200 gt of streak); night (REST from day time
     // 13000); "-zombie": a zombie in a boat in R1's sight (4 blocks: R1 panics), out of R2's (13);
     // "-5000": the freeze 5000 gt instead of 1500 (scene_actions)
-    for (name, zombie) in [("freeze-cantreach", false), ("freeze-cantreach-5000", false), ("freeze-cantreach-zombie", true), ("freeze-cantreach-zombie-5000", true)] {
+    for (name, zombie) in [("freeze-cantreach", false), ("freeze-cantreach-5000", false), ("freeze-cantreach-zombie", true), ("freeze-cantreach-zombie-5000", true), ("home-reach-open", false)] {
         let mut b = Vec::new();
         floor(&mut b, 0, 32, 0, 16, 63, stone);
+        // ("home-reach-open", ironspec's e5 puzzle: R1's bed on the open floor, reachable on foot
+        // from its cart (AcquirePoi's path, reach 1, ends beside or on top of the bed), R2's sealed
+        // as before; nothing frozen)
+        let open = name == "home-reach-open";
         for (cart_x, bed_x) in [(5, 10), (21, 26)] {
             b.push(([cart_x, 64, 5], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
             for x in bed_x - 1..=bed_x + 1 {
                 for z in 9..=12 {
                     for y in 64..=65 {
-                        if !(x == bed_x && (z == 10 || z == 11) && y == 64) {
+                        if !(x == bed_x && (z == 10 || z == 11) && y == 64) && !(open && bed_x == 10) {
                             b.push(([x, y, z], "minecraft:glass".to_string()));
                         }
                     }
@@ -2286,6 +2358,172 @@ fn scenes_raw() -> Vec<Scene> {
             blocks: b,
             mobs,
             day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's bed radius: ValidateNearbyPoi(HOME) in REST erases a
+    // villager's HOME when the bed (closerToCenterThan 16 of it) is OCCUPIED and it is not the
+    // sleeper, keeping the bed's ticket while a villager sleeps there) a bed (head (5,64,6)) and
+    // its sleeper S (e0, HOME and the ticket at t1, penned in glass 3 blocks east until t100: it
+    // lies down soon after); two riders in minecarts on rails, both with HOME on that bed from
+    // t1: R15 (e1) 15.0 from the bed's center along x, R17 (e2) 17.0 along z; night (REST from day
+    // time 13000). "-zombie": a zombie in a boat 5 blocks from R15 (out of S's and R17's range: R15
+    // panics before the bed is taken); "-reload": the whole part away 1 gt at t300, S asleep (the
+    // riders' fresh brains calm in REST until their sensors scan)
+    for (name, zombie) in [("bed-radius", false), ("bed-radius-zombie", true), ("bed-radius-zombie-reload", true), ("bed-radius-reload", false)] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 32, 63, stone);
+        b.push(([5, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([5, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        for (x, z) in [(7, 6), (9, 6), (8, 5), (8, 7)] {
+            for y in 64..=65 {
+                b.push(([x, y, z], "minecraft:glass".to_string()));
+            }
+        }
+        b.push(([8, 66, 6], "minecraft:glass".to_string()));
+        b.push(([20, 64, 6], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+        b.push(([5, 64, 23], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = vec![
+            ("minecraft:villager".into(), [8.5, 64.0, 6.5], Some("{PersistenceRequired:1b}".into())),
+            ("minecraft:minecart".into(), [20.5, 64.0, 6.5], Some(rider.into())),
+            ("minecraft:minecart".into(), [5.5, 64.0, 23.5], Some(rider.into())),
+        ];
+        if zombie {
+            mobs.push(("minecraft:oak_boat".into(), [24.5, 64.0, 9.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 1, 1],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's recoverability) one bed (head (5,64,6)); villagers penned
+    // in glass (a 1x1 cell, 2 high, roofed) so the path to the bed never reaches: their streak
+    // builds in REST, a freeze of their chunk (900 for 1500 gt) releases HOME on the resume
+    // (releasePoi: the ticket back, at most the record's 1), then the pens open (their west wall,
+    // t2500) and AcquirePoi may claim the bed again. "recover-single": V (e0) penned 3 blocks east,
+    // HOME and the ticket at t1. "recover-shared": V1 (e0) and V2 (e1) sharing the bed the way the
+    // build does: V1's HOME and ticket, the bed broken and placed again (a fresh record, its ticket
+    // free), V2's HOME and ticket; both penned in the frozen chunk. "recover-occupied": S (e0)
+    // asleep in the bed (let out at t100), V (e1) penned 17 blocks east in chunk (1, 0) (beyond
+    // ValidateNearbyPoi's 16) with HOME on the bed from before the break (its ticket gone with the
+    // old record), S's ticket on the new one; V's chunk frozen; dawn at t4000 (day time 20000)
+    for name in ["recover-single", "recover-shared", "recover-occupied"] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        b.push(([5, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([5, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        let pens: Vec<[i32; 2]> = match name {
+            "recover-single" => vec![[8, 6]],
+            "recover-shared" => vec![[8, 6], [8, 9]],
+            _ => vec![[8, 6], [22, 6]],
+        };
+        for [x, z] in &pens {
+            for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                for y in 64..=65 {
+                    b.push(([x + dx, y, z + dz], "minecraft:glass".to_string()));
+                }
+            }
+            b.push(([*x, 66, *z], "minecraft:glass".to_string()));
+        }
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = pens.iter().map(|[x, z]| ("minecraft:villager".to_string(), [*x as f64 + 0.5, 64.0, *z as f64 + 0.5], Some("{PersistenceRequired:1b}".to_string()))).collect();
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: if name == "recover-occupied" { 20000 } else { 13000 },
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec: the re-claim delay after a long failure) three villagers,
+    // each homeless and penned in glass 3 blocks east of its own bed (the path never reaches: every
+    // AcquirePoi attempt fails, its retry interval to that bed growing, JitteredLinearRetry: +40..80
+    // gt a failure up to 400), each pen opened at its own time (V0 t300, V1 t1500, V2 t4000); night
+    for name in ["reclaim-backoff", "reclaim-backoff-day", "reclaim-backoff-1"] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        // ("-1": V0 and its bed only, the one-bed control)
+        for k in 0..(if name == "reclaim-backoff-1" { 1 } else { 3 }) {
+            let (bx, px) = (3 + 10 * k, 6 + 10 * k);
+            b.push(([bx, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+            b.push(([bx, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+            for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                for y in 64..=65 {
+                    b.push(([px + dx, y, 6 + dz], "minecraft:glass".to_string()));
+                }
+            }
+            b.push(([px, 66, 6], "minecraft:glass".to_string()));
+            mobs.push(("minecraft:villager".to_string(), [px as f64 + 0.5, 64.0, 6.5], Some("{PersistenceRequired:1b}".to_string())));
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            // ("-day": in the day, IDLE: AcquirePoi(HOME) runs in CORE all day)
+            day_time: if name.ends_with("-day") { 1000 } else { 13000 },
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec / ironfarm's merges: AbstractMinecart.push skips a pair
+    // closer than 0.01 horizontally, dist² < 1e-4) four lines of flat rail between two stones
+    // (x 3..20), two minecarts each, summoned moving east at 0.2: A (z 2) at the identical spot with
+    // villagers riding; B (z 5) 0.005 apart (dist² 2.5e-5) with riders; C (z 8) 0.02 apart (dist²
+    // 4e-4: the positive control, pushed apart) with riders; D (z 11) empty at the identical spot;
+    // a zombie in a boat in the riders' sight (they panic)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        for z in [2, 5, 8, 11] {
+            for x in 3..=20 {
+                b.push(([x, 64, z], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            }
+            b.push(([2, 64, z], stone.to_string()));
+            b.push(([21, 64, z], stone.to_string()));
+        }
+        let rider = "{Motion:[0.2d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let rider_rest = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let empty_rest = "{}";
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        // A: moving together into the stop (the merge forms there); B: at rest 0.005 apart; C: at
+        // rest 0.02 apart with riders; D: at rest 0.02 apart, empty
+        for (z, dx, data) in [(2.5, 0.0, rider), (5.5, 0.005, rider_rest), (8.5, 0.02, rider_rest), (11.5, 0.02, empty_rest)] {
+            mobs.push(("minecraft:minecart".into(), [10.5, 64.0, z], Some(data.into())));
+            mobs.push(("minecraft:minecart".into(), [10.5 + dx, 64.0, z], Some(data.into())));
+        }
+        mobs.push(("minecraft:oak_boat".into(), [12.5, 64.0, 14.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        v.push(Scene {
+            name: "cart-merge".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 18000,
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [31, 67, 15]),
@@ -3152,6 +3390,21 @@ pub struct GameScene {
     /// (tickexact 2026-11-11) The game's last whole-part load sequence (`n:type ...`, the bridge's
     /// `load` reply), compared with redsim's `World::last_load`.
     last_load: String,
+    /// (mob-AI 2026-11-11) The POI type holders' identity hashes in this JVM (the bridge's
+    /// `identity_hashes`), for redsim's `AiWorld::poi_hashes`.
+    pub poi_hashes: std::collections::HashMap<String, i32>,
+}
+
+/// The bridge's `identity_hashes`: each POI type's registry holder's identity hash in this JVM.
+fn poi_identity_hashes(w: &mut Worker) -> Result<std::collections::HashMap<String, i32>> {
+    let v = w.call(json!({"op": "identity_hashes"}))?;
+    Ok(v["poi_types"].as_object().map(|m| m.iter().filter_map(|(k, h)| h.as_i64().map(|h| (k.clone(), h as i32))).collect()).unwrap_or_default())
+}
+
+/// A recording's POI holder hashes (its header's `poi_types`; none in a recording made before
+/// they were kept).
+fn header_poi_hashes(header: &serde_json::Value) -> Option<std::collections::HashMap<String, i32>> {
+    header["poi_types"].as_object().map(|m| m.iter().filter_map(|(k, h)| h.as_i64().map(|h| (k.clone(), h as i32))).collect())
 }
 
 impl GameScene {
@@ -3228,7 +3481,11 @@ impl GameScene {
         } else {
             (Vec::new(), Vec::new())
         };
-        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether, renumbered: Default::default(), last_load: String::new() })
+        // (mob-AI 2026-11-11) this JVM's POI type holders' identity hashes: AcquirePoi's retry
+        // markers are made in a HashSet<Pair<Holder<PoiType>, BlockPos>>'s order (tickexact's
+        // reclaim-backoff: three free beds, the markers' delays dealt in the game's order)
+        let poi_hashes = poi_identity_hashes(&mut w)?;
+        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether, renumbered: Default::default(), last_load: String::new(), poi_hashes })
     }
 
     /// The bridge's `unload` / `load` of every chunk of the sandbox (a load's renumbering kept),
@@ -3574,15 +3831,34 @@ pub fn redsim_summon(w: &mut World, s: &Scene) -> Result<Vec<u64>> {
 /// Where the game's frames come from: the live bridge, or a recording of it (`mobai record`).
 pub enum Source {
     Live(Box<GameScene>),
-    Recorded { frames: std::collections::VecDeque<serde_json::Value>, game_ids: Vec<u64>, ticking: Vec<[i32; 2]>, spawning: Vec<[i32; 2]> },
+    Recorded { frames: std::collections::VecDeque<serde_json::Value>, game_ids: Vec<u64>, ticking: Vec<[i32; 2]>, spawning: Vec<[i32; 2]>, poi_hashes: Option<std::collections::HashMap<String, i32>> },
 }
 
 impl Source {
+    /// (mob-AI 2026-11-11) The game's POI holder identity hashes (a recording's when it kept them).
+    fn poi_hashes(&self) -> Option<std::collections::HashMap<String, i32>> {
+        match self {
+            Source::Live(g) => Some(g.poi_hashes.clone()),
+            Source::Recorded { poi_hashes, .. } => poi_hashes.clone(),
+        }
+    }
     /// The game's last whole-part load sequence (a live game's; a recording does not keep it).
     fn last_load(&self) -> Option<&str> {
         match self {
             Source::Live(g) => Some(g.last_load.as_str()),
             Source::Recorded { .. } => None,
+        }
+    }
+
+    /// (tickexact 2026-11-11) The game's POI record at `p`: its free tickets (-1: none there; a
+    /// recording does not keep them: None).
+    fn poi_free(&mut self, p: [i32; 3]) -> Result<Option<i64>> {
+        match self {
+            Source::Live(g) => {
+                let sb = g.sb;
+                Ok(g.w.call(json!({"op": "poi_free", "sandbox": sb, "pos": p}))?["free"].as_i64())
+            }
+            Source::Recorded { .. } => Ok(None),
         }
     }
 
@@ -3652,6 +3928,9 @@ pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full
 #[allow(clippy::too_many_arguments)]
 pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch: u32, full: bool, probe: bool, trace: Option<(i64, Option<u32>)>) -> Result<Compare> {
     let mut ours = redsim_world(s, seed)?;
+    if let Some(h) = game.poi_hashes() {
+        ours.mob.ai.poi_hashes = Some(h);
+    }
     let ticking = game.ticking();
     if !ticking.is_empty() {
         ours.chunk_order = ticking;
@@ -3771,6 +4050,21 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         let (a, b) = v.split_once(',')?;
         Some((a.parse().ok()?, b.parse().ok()?))
     });
+    // (tickexact 2026-11-11, a probe) MOBAI_SHOW_POI="x,y,z[;x,y,z..]@T,T,..": at those ticks from
+    // the summon, each cell's POI record's free tickets, the game's and redsim's
+    let poi_probe: (Vec<[i32; 3]>, Vec<i64>) = std::env::var("MOBAI_SHOW_POI")
+        .ok()
+        .and_then(|v| {
+            let (cells, times) = v.split_once('@')?;
+            let cells = cells.split(';').filter_map(|c| {
+                let f: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                (f.len() == 3).then(|| [f[0], f[1], f[2]])
+            });
+            let mut times: Vec<i64> = times.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            times.sort();
+            Some((cells.collect(), times))
+        })
+        .unwrap_or_default();
     let mut done: i64 = if from_start { pre } else { 0 };
     // (tickexact 2026-11-10) the scene's expected positions (a drive log's): checked on the game's
     // frames, summed up at the end
@@ -3787,6 +4081,10 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         // a batch stops at the next scripted action
         if let Some((t, _)) = next_action(&actions, done + 1) {
             n = n.min((*t as i64 - done).max(1) as u32);
+        }
+        // (and at the next POI probe: MOBAI_SHOW_POI)
+        if let Some(pt) = poi_probe.1.iter().find(|pt| **pt > done) {
+            n = n.min((*pt - done).max(1) as u32);
         }
         let frames = game.frames(n, probe || trace.is_some())?;
         if frames.is_empty() {
@@ -3844,7 +4142,8 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 && v.split(',').filter_map(|x| x.parse::<i64>().ok()).any(|x| x == f.t)
             {
                 for e in f.entities.iter().filter(|e| e.ty.ends_with("villager")) {
-                    eprintln!("t {} #{} villager at {:.2} {:.2} {:.2} riding {:?} activities {:?} home {:?}", f.t, e.n, e.pos[0], e.pos[1], e.pos[2], e.vehicle, e.activities, e.memories.as_ref().and_then(|m| m.get("home").cloned()));
+                    let mem = |k: &str| e.memories.as_ref().and_then(|m| m.get(k).cloned());
+                    eprintln!("t {} #{} villager at {:.2} {:.2} {:.2} riding {:?} activities {:?} home {:?} walk_target {:?} cant_reach {:?}", f.t, e.n, e.pos[0], e.pos[1], e.pos[2], e.vehicle, e.activities, mem("home"), mem("walk_target"), mem("cant_reach_walk_target_since"));
                 }
             }
             // (tickexact probe: MOBAI_SHOW_BLOCKS="T0:T1": the game's block and container changes
@@ -3908,6 +4207,14 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         }
         // a scripted action between the two ticks, on both sides (a recording has the game's in
         // its frames)
+        if poi_probe.1.contains(&done) {
+            for p in &poi_probe.0 {
+                let g = game.poi_free(*p)?;
+                let r = redsim::entity::mob::ai::poi::free_tickets(&mut ours, BlockPos::new(p[0], p[1], p[2])).map_or(-1, |n| n as i64);
+                let differ = if g.is_some_and(|g| g != r) { " DIFFER" } else { "" };
+                eprintln!("poi t {done} {},{},{} free tickets: game {} redsim {r}{differ}", p[0], p[1], p[2], g.map_or("?".to_string(), |g| g.to_string()));
+            }
+        }
         if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
             game.apply(b, &ctx)?;
             apply_redsim(&mut ours, b, &ctx)?;
@@ -4041,6 +4348,7 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
             "game_ids": game_ids,
             "ticking": game.ticking,
             "spawning": game.spawning,
+            "poi_types": game.poi_hashes,
         });
         let mut text = header.to_string();
         text.push('\n');
@@ -4216,6 +4524,9 @@ pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Pat
     let list = |k: &str| -> Vec<[i32; 2]> { header[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
     let seed = header["seed"].as_i64().unwrap_or(1);
     let mut ours = redsim_world(s, seed)?;
+    if let Some(h) = header_poi_hashes(&header) {
+        ours.mob.ai.poi_hashes = Some(h);
+    }
     let ticking = list("ticking");
     if !ticking.is_empty() {
         ours.chunk_order = ticking;
@@ -4391,6 +4702,7 @@ pub fn replay(paths: &[std::path::PathBuf]) -> Result<()> {
             game_ids: header["game_ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default(),
             ticking: list("ticking"),
             spawning: list("spawning"),
+            poi_hashes: header_poi_hashes(&header),
         };
         let seed = header["seed"].as_i64().unwrap_or(1);
         let c = compare_source(&mut src, s, seed, ticks, 100, false, false, None)?;

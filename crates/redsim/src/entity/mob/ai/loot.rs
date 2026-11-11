@@ -243,7 +243,7 @@ pub fn drop_hand(w: &mut World, i: usize) {
 }
 
 /// An item id as a `&'static str` (the drop events keep their item names so).
-fn intern(s: &str) -> &'static str {
+pub(crate) fn intern(s: &str) -> &'static str {
     use std::sync::{Mutex, OnceLock};
     static NAMES: OnceLock<Mutex<std::collections::HashSet<&'static str>>> = OnceLock::new();
     let mut set = NAMES.get_or_init(Default::default).lock().expect("names");

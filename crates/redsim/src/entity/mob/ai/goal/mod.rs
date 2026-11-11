@@ -83,6 +83,8 @@ pub enum Goal {
     Animal(animal::AnimalGoal),
     /// A squid's goals (its random swim, its flight).
     Squid(super::squid::SquidGoal),
+    /// (mob-AI 2026-11-10) A phantom's goals (its circling; its attack phases and player target).
+    Phantom(super::phantom::PhantomGoal),
     /// A schooling fish's `FollowFlockLeaderGoal`.
     Fish(super::fish::FishGoal),
     /// A witch's ranged attack and its raiders' healing target.
@@ -121,6 +123,7 @@ impl Goal {
             Goal::Cube(c) => c.flags(),
             Goal::Animal(a) => a.flags(),
             Goal::Squid(_) => 0,
+            Goal::Phantom(p) => p.flags(),
             // FollowFlockLeaderGoal sets no flags
             Goal::Fish(_) => 0,
             Goal::Witch(g) => g.flags(),
@@ -190,6 +193,7 @@ impl Goal {
             Goal::Cube(c) => c.name(),
             Goal::Animal(a) => a.name(),
             Goal::Squid(s) => s.name(),
+            Goal::Phantom(p) => p.name(),
             Goal::Fish(f) => f.name(),
             Goal::Witch(g) => g.name(),
             Goal::Enderman(g) => g.name(),
@@ -360,6 +364,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::Cube(c) => super::cube::can_use(w, i, c),
         Goal::Animal(a) => animal::can_use(w, i, a),
         Goal::Squid(s) => super::squid::can_use(w, i, s),
+        Goal::Phantom(p) => super::phantom::can_use(w, i, p),
         Goal::Fish(f) => super::fish::can_use(w, i, f),
         Goal::Witch(g) => witch::can_use(w, i, g),
         Goal::Enderman(g) => enderman::can_use(w, i, g),
@@ -396,6 +401,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::Cube(c) => super::cube::can_continue(w, i, c),
         Goal::Animal(a) => animal::can_continue(w, i, a),
         Goal::Squid(s) => super::squid::can_use(w, i, s),
+        Goal::Phantom(p) => super::phantom::can_continue(w, i, p),
         Goal::Fish(f) => super::fish::can_continue(w, i, f),
         Goal::Witch(g) => witch::can_use(w, i, g),
         // Goal.canContinueToUse: canUse()
@@ -432,6 +438,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Cube(c) => super::cube::start(w, i, c),
         Goal::Animal(a) => animal::start(w, i, a),
         Goal::Squid(_) => {}
+        Goal::Phantom(p) => super::phantom::start(w, i, p),
         Goal::Fish(f) => super::fish::start(w, i, f),
         Goal::Witch(_) => {}
         Goal::Enderman(_) => {}
@@ -464,6 +471,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::OcelotAttack(g) => cat::ocelot_stop(w, i, g),
         Goal::Animal(a) => animal::stop(w, i, a),
         Goal::Squid(_) => {}
+        Goal::Phantom(p) => super::phantom::stop(w, i, p),
         Goal::Fish(f) => super::fish::stop(w, i, f),
         Goal::Witch(_) => {}
         Goal::Enderman(_) => {}
@@ -495,6 +503,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Cube(c) => super::cube::tick(w, i, c),
         Goal::Animal(a) => animal::tick(w, i, a),
         Goal::Squid(s) => super::squid::tick(w, i, s),
+        Goal::Phantom(p) => super::phantom::tick(w, i, p),
         Goal::Fish(f) => super::fish::tick(w, i, f),
         Goal::Witch(_) => {}
         Goal::Enderman(g) => enderman::tick(w, i, g),

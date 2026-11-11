@@ -217,6 +217,11 @@ Both station files carry the lines `mobfarm::declared` and `mobfarm::flight` rea
   drive-check passes. Positive controls: one stand rail declared `powered=true` fails at gt 200
   and after the warm-up; a hold rail removed (no declared line) gives 41 derails, one per cart
   parked there.
+- The runtime check (`declared::check_runtime`, main b712c807d) runs every tick in linear-bench:
+  the brakes are declared bench-set (`~`: no control line, so any power reaching them fails the
+  run). 8 seeds x 1 day, all three placements: 0. Positive control: a redstone block under the
+  first stand rail fails at gt 201 ("2,0,0: powered by a neighbour (it has no control line)", and
+  the two rails beside it through it).
 
 ## The stand-fix options, in emulation (Nov 11; `queue-loop-run` on approach 5 + crest + C′, aligned frame `--shift 6,6`)
 
