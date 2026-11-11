@@ -1374,6 +1374,15 @@ pub struct LoopTiming {
     pub rel_on: i64,
     /// With `--watch`: these cells' block states printed too (up to 8).
     pub watch_cells: [Option<[i32; 3]>; 8],
+    /// With `wired`: each slot's golem pulse this many gt late at most (0..=J, from the seed and
+    /// the slot): the gaps between pulses vary over 100 - J ..= 100 + J (the golem's jitter).
+    pub golem_jitter: i64,
+    /// With `wired`: the next golem up to this many gt late (0..=J more gt at each slot's end,
+    /// from the seed and the slot): the gaps between pulses vary over 100 ..= 100 + J.
+    pub golem_late: i64,
+    /// The day time held in the day (no night: a file's night window, its siding visits, never
+    /// opens).
+    pub day_only: bool,
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
     /// (an ideal-input lab for a wired trigger): G1, then G2, shut this many gt after the first
     /// cart's centre passes this x (a detector rail at cell x0 fires at x0 - 0.29).
@@ -1461,7 +1470,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_jitter: 0, golem_late: 0, day_only: false }
     }
 }
 
@@ -2103,6 +2112,23 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
     };
     let input_was = wired.map(|p| run.world.get(p));
+    // (`day_only`: the day time held in the day (back 10,000 once it reaches 11,000): no night,
+    // so a file's night window (its siding visits) never opens; the loop and the stand alone)
+    let hold_day = |w: &mut redsim::world::World| {
+        if tm.day_only && w.day_time().rem_euclid(24000) >= 11000 {
+            w.mob.day_offset -= 10000;
+        }
+    };
+    // (each slot's golem pulse delay, `golem_jitter`: 0..=J gt, from the seed and the slot)
+    let golem_jit = |c: i64| -> i64 {
+        if tm.golem_jitter <= 0 {
+            return 0;
+        }
+        let mut z = (seed as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (c as u64).wrapping_add(0x632B_E59B_D9B4_E019).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        ((z ^ (z >> 31)) % (tm.golem_jitter as u64 + 1)) as i64
+    };
     // (the stop stand's fence gates: shut or open, facing the travel)
     let set_gate = |w: &mut redsim::world::World, p: BlockPos, facing: &str, open: bool| {
         let s = format!("minecraft:oak_fence_gate[facing={facing},in_wall=false,open={open},powered=false]");
@@ -2185,11 +2211,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     for s in 0..40 {
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
+        hold_day(&mut run.world);
         if let Some(w) = watch {
             let ps: Vec<String> = w.iter().filter_map(|k| carts.get(*k)).filter_map(|id| pos_of(&run.world, *id)).map(|p| format!("{:.3},{:.3}", p.x, p.y)).collect();
             println!("settle {s}: {}", ps.join(" | "));
         }
     }
+    let mut late_total: i64 = 0;
     let mut out = Vec::new();
     let mut problems = Vec::new();
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
@@ -2330,13 +2358,21 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 run.world.set_block(cell, b.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
             }
-            if let Some(p) = wired {
+            if let Some(p) = wired
+                && golem_jit(c) == 0
+            {
                 // the golem pulse into the design's input cell
                 run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
             }
         }
-        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == tm.golem_for) {
+        // (`golem_jitter`: the slot's golem pulse `golem_jit(c)` gt late, 0..=J from the seed:
+        // the gaps between pulses vary over 100 - J ..= 100 + J)
+        if let (Some(p), true) = (wired, c < cycles && dt > 0 && dt == golem_jit(c)) {
+            run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
+        }
+        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == golem_jit(c) + tm.golem_for) {
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
@@ -2701,6 +2737,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
+        hold_day(&mut run.world);
         // (every rider's damage and loss from the world, every tick; with a visit also each
         // rider's bed claim, when it starts and ends, and where it rode then)
         for e in run.world.entities.list.iter() {
@@ -3169,6 +3206,24 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 snaps.push((run.world.time - t_start, v));
             }
         }
+        // (`golem_late`: the next golem comes up to J gt late: the world ticks that many more gt
+        // at the slot's end before the next pulse, so the gaps between pulses vary over
+        // 100 ..= 100 + J; the bench's own per-tick work skips them, its checks stay pulse-relative)
+        if dt == 99 && c + 1 < cycles && tm.golem_late > 0 {
+            let mut z = (seed as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ (c as u64).wrapping_add(0x9E37_79B9_7F4A_7C15).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            let extra = ((z ^ (z >> 31)) % (tm.golem_late as u64 + 1)) as i64;
+            for _ in 0..extra {
+                run.tick();
+                stop_brake(&mut run.world, &mut stop_arm);
+                hold_day(&mut run.world);
+            }
+            late_total += extra;
+        }
+    }
+    if tm.golem_late > 0 {
+        out.push(format!("golem pulses up to {} gt late: {late_total} gt added over {cycles} slots (the gaps between pulses 100..={})", tm.golem_late, 100 + tm.golem_late));
     }
     // the order: each settled snapshot every cart 3 places on from the last
     let mut moves = 0;
