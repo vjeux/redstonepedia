@@ -40,16 +40,29 @@ const RBLOCK: &str = "minecraft:redstone_block";
 /// Column 3 (c) (ironspec 2026-11-11: the shared bed >= 16 + margin from every rider: the siding
 /// past the loop's far end, chunk z 58..73, 58f770cc's offset (2, 4, 64)); false: the side-by-side
 /// fold (the siding west of the loop at (-15, 3, 13))
-pub(crate) const FAR: bool = false;
-pub(crate) const SIDING_AT: P3 = if FAR { [2, 4, 64] } else { [-15, 3, 13] };
+pub(crate) const FAR: bool = true;
+/// The siding's turn (column 3 (c): half a turn, so its entry faces the climb along x 11 and its
+/// exit leaves west onto the tree's stem x -6: no crossing between them) and its origin (its local
+/// (0, 0, 0), the entry): (c)'s box x -4..9, z 60..72 (chunk z 58..73), F at z 73.
+pub(crate) const SIDING_TURNS: u8 = if FAR { 2 } else { 0 };
+pub(crate) const SIDING_AT: P3 = if FAR { [2, 6, 69] } else { [-15, 3, 13] };
+
+/// A siding cell's place in the loop frame (its local cell turned, then moved to SIDING_AT).
+pub(crate) fn siding_at(q: P3) -> P3 {
+    let r = clock::rotate_pos(q, SIDING_TURNS);
+    [r[0] + SIDING_AT[0], r[1] + SIDING_AT[1], r[2] + SIDING_AT[2]]
+}
 pub(crate) const DIVERT: P3 = [9, -4, 0];
-pub(crate) const T1: P3 = [-15, 0, 28];
-pub(crate) const T2: P3 = [-16, 0, 31];
+// (column 3 (c): the top-fed tree on x -6..-4 over the register: the switches S1 (k1's line, z 31)
+// and S2 (k2's, z 34) on the stem x -6 at y 3, their supports at y 2; each line's hold a braked
+// slope at (-5, 2, z), its support (-5, 1, z) the kick control)
+pub(crate) const T1: P3 = if FAR { [-6, 2, 31] } else { [-15, 0, 28] };
+pub(crate) const T2: P3 = if FAR { [-6, 2, 34] } else { [-16, 0, 31] };
 /// The branch's boosters (x along z -2, y -3; B2).
 const BRANCH_BOOSTERS: [i32; 3] = [6, 0, -6];
-/// The siding's release input (its local (4, -2, 0)).
-pub(crate) const RELEASE: P3 = [SIDING_AT[0] + 4, SIDING_AT[1] - 2, SIDING_AT[2]];
-pub(crate) const HOLDS: [P3; 3] = [[-12, 0, 28], [-11, 0, 31], [-12, 0, 34]];
+/// The siding's release input (its local (4, -2, 0), turned with it).
+pub(crate) const RELEASE: P3 = if SIDING_TURNS == 2 { [SIDING_AT[0] - 4, SIDING_AT[1] - 2, SIDING_AT[2]] } else { [SIDING_AT[0] + 4, SIDING_AT[1] - 2, SIDING_AT[2]] };
+pub(crate) const HOLDS: [P3; 3] = if FAR { [[-5, 1, 28], [-5, 1, 31], [-5, 1, 34]] } else { [[-12, 0, 28], [-11, 0, 31], [-12, 0, 34]] };
 
 fn rail(shape: &str) -> String {
     format!("minecraft:rail[shape={shape},waterlogged=false]")
@@ -76,16 +89,17 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     // ---- the siding
     let s = Design::load(siding)?;
     let inbox = |q: &P3| (-7..=6).contains(&q[0]) && (-4..=4).contains(&q[1]) && (-3..=9).contains(&q[2]);
-    let at = |q: &P3| [q[0] + SIDING_AT[0], q[1] + SIDING_AT[1], q[2] + SIDING_AT[2]];
+    let at = |q: &P3| siding_at(*q);
+    let srot = |s: &str| clock::canon::rotate_state(s, SIDING_TURNS);
     // (measurement only, ironspec 2026-11-11: the integration gate's second night, every napper
     // failing: the siding's bed occupied)
     let occupied = std::env::var("MCTAS_BED_OCCUPIED").is_ok();
     for (q, st) in s.blocks.iter().filter(|(q, _)| inbox(q)) {
         if occupied && st.contains("_bed[") {
-            b.put(at(q), &st.replace("occupied=false", "occupied=true"))?;
+            b.put(at(q), &srot(&st.replace("occupied=false", "occupied=true")))?;
             continue;
         }
-        b.put(at(q), st)?;
+        b.put(at(q), &srot(st))?;
     }
     for (q, n) in s.block_entities.iter().filter(|(q, _)| inbox(q)) {
         d.block_entities.insert(at(q), n.clone());
@@ -93,7 +107,9 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     for e in &s.entities {
         let q = [e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32];
         if inbox(&q) {
-            let p = [e.pos[0] + SIDING_AT[0] as f64, e.pos[1] + SIDING_AT[1] as f64, e.pos[2] + SIDING_AT[2] as f64];
+            // (a point turns with its cell: half a turn takes x to 1 - x within the grid)
+            let (x, z) = if SIDING_TURNS == 2 { (1.0 - e.pos[0], 1.0 - e.pos[2]) } else { (e.pos[0], e.pos[2]) };
+            let p = [x + SIDING_AT[0] as f64, e.pos[1] + SIDING_AT[1] as f64, z + SIDING_AT[2] as f64];
             d.entities.push(EntitySpec { kind: e.kind.clone(), pos: p, nbt: e.nbt.clone() });
         }
     }
@@ -104,7 +120,7 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     for lx in -7..=-1 {
         let (r, sup) = (at(&[lx, 0, 0]), at(&[lx, -1, 0]));
         if !b.blocks.contains_key(&r) {
-            b.put(r, &if lx == -7 { booster("east_west") } else { rail("east_west") })?;
+            b.put(r, &srot(&if lx == -7 { booster("east_west") } else { rail("east_west") }))?;
             b.put(sup, if lx == -7 { RBLOCK } else { GLASS })?;
         }
     }
@@ -162,6 +178,9 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     } else {
         side_exit(&mut b)?;
     }
+    if FAR {
+        far_tree(&mut b)?;
+    } else {
     // T1: stem north, unpowered north_east (east: slot 14's line), powered north_west (T2)
     b.put([-15, 1, 28], &rail("north_east"))?;
     b.put(T1, GLASS)?;
@@ -215,12 +234,19 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
         b.blocks.insert(c, booster(shape));
         b.blocks.insert([c[0], c[1] - 1, c[2]], RBLOCK.into());
     }
-    // the always-on redstone blocks (the climb's, the exit booster's) must touch nothing that
-    // carries a signal besides their own rail
-    for rb in [[-29, -4, 0], [-13, 0, 11]].into_iter().chain(BRANCH_BOOSTERS.iter().map(|&x| [x, -4, -2])) {
+    }
+    // the always-on redstone blocks (the climbs', the boosters') must touch nothing that carries a
+    // signal besides their own rail: every redstone block this part added
+    let in_siding = |p: &P3| (-7..=6).contains(&(p[0] - SIDING_AT[0])) && (-4..=4).contains(&(p[1] - SIDING_AT[1])) && (-3..=9).contains(&(p[2] - SIDING_AT[2]));
+    let always_on: Vec<P3> = b.blocks.iter().filter(|(p, s)| !before.contains(*p) && s.as_str() == RBLOCK && !in_siding(p)).map(|(p, _)| *p).collect();
+    for rb in always_on {
         for dlt in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]] {
             let q = [rb[0] + dlt[0], rb[1] + dlt[1], rb[2] + dlt[2]];
             if let Some(s) = b.blocks.get(&q) {
+                // (an always-on booster beside it, part of the same powered climb, is meant)
+                if s.contains("powered_rail[powered=true") {
+                    continue;
+                }
                 if ["redstone_wire", "repeater", "comparator", "torch", "rail", "piston", "dropper", "hopper", "observer", "lamp", "bulb", "door", "trapdoor", "fence_gate"].iter().any(|k| s.contains(k)) {
                     bail!("the always-on block {rb:?} touches {q:?} = {s}");
                 }
@@ -232,7 +258,8 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     // the drop ends go in after every other rail (ironfarm 15:13): placed by (y, x, z) they would
     // come before the slots' peaks, and each slot's slope, with one link so far, would take its
     // drop end (seen built in order: the slopes turned ascending_west)
-    let mut cells: Vec<String> = [[-4, 1, 28], [-4, 1, 31], [-4, 1, 34]].iter().chain(last.iter()).map(|q| format!("{},{},{}", q[0], q[1], q[2])).collect();
+    let drop_ends: [P3; 3] = if FAR { [[-4, 2, 28], [-4, 2, 31], [-4, 2, 34]] } else { [[-4, 1, 28], [-4, 1, 31], [-4, 1, 34]] };
+    let mut cells: Vec<String> = drop_ends.iter().chain(last.iter()).map(|q| format!("{},{},{}", q[0], q[1], q[2])).collect();
     // (a build list the loop file already has comes first)
     if let Some(prev) = d.meta.get("build") {
         let toks: Vec<&str> = prev.split_whitespace().collect();
@@ -308,20 +335,80 @@ fn side_exit(b: &mut B) -> Result<()> {
     Ok(())
 }
 
-/// Column 3 (c)'s entry, from the divert branch (9, -3, -1) to the siding past the far end: east
-/// at z -2 to x 11, a booster climb south along x 11 to the siding's level, flat along x 11 (a
-/// booster every 30) to z 60, west along z 60 (outside the siding's box, z >= 61) to x -6, south
-/// into the bench approach at z 64 (local x -8: its corner). WIP.
+/// Column 3 (c)'s entry, from the divert branch (9, -3, -1) to the turned siding past the far end:
+/// east at z -2 to x 11, a booster climb south along x 11 to the siding's level (the third
+/// booster's support a redstone block: its neighbours are the climb's own boosters, not the divert
+/// drive's dust (11, -4, 0) or repeater (10, -4, 0)), flat along x 11 (a booster on a redstone
+/// block at z 34) to z 68, a corner west at z 69 into the bench approach (its corner cell: local
+/// x -8, turned: x 10).
 fn far_entry(b: &mut B) -> Result<()> {
-    let _ = b;
-    bail!("column 3 (c)'s entry is not written yet")
+    let y = SIDING_AT[1];
+    lay(b, [9, -3, -2], &rail("south_east"), false)?;
+    lay(b, [10, -3, -2], &rail("east_west"), false)?;
+    lay(b, [11, -3, -2], &rail("south_west"), false)?;
+    let n = y + 3;
+    for k in 0..n {
+        let p = [11, -3 + k, -1 + k];
+        b.put(p, &booster("ascending_south"))?;
+        b.put([p[0], p[1] - 1, p[2]], if k == 2 { RBLOCK } else { STONE })?;
+    }
+    for z in n - 1..SIDING_AT[2] {
+        lay(b, [11, y, z], &rail("north_south"), false)?;
+    }
+    b.blocks.insert([11, y, 34], booster("north_south"));
+    b.blocks.insert([11, y - 1, 34], RBLOCK.into());
+    lay(b, [11, y, SIDING_AT[2]], &rail("north_west"), false)?;
+    let corner = siding_at([-8, 0, 0]);
+    for x in corner[0]..11 {
+        lay(b, [x, y, SIDING_AT[2]], &rail("east_west"), false)?;
+    }
+    Ok(())
 }
 
-/// Column 3 (c)'s exit, from the siding's exit (8, oy - 1, 64) north along x 9, west across the
-/// loop above the register lanes (3 clear above their rails), to the top-fed tree on x -6..-4. WIP.
+/// Column 3 (c)'s exit, from the turned siding's exit (its local (6, -1, 0): x -4, leaving west):
+/// a corner north onto the tree's stem column x -6, north along it (3 clear of the register lane
+/// x -3), two slopes down north to the tree's level (y 3).
 fn far_exit(b: &mut B) -> Result<()> {
-    let _ = b;
-    bail!("column 3 (c)'s exit is not written yet")
+    let ex = siding_at([6, -1, 0]);
+    let y = ex[1];
+    lay(b, [ex[0] - 1, y, ex[2]], &rail("east_west"), false)?;
+    lay(b, [-6, y, ex[2]], &rail("north_east"), false)?;
+    for z in 41..ex[2] {
+        lay(b, [-6, y, z], &rail("north_south"), false)?;
+    }
+    for k in 1..=y - 3 {
+        lay(b, [-6, y - k, 41 - k], &rail("ascending_south"), false)?;
+    }
+    for z in 35..=40 - (y - 3) {
+        lay(b, [-6, 3, z], &rail("north_south"), false)?;
+    }
+    Ok(())
+}
+
+/// Column 3 (c)'s top-fed tree on x -6..-4 over the register (ironspec 2026-11-11: drop height 2,
+/// holds stay): the stem north along x -6 at y 3, S2 (-6, 3, 34) (k2's line east), S1 (-6, 3, 31)
+/// (k1's), the end curve (-6, 3, 28) (k0's); each line a hold (-5, 2, z) (a braked powered rail
+/// ascending west: the cart comes off the stem down onto it and stops; its support (-5, 1, z) the
+/// kick control) and a plain ledge end (-4, 2, z) on glass, off which the cart drops 2 onto the
+/// slot's brake (-3, 0, z). (No floor booster next to the hold: powered rails pass power along a
+/// line, so the hold would never brake; the kick alone sets the ledge speed, to be measured
+/// against ironfarm's 0.20..0.40 b/t.)
+fn far_tree(b: &mut B) -> Result<()> {
+    b.put([-6, 3, 34], &rail("north_south"))?;
+    b.put(T2, GLASS)?;
+    lay(b, [-6, 3, 33], &rail("north_south"), false)?;
+    lay(b, [-6, 3, 32], &rail("north_south"), false)?;
+    b.put([-6, 3, 31], &rail("north_south"))?;
+    b.put(T1, GLASS)?;
+    lay(b, [-6, 3, 30], &rail("north_south"), false)?;
+    lay(b, [-6, 3, 29], &rail("north_south"), false)?;
+    lay(b, [-6, 3, 28], &rail("south_east"), false)?;
+    for (i, z) in [28, 31, 34].into_iter().enumerate() {
+        b.put([-5, 2, z], "minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
+        b.put(HOLDS[i], GLASS)?;
+        lay(b, [-4, 2, z], &rail("east_west"), true)?;
+    }
+    Ok(())
 }
 
 /// `mctas circuit memory siding-ctl-gen --out F`: the siding's control module, in the nightly
@@ -781,7 +868,7 @@ fn mrot(s: &str) -> String {
 pub(crate) const DETECTOR: P3 = [-27, -9, 24];
 /// The siding's force-re-board input F (farmopt's child 58f770cc: (-5, -3, -4) in the siding's
 /// frame), a dust the siding's repeater reads from the south.
-pub(crate) const FORCE: P3 = [SIDING_AT[0] - 5, SIDING_AT[1] - 3, SIDING_AT[2] - 4];
+pub(crate) const FORCE: P3 = if SIDING_TURNS == 2 { [SIDING_AT[0] + 5, SIDING_AT[1] - 3, SIDING_AT[2] + 4] } else { [SIDING_AT[0] - 5, SIDING_AT[1] - 3, SIDING_AT[2] - 4] };
 
 /// The divert unit, next to the departure corner (REL from the core reaches it in ~6 gt; the far
 /// module's own visit pulse comes ~30 gt after REL, too late for the corner): G2' = REL and not
@@ -1132,10 +1219,30 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // row clear of T1's tower stone, which its own repeater powers), south into (-17, -4, 28))
     seg_to(&mut t1, [-5, -11, 19]);
     seg_to(&mut t1, [-5, -4, 26]);
+    if FAR {
+        // (column 3 (c), the first prototype: S1's support (-6, 2, 31) driven from the west at its
+        // level by a repeater (-7, 2, 31); the route west along z 26 at y -4 to x -16 (west of the
+        // release core, x -13..-2), up a stair south to y 2 at z 31, east along z 31: wiring at
+        // x -16..-7 until the core folds in)
+        seg_to(&mut t1, [-16, -4, 26]);
+        for k in 1..=7 {
+            t1.push([-16, -4 + k, 26 - k]);
+        }
+        // (at y 3, two over the holds' kick rows at y 1 (one over would join them as a dust stair),
+        // back south to z 31 (clear of T2's row along z 34), east along it, down a stair to the
+        // repeater's input (-8, 2, 31))
+        seg_to(&mut t1, [-16, 3, 31]);
+        seg_to(&mut t1, [T1[0] - 3, T1[1] + 1, T1[2]]);
+        t1.push([T1[0] - 2, T1[1], T1[2]]);
+        route(&mut b, t1_row, &t1, 6)?;
+        b.blocks.insert(T1, STONE.into());
+        b.on([T1[0] - 1, T1[1], T1[2]], &rep("west", 1))?;
+    } else {
     seg_to(&mut t1, [-17, -4, 26]);
     seg_to(&mut t1, [-17, -4, 28]);
     route(&mut b, t1_row, &t1, 6)?;
     tower(&mut b, T1)?;
+    }
     // T2 = l0 = NOT (row 7's NOT l0): off row 7 at (24, -6, 8), a repeater south into a block
     // (24, -6, 10), a torch on it, down a stair south to y -13, west along z 19, south along x -19,
     // up a stair south to (-19, -4, 30), into (-19, -4, 31)
@@ -1153,12 +1260,32 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     let z2 = t2_row[2] + 11;
     seg_to(&mut t2, [-3, -13, z2]);
     seg_to(&mut t2, [-3, -13, z2 + 1]);
+    if FAR {
+        // (column 3 (c), the first prototype: S2's support (-6, 2, 34) driven from the west by a
+        // repeater (-7, 2, 34); the route up a stair south along x -3 to y -4 (under the register,
+        // below the core), west along z 33 at y -4 to x -17, up a stair south to y 2 at z 39, back
+        // north along x -17 to z 34, east along z 34 at y 2)
+        seg_to(&mut t2, [-3, -4, 31]);
+        seg_to(&mut t2, [-3, -4, 33]);
+        seg_to(&mut t2, [-17, -4, 33]);
+        for k in 1..=7 {
+            t2.push([-17, -4 + k, 33 + k]);
+        }
+        t2.push([-18, 3, 40]);
+        seg_to(&mut t2, [-18, 3, 34]);
+        seg_to(&mut t2, [T2[0] - 3, T2[1] + 1, T2[2]]);
+        t2.push([T2[0] - 2, T2[1], T2[2]]);
+        route(&mut b, [t2_row[0], -6, t2_row[2] + 3], &t2, 6)?;
+        b.blocks.insert(T2, STONE.into());
+        b.on([T2[0] - 1, T2[1], T2[2]], &rep("west", 1))?;
+    } else {
     seg_to(&mut t2, [-3, -4, 31]);
     seg_to(&mut t2, [-3, -4, 33]);
     seg_to(&mut t2, [x2, -4, 33]);
     seg_to(&mut t2, [x2, -4, 31]);
     route(&mut b, [t2_row[0], -6, t2_row[2] + 3], &t2, 6)?;
     tower(&mut b, T2)?;
+    }
     // ---- the holds' kick: REL from the core's REL stone (-2, -1, 13) through (-2, -1, 14), down a
     // stair south to y -4, west along z 18 to x -21, a delay (`kick_delay` repeaters of 4 gt)
     // south along x -21, the gate KA (-21, -4, 30): REL late minus NS5 (the module's NOT "a
@@ -1271,6 +1398,22 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // east into a block (-12, 0, z + 2), a repeater north into the hold's support (-12, 0, z) (a
     // block, not a dust, next to the other holds' supports: their kicks stay apart)
     for &h in &HOLDS {
+        if FAR {
+            // (column 3 (c): the hold's support (-5, 1, z) kicked like the others, one level up:
+            // a repeater north into it from (-5, 1, z + 2)'s stone, a repeater east into that from a
+            // dust row west along z + 2 at y 1 to x -13, down a stair onto the bus (-15, -1, z + 2))
+            b.blocks.insert(h, STONE.into());
+            let k2 = std::env::var("MCTAS_K2_KICK").ok().and_then(|v| v.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<u8>().ok()?, b.trim().parse::<u8>().ok()?)))).unwrap_or((3, 1));
+            let (ra, rb) = if h[2] == 34 { k2 } else { (1, 1) };
+            b.on([h[0], h[1], h[2] + 1], &rep("south", rb))?;
+            b.put([h[0], h[1], h[2] + 2], STONE)?;
+            b.on([h[0] - 1, h[1], h[2] + 2], &rep("west", ra))?;
+            for x in -13..=h[0] - 2 {
+                b.on([x, h[1], h[2] + 2], DUST)?;
+            }
+            b.on([-14, h[1] - 1, h[2] + 2], DUST)?;
+            continue;
+        }
         if h[0] != -12 {
             // slot 13's hold at x -11 sits over the controller's chain bus (-11, -1, 28..33): its
             // support stays the line's glass (a powered block there would power that dust), and a
