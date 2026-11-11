@@ -674,6 +674,10 @@ pub enum MobfarmCmd {
         /// Close the bed's open north front: the bed reachable by path only from the cage.
         #[arg(long)]
         cage_only: bool,
+        /// Leave out the give-up (with --wired it is in: an arrival latch, a 220 gt comparator
+        /// timer, and on timeout the visit latch set, so a napper that cannot sleep still leaves).
+        #[arg(long)]
+        no_give_up: bool,
         /// Write the cells as the judge's placement leaves them (the generator's own states), not
         /// settled (the default writes every cell as the bench finds it after the settle, comparator
         /// outputs as block entities: "settled as placed", mobfarm::placing::settle_design).
@@ -744,6 +748,17 @@ pub enum MobfarmCmd {
         /// its villager.
         #[arg(long)]
         release_held: bool,
+        /// Forced failures (the give-up's test): the first N villagers cannot sleep (their HOME
+        /// erased just before each of their visits; the bed's ticket stays taken); each of their
+        /// visits must still end with the cart on the slot and released, within 500 gt of the
+        /// arrival; the others' checks are unchanged.
+        #[arg(long, default_value_t = 0)]
+        fail_no_home: u32,
+        /// Forced failures, the other kind: every visit by day (day time 1000 to 12000), when no
+        /// napper sleeps: every cart must still be on the slot and released within 500 gt of its
+        /// arrival, every villager still holding HOME at each check.
+        #[arg(long)]
+        day_visits: bool,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -905,8 +920,10 @@ fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -
     if !r.errors.is_empty() {
         return Some(format!("errors: {}", r.errors.join("; ")));
     }
-    // ironspec's check: all 21 hold HOME = the bed at every dawn and midday
-    if let Some((t, day, n)) = r.home_checks.iter().find(|c| c.2 < 21) {
+    // ironspec's check: all 21 hold HOME = the bed at every dawn and midday (forced failures: the
+    // others)
+    let ok_n = 21 - r.fail_no_home;
+    if let Some((t, day, n)) = r.home_checks.iter().find(|c| c.2 < ok_n) {
         return Some(format!("{n} of 21 hold HOME = the bed at time {t} (day time {day}); HOME changes: {}", r.home_events.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
     }
     // and every villager naps once each night it is scheduled
@@ -914,7 +931,7 @@ fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -
     for v in r.visits.iter().filter(|v| v.slept.is_some()) {
         per_night.entry(v.night).or_default().insert(v.villager);
     }
-    if let Some((n, s)) = per_night.iter().find(|(_, s)| s.len() < 21) {
+    if let Some((n, s)) = per_night.iter().find(|(_, s)| (s.len() as u32) < ok_n && !r.day_visits) {
         return Some(format!("night {n}: {} of 21 villagers napped", s.len()));
     }
     // (a visit the run's end cut short is not counted)
@@ -925,6 +942,13 @@ fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -
     for v in counted {
         if let Some(p) = &v.problem {
             return Some(format!("villager {} arrived {}: {p}", v.villager, v.arrived));
+        }
+        // (a forced failure: the cart still on the slot and released, ready within 500 gt)
+        if v.failed {
+            if !(v.ready.is_some_and(|t| t - v.arrived <= 500) && v.released.is_some()) {
+                return Some(format!("forced failure, villager {} arrived {}: dropped {:?} re-boarded {:?} ready {:?} released {:?}", v.villager, v.arrived, v.dropped, v.reboarded, v.ready, v.released));
+            }
+            continue;
         }
         if !(v.dropped.is_some() && v.slept.is_some() && v.woken.is_some() && v.reboarded.is_some() && v.own_cart && v.ready.is_some() && v.released.is_some()) {
             return Some(format!("villager {} arrived {}: dropped {:?} slept {:?} woken {:?} re-boarded {:?} (own cart {}) ready {:?} released {:?}", v.villager, v.arrived, v.dropped, v.slept, v.woken, v.reboarded, v.own_cart, v.ready, v.released));
@@ -1466,8 +1490,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("golems touching no portal: {strays}; Nether: {deaths} dead, {alive} alive at the end, {back} back in the overworld");
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, unsettled } => {
-            std::fs::write(&out, crate::siding::design_opts_cage(wired, alone, exit_brake, cage_only)?)?;
+        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, no_give_up, unsettled } => {
+            std::fs::write(&out, crate::siding::design_full(wired, alone, exit_brake, cage_only, wired && !no_give_up)?)?;
             if !unsettled {
                 let changes = crate::placing::settle_file(&out)?;
                 println!("settled: {} cells written as the settle leaves them", changes.len());
@@ -1483,7 +1507,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             let two_i = |s: &str| -> Result<(i64, i64)> {
@@ -1506,7 +1530,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits });
                             out.lock().unwrap().push((seed, r));
                         });
                     }

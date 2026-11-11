@@ -240,6 +240,11 @@ it after the settle, flowing fluids included, comparator outputs as `nbt:` lines
 the generator's own states); `siding --alone` writes the siding by itself (no launcher, approach,
 run-out, hold or carts), `--exit-brake` puts a braked powered rail past its exit cell and
 `--cage-only` closes the bed's open north front (the bed reachable only from the cage);
+`--wired` includes the give-up (an arrival latch, day-1's 220 gt comparator timer, and on timeout
+the visit latch set: a napper that cannot sleep still leaves; `--no-give-up` leaves it out);
+`siding-bench --day-visits` (every visit by day: no napper sleeps) and `--fail-no-home N` (the
+first N villagers' HOME erased before each of their visits) are its forced failures: every cart
+must still be on the slot with its villager within 500 gt of its arrival;
 `siding-bench --release-held` holds the release input on all run (each napped cart leaves the slot
 as it reaches it). The siding bench sets no villager memory (HOME = the bed comes from the design's
 `port home:`, R1's state), gives each of the 21 villagers one visit a night (the full nights after

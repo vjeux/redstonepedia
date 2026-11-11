@@ -130,7 +130,62 @@ bench touches no villager memory:
   --cage-only`) leaves the bed reachable only from the cage, but the napper's reclaim from the
   approach then fails and backs off: drop to asleep up to 370 gt, ready up to 489 gt (8 seeds x 2
   nights) against 114 and 287. R1's taken ticket already keeps every other villager off the bed.
-- **(c) a give-up: not built yet.** Today a napper that cannot sleep leaves its cart parked for good.
+- **(c) the give-up: built** (below).
+
+## The give-up: a napper that cannot sleep still leaves (2026-11-10, ironspec's missing piece)
+
+Without it a napper that cannot sleep parks its cart for good and the loop stalls. Now part of the
+wired siding (`mobfarm siding --wired`; `--no-give-up` leaves it out), all of it north of the R line
+(z -1 to -12, y -5 to -1), in redsim:
+- **ARR, the arrival:** the entry rail (0,0,0) is a detector rail (only arrivals pass it; its power
+  also reaches the T rail beside it, which is powered at idle anyway). Its block below is a stone; a
+  repeater north reads it, into a stone, dust under it, repeaters north at y -2 under the R line.
+- **A, a visit under way:** an RS-NOR latch at y -2, the H latch's own shape turned (N_A1 (0,-2,-6)
+  set from the south, its torch W_A1 = not A; N_A2 (3,-2,-8), its torch W_A2 = A), set by ARR, reset
+  by R (a repeater north off the R line's corner (3,0,-3), dust along x 4 at y 0, down into N_A2's
+  north face) or by G (a 4-tick repeater into its east face).
+- **The bound:** day-1's two-stage comparator off-delay (`circuit timer long --k 3`, L = 220 gt,
+  `carousel-scheduler/offdelay-k3.txt`) west of the latch, its frame moved by (-6,-3,-10), fed not A
+  through three repeaters west and one north; held off 220 gt, its output stone A2 goes dark.
+- **G = A2 dark AND A:** a wall torch (-15,-2,-10) on a stone X that a repeater off A2 powers, or not
+  A (dust west from the timer's input line, a repeater into X). G is lit only while a visit is under
+  way, and goes dark as soon as A resets.
+- **G sets H:** dust down to y -4, east along z -5, south along x 1, a repeater north of a stone at
+  (1,-3,-1), west through repeaters along z -1 into the H latch's D2 (-5,-3,-1). The second of them
+  is a comparator subtracting the larger of H (the H-out dust south of it) and not A (a repeater
+  from W_A1's south side): G reaches D2 only while H is unset and A still set. (a late return, its
+  nap long done, fires G with H set and nothing reaches D2; a G fired just as R resets A dies there
+  too, so G never sets H after R's reset).
+- **G also resets A** (east along z -5, north along x 6, up into the 4-tick repeater): the timer
+  refills and G goes out.
+What it took (redsim traces): the timer's input line powered the stone X, and dust beside X fed the
+line back into the timer's own input (the timer held itself; a repeater into X now); dust beside Ta
+(which H powers strongly) fed H back into D2 (a stone and a repeater there now); built from the
+generator's states, unpowered repeaters on the not-A line let G light once and set H (written
+powered, their state at rest); and a G the timer fired just as the return reset A set H after R's
+reset (the comparator). Its two torches unlit at rest (W_A2, G's) are the build's last steps,
+after the timer's input repeater, G's line along z -5 and the glass caps: the timer's ring takes
+about 12 gt to fill and holds 15 or 14 at rest depending on how it was filled, so it fills once,
+whole, before the build ends (built at 1 gt a step, it ended at 14, unlike the file). A glass cap
+on the timer's stone at z -12, within a golem's search of the bench's hold row (the viewer's replay
+spawned a golem there).
+
+Results, `siding-bench --wired` (redsim; the arrivals and the release bench-driven):
+- normal visits with the give-up in place, 100 seeds x 6 nights: 100 of 100 clean, 12,600 visits,
+  ironspec's check unchanged (all 21 holding HOME at all 1,400 dawn and midday checks, one nap per
+  villager-night, ready 115-287 gt, every HOME loss reclaimed within 120 gt): G never reached D2
+  in a normal visit; the placement checks below are run with it in place;
+- **every napper failing** (`--day-visits`: every visit by day, when no villager sleeps), 16 seeds x 2
+  days, 672 visits: 16 of 16 clean: every napper dropped, none slept, and every cart was back on the
+  slot with its villager (the kick finds it on the free cell) 358-376 gt after its arrival and
+  released; all 21 kept HOME = the bed at every check;
+- **three nappers without a bed claim** (`--fail-no-home 3`: their HOME erased before each visit),
+  16 seeds x 2 nights, 672 visits: every visit dropped, every cart on the slot with its villager
+  within 371 gt and released; 586 naps (the other 18 every night) in 12 of 16 seeds; in 4 seeds one
+  more villager lost HOME or missed a nap: a villager without HOME races the others for the bed's
+  ticket when a napper releases it at its first REST tick (the failure itself, not the give-up).
+- Cost: the siding by itself 234 -> 472 blocks (box 14x9x13 -> 23x10x22), build 19.8 -> 39.6
+  minutes at middle prices (10 comparators: the timer's 9 and the gate).
 
 ## Settled as placed, and built in order (the brief's two checks; redsim, not yet the real game)
 
@@ -145,9 +200,10 @@ launcher, the release placed as a block by the bench; since 14:30 no bed act, ea
 night, ironspec's HOME and nap checks in every run):
 - the judge's placement: 24 of 24 seeds clean, 1,008 visits;
 - settled as placed (`--placed-raw`, pasted raw, no settle): 24 of 24 clean, 1,008 visits;
-- built in order (`--placed-in-order`, the priced gaps: 319 cells in 319 steps, 8,360 gt): 24 of 24
-  clean, 1,008 visits; the build ends exactly as the file (the night under way at the spawn is
-  skipped: the bench's nights are the full ones after it);
+- built in order (`--placed-in-order`, the priced gaps: 557 cells in 557 steps, 13,700 gt with the
+  give-up; 319 cells, 8,360 gt without): 24 of 24 clean, 1,008 visits; the build ends exactly as
+  the file (the night under way at the spawn is skipped: the bench's nights are the full ones after
+  it);
 - `--build-gap-sweep`: every gap from 1 to 40 gt passes (4 seeds x 1 night each, 84 visits a gap,
   every villager's HOME at every dawn and midday and one nap each).
 Clean: every visit dropped, napped, woken, back in its own cart, ready on the slot and released;
@@ -163,7 +219,7 @@ rail powered. Placed last, BK is powered already.
 
 Drives for tick-exact: `carousel-siding-wired-raw.drive.txt` (`--placed-raw`) and
 `carousel-siding-wired-built.drive.txt` (the build's `act t set` lines, then the bench's acts;
-`# spawn 8360`), both `siding-bench --wired --launch --from 1 --to 1 --nights 1`. Besides `set`, the
+`# spawn 13700`), both `siding-bench --wired --launch --from 1 --to 1 --nights 1`. Besides `set`, the
 bench's acts are `tp` (a cart onto the launcher, back to the hold), as in the viewer's drive (since
 14:30 no `home`, `last-slept` or `poi-take`: HOME comes from the file's `port home:`).
 

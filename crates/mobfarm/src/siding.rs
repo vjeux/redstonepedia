@@ -359,6 +359,166 @@ pub fn design() -> Result<String> {
     design_with(false)
 }
 
+/// The give-up (farmopt 2026-11-10, ironspec's rule-1 missing piece: a cart whose napper cannot
+/// sleep still leaves), north of the R line, all of it at z <= -1:
+/// - ARR, the arrival: the entry rail a detector rail (only arrivals pass it), its block below a
+///   stone; a repeater north reads it, into a stone, dust under it, repeaters north at y -2 under
+///   the R line into the A latch's set;
+/// - A, a visit under way: an RS-NOR latch at y -2 (the siding latch's own shape, turned: N_A1 set
+///   from the south, its torch W_A1 = not A on its west face; N_A2, its torch W_A2 = A), set by
+///   ARR, reset by R (a repeater off the R line's corner, dust north along x 4 at y 0 and down
+///   into a repeater into N_A2's north face) or by G (a repeater into its east face);
+/// - the bound: day-1's two-stage comparator off-delay (`mctas circuit timer long --k 3`, L = 220
+///   gt; designs/farms/iron/parts/carousel-scheduler/offdelay-k3.txt) west of the latch, its input
+///   not A (W_A1, through three repeaters west and one north): A held 220 gt and its output stone
+///   A2 goes dark;
+/// - G, give up: a wall torch on A2 (lit when A2 is dark), dust down to y -4 and east along z -5
+///   (two repeaters), then (1) south along x 1, up, and west through five repeaters along z -1 into
+///   the H latch's D2 (sets H: the T to the exit, the activator off, the hatch shut, the kick 20 gt
+///   later), (2) east and up into A's reset. G is one-way into both: R never reaches D2.
+/// In a normal visit the nap sets H long before G; when the return comes after 220 gt (the kick
+/// waiting for the slot), G fires with H already set (nothing changes) and R resets everything.
+fn giveup(b: &mut Builder) -> Result<()> {
+    let rep = |f: &str| format!("repeater[delay=1,facing={f},locked=false,powered=false]");
+    let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+    let on = |b: &mut Builder, c: [i32; 3], part: &str| -> Result<()> {
+        put(b, [c[0], c[1] - 1, c[2]], "stone")?;
+        put(b, c, part)
+    };
+    // ARR
+    swap(b, [0, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+    swap(b, [0, -1, 0], "stone")?;
+    on(b, [0, -1, -1], &rep("south"))?;
+    put(b, [0, -1, -2], "stone")?;
+    on(b, [0, -2, -2], dust)?;
+    for z in [-3, -4, -5] {
+        on(b, [0, -2, z], &rep("south"))?;
+    }
+    // A: N_A1 (0,-2,-6), W_A1 west; D_A1 north and east into N_A2 (3,-2,-8); W_A2 south of it,
+    // D_A2 west into N_A1
+    on(b, [0, -2, -6], "stone")?;
+    put(b, [-1, -2, -6], "redstone_wall_torch[facing=west,lit=true]")?;
+    b.set(-1, -3, -6, "stone");
+    for c in [[-1, -2, -7], [-1, -2, -8], [0, -2, -8], [1, -2, -8], [2, -2, -8]] {
+        on(b, c, dust)?;
+    }
+    on(b, [3, -2, -8], "stone")?;
+    put(b, [3, -2, -7], "redstone_wall_torch[facing=south,lit=false]")?;
+    b.set(3, -3, -7, "stone");
+    for c in [[3, -2, -6], [2, -2, -6], [1, -2, -6]] {
+        on(b, c, dust)?;
+    }
+    // (G into N_A2 a 4-tick repeater: G's own reset of A, which blocks the comparator below,
+    // comes after G has set H)
+    on(b, [4, -2, -8], "repeater[delay=4,facing=east,locked=false,powered=false]")?; // G into N_A2
+    on(b, [3, -2, -9], &rep("north"))?; // R into N_A2
+    // not A to the timer's input: repeaters west, dust, a repeater north into its corner dust
+    // (written powered, their state at rest: built from the generator's states, unpowered, they
+    // would take 6 gt to carry not A to X below, and G's torch, checked 2 gt after its placement,
+    // would light once and set H)
+    let rep_on = |f: &str| format!("repeater[delay=1,facing={f},locked=false,powered=true]");
+    for x in [-2, -3, -4] {
+        on(b, [x, -2, -6], &rep_on("east"))?;
+    }
+    on(b, [-5, -2, -6], dust)?;
+    on(b, [-5, -2, -7], &rep_on("south"))?;
+    // the timer (day-1's k = 3, as `circuit timer long --k 3` writes it, its frame moved by
+    // (-6, -3, -10): its input port (1,1,3) the repeater above, its output port (-7,1,0) G's torch)
+    const TIMER: [(i32, i32, i32, &str); 36] = [
+        (-5, 0, -2, "S"), (-4, 0, -2, "S"), (-3, 0, -2, "S"), (-2, 0, -2, "S"),
+        (-6, 0, -1, "S"), (-2, 0, -1, "S"),
+        (-5, 0, 0, "S"), (-4, 0, 0, "S"), (-3, 0, 0, "S"), (-1, 0, 0, "S"), (1, 0, 0, "S"),
+        (0, 0, 1, "S"), (2, 0, 1, "S"),
+        (1, 0, 2, "S"), (2, 0, 2, "S"),
+        (-6, 1, -2, "S"), (-5, 1, -2, "W"), (-4, 1, -2, "W"), (-3, 1, -2, "W"), (-2, 1, -2, "d"),
+        (-6, 1, -1, "s"), (-2, 1, -1, "d"),
+        (-6, 1, 0, "S"), (-5, 1, 0, "E"), (-4, 1, 0, "E"), (-3, 1, 0, "E"), (-2, 1, 0, "S"), (-1, 1, 0, "L"), (0, 1, 0, "S"), (1, 1, 0, "E"), (2, 1, 0, "S"),
+        (0, 1, 1, "n"), (2, 1, 1, "d"),
+        (0, 1, 2, "S"), (1, 1, 2, "d"), (2, 1, 2, "d"),
+    ];
+    for (x, y, z, k) in TIMER {
+        let s = match k {
+            "S" => "stone",
+            "d" => "redstone_wire[east=side,north=side,power=0,south=side,west=side]",
+            "E" => "comparator[facing=east,mode=compare,powered=false]",
+            "W" => "comparator[facing=west,mode=compare,powered=false]",
+            "n" => "comparator[facing=north,mode=compare,powered=false]",
+            "s" => "comparator[facing=south,mode=compare,powered=false]",
+            _ => "repeater[delay=1,facing=east,locked=false,powered=false]",
+        };
+        put(b, [x - 6, y - 3, z - 10], s)?;
+    }
+    // G = A2 dark AND A: a torch on X (-14,-2,-10), X powered by A2 (a repeater off the timer's
+    // output port) or by not A (dust west from the timer's input line and north): G lights only
+    // while a visit is under way, so no power-on or refill glitch of the timer can set H, and G
+    // ends as soon as A is reset
+    on(b, [-13, -2, -10], &rep("east"))?;
+    put(b, [-14, -2, -10], "stone")?;
+    for x in -14..=-6 {
+        on(b, [x, -2, -6], dust)?;
+    }
+    for z in [-7, -8] {
+        on(b, [-14, -2, z], dust)?;
+    }
+    // (a repeater into X, not dust: X, which the A2 repeater powers strongly, would feed dust
+    // beside it, and through the line the timer's own input: the timer would hold itself)
+    on(b, [-14, -2, -9], &rep_on("south"))?;
+    put(b, [-15, -2, -10], "redstone_wall_torch[facing=west,lit=false]")?;
+    // G: dust down to y -4, south, east along z -5 (repeaters at x -10 and 3, facing west: out
+    // east)
+    on(b, [-16, -2, -10], dust)?;
+    on(b, [-16, -3, -9], dust)?;
+    for z in -8..=-5 {
+        on(b, [-16, -4, z], dust)?;
+    }
+    for x in -15..=6 {
+        on(b, [x, -4, -5], &if x == -10 || x == 3 { rep("west") } else { dust.to_string() })?;
+    }
+    // (1) south along x 1, up to (1,-3,-3), a repeater north of a stone at (1,-3,-1) (not dust:
+    // dust there, beside Ta, which H powers strongly, would feed H back into D2 and hold it), west
+    // through five repeaters along z -1 into the H latch's D2 (-5,-3,-1)
+    on(b, [1, -4, -4], dust)?;
+    on(b, [1, -3, -3], dust)?;
+    on(b, [1, -3, -2], &rep("north"))?;
+    put(b, [1, -3, -1], "stone")?;
+    // (the second from D2 a comparator subtracting H, read from the H-out dust south of it at
+    // (-3,-3,0): G sets H only when H is not set already, and stops as soon as it is; a late
+    // return, its nap long done, fires G with H set: nothing reaches D2, so G cannot race R's
+    // reset)
+    for x in -4..=0 {
+        on(b, [x, -3, -1], &if x == -3 { "comparator[facing=east,mode=subtract,powered=false]".to_string() } else { rep("east") })?;
+    }
+    // (and the comparator's north side not A: dust south from W_A1, west, south, down into a
+    // repeater into its side: G reaches D2 only while A is still set, so a G that the timer fires
+    // just as R resets A (the return 238 gt after the arrival) dies at the comparator)
+    for c in [[-1, -2, -5], [-2, -2, -5], [-3, -2, -5], [-3, -2, -4], [-3, -3, -3]] {
+        on(b, c, dust)?;
+    }
+    on(b, [-3, -3, -2], &rep("north"))?;
+    // (2) north along x 6, up twice into the reset repeater's back (5,-2,-8)
+    on(b, [6, -4, -6], dust)?;
+    on(b, [6, -4, -7], dust)?;
+    on(b, [6, -3, -8], dust)?;
+    on(b, [5, -2, -8], dust)?;
+    // R's branch: a repeater north off the R line's corner (3,0,-3), dust east and north along x 4
+    // at y 0, west, down twice into the R repeater's back (3,-2,-10)
+    on(b, [3, 0, -4], &rep("south"))?;
+    on(b, [3, 0, -5], dust)?;
+    for z in -12..=-5 {
+        on(b, [4, 0, z], dust)?;
+    }
+    on(b, [3, 0, -12], dust)?;
+    on(b, [3, -1, -11], dust)?;
+    on(b, [3, -2, -10], dust)?;
+    // glass caps on its solid tops a golem could stand on (N_A1, N_A2, the timer's stone under
+    // its return corner, the ARR column's stone)
+    // (and the timer's stone at z -12, within a golem's search of the bench's hold row at z -20)
+    for c in [[0, -1, -6], [3, -1, -8], [-6, -1, -8], [0, 0, -2], [1, -2, -1], [-12, -1, -12]] {
+        put(b, c, "glass")?;
+    }
+    Ok(())
+}
+
 /// The bench design, its controls bench-driven or `wired` ([`wire`]).
 pub fn design_with(wired: bool) -> Result<String> {
     design_opts(wired, false, false)
@@ -379,8 +539,13 @@ pub fn design_opts(wired: bool, alone: bool, exit_brake: bool) -> Result<String>
 /// high, so the bed head is reachable by path only from the cage's free cell (no villager off the
 /// siding finds a path to it for AcquirePoi).
 pub fn design_opts_cage(wired: bool, alone: bool, exit_brake: bool, cage_only: bool) -> Result<String> {
+    design_full(wired, alone, exit_brake, cage_only, false)
+}
+
+/// [`design_opts_cage`], and with `give_up` the wired siding's give-up ([`giveup`]).
+pub fn design_full(wired: bool, alone: bool, exit_brake: bool, cage_only: bool, give_up: bool) -> Result<String> {
     let s = layout();
-    let name = format!("carousel-bed-siding{}{}{}{}", if wired { "-wired" } else { "" }, if exit_brake { "-brake" } else { "" }, if cage_only { "-cage" } else { "" }, if alone { "-alone" } else { "" });
+    let name = format!("carousel-bed-siding{}{}{}{}{}", if wired { "-wired" } else { "" }, if give_up { "-giveup" } else { "" }, if exit_brake { "-brake" } else { "" }, if cage_only { "-cage" } else { "" }, if alone { "-alone" } else { "" });
     let mut b = Builder::new(&name);
     build(&mut b, &s, !alone)?;
     if cage_only {
@@ -399,6 +564,24 @@ pub fn design_opts_cage(wired: bool, alone: bool, exit_brake: bool, cage_only: b
     }
     if wired {
         wire(&mut b, &s)?;
+    }
+    if give_up {
+        ensure!(wired, "the give-up is part of the wired siding (--wired)");
+        giveup(&mut b)?;
+        // (its two torches unlit at rest go last too: W_A2, A's torch, the latch bistable as the
+        // H latch is; G's torch, last of all. Before them the timer's input repeater and then the
+        // glass caps: its ring takes about 12 gt to fill, and holds 15 or 14 at rest depending
+        // on how it was filled, so it is filled once, whole, before the build ends)
+        let mut last = vec![BlockPos::new(-5, -2, -7)];
+        // (then G's line along z -5, which the timer's fill does not touch: time for the fill)
+        for x in -15..=6 {
+            last.push(BlockPos::new(x, -4, -5));
+        }
+        for c in [[0, -1, -6], [3, -1, -8], [-6, -1, -8], [0, 0, -2], [1, -2, -1], [-12, -1, -12], [-5, -2, 2], [-7, -2, -1], [2, -1, 6], [4, 1, -2]] {
+            last.push(BlockPos::new(c[0], c[1], c[2]));
+        }
+        last.extend([BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, 6), BlockPos::new(3, -2, -7), BlockPos::new(-15, -2, -10)]);
+        b.d.meta.insert("build".into(), crate::placing::BuildPlan { last, fills_last: false }.meta());
     }
     for i in (0..21).filter(|_| !alone) {
         let c = hold_cell(i);
@@ -504,6 +687,14 @@ pub struct BenchOpts {
     pub placement: crate::placing::Placement,
     /// The design's listed build steps (its `build:` line), for a build in order.
     pub plan: crate::placing::BuildPlan,
+    /// Forced failures (the give-up's test): the first N villagers cannot sleep: just before each
+    /// of their visits the bench erases their HOME (the bed's ticket stays taken by the others'
+    /// claims, so they cannot claim it again); their carts must still leave.
+    pub fail_no_home: u32,
+    /// Forced failures, the other kind: every visit by day (from day time 1000 to 12000) instead
+    /// of by night: no napper can sleep, every visit must end with its cart on the slot and
+    /// released within 500 gt (and every villager still holding HOME at each check).
+    pub day_visits: bool,
 }
 
 /// One visit's record.
@@ -538,6 +729,8 @@ pub struct VisitRec {
     pub entered: bool,
     pub calm: Option<(i64, i64)>,
     pub problem: Option<String>,
+    /// A forced failure (`fail_no_home`): its villager's HOME erased just before the visit.
+    pub failed: bool,
 }
 
 /// What the bench measured.
@@ -558,6 +751,9 @@ pub struct BenchReport {
     /// Each regained loss's time without HOME (gt).
     pub home_gaps: Vec<i64>,
     pub build: Option<(usize, usize, i64)>,
+    /// The run's forced failures (`BenchOpts::fail_no_home`, `day_visits`).
+    pub fail_no_home: u32,
+    pub day_visits: bool,
 }
 
 fn block(s: &str) -> Block {
@@ -644,12 +840,14 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
         }
     };
-    let mut rep = BenchReport::default();
+    let mut rep = BenchReport { fail_no_home: bo.fail_no_home, day_visits: bo.day_visits, ..Default::default() };
     // (the visits' nights: the first full night after the spawn and the `nights` after it, so a
     // spawn after dusk (a build in order ends at any day time) skips the night already under way;
     // the run ends the day after the last)
-    let first_night = (run.world.day_time() - 12000).div_euclid(24000) + 1;
-    let end = t0 + (bo.nights as i64 + 1) * 24000 + if (run.world.day_time() - 12000).rem_euclid(24000) < 12000 { 24000 } else { 0 };
+    // (with `day_visits` the same schedule by day, from day time 1000: every napper fails)
+    let w0: i64 = if bo.day_visits { 1000 } else { 12000 };
+    let first_night = (run.world.day_time() - w0).div_euclid(24000) + 1;
+    let end = t0 + (bo.nights as i64 + 1) * 24000 + if (run.world.day_time() - w0).rem_euclid(24000) < 12000 { 24000 } else { 0 };
     if bo.release_held {
         set(&mut run.world, s.release, "redstone_block");
         drive.act(t0, format!("set {} {} {} minecraft:redstone_block", s.release.x, s.release.y, s.release.z));
@@ -675,20 +873,21 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         let day = run.world.day_time().rem_euclid(24000);
         let night = !(10..12000).contains(&day);
         // (the night a visit belongs to: the day count at its night's dusk)
-        let night_n = (run.world.day_time() - 12000).div_euclid(24000);
+        let night_n = (run.world.day_time() - w0).div_euclid(24000);
+        let in_window = (run.world.day_time() - w0).rem_euclid(24000) < 11000;
         // ironspec's check: every villager's HOME = the bed at every dawn and every midday
         if day == 0 || day == 6000 {
             let held = pairs.iter().filter(|(_, v, _)| index_of(&run.world, *v).is_some_and(|i| brain::brain(&run.world, i).home == Some(bed))).count();
             rep.home_checks.push((now, day, held as u32));
         }
         // the next visit: scheduled through the night
-        if next_visit.is_none() && day >= 12000 && day < 23000 && night_n >= first_night && night_n < first_night + bo.nights as i64 {
+        if next_visit.is_none() && in_window && night_n >= first_night && night_n < first_night + bo.nights as i64 {
             next_visit = Some(now + rng.next_int(400) as i64);
         }
         if let Some(tv) = next_visit
             && now >= tv
         {
-            if day >= 23000 || day < 12000 {
+            if !in_window {
                 next_visit = None;
             } else if active.is_none() && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
                 // the villager napped longest ago, not out already and not visited this night
@@ -707,7 +906,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         teleport(&mut run.world, cart, Vec3::new(APPROACH_X, 0.0625, 0.5), Vec3::new(v, 0.0, 0.0));
                     }
                     let eta = if bo.launch { 30 } else { ((-APPROACH_X - 0.0) / v).round() as i64 };
-                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, ..Default::default() });
+                    // (a forced failure: the villager cannot sleep, its HOME erased)
+                    let failed = (k as u32) < bo.fail_no_home || bo.day_visits;
+                    if (k as u32) < bo.fail_no_home && let Some(i) = index_of(&run.world, villager) {
+                        brain::brain_mut(&mut run.world, i).home = None;
+                    }
+                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, failed, ..Default::default() });
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
                     night_of_visit[k] = night_n;
@@ -884,6 +1088,16 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("chain", [-6, -3, 8]),
                 ("Tk", [1, -2, 6]),
                 ("park", [1, 0, 6]),
+                // (the give-up's, when it has one)
+                ("ARR", [0, 0, 0]),
+                ("Aset", [0, -2, -5]),
+                ("WA1", [-1, -2, -6]),
+                ("WA2", [3, -2, -7]),
+                ("A2", [-13, -2, -10]),
+                ("G", [-15, -2, -10]),
+                ("Rr", [3, -2, -9]),
+                ("Gr", [4, -2, -8]),
+                ("D2in", [-4, -3, -1]),
             ];
             let now_s: Vec<String> = probes.iter().map(|(n, c)| format!("{n}={}", short_state(&w.get(BlockPos::new(c[0], c[1], c[2])).to_string()))).collect();
             if now_s != probe_last {
