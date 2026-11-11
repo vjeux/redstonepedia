@@ -686,13 +686,17 @@ each build's page.
   slack curve, two crossed brown ribbons, every other step darker, lit from end to end) from its
   attach point to the trader's rope hold (`Session::leash_draw`). Tests
   `a_trader_leads_its_llamas`, `a_wandering_trader_is_a_villager_and_hides`; `trader_scene_png`
-  (ignored) draws the scene (redsim's spawns: no design's data can say a lead). Not
+  (ignored) draws the scene (redsim's spawns: no design's data can say a lead). The cat
+  (2026-11-11) draws as `CatRenderer` does: `AdultCatModel` (the feline body, scaled 0.8:
+  `CAT_TRANSFORMER`) walking, its variant's texture (redsim's `variant`, `CatSpawner`'s pick; a
+  design's `variant:"minecraft:jellie"`; black without one: `Cat.DEFAULT_VARIANT`), no collar (a
+  village cat is untamed); test `a_cat_wears_its_variant`. Not
   drawn yet: a baby's armor (`humanoid_baby`), an enchanted item's or piece's glint, a drawn
   bow's pull, the witch's potion, a zombie villager's profession (redsim keeps none), the farm
   animals' warm and cold variants (every terrain site is temperate), a cube mob's squish (redsim
   keeps none), a sulfur cube's swallowed block (redsim refuses one), the red overlay on
   translucent faces (the translucent pass draws none), the trader's potion or milk while it
-  drinks (`CrossedArmsItemLayer`), a boat's lead, the cat (redsim keeps no variant). Lava is drawn as the game draws it: its
+  drinks (`CrossedArmsItemLayer`), a boat's lead, a cat's crouch and sprint (redsim keeps neither). Lava is drawn as the game draws it: its
   `lava_still` texture, solid, lit by its own light 15 (it was water tinted orange). The time
   badge is the readout (`mobfarm::readout`): the game's day and clock, the golems so far and the
   iron in the farm's chests (`day 1, 13:23 · 2 golems, 9 iron`, two lines on a phone); the left

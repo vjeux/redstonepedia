@@ -623,7 +623,13 @@ pub fn still_mob(kind: &str, yaw: f32, riding: bool, nbt: Option<&str>) -> Optio
     let def = ty.def();
     let (held, armor) = still_equipment(nbt);
     let left_handed = own_data(nbt).is_some_and(|s| s.contains("LeftHanded:1b") || s.contains("LeftHanded:true"));
-    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, held, armor, left_handed, ..Default::default() })
+    // a cat's variant from its data (`variant:"minecraft:jellie"`: the cat_variant registry's names)
+    const CAT_VARIANTS: [&str; 11] = ["tabby", "black", "red", "siamese", "british_shorthair", "calico", "persian", "ragdoll", "white", "jellie", "all_black"];
+    let variant = (kind.trim_start_matches("minecraft:") == "cat")
+        .then(|| own_data(nbt))
+        .flatten()
+        .and_then(|s| CAT_VARIANTS.iter().copied().find(|v| s.contains(&format!("variant:\"minecraft:{v}\""))));
+    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, held, armor, left_handed, variant, ..Default::default() })
 }
 
 /// A design mob's equipment from its data (`equipment:{mainhand:{id:"minecraft:bow"},

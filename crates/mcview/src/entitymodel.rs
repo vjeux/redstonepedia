@@ -430,6 +430,28 @@ fn iron_golem(d: &crate::mesh::MobDraw) -> Vec<EPart> {
     ]
 }
 
+/// `AdultCatModel` (`AdultFelineModel.createBodyMesh`, texture 64 x 32, `CAT_TRANSFORMER`: scaled
+/// 0.8): its head with its nose and ears, its body upright, its tail in two pieces, four legs,
+/// posed by `setupAnim` as a cat walks (an untamed village cat never sits nor lies down; redsim
+/// keeps neither its crouch nor its sprint): the head's pitch and yaw, the legs swinging, the
+/// tail's tip swaying with the walk.
+fn cat(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let swing = |phase: f32| [(pos * 0.6662 + phase).cos() * speed, 0.0, 0.0];
+    let head = part(
+        vec![cube(0.0, 0.0, [-2.5, -2.0, -3.0], [5.0, 4.0, 5.0]), cube(0.0, 24.0, [-1.5, -0.001, -4.0], [3.0, 2.0, 2.0]), cube(0.0, 10.0, [-2.0, -3.0, 0.0], [1.0, 1.0, 2.0]), cube(6.0, 10.0, [1.0, -3.0, 0.0], [1.0, 1.0, 2.0])],
+        [0.0, 15.0, -9.0],
+        [hx, hy, 0.0],
+    );
+    let body = part(vec![cube(20.0, 0.0, [-2.0, 3.0, -8.0], [4.0, 16.0, 6.0])], [0.0, 12.0, -10.0], [PI / 2.0, 0.0, 0.0]);
+    let tail1 = part(vec![cube(0.0, 15.0, [-0.5, 0.0, 0.0], [1.0, 8.0, 1.0])], [0.0, 15.0, 8.0], [0.9, 0.0, 0.0]);
+    let tail2 = part(vec![cube_grown(4.0, 15.0, [-0.5, 0.0, 0.0], [1.0, 8.0, 1.0], -0.02)], [0.0, 20.0, 14.0], [1.7278761 + PI / 4.0 * pos.cos() * speed, 0.0, 0.0]);
+    let hind = |x: f32, r: [f32; 3]| part(vec![cube(8.0, 13.0, [-1.0, 0.0, 1.0], [2.0, 6.0, 2.0])], [x, 18.0, 5.0], r);
+    let front = |x: f32, r: [f32; 3]| part(vec![cube(40.0, 0.0, [-1.0, 0.0, 0.0], [2.0, 10.0, 2.0])], [x, 14.1, -5.0], r);
+    scaled(0.8, vec![head, body, tail1, tail2, hind(1.1, swing(0.0)), hind(-1.1, swing(PI)), front(1.2, swing(PI)), front(-1.2, swing(0.0))])
+}
+
 /// `LlamaModel.createBodyLayer(g)` (texture 128 x 64; a trader llama's `TRADER_LLAMA` is the
 /// llama's body layer, its decor's `LLAMA_DECOR` the same grown 0.5): its head with its neck and
 /// ears, its body turned upright, four legs (no chests: a trader llama carries none), posed by
@@ -975,6 +997,9 @@ pub fn mob_texture(kind: &str, crack: u8, variant: Option<&str>) -> Option<(Stri
         "sulfur_cube_2" | "sulfur_cube_4" => Some(("entity/sulfur_cube/sulfur_cube_outer".to_string(), [128.0, 128.0])),
         "trader_llama" => Some((format!("entity/llama/llama_{}", variant.unwrap_or("creamy")), [128.0, 64.0])),
         "wandering_trader" => Some(("entity/wandering_trader/wandering_trader".to_string(), [64.0, 64.0])),
+        // a cat's variant's (`CatVariant.assetInfo`), black without one (`Cat.DEFAULT_VARIANT`:
+        // its entity data before a variant is picked)
+        "cat" => Some((format!("entity/cat/cat_{}", variant.unwrap_or("black")), [64.0, 32.0])),
         "spider" => Some(("entity/spider/spider".to_string(), [64.0, 32.0])),
         "cave_spider" => Some(("entity/spider/cave_spider".to_string(), [64.0, 32.0])),
         "creeper" => Some(("entity/creeper/creeper".to_string(), [64.0, 32.0])),
@@ -1020,6 +1045,17 @@ pub const MOB_TEXTURES: &[&str] = &[
     "entity/llama/llama_gray",
     "entity/equipment/llama_body/trader_llama",
     "entity/wandering_trader/wandering_trader",
+    "entity/cat/cat_tabby",
+    "entity/cat/cat_black",
+    "entity/cat/cat_red",
+    "entity/cat/cat_siamese",
+    "entity/cat/cat_british_shorthair",
+    "entity/cat/cat_calico",
+    "entity/cat/cat_persian",
+    "entity/cat/cat_ragdoll",
+    "entity/cat/cat_white",
+    "entity/cat/cat_jellie",
+    "entity/cat/cat_all_black",
     "entity/spider/spider",
     "entity/spider/cave_spider",
     "entity/spider/spider_eyes",
@@ -1299,6 +1335,7 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
         // `WanderingTraderRenderer`: the villagers' model (`WANDERING_TRADER`: `villagerBodyLayer`)
         "wandering_trader" => villager(d),
         "trader_llama" => llama(d, 0.0),
+        "cat" => cat(d),
         "zombie" => zombie(d, false),
         "baby_zombie" => zombie(d, true),
         "spider" => spider(d, 1.0),
@@ -1702,6 +1739,25 @@ mod tests {
         assert!(mob_triangles(&g, "minecraft:wandering_trader", [0.0; 3], &hidden).unwrap().is_empty());
     }
 
+    /// A cat wears its variant's texture (redsim's `variant`, `CatSpawner`'s pick; a design's
+    /// `variant:"minecraft:jellie"`), black without one (`Cat.DEFAULT_VARIANT`).
+    #[test]
+    fn a_cat_wears_its_variant() {
+        let g = browser_game();
+        for (variant, tex) in [(Some("jellie"), "entity/cat/cat_jellie"), (Some("all_black"), "entity/cat/cat_all_black"), (None, "entity/cat/cat_black")] {
+            let d = crate::mesh::MobDraw { variant, ..Default::default() };
+            let t = mob_triangles(&g, "minecraft:cat", [0.0; 3], &d).unwrap();
+            let r = rect(&g, tex).unwrap();
+            let inside = |v: &Vertex| {
+                let (u, w) = (v.uv[0] * g.width as f32, v.uv[1] * g.height as f32);
+                u >= r[0] as f32 - 0.5 && u <= (r[0] + r[2]) as f32 + 0.5 && w >= r[1] as f32 - 0.5 && w <= (r[1] + r[3]) as f32 + 0.5
+            };
+            assert!(!t.is_empty() && t.iter().all(inside), "{variant:?}: {tex}");
+        }
+        let design = crate::scene::still_mob("minecraft:cat", 0.0, false, Some("{variant:\"minecraft:siamese\"}"));
+        assert_eq!(design.and_then(|m| m.variant), Some("siamese"), "a design cat's own variant");
+    }
+
     /// The browser's game texture (the blocks, the items, the entities, the particles: as
     /// `mcview-web` packs it) fits the renderer's limits (`Limits::downlevel_webgl2_defaults`:
     /// 2048 on each side, what every WebGL2 phone has): the armor's textures had made it 2080
@@ -1751,6 +1807,9 @@ mod tests {
             // its decor (`LLAMA_DECOR`, grown 0.5) over the model: half a pixel under its hooves
             // and over its ears (the ears' tops 12 px over the 24 px of its legs and body)
             ("minecraft:trader_llama", -0.5 / 16.0, 36.5 / 16.0),
+            // `CAT_TRANSFORMER` (scaled 0.8 about 24.016 px): its ears' tops at 12 px, its front
+            // feet at 24.1 px (a front leg's 10 px from 14.1)
+            ("minecraft:cat", 1.501 - (24.1 * 0.8 + 24.016 * 0.2) / 16.0, 1.501 - (12.0 * 0.8 + 24.016 * 0.2) / 16.0),
         ] {
             let tris = mob_triangles(&g, kind, [0.0; 3], &d).unwrap_or_else(|| panic!("{kind}: no model"));
             let (lo, hi) = bounds(&tris);
