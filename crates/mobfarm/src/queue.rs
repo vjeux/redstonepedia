@@ -4267,6 +4267,13 @@ pub struct LoopTiming {
     /// entering this cell (loop frame) in slots S0..=S1 removed (an empty cart from there on); K >
     /// 0: only the K-th cart to enter the cell in each slot (a single riderless cart in its train).
     pub strip_riders: Option<([i32; 3], i64, i64, usize)>,
+    /// R1's corner T driven (farmopt's B return, `--t-drive`): (the T cell, the power cell beside
+    /// it, both loop frame; DELAY, LEN): a redstone block at the power cell from each even cycle's
+    /// REL (`pocket_release`, A's) + DELAY for LEN gt, glass otherwise (the T north_west for A's
+    /// carts while powered, south_west for B's otherwise); every cart through the T logged with
+    /// the side it came from and the T's shape, a wrong-way pass or a flip with a cart in the cell
+    /// a problem.
+    pub t_drive: Option<([i32; 3], [i32; 3], i64, i64)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -5917,7 +5924,7 @@ impl LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, no_blind_check: false, blind_all: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, takeoff_log: false, hold_back: None, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, bed_at: None, approach_trace: None, rel_clear: None, head_wait: false, head_latch: None, strip_riders: None, chain_study: false, depart_space: 0, g2_tripwire: false, gate_delay: 0, interlock_arrivals: false, interlock_launch: false, interlock: None, meter: None, q_needs_p1: false, release_gaps: None, rel_end_count: None, rel_end_n: None, rel_end_rear: None, rel_gate_unset: 0, split: None, stand_hold_after: 0, stand_hold: None, stand_meter: 0, unset_quiet: false, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, no_blind_check: false, blind_all: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, takeoff_log: false, hold_back: None, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, bed_at: None, approach_trace: None, rel_clear: None, head_wait: false, head_latch: None, strip_riders: None, t_drive: None, chain_study: false, depart_space: 0, g2_tripwire: false, gate_delay: 0, interlock_arrivals: false, interlock_launch: false, interlock: None, meter: None, q_needs_p1: false, release_gaps: None, rel_end_count: None, rel_end_n: None, rel_end_rear: None, rel_gate_unset: 0, split: None, stand_hold_after: 0, stand_hold: None, stand_meter: 0, unset_quiet: false, start_random: false }
     }
 }
 
@@ -7432,6 +7439,17 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let cross_ok: Vec<[i32; 3]> = hdr.cross_push_ok.iter().map(|c| [c[0] + o.shift[0] as i32, c[1], c[2] + o.shift[1] as i32]).collect();
     let mut curves = CurveSpacing::default();
     curves.init(&run.world);
+    // (`--t-drive`: R1's corner T, its passes (t, cart, side, shape, the right way, ridden, label),
+    // shape changes and flips with a cart in the cell)
+    let mut t_pass: Vec<(i64, usize, char, String, bool, bool, String)> = Vec::new();
+    let mut t_prev_z: std::collections::HashMap<usize, f64> = std::collections::HashMap::new();
+    let mut t_inside: Vec<usize> = Vec::new();
+    let mut t_shape = String::new();
+    let mut t_changes = 0usize;
+    // (the T's shape changes (gt) and each pass's exit gt, for the timing margins)
+    let mut t_change_at: Vec<i64> = Vec::new();
+    let mut t_exit: Vec<Option<i64>> = Vec::new();
+    let mut t_flip_on_cart: Vec<String> = Vec::new();
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
     // (slots from a departure to the slot whose advance must find that batch in the queue's
     // tail: the line loop's long return takes two)
@@ -9582,6 +9600,20 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 meter_tick(&mut run.world, &m, &mut meter_state_b, &lay, o, rel_bench, &carts, t, c, dt);
             }
         }
+        // (`--t-drive`: R1's corner T's power cell set for this gt, before the tick)
+        if let Some((_, pc, delay, len)) = tm.t_drive {
+            let on = (0..=c).filter(|k| k % 2 == 0).any(|k| {
+                let a = k * 100 + tm.pocket_release + delay;
+                t >= a && t < a + len
+            });
+            let p = BlockPos::new(pc[0] + fx as i32, pc[1], pc[2] + fz as i32);
+            let want = if on { "minecraft:redstone_block" } else { "minecraft:glass" };
+            if run.world.get(p).to_string() != want
+                && let Ok(b) = Block::parse(want)
+            {
+                run.world.set_block(p, b, redsim::world::flags::ALL);
+            }
+        }
         run.tick();
         if tm.meter.is_some() {
             meter_trace(&run.world, &mut meter_state, &lay, o, &carts, t, c, dt);
@@ -9591,6 +9623,46 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             cross.observe(&run.world, &cross_ok, &format!("slot {c} +{dt}"), o.shift[0] as i32, o.shift[1] as i32);
         }
         curves.observe(&run.world, t);
+        // (`--t-drive`: each cart entering R1's corner T, the side it came from (N: from smaller
+        // z, A's rise; S: from larger z, B's return) and the T's shape; a shape change while a cart
+        // is in the cell)
+        if let Some((tc, _, _, _)) = tm.t_drive {
+            let tp = BlockPos::new(tc[0] + fx as i32, tc[1], tc[2] + fz as i32);
+            let st = run.world.get(tp).to_string();
+            let shape = st.split("shape=").nth(1).map(|r| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
+            let mut inside_now: Vec<usize> = Vec::new();
+            for (k, id) in carts.iter().enumerate() {
+                let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
+                let (cx, cy, cz) = (e.pos.x.floor() as i32, (e.pos.y + 0.01).floor() as i32, e.pos.z.floor() as i32);
+                if cx == tp.x && cz == tp.z && (cy - tp.y).abs() <= 1 {
+                    inside_now.push(k);
+                    if !t_inside.contains(&k) {
+                        let from = t_prev_z.get(&k).map_or('?', |pz| if *pz < tp.z as f64 + 0.5 { 'N' } else { 'S' });
+                        let ok = (from == 'N' && shape == "north_west") || (from == 'S' && shape == "south_west");
+                        t_pass.push((t, k, from, shape.clone(), ok, !e.passengers.is_empty(), format!("slot {c} +{dt}")));
+                        t_exit.push(None);
+                    }
+                }
+                t_prev_z.insert(k, e.pos.z);
+            }
+            // (a cart that left the cell this gt: its open pass closed)
+            for k in t_inside.iter().filter(|k| !inside_now.contains(k)) {
+                if let Some(i) = t_pass.iter().rposition(|p| p.1 == *k)
+                    && t_exit[i].is_none()
+                {
+                    t_exit[i] = Some(t);
+                }
+            }
+            if !t_shape.is_empty() && shape != t_shape {
+                t_changes += 1;
+                t_change_at.push(t);
+                if !inside_now.is_empty() || !t_inside.is_empty() {
+                    t_flip_on_cart.push(format!("slot {c} +{dt}: {} -> {} with cart(s) {:?} in the cell", t_shape, shape, if inside_now.is_empty() { &t_inside } else { &inside_now }));
+                }
+            }
+            t_shape = shape;
+            t_inside = inside_now;
+        }
         // (the boosters still powered after the warm-up)
         if t == 20 && build_start.is_none() {
             for b in crate::declared::check(&run.world, &declared, true) {
@@ -11825,7 +11897,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if tm.takeoff_log {
             let mut ci: Vec<&(f64, usize, f64, f64, bool, String)> = tail_watch.cross_info.iter().collect();
             ci.sort_by(|a, b| a.0.total_cmp(&b.0));
-            let dep_of = |k: usize, t: f64| departs.iter().rev().find(|(td, kd, _)| *kd == k && (*td as f64) < t).map(|(td, _, _)| *td);
+            let dep_of = |k: usize, t: f64| departs.iter().rev().find(|(td, kd, _)| *kd == k && (*td as f64) < t && t - (*td as f64) < 150.0).map(|(td, _, _)| *td);
             let mut changes: Vec<f64> = Vec::new();
             for p in ci.windows(2) {
                 let gt = p[1].0 - p[0].0;
@@ -11844,6 +11916,87 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if !changes.is_empty() {
                 out.push(format!("departure gap -> take-off gap: {} pairs, change {:+.2}..{:+.2} gt (whole gt at the corner, interpolated at the take-off)", changes.len(), changes.iter().cloned().fold(f64::INFINITY, f64::min), changes.iter().cloned().fold(f64::NEG_INFINITY, f64::max)));
             }
+        }
+        // (`--t-drive`: R1's corner T, each cart through it, and the take-off crossings by route:
+        // a crossing's route is its cart's last pass through the T (N: A's, S: B's))
+        if let Some((tc, pc, delay, len)) = tm.t_drive {
+            let (n_a, n_b) = (t_pass.iter().filter(|p| p.2 == 'N').count(), t_pass.iter().filter(|p| p.2 == 'S').count());
+            let wrong: Vec<&(i64, usize, char, String, bool, bool, String)> = t_pass.iter().filter(|p| !p.4).collect();
+            out.push(format!(
+                "R1's corner T at ({},{},{}) (a redstone block at ({},{},{}) from each even cycle's REL + {delay} for {len} gt): {} carts through (from the north, A's: {n_a}; from the south, B's: {n_b}), the wrong way: {}, shape changes {t_changes}, flips with a cart in the cell: {}{}",
+                tc[0], tc[1], tc[2], pc[0], pc[1], pc[2], t_pass.len(), wrong.len(), t_flip_on_cart.len(),
+                if t_flip_on_cart.is_empty() { String::new() } else { format!(" ({})", t_flip_on_cart.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) }
+            ));
+            out.push(format!(
+                "T per cart: {}",
+                t_pass.iter().take(60).map(|p| format!("{} cart {} {} {}{}{}", p.6, p.1, p.2, p.3, if p.5 { "" } else { " EMPTY" }, if p.4 { "" } else { " WRONG" })).collect::<Vec<_>>().join("; ")
+            ));
+            // (the timing margins: each pass's entry after the T's last change, and its exit before
+            // the next change; the least per side)
+            let mut marg: [(i64, i64, String, String); 2] = [(i64::MAX, i64::MAX, String::new(), String::new()), (i64::MAX, i64::MAX, String::new(), String::new())];
+            for (i, p) in t_pass.iter().enumerate() {
+                let side = if p.2 == 'N' { 0 } else { 1 };
+                if let Some(prev) = t_change_at.iter().rev().find(|ch| **ch <= p.0) {
+                    let m = p.0 - prev;
+                    if m < marg[side].0 {
+                        marg[side].0 = m;
+                        marg[side].2 = format!("{} cart {}", p.6, p.1);
+                    }
+                }
+                if let (Some(ex), Some(next)) = (t_exit[i], t_change_at.iter().find(|ch| **ch >= p.0)) {
+                    let m = next - ex;
+                    if m < marg[side].1 {
+                        marg[side].1 = m;
+                        marg[side].3 = format!("{} cart {}", p.6, p.1);
+                    }
+                }
+            }
+            let fm = |v: i64, w: &str| if v == i64::MAX { "-".to_string() } else { format!("{v} gt ({w})") };
+            out.push(format!(
+                "T timing margins (a cart's entry after the T's last change, its exit before the next): A's (from the north) {} after, {} before; B's (from the south) {} after, {} before",
+                fm(marg[0].0, &marg[0].2), fm(marg[0].1, &marg[0].3), fm(marg[1].0, &marg[1].2), fm(marg[1].1, &marg[1].3)
+            ));
+            if !wrong.is_empty() {
+                problems.push(format!("R1's corner T: {} carts through it the wrong way ({})", wrong.len(), wrong.iter().take(4).map(|p| format!("{} cart {} from {} on {}", p.6, p.1, p.2, p.3)).collect::<Vec<_>>().join("; ")));
+            }
+            if !t_flip_on_cart.is_empty() {
+                problems.push(format!("R1's corner T flipped with a cart in its cell: {} ({})", t_flip_on_cart.len(), t_flip_on_cart.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
+            }
+            // (the take-off crossings by route; the gaps between the two streams)
+            let mut ci: Vec<&(f64, usize, f64, f64, bool, String)> = tail_watch.cross_info.iter().collect();
+            ci.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let route = |k: usize, tc: f64| t_pass.iter().rev().find(|p| p.1 == k && (p.0 as f64) < tc).map_or('?', |p| if p.2 == 'N' { 'A' } else { 'B' });
+            let rng = |v: &[f64]| if v.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", v.iter().cloned().fold(f64::INFINITY, f64::min), v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)) };
+            let mut parts: Vec<String> = Vec::new();
+            for r in ['A', 'B'] {
+                let ridden: Vec<f64> = ci.iter().filter(|x| route(x.1, x.0) == r && x.4).map(|x| x.2).collect();
+                let empty: Vec<f64> = ci.iter().filter(|x| route(x.1, x.0) == r && !x.4).map(|x| x.2).collect();
+                parts.push(format!("{r}'s {} (stored ridden {}, empty {})", ridden.len() + empty.len(), rng(&ridden), rng(&empty)));
+            }
+            let mut cross_gaps: Vec<(f64, String)> = Vec::new();
+            let mut all_gaps: Vec<(f64, String)> = Vec::new();
+            for p in ci.windows(2) {
+                let g = p[1].0 - p[0].0;
+                let (r0, r1) = (route(p[0].1, p[0].0), route(p[1].1, p[1].0));
+                let lab = format!("{} cart {} ({r0}) -> cart {} ({r1}) {g:.2} gt", p[1].5, p[0].1, p[1].1);
+                if g < 60.0 {
+                    all_gaps.push((g, lab.clone()));
+                }
+                if r0 != r1 {
+                    cross_gaps.push((g, lab));
+                }
+            }
+            cross_gaps.sort_by(|a, b| a.0.total_cmp(&b.0));
+            all_gaps.sort_by(|a, b| a.0.total_cmp(&b.0));
+            out.push(format!(
+                "take-off by route: {}; between the streams (consecutive crossings of A's and B's): {} pairs, the least {}{}; every pair under 60 gt: the least {}, under 9: {}",
+                parts.join(", "),
+                cross_gaps.len(),
+                cross_gaps.first().map_or("-".to_string(), |g| format!("{:.2} gt", g.0)),
+                if cross_gaps.is_empty() { String::new() } else { format!(" ({})", cross_gaps.iter().take(3).map(|g| g.1.clone()).collect::<Vec<_>>().join("; ")) },
+                all_gaps.first().map_or("-".to_string(), |g| g.1.clone()),
+                all_gaps.iter().filter(|g| g.0 < 9.0).count()
+            ));
         }
         out.push(cart_count.line(cycles as i64, 3));
         if lay.esc_adm_a1.is_some() {

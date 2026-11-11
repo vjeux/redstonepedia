@@ -520,7 +520,8 @@ pub enum MobfarmCmd {
         #[arg(long)]
         keep_base: bool,
         /// The base's blocks, block entities and entities inside this box removed first
-        /// (X0,Y0,Z0,X1,Y1,Z1, the base's frame): a part moved elsewhere (a siding placement).
+        /// (X0,Y0,Z0,X1,Y1,Z1, the base's frame; several boxes as one list of sixes): a part moved
+        /// elsewhere (a siding placement), or the cells a route replaces.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         remove_box: Vec<i32>,
         /// Set (or move) one of the result's ports, NAME=x,y,z (repeatable): a moved part's port
@@ -1932,6 +1933,13 @@ pub enum MobfarmCmd {
         /// landed, the off-rail cells) and the grid's least.
         #[arg(long)]
         takeoff_grid: Option<String>,
+        /// R1's corner T driven (farmopt's B return): TX,TY,TZ,PX,PY,PZ,DELAY,LEN (loop frame): a
+        /// redstone block at P from each even cycle's REL + DELAY for LEN gt (A's carts through the
+        /// T north_west while powered), glass otherwise (south_west, B's); every cart through the T
+        /// logged with its side and the T's shape, a wrong-way pass or a flip with a cart in the
+        /// cell a problem, and the take-off crossings split by route.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        t_drive: Vec<i64>,
         /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
         /// partial unloads too when the design is shifted), on --seeds seeds from --seed, --jobs
         /// threads; a value keeps only the cases whose name contains it ("D1|REL").
@@ -2899,16 +2907,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(o.len() == 3, "--at x,y,z");
             anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
-            anyhow::ensure!(remove_box.is_empty() || remove_box.len() == 6, "--remove-box X0,Y0,Z0,X1,Y1,Z1");
+            anyhow::ensure!(remove_box.len() % 6 == 0, "--remove-box X0,Y0,Z0,X1,Y1,Z1[,X0,Y0,Z0,X1,Y1,Z1...] (one or more boxes)");
             let mut d = mctas::design::Design::parse(&std::fs::read_to_string(&base)?)?;
-            if remove_box.len() == 6 {
-                let b = remove_box.clone();
+            // (`--remove-box`: one box, or several as one list of sixes)
+            for b in remove_box.chunks(6) {
+                let b = b.to_vec();
                 let inside = |c: &[i32; 3]| (0..3).all(|k| c[k] >= b[k].min(b[k + 3]) && c[k] <= b[k].max(b[k + 3]));
                 let n0 = d.blocks.len();
+                let e0 = d.entities.len();
                 d.blocks.retain(|c, _| !inside(c));
                 d.block_entities.retain(|c, _| !inside(c));
                 d.entities.retain(|e| !inside(&[e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]));
-                println!("--remove-box: {} of the base's blocks removed", n0 - d.blocks.len());
+                println!("--remove-box {:?}: {} of the base's blocks and {} entities removed", b, n0 - d.blocks.len(), e0 - d.entities.len());
             }
             let mut p = mctas::design::Design::parse(&std::fs::read_to_string(&part)?)?;
             // (`--box`: only the part's cells and entities inside the box, its own frame)
@@ -3682,7 +3692,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, takeoff_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, bed_distance, approach_trace, rel_clear, head_wait, head_latch, fault_table, perfect_tail, all_corners, cprime_variants, corner_table, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, rel_sweep, meter_hold, strip_riders, takeoff_grid, summon_unaligned, no_cross_push_check, placed_yaw, release_computed, release_from, no_eye_check, takeoff_list, calm_list, no_junction_check, esc_bands, no_blind_check, blind_all } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, takeoff_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, bed_distance, approach_trace, rel_clear, head_wait, head_latch, fault_table, perfect_tail, all_corners, cprime_variants, corner_table, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, rel_sweep, meter_hold, strip_riders, takeoff_grid, t_drive, summon_unaligned, no_cross_push_check, placed_yaw, release_computed, release_from, no_eye_check, takeoff_list, calm_list, no_junction_check, esc_bands, no_blind_check, blind_all } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3799,7 +3809,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
                 }
                 a
-            }, arrivals: arrivals_out.is_some(), verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match (release_computed, release_offs.as_slice()) { (true, _) | (false, []) => None, (false, [a, b, c]) => Some([*a, *b, *c]), _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, release_from, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] | [s, t, l, _] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,D,L[,U]") }, rel_gate_unset: rel_gate.get(3).copied().unwrap_or(0), bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, strip_riders: match strip_riders.as_slice() { [x, y, z] => Some(([*x as i32, *y as i32, *z as i32], 0, i64::MAX, 0)), [x, y, z, s0, s1] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, 0)), [x, y, z, s0, s1, k] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, *k as usize)), [] => None, _ => anyhow::bail!("--strip-riders takes X,Y,Z[,S0,S1[,K]]") }, ..Default::default() };
+            }, arrivals: arrivals_out.is_some(), verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match (release_computed, release_offs.as_slice()) { (true, _) | (false, []) => None, (false, [a, b, c]) => Some([*a, *b, *c]), _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, release_from, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] | [s, t, l, _] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,D,L[,U]") }, rel_gate_unset: rel_gate.get(3).copied().unwrap_or(0), bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, strip_riders: match strip_riders.as_slice() { [x, y, z] => Some(([*x as i32, *y as i32, *z as i32], 0, i64::MAX, 0)), [x, y, z, s0, s1] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, 0)), [x, y, z, s0, s1, k] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, *k as usize)), [] => None, _ => anyhow::bail!("--strip-riders takes X,Y,Z[,S0,S1[,K]]") }, t_drive: match t_drive.as_slice() { [tx, ty, tz, px, py, pz, d, l] => Some(([*tx as i32, *ty as i32, *tz as i32], [*px as i32, *py as i32, *pz as i32], *d, *l)), [] => None, _ => anyhow::bail!("--t-drive takes TX,TY,TZ,PX,PY,PZ,DELAY,LEN") }, ..Default::default() };
             // (`--place-rest`: the approach's rest check instead of a run)
             if let Some(pr) = &place_rest {
                 let cells: Vec<[i32; 3]> = if pr == "approach" {
@@ -5889,6 +5899,51 @@ fn takeoff_grid_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue
                     }
                 }
             }
+            // (`--t-drive` runs: R1's corner T (passes, wrong way, flips with a cart), its timing
+            // margins, the take-off by route, the curve spacing at the curves `MCTAS_GRID_CURVES`
+            // names (loop frame "x,y,z;..."), the curve contact ticks)
+            let first_num = |s: &str| -> Option<i64> { s.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().and_then(|t| t.parse().ok()) };
+            let (mut t_through, mut t_wrong, mut t_flip) = (0i64, 0i64, 0i64);
+            let mut t_marg = [i64::MAX; 4];
+            let (mut b_rid, mut b_emp, mut a_emp) = ((f64::INFINITY, f64::NEG_INFINITY), (f64::INFINITY, f64::NEG_INFINITY), (f64::INFINITY, f64::NEG_INFINITY));
+            let mut between = f64::INFINITY;
+            let mut contact = 0i64;
+            let curve_cells: Vec<String> = std::env::var("MCTAS_GRID_CURVES").unwrap_or_default().split(';').filter(|c| !c.is_empty()).map(|c| format!("({c})")).collect();
+            let mut curve_least: Vec<i64> = vec![i64::MAX; curve_cells.len()];
+            let mut has_t = false;
+            for out in &outs {
+                for l in out.lines() {
+                    if l.starts_with("R1's corner T at") {
+                        has_t = true;
+                        if let Some(x) = l.split("gt): ").nth(1) { t_through += first_num(x).unwrap_or(0); }
+                        if let Some(x) = l.split("the wrong way: ").nth(1) { t_wrong += first_num(x).unwrap_or(0); }
+                        if let Some(x) = l.split("flips with a cart in the cell: ").nth(1) { t_flip += first_num(x).unwrap_or(0); }
+                    } else if let Some(x) = l.strip_prefix("T timing margins") {
+                        let (a, b) = x.split_once("B's").unwrap_or((x, ""));
+                        for (j, part) in [a, b].iter().enumerate() {
+                            let mut it = part.split(" gt (");
+                            let v0 = it.next().and_then(|s| s.rsplit(' ').next()).and_then(|s| s.parse::<i64>().ok());
+                            let v1 = part.split(") after, ").nth(1).and_then(first_num);
+                            if let Some(v) = v0 { t_marg[2 * j] = t_marg[2 * j].min(v); }
+                            if let Some(v) = v1 { t_marg[2 * j + 1] = t_marg[2 * j + 1].min(v); }
+                        }
+                    } else if let Some(x) = l.strip_prefix("take-off by route: ") {
+                        let (a, b) = x.split_once("B's ").unwrap_or((x, ""));
+                        if let Some((lo, hi)) = range(a, "empty ") { a_emp = (a_emp.0.min(lo), a_emp.1.max(hi)); }
+                        if let Some((lo, hi)) = range(b, "stored ridden ") { b_rid = (b_rid.0.min(lo), b_rid.1.max(hi)); }
+                        if let Some((lo, hi)) = range(b, "empty ") { b_emp = (b_emp.0.min(lo), b_emp.1.max(hi)); }
+                        if let Some(v) = num(b, "pairs, the least ") { between = between.min(v); }
+                    } else if let Some(x) = l.strip_prefix("curve contact") {
+                        if let Some(v) = x.split("): ").nth(1).and_then(first_num) { contact += v; }
+                    } else if l.starts_with("curve spacing") {
+                        for (j, cc) in curve_cells.iter().enumerate() {
+                            if let Some(v) = l.split(&format!("{cc} ")).nth(1).and_then(|t| t.split("least margin ").nth(1)).and_then(first_num) {
+                                curve_least[j] = curve_least[j].min(v);
+                            }
+                        }
+                    }
+                }
+            }
             let mut cells: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
             // (stand A's meter lines: SE after its REL, the next fill's last cart at rest before the
             // summoning moment, and the first cart at each gate's face after it shut)
@@ -5963,6 +6018,15 @@ fn takeoff_grid_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue
                 if cells.is_empty() { "none".to_string() } else { cells.iter().map(|(c, n)| format!("{c} x{n}")).collect::<Vec<_>>().join(", ") },
                 ri(se), if at_rest < i64::MAX { at_rest.to_string() } else { "-".into() }, ri(face[0]), ri(face[1]), ri(face[2])
             );
+            if has_t {
+                let mv = |v: i64| if v == i64::MAX { "-".to_string() } else { v.to_string() };
+                println!(
+                    "  B-RETURN stagger {s} REL {r}: T passes {t_through}, the wrong way {t_wrong}, flips with a cart {t_flip}; T margins A after/before {}/{} gt, B after/before {}/{} gt; take-off B's stored ridden {}, empty {}; A's empty {}; between the streams the least {}; curve contact {contact}; curves {}",
+                    mv(t_marg[0]), mv(t_marg[1]), mv(t_marg[2]), mv(t_marg[3]), rng(b_rid), rng(b_emp), rng(a_emp),
+                    if between.is_finite() { format!("{between:.2} gt") } else { "-".into() },
+                    curve_cells.iter().zip(&curve_least).map(|(c, v)| format!("{c} {}", mv(*v))).collect::<Vec<_>>().join(", ")
+                );
+            }
             use std::io::Write;
             let _ = std::io::stdout().flush();
         }
