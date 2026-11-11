@@ -130,17 +130,40 @@ fn arm_step(a: u8) -> [i32; 2] {
 /// arrival set off down the slope from the top flat at 1.5 past its start. Waiting: place 1 ridden
 /// or empty; place 2 behind a ridden front ridden or empty, behind an empty front ridden. Arrivals
 /// ridden and empty at stored 0.2, 0.3, 0.4, 0.45, 0.5, 0.633, 0.8, 1.0, 1.12, 1.5, 2.014; and
-/// farmopt's (b) on the sloped approach.
-fn hcontact_lanes() -> Vec<(i32, i32, i32, Vec<(f64, bool)>, (f64, bool), String)> {
-    let speeds = [0.2, 0.3, 0.4, 0.45, 0.5, 0.633, 0.8, 1.0, 1.12, 1.5, 2.014];
+/// farmopt's (b) on the sloped approach. Scene h-contact-farmopt: the same pairs and geometries at
+/// farmopt's measured H arrival speeds (7b90c3f1's "meter H arrivals"): 0.01, 0.03, 0.06, 0.10,
+/// 0.13, 0.82, 0.89, 1.05, 1.08, 1.40. Scene h-contact-sweep (ironspec's threshold sweep): the
+/// sloped geometry, place 1 empty, place 2 ridden front + empty 2nd and ridden + ridden (the
+/// control), ridden and empty arrivals at 0.2, 0.25, 0.3, 0.35, each in 16 copies whose arrival
+/// starts 1/16 block apart (the contact's phase) at its own place in the world (its entity order).
+/// The last field: the arrival's start offset back from 1.5 past the top flat's start.
+#[allow(clippy::type_complexity)]
+fn hcontact_lanes(name: &str) -> Vec<(i32, i32, i32, Vec<(f64, bool)>, (f64, bool), String, f64)> {
+    let speeds: &[f64] = match name {
+        "h-contact-farmopt" => &[0.01, 0.03, 0.06, 0.10, 0.13, 0.82, 0.89, 1.05, 1.08, 1.40],
+        "h-contact-sweep" => &[0.2, 0.25, 0.3, 0.35],
+        _ => &[0.2, 0.3, 0.4, 0.45, 0.5, 0.633, 0.8, 1.0, 1.12, 1.5, 2.014],
+    };
+    let copies = if name == "h-contact-sweep" { 16 } else { 1 };
     let mut v = Vec::new();
     let (p1, p2r, p2e) = (4.1150, 4.9050, 5.0950);
     let mut add = |flat: i32, waits: Vec<(f64, bool)>, arrive_ridden: bool, label: &str| {
-        for sp in speeds {
-            let k = v.len() as i32;
-            v.push((1 + 2 * (k % 26), 12 * (k / 26), flat, waits.clone(), (sp, arrive_ridden), label.to_string()));
+        for &sp in speeds {
+            for c in 0..copies {
+                let k = v.len() as i32;
+                v.push((1 + 2 * (k % 26), 12 * (k / 26), flat, waits.clone(), (sp, arrive_ridden), label.to_string(), c as f64 / 16.0));
+            }
         }
     };
+    if name == "h-contact-sweep" {
+        for ar in [true, false] {
+            let a = if ar { "R" } else { "E" };
+            add(0, vec![(p1, false)], ar, &format!("sloped place 1: E waiting, {a} arriving"));
+            add(0, vec![(p1, true), (p2r, false)], ar, &format!("sloped place 2: R front, E waiting, {a} arriving"));
+            add(0, vec![(p1, true), (p2r, true)], ar, &format!("sloped place 2: R front, R waiting, {a} arriving"));
+        }
+        return v;
+    }
     for flat in [0, 1, 2] {
         let f = ["sloped", "hybrid", "flat"][flat as usize];
         for ar in [true, false] {
@@ -154,8 +177,10 @@ fn hcontact_lanes() -> Vec<(i32, i32, i32, Vec<(f64, bool)>, (f64, bool), String
     }
     // (farmopt's (b): the 2nd cart pushed back by the front rider's jiggle, its gap to the arrival
     // under the wall when the arrival comes: the 2nd 0.1 and 0.2 behind its rest)
-    for d in [0.1, 0.2] {
-        add(0, vec![(p1, true), (p2r + d, true)], true, &format!("sloped place 2: R front, R waiting {d} back, R arriving"));
+    if name == "h-contact" {
+        for d in [0.1, 0.2] {
+            add(0, vec![(p1, true), (p2r + d, true)], true, &format!("sloped place 2: R front, R waiting {d} back, R arriving"));
+        }
     }
     v
 }
@@ -4482,16 +4507,19 @@ fn scenes_raw() -> Vec<Scene> {
     }
     // (tickexact 2026-11-11, farmopt's and ironspec's H rest-place contacts: a ridden arrival into a
     // ridden cart pressed at H's 2nd place, the riderless rows' empty waiting carts, and the flat
-    // last approach, and the hybrid) hcontact_lanes: 352 lanes, 26 to a row 2 apart, rows 12 apart
-    {
+    // last approach, and the hybrid) hcontact_lanes: 352 lanes, 26 to a row 2 apart, rows 12 apart;
+    // h-contact-farmopt (300 lanes) and h-contact-sweep (384) the same way
+    for name in ["h-contact", "h-contact-farmopt", "h-contact-sweep"] {
+        let lanes = hcontact_lanes(name);
+        let rows = (lanes.len() as i32 + 25) / 26;
         let mut b = Vec::new();
-        floor(&mut b, 0, 64, 0, 176, 63, stone);
+        floor(&mut b, 0, 64, 0, 12 * rows + 8, 63, stone);
         let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
         let cart = |x: f64, y: f64, z: f64, v: f64, ridden: bool| {
             let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
             ("minecraft:minecart".to_string(), [x, y, z], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", -v)))
         };
-        for (x, dz, flat, waits, (sp, ar), _) in hcontact_lanes() {
+        for (x, dz, flat, waits, (sp, ar), _, back) in lanes {
             b.push(([x, 64, 3 + dz], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
             for z in 4..4 + flat {
                 b.push(([x, 64, z + dz], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
@@ -4515,18 +4543,18 @@ fn scenes_raw() -> Vec<Scene> {
             for (z, r) in waits {
                 mobs.push(cart(xf, y_at(z), z + dz as f64, 0.0, r));
             }
-            let za = 8.5 + flat as f64;
+            let za = 8.5 + flat as f64 + back;
             mobs.push(cart(xf, y_at(za), za + dz as f64, sp, ar));
         }
         v.push(Scene {
-            name: "h-contact".into(),
-            chunks: [0, 0, 3, 10],
+            name: name.into(),
+            chunks: [0, 0, 3, (12 * rows + 7) / 16],
             blocks: b,
             mobs,
             day_time: 6000,
             difficulty: Difficulty::Normal,
             mob_griefing: true,
-            watch: ([0, 62, 0], [63, 72, 175]),
+            watch: ([0, 62, 0], [63, 72, 12 * rows + 7]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
@@ -7620,7 +7648,10 @@ pub fn rec_hcontact(path: &std::path::Path) -> Result<()> {
     // (per lane kind: arrival merges, other pair merges, T's cell, closest without a merge, front offset)
     #[allow(clippy::type_complexity)]
     let mut summary: std::collections::BTreeMap<String, (Vec<f64>, Vec<f64>, Vec<f64>, f64, f64)> = std::collections::BTreeMap::new();
-    for (x, dz, flat, waits, (sp, _), label) in hcontact_lanes() {
+    // (per lane kind and speed: the lanes run, those with a merge or a cart into T's cell)
+    let mut lanes_at: std::collections::BTreeMap<(String, String), (u32, u32)> = std::collections::BTreeMap::new();
+    let scene = path.file_stem().and_then(|s| s.to_str()).unwrap_or("h-contact").trim_end_matches(".rec").to_string();
+    for (x, dz, flat, waits, (sp, _), label, _) in hcontact_lanes(&scene) {
         let mut mine: Vec<(u64, f64)> = first.iter().filter(|(_, p)| p[0] >= x as f64 && p[0] < x as f64 + 1.0 && p[2] >= dz as f64 + 3.0 && p[2] < dz as f64 + 13.0).map(|(n, p)| (*n, p[2])).collect();
         mine.sort_by(|a, b| a.1.total_cmp(&b.1));
         if mine.len() != waits.len() + 1 {
@@ -7690,11 +7721,38 @@ pub fn rec_hcontact(path: &std::path::Path) -> Result<()> {
             s.3 = s.3.min(close);
         }
         s.4 = s.4.max(front_off.abs());
+        let n = lanes_at.entry((label.clone(), format!("{sp}"))).or_insert((0u32, 0u32));
+        n.0 += 1;
+        if close < 0.05 || pair < 0.05 || into_t {
+            n.1 += 1;
+        }
     }
-    println!("\nsummary (per lane kind: the arrival speeds that merge with the cart ahead, that merge two other carts, that put a cart into T's cell; the closest approach without a merge; the front's largest end offset from the gate):");
+    println!("\nsummary (per lane kind: the arrival speeds that merge with the cart ahead, that merge two other carts, that put a cart into T's cell; the closest approach without a merge; the front's largest end offset from the gate; then per speed the lanes with a merge or a cart into T's cell, of the lanes run):");
     for (label, (m, pm, t, c, f)) in &summary {
-        let fmt = |v: &Vec<f64>| if v.is_empty() { "none".to_string() } else { v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(" ") };
-        println!("  {label}: merges at {}; other pair merges at {}; into T's cell at {}; closest without a merge {}; front off the gate up to {f:.3}", fmt(m), fmt(pm), fmt(t), if *c == f64::MAX { "-".to_string() } else { format!("{c:.3}") });
+        let fmt = |v: &Vec<f64>| {
+            if v.is_empty() {
+                return "none".to_string();
+            }
+            let mut u: Vec<String> = Vec::new();
+            for x in v {
+                let s = format!("{x}");
+                if !u.contains(&s) {
+                    u.push(s);
+                }
+            }
+            u.join(" ")
+        };
+        let per: Vec<String> = lanes_at.iter().filter(|((l, _), _)| l == label).map(|((_, s), (k, bad))| format!("{s}: {bad}/{k}")).collect();
+        let clean = lanes_at.iter().filter(|((l, _), (_, bad))| l == label && *bad == 0).map(|((_, s), _)| s.parse::<f64>().unwrap_or(0.0)).fold(f64::NAN, f64::max);
+        println!(
+            "  {label}: merges at {}; other pair merges at {}; into T's cell at {}; closest without a merge {}; front off the gate up to {f:.3}; per speed {}; highest clean speed {}",
+            fmt(m),
+            fmt(pm),
+            fmt(t),
+            if *c == f64::MAX { "-".to_string() } else { format!("{c:.3}") },
+            per.join(", "),
+            if clean.is_nan() { "none".to_string() } else { format!("{clean}") }
+        );
     }
     Ok(())
 }
