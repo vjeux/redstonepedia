@@ -350,6 +350,42 @@ explore/farmopt-stand-faults) measured against the brief's fault rows.
   run (the pockets fed off T, any hold) takes much harder impacts than the visible speed shows
   (ironspec; 1.33..1.36 b/t measured into a held train).
 
+## What did not work: S2, the comb stand
+
+Basis: explore/farmopt-s2 da8124a1d (`queue-loop --stand-comb 1 [--comb-gravity]`, designs s2c1 and
+s2c1g: approach 5, crest 3, shift 6,6), on the OLD 20 gt bench (REL 3 gt early): not validated.
+Each pocket on its own branch, reached through rail junctions (T at the climb's top, S_y after it)
+flipped by single-cart detector edges in a 3-state ring.
+
+- **The closing cause: flip windows.** A switch flips between consecutive carts, and each cart's box
+  holds the cell about 2.5 gt either side of its centre, so the window is the gap less about 5 gt;
+  2 gt each side needs ≥ 9 gt between carts and an exactly timed flip. On main's train (about 11 gt
+  at T) the margin was already 1 gt before the next cart (T, on D_P3's edge +2). Approach C's
+  arrivals reach T 4..5 gt apart: no window at all.
+- After a stand-chunk freeze (level 32, 40 gt at slot 1 +20..+25), bunched trains flipped T and S_y
+  with a cart in the cell (1..2 a row).
+- **False arrival edges from junction snaps:** a departing cart crossing J1 from its unconnected side
+  is snapped to J1's +z edge, inside the box of the detector on J1's +z neighbour (E1): a false
+  arrival edge, and G0 shut on a departing cart (a real detector triggers the same way). Now
+  ironspec's rule: no detector a junction-crossing cart can reach.
+- **Wrong-side entry at J1/J2:** with the gate slopes powered while open, entries ≥ 0.328 b/t and
+  exits ≥ 0.319 (18 crossings, 0 problems); with gravity pockets, 0.039 b/t at J1 against the 0.1
+  bar (departures stall: a 4-cart window, gates shut on carts, 31 problems in 6 slots), since each
+  pocket climbs a block back after two down.
+- Exit edges: the only strip cell between a gate slope and the next junction sits beside that
+  powered slope; a clean exit cell needs one more flat per pocket (stand area x −4..11).
+- Cycle line (stem-in S_y): batch at rest by +92..+94, 4..6 gt before the summon tick; arrival
+  detectors ≥ 2 cells from a junction would cost 2.5..5 gt more.
+
+What carried over (to S3(ii)):
+- **Gates shut on the next arrival's edge:** G_k opens at REL and shuts on its line's next arrival
+  edge E_k, a line gate GF_k upstream of E_k: 3 gt from the edge to the shut, ≥ 33 gt from the last
+  departure; at most 3 out per window by construction.
+- **The head-launch latch** (the head launches only once the stand emptied since its last launch)
+  never bound: slack 71..87 gt.
+- **Per-pocket occupancy from single-cart cells:** one latch per pocket, set on its arrival edge and
+  reset on its exit edge, drives the line gate's reopening and the head latch's "stand empty".
+
 ## What did not work
 
 - A 2-long pit with an end wall 1 over the frame's row: a golem pushed by the pit's crowd stepped
