@@ -1203,6 +1203,11 @@ pub enum MobfarmCmd {
         /// within the last W gt, holds G2 shut (the cart rests against G2 and leaves from rest).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         late_hold: Vec<i64>,
+        /// The settled-release gate, emulated: S,T,L: the stand gets REL_eff, an L-gt pulse
+        /// triggered once per controller REL pulse when the latch has been set S gt, or when the
+        /// controller's REL has been on T gt (the timeout path).
+        #[arg(long, value_delimiter = ',')]
+        rel_gate: Vec<i64>,
         /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
         /// partial unloads too when the design is shifted), on --seeds seeds from --seed, --jobs
         /// threads; a value keeps only the cases whose name contains it ("D1|REL").
@@ -1920,6 +1925,11 @@ fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -
 /// in the overworld or still there 20 gt after its spawn), a golem touching no portal, a pulse
 /// without a golem, a golem not 2 gt in the overworld or not pulsed at +1 gt for 10 gt, more
 /// golems alive in the Nether at the end than the last 300 gt's slots make.
+/// A design's `declared:` line, parsed (none: nothing declared).
+fn mctas_decl(v: Option<&String>) -> anyhow::Result<Vec<crate::declared::Decl>> {
+    crate::declared::parse(v.map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))
+}
+
 fn linear_problem(r: &std::result::Result<crate::linear::BenchReport, String>) -> Option<String> {
     let r = match r {
         Err(e) => return Some(format!("ERROR {e}")),
@@ -2204,6 +2214,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if let Some(s) = p.meta.get("station") {
                 d.meta.insert("station".into(), s.clone());
             }
+            // (the declared states and flights, `crate::declared` / `crate::flight`: both designs'
+            // lines, the part's moved by --at; a cell both declare differently is refused, and a
+            // loop base's states derived from its `queue:` options are the runner's own, not here)
+            let mut decl = mctas_decl(d.meta.get("declared"))?;
+            for x in mctas_decl(p.meta.get("declared"))? {
+                let moved = crate::declared::Decl { cell: mv(&x.cell), ..x };
+                match decl.iter().find(|e| e.cell == moved.cell) {
+                    Some(e) if *e != moved => anyhow::bail!("the cell {:?} is declared by both designs differently: the base's {}, the part's {}", moved.cell, crate::declared::format(std::slice::from_ref(e)), crate::declared::format(std::slice::from_ref(&moved))),
+                    Some(_) => {}
+                    None => decl.push(moved),
+                }
+            }
+            let mut fl = crate::flight::parse(d.meta.get("flights").map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
+            for f in crate::flight::parse(p.meta.get("flights").map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))? {
+                let moved = crate::flight::Flight { take_off: mv(&f.take_off), landing: f.landing.iter().map(|c| mv(c)).collect(), max_air: f.max_air };
+                if !fl.contains(&moved) {
+                    fl.push(moved);
+                }
+            }
+            if d.meta.contains_key("declared") || p.meta.contains_key("declared") {
+                d.meta.insert("declared".into(), crate::declared::format(&decl));
+            }
+            if d.meta.contains_key("flights") || p.meta.contains_key("flights") {
+                d.meta.insert("flights".into(), crate::flight::format(&fl));
+            }
             let head: String = std::fs::read_to_string(&base)?.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
@@ -2476,7 +2511,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, start_random, calm, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, fault_table, perfect_tail, all_corners, corner_table } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, start_random, calm, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, fault_table, perfect_tail, all_corners, corner_table } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             if let Some(sf) = &siding {
@@ -2539,7 +2574,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,T,L") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
             // (`--place-rest`: the approach's rest check instead of a run)
             if let Some(pr) = &place_rest {
                 let cells: Vec<[i32; 3]> = if pr == "approach" {
@@ -3003,6 +3038,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
             let o = crate::linear::LinearOpts::of(&c.clock.design.meta)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
+            // (its declared states and flights, `crate::declared` / `crate::flight`: the brief's
+            // "No derails"; a design without the lines declares nothing)
+            let declared = crate::declared::parse(c.clock.design.meta.get("declared").map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
+            let flights = crate::flight::parse(c.clock.design.meta.get("flights").map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
+            println!("declared: {} states, {} flights{}", declared.len(), flights.len(), if c.clock.design.meta.contains_key("declared") { "" } else { " (the design has no `declared:` line)" });
             let st = crate::linear::check(&spec, &pad, &o).map_err(|e| anyhow::anyhow!(e))?;
             let seeds: Vec<i64> = (from..=to).collect();
             let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
@@ -3015,7 +3055,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::linear::bench(&spec, &pad, &o, &crate::linear::BenchOpts { seed, days, lead, drive: drive && seed == from, placement, plan: plan.clone() });
+                            let r = crate::linear::bench(&spec, &pad, &o, &crate::linear::BenchOpts { seed, days, lead, drive: drive && seed == from, placement, plan: plan.clone(), declared: declared.clone(), flights: flights.clone() });
                             out.lock().unwrap().push((seed, r));
                         });
                     }

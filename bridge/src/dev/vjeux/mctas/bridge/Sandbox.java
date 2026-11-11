@@ -1670,6 +1670,8 @@ final class Sandbox {
 
     /** The last {@link #loadAll}'s chunks in the order their entities entered (x,z:count ...). */
     String lastLoadOrder = "";
+    /** (tickexact 2026-11-11) The last whole-part load's entities in the order they came back, "n:type" space separated. */
+    String lastLoadSequence = "";
 
     /** Each entity's number before {@link #unloadAll}, by UUID. */
     private final java.util.Map<UUID, Integer> numbersBefore = new java.util.HashMap<>();
@@ -1834,6 +1836,12 @@ final class Sandbox {
      */
     @SuppressWarnings("unchecked")
     void loadAll(SimServer server) {
+        loadAll(server, "save");
+    }
+
+    /** {@link #loadAll(SimServer)} with the entities back in `order` ("save", "reverse" or "seed:K": redsim's reload::Order). */
+    @SuppressWarnings("unchecked")
+    void loadAll(SimServer server, String order) {
         if (!this.away) {
             throw new IllegalStateException("sandbox " + this.id + " is not unloaded");
         }
@@ -1863,20 +1871,72 @@ final class Sandbox {
             }
             List<net.minecraft.world.level.entity.ChunkEntities<Entity>> read = new ArrayList<>(inbox);
             inbox.clear();
-            java.util.function.ToIntFunction<net.minecraft.world.level.entity.ChunkEntities<Entity>> rank = c -> {
-                int x = c.getPos().x();
-                int z = c.getPos().z();
-                boolean in = x >= this.minChunkX && x <= this.maxChunkX && z >= this.minChunkZ && z <= this.maxChunkZ;
-                return in ? (x - this.minChunkX) * width + (z - this.minChunkZ) : Integer.MAX_VALUE;
-            };
-            read.sort(java.util.Comparator.comparingInt(rank));
-            StringBuilder trace = new StringBuilder();
+            // (tickexact 2026-11-11, the reload-order rule: redsim's reload::Order) the box's
+            // chunks in the forced order (x, then z), then in `order`: "reverse" the chunks and
+            // each chunk's vehicles-with-passengers the other way; "seed:K" the chunks shuffled,
+            // then each chunk's vehicles-with-passengers in the new chunk order, on one
+            // java.util.Random(K) (Collections.shuffle), and the entities numbered from 1000·K
+            // further on; "save" as the chunks were saved
+            List<Long> box = new ArrayList<>();
+            for (int cx = this.minChunkX; cx <= this.maxChunkX; cx++) {
+                for (int cz = this.minChunkZ; cz <= this.maxChunkZ; cz++) {
+                    box.add(ChunkPos.pack(cx, cz));
+                }
+            }
+            boolean reverse = "reverse".equals(order);
+            java.util.Random shuffler = null;
+            if (order.startsWith("seed:")) {
+                int k = Integer.parseInt(order.substring(5));
+                if (k < 0 || k >= 1000) {
+                    throw new IllegalArgumentException("load order " + order + ": K is 0..999");
+                }
+                shuffler = new java.util.Random(k);
+                java.util.Collections.shuffle(box, shuffler);
+                this.entityCount += 1000 * k;
+            } else if (reverse) {
+                java.util.Collections.reverse(box);
+            } else if (!"save".equals(order)) {
+                throw new IllegalArgumentException("load order " + order + ": save, reverse or seed:K");
+            }
+            java.util.Map<Long, Integer> at = new java.util.HashMap<>();
+            for (int i = 0; i < box.size(); i++) {
+                at.put(box.get(i), i);
+            }
+            read.sort(java.util.Comparator.comparingInt(c -> at.getOrDefault(c.getPos().pack(), Integer.MAX_VALUE)));
+            List<net.minecraft.world.level.entity.ChunkEntities<Entity>> ordered = new ArrayList<>();
             for (net.minecraft.world.level.entity.ChunkEntities<Entity> c : read) {
+                if (shuffler == null && !reverse) {
+                    ordered.add(c);
+                    continue;
+                }
+                // its vehicles, each with its passengers after it (as the chunk's data nests them)
+                List<List<Entity>> units = new ArrayList<>();
+                c.getEntities().forEach(e -> {
+                    if (e.getVehicle() == null || units.isEmpty()) {
+                        units.add(new ArrayList<>(List.of(e)));
+                    } else {
+                        units.get(units.size() - 1).add(e);
+                    }
+                });
+                if (reverse) {
+                    java.util.Collections.reverse(units);
+                } else {
+                    java.util.Collections.shuffle(units, shuffler);
+                }
+                List<Entity> flat = new ArrayList<>();
+                for (List<Entity> u : units) {
+                    flat.addAll(u);
+                }
+                ordered.add(new net.minecraft.world.level.entity.ChunkEntities<>(c.getPos(), flat));
+            }
+            StringBuilder trace = new StringBuilder();
+            for (net.minecraft.world.level.entity.ChunkEntities<Entity> c : ordered) {
                 trace.append(c.getPos().x()).append(',').append(c.getPos().z()).append(':').append(c.getEntities().count()).append(' ');
             }
             this.lastLoadOrder = trace.toString().trim();
             this.lastRenumbered.clear();
-            for (net.minecraft.world.level.entity.ChunkEntities<Entity> c : read) {
+            StringBuilder sequence = new StringBuilder();
+            for (net.minecraft.world.level.entity.ChunkEntities<Entity> c : ordered) {
                 c.getEntities().forEach(e -> {
                     int n = this.entityCount++;
                     Integer old = this.numbersBefore.get(e.getUUID());
@@ -1885,9 +1945,11 @@ final class Sandbox {
                     }
                     e.setId(entityIdBase() + n);
                     this.seeded.put(e, Exact.seed(e, this.seed, n, false, false, Exact.ItemPath.NONE, Float.NaN));
+                    sequence.append(old == null ? "?" : old.toString()).append('>').append(n).append(':').append(net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).getPath()).append(' ');
                 });
                 inbox.add(c);
             }
+            this.lastLoadSequence = sequence.toString().trim();
             while (!entitiesLoaded(this.level, this.minChunkX, this.minChunkZ, this.maxChunkX, this.maxChunkZ)) {
                 server.pumpTasks();
                 this.level.getChunkSource().tick(() -> true, false);

@@ -93,11 +93,50 @@ pub fn box_chunks(b: [i32; 4]) -> Vec<(i32, i32)> {
             v.push((cx, cz));
         }
     }
-    // (a bisect switch for the load order: MCTAS_RELOAD_ORDER=reverse)
-    if std::env::var("MCTAS_RELOAD_ORDER").as_deref() == Ok("reverse") {
-        v.reverse();
-    }
     v
+}
+
+/// (tickexact 2026-11-11, ironspec's reload-order rule: every unload fault runs under the save
+/// order, its reverse and at least 8 seeded orders) The order a whole-part load
+/// ([`load_all_ordered`]) brings the saved entities back in, a vehicle always with its passengers
+/// right after it (the save format nests them): `Save`, the bridge's (the box's chunks x, then z,
+/// each chunk's entities as its sections held them: the order they were saved in, the bridged
+/// path); `Reverse`, the whole saved sequence the other way (the chunks, and each chunk's
+/// vehicles-with-passengers); `Seed(K)`, the box's chunks shuffled, then each chunk's
+/// vehicles-with-passengers in the new chunk order, all on one `java.util.Random(K)`
+/// (`Collections.shuffle`: a section's insertion history is no more the farm's to choose than the
+/// chunks' load order), and the entities' new numbers counted from 1000·K further on, so each
+/// loaded entity's seeding (its own random, its brain's sensor phases and shuffling lists) is
+/// drawn again per K, as the game's fresh objects take a random state the reload does not fix
+/// (the restart itself, codec-less memories dropped and no behavior running, is every load's:
+/// [`rebuild_villager_brain`]). The bridge's `load` takes the same `order` (Sandbox.loadAll), so
+/// each is bridged; `World::last_load` lists the sequence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Order {
+    #[default]
+    Save,
+    Reverse,
+    Seed(u32),
+}
+
+impl Order {
+    /// `save`, `reverse` or `seed:K` (K < 1000).
+    pub fn parse(s: &str) -> Option<Order> {
+        match s {
+            "save" => Some(Order::Save),
+            "reverse" => Some(Order::Reverse),
+            _ => s.strip_prefix("seed:").and_then(|k| k.parse::<u32>().ok()).filter(|k| *k < 1000).map(Order::Seed),
+        }
+    }
+
+    /// Its name as [`Order::parse`] reads it.
+    pub fn name(self) -> String {
+        match self {
+            Order::Save => "save".into(),
+            Order::Reverse => "reverse".into(),
+            Order::Seed(k) => format!("seed:{k}"),
+        }
+    }
 }
 
 /// Save, unload and load again `chunks` (in that load order) between two ticks.
@@ -256,20 +295,34 @@ pub fn unload_all(w: &mut World) {
 /// entering random; its saved UUID, yaw and head kept), passengers seated again; a NeutralMob's
 /// saved anger target resolved among the entities already back.
 pub fn load_all(w: &mut World) {
+    load_all_ordered(w, Order::Save)
+}
+
+/// [`load_all`] with the entities' chunks back in `order` ([`Order`]; the scheduled ticks and
+/// block entities come back in the forced order whatever the entities' order, as the bridge's
+/// chunk tickets are all queued together).
+pub fn load_all_ordered(w: &mut World, order: Order) {
     let Some(away) = w.away.take() else {
         return crate::reload::error(w, "a load of a world that is not unloaded".to_string());
     };
     let Away { since, chunks, mut ticks, mut fluid_ticks, entities } = *away;
+    let entities = if order == Order::Save { entities } else { reorder(entities, &chunks, order) };
+    if let Order::Seed(k) = order {
+        w.entities.next_id += 1000 * k;
+    }
     let delta = w.time - since;
     w.ticks.load(&chunks, &mut ticks, delta);
     w.fluid_ticks.load(&chunks, &mut fluid_ticks, delta);
     reregister_block_entities(w, &chunks);
     // new ids in load order
     let mut ids: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut seq: Vec<String> = Vec::new();
     for e in &entities {
         ids.insert(e.id, w.entities.next_id);
+        seq.push(format!("{}>{}:{}", e.id, w.entities.next_id, crate::exact::entity_frame(w, e).ty));
         w.entities.next_id += 1;
     }
+    w.last_load = seq.join(" ");
     // (an id renumbered before follows to its newest)
     for v in w.renumbered.values_mut() {
         if let Some(n) = ids.get(v) {
@@ -280,6 +333,12 @@ pub fn load_all(w: &mut World) {
         w.renumbered.insert(*o, *n);
     }
     let mut back: Vec<u32> = Vec::new();
+    // (a bench's world under `seed:K`: the stand-ins drawn from their own random per K, so each K
+    // re-rolls every loaded entity's randoms there too)
+    let mut reroll = match order {
+        Order::Seed(k) if w.exact_seed.is_none() => Some(crate::rng::LegacyRandom::new(w.mob.rng_mut().next_long() ^ crate::rng::entity_seed(k as i64, 0))),
+        _ => None,
+    };
     for mut e in entities {
         let old_anger = match &e.kind {
             crate::entity::EntityKind::Mob(m) => m.ai.as_deref().and_then(|a| a.anger_target),
@@ -336,7 +395,10 @@ pub fn load_all(w: &mut World) {
             // loaded from its save starts a new brain: no running behavior, its saved memories
             // kept): without it a reloaded napper kept its sleep and its timers, which the game
             // does not
-            let seed = w.mob.rng_mut().next_long();
+            let seed = match reroll.as_mut() {
+                Some(r) => r.next_long(),
+                None => w.mob.rng_mut().next_long(),
+            };
             if let Some(i) = crate::entity::index_of(w, id) {
                 w.entities.list[i].random = Some(crate::rng::LegacyRandom::new(seed));
             }
@@ -344,6 +406,54 @@ pub fn load_all(w: &mut World) {
         }
         back.push(id);
     }
+}
+
+/// The saved entities (chunk by chunk in the save order, each root with its passengers after it)
+/// in `order`: the units (a root with its passengers after it, as the save format nests them)
+/// grouped by the root's chunk (`chunks`: the box's, in the save order), then `Reverse`: the
+/// chunks and each chunk's units the other way; `Seed(K)`: the chunks shuffled, then each chunk's
+/// units in the new chunk order, all on one `java.util.Random(K)` (`Collections.shuffle`).
+fn reorder(entities: Vec<crate::entity::Entity>, chunks: &[(i32, i32)], order: Order) -> Vec<crate::entity::Entity> {
+    let mut units: Vec<((i32, i32), Vec<crate::entity::Entity>)> = Vec::new();
+    for e in entities {
+        if e.vehicle.is_none() {
+            units.push((e.block_position().chunk(), vec![e]));
+        } else if let Some((_, u)) = units.last_mut() {
+            u.push(e);
+        }
+    }
+    let mut by_chunk: Vec<((i32, i32), Vec<Vec<crate::entity::Entity>>)> = chunks.iter().map(|c| (*c, Vec::new())).collect();
+    let mut stray: Vec<Vec<crate::entity::Entity>> = Vec::new();
+    for (ch, u) in units {
+        match by_chunk.iter_mut().find(|(c, _)| *c == ch) {
+            Some((_, v)) => v.push(u),
+            None => stray.push(u),
+        }
+    }
+    fn shuffle<T>(v: &mut [T], r: &mut crate::rng::LegacyRandom) {
+        // Collections.shuffle on a RandomAccess list: for i = size .. 2, swap(i - 1, nextInt(i))
+        for i in (2..=v.len()).rev() {
+            let j = r.next_int(i as i32) as usize;
+            v.swap(i - 1, j);
+        }
+    }
+    match order {
+        Order::Save => {}
+        Order::Reverse => {
+            by_chunk.reverse();
+            for (_, v) in by_chunk.iter_mut() {
+                v.reverse();
+            }
+        }
+        Order::Seed(k) => {
+            let mut r = crate::rng::LegacyRandom::new(k as i64);
+            shuffle(&mut by_chunk, &mut r);
+            for (_, v) in by_chunk.iter_mut() {
+                shuffle(v, &mut r);
+            }
+        }
+    }
+    by_chunk.into_iter().flat_map(|(_, v)| v).chain(stray).flatten().collect()
 }
 
 /// (tickexact 2026-11-10, ironspec's fault rule: a partial unload, the edge of the loaded area

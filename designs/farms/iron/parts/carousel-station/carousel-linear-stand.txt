@@ -3,7 +3,9 @@
 name: carousel-linear-stand
 build: fills-last
 circuit: mob-farm iron_ingot
-linear: x0=2 y=0 z=0 along_x=1 hold_z=60
+declared: 2,0,0 powered_rail[powered=false]!; 3,0,0 powered_rail[powered=false]!; 4,0,0 powered_rail[powered=false]!; -6,0,60 powered_rail[powered=false]!; -5,0,60 powered_rail[powered=false]!; -4,0,60 powered_rail[powered=false]!; -1,0,60 powered_rail[powered=false]!; 0,0,60 powered_rail[powered=false]!; 1,0,60 powered_rail[powered=false]!; 4,0,60 powered_rail[powered=false]!; 5,0,60 powered_rail[powered=false]!; 6,0,60 powered_rail[powered=false]!; 9,0,60 powered_rail[powered=false]!; 10,0,60 powered_rail[powered=false]!; 11,0,60 powered_rail[powered=false]!; 14,0,60 powered_rail[powered=false]!; 15,0,60 powered_rail[powered=false]!; 16,0,60 powered_rail[powered=false]!; 19,0,60 powered_rail[powered=false]!; 20,0,60 powered_rail[powered=false]!; 21,0,60 powered_rail[powered=false]!
+flights: 
+linear: x0=2 y=0 z=0 along_x=1 hold_z=60 pitch=1 drop=0
 station: x0=-2 x1=8 planes=-5,-2 by=0 h=3
 port home: 3 0 66
 port nether-anchor: 0 0 0

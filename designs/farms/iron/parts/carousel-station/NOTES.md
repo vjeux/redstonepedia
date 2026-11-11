@@ -201,6 +201,23 @@ The no-rest approach (ironspec's constraints) is being designed in emulation, wi
 detector wherever the new approach gives a clean once-per-train edge, replacing C's timer: about 25
 blocks against 43) and a departure top no cart can roll back from before the z 9|10 line folded in.
 
+## Declared states and flights (the brief's "No derails", Nov 11)
+
+Both station files carry the lines `mobfarm::declared` and `mobfarm::flight` read:
+- `carousel-linear-stand.txt`: `declared:` the stand's 3 rails and the far hold's 18, unpowered
+  powered rails (brakes) that must stay unpowered (`!`: checked after the warm-up too); `flights:`
+  none (the bench moves the carts; none leaves a rail). `linear-bench` checks the states once the
+  design is in the world and the brakes again 20 gt later, and watches every cart every tick: an
+  off-rail stretch that is no declared flight, or a state that doesn't match, is a violation.
+- `carousel-station-pad.txt`: both lines empty (no rail, gate, booster or detector; no flight).
+  `mobfarm paste` carries a part's lines into the merged file, moved by `--at`, and refuses a cell
+  both files declare differently.
+- Measured (redsim): the bench design, 8 seeds x 1 day in all three placements, 21 states, 0
+  mismatches, 0 derails; its three drives are byte-identical to the committed ones (`cmp`), and
+  drive-check passes. Positive controls: one stand rail declared `powered=true` fails at gt 200
+  and after the warm-up; a hold rail removed (no declared line) gives 41 derails, one per cart
+  parked there.
+
 ## What did not work
 
 - A 2-long pit with an end wall 1 over the frame's row: a golem pushed by the pit's crowd stepped

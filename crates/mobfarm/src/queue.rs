@@ -2249,6 +2249,12 @@ pub struct LoopTiming {
     /// reaching the stand while the pocket carts start from rest rests against G2 and leaves from
     /// rest instead of chasing the cart ahead.
     pub late_hold: [Option<([i32; 3], i64, i64, usize)>; 3],
+    /// The settled-release gate, emulated (`--rel-gate S,T,L`): the controller's REL (the bench's
+    /// pulse and any act on the REL cell, now raw inputs) reaches the stand only as REL_eff, a
+    /// fixed L-gt pulse triggered once per raw pulse when the latch has been set S gt (the batch
+    /// at rest) or, the timeout path, when the raw REL has been on T gt; the stand's REL cell
+    /// carries REL_eff (the latch resets on it).
+    pub rel_gate: Option<(i64, i64, i64)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -2340,29 +2346,34 @@ pub struct Act {
     /// `SLOT,DT,place,K,X,Y,Z`: cart K (the bench's numbering) and its rider set at (X, Y, Z) in
     /// the loop's frame, at rest (a lab act: the merged-pairs control, a cart stopped anywhere).
     pub place: Option<(usize, [f64; 3])>,
+    /// (tickexact 2026-11-11, the reload-order rule) A whole-part unload's load order
+    /// (`SLOT,DT,unload,N,ORDER`: `save`, `reverse` or `seed:K`; `reload::load_all_ordered`).
+    pub order: redsim::reload::Order,
 }
 
 /// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets),
 /// `SLOT,DT,place,K,X,Y,Z` (cart K and its rider set at a loop-frame point, at rest),
-/// `SLOT,DT,unload,N` (the whole part away N gt) or `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box).
+/// `SLOT,DT,unload,N[,ORDER]` (the whole part away N gt, its load in ORDER: save, reverse or
+/// seed:K) or `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box).
 pub fn parse_act(s: &str) -> Result<Act, String> {
     let f: Vec<&str> = s.split(',').map(|t| t.trim()).collect();
     if f.len() >= 3 && f[2] == "unload" {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let (slot, dt) = (num(f[0], "SLOT")?, num(f[1], "DT")?);
-        let (unload, n) = match f.len() {
-            4 => (None, num(f[3], "N")?),
-            8 => (Some([num(f[3], "X0")? as i32, num(f[4], "Z0")? as i32, num(f[5], "X1")? as i32, num(f[6], "Z1")? as i32]), num(f[7], "N")?),
-            _ => return Err(format!("--act {s}: give SLOT,DT,unload,N or SLOT,DT,unload,X0,Z0,X1,Z1,N (a chunk box)")),
+        let (unload, n, order) = match f.len() {
+            4 => (None, num(f[3], "N")?, redsim::reload::Order::Save),
+            5 => (None, num(f[3], "N")?, redsim::reload::Order::parse(f[4]).ok_or_else(|| format!("--act {s}: ORDER is save, reverse or seed:K (K < 1000)"))?),
+            8 => (Some([num(f[3], "X0")? as i32, num(f[4], "Z0")? as i32, num(f[5], "X1")? as i32, num(f[6], "Z1")? as i32]), num(f[7], "N")?, redsim::reload::Order::Save),
+            _ => return Err(format!("--act {s}: give SLOT,DT,unload,N[,ORDER] or SLOT,DT,unload,X0,Z0,X1,Z1,N (a chunk box)")),
         };
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
-        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload), place: None });
+        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload), place: None, order });
     }
     if f.len() == 7 && f[2] == "place" {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let fl = |t: &str, what: &str| t.parse::<f64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
-        return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: None, unload: None, place: Some((num(f[3], "K")? as usize, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?])) });
+        return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: None, unload: None, place: Some((num(f[3], "K")? as usize, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?])), order: redsim::reload::Order::Save });
     }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
@@ -2375,7 +2386,7 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
     };
     let name = if block.contains(':') { block.to_string() } else { format!("minecraft:{block}") };
     let block = Block::parse(&name).map_err(|e| format!("--act {s}: {e}"))?;
-    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None, place: None })
+    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None, place: None, order: redsim::reload::Order::Save })
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -2395,7 +2406,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, start_random: false, calm: false }
     }
 }
 
@@ -3256,6 +3267,19 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut late_win_before: Vec<Option<i64>> = vec![None; 3];
     let mut late_win_after: Vec<Option<i64>> = vec![None; 3];
     let mut late_first_after: Vec<bool> = vec![false; 3];
+    // (`rel_gate`: an act's raw input on the REL cell (on, until), the latch's set time, the raw
+    // REL's rise, the gate armed for this raw pulse, REL_eff's end, each release (slot, dt, delay
+    // after the raw rise, by the latch, the latch's age))
+    let mut gate_act: Option<(bool, Option<i64>)> = None;
+    let mut gate_q_at: Option<i64> = None;
+    let mut gate_q_was = false;
+    let mut gate_raw_rise: Option<i64> = None;
+    let mut gate_raw_was = false;
+    let mut gate_armed = false;
+    let mut gate_eff_until: Option<i64> = None;
+    let mut gate_log: Vec<(i64, i64, i64, bool, Option<i64>)> = Vec::new();
+    let mut gate_rest_after_q: Vec<i64> = Vec::new();
+    let mut gate_age_at_rise: Vec<i64> = Vec::new();
     // (`acts`' restores due: (gt, cell, the block the act replaced)); the bench's own REL state
     let mut act_restores: Vec<(i64, BlockPos, Block)> = Vec::new();
     let mut pending_loads: Vec<(i64, Option<[i32; 4]>)> = Vec::new();
@@ -3532,8 +3556,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                             for _ in 0..n {
                                 run.tick();
                             }
-                            redsim::reload::load_all(&mut run.world);
-                            drive.borrow_mut().push(format!("act {} load", run.world.time - t_origin));
+                            redsim::reload::load_all_ordered(&mut run.world, a.order);
+                            drive.borrow_mut().push(match a.order {
+                                redsim::reload::Order::Save => format!("act {} load", run.world.time - t_origin),
+                                o => format!("act {} load order={}", run.world.time - t_origin, o.name()),
+                            });
                             let m = std::mem::take(&mut run.world.renumbered);
                             let r = |id: &mut u32| {
                                 if let Some(n) = m.get(id) {
@@ -3603,6 +3630,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     continue;
                 }
                 let p = BlockPos::new(a.cell[0], a.cell[1], a.cell[2]);
+                // (`rel_gate`: an act on the REL cell is a raw input to the gate (a redstone block an
+                // extra controller pulse, anything else the controller's pulse held off), never
+                // written to the stand's cell)
+                if tm.rel_gate.is_some() && Some(p) == rel_bench {
+                    gate_act = Some((a.block.to_string().contains("redstone_block"), a.hold.map(|h| t + h.max(1))));
+                    continue;
+                }
                 let was = run.world.get(p);
                 run.world.set_block(p, a.block, redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, a.block));
@@ -4085,7 +4119,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     // injected act holding the cell keeps it
                     if let Some(r) = rel_bench {
                         rel_want = true;
-                        if !rel_held(r) {
+                        if !rel_held(r) && tm.rel_gate.is_none() {
                             run.world.set_block(r, on.clone(), redsim::world::flags::ALL);
                             drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, r.x, r.y, r.z));
                         }
@@ -4094,8 +4128,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         rel_off_at = Some((t - tm.rel_on + tm.rel_for).max(t + 1));
                         raw_rel_off_at = rel_off_at;
                         // (`rel_min` L: the stand's REL held at least L gt from its rise, a pulse
-                        // extender on REL; no rise (REL held off by an act), no extension)
-                        if tm.rel_min > 0 && !rel_held(r) {
+                        // extender on REL; no rise (REL held off by an act), no extension; the
+                        // gate's REL_eff has its own length)
+                        if tm.rel_min > 0 && !rel_held(r) && tm.rel_gate.is_none() {
                             rel_off_at = rel_off_at.map(|x| x.max(t + tm.rel_min));
                         }
                     }
@@ -4277,7 +4312,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         if rel_off_at == Some(t) {
             if let Some(r) = rel_bench {
                 rel_want = false;
-                if !rel_held(r) {
+                if !rel_held(r) && tm.rel_gate.is_none() {
                     run.world.set_block(r, off.clone(), redsim::world::flags::ALL);
                     drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:glass", run.world.time - t_origin, r.x, r.y, r.z));
                 }
@@ -4311,6 +4346,55 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         redsim::entity::mob::villager::golem_detected(&mut run.world, i);
                     }
                 }
+            }
+        }
+        // (`rel_gate`, emulated: the settled-release gate. Raw REL: the bench's own pulse, or an act
+        // on the REL cell (a redstone block ORed in, anything else holding it off). REL_eff: one
+        // L-gt pulse per raw pulse, triggered when the latch (T2 out) has been set S gt or the raw
+        // REL has been on T gt; the stand's REL cell carries REL_eff)
+        if let (Some((gs, gt, gl)), Some(r)) = (tm.rel_gate, rel_bench) {
+            if gate_act.is_some_and(|(_, until)| until.is_some_and(|u| t >= u)) {
+                gate_act = None;
+            }
+            let raw = match gate_act {
+                Some((true, _)) => true,
+                Some((false, _)) => false,
+                None => rel_want,
+            };
+            let q = !run.world.get(BlockPos::new(-o.row_gap + 9 + o.shift[0], 0, 2 + o.shift[1])).to_string().contains("lit=true");
+            if q && !gate_q_was {
+                // (a latch set as the run starts belongs to the batch the design places at rest:
+                // long settled)
+                gate_q_at = Some(if t < 40 { t - 10_000 } else { t });
+            }
+            gate_q_was = q;
+            if raw && !gate_raw_was {
+                gate_raw_rise = Some(t);
+                gate_armed = true;
+                if q && let Some(qa) = gate_q_at.filter(|qa| t - qa < 1_000) {
+                    gate_age_at_rise.push(t - qa);
+                }
+            }
+            if !raw {
+                gate_armed = false;
+            }
+            gate_raw_was = raw;
+            if gate_eff_until.is_some_and(|u| t >= u) {
+                gate_eff_until = None;
+            }
+            if gate_armed && gate_eff_until.is_none() {
+                let by_q = q && gate_q_at.is_some_and(|qa| t - qa >= gs);
+                let by_t = gate_raw_rise.is_some_and(|rr| t - rr >= gt);
+                if by_q || by_t {
+                    gate_eff_until = Some(t + gl);
+                    gate_armed = false;
+                    gate_log.push((c, dt, t - gate_raw_rise.unwrap_or(t), by_q, if q { gate_q_at.map(|qa| t - qa) } else { None }));
+                }
+            }
+            let want = gate_eff_until.is_some();
+            if want != run.world.get(r).to_string().contains("redstone_block") {
+                run.world.set_block(r, if want { on.clone() } else { off.clone() }, redsim::world::flags::ALL);
+                drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, r.x, r.y, r.z, if want { "minecraft:redstone_block" } else { "minecraft:glass" }));
             }
         }
         // (`late_hold`, emulated: per held gate Gk, a cart entering its arrival cell within the
@@ -5101,6 +5185,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             {
                 arrivals.push(format!("slot {c0}: batch at rest at the stand +{}", t - *c0 * 100));
                 stand_braked_at.push(t - *c0 * 100);
+                // (`rel_gate`'s band: the batch at rest this many gt after the latch set)
+                if let Some(qa) = gate_q_at.filter(|qa| t - qa < 100) {
+                    gate_rest_after_q.push(t - qa);
+                }
                 *st = 3;
             }
         } else if let Some((c0, tr, st)) = &mut stand_train {
@@ -5542,6 +5630,18 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(format!("back through a gate: {}{}", back_through.len(), if back_through.is_empty() { String::new() } else { format!(" ({})", back_through.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }));
         if !back_causes.is_empty() {
             out.push(format!("back-crossing causes: {} ({})", back_kinds.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "), back_causes.iter().take(8).cloned().collect::<Vec<_>>().join("; ")));
+        }
+        if let Some((gs, gt, gl)) = tm.rel_gate {
+            let delays: Vec<i64> = gate_log.iter().map(|g| g.2).collect();
+            let byq: Vec<i64> = gate_log.iter().filter(|g| g.3).map(|g| g.2).collect();
+            let byt = gate_log.iter().filter(|g| !g.3).count();
+            let ages: Vec<i64> = gate_log.iter().filter_map(|g| g.4).collect();
+            let late = gate_log.iter().max_by_key(|g| g.1).map(|g| format!("slot {} +{}", g.0, g.1)).unwrap_or_default();
+            let delayed: Vec<String> = gate_log.iter().filter(|g| g.2 > 0).map(|g| format!("slot {} +{} (+{} after REL{})", g.0, g.1, g.2, if g.3 { "" } else { ", timeout" })).collect();
+            out.push(format!("rel gate (S {gs}, T {gt}, L {gl}): {} releases, {} by the latch (delay after REL's rise {}), {byt} by the timeout; the latch's age at a release {}; latest release {late}; delayed: {}", gate_log.len(), byq.len(), if byq.is_empty() { "-".to_string() } else { format!("{}..{} gt", byq.iter().min().unwrap(), byq.iter().max().unwrap()) }, if ages.is_empty() { "-".to_string() } else { format!("{}..{} gt", ages.iter().min().unwrap(), ages.iter().max().unwrap()) }, if delayed.is_empty() { "none".to_string() } else { delayed.iter().take(8).cloned().collect::<Vec<_>>().join(", ") }));
+            let _ = delays;
+            let mm = |v: &Vec<i64>| if v.is_empty() { "-".to_string() } else { format!("{}..{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
+            out.push(format!("rel gate band: the batch at rest {} gt after the latch sets (S at least the top); the latch's age at REL's rise {} gt (S at most the bottom keeps a release undelayed)", mm(&gate_rest_after_q), mm(&gate_age_at_rise)));
         }
         if tm.late_hold.iter().any(|h| h.is_some()) {
             out.push(format!("late hold: {}", tm.late_hold.iter().flatten().map(|h| format!("G{} held shut {} gt", h.3, late_holds[h.3.min(2)])).collect::<Vec<_>>().join(", ")));
