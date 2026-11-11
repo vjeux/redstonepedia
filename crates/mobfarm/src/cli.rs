@@ -337,6 +337,9 @@ pub enum MobfarmCmd {
         /// The judge's build (site) K (0: the cheapest, the card's)
         #[arg(long, default_value_t = 0)]
         build: u32,
+        /// Also each day's golems in this many equal bins (a day's 24000 gt split), mean a run
+        #[arg(long, default_value_t = 0)]
+        bins: u32,
     },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
@@ -5030,12 +5033,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 r.added
             );
         }
-        MobfarmCmd::WeatherDays { design, runs, days, build } => {
+        MobfarmCmd::WeatherDays { design, runs, days, build, bins } => {
             let (c, spec) = load(version, &design)?;
             let sample = circuit::mobfarm::terrain_sample(&c).map_err(|e| anyhow::anyhow!(e))?.ok_or_else(|| anyhow::anyhow!("weather-days: the design is not judged in terrain"))?;
             let sites = circuit::mobfarm::terrain_sites(&c, &spec, sample).map_err(|e| anyhow::anyhow!(e))?;
             let site = *sites.get(build as usize).ok_or_else(|| anyhow::anyhow!("--build {build}: the judge has {} builds", sites.len()))?;
-            crate::weathercheck::weather_days_cmd(&spec, site, build, runs, days)?;
+            crate::weathercheck::weather_days_cmd(&spec, site, build, runs, days, bins)?;
         }
         MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, terrain, day0, scan, batch, build, run, no_spawning, only } => {
             let ticks = ticks.unwrap_or((days * 24000.0).round() as u32);
