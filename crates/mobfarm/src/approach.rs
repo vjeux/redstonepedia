@@ -57,6 +57,9 @@ pub struct Summary {
     pub cls: [usize; 4],
     /// The most carts on the release run upstream of the line at once.
     pub upstream: usize,
+    /// The largest backward travel on the approach and backward entries onto the run's boosters.
+    pub back_travel: f64,
+    pub back_boost: usize,
 }
 
 fn num_after(l: &str, key: &str) -> Option<i64> {
@@ -110,6 +113,9 @@ pub fn summarize(out: &str) -> Summary {
             for i in 0..5 {
                 s.t_causes[i] = v.get(i + 1).copied().unwrap_or(0);
             }
+        } else if let Some(r) = l.strip_prefix("backward travel on the approach: largest ") {
+            s.back_travel = r.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+            s.back_boost = r.rsplit_once(": ").and_then(|(_, v)| v.trim().parse().ok()).unwrap_or(0);
         } else if let Some(r) = l.strip_prefix("carts on the release run upstream of the line z 9|10 at once: at most ") {
             s.upstream = r.trim().parse().unwrap_or(0);
         } else if let Some(r) = l.strip_prefix("meetings by the met cart's place: ") {
@@ -366,7 +372,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let rv: usize = ss.iter().map(|s| s.climb_rev).sum();
         let mn: Vec<usize> = (0..3).map(|i| ss.iter().map(|s| s.meet_n[i]).sum()).collect();
         let mm: Vec<String> = (0..3).map(|i| ss.iter().filter_map(|s| s.meet_min[i]).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.min(v)))).map_or("-".into(), |v| format!("{v:.3}"))).collect();
-        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv} | met climb {} (slowest {}) T {} (slowest {}) descent {} (slowest {}) | by place flat/climb/T/descent {}/{}/{}/{} | upstream max {}", tc[0], tc[1], tc[2], tc[3], tc[4], mn[0], mm[0], mn[1], mm[1], mn[2], mm[2], ss.iter().map(|s| s.cls[0]).sum::<usize>(), ss.iter().map(|s| s.cls[1]).sum::<usize>(), ss.iter().map(|s| s.cls[2]).sum::<usize>(), ss.iter().map(|s| s.cls[3]).sum::<usize>(), ss.iter().map(|s| s.upstream).max().unwrap_or(0)) } else { pad };
+        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv} | met climb {} (slowest {}) T {} (slowest {}) descent {} (slowest {}) | by place flat/climb/T/descent {}/{}/{}/{} | upstream max {} | back travel {:.2} onto boosters {}", tc[0], tc[1], tc[2], tc[3], tc[4], mn[0], mm[0], mn[1], mm[1], mn[2], mm[2], ss.iter().map(|s| s.cls[0]).sum::<usize>(), ss.iter().map(|s| s.cls[1]).sum::<usize>(), ss.iter().map(|s| s.cls[2]).sum::<usize>(), ss.iter().map(|s| s.cls[3]).sum::<usize>(), ss.iter().map(|s| s.upstream).max().unwrap_or(0), ss.iter().map(|s| s.back_travel).fold(0.0, f64::max), ss.iter().map(|s| s.back_boost).sum::<usize>()) } else { pad };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
             let dr: usize = ss.iter().map(|s| s.d_rev).sum();

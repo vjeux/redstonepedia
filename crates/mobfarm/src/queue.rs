@@ -1273,10 +1273,14 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // under it)
         let n = o.approach as i32;
         let foot = 2 * n - 1;
+        let mut ib = 0;
         while z > foot {
-            // (`approach_climb_boost`: the run plain, the acceleration on the climb)
-            path.push(([xb, 1, z], if o.approach_climb_boost { Cell::Plain } else { Cell::Boost }));
+            // (`approach_climb_boost`: the run plain but its first `boost_first` cells from the head
+            // (C'': the gaps stretched near the head, a plain flat through the line), the
+            // acceleration on the climb)
+            path.push(([xb, 1, z], if o.approach_climb_boost && ib >= o.boost_first { Cell::Plain } else { Cell::Boost }));
             z -= 1;
+            ib += 1;
         }
         for k in 0..n {
             let last_boosted = o.approach_boost && k == n - 1;
@@ -3670,6 +3674,18 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut meet_cls_min: [Option<f64>; 4] = [None; 4];
     let mut meet_cls_log: Vec<String> = Vec::new();
     let mut upstream_max = 0usize;
+    let mut back_start: [Option<f64>; 21] = [None; 21];
+    let mut back_in_boost = [false; 21];
+    let mut back_max: (f64, String) = (0.0, String::new());
+    let mut back_boost = 0usize;
+    // (the run's boosters' nearest cell to the climb, loop frame: a backward cart reaching it is
+    // boosted toward the head)
+    let run_boost_min_z: Option<i32> = if o.approach > 0 {
+        let n = o.approach as i32;
+        lay.path.iter().filter(|(p, k)| p[0] - o.shift[0] == -o.row_gap && p[1] == 1 && *k == Cell::Boost && p[2] - o.shift[1] > 2 * n - 1).map(|(p, _)| p[2] - o.shift[1]).min()
+    } else {
+        None
+    };
     let mut d_prev_vz = [0f64; 21];
     let mut d_prev_v = [0f64; 21];
     let mut d_pairs: Vec<(usize, usize)> = Vec::new();
@@ -5119,6 +5135,24 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // (carts on the release run between the head and the line z 9|10: the most at once)
                 let up = col.iter().filter(|&&(_, z, ..)| (10.0..19.0).contains(&z)).count();
                 upstream_max = upstream_max.max(up);
+                // (backward travel: each cart's backward excursion on the column (from where it began
+                // moving back, +z, to the farthest it got), and backward entries onto the run's
+                // boosters (C'': no bounce may reach them))
+                for &(k, lz, _, vz, _) in &col {
+                    if vz > 0.001 {
+                        let s = *back_start[k].get_or_insert(lz);
+                        if lz - s > back_max.0 {
+                            back_max = (lz - s, format!("cart {k} from z {s:.2} to {lz:.2}, slot {c} +{dt}"));
+                        }
+                        if run_boost_min_z.is_some_and(|zb| lz >= zb as f64) && !back_in_boost[k] {
+                            back_boost += 1;
+                            back_in_boost[k] = true;
+                        }
+                    } else if vz < -0.001 {
+                        back_start[k] = None;
+                        back_in_boost[k] = false;
+                    }
+                }
                 // (the run's flat below the climb's foot: farmopt's border flat for `approach` 4)
                 let in_flat = |z: f64| z >= 2.0 * n && z < 2.0 * n + 3.0;
                 let mut pairs: Vec<(usize, usize)> = Vec::new();
@@ -5142,7 +5176,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                                     meet_cls_min[cls] = Some(mv);
                                 }
                                 if meet_cls_log.len() < 6 {
-                                    meet_cls_log.push(format!("{} slot {c} +{dt}: cart {met} at z {mz:.2} y {my:.2} v {mv:.3}, pusher cart {by} at z {pz:.2}", ["flat", "climb", "T", "descent"][cls]));
+                                    meet_cls_log.push(format!("{} slot {c} +{dt}: cart {met} at z {mz:.2} y {my:.2} v {mv:.3}, pusher cart {by} at z {pz:.2} v {:.3}", ["flat", "climb", "T", "descent"][cls], va.max(vb)));
                                 }
                                 if in_flat(mz) && !in_climb(za) && !in_climb(zb) && !in_t(za, ya) && !in_t(zb, yb) {
                                     continue;
@@ -6409,6 +6443,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 if meet_cls_log.is_empty() { String::new() } else { format!(" ({})", meet_cls_log.join("; ")) }
             ));
             out.push(format!("carts on the release run upstream of the line z 9|10 at once: at most {upstream_max}"));
+            out.push(format!(
+                "backward travel on the approach: largest {:.2} blocks{}; backward onto the run's boosters (z >= {}): {back_boost}",
+                back_max.0, if back_max.1.is_empty() { String::new() } else { format!(" ({})", back_max.1) },
+                run_boost_min_z.map_or("-".to_string(), |z| z.to_string())
+            ));
             if o.depart_crest > 0 {
                 out.push(format!(
                     "departure: meetings in the dip: {d_meet} (slowest met {}); reversals onto a slope: {d_rev}{}; meetings on the rise: {d_rise} (slowest met {})",
