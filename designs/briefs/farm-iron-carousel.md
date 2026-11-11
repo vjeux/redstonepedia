@@ -545,6 +545,10 @@ station needs no drop and no overworld kill.
   (a shared dormitory keeps its claims through the nightly HOME release of iteration 14, judged
   over many nights, not only through a save and load), and the farm restarts after days away (a
   stalled advance recovers: a fallback pulse when no golem has come for a full cycle).
+- **No merged carts.** Merged carts (two carts within 0.01 of each other, which the game's cart push
+  never separates) are a hard fail anywhere in the loop; every runner checks for them. Why: a cart
+  sliding into a resting one on a slope gets pressed to the identical spot, and a merged pair later
+  swaps order (measured on the tail's 10-slope queue, 2026-11-10).
 - No escapes (villagers, golems, the zombie), the hostile and sky rules of the parent brief.
 - **Compact, measured** (rule 2 made measurable). The assembly prints the assembled overworld
   bounding box (x × y × z extents and its volume) and each part's own box, next to the block count;
