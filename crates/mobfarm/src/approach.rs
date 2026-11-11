@@ -21,6 +21,8 @@ pub struct Summary {
     pub tail_min: Option<i64>,
     pub tail_touch: usize,
     pub tail_group_max: usize,
+    /// The most carts out of the stand in one release window (the bar is 3).
+    pub window_max: usize,
     pub problems: usize,
     /// gap12, G2 in (after cart 2's front), G2 before cart 3: each (min, max).
     pub margins: Option<[i64; 6]>,
@@ -82,6 +84,7 @@ pub fn summarize(out: &str) -> Summary {
         } else if l.starts_with("stand departures: ") {
             s.dep_min = num_after(l, "gap min ");
             s.dep_contact = l.split("gt (gaps under 60 gt), ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
+            s.window_max = num_after(l, "most in one window ").map_or(0, |v| v.max(0) as usize);
         } else if l.starts_with("tail entry: ") {
             s.tail_min = num_after(l, "gap min ");
             s.tail_touch = l.split("within groups, ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
@@ -307,12 +310,21 @@ fn opt(v: Option<i64>) -> String {
 /// seed, `tm`'s own acts kept (C' emulated with T3 removed, say); `perfect`: the queue reset at
 /// every slot from 6.
 #[allow(clippy::too_many_arguments)]
-pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool) -> Result<String, String> {
+pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool, rel_sweep: Option<(i64, i64)>) -> Result<String, String> {
     let partial = o.shift != [0, 0];
     let cases0: Vec<(String, Vec<String>)> = fault_cases(o, partial).into_iter().filter(|(n, _)| filter.is_none_or(|f| f.split('|').any(|p| n.contains(p)))).collect();
-    // (`all_corners`: every case at REL nominal, early and late x staggers 2, 3, 4, 6)
+    // (`all_corners`: every case at REL nominal, early and late x staggers 2, 3, 4, 6; `rel_sweep`
+    // A..B: every case at the REL phases A..=B gt around the timing's own (each gt), the stagger
+    // and the rest as given)
     let mut variants: Vec<(String, LoopTiming)> = vec![(String::new(), *tm)];
-    if all_corners {
+    if let Some((a, b)) = rel_sweep {
+        variants.clear();
+        for on in a..=b {
+            let mut t = *tm;
+            t.rel_on += on;
+            variants.push((format!("REL {:+} st {}: ", on, tm.release_stagger), t));
+        }
+    } else if all_corners {
         variants.clear();
         for (cn, on, for_) in [("REL 10..50", 0, 0), ("REL 0..44", -10, -6), ("REL 16..76", 6, 26)] {
             for st in [2, 3, 4, 6] {
@@ -361,6 +373,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let tail = ss.iter().filter_map(|s| s.tail_min).min();
         let touch: usize = ss.iter().map(|s| s.tail_touch).sum();
         let group = ss.iter().map(|s| s.tail_group_max).max().unwrap_or(0);
+        let window = ss.iter().map(|s| s.window_max).max().unwrap_or(0);
         let probs: Vec<String> = ss.iter().map(|s| s.problems.to_string()).collect();
         let merges: usize = ss.iter().map(|s| s.merges).sum();
         let early: usize = ss.iter().map(|s| s.latch_early).sum();
@@ -385,8 +398,8 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         } else {
             pad
         };
-        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 || derails > 0 || dbad > 0 || oot > 0 { " <--" } else { "" };
-        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
+        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || window > 3 || merges > 0 || derails > 0 || dbad > 0 || oot > 0 { " <--" } else { "" };
+        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | out per window {window} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
     }
     Ok(out.join("\n"))
 }
