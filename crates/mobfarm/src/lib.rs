@@ -12,6 +12,7 @@ pub mod entlog;
 pub mod exact;
 pub mod gate;
 pub mod hold;
+pub mod headperm;
 pub mod layouts;
 pub mod naps;
 pub mod parts;

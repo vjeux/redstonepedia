@@ -89,6 +89,9 @@ pub struct Summary {
     /// tick, openings passing 2 or more carts, the follower's least distance short of H's plane at
     /// H's shut.
     pub meter: Option<(usize, usize, Option<i64>, usize, Option<f64>)>,
+    /// cc767b78's head model (`--head-perm` with day-1's latches): launches for A with carts
+    /// stopped at H, the most carts stopped on the descent at once and the farthest back z.
+    pub hp: Option<(usize, usize, f64)>,
 }
 
 /// "name a/b/c/d/e/f when x/y/z; ..." (the runner's cause lines), the first N parts.
@@ -166,6 +169,11 @@ pub fn summarize(out: &str) -> Summary {
             s.back_vmax = r.split_once("fastest backward: stored ").and_then(|(_, v)| v.split(',').next()).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
         } else if let Some(r) = l.strip_prefix("carts on the release run upstream of the line z 9|10 at once: at most ") {
             s.upstream = r.trim().parse().unwrap_or(0);
+        } else if let Some(r) = l.strip_prefix("head-perm day-1 latches ") {
+            let n = r.split_once("launches for A with carts stopped at H: ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let most = r.split_once("the most carts stopped on the descent at once ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let z = r.split_once("the farthest back z ").and_then(|(_, v)| v.split_whitespace().next()).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+            s.hp = Some((n, most, z));
         } else if let Some(r) = l.strip_prefix("meter (S3(ii)'s hold, emulated): ") {
             let rel = r.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0);
             let tin = r.split_once("releases, ").and_then(|(_, v)| v.split_whitespace().next()).and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -590,6 +598,14 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
                 ms.iter().map(|m| m.3).sum::<usize>(),
                 ms.iter().filter_map(|m| m.4).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.min(v)))).map_or("-".into(), |v| format!("{v:.2}"))
             )
+        };
+        // (cc767b78's head model: launches with carts still at H, the most carts at H at once and
+        // the farthest back rest z against T's cell)
+        let hs: Vec<(usize, usize, f64)> = ss.iter().filter_map(|s| s.hp).collect();
+        let pad = if hs.is_empty() {
+            pad
+        } else {
+            format!("{pad} | head-perm: launches with carts at H {}, most at H {} (farthest back z {:.2})", hs.iter().map(|h| h.0).sum::<usize>(), hs.iter().map(|h| h.1).max().unwrap_or(0), hs.iter().map(|h| h.2).fold(0.0, f64::max))
         };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
