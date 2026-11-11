@@ -321,6 +321,18 @@ before the z 9|10 line: next section.
   departing group overflows the tail at the U-turn; the carts it backs onto the rise are boosted
   backward to the cap, clear the 2-block crest and roll down the climb through G0 (every unexplained
   back-crossing in the push-in rows traced to it).
+- **The approach's border, C and C'' (wip/approach-c-border-flat.txt, approach-c2-border-flat.txt).**
+  C (`--approach 4 --approach-climb-boost`: the run plain, a plain flat through z 9|10, the climb
+  boosted from z 7, T (-3,5,3)) compresses the cart 1->2 gap at G2 to 4-6 gt (nothing stretches it
+  before the climb) and breaks today's stand. C'' (`--boost-first 3`: the run's boosters at z 16..14
+  right after the head, the plain flat z 13..8) keeps today's 9-13 gt gaps and is clean in normal
+  flow at every corner, but fails its line in the frozen-stand rows: the in-flight train stacks on
+  the flat against the frozen front, the next cart bounces off the pressed pair and rolls back onto
+  the boosters (566 of 864 freeze rows, 8 seeds; a ridden cart barely slows on plain rail). The
+  bounce off the stack leaves at stored v <= 0.25 in 649 of the 864 rows (a hump of 64 v^2 + 1 <= 5
+  blocks would stop it), but carts pushed back over T come down the boosted climb boosted backward
+  to stored 1-2.9 (210 rows): no hump stops those, so a boosted climb needs the stand never to push
+  carts back over T.
 
 ## Declared states and flights (the brief's "No derails", Nov 11)
 

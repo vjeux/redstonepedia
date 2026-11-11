@@ -3678,6 +3678,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut back_in_boost = [false; 21];
     let mut back_max: (f64, String) = (0.0, String::new());
     let mut back_boost = 0usize;
+    let mut back_prev_z: [Option<f64>; 21] = [None; 21];
+    let mut back_vmax: (f64, f64, String) = (0.0, 0.0, String::new());
     // (the run's boosters' nearest cell to the climb, loop frame: a backward cart reaching it is
     // boosted toward the head)
     let run_boost_min_z: Option<i32> = if o.approach > 0 {
@@ -5139,12 +5141,25 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // moving back, +z, to the farthest it got), and backward entries onto the run's
                 // boosters (C'': no bounce may reach them))
                 for &(k, lz, _, vz, _) in &col {
-                    if vz > 0.001 {
+                    // (excursions from downstream of the run's boosters only (z below them; the
+                    // queue's head region rocks in its own slots))
+                    let zlim = run_boost_min_z.map_or(17.0, |z| z as f64);
+                    if vz > 0.001 && (back_start[k].is_some() || lz < zlim) {
+                        // (the backward speed off the held stack: stored (the cart's own) and visible
+                        // (its move this tick), the largest of any excursion)
+                        let vis = back_prev_z[k].map_or(0.0, |pz| lz - pz);
+                        if vz > back_vmax.0 && lz < zlim {
+                            back_vmax.0 = vz;
+                            back_vmax.2 = format!("cart {k} at z {lz:.2}, slot {c} +{dt}");
+                        }
+                        if lz < zlim {
+                            back_vmax.1 = back_vmax.1.max(vis);
+                        }
                         let s = *back_start[k].get_or_insert(lz);
                         if lz - s > back_max.0 {
                             back_max = (lz - s, format!("cart {k} from z {s:.2} to {lz:.2}, slot {c} +{dt}"));
                         }
-                        if run_boost_min_z.is_some_and(|zb| lz >= zb as f64) && !back_in_boost[k] {
+                        if run_boost_min_z.is_some_and(|zb| lz >= zb as f64 && s < zb as f64) && !back_in_boost[k] {
                             back_boost += 1;
                             back_in_boost[k] = true;
                         }
@@ -5152,6 +5167,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         back_start[k] = None;
                         back_in_boost[k] = false;
                     }
+                    back_prev_z[k] = Some(lz);
                 }
                 // (the run's flat below the climb's foot: farmopt's border flat for `approach` 4)
                 let in_flat = |z: f64| z >= 2.0 * n && z < 2.0 * n + 3.0;
@@ -6444,8 +6460,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             ));
             out.push(format!("carts on the release run upstream of the line z 9|10 at once: at most {upstream_max}"));
             out.push(format!(
-                "backward travel on the approach: largest {:.2} blocks{}; backward onto the run's boosters (z >= {}): {back_boost}",
+                "backward travel on the approach: largest {:.2} blocks{}; fastest backward: stored {:.3}, visible {:.3} b/t{}; backward onto the run's boosters (z >= {}): {back_boost}",
                 back_max.0, if back_max.1.is_empty() { String::new() } else { format!(" ({})", back_max.1) },
+                back_vmax.0, back_vmax.1, if back_vmax.2.is_empty() { String::new() } else { format!(" ({})", back_vmax.2) },
                 run_boost_min_z.map_or("-".to_string(), |z| z.to_string())
             ));
             if o.depart_crest > 0 {
