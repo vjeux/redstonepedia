@@ -5002,6 +5002,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
     let mut blind_at: std::collections::BTreeMap<[i32; 3], (u64, u64)> = std::collections::BTreeMap::new();
     let mut eye_clear_rest: std::collections::BTreeMap<[i32; 3], f64> = std::collections::BTreeMap::new();
+    // (per gate, G_P then G0: the carts crossing in the open interval in progress, the histogram of
+    // carts per opening, crossings while shut, each cart's last z near the gate; R's resting ticks)
+    let mut gate_count: [Option<usize>; 2] = [None, None];
+    let mut gate_hist: [std::collections::BTreeMap<usize, u64>; 2] = [std::collections::BTreeMap::new(), std::collections::BTreeMap::new()];
+    let mut gate_shut_cross: [usize; 2] = [0, 0];
+    let mut gate_was_open: [bool; 2] = [false, false];
+    let mut gate_prev_z: [std::collections::HashMap<u32, f64>; 2] = [std::collections::HashMap::new(), std::collections::HashMap::new()];
+    let mut gate_multi_log: Vec<String> = Vec::new();
+    let mut r_rest_ticks: u64 = 0;
     // the loop's places in travel order: slot 0 .. slot q-1, S3, S2, S1
     let q = o.slots as usize;
     let mut places: Vec<[i32; 3]> = lay.slot_cells.clone();
@@ -7795,6 +7804,51 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
         }
+        // (carts per opening, ironspec Nov 11 14:38 (i): at G_P and G0, each cart whose centre
+        // crosses the gate's plane (along +z, within the gate's column) counted against the
+        // gate's open interval; and (ii) the ticks a cart rests on R, under G_P)
+        for (gi, g) in [lay.fifo.last().map(|f| f.0), lay.esc_g0].iter().enumerate() {
+            let Some(g) = g else { continue };
+            let open_now = matches!(run.world.get(*g), Block::FenceGate { open: true, .. });
+            let plane = g.z as f64 + 0.5;
+            let mut crossed = 0usize;
+            for id in carts.iter() {
+                let Some(p) = pos_of(&run.world, *id) else { continue };
+                if (p.x - (g.x as f64 + 0.5)).abs() > 0.5 || p.y < g.y as f64 - 2.5 || p.y > g.y as f64 + 1.0 {
+                    gate_prev_z[gi].remove(id);
+                    continue;
+                }
+                if let Some(z0) = gate_prev_z[gi].insert(*id, p.z)
+                    && z0 < plane
+                    && p.z >= plane
+                {
+                    crossed += 1;
+                }
+            }
+            // (each crossing belongs to the opening that last began: from one opening's start to
+            // the next's, a cart held at the gate crosses its plane after a short window shuts)
+            if open_now && !gate_was_open[gi] {
+                if let Some(n) = gate_count[gi].take() {
+                    *gate_hist[gi].entry(n).or_insert(0) += 1;
+                    if n >= 2 && gate_multi_log.len() < 6 {
+                        gate_multi_log.push(format!("slot {c} +{dt}: {} carts through one {} opening", n, if gi == 0 { "G_P" } else { "G0" }));
+                    }
+                }
+                gate_count[gi] = Some(0);
+            }
+            gate_was_open[gi] = open_now;
+            match gate_count[gi].as_mut() {
+                Some(n) => *n += crossed,
+                None => gate_shut_cross[gi] += crossed,
+            }
+            if gi == 0 {
+                let r = [g.x, g.y - 1, g.z];
+                let resting = run.world.entities.list.iter().any(|e| carts.contains(&e.id) && e.pos.x.floor() as i32 == r[0] && e.pos.z.floor() as i32 == r[2] && (e.pos.y.floor() as i32 - r[1]).abs() <= 1 && (e.delta_movement.x * e.delta_movement.x + e.delta_movement.z * e.delta_movement.z).sqrt() < 0.01);
+                if resting {
+                    r_rest_ticks += 1;
+                }
+            }
+        }
         // (the blind rider-ticks, ironspec Nov 11 12:12: a rider whose eye point is inside a
         // collision shape as the blocks stand this tick (a gate shut or open) sees no hostile, since
         // its sight ray's clip starts inside it (`LivingEntity.hasLineOfSight`, COLLIDER); counted
@@ -8427,6 +8481,19 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         ));
         // (ironspec Nov 11 13:32: what fixes a resting rider's margin; the least clearance per cell
         // over the whole run, every row and freeze included)
+        if lay.esc_g0.is_some() {
+            let h = |m: &std::collections::BTreeMap<usize, u64>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(n, k)| format!("{n} cart{}: {k}", if *n == 1 { "" } else { "s" })).collect::<Vec<_>>().join(", ") };
+            out.push(format!(
+                "carts per opening (carts whose centre crossed the gate's plane between one opening's start and the next's; exactly 1 required): G_P {}; G0 {}; crossings before the first opening: G_P {}, G0 {}; carts resting on R (under G_P): {r_rest_ticks} ticks",
+                h(&gate_hist[0]), h(&gate_hist[1]), gate_shut_cross[0], gate_shut_cross[1]
+            ));
+            for l in &gate_multi_log {
+                problems.push(l.clone());
+            }
+            if r_rest_ticks > 0 {
+                problems.push(format!("a cart rested on R (under G_P) for {r_rest_ticks} ticks"));
+            }
+        }
         let mut clear: Vec<(&[i32; 3], &f64)> = eye_clear_rest.iter().collect();
         clear.sort_by(|a, b| a.1.total_cmp(b.1));
         out.push(format!(
