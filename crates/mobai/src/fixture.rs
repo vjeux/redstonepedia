@@ -142,19 +142,29 @@ fn hcontact_lanes(name: &str) -> Vec<(i32, i32, i32, Vec<(f64, bool)>, (f64, boo
     let speeds: &[f64] = match name {
         "h-contact-farmopt" => &[0.01, 0.03, 0.06, 0.10, 0.13, 0.82, 0.89, 1.05, 1.08, 1.40],
         "h-contact-sweep" => &[0.2, 0.25, 0.3, 0.35],
+        "h-contact-p1e" => &[0.2, 0.25],
         _ => &[0.2, 0.3, 0.4, 0.45, 0.5, 0.633, 0.8, 1.0, 1.12, 1.5, 2.014],
     };
-    let copies = if name == "h-contact-sweep" { 16 } else { 1 };
+    let copies = match name {
+        "h-contact-sweep" => 16,
+        "h-contact-p1e" => 64,
+        _ => 1,
+    };
     let mut v = Vec::new();
     let (p1, p2r, p2e) = (4.1150, 4.9050, 5.0950);
     let mut add = |flat: i32, waits: Vec<(f64, bool)>, arrive_ridden: bool, label: &str| {
         for &sp in speeds {
             for c in 0..copies {
                 let k = v.len() as i32;
-                v.push((1 + 2 * (k % 26), 12 * (k / 26), flat, waits.clone(), (sp, arrive_ridden), label.to_string(), c as f64 / 16.0));
+                v.push((1 + 2 * (k % 26), 12 * (k / 26), flat, waits.clone(), (sp, arrive_ridden), label.to_string(), c as f64 / copies as f64));
             }
         }
     };
+    // (G1's reload-order bar: the worst pair at the bar, 64 orders and phases 1/64 block apart)
+    if name == "h-contact-p1e" {
+        add(0, vec![(p1, false)], true, "sloped place 1: E waiting, R arriving");
+        return v;
+    }
     if name == "h-contact-sweep" {
         for ar in [true, false] {
             let a = if ar { "R" } else { "E" };
@@ -4538,7 +4548,7 @@ fn scenes_raw() -> Vec<Scene> {
     // ridden cart pressed at H's 2nd place, the riderless rows' empty waiting carts, and the flat
     // last approach, and the hybrid) hcontact_lanes: 352 lanes, 26 to a row 2 apart, rows 12 apart;
     // h-contact-farmopt (300 lanes) and h-contact-sweep (384) the same way
-    for name in ["h-contact", "h-contact-farmopt", "h-contact-sweep"] {
+    for name in ["h-contact", "h-contact-farmopt", "h-contact-sweep", "h-contact-p1e"] {
         let lanes = hcontact_lanes(name);
         let rows = (lanes.len() as i32 + 25) / 26;
         let mut b = Vec::new();
