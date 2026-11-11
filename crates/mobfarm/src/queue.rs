@@ -3755,8 +3755,9 @@ pub struct MeterHold {
 /// The metered stand's state and measurements (`meter_tick`).
 #[derive(Default)]
 pub struct MeterState {
-    /// (9fc3155f) Each Dh 3 edge's gt before the next slot tick.
-    dh3_before_tick: Vec<i64>,
+    /// (9fc3155f) Each Dh 3 edge's world time, and each stand REL's.
+    dh3_wt: Vec<i64>,
+    rel_wt: Vec<i64>,
     /// (cc767b78, day-1's RETRY-only head) this slot's stand REL allowed (None: no head model),
     /// and the stand emptied (E) since this stand's last launch
     pub rel_allow: Option<bool>,
@@ -4074,6 +4075,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     // with a launch for this stand, or by RETRY (held, the stand not emptied since its last launch))
     let rel_on = rel_on && s.rel_allow.unwrap_or(true);
     if rel_on && !s.rel_was {
+        s.rel_wt.push(w.time);
         s.rel_t = Some(t);
         s.metering = false;
         s.crest_seen = 0;
@@ -4190,9 +4192,10 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             s.open_at = Some(t + m.d12);
         }
         log(s, format!("{c}+{dt} Dh{}", if first { " 1" } else if s.p3 { " 3" } else { "" }));
-        // (the stand's 3rd cart in (Dh 3): gt before the next slot tick, the timing bar's 2 gt)
+        // (the stand's 3rd cart in (Dh 3), its world time: the report sets it against the batch's
+        // last golem summon tick (world time a multiple of 100) before the stand's next REL)
         if !first && s.p3 {
-            s.dh3_before_tick.push(100 - dt);
+            s.dh3_wt.push(w.time);
         }
         if s.phase % 2 == 1 {
             s.phase += 1;
@@ -4578,7 +4581,11 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
     out.push(format!("meter (S3(ii)'s hold, emulated): {} releases, {} trains metered in; events: {}", s.rel_count, s.done_at.len(), s.events.iter().take(40).cloned().collect::<Vec<_>>().join(", ")));
-    out.push(format!("meter Dh 3 (the stand's 3rd cart in): gt before the next slot tick {}", span(&s.dh3_before_tick)));
+    // (each Dh 3 against its batch's summon tick: the last world time that is a multiple of 100
+    // before the stand's next REL (the batch leaves at that REL), negative when the 3rd cart lands
+    // after it; the bar is 2 gt. Unpaired: no REL after it within the run)
+    let dh3: Vec<i64> = s.dh3_wt.iter().filter_map(|&d| s.rel_wt.iter().find(|&&r| r > d).map(|&r| (r - 1).div_euclid(100) * 100 - d)).collect();
+    out.push(format!("meter Dh 3 (the stand's 3rd cart in): gt before its batch's golem summon tick (the last before the stand's next REL) {}", span(&dh3)));
     out.push(format!("meter margins: H closes, gt until a cart touches its face {}; Dh edges, gt since Dh was last off {}; G0 shut after the last departing cart cleared it {}; the first cart at G0's face after G0 shut {}, at G1's after G1 shut {}, at G2's after G2 shut {}", span(&s.h_touch), span(&s.dh_off_margin), span(&s.g0_dep), span(&s.face[0]), span(&s.face[1]), span(&s.face[2])));
     let fspan = |v: &[f64]| if v.is_empty() { "-".to_string() } else { format!("{:.2}..{:.2} (n {})", v.iter().cloned().fold(f64::MAX, f64::min), v.iter().cloned().fold(f64::MIN, f64::max), v.len()) };
     out.push(format!("meter H per opening: the released cart's Dh edge after the opening {} gt; the follower short of H's plane when H shut {} blocks (ironfarm's escapement: >= 0.66); carts through H per opening {}", span(&s.open_to_dh), fspan(&s.short_at_shut), { let mut v: Vec<usize> = s.per_opening.clone(); v.push(s.through); let n = |k: usize| v.iter().filter(|x| **x == k).count(); format!("0: {}, 1: {}, 2+: {}", n(0), n(1), v.iter().filter(|x| **x >= 2).count()) }));
@@ -6459,6 +6466,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     });
     let mut summon_lock: std::collections::HashMap<u32, i64> = std::collections::HashMap::new();
     let mut adv_blocked_slot: Option<i64> = None;
+    let mut dh3_seen = 0usize;
     for t in 0..cycles * 100 + 150 {
         let (c, dt) = (t / 100, t % 100);
         // (`strip_riders`: the riders of carts entering the cell removed: riderless trains; with
@@ -8082,12 +8090,17 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
             // (the game's summon: a panicking villager's spawnGolemIfNeeded with 3 villagers near
             // that want a golem (none golem-locked); the pulse is the golem it spawns on the pad)
-            if n_panic >= 1 && ready.len() >= 3 {
+            let pulsed = n_panic >= 1 && ready.len() >= 3;
+            if pulsed {
                 for r in &ready {
                     summon_lock.insert(*r, t);
                 }
                 h.a_pulse(t);
             }
+            // (cc767b78, 38dd0d7f7d; ironspec: every margin against a summoning moment from the
+            // run's own summon events: each summon tick, A's riders at rest in its pockets and
+            // whether it pulsed)
+            h.summon_checks.push((t, in_pockets, pulsed));
         }
         if run.world.time % 100 == 0 {
             for r in riders.iter() {
@@ -8644,6 +8657,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if h.day1 && meter_state.se_count as u64 > h.se_seen {
                 h.se_seen = meter_state.se_count as u64;
                 h.day1_se();
+            }
+            // (each fill's Dh3, from the meter's third Dh edges: cc767b78's 38dd0d7f7d)
+            if meter_state.done_at.len() > dh3_seen {
+                dh3_seen = meter_state.done_at.len();
+                if let Some(t3) = meter_state.done_at.last() {
+                    h.dh3_times.push(*t3);
+                }
             }
             let cp: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
             h.pre_tick(&run.world, &cp, t);

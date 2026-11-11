@@ -369,6 +369,43 @@ before the z 9|10 line: next section.
     narrower than the release's spread by train place (0.25);
   - an empty cart decays (0.96 per gt): an empty 1st cart stalls before T (0.02-0.07 in the dip), is
     met on the hump's rising face and on the climb, and is shoved into H at stored 1.94.
+- **C'' + hump, geometry B (the main line from ironspec 10:23 Nov 11; 9fc3155f, explore/farmopt-c3).**
+  wip/approach-c2-hump-b-boosted.txt (`queue-loop ... --approach 5 --approach-climb-boost --hump 5
+  --boost-first 3 --boost-slopes`, (c') departure): the 3 boosters as the hump's first slopes, a plain
+  hump to y 7, the dip's flat z 9..10 (the line between), C's boosted climb, T (-3,6,4), 3 slopes down;
+  the head slot moves north 6 (z 19 -> 25, GO's chunk edge). -plain.txt: the same with a plain climb.
+  Rows on S3's meter (7b90c3f1's `--meter-hold 14,14,0,0,20,0,0|40,-1,1,12`, virtual B unvalidated,
+  perfect tail from slot 1: the queue reset now keeps VB's parked carts, else 1 of 6 trains metered):
+  - the plain climb fails: a cart at rest in the dip (z 9.5) isn't pushed up it (678 climb meetings in
+    5/5 rows, mostly stalled carts), and the stand-freeze rows jam (39,132 in 180/180; 12 of 24 trains
+    in): a thawed stack restarts by gravity but can't climb 4 plain blocks from the dip. Out.
+  - the boosted climb passes push-in (0 in all 4 cases) and normal flow (least stored speed at the
+    hump's top 0.45, at T 0.94; 1 cart per opening); a cart forced back over T crosses any hump of 2 or
+    more (it comes down the boosted climb at up to ~0.4 and is boosted on).
+  - cc767b78's head model (`--head-perm=-3,4,2,-2,1,0,1,1 --head-retry 1`, ported from
+    explore/farmopt-s2 f67523242 with 38dd0d7f7d's summon margins; positive control: identical to its
+    runner on C'' (bc2387241) on every meter and head-perm line). The A margin is each fill's Dh3 to
+    the run's own next summon check (3 riders at rest and a golem); `--summon-at 93` (pad delay S+7
+    assumed, day-1's c24pad; the frame is a hypothesis until day-1 measures it). Positive control: the
+    train 2 / 5 gt late (`--release-start 5 / 8`) drops it by exactly 2 / 5. Worst / best of 27 corners
+    (`--meter-corners`: launch +-2, H's start +-2, H's length +-2), every fill 3 at rest and a golem:
+    hump 0 40/56, 1 39/55, 2 39/55, 3 34/50, 4 29/45, 5 23/39 (C'' 40/56); head moves 0, 0, 0, +2,
+    +4, +6. Without `--summon-at` (the bench's default frame) hump 5 misses every A tick: a frame
+    artifact, not the farm.
+  - freeze and consequence rows under that head model (51 stand-freeze phases +30..+80, hump-region
+    thaws, push-in, 40 back-over-T cases; 4 seeds): no height passes "0 back over T, 0 merges": 123 to
+    165 carts pushed back over T at every height (hump 0 included), because under a stand freeze the
+    head launches A while its last batch still waits at H (h0: 15 of 51 rows, 4 launches with carts at
+    H; up to 4 carts at H, the farthest back z 4.47, past T's edge; h5 up to 6, z 6.93); every hump of 2
+    or more is then crossed (183 to 244 times). The upstream fix is ironspec's GO-needs-D_arr-low
+    ruling (cc767b78 modelling it); the hump is sized again on it.
+  - the router switch S at the hump's top (7b90c3f1's tripwire interlock: string y 8 over z 15..17,
+    anchors z 13 and 19, DP (-3,5,18), DEP_A (-3,5,14), stem west (-4,7,16)); at hump 4 the same one
+    block lower fits except DP, which lands beside the first booster; at 3 DP lands on a booster; at
+    2 and 1 S is face-adjacent to a booster.
+  - size: the loop file +24 blocks over C'' and 1 higher (the hump's top y 7); in the assemblies +1
+    in y if their z holds (day-1 checking): 48,384 (+2.9%) for today's stand, 51,072 (+2.7%) for S3
+    (on hold until the height is set).
 
 ## Declared states and flights (the brief's "No derails", Nov 11)
 

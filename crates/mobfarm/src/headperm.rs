@@ -157,6 +157,10 @@ pub struct HeadPerm {
     /// the last summon tick's snapshot (t, A's riders at rest in its pockets, carts stopped at H),
     /// each A GO's copy of it (slot, snapshot), and the fault's slot (cycles-to-clean)
     pub last_tick: (i64, usize, usize),
+    /// (cc767b78, 38dd0d7f7d; ironspec: margins from the run's own summon events) each summon tick
+    /// (t, A's riders at rest in its pockets, a pulse), and each fill's Dh3 time
+    pub summon_checks: Vec<(i64, usize, bool)>,
+    pub dh3_times: Vec<i64>,
     pub ledger: Vec<(i64, (i64, usize, usize))>,
     pub fault_slot: Option<i64>,
     /// D_arr's and Dh's levels at each change (t: A/a = D_arr on/off, H/h = Dh on/off)
@@ -213,6 +217,8 @@ impl HeadPerm {
             launch_waits: Vec::new(),
             held_max: (0, 0.0),
             last_tick: (0, 0, 0),
+            summon_checks: Vec::new(),
+            dh3_times: Vec::new(),
             ledger: Vec::new(),
             fault_slot: None,
             det_log: Vec::new(),
@@ -453,6 +459,21 @@ impl HeadPerm {
                 if self.rel_log.is_empty() { "-".to_string() } else { self.rel_log.join("; ") }
             ));
             out.push(format!("head-perm summon ticks (t: riders in the stand's carts / panicking / unlocked and panicking): {}", self.summon_log.join(" ")));
+            // (cc767b78, 38dd0d7f7d; ironspec: each fill's Dh3 against the run's own next summon
+            // event (the summon tick checking A's riders), never a slot constant; bar: Dh3 >= 2 gt
+            // before it, 3 riders at rest at the check, a golem (a pulse) at it)
+            {
+                let rows: Vec<(i64, Option<(i64, usize, bool)>)> = self.dh3_times.iter().map(|t3| (*t3, self.summon_checks.iter().find(|s| s.0 > *t3).copied())).collect();
+                let margins: Vec<i64> = rows.iter().filter_map(|(t3, s)| s.map(|s| s.0 - t3)).collect();
+                let short: Vec<String> = rows.iter().filter_map(|(t3, s)| s.filter(|s| s.0 - t3 < 2 || s.1 < 3 || !s.2).map(|s| format!("Dh3 t {t3}: {} gt, {} at rest, {}", s.0 - t3, s.1, if s.2 { "golem" } else { "no golem" }))).collect();
+                out.push(format!(
+                    "head-perm summon margins (each fill's Dh3 to the run's next summon tick checking A's riders; bar >= 2 gt, 3 at rest, a golem): {}; least margin {}; fills under the bar: {}{}",
+                    rows.iter().map(|(t3, s)| match s { Some(s) => format!("{t3}->{} ({} gt, {} at rest, {})", s.0, s.0 - t3, s.1, if s.2 { "golem" } else { "none" }), None => format!("{t3}->-") }).collect::<Vec<_>>().join(" "),
+                    margins.iter().min().map_or("-".to_string(), |m| format!("{m} gt")),
+                    short.len(),
+                    if short.is_empty() { String::new() } else { format!(" ({})", short.join("; ")) }
+                ));
+            }
             out.push(format!("head-perm trains waiting in A's hold through A's tick (a summon tick with A's batch in the stand and carts stopped in the hold: inside the summoners' 10-box): {}{}", self.tick_waits.len(), if self.tick_waits.is_empty() { String::new() } else { format!(" ({})", self.tick_waits.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }));
             if self.day1 {
                 // (cycles-to-clean: each A GO's last summon tick, clean = three riders at rest in

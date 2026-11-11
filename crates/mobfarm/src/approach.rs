@@ -92,6 +92,8 @@ pub struct Summary {
     /// cc767b78's head model (`--head-perm` with day-1's latches): launches for A with carts
     /// stopped at H, the most carts stopped on the descent at once and the farthest back z.
     pub hp: Option<(usize, usize, f64)>,
+    /// cc767b78's run-derived summon margins: the least margin and the fills under the bar.
+    pub sm: Option<(Option<i64>, usize)>,
 }
 
 /// "name a/b/c/d/e/f when x/y/z; ..." (the runner's cause lines), the first N parts.
@@ -169,6 +171,10 @@ pub fn summarize(out: &str) -> Summary {
             s.back_vmax = r.split_once("fastest backward: stored ").and_then(|(_, v)| v.split(',').next()).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
         } else if let Some(r) = l.strip_prefix("carts on the release run upstream of the line z 9|10 at once: at most ") {
             s.upstream = r.trim().parse().unwrap_or(0);
+        } else if let Some(r) = l.strip_prefix("head-perm summon margins ") {
+            let least = r.rsplit_once("least margin ").and_then(|(_, v)| v.split(" gt").next()).and_then(|v| v.trim().parse().ok());
+            let under = r.rsplit_once("fills under the bar: ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
+            s.sm = Some((least, under));
         } else if let Some(r) = l.strip_prefix("head-perm day-1 latches ") {
             let n = r.split_once("launches for A with carts stopped at H: ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
             let most = r.split_once("the most carts stopped on the descent at once ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -179,7 +185,7 @@ pub fn summarize(out: &str) -> Summary {
             let tin = r.split_once("releases, ").and_then(|(_, v)| v.split_whitespace().next()).and_then(|v| v.parse().ok()).unwrap_or(0);
             let m = s.meter.get_or_insert((0, 0, None, 0, None));
             (m.0, m.1) = (rel, tin);
-        } else if let Some(r) = l.strip_prefix("meter Dh 3 (the stand's 3rd cart in): gt before the next slot tick ") {
+        } else if let Some(r) = l.strip_prefix("meter Dh 3 (the stand's 3rd cart in): gt before its batch's golem summon tick (the last before the stand's next REL) ") {
             let m = s.meter.get_or_insert((0, 0, None, 0, None));
             m.2 = r.split("..").next().and_then(|v| v.trim().parse().ok());
         } else if let Some(r) = l.strip_prefix("meter H per opening: ") {
@@ -334,9 +340,11 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
     // REL rises (before the departing batch reaches it), at rest or crawling 0.02, at the dip's
     // first three cells' centres; farmopt 2026-11-11, the allowed cells from push-in rows)
     if partial && o.approach > 0 && (o.approach_climb_boost || o.hump > 0) {
-        // (the stand chunk frozen 240 gt from every gt of the train's arrival window, slot 5 +40
-        // ..= +75: farmopt's (d) sweep on C with the head's arrival latch)
-        for t in 40..=75 {
+        // (the stand chunk frozen 240 gt from every gt of the train's arrival window, slot 5 +30
+        // ..= +80: farmopt's (d) sweep on C with the head's arrival latch, widened from +40..+75 so
+        // it spans the border crossings of every hump height, C's first cart at +34 to hump 5's
+        // third at about +79)
+        for t in 30..=80 {
             v.push((format!("stand freeze 240 +{t}"), vec![format!("5,{t},unload,0,0,0,0,240")]));
         }
     }
@@ -359,8 +367,7 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
         if o.hump > 0 {
             // (C'''/C''+hump: a cart left in the dip (its flat cells, at rest or crawling on) at
             // slot 5 +35, before the train reaches the dip: the train pushes it up the climb, no cart
-            // rolling back; and a cart forced back over T (set on T's climb edge moving back at 0.1
-            // or 0.3) at every 5 gt of the slot: where it ends (the dip, the hump's top, beyond))
+            // rolling back)
             let fx = xb as f64 + 0.5;
             let dy = o.dip_y as f64 + 0.0625;
             let foot = 2 * o.approach as i32 - o.dip_y as i32;
@@ -369,6 +376,12 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
                     v.push((format!("dip push-in z {}.5 {what}", z), vec![format!("5,35,place,head,{fx},{dy},{z}.5,{v0}")]));
                 }
             }
+        }
+        if o.approach_climb_boost {
+            // (a cart forced back over T (set on T's climb edge moving back at 0.1 or 0.3) at every
+            // 5 gt of the slot: where it ends (the dip, the hump's top, beyond); the consequence
+            // row of S3's "0 back over T", for every hump height down to none)
+            let fx = xb as f64 + 0.5;
             let ty = o.approach as f64 + 1.0625;
             for t in (0..100).step_by(5) {
                 for v0 in [0.1, 0.3] {
@@ -443,14 +456,34 @@ fn opt(v: Option<i64>) -> String {
 /// seed, `tm`'s own acts kept (C' emulated with T3 removed, say); `perfect`: the queue reset at
 /// every slot from 6.
 #[allow(clippy::too_many_arguments)]
-pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool, rel_sweep: Option<(i64, i64)>, fault_slot: i64) -> Result<String, String> {
+pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool, rel_sweep: Option<(i64, i64)>, fault_slot: i64, meter_corners: bool) -> Result<String, String> {
     let partial = o.shift != [0, 0];
     let cases0: Vec<(String, Vec<String>)> = fault_cases(o, partial).into_iter().filter(|(n, _)| filter.is_none_or(|f| f.split('|').any(|p| n.contains(p)))).collect();
     // (`all_corners`: every case at REL nominal, early and late x staggers 2, 3, 4, 6; `rel_sweep`
     // A..B: every case at the REL phases A..=B gt around the timing's own (each gt), the stagger
     // and the rest as given)
     let mut variants: Vec<(String, LoopTiming)> = vec![(String::new(), *tm)];
-    if let Some((a, b)) = rel_sweep {
+    if let (true, Some(m)) = (meter_corners, tm.meter) {
+        // (`meter_corners`: S3's corners for the summon margin: the launch ±2 gt (release start),
+        // H's opening start ±2 (HOLD_ON and D12/D23 together, as cc767b78's --meter-sweep) and its
+        // fixed opening's length ±2)
+        variants.clear();
+        for rs in [-2, 0, 2] {
+            for s in [-2, 0, 2] {
+                for l in [-2, 0, 2] {
+                    let mut t = *tm;
+                    t.release_start += rs;
+                    let mut mm = m;
+                    mm.d12 += s;
+                    mm.d23 += s;
+                    mm.hold_on += s;
+                    mm.open_len += l;
+                    t.meter = Some(mm);
+                    variants.push((format!("launch {rs:+} H start {s:+} len {l:+}: "), t));
+                }
+            }
+        }
+    } else if let Some((a, b)) = rel_sweep {
         variants.clear();
         for on in a..=b {
             let mut t = *tm;
@@ -607,6 +640,8 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         } else {
             format!("{pad} | head-perm: launches with carts at H {}, most at H {} (farthest back z {:.2})", hs.iter().map(|h| h.0).sum::<usize>(), hs.iter().map(|h| h.1).max().unwrap_or(0), hs.iter().map(|h| h.2).fold(0.0, f64::max))
         };
+        let sms: Vec<(Option<i64>, usize)> = ss.iter().filter_map(|s| s.sm).collect();
+        let pad = if sms.is_empty() { pad } else { format!("{pad} | summon margin least {}, fills under the bar {}", sms.iter().filter_map(|m| m.0).min().map_or("-".into(), |v| v.to_string()), sms.iter().map(|m| m.1).sum::<usize>()) };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
             let dr: usize = ss.iter().map(|s| s.d_rev).sum();
