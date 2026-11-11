@@ -1829,7 +1829,7 @@ pub fn junction_gate(spec: &FarmSpec) -> (String, bool) {
         redsim::pos::Dir::East => 'E',
         _ => '?',
     };
-    let (mut all, mut bad) = (Vec::new(), Vec::new());
+    let (mut all, mut bad, mut flags) = (Vec::new(), Vec::new(), Vec::new());
     for (p, b) in &spec.blocks {
         if !matches!(b, Block::PlainRail { .. }) {
             continue;
@@ -1879,7 +1879,14 @@ pub fn junction_gate(spec: &FarmSpec) -> (String, bool) {
             }
             let paths_txt = if paths.is_empty() { String::new() } else { format!("; can be powered through: {}", paths.join("; ")) };
             let line = format!("{} (arms {arms}): stored {:?}; the game settles {:?} unpowered, {:?} powered; signal {}{det_txt}{paths_txt}", j.pos, stored, j.unpowered, j.powered, if j.signal { "on" } else { "off" });
-            if want != stored {
+            // (tick-exact Nov 11 13:34: a junction re-settles only when a neighbouring source
+            // changes state; a redstone block placed beside a settled one does not switch it, and
+            // only its removal does: such a junction keeps its stored shape and is flagged, not
+            // failed on its signal at rest)
+            let rb_beside = dirs6.iter().any(|d| matches!(w.get(p.rel(*d)), Block::RedstoneBlock));
+            if rb_beside && j.signal {
+                flags.push(format!("{line}: a redstone block beside it gives its signal; the game switches it only when that block is removed (its stored shape stays)"));
+            } else if want != stored {
                 bad.push(format!("{line}: re-settles to {want:?} at its first update"));
             } else if let Some(d) = dets.iter().find(|d| joins(stored, **d) && j.powered != stored) {
                 bad.push(format!("{line}: a cart crossing the {} detector powers it to {:?} under itself", letter(d), j.powered));
@@ -1889,8 +1896,9 @@ pub fn junction_gate(spec: &FarmSpec) -> (String, bool) {
             all.push(line);
         }
     }
-    let head = format!("rail junctions (static, the game's settle order): {} junctions, {}", all.len(), if bad.is_empty() { "PASS".to_string() } else { format!("FAIL at {}", bad.len()) });
-    let body: Vec<String> = if bad.is_empty() { all } else { bad.clone() };
+    let head = format!("rail junctions (static, the game's settle order): {} junctions, {}{}", all.len(), if bad.is_empty() { "PASS".to_string() } else { format!("FAIL at {}", bad.len()) }, if flags.is_empty() { String::new() } else { format!(", {} flagged", flags.len()) });
+    let mut body: Vec<String> = if bad.is_empty() { all } else { bad.clone() };
+    body.extend(flags.iter().map(|f| format!("FLAG {f}")));
     (format!("{head}{}", body.iter().map(|l| format!("\n  {l}")).collect::<String>()), !bad.is_empty())
 }
 
