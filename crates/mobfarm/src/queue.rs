@@ -3934,8 +3934,10 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         if s.phase != 0 && s.phase != 6 {
             log(s, format!("{c}+{dt} REL mid-metering (phase {})", s.phase));
         }
-        // (H open awaiting its cart's Dh edge: that edge still closes it; otherwise a new cycle)
-        if s.phase % 2 == 0 {
+        // (H open awaiting its cart's Dh edge: that edge still closes it; H shut with no Dh edge
+        // since its last opening (a short train: the opening found no cart): the train is complete,
+        // a new cycle from SE and ARR; otherwise a new cycle)
+        if s.phase % 2 == 0 || !s.h_open {
             s.phase = 0;
             s.open_at = None;
         }
