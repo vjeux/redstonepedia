@@ -1254,6 +1254,75 @@ impl TailWatch {
     }
 }
 
+/// Two release traces (`MCTAS_RELEASE_TRACE` lines `t T c C dt D R bits | k:x,y,z ...`) compared on
+/// the ticks both have: the release rails' power and the carts on the release run (the same carts,
+/// every axis within `tol`); the first difference of each and the counts.
+pub fn trace_diff(a: &str, b: &str, tol: f64) -> String {
+    type Row = (String, String, Vec<(usize, [f64; 3])>);
+    let parse = |s: &str| -> std::collections::BTreeMap<i64, Row> {
+        let mut m = std::collections::BTreeMap::new();
+        for line in s.lines() {
+            let Some((head, carts)) = line.split_once('|') else { continue };
+            let w: Vec<&str> = head.split_whitespace().collect();
+            if w.len() < 8 || w[0] != "t" {
+                continue;
+            }
+            let Ok(t) = w[1].parse::<i64>() else { continue };
+            let label = format!("slot {} +{}", w[3], w[5]);
+            let cs: Vec<(usize, [f64; 3])> = carts
+                .split_whitespace()
+                .filter_map(|c| {
+                    let (k, p) = c.split_once(':')?;
+                    let v: Vec<f64> = p.split(',').filter_map(|x| x.parse().ok()).collect();
+                    (v.len() == 3).then(|| (k.parse().ok(), [v[0], v[1], v[2]])).and_then(|(k, p)| k.map(|k| (k, p)))
+                })
+                .collect();
+            m.insert(t, (label, w[7].to_string(), cs));
+        }
+        m
+    };
+    let (ma, mb) = (parse(a), parse(b));
+    let mut ticks = 0usize;
+    let (mut pdiff, mut cdiff) = (0usize, 0usize);
+    let (mut pfirst, mut cfirst): (Option<String>, Option<String>) = (None, None);
+    let mut gap = 0.0f64;
+    for (t, ra) in &ma {
+        let Some(rb) = mb.get(t) else { continue };
+        ticks += 1;
+        if ra.1 != rb.1 {
+            pdiff += 1;
+            pfirst.get_or_insert_with(|| format!("t {t} ({}): rails {} against {}", ra.0, ra.1, rb.1));
+        }
+        let ka: Vec<usize> = ra.2.iter().map(|c| c.0).collect();
+        let kb: Vec<usize> = rb.2.iter().map(|c| c.0).collect();
+        let mut differs = ka != kb;
+        for (ca, cb) in ra.2.iter().zip(rb.2.iter()) {
+            let g = (0..3).map(|i| (ca.1[i] - cb.1[i]).abs()).fold(0.0, f64::max);
+            if ca.0 == cb.0 {
+                gap = gap.max(g);
+            }
+            if g > tol {
+                differs = true;
+            }
+        }
+        if differs {
+            cdiff += 1;
+            cfirst.get_or_insert_with(|| {
+                let show = |r: &Row| r.2.iter().map(|c| format!("{}:{:.3},{:.3},{:.3}", c.0, c.1[0], c.1[1], c.1[2])).collect::<Vec<_>>().join(" ");
+                format!("t {t} ({}): [{}] against [{}]", ra.0, show(ra), show(rb))
+            });
+        }
+    }
+    format!(
+        "trace-diff: {ticks} ticks in both ({} and {} in each); the release rails' power differs on {pdiff}{}; the carts on the release run differ on {cdiff}{} (the largest gap between the same cart {gap:.4} b); {}",
+        ma.len(),
+        mb.len(),
+        pfirst.map_or(String::new(), |f| format!(", first {f}")),
+        cfirst.map_or(String::new(), |f| format!(", first {f}")),
+        if pdiff == 0 && cdiff == 0 && ticks > 0 { "IDENTICAL" } else { "DIFFERENT" }
+    )
+}
+
 /// A design file's own declared states and flights (its `declared:` and `flights:` header lines,
 /// a pasted part's carried in by `mobfarm paste`), which the runners check on top of the ones
 /// derived from the loop's options.
@@ -2931,6 +3000,12 @@ pub struct LoopTiming {
     /// With `wired`: the bench still drives the stand's 3 controls (the departure lines and the
     /// brake), the design's redstone the queue's 18.
     pub bench_stand: bool,
+    /// With `wired`: the bench still drives the release group's 3 controls (a design without its
+    /// release controller, against the wired one: the bench-against-wired check).
+    pub bench_release: bool,
+    /// Each release slope's off time (q15, q16, q17: the last 3 queue slots, gt into the slot),
+    /// overriding the computed windows (day-1's new core at 24 gt: q15 closes with A1's pulse).
+    pub release_offs: Option<[i64; 3]>,
     /// Added to the stand's departure times (with `wired`, the release starts after the golem
     /// pulse: day-1's GO at +4).
     pub stand_offset: i64,
@@ -3397,7 +3472,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -4153,9 +4228,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // cell each slot and checks where the carts go)
     let wired = tm.wired;
     let stand_cells_ctl: Vec<BlockPos> = lay.stand.clone();
+    // (`bench_release`: with `wired`, the bench still drives the release group's 3 controls, the
+    // last 3 queue slots': the bench-against-wired check runs a design without its release
+    // controller this way)
+    let rel_cells_ctl: Vec<BlockPos> = if lay.slots.len() >= 3 { lay.slots[lay.slots.len() - 3..].to_vec() } else { Vec::new() };
     let set = |w: &mut redsim::world::World, ps: &[BlockPos], p: bool| {
         for c in ps {
-            if wired.is_some() && !(tm.bench_stand && stand_cells_ctl.contains(c)) {
+            if wired.is_some() && !(tm.bench_stand && stand_cells_ctl.contains(c)) && !(tm.bench_release && rel_cells_ctl.contains(c)) {
                 continue;
             }
             w.set_block(*c, if p { on.clone() } else { off.clone() }, redsim::world::flags::ALL);
@@ -4163,6 +4242,14 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
     };
     let input_was = wired.map(|p| run.world.get(p));
+    // (`bench_release`: the release group's 3 control cells cut to glass before the first slot, so
+    // the design's own release lines end there and only the bench drives them)
+    if tm.bench_release && wired.is_some() {
+        for c in &rel_cells_ctl {
+            run.world.set_block(*c, off.clone(), redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:glass", run.world.time - t_origin, c.x, c.y, c.z));
+        }
+    }
     // (`day_only`: the day time held in the day (back 10,000 once it reaches 11,000): no night,
     // so a file's night window (its siding visits) never opens; the loop and the stand alone)
     let hold_day = |w: &mut redsim::world::World| {
@@ -4330,6 +4417,14 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut tail_watch = TailWatch::new(&lay);
     tail_watch.verbose = tm.arrival_log;
     let mut held_back: Option<(u32, redsim::entity::Vec3, i64)> = None;
+    // (the release trace, MCTAS_RELEASE_TRACE: the release group's rails and the release run's
+    // cells, from the release group's first slot on)
+    let rel_rails: Vec<BlockPos> = if lay.slot_cells.len() >= 3 { lay.slot_cells[lay.slot_cells.len() - 3..].iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect() } else { Vec::new() };
+    let rel_run: Vec<[i32; 3]> = lay.slot_cells.len().checked_sub(3).and_then(|i| lay.path.iter().position(|(c, _)| *c == lay.slot_cells[i])).map(|i0| lay.path.iter().skip(i0).take(30).map(|(c, _)| *c).collect()).unwrap_or_default();
+    let mut rel_trace: Option<std::io::BufWriter<std::fs::File>> = match std::env::var("MCTAS_RELEASE_TRACE") {
+        Ok(p) if !p.is_empty() => Some(std::io::BufWriter::new(std::fs::File::create(&p).map_err(|e| format!("MCTAS_RELEASE_TRACE {p}: {e}"))?)),
+        _ => None,
+    };
     let mut unseated: Vec<bool> = vec![false; 21];
     let mut unseat_log: Vec<String> = Vec::new();
     let mut latch_sets: Vec<i64> = Vec::new();
@@ -5156,7 +5251,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // control is the OR of its lines: the release's off waits for an advance pulse in
             // progress, and the advance's off (below) for a release window still open
             let st_on = |k: usize| tm.release_start + if tm.release_stagger > 0 { (2 - k as i64) * tm.release_stagger } else { 0 };
-            let st_off = |k: usize| tm.release_for + if tm.stagger_off && tm.release_stagger > 0 { (2 - k as i64) * tm.release_stagger } else { 0 };
+            // (each slope `release_for` from its own opening, the release start included: day-1's
+            // wired controller keeps a fixed-length window per slope, so a later start moves its
+            // end too (the bench-against-wired check, Nov 11 06:51))
+            let st_off = |k: usize| tm.release_offs.map(|o| o[k]).unwrap_or(tm.release_start + tm.release_for + if tm.stagger_off && tm.release_stagger > 0 { (2 - k as i64) * tm.release_stagger } else { 0 });
             let adv_on = |s: usize, dt: i64| (0..3usize).any(|k| { let a = tm.advance_at + k as i64 * tm.advance_every + tm.adv_shift[k] + tm.skew.get(s).copied().unwrap_or(0); dt >= a && dt < a + tm.pulse + tm.adv_width[k] });
             for k in 0..3usize {
                 if tm.release_stagger > 0 && k < 2 && dt == st_on(k) {
@@ -5727,6 +5825,22 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             plane_gaps.observe(&run.world, &carts, c as i64);
             stand_panic.observe(&run.world, &riders, c as i64, dt as i64);
             tail_watch.observe(&run.world, &carts, t, c as i64, dt as i64);
+            // (MCTAS_RELEASE_TRACE=path, the bench-against-wired check: each tick the release
+            // group's 3 rails' power and every cart within the release group and the 30 cells
+            // after its first slot, for `trace-diff`)
+            if let Some(f) = rel_trace.as_mut().filter(|_| c < cycles) {
+                use std::io::Write;
+                let bits: String = rel_rails.iter().map(|p| if run.world.get(*p).to_string().contains("powered=true") { '1' } else { '0' }).collect();
+                let mut line = format!("t {} c {c} dt {dt} R {bits} |", run.world.time - t_origin);
+                for (k, id) in carts.iter().enumerate() {
+                    if let Some(p) = pos_of(&run.world, *id)
+                        && rel_run.iter().any(|c3| p.x.floor() as i32 == c3[0] && p.z.floor() as i32 == c3[2] && (p.y - c3[1] as f64) > -0.6 && (p.y - (c3[1] as f64)) < 1.6)
+                    {
+                        line.push_str(&format!(" {k}:{:.4},{:.4},{:.4}", p.x, p.y, p.z));
+                    }
+                }
+                let _ = writeln!(f, "{line}");
+            }
         }
         // (`--hold-back`: the front metric's positive control, the queue's second cart behind G0
         // held in place)
