@@ -56,6 +56,7 @@ golem-summon.rec	9211d49a03edc4b0		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mob
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 home-reach-open.rec	f272ae2768c14aa9		26.3	2026-11-11T11:13Z on a7485adf5	mctas mobai record home-reach-open --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 horses.rec	0d4fd5510c0f2f5f		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+jobsite-memory.rec	897fc66aadcbc6cf		26.3	2026-11-11T18:13Z on d9186e31db	mctas mobai record jobsite-memory --seed 1 --ticks 24000 --dir designs/redsim/recorded/mobai
 ledge-r1-150.rec	81ce5c84b3ef460c		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-150 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
 ledge-r1-182.rec	3fe0e0ef3b8cc669		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-182 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
 ledge-r1-196.rec	eeab59cbe641f9b8		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-196 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai

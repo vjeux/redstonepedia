@@ -445,6 +445,13 @@ pub fn closer_to_center(cell: BlockPos, pos: Vec3, d: f64) -> bool {
     c.distance_to_sqr(pos) < d * d
 }
 
+/// (tickexact 2026-11-11) Whether villager `i`'s profession holds a job-site POI
+/// (`profession.heldJobSite()`): redsim's villagers are unemployed (`VillagerProfession.NONE`, whose
+/// held job site matches no POI), so never.
+pub fn profession_holds_job_site(_w: &World, _i: usize) -> bool {
+    false
+}
+
 /// `SleepInBed.start`: past `nextOkStartTime`, `startSleeping(home)` and `LAST_SLEPT`.
 fn sleep_start(w: &mut World, i: usize) {
     let t = w.time;

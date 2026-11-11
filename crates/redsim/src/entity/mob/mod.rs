@@ -780,6 +780,10 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     // LAST_SLEPT; `Villager.readAdditionalSaveData` builds its brain from them (no POI ticket taken)
     let mut home: Option<crate::pos::BlockPos> = None;
     let mut last_slept: Option<i64> = None;
+    // (tickexact 2026-11-11) JOB_SITE, POTENTIAL_JOB_SITE and MEETING_POINT (GlobalPos, like HOME)
+    let mut job_site: Option<crate::pos::BlockPos> = None;
+    let mut potential_job_site: Option<crate::pos::BlockPos> = None;
+    let mut meeting_point: Option<crate::pos::BlockPos> = None;
     // (tickexact 2026-11-10, the spider-effects scene) a loaded mob's effects (`active_effects`:
     // amplifier 0, a duration or -1 for infinite) and the one attribute modifier redsim models with
     // them (strength's ATTACK_DAMAGE +3, which a load restores from `attributes`, not the effect)
@@ -860,6 +864,20 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 return Some(Err(format!("entity {type_id}: loaded Brain memories are modeled for villagers only")));
             }
             let mut known = 0;
+            // (a GlobalPos memory: `"minecraft:<key>":{value:{dimension:"minecraft:overworld",pos:[I;x,y,z]}}`)
+            let global = |key: &str| -> Option<Result<crate::pos::BlockPos, String>> {
+                let h = brain.find(&format!("\"minecraft:{key}\""))?;
+                let rest = &brain[h..];
+                let end = rest.find("]}").map_or(rest.len(), |e| e + 2);
+                let one = &rest[..end];
+                let p = one.find("pos:[I;").map(|q| q + "pos:[I;".len());
+                let v: Vec<i32> = p.and_then(|p| one[p..].split(']').next()).map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+                Some(if v.len() != 3 || !one.contains("minecraft:overworld") {
+                    Err(format!("entity {type_id}: a {key} memory needs {{value:{{dimension:\"minecraft:overworld\",pos:[I;x,y,z]}}}}: {brain}"))
+                } else {
+                    Ok(crate::pos::BlockPos::new(v[0], v[1], v[2]))
+                })
+            };
             if let Some(h) = brain.find("\"minecraft:home\"") {
                 let p = brain[h..].find("pos:[I;").map(|q| h + q + "pos:[I;".len());
                 let v: Vec<i32> = p.and_then(|p| brain[p..].split(']').next()).map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
@@ -869,6 +887,18 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 home = Some(crate::pos::BlockPos::new(v[0], v[1], v[2]));
                 known += 1;
             }
+            // (tickexact 2026-11-11, ironspec's job-site rows: a villager brought in still remembering
+            // a job site, a potential one or a meeting point)
+            for (key, slot) in [("job_site", &mut job_site), ("potential_job_site", &mut potential_job_site), ("meeting_point", &mut meeting_point)] {
+                match global(key) {
+                    Some(Ok(p)) => {
+                        *slot = Some(p);
+                        known += 1;
+                    }
+                    Some(Err(e)) => return Some(Err(e)),
+                    None => {}
+                }
+            }
             if let Some(h) = brain.find("\"minecraft:last_slept\"") {
                 let v = brain[h..].find("value:").and_then(|q| brain[h + q + 6..].split(['}', ',']).next()).and_then(|s| s.trim().trim_end_matches(['L', 'l']).parse::<i64>().ok());
                 let Some(v) = v else { return Some(Err(format!("entity {type_id}: a LAST_SLEPT memory needs {{value:<game time>L}}: {brain}"))) };
@@ -876,7 +906,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 known += 1;
             }
             if brain.matches("\":{value:").count() != known {
-                return Some(Err(format!("entity {type_id}: only HOME and LAST_SLEPT memories are modeled when loaded: {brain}")));
+                return Some(Err(format!("entity {type_id}: only HOME, LAST_SLEPT, JOB_SITE, POTENTIAL_JOB_SITE and MEETING_POINT memories are modeled when loaded: {brain}")));
             }
             t = format!("{}{}", &t[..s], &t[e + 1..]);
         }
@@ -1025,7 +1055,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     {
         w.entities.list[j].portal_cooldown = c;
     }
-    if (home.is_some() || last_slept.is_some())
+    if (home.is_some() || last_slept.is_some() || job_site.is_some() || potential_job_site.is_some() || meeting_point.is_some())
         && let Some(j) = crate::entity::index_of(w, id)
     {
         // a loaded Brain builds the live brain again (`makeBrain(data)`): its 9 sensors draw their
@@ -1038,6 +1068,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             }
         }
         let fresh = w.entities.list[j].random.is_some();
+        let day = w.day_time();
         if let EntityKind::Mob(m) = &mut w.entities.list[j].kind
             && let Some(b) = m.brain.as_deref_mut()
         {
@@ -1049,6 +1080,27 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             }
             if last_slept.is_some() {
                 b.last_slept = last_slept;
+            }
+            // (the job site, potential job site and meeting point live in the exact brain; its
+            // registerBrainGoals' updateActivityFromSchedule then sees them: WORK with a JOB_SITE,
+            // MEET with a MEETING_POINT, IDLE in their place otherwise)
+            if job_site.is_some() || potential_job_site.is_some() || meeting_point.is_some() {
+                match b.ex.as_deref_mut() {
+                    Some(x) => {
+                        x.mem.job_site = job_site;
+                        x.mem.potential_job_site = potential_job_site;
+                        x.mem.meeting_point = meeting_point;
+                        let sched = ai::brain::scheduled(day);
+                        x.active = match sched {
+                            ai::brain::Act::Work if job_site.is_some() => ai::brain::Act::Work,
+                            ai::brain::Act::Meet if meeting_point.is_some() => ai::brain::Act::Meet,
+                            ai::brain::Act::Work | ai::brain::Act::Meet => ai::brain::Act::Idle,
+                            a => a,
+                        };
+                        b.activity = x.active.simple();
+                    }
+                    None => w.errors.push(format!("entity {type_id}: a job site, potential job site or meeting point memory needs the mob AI on")),
+                }
             }
         }
     }

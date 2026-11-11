@@ -3431,6 +3431,54 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's job-site rows: a villager brought in still remembering a job
+    // site or a meeting point) three riders in carts held between stones, through a day from day
+    // time 0: A remembers a composter 30 blocks east as its JOB_SITE (WORK, 2000..9000: the walk to
+    // it, unreachable from the cart, its can't-reach stamp, and the memory forgotten 1200 gt on),
+    // B a bell 30 blocks east as its MEETING_POINT (MEET, 9000..11000: tooLong 200), C a composter
+    // 122 blocks east (beyond WORK's tooFar 100: DefaultRandomPos toward it)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 144, 0, 32, 63, stone);
+        let mem = |key: &str, p: [i32; 3]| format!("\"minecraft:{key}\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}", p[0], p[1], p[2]);
+        let mut mobs = Vec::new();
+        for (z, key, poi, state) in [(8, "job_site", [38, 64, 8], "minecraft:composter[level=0]"), (20, "meeting_point", [38, 64, 20], "minecraft:bell[attachment=floor,facing=north,powered=false]"), (14, "job_site", [130, 64, 14], "minecraft:composter[level=0]")] {
+            b.push(([8, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([8, 64, z - 1], stone.to_string()));
+            b.push(([8, 64, z + 1], stone.to_string()));
+            // (the rider's cart in a glass cell, as a farm's riders sit: no path leaves it)
+            for dz in -1..=1 {
+                for y in 64..=65 {
+                    b.push(([7, y, z + dz], "minecraft:glass".to_string()));
+                    b.push(([9, y, z + dz], "minecraft:glass".to_string()));
+                }
+                for x in 7..=9 {
+                    b.push(([x, 66, z + dz], "minecraft:glass".to_string()));
+                }
+            }
+            b.push(([8, 65, z - 1], "minecraft:glass".to_string()));
+            b.push(([8, 65, z + 1], "minecraft:glass".to_string()));
+            b.push((poi, state.to_string()));
+            // (the POI walled in stone, as a farm's riders find theirs: no path reaches it)
+            for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]] {
+                b.push(([poi[0] + d[0], poi[1] + d[1], poi[2] + d[2]], stone.to_string()));
+            }
+            mobs.push(("minecraft:minecart".to_string(), [8.5, 64.0, z as f64 + 0.5], Some(format!("{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{{}}}}}}}]}}", mem(key, poi)))));
+        }
+        v.push(Scene {
+            name: "jobsite-memory".into(),
+            chunks: [0, 0, 8, 1],
+            blocks: b,
+            mobs,
+            day_time: 0,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [143, 66, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
     // reloaded sleeper's wake) a villager asleep in its bed, a zombie walled in stone 4 blocks east;
     // the whole sandbox unloaded at t200, loaded at t240 and the zombie's west wall taken away at
