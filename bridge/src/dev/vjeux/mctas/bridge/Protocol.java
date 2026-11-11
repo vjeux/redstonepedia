@@ -319,9 +319,10 @@ public final class Protocol {
             o.add("tick_list", sb.tickList());
             return o;
         }
-        sb.loadAll(this.server);
+        sb.loadAll(this.server, r.has("order") ? r.get("order").getAsString() : "save");
         JsonObject o = new JsonObject();
         o.addProperty("order", sb.lastLoadOrder);
+        o.addProperty("sequence", sb.lastLoadSequence);
         // each entity back under its new number: [old, new]
         JsonArray re = new JsonArray();
         for (int[] p : sb.lastRenumbered) {

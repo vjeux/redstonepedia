@@ -2229,22 +2229,27 @@ pub struct Act {
     /// chunks next to a loaded one tick their blocks at level 32, entities frozen; level 33
     /// nothing), back `hold` gt later. `cell` and `block` unused then.
     pub unload: Option<Option<[i32; 4]>>,
+    /// (tickexact 2026-11-11, the reload-order rule) A whole-part unload's load order
+    /// (`SLOT,DT,unload,N,ORDER`: `save`, `reverse` or `seed:K`; `reload::load_all_ordered`).
+    pub order: redsim::reload::Order,
 }
 
 /// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets),
-/// `SLOT,DT,unload,N` (the whole part away N gt) or `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box).
+/// `SLOT,DT,unload,N[,ORDER]` (the whole part away N gt, its load in ORDER: save, reverse or
+/// seed:K) or `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box).
 pub fn parse_act(s: &str) -> Result<Act, String> {
     let f: Vec<&str> = s.split(',').map(|t| t.trim()).collect();
     if f.len() >= 3 && f[2] == "unload" {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let (slot, dt) = (num(f[0], "SLOT")?, num(f[1], "DT")?);
-        let (unload, n) = match f.len() {
-            4 => (None, num(f[3], "N")?),
-            8 => (Some([num(f[3], "X0")? as i32, num(f[4], "Z0")? as i32, num(f[5], "X1")? as i32, num(f[6], "Z1")? as i32]), num(f[7], "N")?),
-            _ => return Err(format!("--act {s}: give SLOT,DT,unload,N or SLOT,DT,unload,X0,Z0,X1,Z1,N (a chunk box)")),
+        let (unload, n, order) = match f.len() {
+            4 => (None, num(f[3], "N")?, redsim::reload::Order::Save),
+            5 => (None, num(f[3], "N")?, redsim::reload::Order::parse(f[4]).ok_or_else(|| format!("--act {s}: ORDER is save, reverse or seed:K (K < 1000)"))?),
+            8 => (Some([num(f[3], "X0")? as i32, num(f[4], "Z0")? as i32, num(f[5], "X1")? as i32, num(f[6], "Z1")? as i32]), num(f[7], "N")?, redsim::reload::Order::Save),
+            _ => return Err(format!("--act {s}: give SLOT,DT,unload,N[,ORDER] or SLOT,DT,unload,X0,Z0,X1,Z1,N (a chunk box)")),
         };
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
-        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload) });
+        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload), order });
     }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
@@ -2257,7 +2262,7 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
     };
     let name = if block.contains(':') { block.to_string() } else { format!("minecraft:{block}") };
     let block = Block::parse(&name).map_err(|e| format!("--act {s}: {e}"))?;
-    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None })
+    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None, order: redsim::reload::Order::Save })
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -3269,8 +3274,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                             for _ in 0..n {
                                 run.tick();
                             }
-                            redsim::reload::load_all(&mut run.world);
-                            drive.borrow_mut().push(format!("act {} load", run.world.time - t_origin));
+                            redsim::reload::load_all_ordered(&mut run.world, a.order);
+                            drive.borrow_mut().push(match a.order {
+                                redsim::reload::Order::Save => format!("act {} load", run.world.time - t_origin),
+                                o => format!("act {} load order={}", run.world.time - t_origin, o.name()),
+                            });
                             let m = std::mem::take(&mut run.world.renumbered);
                             let r = |id: &mut u32| {
                                 if let Some(n) = m.get(id) {

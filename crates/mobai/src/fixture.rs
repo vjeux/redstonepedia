@@ -75,9 +75,9 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         // (tickexact 2026-11-11) the gate admissions: C1's and C2's gates (z 9, 12) for the first
         // tick only; G0 (z 3) and G_P (z 6) opened at t200 (3 and 2 gt) and at t600 (3 gt each);
         // each input a redstone block north of its gate
-        "gate-admit" => {
+        "gate-admit" | "gate-admit-rev" | "gate-admit-s1" | "gate-admit-s2" => {
             let rb = "minecraft:redstone_block";
-            vec![
+            let mut v = vec![
                 (0, vec![s([20, 65, 8], rb), s([20, 65, 11], rb)]),
                 (1, vec![s([20, 65, 8], "minecraft:air"), s([20, 65, 11], "minecraft:air")]),
                 (200, vec![s([20, 65, 2], rb), s([20, 65, 5], rb)]),
@@ -85,7 +85,23 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
                 (203, vec![s([20, 65, 2], "minecraft:air")]),
                 (600, vec![s([20, 65, 2], rb), s([20, 65, 5], rb)]),
                 (603, vec![s([20, 65, 2], "minecraft:air"), s([20, 65, 5], "minecraft:air")]),
-            ]
+            ];
+            // (tickexact 2026-11-11, the reload-order rule) the whole part away 1 gt at t300 (after
+            // the first admissions), its load in that order; every entity of the scene stands in
+            // chunk (1, 0), so only the order inside that chunk changes (the within-chunk part
+            // alone: the riders' carts, the zombie's boat, each with its passenger after it)
+            let order = match name {
+                "gate-admit-rev" => Some("load@reverse"),
+                "gate-admit-s1" => Some("load@seed:1"),
+                "gate-admit-s2" => Some("load@seed:2"),
+                _ => None,
+            };
+            if let Some(o) = order {
+                v.push((300, vec![s([0, 0, 0], "unload")]));
+                v.push((301, vec![s([0, 0, 0], o)]));
+                v.sort_by_key(|(t, _)| *t);
+            }
+            v
         }
         // (tickexact 2026-11-10) the boarding cooldown across a reload: the whole part away 1 gt
         // right after the throw (t8)
@@ -198,6 +214,12 @@ fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> R
         }
         if s == "load" {
             redsim::reload::load_all(w);
+            continue;
+        }
+        // (tickexact 2026-11-11, the reload-order rule) `load@<order>`: the entities in that order
+        if let Some(o) = s.strip_prefix("load@") {
+            let order = redsim::reload::Order::parse(o).ok_or_else(|| anyhow!("load@{o}: an order is save, reverse or seed:K"))?;
+            redsim::reload::load_all_ordered(w, order);
             continue;
         }
         // (the partial form: a chunk box's forced tickets)
@@ -463,6 +485,11 @@ const MOVED_SCENES: &[(&str, &str, [i32; 3], &str)] = &[
     ("carousel-wired-pocket-u250l", "carousel-wired-pocket", [0, 0, 0], "act 4090 unload all 4000\ndrop 4090 8090\n"),
     ("carousel-wired-pocket-u280l", "carousel-wired-pocket", [0, 0, 0], "act 4120 unload all 4000\ndrop 4120 8120\n"),
     ("carousel-wired-pocket-u392l", "carousel-wired-pocket", [0, 0, 0], "act 4232 unload all 4000\ndrop 4232 8232\n"),
+    // (tickexact 2026-11-11, the reload-order rule) the u280l unload with the load's entities in
+    // another order: the whole saved sequence reversed; shuffled by seed:K (chunks, then each
+    // chunk's vehicles-with-passengers)
+    ("carousel-wired-pocket-u280l-rev", "carousel-wired-pocket", [0, 0, 0], "act 4120 unload all 4000 order=reverse\ndrop 4120 8120\n"),
+    ("carousel-wired-pocket-u280l-s3", "carousel-wired-pocket", [0, 0, 0], "act 4120 unload all 4000 order=seed:3\ndrop 4120 8120\n"),
     // (tickexact 2026-11-11, (a)'s rate in the game: `mobai unload-rate`) 58f770cc's kick drive
     // without its own unload: the scene as it runs, the unload placed at each seed's kick
     ("siding-fault-kick3-base", "siding-fault-kick3", [0, 0, 0], "nounload\n"),
@@ -655,10 +682,23 @@ fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
             // unloaded (a player leaving), then loaded again (back): the bridge's `unload` /
             // `load`, redsim's `reload::unload_all` / `load_all`
             Some(a @ ("unload" | "load")) if f.len() == 3 => ([0, 0, 0], a.to_string()),
-            // (the brief's shared act: `unload all <N>`, the load N ticks later)
-            Some("unload") if f.len() == 5 && f[3] == "all" => {
+            // (tickexact 2026-11-11, the reload-order rule) `load order=save|reverse|seed:K`
+            Some("load") if f.len() == 4 && f[3].trim().starts_with("order=") => {
+                let o = f[3].trim().trim_start_matches("order=");
+                if redsim::reload::Order::parse(o).is_none() {
+                    bad(line)
+                }
+                ([0, 0, 0], if o == "save" { "load".to_string() } else { format!("load@{o}") })
+            }
+            // (the brief's shared act: `unload all <N> [order=..]`, the load N ticks later)
+            Some("unload") if (f.len() == 5 || f.len() == 6) && f[3] == "all" => {
                 let Some(n) = f[4].trim().parse::<u32>().ok() else { bad(line) };
-                later.push((t + n, ([0, 0, 0], "load".to_string())));
+                let load = match f.get(5).map(|o| o.trim().trim_start_matches("order=")) {
+                    None | Some("save") => "load".to_string(),
+                    Some(o) if redsim::reload::Order::parse(o).is_some() && f[5].trim().starts_with("order=") => format!("load@{o}"),
+                    Some(_) => bad(line),
+                };
+                later.push((t + n, ([0, 0, 0], load)));
                 later.sort_by_key(|(t, _)| *t);
                 ([0, 0, 0], "unload".to_string())
             }
@@ -2182,6 +2222,13 @@ fn scenes_raw() -> Vec<Scene> {
             player_creative: false,
             random_tick_speed: 0,
         });
+        // (tickexact 2026-11-11, the reload-order rule) the same with a reload at t300 in each order
+        let base = v.last().expect("gate-admit").clone();
+        for n in ["gate-admit-rev", "gate-admit-s1", "gate-admit-s2"] {
+            let mut c = base.clone();
+            c.name = n.into();
+            v.push(c);
+        }
     }
     // (tickexact 2026-11-10, the boarding cooldown across a reload) a ridden minecart over a
     // powered activator rail throws its villager out (`ejectPassengers`: boardingCooldown 60);
@@ -3038,6 +3085,9 @@ pub struct GameScene {
     /// (tickexact 2026-11-10) Entities a `load` brought back under new numbers: old -> current
     /// (the bridge's answer; a drive's `eN` follows it).
     renumbered: std::collections::HashMap<u32, u32>,
+    /// (tickexact 2026-11-11) The game's last whole-part load sequence (`n:type ...`, the bridge's
+    /// `load` reply), compared with redsim's `World::last_load`.
+    last_load: String,
 }
 
 impl GameScene {
@@ -3114,12 +3164,17 @@ impl GameScene {
         } else {
             (Vec::new(), Vec::new())
         };
-        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether, renumbered: Default::default() })
+        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether, renumbered: Default::default(), last_load: String::new() })
     }
 
     /// The bridge's `unload` / `load` of every chunk of the sandbox (a load's renumbering kept),
     /// or of a chunk box's (`unload:x0,z0,x1,z1`: its forced tickets).
     fn unload_load(&mut self, act: &str) -> Result<()> {
+        // (`load@<order>`: the whole-part load with its entities in that order)
+        let (act, order) = match act.split_once('@') {
+            Some((a, o)) => (a, Some(o)),
+            None => (act, None),
+        };
         let (op, chunks) = match act.split_once(':') {
             Some((op, b)) => (op, redsim::entity::mob::drive::chunk_box(b)),
             None => (act, None),
@@ -3128,7 +3183,13 @@ impl GameScene {
         if let Some(b) = chunks {
             req["chunks"] = json!(b);
         }
+        if let Some(o) = order {
+            req["order"] = json!(o);
+        }
         let v = self.w.call(req)?;
+        if let Some(seq) = v["sequence"].as_str() {
+            self.last_load = seq.to_string();
+        }
         if std::env::var_os("MOBAI_TRACE_LOAD").is_some() {
             eprintln!("bridge {op}: {}", v["order"].as_str().unwrap_or(""));
             if v["tick_list"].is_array() {
@@ -3193,7 +3254,7 @@ impl GameScene {
         for (p, s) in blocks {
             // (tickexact 2026-11-10, ironspec's fault rule) every chunk of the sandbox saved and
             // unloaded / loaded again, between two ticks
-            if s == "unload" || s == "load" || s.starts_with("unload:") || s.starts_with("load:") {
+            if s == "unload" || s == "load" || s.starts_with("unload:") || s.starts_with("load:") || s.starts_with("load@") {
                 if !run.is_empty() {
                     self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
                     run.clear();
@@ -3249,6 +3310,10 @@ impl GameScene {
             }
             Act::Load => {
                 self.unload_load("load")?;
+                json!({})
+            }
+            Act::LoadOrdered(o) => {
+                self.unload_load(&format!("load@{}", o.name()))?;
                 json!({})
             }
             Act::UnloadSome(b) => {
@@ -3449,6 +3514,14 @@ pub enum Source {
 }
 
 impl Source {
+    /// The game's last whole-part load sequence (a live game's; a recording does not keep it).
+    fn last_load(&self) -> Option<&str> {
+        match self {
+            Source::Live(g) => Some(g.last_load.as_str()),
+            Source::Recorded { .. } => None,
+        }
+    }
+
     fn ticking(&self) -> Vec<[i32; 2]> {
         match self {
             Source::Live(g) => g.ticking.clone(),
@@ -3774,6 +3847,21 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
             game.apply(b, &ctx)?;
             apply_redsim(&mut ours, b, &ctx)?;
+            // (tickexact 2026-11-11, the reload-order rule) each whole-part load's sequence, the
+            // game's and redsim's (new number and type, in the order they came back; the game's
+            // types as redsim tells them apart)
+            if let Some((_, a)) = b.iter().find(|(_, a)| a == "load" || a.starts_with("load@")) {
+                let order = a.strip_prefix("load@").unwrap_or("save");
+                let norm = |s: &str| s.split(' ').map(|t| match t.split_once(':') {
+                    Some((n, ty)) => format!("{n}:{}", redsim::exact::normalize_type(ty)),
+                    None => t.to_string(),
+                }).collect::<Vec<_>>().join(" ");
+                match game.last_load().map(norm) {
+                    Some(g) if g == norm(&ours.last_load) => eprintln!("load order={order} at drive t {done}: {g}"),
+                    Some(g) => eprintln!("load order={order} at drive t {done}: the sequences DIFFER:\n  game   {g}\n  redsim {}", norm(&ours.last_load)),
+                    None => eprintln!("load order={order} at drive t {done}: redsim {}", norm(&ours.last_load)),
+                }
+            }
         }
         left -= n;
         if cmp.first.is_some() && !full {
@@ -4005,7 +4093,7 @@ pub fn unload_rate(version: &str, name: &str, seeds: std::ops::RangeInclusive<i6
     let all = scenes();
     let s = all.iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
     let base = scene_actions(&s.name);
-    anyhow::ensure!(!base.iter().any(|(_, b)| b.iter().any(|(_, a)| a == "unload" || a == "load" || a.starts_with("unload:") || a.starts_with("load:"))), "unload-rate: the scene's drive already unloads (use one without)");
+    anyhow::ensure!(!base.iter().any(|(_, b)| b.iter().any(|(_, a)| a == "unload" || a == "load" || a.starts_with("unload:") || a.starts_with("load:") || a.starts_with("load@"))), "unload-rate: the scene's drive already unloads (use one without)");
     let horizon = after + 4000;
     let (mut asleep, mut fail_a, mut fail_b) = (0usize, 0usize, 0usize);
     for seed in seeds {
