@@ -375,6 +375,19 @@ pub enum MobfarmCmd {
         #[arg(long, short, default_value = ".")]
         out: PathBuf,
     },
+    /// Paste a part design into a base design (the station's pad and Nether part under a loop's
+    /// stand, say): the part's blocks, block entities and entities moved by `--at`, its ports and
+    /// Nether part (its anchor moved too), its `build:` steps joined to the base's; a cell both
+    /// hold with different blocks is refused, and so is a port both name.
+    Paste {
+        base: PathBuf,
+        part: PathBuf,
+        /// The part's origin in the base (x,y,z).
+        #[arg(long, default_value = "0,0,0", allow_hyphen_values = true)]
+        at: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
     QueueLoop {
@@ -633,6 +646,16 @@ pub enum MobfarmCmd {
         /// never opens: the loop and its stand alone.
         #[arg(long)]
         day_only: bool,
+        /// Every rider's LAST_SLEPT set at the start and each night from day time 13,000
+        /// (bench-driven: the station bench's stand-in for the siding's naps; a design with a pad
+        /// and no siding summons only with it).
+        #[arg(long)]
+        slept: bool,
+        /// The slots' phase: the bench starts its slots so that slot +K falls on the villagers'
+        /// summon tick (gameTime % 100 == 0); 99 for a controller that takes the golem pulse
+        /// (summon +1) as its slot's start. Default: no alignment.
+        #[arg(long, allow_hyphen_values = true)]
+        summon_at: Option<i64>,
         /// With `--wired`: the stand latch's reset input (x,y,z), pulsed by the bench (a
         /// redstone block for 2 gt) at its own stand-brake trigger, until that brake is wired.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
@@ -1742,6 +1765,62 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
+        MobfarmCmd::Paste { base, part, at, out } => {
+            let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(o.len() == 3, "--at x,y,z");
+            let mut d = mctas::design::Design::parse(&std::fs::read_to_string(&base)?)?;
+            let p = mctas::design::Design::parse(&std::fs::read_to_string(&part)?)?;
+            let mv = |c: &[i32; 3]| [c[0] + o[0], c[1] + o[1], c[2] + o[2]];
+            let mut clashes = Vec::new();
+            for (c, s) in &p.blocks {
+                let at = mv(c);
+                match d.blocks.get(&at) {
+                    Some(t) if t != s => clashes.push(format!("{at:?}: the base's {t}, the part's {s}")),
+                    _ => {
+                        d.blocks.insert(at, s.clone());
+                    }
+                }
+            }
+            anyhow::ensure!(clashes.is_empty(), "{} cells both designs hold: {}", clashes.len(), clashes.iter().take(12).cloned().collect::<Vec<_>>().join("; "));
+            for (c, s) in &p.block_entities {
+                d.block_entities.insert(mv(c), s.clone());
+            }
+            for e in &p.entities {
+                let mut e = e.clone();
+                e.pos = [e.pos[0] + o[0] as f64, e.pos[1] + o[1] as f64, e.pos[2] + o[2] as f64];
+                d.entities.push(e);
+            }
+            for (k, c) in &p.ports {
+                anyhow::ensure!(!d.ports.contains_key(k), "the port {k} is in both designs");
+                d.ports.insert(k.clone(), mv(c));
+            }
+            if !p.nether_blocks.is_empty() {
+                anyhow::ensure!(d.nether_blocks.is_empty(), "both designs have a Nether part");
+                d.nether_blocks = p.nether_blocks.clone();
+                d.nether_block_entities = p.nether_block_entities.clone();
+                d.nether_ports = p.nether_ports.clone();
+            }
+            // (the build steps: both designs' tokens, each once; the part's cells moved)
+            if let Some(b) = p.meta.get("build") {
+                let moved: Vec<String> = b.split_whitespace().map(|t| match t.split(',').map(|v| v.parse::<i32>()).collect::<Result<Vec<_>, _>>() {
+                    Ok(v) if v.len() == 3 => format!("{},{},{}", v[0] + o[0], v[1] + o[1], v[2] + o[2]),
+                    _ => t.to_string(),
+                }).collect();
+                let mut toks: Vec<String> = d.meta.get("build").map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default();
+                for t in moved {
+                    if !toks.contains(&t) {
+                        toks.push(t);
+                    }
+                }
+                d.meta.insert("build".into(), toks.join(" "));
+            }
+            if let Some(s) = p.meta.get("station") {
+                d.meta.insert("station".into(), s.clone());
+            }
+            let head: String = std::fs::read_to_string(&base)?.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
+            std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
+            println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
+        }
         MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc;
             let slots = if line && slots == 18 { 15 } else { slots };
@@ -1835,7 +1914,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let _ = std::fs::remove_file(&path);
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, drive_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             if let Some(sf) = &siding {
@@ -1864,11 +1943,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 ([], []) if visits_observe => Some(crate::queue::Visit { slot: -1, k: 0, divert_at: divert_at.unwrap_or(16), release_at: 0, divert: cell3(&divert_cell)?, t1: cell3(&t1_cell)?, t2: cell3(&t2_cell)?, release: cell3(&siding_release_cell)?, every: 0, from: 0, release_k: rel_k, release_cells: rel_cells, t_at_release: false, t_at: 0, observe: true, branch: match divert_branch.as_slice() { [x, y, z] => redsim::pos::BlockPos::new(*x, *y, *z), [] => { let d = cell3(&divert_cell)?; redsim::pos::BlockPos::new(d.x, d.y + 1, d.z - 1) } _ => anyhow::bail!("--divert-branch takes x,y,z") } }),
                 ([], []) => None,
                 _ => anyhow::bail!("--visit takes S,K,REL; --visits-nightly EVERY,REL[,FROM]; not both"),
-            }, build_last: match c.clock.design.meta.get("build") {
+            }, build_fills_last: c.clock.design.meta.get("build").is_some_and(|s| s.split_whitespace().any(|t| t == "fills-last")), build_last: match c.clock.design.meta.get("build") {
                 Some(s) => {
-                    let mut it = s.split_whitespace();
-                    anyhow::ensure!(it.next() == Some("last"), "build: takes 'last x,y,z ...'");
-                    let cells = it.map(|t| { let v: Vec<i32> = t.split(',').map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?; anyhow::ensure!(v.len() == 3, "build: last takes x,y,z cells"); Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2])) }).collect::<Result<Vec<_>>>()?;
+                    // (`last x,y,z ...`: those cells placed after every other; `fills-last`: the
+                    // containers' stocks after every block, main's mobfarm::placing build plan)
+                    let mut cells = Vec::new();
+                    let mut in_last = false;
+                    for t in s.split_whitespace() {
+                        match t {
+                            "last" => in_last = true,
+                            "fills-last" => in_last = false,
+                            t => {
+                                anyhow::ensure!(in_last, "build: takes 'last x,y,z ...' and 'fills-last' (not {t:?})");
+                                let v: Vec<i32> = t.split(',').map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?;
+                                anyhow::ensure!(v.len() == 3, "build: last takes x,y,z cells");
+                                cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                            }
+                        }
+                    }
                     anyhow::ensure!(cells.len() <= 64, "build: last takes up to 64 cells");
                     let mut a = [None; 64];
                     for (i, p) in cells.into_iter().enumerate() {
@@ -1885,7 +1977,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, ..Default::default() };
+            }, golem_jitter, golem_late, day_only, slept, summon_at, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
             // (`--shift name=gt,...`: controls shifted as the sweep shifts them, e.g. to rerun a
             // corner without one of its controls)
             let mut tm = tm;
