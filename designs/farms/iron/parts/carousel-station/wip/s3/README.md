@@ -44,3 +44,29 @@ The stand rows (H's band, the T bar, the virtual stand B) run on C, not on these
 `mctas mobfarm queue-loop-run <C> --release-stagger 4 --skew 2,2,2 --pocket-release 13 --cycles
 8 --verbose --meter-hold 14,14,0,0,20,0,0,-1,1,13`, where <C> is
 designs/farms/iron/parts/carousel-station/wip/approach-c-border-flat.txt at 9fb706996.
+
+## The wired second stand (s3-wired-pair-c.txt)
+
+C with a real stand B in place of the virtual one, for every S3 row from now on (ironspec 11-11:
+the virtual B is retired):
+- stand B: C's stand area (loop x -5..11, y -6..8, z -2..17: hold, climb, flat run, stand, its
+  circuit, departure) pasted at A + (0,-27,+32), its three pocket carts removed (21 carts in all);
+  B's flat run cut at loop z 44;
+- the router S: C's flat rail (-3,1,16) made a T (north, south, west): south_west unpowered (to B),
+  north_west powered (to A), through the stone under it from a repeater at (-2,0,16) facing east;
+- B's branch: the curve (-4,1,16) (south_east), 26 slopes down x -4 (z 17..42), a flat at
+  (-4,-26,43), the U-turn (-4,-26,44) north_east and (-3,-26,44) north_west into B's flat run
+  heading north; glass under every rail;
+- not yet: B's return to the tail (B's departing carts leave the loop), the tripwire interlock,
+  DEP_X, B's pad and posts.
+
+Generation (scratch files, world = loop + (6,0,6)): `mobfarm paste C C --box 1,-6,4,17,8,23 --at
+0,-27,32 --overworld-only`, the removals `--remove-box 3,-27,50,3,-26,55` and `3,0,22,3,0,22`,
+then `mobfarm lines --rail '2,0,23>2,-26,49' --block '...'` for the branch, the curves and the
+router cells, pasted on; B's three pocket carts' entity lines deleted.
+
+Run: `--meter-hold D12,D23,CLOSE,DEP,HOLD_ON,CHAIN,FALLBACK,MISS_D1,2,OPEN_LEN` (VB 2: the wired
+pair). The bench sets the repeater's input each GO (a redstone block on even cycles: A; glass on
+odd: B), runs B's meter at its offset on the odd cycles' REL, and prints B's lines with `B: `.
+Each stand's summoning-moment line gives each train's Dh3 against the run's own summon tick (world
+time a multiple of 100) before that stand's REL, and the carts at rest in its pockets there.
