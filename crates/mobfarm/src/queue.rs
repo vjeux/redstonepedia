@@ -3649,6 +3649,8 @@ pub struct LoopTiming {
     pub stale_clear: bool,
     /// (cc767b78) the stale-ARR clear without the branch gate (the time-only fallback).
     pub stale_ungated: bool,
+    /// (cc767b78) the stale-ARR clear without its "no Dh3_X between" condition (a variant for day-1).
+    pub stale_ignore_dh3: bool,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -5056,7 +5058,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, meter: None }
     }
 }
 
@@ -5792,6 +5794,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (S3(ii)'s per-stand head permissions, `crate::headperm`)
     let mut head_perm = tm.head_perm.map(|(a, d, g, r, bh)| {
         let mut h = crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, lay.stand_rel, g, r, bh);
+        h.frame = match tm.summon_at {
+            Some(99) => "+99 (S3's farm frame, the head model's default; a hypothesis until day-1's wired measurement)".to_string(),
+            Some(k) => format!("+{k} (summon ticks at slot +{k})"),
+            None => "unaligned (summon ticks at slot +60; --summon-unaligned)".to_string(),
+        };
         h.b_physical = tm.meter.is_some_and(|m| m.vb);
         if let Some((ah, lost)) = tm.head_retry {
             h.retry = true;
@@ -5801,8 +5808,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             h.fault_slot = lost.or(ah.map(|x| x.0)).or(tm.train_size.map(|x| x.0)).or(tm.vanish.map(|x| x.0));
             h.dep_x = tm.dep_x;
             h.cancel_x = tm.cancel_x;
-            h.stale_clear = tm.stale_clear || tm.stale_ungated;
+            h.stale_clear = tm.stale_clear || tm.stale_ungated || tm.stale_ignore_dh3;
             h.stale_ungated = tm.stale_ungated;
+            h.stale_ignore_dh3 = tm.stale_ignore_dh3;
         }
         if let Some(rp) = tm.router_pulses {
             h.pulse_router = true;

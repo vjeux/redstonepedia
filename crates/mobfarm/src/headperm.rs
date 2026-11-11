@@ -138,6 +138,9 @@ pub struct HeadPerm {
     pub stale_clear: bool,
     /// the time-only fallback: the clear without BRANCH_EMPTY_X's gate
     pub stale_ungated: bool,
+    /// (a variant for day-1) the clear without its "no Dh3_X between" condition: the branch gate
+    /// alone says no train is in flight
+    pub stale_ignore_dh3: bool,
     pub expire_since_dep: u32,
     pub dh3_since_dep: bool,
     pub branch_occupied: bool,
@@ -146,6 +149,12 @@ pub struct HeadPerm {
     /// rest in its pockets, a pulse), and each fill's Dh3 time
     pub summon_checks: Vec<(i64, usize, bool)>,
     pub dh3_times: Vec<i64>,
+    /// trains whose ARR_X was armed (DEP_X) while D_arr was on or carts waited at H (its clearing
+    /// edge may never come), and the carts stopped at H this tick
+    pub armed_waiting: Vec<String>,
+    pub n_held_now: usize,
+    /// the summon frame the run used (printed on every head-perm run line)
+    pub frame: String,
     /// D_arr's and Dh's levels at each change (t: A/a = D_arr on/off, H/h = Dh on/off)
     pub det_log: Vec<String>,
 }
@@ -210,12 +219,16 @@ impl HeadPerm {
             cancels: Vec::new(),
             stale_clear: false,
             stale_ungated: false,
+            stale_ignore_dh3: false,
             expire_since_dep: 0,
             dh3_since_dep: false,
             branch_occupied: false,
             stale_log: Vec::new(),
             summon_checks: Vec::new(),
             dh3_times: Vec::new(),
+            armed_waiting: Vec::new(),
+            n_held_now: 0,
+            frame: "unaligned (summon ticks at slot +60)".to_string(),
             det_log: Vec::new(),
         }
     }
@@ -257,6 +270,9 @@ impl HeadPerm {
     /// stand holds a batch (one-shot per re-arm).
     pub fn day1_dep(&mut self, t: i64, occupied: bool) {
         if !self.arr_armed {
+            if (self.prev[0] || self.n_held_now > 0) && self.armed_waiting.len() < 20 {
+                self.armed_waiting.push(format!("t {t} (D_arr {}, {} carts stopped at H)", if self.prev[0] { "on" } else { "off" }, self.n_held_now));
+            }
             self.arr_armed = true;
             self.arr_armed_at = t;
             self.expire_since_dep = 0;
@@ -307,7 +323,7 @@ impl HeadPerm {
         // between the switch and H; emulated): ARR_X cleared, nothing else)
         if self.last_expire && self.day1 {
             self.expire_since_dep += 1;
-            if self.stale_clear && self.arr_armed && self.expire_since_dep >= 2 && !self.dh3_since_dep {
+            if self.stale_clear && self.arr_armed && self.expire_since_dep >= 2 && (!self.dh3_since_dep || self.stale_ignore_dh3) {
                 if self.branch_occupied && !self.stale_ungated {
                     if self.stale_log.len() < 20 {
                         self.stale_log.push(format!("{c}: held off (a cart on the branch)"));
@@ -444,6 +460,7 @@ impl HeadPerm {
         if n_held > self.held_max.0 || (n_held == self.held_max.0 && z_back > self.held_max.1) {
             self.held_max = (n_held, z_back);
         }
+        self.n_held_now = n_held;
         if arr_clearing && n_held > 0 && self.second_train.len() < 20 {
             self.second_train.push(format!("t {t}: {n_held} carts still stopped at H (back to z {z_back:.2})"));
         }
@@ -476,9 +493,10 @@ impl HeadPerm {
         let ec: Vec<i64> = self.tracks.iter().filter_map(|tr| tr.emp_c.map(|x| x - tr.launch)).collect();
         let stopped: Vec<String> = self.tracks.iter().filter(|tr| tr.stopped).map(|tr| format!("slot {}", tr.slot)).collect();
         out.push(format!(
-            "head-perm (S3(ii)'s per-stand latches, {}{}): {} launches of this stand, binds {}{}",
+            "head-perm (S3(ii)'s per-stand latches, {}{}; summon frame {}): {} launches of this stand, binds {}{}",
             if self.gate { "gating the head" } else { "observed only" },
             if self.router { ", router phase-locked (A here, B virtual)" } else { "" },
+            self.frame,
             self.launches,
             self.binds.len(),
             if self.binds.is_empty() { String::new() } else { format!(" ({})", self.binds.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }
@@ -551,17 +569,23 @@ impl HeadPerm {
                     self.dep_x.map_or(String::new(), |z| format!("; re-armed by DEP_X (ideal, the approach column crossing z {z} downward) at t {}", if self.dep_log.is_empty() { "-".to_string() } else { self.dep_log.join(",") }))
                 ));
                 out.push(format!(
-                    "head-perm at H (ironspec's watch item): the most carts stopped at H at once {} (the farthest back z {:.2} from the snap turn's cell); a train reaching H while earlier carts still waited there: {}{}{}",
+                    "head-perm at H (ironspec's watch item): the most carts stopped at H at once {} (the farthest back z {:.2} from the snap turn's cell); a train reaching H while earlier carts still waited there: {}{}{}; trains armed (DEP_X) while D_arr was on or carts waited at H (no clearing edge may come): {}{}; ARR_X at the run's end: {}",
                     self.held_max.0,
                     self.held_max.1,
                     self.second_train.len(),
                     if self.second_train.is_empty() { String::new() } else { format!(" ({})", self.second_train.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) },
-                    self.cancel_x.map_or(String::new(), |b| format!("; CANCEL_X stand-in (ARR_X armed {b} gt with no D_arr edge cleared): {}", if self.cancels.is_empty() { "none".to_string() } else { self.cancels.join(", ") }))
+                    self.cancel_x.map_or(String::new(), |b| format!("; CANCEL_X stand-in (ARR_X armed {b} gt with no D_arr edge cleared): {}", if self.cancels.is_empty() { "none".to_string() } else { self.cancels.join(", ") })),
+                    self.armed_waiting.len(),
+                    if self.armed_waiting.is_empty() { String::new() } else { format!(" ({})", self.armed_waiting.join("; ")) },
+                    if self.arr_armed { format!("still armed (since t {}): the stand held for good", self.arr_armed_at) } else { "clear".to_string() }
                 ));
+                if self.arr_armed {
+                    problems.push(format!("head-perm: ARR_X still armed at the run's end (since t {})", self.arr_armed_at));
+                }
                 if self.stale_clear {
                     out.push(format!(
                         "head-perm stale-ARR clear ({}): {}",
-                        if self.stale_ungated { "the time-only fallback: ARR_X still set at the 2nd EXPIRE edge since DEP_X, no Dh3_X between, NO branch gate" } else { "day-1: ARR_X still set at the 2nd EXPIRE edge since DEP_X, no Dh3_X between, branch empty; branch-empty emulated: no cart on the approach column between DEP_X and H" },
+                        if self.stale_ungated { "the time-only fallback: ARR_X still set at the 2nd EXPIRE edge since DEP_X, no Dh3_X between, NO branch gate" } else if self.stale_ignore_dh3 { "variant: ARR_X still set at the 2nd EXPIRE edge since DEP_X, branch empty, Dh3_X ignored; branch-empty emulated" } else { "day-1: ARR_X still set at the 2nd EXPIRE edge since DEP_X, no Dh3_X between, branch empty; branch-empty emulated: no cart on the approach column between DEP_X and H" },
                         if self.stale_log.is_empty() { "never fired".to_string() } else { self.stale_log.join("; ") }
                     ));
                 }
