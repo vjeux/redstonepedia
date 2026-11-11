@@ -566,6 +566,13 @@ pub(crate) fn stand_rel(d: &mut Design) -> Result<Vec<P3>> {
     b.on([8, -2, 4], DUST)?;
     b.on([8, -2, 3], &rep("south", 1))?;
     b.blocks.insert(cell, STONE.into());
+    // (a conductor over the gate's dust (8, -2, 1): the stone cell under the stand's own dust
+    // (8, -1, 2) would otherwise hand that dust's signal down to the gate's dust (a wire takes its
+    // upper diagonal neighbour's signal when the block between conducts and the one over it does
+    // not), and a build in order (the game's shapes) then ties the gate to the stand's latch line:
+    // the stand left 9 gt late and one visit's window took two carts. The file's settled shapes
+    // hid it.)
+    b.put([8, -1, 1], STONE)?;
     let added: Vec<P3> = b.blocks.keys().copied().filter(|p| !before.contains(p)).collect();
     d.blocks = b.blocks;
     Ok(added)
@@ -1056,7 +1063,11 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         b.blocks.insert(h, STONE.into());
         b.on([h[0], 0, h[2] + 1], &rep("south", 1))?;
         b.put([h[0], 0, h[2] + 2], STONE)?;
-        b.on([h[0] - 1, 0, h[2] + 2], &rep("west", 1))?;
+        // (slot 12's hold (k2, z 34) kicks 4 gt after the others: its repeater 3 rt, for no block
+        // (ironspec 21:04: the siding's last corner, a stuck napper with a missed golem at k2, missed
+        // its hold by 0.5-1.5 gt with the new fast kick; its cart lands 4 gt later, ~12 gt before
+        // the next release's first advance)
+        b.on([h[0] - 1, 0, h[2] + 2], &rep("west", if h[2] == 34 { 3 } else { 1 }))?;
         b.on([h[0] - 2, 0, h[2] + 2], DUST)?;
     }
     // (the divert unit's ring items)

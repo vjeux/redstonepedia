@@ -504,3 +504,74 @@ pub fn fault_survey(design: &Path, spec: &Path, n: u64) -> Result<()> {
     }
     Ok(())
 }
+
+/// `nap-report` (ironspec 21:08, the night-1 lines): from one `queue-loop-run --visits-observe`
+/// log (one seed), each villager's first nap (its cart `eN`: a villager rides its own cart for
+/// life) and each batch's first fully napped slot (the batch at the stand during slot S is
+/// S mod 7: the one a visit in S takes its cart from), and the startup's slot cost: the slots from
+/// power-on (slot 0) whose stand batch had a rider not yet napped (no summon: it needs its three
+/// riders willing, and a rider that never slept is not).
+pub fn nap_report(log: &Path) -> Result<()> {
+    use std::collections::BTreeMap;
+    let text = std::fs::read_to_string(log)?;
+    let num = |s: &str| -> Option<i64> { s.trim_matches(|c: char| !c.is_ascii_digit() && c != '-').parse().ok() };
+    // (slot, stand cart) -> (cart entity, day time); (slot, stand cart) -> asleep
+    let mut who: BTreeMap<(i64, i64), (i64, i64)> = BTreeMap::new();
+    let mut asleep: BTreeMap<(i64, i64), bool> = BTreeMap::new();
+    let mut last_slot = 0i64;
+    for line in text.lines() {
+        if let Some(r) = line.strip_prefix("visit (observed): slot ") {
+            let w: Vec<&str> = r.split_whitespace().collect();
+            let slot = num(w[0]).unwrap_or(0);
+            let day = r.split("day time ").nth(1).and_then(|s| num(s.split(')').next().unwrap_or(""))).unwrap_or(0);
+            let cart = r.split("the stand's cart ").nth(1).and_then(|s| num(s.split_whitespace().next().unwrap_or(""))).unwrap_or(0);
+            let e = r.split("(e").nth(1).and_then(|s| num(s.split(')').next().unwrap_or(""))).unwrap_or(-1);
+            who.insert((slot, cart), (e, day));
+        } else if let Some(r) = line.strip_prefix("visit slot ") {
+            let w: Vec<&str> = r.split_whitespace().collect();
+            if w.len() >= 3 {
+                let slot = num(w[0]).unwrap_or(0);
+                let cart = num(w[2]).unwrap_or(0);
+                asleep.insert((slot, cart), r.contains("rider asleep"));
+            }
+        } else if let Some(r) = line.trim_start().strip_prefix("slot ") {
+            if let Some(s) = num(r.split(':').next().unwrap_or("")) {
+                last_slot = last_slot.max(s);
+            }
+        }
+    }
+    // each villager: its batch and its naps
+    let mut batch: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut first: BTreeMap<i64, (i64, i64)> = BTreeMap::new();
+    for (&(slot, cart), &(e, day)) in &who {
+        batch.entry(e).or_insert(slot.rem_euclid(7));
+        last_slot = last_slot.max(slot);
+        if asleep.get(&(slot, cart)) == Some(&true) {
+            first.entry(e).or_insert((slot, day));
+        }
+    }
+    println!("{} villagers visited, {} napped; first naps (cart: slot, day time, batch):", batch.len(), first.len());
+    for (e, b) in &batch {
+        match first.get(e) {
+            Some((s, d)) => println!("  e{e}: slot {s}, day time {d}, batch {b}"),
+            None => println!("  e{e}: no nap in the log, batch {b}"),
+        }
+    }
+    let mut lost = 0i64;
+    let mut done_all = 0i64;
+    for b in 0..7 {
+        let riders: Vec<i64> = batch.iter().filter(|(_, bb)| **bb == b).map(|(e, _)| *e).collect();
+        let full = riders.iter().map(|e| first.get(e).map(|f| f.0).unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
+        let upto = full.min(last_slot + 1);
+        let turns = (0..upto).filter(|s| s.rem_euclid(7) == b).count() as i64;
+        lost += turns;
+        done_all = done_all.max(full);
+        let shown = if full == i64::MAX { "never in the log".to_string() } else { format!("slot {full}") };
+        println!("  batch {b}: riders {:?}, fully napped from {shown}; stand turns before it: {turns}", riders.iter().map(|e| format!("e{e}")).collect::<Vec<_>>());
+    }
+    println!(
+        "startup slot cost: {lost} stand slots from power-on with a rider not yet napped (no summon); every batch fully napped from {}",
+        if done_all == i64::MAX { "never in the log".to_string() } else { format!("slot {done_all}") }
+    );
+    Ok(())
+}

@@ -317,19 +317,6 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     ]);
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
-    if siding_ctl.is_some() {
-        // (a') the fallback armed at the first darkness (the parent 18:47: a farm with the bed
-        // siding gets no golem before a rider has slept, and no rider sleeps before the loop has
-        // moved): an inverted daylight detector (3, 6) on a stone, under the open sky beside
-        // ARMED's loop dust (2, 6), sets ARMED once its output is above 0 (dusk, or rain by day);
-        // a golem still sets it whenever one comes first. ARMED is a block-state latch: an unload
-        // and reload keeps it
-        m.put([3, 1, 6], "minecraft:daylight_detector[inverted=true,power=0]")?;
-        m.put([3, 0, 6], STONE)?;
-        // (glass over it: a golem's legacy spawn takes a daylight detector for a floor, never glass;
-        // the sky light comes through glass)
-        m.put([3, 2, 6], "minecraft:glass")?;
-    }
     let at = |p: P3| -> P3 { [-2 - p[0], p[1] - 2, 10 - p[2]] };
     let mut b = new_b();
     for (p, s) in &m.blocks {
@@ -337,6 +324,26 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     }
     for (p, n) in &m.nbt {
         b.nbt.insert(at(*p), n.clone());
+    }
+    if siding_ctl.is_some() {
+        // (a') the fallback armed at the first darkness (the parent 18:47: a farm with the bed
+        // siding gets no golem before a rider has slept, and no rider sleeps before the loop has
+        // moved): an inverted daylight detector under the open sky (glass over it: a golem's
+        // legacy spawn takes a daylight detector for a floor, never glass, and the sky light comes
+        // through) at (-23, -1, 4), its signal east along z 4 through 14 repeaters of 4 rt into
+        // ARMED's loop dust (-8, -1, 4): ARMED set 112 gt after the detector first reads darkness
+        // (dusk, rain by day, or the detector placed at night as the build's last step). The delay
+        // lets a golem that comes within ~100 gt of that moment release first, so a farm whose
+        // golems already flow locks on them with no fallback release just before (built in order
+        // with the detector going down at night, the fallback fired at once and the first golem
+        // waited out BUSY: ironspec 20:35); a fresh farm (no golem before a nap) starts 112 gt
+        // later. A golem still sets ARMED whenever one comes first. ARMED is a block-state latch:
+        // an unload and reload keeps it.
+        b.put([-23, -1, 4], "minecraft:daylight_detector[inverted=true,power=0]")?;
+        b.put([-23, 0, 4], "minecraft:glass")?;
+        for x in -22..=-9 {
+            b.on([x, -1, 4], &rep("west", 4))?;
+        }
     }
     let golem = at(m.ports["input.golem"]);
     let a3 = at([5, 1, stones.iter().filter(|s| s.1 & A != 0).map(|s| s.0).min().unwrap_or(0)]);
@@ -772,6 +779,34 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         dd.save(&out.with_extension("day.txt"))?;
     }
     probe.save(&out.with_extension("probe.txt"))?;
+    // (every daylight detector arms the controller: the inverted one its fallback (a'), the night
+    // latch's its visits. A listed place-last step, after every other cell (ironspec 20:35: a
+    // player placing one mid-build gets a controller running in a half-built farm for the build's
+    // ~2.75 days); the built-in-order check follows the list, and the page's build steps show it.
+    // Before them, R'' (its six containers with their two items, then the seven dusts on them):
+    // built in order with its stock filled as placed, a pulse of its half-built step line left an
+    // item in a locked hopper and the first visit opened two windows; its containers alone placed
+    // last left the dusts on them shaped without their supports (R'' never stepped). Containers,
+    // then dusts, onto quiet wiring: it comes up at rest)
+    let dets: Vec<[i32; 3]> = d.blocks.iter().filter(|(_, b)| b.starts_with("minecraft:daylight_detector")).map(|(p, _)| *p).collect();
+    {
+        let toks: Vec<String> = d.meta.get("build").map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default();
+        let fills = toks.iter().any(|t| t == "fills-last");
+        let mut cells: Vec<String> = toks.into_iter().filter(|t| t != "last" && t != "fills-last").collect();
+        let rpp: [[i32; 3]; 13] = [[27, -6, 4], [28, -6, 5], [26, -6, 5], [26, -6, 4], [28, -6, 4], [27, -6, 5], [26, -5, 4], [27, -5, 4], [28, -5, 4], [26, -5, 5], [27, -5, 5], [28, -5, 5], [28, -5, 6]];
+        let ring: Vec<[i32; 3]> = rpp.iter().copied().filter(|p| d.blocks.get(p).is_some_and(|b| b.starts_with("minecraft:dropper") || b.starts_with("minecraft:hopper") || b.starts_with("minecraft:redstone_wire"))).collect();
+        for p in ring.iter().chain(&dets) {
+            let c = format!("{},{},{}", p[0], p[1], p[2]);
+            if !cells.contains(&c) {
+                cells.push(c);
+            }
+        }
+        let mut line = format!("last {}", cells.join(" "));
+        if fills {
+            line.push_str(" fills-last");
+        }
+        d.meta.insert("build".into(), line);
+    }
     d.name = "carousel-release-loop-wired".into();
     d.save(out)?;
     println!("{}: {} blocks ({} the controller's), golem input at {:?}, stand reset at {:?}", out.display(), d.blocks.len(), b.blocks.len(), golem, reset);

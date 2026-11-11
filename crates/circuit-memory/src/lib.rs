@@ -191,6 +191,10 @@ enum Cmd {
         #[arg(long, default_value_t = 60)]
         pulses: u64,
     },
+    /// The night-1 lines from a `queue-loop-run --visits-observe` log (one seed): each villager's
+    /// first nap, each batch's first fully napped slot, and the startup's slot cost (stand slots
+    /// whose batch had a rider not yet napped) (crates/circuit-memory/src/releasebench.rs).
+    NapReport { log: PathBuf },
     /// The release controller driven alone (crates/circuit-memory/src/releasebench.rs): golems in
     /// time, early (held), missed (fallback) and doubled (merged), checked against an exact model.
     ReleaseBench {
@@ -473,6 +477,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
         Cmd::ReleaseTrace { design, at, det, ticks, fault, watch } => releasebench::trace(&design, &at, &det, ticks, &fault, &watch)?,
         Cmd::FaultSurvey { design, spec, pulses } => releasebench::fault_survey(&design, &spec, pulses)?,
+        Cmd::NapReport { log } => releasebench::nap_report(&log)?,
         Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,
         Cmd::Cells { file, r#box } => {
             let [x0, y0, z0, x1, y1, z1] = r#box[..] else { anyhow::bail!("--box takes X0,Y0,Z0,X1,Y1,Z1") };
