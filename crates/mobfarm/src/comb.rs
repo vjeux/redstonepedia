@@ -60,6 +60,8 @@ pub struct CombCells {
     pub zombie: ([f64; 3], [i32; 3], [i32; 3]),
     /// The approach top's post (the climb, T and the lines).
     pub top_post: ([f64; 3], [i32; 3], [i32; 3]),
+    /// J2 and J1, the fixed junctions departing carts cross from the west (wrong-side entry).
+    pub j: [[i32; 3]; 2],
 }
 
 impl CombCells {
@@ -122,6 +124,7 @@ impl CombCells {
             gf: [([6, 1, 2], "north"), ([2, 2, 2], "north"), ([-2, 2, 0], "east")],
             zombie: ([4.5, -2.0, 2.5], [4, -3, 2], [4, 1, 2]),
             top_post: ([0.5, 3.0, 9.5], [0, 2, 9], [0, 6, 9]),
+            j: [[2, 0, 0], [6, -1, 0]],
         }
     }
 
@@ -142,6 +145,7 @@ impl CombCells {
         n.gf = self.gf.map(|(p, s)| (c(p), s));
         n.zombie = (f(self.zombie.0), c(self.zombie.1), c(self.zombie.2));
         n.top_post = (f(self.top_post.0), c(self.top_post.1), c(self.top_post.2));
+        n.j = self.j.map(c);
         n
     }
 }
@@ -240,6 +244,13 @@ pub struct CombRun {
     head_slack_min: Option<(i64, String)>,
     rest_last: Vec<i64>,
     impact_max: (f64, f64, String),
+    /// Wrong-side crossings of J2/J1 from the west: (min entry visible speed, its record), (min
+    /// exit), the count, the first records.
+    ws_entry_min: Option<(f64, String)>,
+    ws_exit_min: Option<(f64, String)>,
+    ws_count: usize,
+    ws_log: Vec<String>,
+    ws_open: HashMap<(u32, usize), f64>,
 }
 
 impl CombRun {
@@ -280,6 +291,11 @@ impl CombRun {
             head_slack_min: None,
             rest_last: Vec::new(),
             impact_max: (0.0, 0.0, String::new()),
+            ws_entry_min: None,
+            ws_exit_min: None,
+            ws_count: 0,
+            ws_log: Vec::new(),
+            ws_open: HashMap::new(),
         }
     }
 
@@ -348,6 +364,33 @@ impl CombRun {
             h.push(((v.x * v.x + v.z * v.z).sqrt(), moved));
             if h.len() > 8 {
                 h.remove(0);
+            }
+            // (a wrong-side crossing of J2/J1: entering from the west edge, leaving by the east)
+            if let Some(q) = self.prev.get(id).copied() {
+                for (ji, jc) in self.c.j.iter().enumerate() {
+                    let near = (p.z - (jc[2] as f64 + 0.5)).abs() < 0.75 && (p.y - jc[1] as f64).abs() < 1.5;
+                    let (x0, x1) = (jc[0] as f64, jc[0] as f64 + 1.0);
+                    if near && q.x < x0 && p.x >= x0 {
+                        self.ws_open.insert((*id, ji), moved);
+                        let rec = format!("t {t} J{} e{id} in {moved:.3} (stored {:.3})", 2 - ji, (v.x * v.x + v.z * v.z).sqrt());
+                        if self.ws_entry_min.as_ref().is_none_or(|(m, _)| moved < *m) {
+                            self.ws_entry_min = Some((moved, rec.clone()));
+                        }
+                        if self.ws_log.len() < 40 {
+                            self.ws_log.push(rec);
+                        }
+                    }
+                    if near && q.x < x1 && p.x >= x1 && self.ws_open.remove(&(*id, ji)).is_some() {
+                        self.ws_count += 1;
+                        let rec = format!("t {t} J{} e{id} out {moved:.3}", 2 - ji);
+                        if self.ws_exit_min.as_ref().is_none_or(|(m, _)| moved < *m) {
+                            self.ws_exit_min = Some((moved, rec.clone()));
+                        }
+                        if self.ws_log.len() < 40 {
+                            self.ws_log.push(rec);
+                        }
+                    }
+                }
             }
             self.prev.insert(*id, *p);
         }
@@ -544,6 +587,15 @@ impl CombRun {
         out.push(format!("comb: E edge to G shut, before the arrival reached G: min {} gt ({})", self.gate_margin_min.as_ref().map_or(String::from("-"), |x| x.0.to_string()), self.gate_margin_min.as_ref().map_or("", |x| x.1.as_str())));
         out.push(format!("comb: last departure clear of G to the next E edge: min {} gt ({})", self.clear_margin_min.as_ref().map_or(String::from("-"), |x| x.0.to_string()), self.clear_margin_min.as_ref().map_or("", |x| x.1.as_str())));
         out.push(format!("comb: largest group per departure window: {} (bar 3)", self.group_max));
+        out.push(format!("comb: wrong-side crossings of J2/J1 (departures from the west): {}; min entry {} ; min exit {} (bar: entry >= 0.1 b/t)", self.ws_count, self.ws_entry_min.as_ref().map_or(String::from("-"), |x| format!("{:.3} ({})", x.0, x.1)), self.ws_exit_min.as_ref().map_or(String::from("-"), |x| format!("{:.3} ({})", x.0, x.1))));
+        if let Some((m, r)) = &self.ws_entry_min {
+            if *m < 0.1 {
+                self.problems.push(format!("a wrong-side entry at {m:.3} b/t, under 0.1 ({r})"));
+            }
+        }
+        if !self.ws_open.is_empty() {
+            self.problems.push(format!("{} wrong-side crossing(s) entered and never left by the east (a cart stranded in J2/J1?)", self.ws_open.len()));
+        }
         out.push(format!("comb: head latch binds at {} launches{}; min slack (stand empty to launch) {}", self.head_binds.len(), if self.head_binds.is_empty() { String::new() } else { format!(" ({})", self.head_binds.join(", ")) }, self.head_slack_min.as_ref().map_or(String::from("-"), |x| format!("{} gt ({})", x.0, x.1))));
         if self.group_max > 3 {
             self.problems.push(format!("a departure window released {} carts (bar 3)", self.group_max));
@@ -553,6 +605,7 @@ impl CombRun {
 
     pub fn detail(&self) -> Vec<String> {
         let mut out = self.slot_lines.clone();
+        out.extend(self.ws_log.iter().cloned());
         out.extend(self.edge_log.iter().take(60).cloned());
         out.extend(self.flips.iter().take(60).cloned());
         out
