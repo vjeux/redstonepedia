@@ -212,6 +212,36 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             v
         }
+        // (tickexact 2026-11-11, ironspec's forced-phase mode) the sleeper's reload: HOME at t1,
+        // the whole sandbox away t200..t240, the zombie's wall gone at the load; `mobai
+        // reload-wake`'s pair (or MOBAI_SENSOR_FORCE=A,B) forces the two wake sensors' start delays
+        // right after the load
+        "reload-wake" => {
+            let mut at240 = vec![s([0, 0, 0], "load")];
+            let forced = RELOAD_WAKE_FORCE.lock().map(|g| *g).unwrap_or(None).or_else(|| {
+                std::env::var("MOBAI_SENSOR_FORCE").ok().and_then(|f| f.split_once(',').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?))))
+            });
+            if let Some((a, b)) = forced {
+                at240.push(s([8, 64, 9], &format!("sensor:0={a}")));
+                at240.push(s([8, 64, 9], &format!("sensor:5={b}")));
+            }
+            at240.push(s([11, 64, 9], "minecraft:air"));
+            at240.push(s([11, 65, 9], "minecraft:air"));
+            vec![(1, vec![s([8, 64, 9], "home:e0"), s([8, 64, 9], "poi-take")]), (200, vec![s([0, 0, 0], "unload")]), (240, at240)]
+        }
+        // (tickexact 2026-11-11) the panes' neighbours changed
+        "pane-connect" => vec![
+            (10, vec![s([6, 64, 4], "minecraft:air")]),
+            (20, vec![s([5, 64, 7], "minecraft:stone")]),
+            (30, vec![s([6, 64, 12], "minecraft:air")]),
+        ],
+        // (tickexact 2026-11-11) level 33: the east chunks' tickets dropped, the three redstone
+        // blocks set at t60, the tickets back at t240
+        "level33-set" => vec![
+            (40, vec![s([0, 0, 0], "unload:0,0,1,0")]),
+            (60, vec![s([18, 64, 2], "minecraft:redstone_block"), s([18, 64, 6], "minecraft:redstone_block"), s([2, 64, 10], "minecraft:redstone_block")]),
+            (240, vec![s([0, 0, 0], "load:0,0,1,0")]),
+        ],
         // (tickexact 2026-11-10) level 32: the top chest filled, the repeater loop started by a
         // one-tick pulse, the east chunk's forced ticket dropped from t40 to t240
         "level32" => vec![
@@ -267,9 +297,68 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     }
 }
 
+/// (tickexact 2026-11-11, `mobai reload-wake`) The forced start delays of scene reload-wake's
+/// sleeper (NearestLivingEntitySensor, VillagerHostilesSensor), and the villagers' poses each
+/// compare tick read back (game, redsim) while it is `Some`.
+static RELOAD_WAKE_FORCE: std::sync::Mutex<Option<(i64, i64)>> = std::sync::Mutex::new(None);
+static RELOAD_WAKE_POSES: std::sync::Mutex<Option<Vec<(i64, Option<String>, Option<String>)>>> = std::sync::Mutex::new(None);
+
+/// `mctas mobai reload-wake` (ironspec's forced-phase mode): scene reload-wake (a sleeper whose
+/// whole sandbox is unloaded and loaded again, a zombie shown at the load) once per pair of forced
+/// start delays of its NearestLivingEntitySensor and VillagerHostilesSensor and per sandbox seed,
+/// game against redsim tick for tick; per run the wake after the load on both sides against the
+/// sensors' rule (each fires first at max(1, delay) and every 20 after; the first hostile scan at
+/// or after the first living scan wakes it), then whether every run was exact and on the rule.
+pub fn reload_wake(version: &str, living: &[i64], hostiles: &[i64], seeds: &[i64]) -> Result<()> {
+    let all = scenes();
+    let s = all.iter().find(|s| s.name == "reload-wake").ok_or_else(|| anyhow!("no scene reload-wake"))?;
+    let rule = |a: i64, b: i64| -> i64 {
+        let (l, h) = (a.max(1), b.max(1));
+        if h >= l { h } else { h + 20 * ((l - h + 19) / 20) }
+    };
+    let (mut runs, mut exact, mut on_rule) = (0, 0, 0);
+    for &seed in seeds {
+        for &a in living {
+            for &b in hostiles {
+                *RELOAD_WAKE_FORCE.lock().map_err(|_| anyhow!("lock"))? = Some((a, b));
+                *RELOAD_WAKE_POSES.lock().map_err(|_| anyhow!("lock"))? = Some(Vec::new());
+                let c = compare(version, s, seed, 320, 100, false, false, None);
+                let poses = RELOAD_WAKE_POSES.lock().map_err(|_| anyhow!("lock"))?.take().unwrap_or_default();
+                *RELOAD_WAKE_FORCE.lock().map_err(|_| anyhow!("lock"))? = None;
+                let c = c?;
+                let wake = |game: bool| poses.iter().find(|(t, g, r)| *t > 240 && (if game { g } else { r }).as_deref() == Some("standing")).map(|(t, ..)| t - 240);
+                let (g, r) = (wake(true), wake(false));
+                let want = rule(a, b);
+                runs += 1;
+                exact += c.first.is_none() as usize;
+                on_rule += (g == Some(want) && r == Some(want)) as usize;
+                println!(
+                    "living {a:>2} hostiles {b:>2} seed {seed}: the game wakes {}, redsim {}, the rule +{want}; {} ticks compared, {}",
+                    g.map_or("never".to_string(), |w| format!("+{w}")),
+                    r.map_or("never".to_string(), |w| format!("+{w}")),
+                    c.ticks,
+                    c.first.as_ref().map_or("0 differences".to_string(), |d| format!("FIRST DIFFERENCE at {}: {}", d.t, d.what))
+                );
+            }
+        }
+    }
+    println!("{runs} runs: {exact} exact, {on_rule} woke on the sensors' rule on both sides");
+    Ok(())
+}
+
 /// The next scripted action at or after `done` ticks: (its tick, its blocks).
 fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<&(u32, Vec<([i32; 3], String)>)> {
     actions.iter().find(|(t, _)| *t as i64 >= done)
+}
+
+/// A `sensor:K=V` action's sensor index and delay (K below the villager's sensor count, V below
+/// that sensor's scan rate).
+fn sensor_kv(kv: &str) -> Result<(usize, i64)> {
+    let (k, v) = kv.split_once('=').ok_or_else(|| anyhow!("sensor:{kv}: K=V"))?;
+    let (k, v): (usize, i64) = (k.parse()?, v.parse()?);
+    let rates = redsim::entity::mob::villager::SENSORS;
+    anyhow::ensure!(k < rates.len() && (0..rates[k].1).contains(&v), "sensor:{kv}: sensor 0..{} and a delay below its scan rate", rates.len() - 1);
+    Ok((k, v))
 }
 
 /// redsim's side of an action: each block set with flags 3; a container's fill (`nbt:<snbt>`)
@@ -291,6 +380,29 @@ fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> R
         if let Some(o) = s.strip_prefix("load@") {
             let order = redsim::reload::Order::parse(o).ok_or_else(|| anyhow!("load@{o}: an order is save, reverse or seed:K"))?;
             redsim::reload::load_all_ordered(w, order);
+            continue;
+        }
+        // (tickexact 2026-11-11, ironspec's forced-phase mode) `sensor:K=V`: the villager nearest
+        // the action's cell (within 2) gets its K-th sensor's start delay set to V
+        if let Some(kv) = s.strip_prefix("sensor:") {
+            let (k, v) = sensor_kv(kv)?;
+            let c = redsim::entity::Vec3::new(p[0] as f64 + 0.5, p[1] as f64 + 0.5, p[2] as f64 + 0.5);
+            let best = w
+                .entities
+                .list
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager))
+                .map(|(i, e)| (i, (e.pos.x - c.x).powi(2) + (e.pos.y - c.y).powi(2) + (e.pos.z - c.z).powi(2)))
+                .filter(|(_, d)| *d < 4.0)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(i, _)| i)
+                .ok_or_else(|| anyhow!("sensor:{kv}: no villager within 2 of {p:?}"))?;
+            if let redsim::entity::EntityKind::Mob(m) = &mut w.entities.list[best].kind
+                && let Some(b) = m.brain.as_deref_mut()
+            {
+                b.sensors[k] = v;
+            }
             continue;
         }
         // (the partial form: a chunk box's forced tickets)
@@ -2669,6 +2781,101 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
+    // reloaded sleeper's wake) a villager asleep in its bed, a zombie walled in stone 4 blocks east;
+    // the whole sandbox unloaded at t200, loaded at t240 and the zombie's west wall taken away at
+    // once, so the reloaded villager's first scans that see it wake it; with MOBAI_SENSOR_FORCE=A,B
+    // its NearestLivingEntitySensor and VillagerHostilesSensor start delays set to A and B right
+    // after the load (scene_actions: "reload-wake")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 63, stone);
+        b.push(([8, 64, 8], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([8, 64, 9], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        for y in 64..=65 {
+            for c in [[11, y, 9], [13, y, 9], [12, y, 8], [12, y, 10]] {
+                b.push((c, stone.to_string()));
+            }
+        }
+        b.push(([12, 66, 9], stone.to_string()));
+        v.push(Scene {
+            name: "reload-wake".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:villager".into(), [7.5, 64.0, 9.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombie".into(), [12.5, 64.0, 9.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 12600,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, d1u-drop-side run 25's refusal: a village window's pane lost its east
+    // neighbour and turned to glass_pane[west=true], a state the natural table lacked) panes whose
+    // connections change, every starting state one the table had: A between two stones, the east
+    // one removed at t10 (west only); B alone, a stone set north of it at t20 (north only); C one of
+    // two panes between stones, the other removed at t30 (west only) (scene_actions: "pane-connect")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 63, stone);
+        b.push(([4, 64, 4], stone.to_string()));
+        b.push(([5, 64, 4], "minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=true]".to_string()));
+        b.push(([6, 64, 4], stone.to_string()));
+        b.push(([5, 64, 8], "minecraft:glass_pane[east=false,north=false,south=false,waterlogged=false,west=false]".to_string()));
+        b.push(([4, 64, 12], stone.to_string()));
+        b.push(([5, 64, 12], "minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=true]".to_string()));
+        b.push(([6, 64, 12], "minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=true]".to_string()));
+        b.push(([7, 64, 12], stone.to_string()));
+        v.push(Scene {
+            name: "pane-connect".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 66, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, farmopt: does a block a bench sets inside a level-33 chunk still drive
+    // its redstone?) three chunks x -1..1, the east two's forced tickets dropped t40..t240 (chunk
+    // (0, 0) at level 32, (1, 0) at level 33); at t60 a redstone block set by the drive: A in the
+    // level-33 chunk feeding dust into a fence gate (neighbour updates only), B in the level-33
+    // chunk feeding a repeater into a fence gate (a scheduled tick), C the same as B in the
+    // level-32 chunk (scene_actions: "level33-set")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, -16, 32, 0, 16, 63, stone);
+        let gate = "minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]";
+        b.push(([19, 64, 2], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]".to_string()));
+        b.push(([20, 64, 2], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]".to_string()));
+        b.push(([21, 64, 2], gate.to_string()));
+        for (x0, z) in [(19, 6), (3, 10)] {
+            b.push(([x0, 64, z], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]".to_string()));
+            b.push(([x0 + 1, 64, z], gate.to_string()));
+        }
+        v.push(Scene {
+            name: "level33-set".into(),
+            chunks: [-1, 0, 1, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([-16, 62, 0], [31, 68, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-10, the reviewer's question on a partial unload) level 32: two chunks,
     // the west one forced throughout, the east one's forced ticket dropped from t40 to t240
     // (simulation level 32: block ticking, not entity ticking). In each chunk a randomly ticking
@@ -3643,6 +3850,16 @@ impl GameScene {
                 self.unload_load(s)?;
                 continue;
             }
+            // (tickexact 2026-11-11, ironspec's forced-phase mode) a villager's sensor start delay
+            if let Some(kv) = s.strip_prefix("sensor:") {
+                if !run.is_empty() {
+                    self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+                    run.clear();
+                }
+                let (k, v) = sensor_kv(kv)?;
+                self.w.call(json!({"op": "sensor_delay", "sandbox": self.sb, "pos": p, "sensor": k, "value": v}))?;
+                continue;
+            }
             // (a Nether build act: the Nether sandbox's, placed like a player's)
             if s.starts_with("nether:") || s.starts_with("nether-nbt:") {
                 if !run.is_empty() {
@@ -3988,6 +4205,10 @@ pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full
 #[allow(clippy::too_many_arguments)]
 pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch: u32, full: bool, probe: bool, trace: Option<(i64, Option<u32>)>) -> Result<Compare> {
     let mut ours = redsim_world(s, seed)?;
+    // (tickexact probe: MOBAI_SHOW_PUSHES: the mob-on-cart pushes logged from the first tick)
+    if std::env::var("MOBAI_SHOW_PUSHES").is_ok() {
+        redsim::entity::minecart::log_cart_pushes(&mut ours);
+    }
     if let Some(h) = game.poi_hashes() {
         ours.mob.ai.poi_hashes = Some(h);
     }
@@ -4195,6 +4416,50 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 for e in &o.entities {
                     eprintln!("t {} #{} {} pos {:?} goals {:?} path {:?} target {:?} no_action {:?}", o.t, e.n, e.ty, e.pos, e.goals, e.path, e.target, e.no_action);
                 }
+            }
+            // (tickexact probe: MOBAI_SHOW_PUSHES="T0:T1": every push a mob's pushEntities gave a
+            // minecart in redsim at each tick of T0..=T1, counted at the push (ironspec's rule))
+            if let Ok(v) = std::env::var("MOBAI_SHOW_PUSHES") {
+                let parts: Vec<i64> = v.split(':').filter_map(|x| x.parse().ok()).collect();
+                redsim::entity::minecart::log_cart_pushes(&mut ours);
+                let now = redsim::entity::minecart::take_cart_pushes(&mut ours);
+                if parts.len() == 2 && o.t >= parts[0] && o.t <= parts[1] {
+                    for p in now {
+                        eprintln!("t {} push #{} pushed cart #{} by {:.4} {:.4} ({:.3} apart)", o.t, p.mob, p.cart, p.push[0], p.push[1], p.dist);
+                    }
+                }
+            }
+            // (tickexact probe: MOBAI_SHOW_TOUCH="T0:T1": at each tick of T0..=T1, each of redsim's
+            // riders whose box touches another minecart's box (`redsim::entity::touching_cart`, the
+            // walker rule's contact) or is within 0.2 of one, with its walk target)
+            if let Ok(v) = std::env::var("MOBAI_SHOW_TOUCH") {
+                let parts: Vec<i64> = v.split(':').filter_map(|x| x.parse().ok()).collect();
+                if parts.len() == 2 && o.t >= parts[0] && o.t <= parts[1] {
+                    for e in ours.entities.list.iter().filter(|e| !e.removed && e.vehicle.is_some()) {
+                        let touch = redsim::entity::touching_cart(&ours, e.id, 0.0);
+                        let near = redsim::entity::touching_cart(&ours, e.id, 0.2);
+                        if touch || near {
+                            let walk = match &e.kind {
+                                redsim::entity::EntityKind::Mob(m) => m.brain.as_ref().and_then(|b| b.ex.as_ref()).map(|x| format!("walk_target {:?} path {}", x.mem.walk_target.as_ref().map(|w| format!("{:?}", w.target)), match &x.mem.path { Some(p) if p.can_reach() => "reach", Some(_) => "partial", None => "none" })).unwrap_or_default(),
+                                _ => String::new(),
+                            };
+                            eprintln!("t {} touch #{} at {:.3} {:.3} {:.3} riding {:?}: {} {walk}", o.t, e.id, e.pos.x, e.pos.y, e.pos.z, e.vehicle, if touch { "TOUCHING a cart" } else { "within 0.2 of a cart" });
+                        }
+                    }
+                }
+            }
+            // (tickexact probe: MOBAI_SHOW_WAKE: at every tick, each villager's pose in the game's
+            // frame and in redsim's (a reloaded sleeper's wake tick on both sides))
+            if let Ok(mut g) = RELOAD_WAKE_POSES.lock()
+                && let Some(v) = g.as_mut()
+            {
+                let pose = |es: &[redsim::exact::EntityFrame]| es.iter().find(|e| e.ty.ends_with("villager")).and_then(|e| e.pose.clone());
+                v.push((f.t, pose(&f.entities), pose(&o.entities)));
+            }
+            if std::env::var_os("MOBAI_SHOW_WAKE").is_some() {
+                let g: Vec<String> = f.entities.iter().filter(|e| e.ty.ends_with("villager")).map(|e| format!("#{} {}", e.n, e.pose.as_deref().unwrap_or("-"))).collect();
+                let r: Vec<String> = o.entities.iter().filter(|e| e.ty.ends_with("villager")).map(|e| format!("#{} {}", e.n, e.pose.as_deref().unwrap_or("-"))).collect();
+                eprintln!("t {} wake game {} | redsim {}", f.t, g.join(" "), r.join(" "));
             }
             // (tickexact probe: MOBAI_SHOW_RIDERS="T": at tick T, each of the game's villagers: its
             // position and what it rides)

@@ -442,11 +442,17 @@ pub fn strike(w: &mut World, x: i32, z: i32) {
         }
         if w.mob.natural.is_some() {
             let id = crate::entity::mob::add(w, crate::entity::mob::types::MobType::Natural(46), Vec3::new(pos.x as f64, pos.y as f64, pos.z as f64), false);
-            crate::entity::mob::seed_entered(w, id);
+            let ctor_yaw = crate::entity::mob::seed_entered(w, id);
             if let Some(j) = crate::entity::index_of(w, id)
                 && let crate::entity::EntityKind::Mob(m) = &mut w.entities.list[j].kind
             {
                 m.trap_time = Some(0);
+                // (mob-AI 2026-11-11) setPos keeps the constructor's yaw (LivingEntity's
+                // `nextFloat() * (float)(PI * 2)`, radians read as degrees: d1u-deep --terrain
+                // plains --build 5 t62785)
+                if let Some(y) = ctor_yaw {
+                    w.entities.list[j].y_rot = y;
+                }
             }
         } else if w.exact_seed.is_some() {
             w.entities.next_id += 1;

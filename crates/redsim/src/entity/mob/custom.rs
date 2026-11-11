@@ -470,13 +470,76 @@ fn trader(w: &mut World, c: &mut Custom) {
         return;
     }
     // spawn(): getRandomPlayer (the level random), then 1 in 10
-    if random_player(w).is_none() {
+    let Some(player) = random_player(w) else {
         c.trader.spawn_chance = 25;
         return;
-    }
+    };
     if c.trader.random.next_int(10) != 0 {
         return;
     }
-    c.log.push((w.time, "a wandering trader tries to spawn".into()));
-    model_error(w, format!("gt {}: a wandering trader tries to spawn (traders are not modeled past this point)", w.time));
+    // (mob-AI 2026-11-11) the first meeting point within 48 of the player (PoiManager.find, any
+    // occupancy), else the player's block; a spot near it with room for the trader (2 x 3 x 2 of
+    // empty collision shapes), not in a biome without traders
+    let reference = super::ai::poi::first_meeting_within(w, player, 48).unwrap_or(player);
+    let Some(at) = trader_spawn_position_near(w, c, reference, 48) else {
+        c.log.push((w.time, format!("a wandering trader finds no spot near {reference}")));
+        return;
+    };
+    if !trader_room(w, at) {
+        c.log.push((w.time, format!("a wandering trader has no room at {at}")));
+        return;
+    }
+    if w.biome_at(at) == Some("minecraft:the_void") {
+        return;
+    }
+    let Some(id) = super::ai::goal::trader::spawn_trader(w, at) else { return };
+    // its two llamas: a spot within 4 of the trader's block each, leashed to it
+    for _ in 0..2 {
+        if let Some(p) = trader_spawn_position_near(w, c, at, 4)
+            && let Some(l) = super::ai::goal::trader::spawn_llama(w, p)
+        {
+            crate::entity::leash::attach_mob(w, l, id);
+        }
+    }
+    super::ai::goal::trader::set_trader_home(w, id, reference);
+    c.trader.spawn_chance = 25;
+    c.log.push((w.time, format!("a wandering trader #{id} at {at} (reference {reference})")));
+}
+
+/// `WanderingTraderSpawner.findSpawnPositionNear(level, reference, radius)`: ten tries (the
+/// spawner's own random: x then z, `nextInt(2 radius) - radius`), each on the
+/// MOTION_BLOCKING_NO_LEAVES heightmap, ON_GROUND for the trader.
+fn trader_spawn_position_near(w: &mut World, c: &mut Custom, reference: BlockPos, radius: i32) -> Option<BlockPos> {
+    for _ in 0..10 {
+        let x = reference.x + c.trader.random.next_int(radius * 2) - radius;
+        let z = reference.z + c.trader.random.next_int(radius * 2) - radius;
+        let inside = x >= w.min.x && z >= w.min.z && x < w.min.x + w.size[0] && z < w.min.z + w.size[2];
+        if !inside {
+            model_error(w, format!("gt {}: a wandering trader's spot ({x}, {z}) is outside the modeled world", w.time));
+            return None;
+        }
+        let y = w.height(crate::terrain::Heightmap::MotionBlockingNoLeaves, x, z);
+        let p = BlockPos::new(x, y, z);
+        let id = "minecraft:wandering_trader";
+        if super::natural::valid_spawn_floor(w, p.below(), id) && super::natural::valid_empty(w, p, id) && super::natural::valid_empty(w, p.above(), id) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// `WanderingTraderSpawner.hasEnoughSpace`: the blocks from the spot to 1, 2, 1 past it have empty
+/// collision shapes.
+fn trader_room(w: &World, at: BlockPos) -> bool {
+    for dy in 0..=2 {
+        for dz in 0..=1 {
+            for dx in 0..=1 {
+                let p = at.offset(dx, dy, dz);
+                if !crate::entity::collide::boxes_at(w, &w.get(p), p).is_empty() {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }

@@ -70,9 +70,11 @@ pub fn tick(w: &mut World, i: usize) {
         if (super::ai::squid::is_water_creature(w, i) || super::ai::fish::is_fish(w, i)) && super::ai::squid::handle_air_supply(w, i, pre_air) {
             hurt(w, i, Damage::Drown, 2.0);
         }
-        // LivingEntity.tick after super.tick(): updatingUsingItem (a skeleton's drawn bow)
+        // LivingEntity.tick after super.tick(): updatingUsingItem (a skeleton's drawn bow; a
+        // wandering trader's drink: mob-AI 2026-11-11)
         if !w.entities.list[i].removed {
             super::ai::goal::skeleton::updating_using_item(w, i);
+            super::ai::goal::trader::updating_using_item(w, i);
         }
     }
     // LivingEntity.tick: a sleeper whose bed is gone wakes up
@@ -84,6 +86,8 @@ pub fn tick(w: &mut World, i: usize) {
     if !w.entities.list[i].removed {
         ai_step(w, i);
     }
+    // (mob-AI 2026-11-11) WanderingTrader.aiStep's and TraderLlama.aiStep's maybeDespawn
+    super::ai::goal::trader::after_ai_step(w, i);
     // SkeletonHorse.aiStep's tail: a trap horse no one keeps is discarded once its trapTime
     // passes 18000; SkeletonTrapGoal springing (a player within 10) is not modeled: named
     if let Some(t) = mob(w, i).trap_time
@@ -192,6 +196,7 @@ fn base_tick(w: &mut World, i: usize) {
     // (an infinite one's: the mob's tickCount % 50; `RegenerationMobEffect`), the others count down
     {
         let tick_count = w.entities.list[i].tick_count;
+        let invisibility_before = mob(w, i).effects.invisibility;
         let m = mob_mut(w, i);
         if m.effects.regeneration > 0 && tick_count % 50 == 0 {
             let max = max_health(m);
@@ -210,6 +215,8 @@ fn base_tick(w: &mut World, i: usize) {
             let max = max_health(m);
             m.health = (m.health + 4.0).min(max);
         }
+        // (mob-AI 2026-11-11) a trader's INVISIBLE flag (`updateInvisibilityStatus`)
+        super::ai::goal::trader::after_tick_effects(w, i, invisibility_before);
     }
     if mob(w, i).health <= 0.0 {
         tick_death(w, i);

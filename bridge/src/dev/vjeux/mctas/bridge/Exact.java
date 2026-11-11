@@ -451,6 +451,28 @@ final class Exact {
         }
     }
 
+    /**
+     * (tickexact 2026-11-11, ironspec's forced-phase mode) Set {@code living}'s k-th brain sensor's
+     * start delay ({@code timeToTick}, in the brain's sensor order); returns the delay it had.
+     */
+    @SuppressWarnings("unchecked")
+    static long setSensorDelay(LivingEntity living, int k, long value) {
+        Map<Object, Sensor<?>> sensors = (Map<Object, Sensor<?>>) get(BRAIN_SENSORS, living.getBrain());
+        int i = 0;
+        for (Sensor<?> s : sensors.values()) {
+            if (i++ == k) {
+                long was = (long) get(SENSOR_TIME_TO_TICK, s);
+                try {
+                    SENSOR_TIME_TO_TICK.setLong(s, value);
+                } catch (IllegalAccessException ex) {
+                    throw new IllegalStateException(ex);
+                }
+                return was;
+            }
+        }
+        throw new IllegalArgumentException("sensor_delay: no sensor " + k + " (the brain has " + sensors.size() + ")");
+    }
+
     private static void setInt(Object o, Class<?> owner, String name, int v) {
         try {
             field(owner, name).setInt(o, v);
