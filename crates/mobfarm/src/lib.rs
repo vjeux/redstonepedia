@@ -20,6 +20,7 @@ pub mod spawnrules;
 pub mod station;
 pub mod siding;
 pub mod tail_bench;
+pub mod merge;
 pub mod drive;
 pub mod linear;
 pub mod assembly;

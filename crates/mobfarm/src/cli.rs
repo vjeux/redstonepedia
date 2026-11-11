@@ -1617,6 +1617,10 @@ fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -
     if !r.errors.is_empty() {
         return Some(format!("errors: {}", r.errors.join("; ")));
     }
+    // ironspec's hard line (2026-11-11): no merged carts (ironfarm's shared check)
+    if !r.merged.is_empty() {
+        return Some(format!("{} merged cart pairs (the game's push never separates them): {}", r.merged.len(), r.merged_first.join("; ")));
+    }
     // ironspec's check: all 21 hold HOME = the bed at every dawn and midday (forced failures: the
     // others)
     let ok_n = 21 - r.fail_no_home;
@@ -2832,6 +2836,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{} on visit {k}, {} seeds each; per config: the visits until a clean one (the worst seed; 0 = the visit itself clean), naps lost in the window (the visit and the 5 after it), carts out without their napper (napped, out past the exit, never re-boarded), jams (a cart still inside 2000 gt or not out 400 gt after its release), unclean visits after the window, when the unload hit (gt after the arrival), model errors", if whole { "whole-part unload (every chunk saved and unloaded, back as new entities)".to_string() } else if mode == 2 { format!("partial unload at the one-chunk placement's junction lines (the world shifted {mx},{mz}: the siding in chunk 0,0; w the approach's line at the siding's x -9|-8, e the run-out's at 7|8)") } else { format!("partial unload, the world shifted {mx},{mz} (the loop's chunk lines at the siding's x -3|-2 and z -1|0)") }, seeds.len());
                 for (c, (name, u)) in cfgs.iter().enumerate() {
                     let (mut worst, mut lost, mut jams, mut later, mut missed, mut left_without) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+                    let mut merged = 0usize;
                     let mut hit: Vec<i64> = Vec::new();
                     let mut errs: Vec<String> = Vec::new();
                     for (_, seed, r) in out.iter().filter(|x| x.0 == c) {
@@ -2853,12 +2858,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 jams += r.visits.iter().filter(|v| v.problem.as_ref().is_some_and(|p| p.contains("still inside") || p.contains("not out"))).count();
                                 later += after.iter().skip(6).filter(|v| !clean(v)).count();
                                 left_without += window.iter().filter(|v| v.slept.is_some() && v.exited.is_some() && v.reboarded.is_none()).count();
+                                merged += r.merged.len();
                             }
                         }
                     }
                     hit.sort();
                     let hit_s = if hit.is_empty() { "never".to_string() } else { format!("{}..{}", hit[0], hit[hit.len() - 1]) };
-                    println!("  {name}: until clean {worst}; naps lost {lost}; out without the napper {left_without}; jams {jams}; unclean after {later}; hit +{hit_s}{}{}", if missed > 0 { format!(" (not hit on {missed} seeds)") } else { String::new() }, if errs.is_empty() { String::new() } else { format!("; errors: {}", errs[0]) });
+                    println!("  {name}: until clean {worst}; naps lost {lost}; out without the napper {left_without}; jams {jams}; merged carts {merged}; unclean after {later}; hit +{hit_s}{}{}", if missed > 0 { format!(" (not hit on {missed} seeds)") } else { String::new() }, if errs.is_empty() { String::new() } else { format!("; errors: {}", errs[0]) });
                 }
                 return Ok(());
             }
@@ -3040,6 +3046,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("speed leaving the exit cell (b/t, stored): min {:.3} median {:.3} max {:.3}; over 0.36: {over} of {}", leaves[0], leaves[leaves.len() / 2], leaves[leaves.len() - 1], leaves.len());
             }
             println!("problems: {problems:?}");
+            // (ironspec's hard line: merged carts, over every seed: ironfarm's shared check)
+            {
+                let oks: Vec<&crate::siding::BenchReport> = rows.iter().filter_map(|r| r.1.as_ref().ok()).collect();
+                let n: usize = oks.iter().map(|r| r.merged.len()).sum();
+                let first: Vec<String> = rows.iter().filter_map(|(s, r)| r.as_ref().ok().and_then(|r| r.merged_first.first().map(|f| format!("seed {s}: {f}")))).take(3).collect();
+                println!("merged carts (horizontal distance under 0.01, boxes paired by the push; the game never separates them): {n} {}", first.join("; "));
+            }
             // (the force input: when the bench pulsed it, and for the visits whose villager had
             // not slept by then, the pulse to ready on the slot)
             {
