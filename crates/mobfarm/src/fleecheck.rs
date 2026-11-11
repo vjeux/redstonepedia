@@ -63,6 +63,9 @@ pub struct Place {
     pub stroll: Source,
     pub others: Source,
     pub home_reached: Option<bool>,
+    /// The nearest hostile's distance: the least and the greatest over the place's points, and
+    /// the hostile nearest at the least (None: no hostile in the design).
+    pub near: Option<(f64, f64, Vec3)>,
 }
 
 /// The hostiles of the design's entity lines (a zombie, or a zombie riding a boat or a cart): their
@@ -168,10 +171,20 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Resu
         };
         let (mut flee_s, mut panic_s, mut idle_s) = (Vec::new(), Vec::new(), Vec::new());
         let (mut flee_from, mut panic_from, mut seen, mut village) = (0, 0, 0, false);
+        // (the 6-8 rule, ironspec Nov 11 10:18: the nearest hostile's distance at each point, the
+        // least and the greatest over the place's points, and that hostile)
+        let mut near: Option<(f64, f64, Vec3)> = None;
         for &p in &points {
             let me = put(w, p);
             let eye = Vec3::new(me.x, me.y + 1.62, me.z);
             let dist = |f: &Vec3| ((me.x - f.x).powi(2) + (me.y - f.y).powi(2) + (me.z - f.z).powi(2)).sqrt();
+            if let Some(f) = foes.iter().min_by(|a, b| dist(a).total_cmp(&dist(b))) {
+                let d = dist(f);
+                near = Some(match near {
+                    None => (d, d, *f),
+                    Some((lo, hi, h)) => (lo.min(d), hi.max(d), if d < lo { *f } else { h }),
+                });
+            }
             let near6: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) < 6.0).collect();
             let near8: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) <= 8.0).collect();
             flee_from = flee_from.max(near6.len());
@@ -226,7 +239,7 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Resu
         }
         let others = judge(w, others);
         let home_reached = home.map(|h| reaches(w, h));
-        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached });
+        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, near });
         let _ = redsim::entity::kill(w, vid);
         if let Some(c) = cart {
             let _ = redsim::entity::kill(w, c);
@@ -289,6 +302,30 @@ pub fn report(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec
         ));
     }
     let verdict = |n: usize| if n == 0 { "PASS".to_string() } else { format!("FAIL at {n} places") };
+    // (the 6-8 rule, ironspec Nov 11 10:18: no hostile within 6 of any rider position, so the flee
+    // never runs; a visible one within 8 where panic is needed. Each place's nearest hostile, least
+    // and greatest over its points)
+    let within6: Vec<&Place> = places.iter().filter(|p| p.near.is_some_and(|n| n.0 < 6.0)).collect();
+    let beyond8 = places.iter().filter(|p| p.near.is_none_or(|n| n.1 > 8.0)).count();
+    lines.push(format!(
+        "the 6-8 rule (no hostile within 6 of a rider position: the flee never runs; a seen one within 8 where panic is needed): {} rider places with a hostile within 6, {} whose nearest hostile is beyond 8 somewhere (no panic there), {} with the nearest at 6..8 throughout",
+        within6.len(),
+        beyond8,
+        places.iter().filter(|p| p.near.is_some_and(|n| n.0 >= 6.0 && n.1 <= 8.0)).count()
+    ));
+    for p in within6.iter().take(show.max(1) * 20) {
+        let (lo, hi, h) = p.near.expect("a place within 6 has a hostile");
+        let flee_bad = p.flee.live() > 0;
+        lines.push(format!("  WITHIN-6 {},{},{}{}: the nearest hostile {lo:.2}..{hi:.2} (at {:.1},{:.1},{:.1}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, h.x, h.y, h.z, if flee_bad { "; its flee candidates not all reachable" } else { "; its flee candidates none or all reachable" }));
+    }
+    let gate_bad = within6.iter().filter(|p| p.flee.live() > 0).count();
+    for p in places.iter().filter(|p| p.near.is_none_or(|n| n.1 > 8.0)).take(show.max(1) * 20) {
+        match p.near {
+            Some((lo, hi, h)) => lines.push(format!("  BEYOND-8 {},{},{}{}: the nearest hostile {lo:.2}..{hi:.2} (at {:.1},{:.1},{:.1}), {} seen within 8", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, h.x, h.y, h.z, p.seen)),
+            None => lines.push(format!("  BEYOND-8 {},{},{}: no hostile in the design", p.cell.x, p.cell.y, p.cell.z)),
+        }
+    }
+    lines.push(format!("the 6-8 gate (a hostile within 6 of a rider position whose flee candidates aren't none or all reachable): {}", verdict(gate_bad)));
     lines.push(format!(
         "verdicts (every cell a source can pick reachable wherever it runs): flee {}, panic stroll {}, idle stroll {}, walks to villagers {}",
         verdict(flee_bad),

@@ -478,11 +478,14 @@ pub struct LoopOpts {
     pub xq_drop: u32,
     /// The zombie post beside the escapement (loop z 29) moved to this x (default the strip's).
     pub tail_post_x: Option<i32>,
+    /// The 6-8 rule's posts beside R1's tail (each the boat's cell), replacing the strip's at z 21
+    /// and 29.
+    pub tail_posts: [Option<[i32; 3]>; 4],
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, xq_gap: 1, xq_drop: 2, tail_post_x: None }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, xq_gap: 1, xq_drop: 2, tail_post_x: None, tail_posts: [None; 4] }
     }
 }
 
@@ -3260,6 +3263,11 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
                 p.0 = x;
             }
         }
+        // (`tail_posts`: the posts beside R1's tail re-laid by the 6-8 rule (ironspec Nov 11
+        // 10:18) replace the strip's posts at z 21 and 29)
+        if o.tail_posts.iter().any(|p| p.is_some()) {
+            posts.retain(|p| !(p.0 != -6 && (p.1 == 21 || p.1 == 29)));
+        }
         // (no post within a zombie's reach of a rider: a zombie in a boat attacks over the boat's
         // box (1.375 wide) grown 0.83 sideways, so a rider (0.6 wide) is hit when its centre comes
         // within 1.82 of the post on both axes while their heights overlap, rails at y 1..4 with
@@ -3276,9 +3284,16 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
             b.set(px, 6, pz, "oak_leaves[distance=1,persistent=true,waterlogged=false]");
             b.entity("oak_boat", [px as f64 + 0.5, 3.0, pz as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
         }
+        // (the 6-8 rule's posts, ironspec Nov 11 10:18: each the boat's cell, glass under it,
+        // leaves 3 over it, as the strip's)
+        for p in o.tail_posts.iter().flatten() {
+            b.set(p[0], p[1] - 1, p[2], "glass");
+            b.set(p[0], p[1] + 3, p[2], "oak_leaves[distance=1,persistent=true,waterlogged=false]");
+            b.entity("oak_boat", [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+        }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() } + &if o.xq_gap > 1 { format!(" xq_gap={}", o.xq_gap) } else { String::new() } + &if o.xq_drop > 2 { format!(" xq_drop={}", o.xq_drop) } else { String::new() } + &o.tail_post_x.map(|x| format!(" tail_post_x={x}")).unwrap_or_default())));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() } + &if o.xq_gap > 1 { format!(" xq_gap={}", o.xq_gap) } else { String::new() } + &if o.xq_drop > 2 { format!(" xq_drop={}", o.xq_drop) } else { String::new() } + &o.tail_post_x.map(|x| format!(" tail_post_x={x}")).unwrap_or_default() + &{ let ps: Vec<String> = o.tail_posts.iter().flatten().map(|p| format!("{},{},{}", p[0], p[1], p[2])).collect(); if ps.is_empty() { String::new() } else { format!(" tail_posts={}", ps.join(";")) } })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
@@ -3369,6 +3384,14 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "xq_gap" => o.xq_gap = v.parse().unwrap_or(1),
             "xq_drop" => o.xq_drop = v.parse().unwrap_or(2),
             "tail_post_x" => o.tail_post_x = v.parse().ok(),
+            "tail_posts" => {
+                for (i, s) in v.split(';').filter(|s| !s.is_empty()).take(4).enumerate() {
+                    let n: Vec<i32> = s.split(',').filter_map(|t| t.parse().ok()).collect();
+                    if n.len() == 3 {
+                        o.tail_posts[i] = Some([n[0], n[1], n[2]]);
+                    }
+                }
+            }
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -3576,9 +3599,10 @@ pub struct LoopTiming {
     /// Every villager's block position each tick, printed at the end (`--record-positions`: the
     /// golem-spots check's positions over a full bench night).
     pub record_positions: bool,
-    /// Slots whose golem pulse never comes (`--golem-miss`: a missed golem; the design's own
-    /// expiry must release that slot); -1 = unused.
-    pub golem_miss: [i64; 8],
+    /// Slots whose golem pulse never comes (`--golem-miss`: a missed golem, each entry a slot range
+    /// A..=B; the design's own expiry, or the bench's launch model, must release that slot);
+    /// (-1, -1) = unused.
+    pub golem_miss: [(i64, i64); 8],
     /// `build: fills-last`: the containers' stocks after every block (main's build plan).
     pub build_fills_last: bool,
     /// The re-packing tail's intake (`tail_fifo`): its gate opened D gt after each advance's start,
@@ -3932,9 +3956,16 @@ pub struct SideDrop {
     pub staged2: bool,
 }
 
+impl LoopTiming {
+    /// Whether slot `c`'s golem pulse is missed (`--golem-miss`).
+    pub fn golem_missed(&self, c: i64) -> bool {
+        self.golem_miss.iter().any(|(a, b)| *a >= 0 && (*a..=*b).contains(&c))
+    }
+}
+
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -5595,7 +5626,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
             if let Some(p) = wired
                 && golem_jit(c) == 0
-                && !tm.golem_miss.contains(&c)
+                && !tm.golem_missed(c)
                 && !tm.no_inject
             {
                 // the golem pulse into the design's input cell (none at a `--golem-miss` slot: the
@@ -5607,11 +5638,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         // (`golem_jitter`: the slot's golem pulse `golem_jit(c)` gt late, 0..=J from the seed:
         // the gaps between pulses vary over 100 - J ..= 100 + J)
-        if let (Some(p), true) = (wired, c < cycles && dt > 0 && dt == golem_jit(c) && !tm.golem_miss.contains(&c) && !tm.no_inject) {
+        if let (Some(p), true) = (wired, c < cycles && dt > 0 && dt == golem_jit(c) && !tm.golem_missed(c) && !tm.no_inject) {
             run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
         }
-        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == golem_jit(c) + tm.golem_for && !tm.golem_miss.contains(&c) && !tm.no_inject) {
+        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == golem_jit(c) + tm.golem_for && !tm.golem_missed(c) && !tm.no_inject) {
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }

@@ -47,8 +47,9 @@ impl Case {
 /// One scene's design: `src` a queue-loop design with the escapement (`--esc-adm`), `v` the
 /// arrival's stored speed (b/t), `front_frac` where the waiting cart starts along its cell (0.885:
 /// at rest pressed on the gate, as the design's own tail carts rest; 0.5: the cell's middle, rolling
-/// into the gate from rest as tick-exact's slope-merge lanes set theirs).
-pub fn scene(src: &Design, case: Case, v: f64, front_frac: f64) -> Result<Design, String> {
+/// into the gate from rest as tick-exact's slope-merge lanes set theirs); case p with `from_rest`:
+/// the arrival starts at G0's rest (as the admitted cart does when G0 opens) instead of 2 cells up.
+pub fn scene(src: &Design, case: Case, v: f64, front_frac: f64, from_rest: bool) -> Result<Design, String> {
     let o = crate::queue::loop_opts_of(&src.meta).map_err(|e| e.to_string())?;
     let lay = crate::queue::loop_layout(&o);
     let g0 = lay.esc_g0.ok_or("not an escapement design (no G0)")?;
@@ -106,7 +107,7 @@ pub fn scene(src: &Design, case: Case, v: f64, front_frac: f64) -> Result<Design
             Case::P => {
                 let (yp, zp) = on_slope([p_rest[0], p_rest[1], p_rest[2]], front_frac);
                 d.entities.push(cart(x, yp, zp, 0.0, *wait_r));
-                let (ya, za) = on_slope([g0.x, g0.y + 1, along(-2)], 0.5);
+                let (ya, za) = if from_rest { on_slope([g0.x, g0.y, along(-1)], 0.885) } else { on_slope([g0.x, g0.y + 1, along(-2)], 0.5) };
                 d.entities.push(cart(x, ya, za, v, *arr_r));
             }
         }

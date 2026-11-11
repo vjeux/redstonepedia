@@ -680,6 +680,10 @@ pub enum MobfarmCmd {
         /// The x-queue's ledge: the landing's drop below the take-off's level.
         #[arg(long, default_value_t = 2)]
         xq_drop: u32,
+        /// The 6-8 rule's zombie posts beside R1's tail (each the boat's cell X,Y,Z, glass under,
+        /// leaves 3 over; separated by `;`), replacing the strip's posts at z 21 and 29.
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        tail_posts: String,
         #[arg(long)]
         out: PathBuf,
     },
@@ -974,6 +978,30 @@ pub enum MobfarmCmd {
         /// design's tail carts rest), 0.5 the cell's middle (rolling in, as slope-merge's lanes).
         #[arg(long, default_value_t = 0.885)]
         front_frac: f64,
+        /// Case p: the arrival starts at G0's rest (the admitted cart's start when G0 opens)
+        /// instead of the middle of the slope 2 cells before G0.
+        #[arg(long)]
+        from_rest: bool,
+    },
+    /// The zombie-post search for the 6-8 rule: the posts to re-lay removed (each `X,Z`, the
+    /// boat's column: its boat and zombie, the glass under it and the leaves over it), then posts
+    /// picked greedily from --area so every rail cell in --panic sees a zombie within 8 while every
+    /// rider point of the design stays 6 or more from every post (both less --margin).
+    PostSearch {
+        design: PathBuf,
+        /// The posts to re-lay, `X,Z` each (separated by `;`).
+        #[arg(long, default_value = "")]
+        remove: String,
+        /// The rail cells that need panic: a box X0,Y0,Z0,X1,Y1,Z1.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        panic: Vec<i32>,
+        /// Where posts may go (the boat's cell): a box X0,Y0,Z0,X1,Y1,Z1.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        area: Vec<i32>,
+        #[arg(long, default_value_t = 0.3)]
+        margin: f64,
+        #[arg(long, default_value_t = 4)]
+        max_posts: usize,
     },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
@@ -1360,10 +1388,11 @@ pub enum MobfarmCmd {
         /// the golem-spots check (`queue-loop-spots --positions`).
         #[arg(long)]
         record_positions: Option<PathBuf>,
-        /// Slots whose golem pulse never comes (a missed golem, up to 8): the design's own expiry
-        /// must release them (a wired file).
+        /// Slots whose golem pulse never comes (a missed golem; up to 8 entries, each a slot or a
+        /// range A-B): the design's own expiry must release them (a wired file), or the bench's
+        /// launch model does (--launch-model).
         #[arg(long, value_delimiter = ',')]
-        golem_miss: Vec<i64>,
+        golem_miss: Vec<String>,
         /// With --wired: no golem pulse from the bench at all, the controls left to the design (a
         /// design whose pad gives the pulse).
         #[arg(long)]
@@ -2525,7 +2554,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, tail_posts, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2534,7 +2563,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop };
+            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, tail_posts: {
+                let mut a = [None; 4];
+                for (i, s) in tail_posts.split(';').filter(|s| !s.trim().is_empty()).enumerate() {
+                    anyhow::ensure!(i < 4, "--tail-posts takes up to 4 posts");
+                    let n: Vec<i32> = s.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(n.len() == 3, "--tail-posts takes X,Y,Z per post");
+                    a[i] = Some([n[0], n[1], n[2]]);
+                }
+                a
+            } };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2857,7 +2895,34 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::ContactScenes { design, case, speeds, out_dir, ticks, front_frac } => {
+        MobfarmCmd::PostSearch { design, remove, panic, area, margin, max_posts } => {
+            let (_c, mut spec) = load(version, &design)?;
+            anyhow::ensure!(panic.len() == 6 && area.len() == 6, "--panic and --area take X0,Y0,Z0,X1,Y1,Z1");
+            let cols: Vec<(i32, i32)> = remove.split(';').filter(|s| !s.trim().is_empty()).map(|s| {
+                let v: Vec<i32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                (v.first().copied().unwrap_or(0), v.get(1).copied().unwrap_or(0))
+            }).collect();
+            // (a post: a boat (with its zombie) whose column is (X, Z), the glass under it and the
+            // leaves over it in that column)
+            let mut removed = 0;
+            spec.entities.retain(|(ty, p, _)| {
+                let hit = ty.ends_with("boat") && cols.contains(&(p[0].floor() as i32, p[2].floor() as i32));
+                removed += hit as usize;
+                !hit
+            });
+            spec.blocks.retain(|(p, b)| {
+                let s = b.to_string();
+                !(cols.contains(&(p.x, p.z)) && (s.contains("glass") || s.contains("leaves")) && (1..=7).contains(&p.y))
+            });
+            let rails: Vec<[i32; 3]> = spec.blocks.iter().filter(|(p, b)| b.to_string().contains("rail") && (panic[0]..=panic[3]).contains(&p.x) && (panic[1]..=panic[4]).contains(&p.y) && (panic[2]..=panic[5]).contains(&p.z)).map(|(p, _)| [p.x, p.y, p.z]).collect();
+            println!("post search: {removed} posts removed, {} panic cells, area {:?}, margin {margin}", rails.len(), area);
+            let f = crate::postsearch::search(&spec, &rails, [area[0], area[1], area[2], area[3], area[4], area[5]], margin, max_posts).map_err(|e| anyhow::anyhow!(e))?;
+            println!("posts (the boat's cell; glass under, leaves 3 over): {}", f.posts.iter().map(|p| format!("({},{},{})", p[0], p[1], p[2])).collect::<Vec<_>>().join(" "));
+            println!("the least distance from any rider point to a post: {:.2}", f.least);
+            let bad: Vec<String> = f.cover.iter().filter(|(_, d, seen)| *d > 8.0 - margin || !seen).map(|(c, d, seen)| format!("({},{},{}) {d:.2}{}", c[0], c[1], c[2], if *seen { "" } else { " unseen" })).collect();
+            println!("panic cells: {} of {} covered (a seen post within 8 - margin from every point){}", f.cover.len() - bad.len(), f.cover.len(), if bad.is_empty() { String::new() } else { format!("; not: {}", bad.join(", ")) });
+        }
+        MobfarmCmd::ContactScenes { design, case, speeds, out_dir, ticks, front_frac, from_rest } => {
             let src = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
             let case = match case.as_str() {
                 "g0" => crate::contact_scene::Case::G0,
@@ -2867,7 +2932,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::create_dir_all(&out_dir)?;
             let src_name = design.file_name().map_or("the design".to_string(), |n| n.to_string_lossy().to_string());
             for v in &speeds {
-                let d = crate::contact_scene::scene(&src, case, *v, front_frac).map_err(|e| anyhow::anyhow!(e))?;
+                let d = crate::contact_scene::scene(&src, case, *v, front_frac, from_rest).map_err(|e| anyhow::anyhow!(e))?;
                 let path = out_dir.join(format!("{}.txt", d.name));
                 std::fs::write(&path, crate::contact_scene::caption(case, *v, &src_name) + &d.to_text())?;
                 std::fs::write(out_dir.join(format!("{}.drive", d.name)), crate::contact_scene::drive(case, *v, ticks))?;
@@ -3237,7 +3302,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
-            let tm = crate::queue::LoopTiming { record_positions: record_positions.is_some(), exposure_log: exposure_out.is_some(), golem_miss: { anyhow::ensure!(golem_miss.len() <= 8, "--golem-miss takes up to 8 slots"); let mut a = [-1i64; 8]; for (i, s) in golem_miss.iter().enumerate() { a[i] = *s; } a }, ..tm };
+            let tm = crate::queue::LoopTiming { record_positions: record_positions.is_some(), exposure_log: exposure_out.is_some(), golem_miss: { anyhow::ensure!(golem_miss.len() <= 8, "--golem-miss takes up to 8 entries"); let mut a = [(-1i64, -1i64); 8]; for (i, s) in golem_miss.iter().enumerate() { a[i] = match s.split_once('-') { Some((x, y)) => (x.trim().parse()?, y.trim().parse()?), None => { let n: i64 = s.trim().parse()?; (n, n) } }; } a }, ..tm };
             let s = crate::queue::run_loop_hdr(&spec, &o, &tm, &hdr, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }, drive_out.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             // (`--record-positions F`: the villager positions line written to F, x y z per line)
             if let Some(f) = &record_positions {
