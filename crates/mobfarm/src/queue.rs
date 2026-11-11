@@ -2340,6 +2340,11 @@ pub struct LoopTiming {
     pub rel_on: i64,
     /// With `--watch`: these cells' block states printed too (up to 8).
     pub watch_cells: [Option<[i32; 3]>; 8],
+    /// (`--watch-mob`, farmopt 2026-11-11) mobs printed every gt over slots
+    /// `watch_mob_slots.0 ..= watch_mob_slots.1`: place, pose, vehicle, activities, behaviours,
+    /// memories, target, and the hostiles within 16 blocks.
+    pub watch_mob: [Option<RiderRef>; 4],
+    pub watch_mob_slots: (i64, i64),
     /// With `wired`: each slot's golem pulse this many gt late at most (0..=J, from the seed and
     /// the slot): the gaps between pulses vary over 100 - J ..= 100 + J (the golem's jitter).
     pub golem_jitter: i64,
@@ -2553,7 +2558,7 @@ pub enum RideAct {
     Swap(RiderRef, RiderRef),
 }
 
-fn parse_rider(s: &str, t: &str) -> Result<RiderRef, String> {
+pub fn parse_rider(s: &str, t: &str) -> Result<RiderRef, String> {
     match t.strip_prefix("visit:") {
         Some(v) => match v.split_once('/') {
             Some((slot, j)) => Ok(RiderRef::Batch(slot.parse::<i64>().map_err(|e| format!("--act {s}: visit:SLOT/J: {e}"))?, j.parse::<usize>().map_err(|e| format!("--act {s}: visit:SLOT/J: {e}"))?)),
@@ -2623,7 +2628,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, start_random: false }
     }
 }
 
@@ -5444,6 +5449,54 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 let on = |b: Option<BlockPos>| b.map_or('?', |b| if matches!(run.world.get(b), Block::RedstoneBlock) { 'P' } else { '-' });
                 let gate = lay.fifo.last().map_or('?', |(g, _)| if matches!(run.world.get(*g), Block::FenceGate { open: true, .. }) { 'o' } else { '-' });
                 println!("tt c{c} +{dt}: B{} P{} G{} | {}", on(lay.esc), on(lay.esc_p), gate, ps.join(" "));
+            }
+        }
+        // (`--watch-mob`, farmopt 2026-11-11: a mob every gt over slots S0..S1: its place, pose,
+        // vehicle, activities, behaviours, memories and target, and the hostiles within 16 blocks
+        // of it with their distance, the line of sight from its eyes and their target)
+        if c >= tm.watch_mob_slots.0 && c <= tm.watch_mob_slots.1 {
+            for r in tm.watch_mob.iter().flatten() {
+                let id = match *r {
+                    RiderRef::Id(id) => Some(id),
+                    RiderRef::Visit(s) => visits.iter().find(|vr| vr.slot == s).and_then(|vr| vr.rider),
+                    RiderRef::Batch(s, j) => visits.iter().find(|vr| vr.slot == s).and_then(|vr| vr.batch.get(j).copied()).and_then(|cart| redsim::entity::index_of(&run.world, cart)).and_then(|i| run.world.entities.list[i].passengers.first().copied()),
+                };
+                let Some(i) = id.and_then(|id| redsim::entity::index_of(&run.world, id)) else {
+                    println!("mob c{c} +{dt}: {r:?}: not in the world");
+                    continue;
+                };
+                let e = &run.world.entities.list[i];
+                let f = redsim::exact::entity_frame(&run.world, e);
+                let mem = f.memories.as_ref().map(|m| m.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+                let eye = e.pos.add(0.0, e.kind.eye_height() as f64, 0.0);
+                const HOSTILE: [&str; 11] = ["drowned", "evoker", "husk", "illusioner", "pillager", "ravager", "vex", "vindicator", "zoglin", "zombie", "zombie_villager"];
+                let dist = |a: redsim::entity::vec3::Vec3, b: redsim::entity::vec3::Vec3| a.distance_to_sqr(b).sqrt();
+                let hostiles: Vec<String> = run
+                    .world
+                    .entities
+                    .list
+                    .iter()
+                    .filter(|x| !x.removed && matches!(&x.kind, redsim::entity::EntityKind::Mob(m) if HOSTILE.contains(&m.ty.def().id)) && dist(x.pos, e.pos) < 16.0)
+                    .map(|x| {
+                        let xf = redsim::exact::entity_frame(&run.world, x);
+                        let los = redsim::entity::mob::los::has_line_of_sight(&run.world, eye, x.pos.add(0.0, x.kind.eye_height() as f64, 0.0));
+                        format!("e{} {} {:.2},{:.2},{:.2} d{:.2} los {} tgt {}", x.id, xf.ty, x.pos.x, x.pos.y, x.pos.z, dist(x.pos, e.pos), if los { "y" } else { "n" }, xf.target.as_deref().unwrap_or("-"))
+                    })
+                    .collect();
+                println!(
+                    "mob c{c} +{dt}: e{} {} {:.2},{:.2},{:.2} pose {} veh {} act {} beh {} tgt {} mem [{mem}] | hostiles: {}",
+                    e.id,
+                    f.ty,
+                    e.pos.x,
+                    e.pos.y,
+                    e.pos.z,
+                    f.pose.as_deref().unwrap_or("-"),
+                    f.vehicle.as_deref().unwrap_or("-"),
+                    f.activities.as_deref().unwrap_or("-"),
+                    f.behaviors.as_deref().unwrap_or("-"),
+                    f.target.as_deref().unwrap_or("-"),
+                    if hostiles.is_empty() { "-".to_string() } else { hostiles.join("; ") }
+                );
             }
         }
         if let Some(w) = watch {
