@@ -2630,6 +2630,9 @@ pub struct LoopTiming {
     pub release_gaps: Option<(i64, i64)>,
     /// G1's and G2's lines delayed N gt, both edges (`--gate-delay N`, emulated).
     pub gate_delay: i64,
+    /// With `interlock`: G2's in-gate guard reads a tripwire over its cell at rider height
+    /// (`--g2-tripwire`, emulated).
+    pub g2_tripwire: bool,
     /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
     /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
     pub arrivals: bool,
@@ -2893,7 +2896,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false }
     }
 }
 
@@ -3815,6 +3818,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut g2p_prev: Vec<Option<f64>> = Vec::new();
     let mut g2p_cross: Vec<(i64, i64, i64)> = Vec::new();
     let mut gd_hist: [Vec<bool>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let (mut tw_on, mut tw_armed, mut tw_q_was, mut tw_check_at, mut tw_slips) = (false, false, false, 0i64, 0i64);
+    let mut tw_prev_x: Vec<Option<f64>> = Vec::new();
+    let mut tw_slip_log: Vec<String> = Vec::new();
     let mut gate_skips: Vec<(i64, i64)> = Vec::new();
     // (`split`: done for this release, G2 held until, the cell's occupants, held last tick, the
     // releases split (slot, dt), the held ticks)
@@ -5634,6 +5640,29 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     }
                 }
             }
+            // (the tripwire over G2's cell: its state this tick, and the guard's arming by the latch)
+            if tm.g2_tripwire
+                && let Some((g2, _)) = lay.pockets.get(2)
+            {
+                let (bx0, bz0, by0) = (g2.x as f64, g2.z as f64, g2.y as f64 + 1.0);
+                let inside = riders.iter().any(|r| redsim::entity::index_of(&run.world, *r).is_some_and(|i| { let p = run.world.entities.list[i].pos; p.x + 0.3 > bx0 && p.x - 0.3 < bx0 + 1.0 && p.z + 0.3 > bz0 && p.z - 0.3 < bz0 + 1.0 && p.y < by0 + 0.16 && p.y + 1.95 > by0 }));
+                if inside && !tw_on {
+                    tw_on = true;
+                    tw_check_at = t + 10;
+                } else if tw_on && t >= tw_check_at {
+                    if inside {
+                        tw_check_at = t + 10;
+                    } else {
+                        tw_on = false;
+                        tw_armed = false;
+                    }
+                }
+                let qn = !run.world.get(BlockPos::new(-o.row_gap + 9 + o.shift[0], 0, 2 + o.shift[1])).to_string().contains("lit=true");
+                if qn && !tw_q_was {
+                    tw_armed = true;
+                }
+                tw_q_was = qn;
+            }
             for (k, (g, slope)) in lay.pockets.iter().enumerate().take(3) {
                 let empty = inter_last[k].is_none_or(|l| t - l > h);
                 // (launch mode: the gate's slope (the launch onto the space past the gate) is held
@@ -5687,7 +5716,25 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 };
                 let want = (if tm.gate_delay > 0 && k >= 1 { gd_hist[k].len() > tm.gate_delay as usize && gd_hist[k][gd_hist[k].len() - 1 - tm.gate_delay as usize] || (gd_hist[k].len() <= tm.gate_delay as usize && sig) } else { sig }) && spaced && (empty || (tm.interlock_arrivals && rel_on_now));
                 let open_now = cur.contains("open=true");
+                // (`g2_tripwire`: the guard reads a tripwire string over G2's cell at rider height (on
+                // at once when a rider's box touches it, off at the first 10 gt re-check with none),
+                // armed from the latch's set until its first off-edge; a cart crossing G2's plane while
+                // the guard alone holds G2 open is a slip)
+                let in_gate = if tm.g2_tripwire && k == 2 { tw_on && tw_armed } else { in_gate };
                 let open = if open_now && !want && in_gate { true } else { want };
+                if tm.g2_tripwire && k == 2 && open && !want {
+                    let gx = g.x as f64 + 0.5;
+                    let crossed = ps.iter().enumerate().any(|(i, p)| p.is_some_and(|p| p.x >= gx && tw_prev_x.get(i).copied().flatten().is_some_and(|w| w < gx) && (p.z - (g.z as f64 + 0.5)).abs() < 0.6));
+                    if crossed {
+                        tw_slips += 1;
+                        if tw_slip_log.len() < 4 {
+                            tw_slip_log.push(format!("slot {c} +{dt}"));
+                        }
+                    }
+                }
+                if tm.g2_tripwire && k == 2 {
+                    tw_prev_x = ps.iter().map(|p| p.map(|p| p.x)).collect();
+                }
                 let s = cur.replace("open=true", &format!("open={open}")).replace("open=false", &format!("open={open}")).replace("powered=true", &format!("powered={sig}")).replace("powered=false", &format!("powered={sig}"));
                 if s != cur
                     && let Ok(b) = Block::parse(&s)
@@ -7488,6 +7535,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
         }
         if let Some(h) = tm.interlock {
+            if tm.g2_tripwire {
+                out.push(format!("G2 tripwire guard: carts slipping through G2 while only the guard held it open: {tw_slips}{}", if tw_slip_log.is_empty() { String::new() } else { format!(" ({})", tw_slip_log.join("; ")) }));
+            }
             out.push(format!("interlock (sensor hold {h} gt): G0 held shut against its signal {} gt, G1 {} gt, G2 {} gt", inter_held[0], inter_held[1], inter_held[2]));
             let mm = |v: &Vec<i64>| if v.is_empty() { "-".to_string() } else { format!("{}..{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
             out.push(format!("pockets cleared after the stand's REL rose (each release; 99: not by +50): pocket 3 +{}, pocket 2 +{}, pocket 1 +{}", mm(&inter_clear_log[0]), mm(&inter_clear_log[1]), mm(&inter_clear_log[2])));
