@@ -5701,6 +5701,40 @@ fn takeoff_grid_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue
             let (mut rid, mut emp, mut chg) = ((f64::INFINITY, f64::NEG_INFINITY), (f64::INFINITY, f64::NEG_INFINITY), (f64::INFINITY, f64::NEG_INFINITY));
             let (mut landed, mut unseated) = (0usize, 0usize);
             let mut cells: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            // (stand A's meter lines: SE after its REL, the next fill's last cart at rest before the
+            // summoning moment, and the first cart at each gate's face after it shut)
+            let (mut se, mut at_rest) = ((i64::MAX, i64::MIN), i64::MAX);
+            let mut face = [(i64::MAX, i64::MIN); 3];
+            for out in &outs {
+                for l in out.lines() {
+                    if let Some(ev) = l.strip_prefix("meter (S3(ii)'s hold, emulated): ").and_then(|x| x.split("events: ").nth(1)) {
+                        let mut rel: Option<(i64, i64)> = None;
+                        for e in ev.split(", ") {
+                            let Some((when, what)) = e.split_once(' ') else { continue };
+                            let Some((c, d)) = when.split_once('+') else { continue };
+                            let (Ok(c), Ok(d)) = (c.parse::<i64>(), d.parse::<i64>()) else { continue };
+                            if what.starts_with("REL") && what.contains("occupancy") {
+                                rel = Some((c, d));
+                            } else if what == "SE" && let Some((rc, rd)) = rel {
+                                let dt = (c - rc) * 100 + d - rd;
+                                se = (se.0.min(dt), se.1.max(dt));
+                            }
+                        }
+                    } else if let Some(x) = l.strip_prefix("meter the stand's summoning moment") {
+                        for part in x.split("(last at rest ").skip(1) {
+                            if let Some(n) = part.split(' ').next().and_then(|t| t.parse::<i64>().ok()) {
+                                at_rest = at_rest.min(n);
+                            }
+                        }
+                    } else if let Some(x) = l.strip_prefix("meter margins: ") {
+                        for (g, key) in ["at G0's face after G0 shut ", "at G1's after G1 shut ", "at G2's after G2 shut "].iter().enumerate() {
+                            if let Some((a, b)) = range(x, key) {
+                                face[g] = (face[g].0.min(a as i64), face[g].1.max(b as i64));
+                            }
+                        }
+                    }
+                }
+            }
             for out in &outs {
                 for l in out.lines() {
                     if let Some(x) = l.strip_prefix("take-off speeds: ") {
@@ -5732,11 +5766,13 @@ fn takeoff_grid_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue
             grid_ridden = grid_ridden.min(rid.0);
             grid_empty = grid_empty.min(emp.0);
             let rng = |p: (f64, f64)| if p.0.is_finite() { format!("{:.3}..{:.3}", p.0, p.1) } else { "-".to_string() };
+            let ri = |p: (i64, i64)| if p.0 <= p.1 { format!("{}..{}", p.0, p.1) } else { "-".to_string() };
             println!(
-                "GRID stagger {s} REL {r} ({seeds} seeds): take-off gaps {gaps}, the least {}, under 9: {u9}, under 11: {u11}; stored ridden {}, empty {}; PAIR change {}; jumps landed as declared {landed}; off-rail cells {}; riders not seated {unseated}",
+                "GRID stagger {s} REL {r} ({seeds} seeds): take-off gaps {gaps}, the least {}, under 9: {u9}, under 11: {u11}; stored ridden {}, empty {}; PAIR change {}; jumps landed as declared {landed}; off-rail cells {}; riders not seated {unseated}; stand A: SE +{} after REL, the next fill's last cart at rest {} gt before its summoning moment (least), the first cart at G0/G1/G2's face after it shut {}/{}/{}",
                 if least.is_finite() { format!("{least:.2}") } else { "-".into() }, rng(rid), rng(emp),
                 if chg.0.is_finite() { format!("{:+.2}..{:+.2}", chg.0, chg.1) } else { "-".into() },
-                if cells.is_empty() { "none".to_string() } else { cells.iter().map(|(c, n)| format!("{c} x{n}")).collect::<Vec<_>>().join(", ") }
+                if cells.is_empty() { "none".to_string() } else { cells.iter().map(|(c, n)| format!("{c} x{n}")).collect::<Vec<_>>().join(", ") },
+                ri(se), if at_rest < i64::MAX { at_rest.to_string() } else { "-".into() }, ri(face[0]), ri(face[1]), ri(face[2])
             );
             use std::io::Write;
             let _ = std::io::stdout().flush();
