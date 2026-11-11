@@ -970,9 +970,40 @@ fn giveup_sched(b: &mut Builder) -> Result<()> {
     };
     // V: the arrival's detector rail and the stone under it, the bulb beside that stone, the
     // return's repeater into the bulb from the north
-    swap(b, [0, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
-    swap(b, [0, -1, 0], "stone")?;
-    if std::env::var("MCTAS_SIDING_V").is_ok_and(|v| v == "bulb") {
+    // (the FC build, day-1 13:13 / ironspec 13:16: the detector one cell out, at (-1,0,0), so its
+    // power never reaches the T (1,0,0): beside the T it set the T's powered shape under an entering
+    // cart, which in the half-turned paste is the bed line to the exit. The entry (0,0,0) a plain
+    // rail; V's droppers moved west beside the detector's stone (see below))
+    if fc() {
+        if b.d.blocks.contains_key(&[-1, 0, 0]) {
+            swap(b, [-1, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+            swap(b, [-1, -1, 0], "stone")?;
+        } else {
+            put(b, [-1, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+            put(b, [-1, -1, 0], "stone")?;
+        }
+    } else {
+        swap(b, [0, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+        swap(b, [0, -1, 0], "stone")?;
+    }
+    if fc() {
+        // (V on the FC build: DA (-1,-1,-1) beside the detector's stone (-1,-1,0) fires on ARR and
+        // drops the item north into DB (-1,-1,-2), beside the R line's support stone (-1,-1,-3),
+        // which fires on R and drops it back. not-V: a comparator (-2,-1,-1) reading DA, a repeater
+        // (-3,-1,-1), dust (-4,-1,-1), (-4,-2,-2), (-3,-2,-2), (-3,-3,-3) into the gate's repeater;
+        // glass caps on the droppers' tops)
+        put(b, [-1, -1, -1], "dropper[facing=north,triggered=false]")?;
+        put(b, [-1, -1, -2], "dropper[facing=south,triggered=false]")?;
+        b.d.block_entities.insert([-1, -1, -1], "{Items:[{Slot:0b,id:\"minecraft:cobblestone\",count:1}]}".into());
+        on(b, [-2, -1, -1], "comparator[facing=east,mode=compare,powered=false]")?;
+        on(b, [-3, -1, -1], &rep("east"))?;
+        on(b, [-4, -1, -1], dust)?;
+        on(b, [-4, -2, -2], dust)?;
+        on(b, [-3, -2, -2], dust)?;
+        on(b, [-3, -3, -3], dust)?;
+        put(b, [-1, 0, -1], "glass")?;
+        put(b, [-1, 0, -2], "glass")?;
+    } else if std::env::var("MCTAS_SIDING_V").is_ok_and(|v| v == "bulb") {
         put(b, [0, -1, -1], "waxed_copper_bulb[lit=false,powered=false]")?;
         on(b, [0, -1, -2], &rep("north"))?;
         on(b, [-1, -1, -1], "comparator[facing=east,mode=compare,powered=false]")?;
@@ -2122,7 +2153,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     // (the divert gate's reset pulses VR, emulated: when they fire; and their cells, the R line's
     // two ends as R pulses them: DB beside its dropper, the H latch's reset input)
     let mut vr_at: Vec<i64> = Vec::new();
-    let (vr_db, vr_n2) = (fr.blk(1, -1, -2), fr.blk(-8, -3, -1));
+    let (vr_db, vr_n2) = (if bo.fc { fr.blk(0, -1, -2) } else { fr.blk(1, -1, -2) }, fr.blk(-8, -3, -1));
     // (the napper-aboard sensor, when the design has it: the string's band, or the plate's touch
     // box, and its last state)
     let seat_cell = fr.blk(1, 2, 1);
@@ -2528,7 +2559,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= 0.0 && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout().park_rail.z as f64 + 1.0))
             })
         };
-        if (bo.b_fc || bo.resync.is_some() || bo.fc) && (cart_inside() || run.world.get(s.entry).to_string().contains("powered=true")) {
+        if (bo.b_fc || bo.resync.is_some() || bo.fc) && (cart_inside() || run.world.get(if bo.fc { fr.blk(-1, 0, 0) } else { s.entry }).to_string().contains("powered=true")) {
             // (the arrival detector ARR counts too: a VR landing on the arrival tick clears the
             // V that ARR has just set, before the cart is past the entry cell)
             be.cart_seen = Some(now);
