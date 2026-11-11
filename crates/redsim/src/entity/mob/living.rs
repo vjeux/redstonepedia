@@ -856,6 +856,11 @@ fn hurt_inner(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
     if (src.is_fire() && def.fire_immune) || (src == Damage::Fall && def.fall_immune) {
         return false;
     }
+    // (mob-AI 2026-11-10) Bat.hurtServer: a resting bat stops resting before LivingEntity's hurt
+    // (forest build 3 t49127: a hanging bat drowned for 2 and flew off)
+    if mob(w, i).bat_resting {
+        mob_mut(w, i).bat_resting = false;
+    }
     // hurtServer: a fire damage does nothing under fire resistance
     if src.is_fire() && mob(w, i).effects.fire_resistance > 0 {
         return false;

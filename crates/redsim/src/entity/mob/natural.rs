@@ -1426,6 +1426,9 @@ struct Hand {
     weapon: Option<(&'static str, bool)>,
     weapon_ench: Vec<(&'static str, i32)>,
     armor: super::Armor,
+    /// (mob-AI 2026-11-10) A zombie horseman's rider's construction random (its own stream:
+    /// finalizeSpawn's handleAttributes draws from it).
+    ctor: Option<crate::rng::LegacyRandom>,
 }
 
 /// The item id of a spawn weapon.
@@ -1898,23 +1901,7 @@ fn special_multiplier_now(w: &World) -> f32 {
     if let Some(nat) = w.mob.natural.as_ref() {
         return special_multiplier(w, nat);
     }
-    let base = match w.mob.ai.difficulty {
-        Difficulty::Peaceful => return 0.0,
-        Difficulty::Easy => 1.0f32,
-        Difficulty::Normal => 2.0,
-        Difficulty::Hard => 3.0,
-    };
-    let total = w.day_time() as f32;
-    let global = ((total - 72000.0) / 1440000.0).clamp(0.0, 1.0) * 0.25;
-    let hard = w.mob.ai.difficulty == Difficulty::Hard;
-    let mut local = (w.time as f32 / 3600000.0).clamp(0.0, 1.0) * if hard { 1.0 } else { 0.75 };
-    const MOON: [f32; 8] = [1.0, 0.75, 0.5, 0.25, 0.0, 0.25, 0.5, 0.75];
-    let moon = MOON[(w.day_time().div_euclid(24000).rem_euclid(8)) as usize];
-    local += (moon * 0.25).clamp(0.0, global);
-    if w.mob.ai.difficulty == Difficulty::Easy {
-        local *= 0.5;
-    }
-    let effective = base * (0.75 + global + local);
+    let effective = effective_difficulty_now(w);
     if effective < 2.0 {
         0.0
     } else if effective > 4.0 {
@@ -1922,6 +1909,34 @@ fn special_multiplier_now(w: &World) -> f32 {
     } else {
         (effective - 2.0) / 2.0
     }
+}
+
+/// `level.getCurrentDifficultyAt(pos).getEffectiveDifficulty()` (DifficultyInstance's
+/// `calculateDifficulty`: the base 1/2/3 x (0.75 + the world's age share + the chunk's inhabited
+/// time share + the moon's), 0 in peaceful); natural spawning's inhabited time when it runs, else
+/// the run's age.
+pub fn effective_difficulty_now(w: &World) -> f32 {
+    let (difficulty, inhabited) = match w.mob.natural.as_ref() {
+        Some(nat) => (nat.difficulty, nat.ticks as f32),
+        None => (w.mob.ai.difficulty, w.time as f32),
+    };
+    let base = match difficulty {
+        Difficulty::Peaceful => return 0.0,
+        Difficulty::Easy => 1.0f32,
+        Difficulty::Normal => 2.0,
+        Difficulty::Hard => 3.0,
+    };
+    let total = w.day_time() as f32;
+    let global = ((total - 72000.0) / 1440000.0).clamp(0.0, 1.0) * 0.25;
+    let hard = difficulty == Difficulty::Hard;
+    let mut local = (inhabited / 3600000.0).clamp(0.0, 1.0) * if hard { 1.0 } else { 0.75 };
+    const MOON: [f32; 8] = [1.0, 0.75, 0.5, 0.25, 0.0, 0.25, 0.5, 0.75];
+    let moon = MOON[(w.day_time().div_euclid(24000).rem_euclid(8)) as usize];
+    local += (moon * 0.25).clamp(0.0, global);
+    if difficulty == Difficulty::Easy {
+        local *= 0.5;
+    }
+    base * (0.75 + global + local)
 }
 
 /// `ConversionTracker.doConversion` of zombie `i` into a drowned (`Mob.convertTo(DROWNED,
@@ -2295,11 +2310,12 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
         Finalize::ZombieHorse => {
             // the zombie rider: constructed, its finalizeSpawn (NATURAL, no group data); a baby's
             // chicken would be left behind when it mounts the horse
-            if w.exact_seed.is_some() {
-                let _ = w.construct();
-            }
+            let rider_ctor = if w.exact_seed.is_some() { Some(w.construct()) } else { None };
             let mut zg = GroupData::default();
             let (zbaby, zj, zh, zb) = zombie_finalize(w, nat, &mut zg, false, pos, &mut rider_hand);
+            // (mob-AI 2026-11-10) its finalizeSpawn's handleAttributes, from that random, once it
+            // exists (`spawn_mob`)
+            rider_hand.ctor = rider_ctor;
             // ZombieHorse.finalizeSpawn: then a fresh iron spear in the rider's hand
             rider_hand.weapon = Some(("minecraft:iron_spear", false));
             rider_helmet = zh;
@@ -2638,6 +2654,18 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
     // before any of them mounts)
     for who in [Some(id), rider, chicken].into_iter().flatten() {
         super::ai::refresh_path_budget(w, who, true);
+    }
+    // (mob-AI 2026-11-10) a zombie horseman's rider: Zombie.finalizeSpawn's handleAttributes
+    // (NATURAL: the reinforcement chance, the knockback resistance bonus, the follow range bonus,
+    // the leader roll) from its own construction random; it came before the rider mounted (its
+    // own navigation's budget). module-three-watchers village-edge build 1 t43562 (a horseman's
+    // reinforcement call) and m2-open village-edge build 1 t64015 (its knockback)
+    if matches!(f.jockey, Jockey::HorseZombie | Jockey::HorseBabyZombie)
+        && let Some(r) = rider
+    {
+        let special = special_multiplier_now(w);
+        zombie_handle_attributes(w, r, f.rider_hand.ctor.clone(), special, true);
+        super::ai::refresh_path_budget(w, r, true);
     }
     // the zombies that break doors: the goal joins and the navigation opens doors
     let doors = |w: &mut World, who: Option<u32>, v: bool| {

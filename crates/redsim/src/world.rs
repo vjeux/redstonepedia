@@ -294,6 +294,10 @@ pub struct World {
     /// (tickexact 2026-11-10) Entities a load brought back under new ids: old id -> its current
     /// id (`reload::load_all`; a drive's `eN` follows it).
     pub renumbered: HashMap<u32, u32>,
+    /// (tickexact 2026-11-11) The last whole-part load's entities in the order they came back,
+    /// `old>new:type` (the number before the reload, the new one, the game's type name), space
+    /// separated: the bridge's `load` reports the game's the same way.
+    pub last_load: String,
     /// (tickexact 2026-11-10, ironspec's fault rule: a partial unload) The chunks of the forced
     /// box whose forced tickets are dropped (`reload::unload_some`): each chunk's simulation level
     /// is then 31 plus its distance to the nearest chunk still forced ([`World::chunk_level`]).
@@ -419,6 +423,7 @@ impl World {
             nether: None,
             away: None,
             renumbered: HashMap::new(),
+            last_load: String::new(),
             unforced: Vec::new(),
             ultrawarm: false,
             portal_tickets: Vec::new(),

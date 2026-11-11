@@ -1243,6 +1243,18 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
                     eprintln!("mobstate t{t}: {} at {} {} {}: path {p}", m["type"].as_str().unwrap_or("?"), m["x"].as_str().unwrap_or("?"), m["y"].as_str().unwrap_or("?"), m["z"].as_str().unwrap_or("?"));
                 }
             }
+            // MCTAS_EXACT_STEP=N,..: those mobs' step-sound bookkeeping (moveDist, nextStep), the
+            // game's beside redsim's
+            if let Ok(ids) = std::env::var("MCTAS_EXACT_STEP") {
+                for id in ids.split(',').filter_map(|s| s.trim().parse::<i64>().ok()) {
+                    let game_step = v["mobs"].as_array().into_iter().flatten().find(|m| m["id"].as_i64() == Some(id)).and_then(|m| m["step"].as_str().map(str::to_string));
+                    let ours = redsim::entity::index_of(&run.world, id as u32).and_then(|i| match &run.world.entities.list[i].kind {
+                        redsim::entity::EntityKind::Mob(m) => Some(format!("{} {}", m.move_dist, m.next_step)),
+                        _ => None,
+                    });
+                    eprintln!("step t{t} #{id}: game {} | redsim {}", game_step.unwrap_or_else(|| "-".into()), ours.unwrap_or_else(|| "-".into()));
+                }
+            }
             // MCTAS_EXACT_PATHNODES="N:X,Y,Z:REACH": entity #N's search toward the cell again, every
             // node the game's evaluator made (the bridge's `path_nodes`)
             if let Ok(spec) = std::env::var("MCTAS_EXACT_PATHNODES") {
