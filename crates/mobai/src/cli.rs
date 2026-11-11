@@ -200,6 +200,9 @@ pub enum MobaiCmd {
         /// One line a lane (its carts, the first contact, the closest centres, a merge)
         #[arg(long)]
         summary: bool,
+        /// Each cart's x and x speed too (carts through curves)
+        #[arg(long)]
+        xz: bool,
     },
     /// (tickexact 2026-11-11, ironspec's hatch sight lines) redsim's line of sight from the siding's
     /// napper (stand-up cell, sleeper, T rider) to the dorm zombie, the hatch closed and open
@@ -360,7 +363,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
         }
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
-        MobaiCmd::RecCarts { path, every, band, summary } => crate::fixture::rec_carts(&path, every, band, summary),
+        MobaiCmd::RecCarts { path, every, band, summary, xz } => crate::fixture::rec_carts(&path, every, band, summary, xz),
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),

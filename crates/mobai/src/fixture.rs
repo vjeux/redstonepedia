@@ -96,6 +96,9 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, ironspec's curve spacing) the from-rest pairs' powered rails powered
+        // at t5 (redstone blocks for the floor under them: lanes x0 49 and 61 of row B)
+        "curve-pair" => vec![(1, [49, 61].iter().flat_map(|x| [([*x, 63, 32], "minecraft:redstone_block".to_string()), ([*x, 63, 33], "minecraft:redstone_block".to_string())]).collect())],
         // (tickexact 2026-11-11, ironspec's hatch sight lines) every lane's hatch shut at t300 (a
         // top-half trapdoor closed: the sight lines should be clear) and opened again at t600
         "siding-hatch" => {
@@ -4113,6 +4116,99 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's curve spacing: stand B's stagger-3 failure, cart 2 reaching a
+    // curve while cart 1 still turns in it) two carts in sequence at a visible 0.4 a tick (stored
+    // 0.4 empty, 0.6 ridden: a rider's 0.75 scale) down a straight run along +z into a 90-degree curve
+    // ((x0, 64, z0 + 10), north_east) and on east; row A (z0 0): spaced 1.0, 1.2, 1.4, 1.6 blocks,
+    // ridden and empty; row B (z0 24): an S-bend (a second curve (x0 + 1, 64, z0 + 10), south_west,
+    // then south) at 1.0 and 1.4, ridden and empty, and a pair touching at the curve's foot, set
+    // creeping at 0.02 on powered rails against a stone, powered from t1 (scene_actions); row C (z0
+    // 48): the 90-degree curve at 1.8, 2.0, 2.2, 2.4; lanes x0 = 1 + 12k
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 96, 0, 64, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let cart = |x: f64, z: f64, v: f64, ridden: bool| {
+            let motion = format!("Motion:[0.0d,0.0d,{v:.2}d]");
+            let nbt = if ridden { format!("{{{motion},Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}") } else { format!("{{{motion}}}") };
+            ("minecraft:minecart".to_string(), [x, 64.0625, z], Some(nbt))
+        };
+        let ns = "minecraft:rail[shape=north_south,waterlogged=false]";
+        let ew = "minecraft:rail[shape=east_west,waterlogged=false]";
+        // (kind: 0 the 90-degree curve, 1 the S-bend, 2 from rest at the foot; spacing; ridden)
+        let mut lanes: Vec<(i32, i32, u8, f64, bool)> = Vec::new();
+        let mut k = 0;
+        for s in [1.0, 1.2, 1.4, 1.6] {
+            for ridden in [true, false] {
+                lanes.push((1 + 12 * k, 0, 0, s, ridden));
+                k += 1;
+            }
+        }
+        k = 0;
+        for s in [1.0, 1.4] {
+            for ridden in [true, false] {
+                lanes.push((1 + 12 * k, 24, 1, s, ridden));
+                k += 1;
+            }
+        }
+        for ridden in [true, false] {
+            lanes.push((1 + 12 * k, 24, 2, 1.0, ridden));
+            k += 1;
+        }
+        // (row C, z0 48: the 90-degree curve at wider spacings)
+        k = 0;
+        for s in [1.8, 2.0, 2.2, 2.4] {
+            for ridden in [true, false] {
+                lanes.push((1 + 12 * k, 48, 0, s, ridden));
+                k += 1;
+            }
+        }
+        for (x0, z0, kind, s, ridden) in lanes {
+            b.push(([x0, 64, z0], stone.to_string()));
+            for z in z0 + 1..=z0 + 9 {
+                b.push(([x0, 64, z], ns.to_string()));
+            }
+            b.push(([x0, 64, z0 + 10], "minecraft:rail[shape=north_east,waterlogged=false]".to_string()));
+            if kind == 1 {
+                b.push(([x0 + 1, 64, z0 + 10], "minecraft:rail[shape=south_west,waterlogged=false]".to_string()));
+                for z in z0 + 11..=z0 + 19 {
+                    b.push(([x0 + 1, 64, z], ns.to_string()));
+                }
+                b.push(([x0 + 1, 64, z0 + 20], stone.to_string()));
+            } else {
+                for x in x0 + 1..=x0 + 9 {
+                    b.push(([x, 64, z0 + 10], ew.to_string()));
+                }
+                b.push(([x0 + 10, 64, z0 + 10], stone.to_string()));
+            }
+            let xf = x0 as f64 + 0.5;
+            if kind == 2 {
+                b.push(([x0, 64, z0 + 7], stone.to_string()));
+                for z in [z0 + 8, z0 + 9] {
+                    b.push(([x0, 64, z], "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]".to_string()));
+                }
+                mobs.push(cart(xf, z0 as f64 + 9.5, 0.02, ridden));
+                mobs.push(cart(xf, z0 as f64 + 8.5, 0.02, ridden));
+            } else {
+                let v = if ridden { 0.6 } else { 0.4 };
+                mobs.push(cart(xf, z0 as f64 + 5.5, v, ridden));
+                mobs.push(cart(xf, z0 as f64 + 5.5 - s, v, ridden));
+            }
+        }
+        v.push(Scene {
+            name: "curve-pair".into(),
+            chunks: [0, 0, 5, 3],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [95, 68, 63]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
@@ -6768,7 +6864,7 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
 /// and the gaps between neighbours (centres under 0.01 apart: MERGED); then per lane the closest
 /// pair over the run and the first contact, with the arriving (faster) cart's stored speed the tick
 /// before. `summary`: one line a lane, nothing per tick.
-pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -> Result<()> {
+pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool, xz: bool) -> Result<()> {
     let text = mctas::recorded::read_text(path)?;
     let mut lines = text.lines();
     let _header = lines.next();
@@ -6797,7 +6893,13 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
         }
     }
     let gap = |a: &Cart, b: &Cart| ((a.1[0] - b.1[0]).powi(2) + (a.1[1] - b.1[1]).powi(2) + (a.1[2] - b.1[2]).powi(2)).sqrt();
-    let cart = |c: &Cart| format!("#{}{} z {:.4} y {:.4} vz {:+.4}", c.0, if c.3 { "R" } else { "E" }, c.1[2], c.1[1], c.2[2]);
+    let cart = |c: &Cart| {
+        if xz {
+            format!("#{}{} x {:.4} z {:.4} y {:.4} vx {:+.4} vz {:+.4}", c.0, if c.3 { "R" } else { "E" }, c.1[0], c.1[2], c.1[1], c.2[0], c.2[2])
+        } else {
+            format!("#{}{} z {:.4} y {:.4} vz {:+.4}", c.0, if c.3 { "R" } else { "E" }, c.1[2], c.1[1], c.2[2])
+        }
+    };
     // (with `summary`: per lane the faster cart's starting speed, the contact speed, the closest
     // centres, merged; printed at the end in starting-speed order as runs of merged and not)
     let mut sweep: Vec<(f64, Option<f64>, f64, bool)> = Vec::new();
