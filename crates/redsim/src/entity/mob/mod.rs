@@ -311,6 +311,12 @@ pub struct MobState {
     pub last_crystal_tick: i32,
     /// `getSleepingPos()`: sleeping (pose SLEEPING) when set.
     pub sleeping_pos: Option<BlockPos>,
+    /// (tickexact 2026-11-11) The pose STANDING while the sleeping pos stays: `Entity.startRiding`
+    /// sets the pose STANDING (and `refreshDimensions`: the standing box) without `stopSleeping`,
+    /// so a sleeper a minecart picks up off its bed rides as tall as awake, its bed still occupied,
+    /// asleep for `isSleeping` until its WakeUp (or another stopSleeping) puts it back on its feet
+    /// by the bed. Cleared by start/stop sleeping; not saved (a sleeper loads with pose SLEEPING).
+    pub pose_standing: bool,
     /// `FOLLOW_RANGE` with `Mob.finalizeSpawn`'s random bonus.
     pub follow_range: f64,
     /// (tickexact 2026-11-10) A zombie's `SPAWN_REINFORCEMENTS_CHANCE`: `randomizeReinforcementsChance`
@@ -405,6 +411,7 @@ impl MobState {
             crystal_intensity: 0.0,
             last_crystal_tick: 0,
             sleeping_pos: None,
+            pose_standing: false,
             follow_range: d.follow_range * (1.0 + bonus),
             reinforcement_chance: 0.0,
             max_health_bonus: 0.0,
@@ -442,7 +449,7 @@ impl MobState {
 
     /// `getDimensions(pose)`: (width, height).
     pub fn dims(&self) -> (f32, f32) {
-        if self.sleeping_pos.is_some() {
+        if self.sleeping_pos.is_some() && !self.pose_standing {
             (types::SLEEPING.0, types::SLEEPING.1)
         } else {
             let d = self.ty.def();
@@ -456,7 +463,7 @@ impl MobState {
 
     /// `getEyeHeight()` in its pose.
     pub fn eye(&self) -> f32 {
-        if self.sleeping_pos.is_some() { types::SLEEPING.2 } else { self.ty.def().eye * self.scale }
+        if self.sleeping_pos.is_some() && !self.pose_standing { types::SLEEPING.2 } else { self.ty.def().eye * self.scale }
     }
 }
 

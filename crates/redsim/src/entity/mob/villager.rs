@@ -507,6 +507,7 @@ pub fn start_sleeping(w: &mut World, i: usize, bed: BlockPos) -> bool {
     set_pos_to_bed(w, i, bed);
     w.set_block(bed, Block::Bed { colour, facing, head, occupied: true }, crate::world::flags::ALL);
     mob_mut(w, i).sleeping_pos = Some(bed);
+    mob_mut(w, i).pose_standing = false;
     let p = w.entities.list[i].pos;
     w.entities.set_pos(i, p);
     w.entities.list[i].delta_movement = Vec3::ZERO;
@@ -518,6 +519,7 @@ pub fn start_sleeping(w: &mut World, i: usize, bed: BlockPos) -> bool {
 /// `LAST_WOKEN`.
 pub fn stop_sleeping(w: &mut World, i: usize) {
     let Some(bed) = mob(w, i).sleeping_pos else { return };
+    mob_mut(w, i).pose_standing = false;
     if let Block::Bed { colour, facing, head, .. } = w.get(bed) {
         w.set_block(bed, Block::Bed { colour, facing, head, occupied: false }, crate::world::flags::ALL);
         let ty = mob(w, i).ty;

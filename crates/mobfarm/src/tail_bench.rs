@@ -92,6 +92,12 @@ pub struct BenchOpts {
     pub drive_out: Option<std::path::PathBuf>,
     /// The design's flights replaced by these (a positive control of the off-the-rails check).
     pub flights: Option<Vec<crate::flight::Flight>>,
+    /// The design file's own declared states and flights (`declared:`, `flights:`), checked on
+    /// top of the derived ones.
+    pub hdr: crate::queue::Headers,
+    /// A loop's arrival stream replayed: (cycle, dt, x, speed) of each cart crossing x 8.5
+    /// westward on the return run (queue-loop-run `--arrivals-out`), spawned there and then.
+    pub arrivals: Vec<(i64, i64, f64, f64)>,
 }
 
 /// The design moved by (dx, dz): blocks, block entities, entities, its box.
@@ -141,12 +147,14 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
         redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
     }
     run.own = (first..run.world.entities.next_id).collect();
-    // (the declared states, `crate::declared`, at tick 0: a mismatch fails the bench)
-    let declared = crate::queue::declared_states(o).into_iter().map(|mut d| {
+    // (the declared states, `crate::declared`, at tick 0: the options' and the file's own header's;
+    // a mismatch fails the bench)
+    let sh = |mut d: crate::declared::Decl| {
         d.cell = [d.cell[0] + dx, d.cell[1], d.cell[2] + dz];
         d
-    }).collect::<Vec<_>>();
-    let bad = crate::declared::check(&run.world, &declared, false);
+    };
+    let (declared, mut bad) = crate::queue::merge_declared(crate::queue::declared_states(o).into_iter().map(sh).collect(), &bo.hdr.declared.iter().cloned().map(sh).collect::<Vec<_>>());
+    bad.extend(crate::declared::check(&run.world, &declared, false));
     if !bad.is_empty() {
         return Err(format!("declared states: {} mismatches ({})", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
     }
@@ -239,7 +247,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let mut watched_prev: Vec<Block> = watched.iter().map(|c| run.world.get(*c)).collect();
     let mut drive: Vec<String> = Vec::new();
     // (the off-the-rails watch with the design's declared flights)
-    let mut rails = crate::flight::RailWatch::new(bo.flights.clone().unwrap_or_else(|| lay.flights.iter().map(|f| f.shifted(dx, dz)).collect()));
+    let mut rails = crate::flight::RailWatch::new(bo.flights.clone().unwrap_or_else(|| crate::queue::merge_flights(lay.flights.iter().map(|f| f.shifted(dx, dz)).collect(), &bo.hdr.flights.iter().map(|f| f.shifted(dx, dz)).collect::<Vec<_>>())));
     // (admission control: A' (the latch's reset cell) and A (the always-on booster under G0))
     let adm_a1: Option<[i32; 3]> = lay.esc_adm_a1.map(mc);
     let a_cell: Option<[i32; 3]> = if adm_a1.is_some() { g0.map(|g| [g.x, g.y - 1, g.z]) } else { None };
@@ -314,6 +322,10 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             let p = if bo.from_climb { [9.5 + fx, -3.0 + 0.0625, 0.5 + fz - back] } else { [8.5 + fx + back, ye as f64 + 0.0625, 20.5 + fz] };
             spawns.push((t, p, b.speed));
         }
+    }
+    // (a loop's arrival stream replayed: each cart where and when the loop's crossed x 8.5)
+    for (c, dt, x, v) in &bo.arrivals {
+        spawns.push((c * 100 + dt, [x + fx, ye as f64 + 0.0625, 20.5 + fz], *v));
     }
     spawns.sort_by_key(|s| s.0);
     let mut next_spawn = 0;
@@ -450,7 +462,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
                 if dt == a + d + kb + wb + lag {
                     set_g0(&mut run.world, true);
                 }
-            } else if live && dt == a + d + tm.esc_adm.0 {
+            } else if live && dt == a + d + if k == 2 && tm.adm_k2 >= 0 { tm.adm_k2 } else { tm.esc_adm.0 } {
                 set_g0(&mut run.world, true);
                 set_g1(&mut run.world, true);
                 g1_open = Some(t);
