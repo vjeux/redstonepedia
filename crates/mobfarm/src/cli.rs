@@ -520,6 +520,18 @@ pub enum MobfarmCmd {
         at: String,
         #[arg(long)]
         out: PathBuf,
+        /// A contested cell (both designs hold it, with different blocks), a port both name, a cell
+        /// both declare differently or a second Nether part keeps this side (`base` or `part`)
+        /// instead of refusing the paste; each conflict is printed and written into the file's
+        /// header as a `# conflict:` line (an assembly that lists what it couldn't join).
+        #[arg(long)]
+        keep: Option<String>,
+        /// Boxes of the base cleared before the paste (`;`-separated X0,Y0,Z0,X1,Y1,Z1, the base's
+        /// frame, inclusive): their blocks, block entities and entities (by the cell they stand in)
+        /// removed, each box's counts printed and written into the header (the part a pasted
+        /// design replaces).
+        #[arg(long, allow_hyphen_values = true)]
+        clear: Option<String>,
     },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
@@ -2717,40 +2729,95 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Paste { base, part, at, out } => {
+        MobfarmCmd::Paste { base, part, at, out, keep, clear } => {
             let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(o.len() == 3, "--at x,y,z");
+            let keep_part = match keep.as_deref() {
+                None => None,
+                Some("base") => Some(false),
+                Some("part") => Some(true),
+                Some(k) => anyhow::bail!("--keep {k}: base or part"),
+            };
             let mut d = mctas::design::Design::parse(&std::fs::read_to_string(&base)?)?;
             let p = mctas::design::Design::parse(&std::fs::read_to_string(&part)?)?;
+            // (`--clear`: the base's boxes emptied first, the cells the part replaces)
+            let mut cleared: Vec<String> = Vec::new();
+            for bx in clear.as_deref().unwrap_or("").split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                let v: Vec<i32> = bx.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 6, "--clear takes X0,Y0,Z0,X1,Y1,Z1 boxes: {bx}");
+                let (lo, hi) = ([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]);
+                let inside = |c: &[i32; 3]| (0..3).all(|i| c[i] >= lo[i] && c[i] <= hi[i]);
+                let nb = d.blocks.len();
+                d.blocks.retain(|c, _| !inside(c));
+                d.block_entities.retain(|c, _| !inside(c));
+                let ne = d.entities.len();
+                d.entities.retain(|e| !inside(&[e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]));
+                cleared.push(format!("{},{},{}..{},{},{}: {} blocks, {} entities", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], nb - d.blocks.len(), ne - d.entities.len()));
+            }
             let mv = |c: &[i32; 3]| [c[0] + o[0], c[1] + o[1], c[2] + o[2]];
             let mut clashes = Vec::new();
+            let mut conflicts: Vec<String> = Vec::new();
+            let side = |part: bool| if part { "the part's" } else { "the base's" };
             for (c, s) in &p.blocks {
                 let at = mv(c);
                 match d.blocks.get(&at) {
-                    Some(t) if t != s => clashes.push(format!("{at:?}: the base's {t}, the part's {s}")),
+                    Some(t) if t != s => {
+                        clashes.push(format!("{at:?}: the base's {t}, the part's {s}"));
+                        if let Some(kp) = keep_part {
+                            conflicts.push(format!("{},{},{}: the base's {t}, the part's {s}; kept {}", at[0], at[1], at[2], side(kp)));
+                            if kp {
+                                d.blocks.insert(at, s.clone());
+                            }
+                        }
+                    }
                     _ => {
                         d.blocks.insert(at, s.clone());
                     }
                 }
             }
-            anyhow::ensure!(clashes.is_empty(), "{} cells both designs hold: {}", clashes.len(), clashes.iter().take(12).cloned().collect::<Vec<_>>().join("; "));
+            anyhow::ensure!(clashes.is_empty() || keep_part.is_some(), "{} cells both designs hold: {} (`--keep base|part` keeps one side and lists each)", clashes.len(), clashes.iter().take(12).cloned().collect::<Vec<_>>().join("; "));
             for (c, s) in &p.block_entities {
                 d.block_entities.insert(mv(c), s.clone());
             }
+            let mut merged_entities = 0;
             for e in &p.entities {
                 let mut e = e.clone();
                 e.pos = [e.pos[0] + o[0] as f64, e.pos[1] + o[1] as f64, e.pos[2] + o[2] as f64];
+                // (an entity line both designs hold, the same kind, position and data: one entity,
+                // as two pasted copies of a shared register would otherwise double its carts)
+                if d.entities.iter().any(|x| x.kind == e.kind && x.nbt == e.nbt && (0..3).all(|i| (x.pos[i] - e.pos[i]).abs() < 1.0e-6)) {
+                    merged_entities += 1;
+                    continue;
+                }
                 d.entities.push(e);
             }
             for (k, c) in &p.ports {
-                anyhow::ensure!(!d.ports.contains_key(k), "the port {k} is in both designs");
+                if let Some(&b) = d.ports.get(k) {
+                    if b == mv(c) {
+                        continue;
+                    }
+                    let Some(kp) = keep_part else { anyhow::bail!("the port {k} is in both designs") };
+                    conflicts.push(format!("the port {k}: the base's {:?}, the part's {:?}; kept {}", b, mv(c), side(kp)));
+                    if !kp {
+                        continue;
+                    }
+                }
                 d.ports.insert(k.clone(), mv(c));
             }
             if !p.nether_blocks.is_empty() {
-                anyhow::ensure!(d.nether_blocks.is_empty(), "both designs have a Nether part");
-                d.nether_blocks = p.nether_blocks.clone();
-                d.nether_block_entities = p.nether_block_entities.clone();
-                d.nether_ports = p.nether_ports.clone();
+                if !d.nether_blocks.is_empty() {
+                    let Some(kp) = keep_part else { anyhow::bail!("both designs have a Nether part") };
+                    conflicts.push(format!("both designs have a Nether part ({} and {} blocks); kept {}", d.nether_blocks.len(), p.nether_blocks.len(), side(kp)));
+                    if kp {
+                        d.nether_blocks = p.nether_blocks.clone();
+                        d.nether_block_entities = p.nether_block_entities.clone();
+                        d.nether_ports = p.nether_ports.clone();
+                    }
+                } else {
+                    d.nether_blocks = p.nether_blocks.clone();
+                    d.nether_block_entities = p.nether_block_entities.clone();
+                    d.nether_ports = p.nether_ports.clone();
+                }
             }
             // (the build steps: both designs' tokens, each once; the part's cells moved)
             if let Some(b) = p.meta.get("build") {
@@ -2776,7 +2843,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for x in mctas_decl(p.meta.get("declared"))? {
                 let moved = crate::declared::Decl { cell: mv(&x.cell), ..x };
                 match decl.iter().find(|e| e.cell == moved.cell) {
-                    Some(e) if *e != moved => anyhow::bail!("the cell {:?} is declared by both designs differently: the base's {}, the part's {}", moved.cell, crate::declared::format(std::slice::from_ref(e)), crate::declared::format(std::slice::from_ref(&moved))),
+                    Some(e) if *e != moved => {
+                        let what = format!("the cell {:?} is declared by both designs differently: the base's {}, the part's {}", moved.cell, crate::declared::format(std::slice::from_ref(e)), crate::declared::format(std::slice::from_ref(&moved)));
+                        let Some(kp) = keep_part else { anyhow::bail!("{what}") };
+                        conflicts.push(format!("{what}; kept {}", side(kp)));
+                        if kp {
+                            decl.retain(|x| x.cell != moved.cell);
+                            decl.push(moved);
+                        }
+                    }
                     Some(_) => {}
                     None => decl.push(moved),
                 }
@@ -2795,8 +2870,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 d.meta.insert("flights".into(), crate::flight::format(&fl));
             }
             let head: String = std::fs::read_to_string(&base)?.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
-            std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
-            println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
+            let conflict_lines: String = cleared.iter().map(|c| format!("# - cleared before {} at {},{},{}: {c}\n", p.name, o[0], o[1], o[2])).chain(conflicts.iter().map(|c| format!("# conflict ({} at {},{},{}): {c}\n", p.name, o[0], o[1], o[2]))).collect();
+            std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{}{}{})\n{conflict_lines}{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, if merged_entities == 0 { String::new() } else { format!("; {merged_entities} entities the base already held") }, if conflicts.is_empty() { String::new() } else { format!("; {} conflicts", conflicts.len()) }, d.to_text()))?;
+            println!("{}: {} blocks after {} blocks of {} at {:?}{}{}{}", out.display(), d.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) }, if merged_entities == 0 { String::new() } else { format!("; {merged_entities} entities the base already held") }, if conflicts.is_empty() { String::new() } else { format!("; {} conflicts (kept {})", conflicts.len(), side(keep_part == Some(true))) });
+            for c in &cleared {
+                println!("  cleared: {c}");
+            }
+            for c in &conflicts {
+                println!("  conflict: {c}");
+            }
         }
         MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, row_a, tail_posts, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
