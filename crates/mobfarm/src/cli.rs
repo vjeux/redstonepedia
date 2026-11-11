@@ -542,6 +542,31 @@ pub enum MobfarmCmd {
         /// back to the tail's level.
         #[arg(long, default_value_t = 0)]
         depart_crest: u32,
+        /// With --approach: the climb's last slope (the cell before T) an always-on booster.
+        #[arg(long)]
+        approach_boost: bool,
+        /// With --depart-crest: the dip past the line as plain flat rails (the boosted rise
+        /// climbs alone).
+        #[arg(long)]
+        crest_plain_dip: bool,
+        /// With --depart-crest: this many plain slopes down from the crest (default: as many as
+        /// --depart-crest), the dip at the level they reach.
+        #[arg(long, default_value_t = 0)]
+        crest_descent: u32,
+        /// With --part-departure: the part's column after the crest's descent built for a
+        /// hand-off corner at the departure's column, height Y, z Z (ironfarm's R1: 13,24): the
+        /// dip at the descent's level, then boosted slopes up to Y ending at Z - 1; the loop's
+        /// own departure is not changed.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        part_handoff: Vec<i32>,
+        /// Also write the stand's departure alone as a part design (G0 and its slope, the climb,
+        /// the crest, the dip, the rise, the U-turn; `border:` and the hand-off cell).
+        #[arg(long)]
+        part_departure: Option<PathBuf>,
+        /// C' wired (with --approach 5 --stand-guard): the approach detector's edge circuit in
+        /// place of C's timer; its six repeater delays R_in,R1,R2,R3,R4,R5 in redstone ticks.
+        #[arg(long, value_delimiter = ',')]
+        cprime: Vec<i32>,
         /// The escapement tail's entry: one never-powered braked slope instead of the ledge.
         #[arg(long)]
         tail_brake: bool,
@@ -1391,6 +1416,20 @@ pub enum MobfarmCmd {
         /// With --stand-hold: the hold passes at most one cart per N gt (S1t's metering).
         #[arg(long, default_value_t = 0)]
         stand_meter: i64,
+        /// The shared bed's head block X,Y,Z (loop frame): print the riders' closest approach to
+        /// it, over the run and on the approach (farmopt's approach lab).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        bed_distance: Vec<i32>,
+        /// Slots C0,C1[,X]: print every cart on the approach's column each tick (position, speed,
+        /// the gap to the cart ahead; farmopt's approach lab); X: the column x = X instead (the
+        /// departure's, its carts travelling +z).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        approach_trace: Vec<i64>,
+        /// farmopt's departure-clear input, emulated: X,Y,Z (loop frame): the stand's REL_eff
+        /// rises only while no cart is in that cell (a detector on the departure's dip); prints
+        /// the holds and the margin from the cell's last cart to each REL rise.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        rel_clear: Vec<i32>,
         /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
         /// partial unloads too when the design is shifted), on --seeds seeds from --seed, --jobs
         /// threads; a value keeps only the cases whose name contains it ("D1|REL").
@@ -1402,6 +1441,10 @@ pub enum MobfarmCmd {
         /// With --fault-table: every case at REL nominal, early and late x staggers 2, 3, 4, 6.
         #[arg(long)]
         all_corners: bool,
+        /// With --fault-table (a --cprime design): the table for each set of C''s delays
+        /// "R1,R2,R3,R4,RIN,RS1;..." (redstone ticks), the design generated again with each.
+        #[arg(long, default_value = "")]
+        cprime_variants: String,
         /// The tolerance corners instead of a run: REL nominal, early and late x staggers 2, 3, 4, 6.
         #[arg(long)]
         corner_table: bool,
@@ -2426,8 +2469,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, out } => {
-            let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, crest_plain_dip, crest_descent, part_handoff, part_departure, cprime, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, out } => {            let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
                 None => [0, 0],
@@ -2435,8 +2477,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset };
+            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, crest_plain_dip, crest_descent, cprime: match cprime.as_slice() { [a, b, c, d, e, f] => Some([*a, *b, *c, *d, *e, *f]), [] => None, _ => anyhow::bail!("--cprime takes six delays") }, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
+            if let Some(pd) = &part_departure {
+                let ho = match part_handoff.as_slice() { [y, z] => Some((*y, *z)), [] => None, _ => anyhow::bail!("--part-handoff takes Y,Z") };
+                std::fs::write(pd, crate::queue::departure_part(&o, &std::fs::read_to_string(&out)?, ho)?)?;
+                println!("{}", pd.display());
+            }
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
             // block = powered, in the bench)
@@ -2737,7 +2784,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, fault_table, perfect_tail, all_corners, corner_table, exposure_out, hold_progress, rider_space_control, watch_mob, watch_mob_slots } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, fault_table, perfect_tail, all_corners, corner_table, exposure_out, hold_progress, rider_space_control, watch_mob, watch_mob_slots, bed_distance, approach_trace, rel_clear, cprime_variants } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -2848,7 +2895,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
                 }
                 a
-            }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
             // (`--place-rest`: the approach's rest check instead of a run)
             if let Some(pr) = &place_rest {
                 let cells: Vec<[i32; 3]> = if pr == "approach" {
@@ -2871,7 +2918,34 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (n, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--shift takes name=gt"))?;
                     t = crate::queue::loop_shifted(&t, n, v.parse()?).map_err(|e| anyhow::anyhow!(e))?;
                 }
-                println!("{}", crate::approach::fault_table(&spec, &o, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners).map_err(|e| anyhow::anyhow!(e))?);
+                // (`--cprime-variants`: the table for each set of C''s delays, the design generated
+                // again from its queue: line with that set)
+                let variants: Vec<Option<[i32; 6]>> = if cprime_variants.is_empty() {
+                    vec![None]
+                } else {
+                    cprime_variants.split(';').map(|v| {
+                        let d: Vec<i32> = v.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(d.len() == 6, "--cprime-variants takes R1,R2,R3,R4,RIN,RS1;...");
+                        Ok(Some([d[0], d[1], d[2], d[3], d[4], d[5]]))
+                    }).collect::<Result<_>>()?
+                };
+                for v in variants {
+                    let (o2, spec2) = match v {
+                        None => (o, spec.clone()),
+                        Some(d) => {
+                            let o2 = crate::queue::LoopOpts { cprime: Some(d), ..o };
+                            let p = std::env::temp_dir().join(format!("cprime-variant-{}-{}.txt", std::process::id(), d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_")));
+                            std::fs::write(&p, crate::queue::loop_design(&o2)?)?;
+                            let (_, s2) = load(version, &p)?;
+                            let _ = std::fs::remove_file(&p);
+                            // (C''s delay from D's rise to T3 lit: 2 gt a repeater tick, and K, T_n
+                            // and T3 one tick each)
+                            println!("== C' delays {:?}: D's rise to T3 lit {} gt", d, 2 * (d[0] + d[1] + d[2] + d[3] + d[4]) + 6);
+                            (o2, s2)
+                        }
+                    };
+                    println!("{}", crate::approach::fault_table(&spec2, &o2, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners).map_err(|e| anyhow::anyhow!(e))?);
+                }
                 return Ok(());
             }
             if corner_table {
