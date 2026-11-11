@@ -2633,6 +2633,8 @@ pub struct LoopTiming {
     /// With `interlock`: G2's in-gate guard reads a tripwire over its cell at rider height
     /// (`--g2-tripwire`, emulated).
     pub g2_tripwire: bool,
+    /// With `stand_hold`: the hold passes at most one cart per N gt (`--stand-meter N`, S1t).
+    pub stand_meter: i64,
     /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
     /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
     pub arrivals: bool,
@@ -2896,7 +2898,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false }
     }
 }
 
@@ -3818,6 +3820,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut g2p_prev: Vec<Option<f64>> = Vec::new();
     let mut g2p_cross: Vec<(i64, i64, i64)> = Vec::new();
     let mut gd_hist: [Vec<bool>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut meter_prev: Vec<bool> = Vec::new();
+    let mut meter_last: Option<i64> = None;
+    let mut meter_arrivals: i64 = 0;
+    let mut meter_touch: Vec<usize> = Vec::new();
+    let mut meter_impacts: Vec<f64> = Vec::new();
     let (mut tw_on, mut tw_armed, mut tw_q_was, mut tw_check_at, mut tw_slips) = (false, false, false, 0i64, 0i64);
     let mut tw_prev_x: Vec<Option<f64>> = Vec::new();
     let mut tw_slip_log: Vec<String> = Vec::new();
@@ -3852,6 +3859,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut rel_at_g0: Vec<String> = Vec::new();
     let mut rel_at_g0_was = false;
     let mut walk_push: i64 = 0;
+    let (mut summon_ticks, mut summon_panic) = (0i64, 0i64);
     let mut walk_push_log: Vec<String> = Vec::new();
     let mut split_rel_rise: Option<i64> = None;
     let mut split_rel_was = false;
@@ -5411,6 +5419,21 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // latch: a cart's centre in x -2..0.5 along the strip), a cart reaching the hold cell is
         // kept at rest at its centre (the stand-in for a gate or a braked rail there); the carts
         // behind it come to rest as the track lets them)
+        // (riders panicking on the summon tick: the game's golem summon runs when the world time is
+        // a multiple of 100, for a panicking villager only)
+        if run.world.time % 100 == 0 {
+            for r in riders.iter() {
+                if let Some(i) = redsim::entity::index_of(&run.world, *r)
+                    && let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
+                    && let Some(x) = m.brain.as_deref().and_then(|b| b.ex.as_deref())
+                {
+                    summon_ticks += 1;
+                    if x.active == redsim::entity::mob::ai::brain::Act::Panic {
+                        summon_panic += 1;
+                    }
+                }
+            }
+        }
         // (REL at the stand: G0's own signal, each rise and fall against the slot, so a freeze that
         // delays or holds the release shows against the bench's schedule)
         if let Some((g0, _)) = lay.pockets.first() {
@@ -5502,6 +5525,44 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             entry_rel_was = rel_on_h;
             let young = tm.stand_hold_after > 0 && rel_on_h && entry_rel_rise.is_some_and(|r0| t - r0 < tm.stand_hold_after);
             let p3 = p3 || young;
+            // (`stand_meter` N: the hold passes at most one cart per N gt (S1t's metering): a cart
+            // leaving the hold cell starts the period; the next is held until it ends. The carts'
+            // impacts on a held front are recorded: the arriving cart's speed when it first touches
+            // the cart ahead within 1.05)
+            let (cx0, cz0) = (hc[0] as f64 + 0.5 + sx, hc[2] as f64 + 0.5 + sz);
+            let in_cell: Vec<bool> = ps.iter().map(|p| p.is_some_and(|p| (p.x - cx0).abs() < 0.5 && (p.z - cz0).abs() < 0.5)).collect();
+            if tm.stand_meter > 0 {
+                for (k, was) in meter_prev.iter().enumerate() {
+                    if *was && !in_cell.get(k).copied().unwrap_or(false) {
+                        meter_last = Some(t);
+                    }
+                }
+                for (k, now) in in_cell.iter().enumerate() {
+                    if *now && !meter_prev.get(k).copied().unwrap_or(false) {
+                        meter_arrivals += 1;
+                    }
+                }
+            }
+            meter_prev = in_cell;
+            let metering = tm.stand_meter > 0 && meter_last.is_some_and(|l| t - l < tm.stand_meter);
+            let p3 = p3 || metering;
+            if tm.stand_meter > 0 {
+                // (impacts behind the hold: a cart moving toward the hold touching a slower one ahead)
+                for (k, p) in ps.iter().enumerate() {
+                    let Some(p) = p else { continue };
+                    if (p.x - cx0).abs() > 0.6 || p.z - sz < 0.5 || p.z - sz > 6.5 {
+                        continue;
+                    }
+                    let v = redsim::entity::index_of(&run.world, carts[k]).map(|i| run.world.entities.list[i].delta_movement).map(|d| (d.x * d.x + d.z * d.z).sqrt()).unwrap_or(0.0);
+                    let ahead = ps.iter().enumerate().any(|(j, q)| j != k && q.is_some_and(|q| (q.x - p.x).abs() < 0.6 && p.z - q.z > 0.0 && p.z - q.z < 1.05));
+                    if ahead && !meter_touch.contains(&k) && v > 0.02 {
+                        meter_touch.push(k);
+                        meter_impacts.push(v);
+                    } else if !ahead {
+                        meter_touch.retain(|x| *x != k);
+                    }
+                }
+            }
             let (cx, cy, cz) = (hc[0] as f64 + 0.5 + sx, hc[1] as f64, hc[2] as f64 + 0.5 + sz);
             // (the slack: a cart entering the hold cell with the hold open, gt since it opened)
             if !p3 && entry_p3_was {
@@ -6429,6 +6490,20 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             homes_prev = Some(homes_now.clone());
             // (the `cant-reach:` line: each rider's streak where HOME's release can run, and the
             // releases)
+            // (riders panicking on the summon tick: moved to the per-tick trackers)
+            if false {
+                for r in riders.iter() {
+                    if let Some(i) = redsim::entity::index_of(&run.world, *r)
+                        && let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
+                        && let Some(x) = m.brain.as_deref().and_then(|b| b.ex.as_deref())
+                    {
+                        summon_ticks += 1;
+                        if x.active == redsim::entity::mob::ai::brain::Act::Panic {
+                            summon_panic += 1;
+                        }
+                    }
+                }
+            }
             for (k, r) in riders.iter().enumerate() {
                 // (tick-exact's push check: a seated rider with a walk target whose path reaches
                 // pushes its cart; counted where its cart touches another cart)
@@ -7304,6 +7379,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     if !rider_hurt.is_empty() {
         out.push(format!("riders hurt: {}", rider_hurt.join("; ")));
     }
+    out.push(format!("riders panicking on the summon tick (world time a multiple of 100): {summon_panic} of {summon_ticks} rider-ticks ({:.1}%); not panicking (no summon from them): {} ({:.1}%)", if summon_ticks > 0 { 100.0 * summon_panic as f64 / summon_ticks as f64 } else { 0.0 }, summon_ticks - summon_panic, if summon_ticks > 0 { 100.0 * (summon_ticks - summon_panic) as f64 / summon_ticks as f64 } else { 0.0 }));
     out.push(format!("riders walking with a reachable path while their cart touches another (they push it): {walk_push} rider-ticks{}", if walk_push_log.is_empty() { String::new() } else { format!(" (first: {})", walk_push_log.join("; ")) }));
     out.push(format!(
         "cant-reach: {}; HOME releases: {}",
@@ -7529,6 +7605,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         if let Some(hc) = tm.stand_hold {
             out.push(format!("REL at the stand (G0's signal; ↑ rise, ↓ fall, slot +gt): {}", rel_at_g0.join(" ")));
+            if tm.stand_meter > 0 {
+                let mx = meter_impacts.iter().cloned().fold(0.0f64, f64::max);
+                out.push(format!("stand meter ({} gt per cart): {meter_arrivals} cart entries at the hold; impacts on a slower cart ahead behind the hold: {} (fastest {:.3} b/t)", tm.stand_meter, meter_impacts.len(), mx));
+            }
             out.push(format!("entry hold at {},{},{} (pocket 3 occupied): carts held {entry_held_ticks} gt in all; slack at each cart's entry (gt since the hold opened; -1 held, 999 never shut): min {} max {}, {} entries held", hc[0], hc[1], hc[2], entry_slack.iter().min().map_or("-".into(), |v| v.to_string()), entry_slack.iter().filter(|v| **v < 999).max().map_or("-".into(), |v| v.to_string()), entry_slack.iter().filter(|v| **v < 0).count()));
             for s in &entry_snaps {
                 out.push(format!("  held train: {s}"));
