@@ -192,9 +192,142 @@ faults: the queue's share).
 3. a frozen chunk past the climb's exit (z 10..25) rolls departing carts back down the climb and
    through G0.
 
-The no-rest approach (ironspec's constraints) is being designed in emulation, with C′ (an edge
-detector wherever the new approach gives a clean once-per-train edge, replacing C's timer: about 25
-blocks against 43) and a departure top no cart can roll back from before the z 9|10 line folded in.
+The no-rest approach (ironspec's constraints), C′ and a departure top no cart can roll back from
+before the z 9|10 line: next section.
+
+## The no-rest approach, C′ wired, the departure crest (farmopt's approach lab; redsim only)
+
+`queue-loop --boost-first 8 --row-gap 3 --detector --zombie-every 8 --tail-desc --stand-stop
+--stand-wired --stand-guard --approach 5 --cprime 4,4,4,2,4,4 [--depart-crest 3]` (lab flags of
+`crates/mobfarm`, explore/farmopt-approach; no member carries them). Runs need `--release-stagger`
+(the guard's catch; the corner and fault tables set it themselves).
+
+- **Approach 5.** From the queue head: boosters to z 10, five plain slopes up (the third, (-3,3,7), C′'s
+  detector D), the flat top T (-3,6,4), three slopes down, and the snap turn (-3,2,0)
+  (`rail[shape=ascending_west]`; its high side two glass blocks high, (-4,2,0) and (-4,3,0): with one,
+  a cart pushed back west by a jam in pocket 3 climbed onto the block, off the rails). A cart crossing
+  into the turn's column takes the rail below at once: no tick off the rails there, so the turn is no
+  flight. Every cell from the head to pocket 3 but T is a slope or a booster: a stopped cart rolls on.
+- **Why T stays (the one rest cell).** The head and pocket 3 sit at equal height, so the run climbs
+  before it falls, and every climb ends in a flat (a slope up straight into a slope down is reshaped
+  flat by its neighbour updates). Raising the head instead costs height and volume and moves the
+  tail. An off-rail crest instead adds the ledge's 4 gt landing failure where fault groups run tight:
+  carts cross T at about 0.4 b/t, so a one-block drop carries them about 2.4 blocks and a straggler
+  barely 0.3, and the three cells down to pocket 3 can't hold that spread; and a cart stalled at an
+  off-rail crest rolls back down the climb into the release run instead of staying on T.
+- **T's recovery (measured): not by push-in.** A cart at rest on T, five places along it, is not
+  pushed through: the next train's first cart meets it while still on the climb's last slope, both drop
+  to about 0.05, the train rolls back down the climb into the release run's boosters (backward), and
+  the stranded cart creeps into the stand alone. With the bench's own tail, 3 seeds: 0-3 of 12
+  corners x staggers clean per place, the head's cart or pocket 3's; a booster on T (its redstone
+  block under it) gives 0-4 of 12.
+- **C′ wired.** D strongly powers its stone S0 (-3,2,7); R1 (-2,2,7), a dust U0 (-1,2,7), a six-step
+  spiral staircase in x -2..-1, z 5..7 down to (-2,-4,6) (each step's support a stone; the cell above
+  each lower dust air), east along z 7 at y -4 through M1..M4, N (6,-4,6), the subtract comparator K
+  (6,-4,5) (side: N delayed by RS1 (4,-4,6) and RS2 (5,-4,5)), the stone K_n (6,-4,4), the wall torch
+  T_n (5,-4,4), then C's line (5,-4,3) -> B3 -> T3 -> F. Routed clear of day-1's controller (its line
+  along z 7 at y -1/-2 and its line along x 5 at y -6/-7: the first wiring crossed both).
+  41 blocks added, 28 removed (C's timer), 5 changed; golem spots 0. The whole redesign against the
+  guard (approach 5 + C′ + crest): 84 added, 69 removed, 12 changed (approach +18/-16/~5, C′
+  +41/-28/~5, crest +25/-25/~3). D's rise to T3 lit: 42 gt; the
+  window that keeps D1 missed clean at every corner x stagger is 40..42 (38 fails stagger 6, 44
+  fails stagger 2). Normal runs: the latch set at +77..+79, never out of turn; at stagger 6 T3 lights
+  a second time at the next slot's +14/+17, inside REL.
+- **Departure crest (`--depart-crest 3`).** The boosted climb tops out at a flat (9,2,6), three slopes
+  down to (9,-1,9), boosters past the line (9,-1,10..14), a boosted climb back to the return's y 4 by
+  z 19. Day-1's controller route under it moved on explore/day1-crest (merged). It does not fit the
+  14-slot escapement register: that return runs at y 10 and its climb peaks at y 12 by z 16.
+- **Day-1's integrated loop** (release-gen with the crest and this C′): the nap night, 130 slots, 22
+  visits complete, 0 problems, 0 merges, 0 declared mismatches, 0 carts off the rails; the divert
+  corner from G0's opening as before: cart 0 in 11 out 13, cart 1 in 24 out 27, cart 2 in 34 out 36.
+- **Corners** (30 slots, 3 seeds): every REL corner x stagger 2/3/4/6 clean; D2 9..15, G2 shut 5..7
+  (stagger 2) to 1..3 (stagger 6) after cart 2's front, 1..3 to 17..22 before cart 3; departures 10 gt
+  apart at least, tail entry 9. At entry speed +0.05, stagger 6 fails at the nominal and early corners,
+  as the guard without the approach does on the same binary.
+- **Fault table** (the aligned crest design, perfect tail, 12 corners x staggers, 3 seeds): clean
+  everywhere: normal, D1 missed 45/65, C missed, C′'s detector missed, C′'s extra edge at +50/+66/+90.
+  Not clean: D1 or C extra at +50/+66 (a set before the train shuts G1/G2 ahead of it; the train piles
+  into pocket 3, merged pairs on its rest slope), C′'s extra edge at +0 (early corner) and +20 (42 gt
+  later it is an early set), REL missed, extra and glitch (the settled-release gate's), and the partial
+  unloads (a frozen stand chunk: as with C, 42 vs 45 clean of 144). 0 carts off the rails in every
+  row since the snap turn's wall (before it, a jam pushed carts onto the turn's single glass block).
+  Whole unloads (40 and 240 gt at +66/+79/+92/+12/+30/+48) under the save order, its reverse and
+  seed:1..8, nominal corner x staggers 2/3/4/6: 480 of 480 rows clean from slot 0.
+- **D1/C extra at +66, why the early corner doesn't recover:** the train piles into pocket 3; REL's
+  44 gt can't clear the pile, so its last cart stops in pocket 1 after G0 shuts, and crossing D1 at
+  about +45 sets the latch again before the next train, which piles again, every slot. A REL held
+  from its rise (`--rel-min L`, emulated) can't fix every corner: the stand's REL has to end inside
+  +70..+79 (after the 4-gt set pulse, before cart 1 reaches G0) while the rise moves over +0..+16:
+  L 60 clears nominal and late but not early staggers 2/3; L 70 clears early but breaks nominal
+  stagger 2 and the whole late corner. An end tied to the train (C′'s N, D + 36 gt: +71..+73 at every
+  corner and stagger) would fit; not built.
+- **The pad** (`carousel-station-pad.txt` pasted at 6,0,6, `--slept --summon-at 99`), the partial
+  unloads at every corner (2 seeds): 689 of 6,140 summons out of turn in the chunk rows (the guard
+  without the approach: 862 of 5,866); normal runs 0.
+- **Riders and the shared bed** (day-1's bed head at (-20,2,12)): the closest a rider comes, napper
+  aside, is 17.06 blocks on the release run (as in the guard); on the approach (the climb, T, the
+  descent) 17.13 at the least.
+- **Divert corner against day-1's +4-shifted windows** (from G0's opening, day-1's G0 at golem +13:
+  cart k's window +8+10k..+17+10k): cart 0 in 11 out 13 (margins 3/4), cart 1 in 24 out 27 (6/0),
+  cart 2 in 34 out 36 (6/1) at every corner x stagger, as the guard gives: the departures are the
+  guard's, untouched by the approach. At +0.05 the stagger-6 rows that fail scatter it.
+- **escG6L in the loop** (`--slots 14 --tail-esc 6 --esc-adm --adm-ledge`, run with `--fifo-intake 6,2
+  --esc-adm 2,4 --adm-k2 10 --p-always`, 40 seeds x 30 slots): 27/40 clean without the approach, 30/40
+  with approach 5 + C′; the holes are the tail's admissions (ironfarm's open item). D1 missed with
+  escG6L as the tail (30 slots, 3 seeds, before the snap turn's wall): back to clean 3s by slot 7 or
+  sooner at 10 of 12 corners x staggers; nominal stagger 2 not (2 merges, 1 cart off the rails at
+  the turn) nor stagger 3 (one seed's tail hole).
+
+### T, the census, and the departure crest's dip (Nov 11, bench, not yet validated)
+
+- **Why a cart on T is not pushed in.** The next train's first cart meets a cart resting (or crawling)
+  on T while its own centre is still on the climb's last slope (z 5.48-5.58, y 5.49-5.58, wherever on
+  T the cart rests): the contact reverses the pusher (0.05 back) and gives the met cart 0.05 forward;
+  the train rolls back down the climb, over the release run's boosters to the queue's head. The met
+  cart leaves T by itself 30-40 gt later. The climb's last slope as a booster (`--approach-boost`)
+  drives the reversed pusher back harder and drags the met cart with it (0-2 of 12 clean): rejected.
+  So the rule (ironspec): on a slope or a boosted cell, a moving cart never meets a stopped, crawling
+  or frozen cart.
+- **What strands a cart on T** (`carts at rest on T` by cause, `meetings` on the climb, on T and below
+  T with the slowest cart met, `climb reversals`; contact within 1.2, a held train = carts at rest or
+  under 0.15 on the descent). Every fault case x 12 corners x 2 seeds (2,016 runs, approach 5 + C' +
+  crest): 4 stops on T: 0 slow forward arrivals, 3 backward from the stand (REL extra, the z 9|10
+  split), 1 behind a crawling train (after a 40-gt stand-chunk freeze). Normal, D1/C/C' faults and
+  every whole unload: 0 meetings, 0 reversals. A frozen stand chunk with the release run running:
+  1,019 climb meetings with frozen carts, 883 climb reversals (the arrival side's border problem).
+- **The acceleration on the climb** (`--approach-climb-boost --boost-first 0`: the climb's slopes
+  boosters but D, the release run plain; 8 cells changed): normal flow identical (arrivals at G2 at
+  every corner), the split rows nearly clean (0 / 4 meetings), the frozen stand chunk not (484 climb
+  meetings, 259 reversals).
+- **The departure crest's dip.** The boosted dip is forbidden-class (a cart bounced backward there is
+  boosted back). Plain dips: `--crest-descent N --crest-plain-dip`; farmopt's (c') (two plain slopes
+  down from the crest, the flat dip at y 0 from z 9 across the line; R1's part with 13 boosted slopes
+  to (9,13,25): wip/stand-departure-crest-r1.txt, `--part-handoff 13,25`). A leaked batch (chunk
+  (0,1) frozen as cart 1 enters the dip) rests pressed: cart 1 frozen at z 10.25, cart 2 against it
+  on the flat, cart 3 on the second slope; it restarts by itself after the thaw. With one plain slope
+  ((c)) cart 3 rests on the flat and never restarts by itself. The departure-clear input
+  (`--rel-clear 9,0,10`, emulated: REL_eff rises only while the cell is empty) holds the next batch
+  (margin in normal flow 39 gt at every corner); `--head-wait` holds the queue head's release too.
+- **Allowed cells from push-in rows** (`dip stop z Z at rest|crawling`: the head's cart set in the dip
+  30 gt after REL; perfect tail, 12 corners x 2 seeds): z 9.5 and 10.5 clean (no reversal, no meeting
+  on the rise), z 11.5 not (the pusher reverses onto a slope, meetings on the rise) — the opposite of
+  the 1.2-contact distance rule, so the part's `border:` lists (9,0,9..10) (`--part-allowed 9,10`).
+- **The tail must never back carts onto the rise:** with the bench's own tail, an extra cart in a
+  departing group overflows the tail at the U-turn; the carts it backs onto the rise are boosted
+  backward to the cap, clear the 2-block crest and roll down the climb through G0 (every unexplained
+  back-crossing in the push-in rows traced to it).
+- **The approach's border, C and C'' (wip/approach-c-border-flat.txt, approach-c2-border-flat.txt).**
+  C (`--approach 4 --approach-climb-boost`: the run plain, a plain flat through z 9|10, the climb
+  boosted from z 7, T (-3,5,3)) compresses the cart 1->2 gap at G2 to 4-6 gt (nothing stretches it
+  before the climb) and breaks today's stand. C'' (`--boost-first 3`: the run's boosters at z 16..14
+  right after the head, the plain flat z 13..8) keeps today's 9-13 gt gaps and is clean in normal
+  flow at every corner, but fails its line in the frozen-stand rows: the in-flight train stacks on
+  the flat against the frozen front, the next cart bounces off the pressed pair and rolls back onto
+  the boosters (566 of 864 freeze rows, 8 seeds; a ridden cart barely slows on plain rail). The
+  bounce off the stack leaves at stored v <= 0.25 in 649 of the 864 rows (a hump of 64 v^2 + 1 <= 5
+  blocks would stop it), but carts pushed back over T come down the boosted climb boosted backward
+  to stored 1-2.9 (210 rows): no hump stops those, so a boosted climb needs the stand never to push
+  carts back over T.
 
 ## Declared states and flights (the brief's "No derails", Nov 11)
 
