@@ -1421,6 +1421,9 @@ pub struct Visit {
     pub t_at_release: bool,
     /// T1/T2's set moved by this many gt (the sweep's "t-set").
     pub t_at: i64,
+    /// The nightly schedule's j-th visit takes the stand's cart j mod 3 (day-1's scheduler: 0, 1,
+    /// 2, 0, ...: consecutive visits on different drop lines) instead of j div 7.
+    pub k_mod3: bool,
     /// Observed: the file drives its own controls; a visit is a cart on `branch`, the divert's
     /// branch rail (the bench writes no control cell).
     pub observe: bool,
@@ -1621,8 +1624,23 @@ pub struct SweepLine {
 /// x `cycles` slots each, pass = 0 problems); `speed` sweeps the release group's entry speed kick
 /// in 0.02 b/t steps instead.
 pub fn loop_sweep(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, control: &str, range: i64, seed: i64, seeds: i64, cycles: i64) -> Result<SweepLine, String> {
+    loop_sweep_jobs(spec, o, tm, control, range, seed, seeds, cycles, 1)
+}
+
+/// [`loop_sweep`] with up to `jobs` shifts tried at once on their own threads (the next `jobs`
+/// shifts outward, the first failure in order ending the side), for slow benches (a wired night).
+#[allow(clippy::too_many_arguments)]
+pub fn loop_sweep_jobs(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, control: &str, range: i64, seed: i64, seeds: i64, cycles: i64, jobs: usize) -> Result<SweepLine, String> {
     let passes = |t: &LoopTiming| loop_passes(spec, o, t, seed, seeds, cycles);
     let shifted = |s: i64| loop_shifted(tm, control, s);
+    // (several shifts at once: each its own thread, the answers in the shifts' order)
+    let passes_many = |shifts: &[i64]| -> Result<Vec<bool>, String> {
+        let ts: Vec<LoopTiming> = shifts.iter().map(|s| shifted(*s)).collect::<Result<_, _>>()?;
+        std::thread::scope(|sc| {
+            let hs: Vec<_> = ts.iter().map(|t| sc.spawn(move || loop_passes(spec, o, t, seed, seeds, cycles))).collect();
+            hs.into_iter().map(|h| h.join().map_err(|_| "a sweep thread panicked".to_string())?).collect()
+        })
+    };
     let line = |early: f64, late: f64, text: String| SweepLine { control: control.to_string(), early, late, text };
     if control == "speed" {
         let at = |v: f64| -> Result<bool, String> { passes(&LoopTiming { entry_speed: v, ..tm.clone() }) };
@@ -1646,11 +1664,30 @@ pub fn loop_sweep(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, control: &str,
         return Ok(line(0.0, 0.0, format!("{control}: the bench fails at the nominal timing")));
     }
     let (mut early, mut late) = (0, 0);
-    while early > -range && passes(&shifted(early - 1)?)? {
-        early -= 1;
-    }
-    while late < range && passes(&shifted(late + 1)?)? {
-        late += 1;
+    if jobs > 1 {
+        for side in [-1i64, 1] {
+            let mut at = 0i64;
+            'side: loop {
+                let batch: Vec<i64> = (1..=jobs as i64).map(|i| at + side * i).filter(|s| s.abs() <= range).collect();
+                if batch.is_empty() {
+                    break;
+                }
+                for (s, ok) in batch.iter().zip(passes_many(&batch)?) {
+                    if !ok {
+                        break 'side;
+                    }
+                    at = *s;
+                }
+            }
+            if side < 0 { early = at } else { late = at }
+        }
+    } else {
+        while early > -range && passes(&shifted(early - 1)?)? {
+            early -= 1;
+        }
+        while late < range && passes(&shifted(late + 1)?)? {
+            late += 1;
+        }
     }
     let edge = |v: i64| if v.abs() == range { format!("{v:+} (the sweep's edge)") } else { format!("{v:+}") };
     Ok(line(early as f64, late as f64, format!("{control}: passes from {} to {} gt ({seeds} seeds x {cycles} slots each){}", edge(early), edge(late), if early == 0 || late == 0 { "; FLAGGED: no slack on one side" } else { "" })))
@@ -2257,7 +2294,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 let start = if v.every == 0 {
                     (c == v.slot).then_some(v.k)
                 } else if tod >= v.from && tod < 23000 && tonight < riders.len() && c >= next_visit {
-                    Some(tonight / 7)
+                    Some(if v.k_mod3 { tonight % 3 } else { tonight / 7 })
                 } else {
                     None
                 };
