@@ -286,8 +286,13 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     // down north to the 4-tick repeater into N1
     swap(b, [0, 0, 4], "observer[facing=north,powered=false]")?;
     on(b, [0, 0, 5], dust)?;
-    for x in [-1, -2, -3] {
-        on(b, [x, 0, 5], dust)?;
+    // (the forced give-up's speed, 2026-11-10: delay moved from the kick chain (H to the kick,
+    // which the scheduler's F also waits through) to the nap path (S to H, which F skips); the
+    // nap's onset to its kick stays the same. MCTAS_SIDING_MOVE = repeaters moved, 0..3; the
+    // free cell a booster with MCTAS_SIDING_BOOST=1)
+    let mv: usize = std::env::var("MCTAS_SIDING_MOVE").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    for (i, x) in [-1, -2, -3].into_iter().enumerate() {
+        on(b, [x, 0, 5], &if i < mv.min(2) { rep("east", 4) } else { dust.to_string() })?;
     }
     on(b, [-3, -1, 4], dust)?;
     on(b, [-3, -2, 3], dust)?;
@@ -318,8 +323,18 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     b.set(1, -3, 6, "stone");
     // not H, delayed: off D1 south along x -6 through five 4-tick repeaters, east along z 9,
     // up north into BK
+    // (the default with the moved delay: [4,2,1,1,1], F's forced exit 67-70 gt, a nap's drop to
+    // re-board min 65 against the 60-gt boarding cooldown)
+    let chain_delays: Vec<u8> = std::env::var("MCTAS_SIDING_CHAIN").ok().map(|v| v.split(',').filter_map(|d| d.trim().parse().ok()).collect()).unwrap_or_else(|| if mv == 3 { vec![4, 2, 1, 1, 1] } else { Vec::new() });
     for z in 4..=8 {
-        on(b, [-6, -3, z], &rep("north", 4))?;
+        // (the moved delay: the last `mv` chain repeaters at 1 tick; MCTAS_SIDING_CHAIN="a,b,c,d,e"
+        // sets all five)
+        let d = chain_delays.get((z - 4) as usize).copied().unwrap_or(if (z as usize) > 8 - mv.min(3) { 1 } else { 4 });
+        on(b, [-6, -3, z], &rep("north", d))?;
+    }
+    if !std::env::var("MCTAS_SIDING_BOOST").is_ok_and(|v| v == "0") {
+        swap(b, at(s.free_cell), "powered_rail[powered=true,shape=north_south,waterlogged=false]")?;
+        swap(b, [s.free_cell.x, -1, s.free_cell.z], "redstone_block")?;
     }
     for x in -6..=1 {
         on(b, [x, -3, 9], if x == -2 { "repeater[delay=1,facing=west,locked=false,powered=false]" } else { dust })?;
@@ -381,22 +396,39 @@ fn giveup_sched(b: &mut Builder) -> Result<()> {
     // return's repeater into the bulb from the north
     swap(b, [0, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
     swap(b, [0, -1, 0], "stone")?;
-    put(b, [0, -1, -1], "waxed_copper_bulb[lit=false,powered=false]")?;
-    on(b, [0, -1, -2], &rep("north"))?;
-    // V out: a comparator west of the bulb, dust west, down north and west onto P (-3,-3,-2)
-    on(b, [-1, -1, -1], "comparator[facing=east,mode=compare,powered=false]")?;
-    on(b, [-2, -1, -1], dust)?;
-    on(b, [-2, -2, -2], dust)?;
-    put(b, [-3, -3, -2], "stone")?; // P
-    put(b, [-3, -2, -2], dust)?;
-    // not V: a torch on P's north face; a repeater west of it into the gate's side
-    put(b, [-3, -3, -3], "redstone_wall_torch[facing=north,lit=true]")?;
+    if std::env::var("MCTAS_SIDING_V").is_ok_and(|v| v == "bulb") {
+        put(b, [0, -1, -1], "waxed_copper_bulb[lit=false,powered=false]")?;
+        on(b, [0, -1, -2], &rep("north"))?;
+        on(b, [-1, -1, -1], "comparator[facing=east,mode=compare,powered=false]")?;
+        on(b, [-2, -1, -1], dust)?;
+        on(b, [-2, -2, -2], dust)?;
+        put(b, [-3, -3, -2], "stone")?; // P
+        put(b, [-3, -2, -2], dust)?;
+        put(b, [-3, -3, -3], "redstone_wall_torch[facing=north,lit=true]")?;
+        put(b, [0, 0, -1], "glass")?;
+    } else {
+        // V, a set/reset latch of two droppers and one item (parent 2026-11-10: self-recovering
+        // from a missed or an extra pulse): DA (0,-1,-1), beside the arrival's stone, fires on
+        // ARR and drops the item north into DB; DB (0,-1,-2), beside the R line's support stone
+        // (0,-1,-3), fires on R and drops it back south. A second ARR or R finds its dropper empty
+        // and does nothing. The item in DA = no visit: a comparator reading DA, a repeater
+        // (strength 1 to 15), dust west and down north into the repeater into the gate's side
+        put(b, [0, -1, -1], "dropper[facing=north,triggered=false]")?;
+        put(b, [0, -1, -2], "dropper[facing=south,triggered=false]")?;
+        b.d.block_entities.insert([0, -1, -1], "{Items:[{Slot:0b,id:\"minecraft:cobblestone\",count:1}]}".into());
+        on(b, [-1, -1, -1], "comparator[facing=east,mode=compare,powered=false]")?;
+        on(b, [-2, -1, -1], &rep("east"))?;
+        on(b, [-3, -1, -1], dust)?;
+        on(b, [-3, -2, -2], dust)?;
+        on(b, [-3, -3, -3], dust)?;
+        // (glass caps on the droppers' tops)
+        put(b, [0, 0, -1], "glass")?;
+        put(b, [0, 0, -2], "glass")?;
+    }
     on(b, [-4, -3, -3], &rep("east"))?;
     // the gate: F at its back (day-1's dust at FORCE_CELL), out south through a repeater into D2
     on(b, [-5, -3, -3], "comparator[facing=north,mode=subtract,powered=false]")?;
     on(b, [-5, -3, -2], &rep("north"))?;
-    // glass caps on its solid tops a golem could stand on (the bulb)
-    put(b, [0, 0, -1], "glass")?;
     Ok(())
 }
 
@@ -622,7 +654,13 @@ pub fn design_full(wired: bool, alone: bool, exit_brake: bool, cage_only: bool, 
     if give_up == GiveUp::Scheduler {
         ensure!(wired, "the give-up is part of the wired siding (--wired)");
         giveup_sched(&mut b)?;
-        // (the torch unlit... none: not V's torch is lit at rest; the cap after the bulb)
+        // (the dropper latch's item a build step of its own after every placement (fills-last):
+        // merged into DA's placement, the comparator reading DA got no update and its line stayed
+        // dark, unlike the file; then the glass caps, so the not-V line (about 7 gt from the fill)
+        // has settled before the build's two torches end it, at any gap)
+        let mut last: Vec<BlockPos> = [[0, 0, -1], [0, 0, -2], [-5, -2, 2], [-7, -2, -1], [2, -1, 6], [4, 1, -2]].iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+        last.extend([BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, 6)]);
+        b.d.meta.insert("build".into(), crate::placing::BuildPlan { last, fills_last: true }.meta());
     }
     if give_up == GiveUp::Timer {
         ensure!(wired, "the give-up is part of the wired siding (--wired)");
@@ -762,6 +800,13 @@ pub struct BenchOpts {
     /// cannot sleep (its HOME erased) and the force input is not pulsed; the next visits are sent
     /// on schedule all the same, as the loop would, with the dropped visit's cart still inside.
     pub drop_force: Option<usize>,
+    /// Fault injection at the stateful elements (ironspec 2026-11-10), on visit K: `arr-miss`
+    /// (DB pulsed just after the arrival: as if ARR never moved the item), `arr-extra` (DA pulsed
+    /// mid-visit), `r-miss` (after the return: DA pulsed and the H latch set again, as if R never
+    /// fired), `r-extra` (mid-visit, before the nap: DB pulsed and the H latch reset), `f-double`
+    /// (F pulsed again 30 gt after the first). Each pulse a redstone block for 4 gt beside the
+    /// element.
+    pub fault: Option<(String, usize)>,
 }
 
 /// One visit's record.
@@ -1005,7 +1050,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     if dropped_f {
                         redsim::entity::mob::ai::poi::take(&mut run.world, bed);
                     }
-                    let v_before = force.is_some().then(|| matches!(run.world.get(BlockPos::new(0, -1, -1)), Block::Bulb { lit: true, .. }));
+                    // (V before the arrival: the bulb lit, or the dropper latch's DA empty, its
+                    // comparator at (-1,-1,-1) off)
+                    let v_before = force.is_some().then(|| match run.world.get(BlockPos::new(0, -1, -1)) {
+                        Block::Bulb { lit, .. } => lit,
+                        _ => matches!(run.world.get(BlockPos::new(-1, -1, -1)), Block::Comparator { powered: false, .. }),
+                    });
                     rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, failed, force_dropped: dropped_f, v_before, ..Default::default() });
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
@@ -1074,6 +1124,48 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         // from its visit register's D3 gating REL+20 (explore/day1-counter 7d947146b), on at visit
         // +328..+340, 118-150 gt after the arrival as k shifts the arrival (+190..+210), every
         // visit (its register cannot see the return)
+        // (the fault injection's pulses: (cell, on until))
+        if let Some((kind, fk)) = &bo.fault
+            && let Some(v) = rep.visits.get(*fk)
+        {
+            let rb = |w: &mut World, c: [i32; 3], on: bool| w.set_block(BlockPos::new(c[0], c[1], c[2]), block(if on { "redstone_block" } else { "air" }), redsim::world::flags::ALL);
+            let (da, db, n1, n2) = ([1, -1, -1], [1, -1, -2], [-6, -3, 2], [-8, -3, -1]);
+            let mut pulse = |w: &mut World, cells: &[[i32; 3]], at: i64| {
+                if now == at {
+                    for &c in cells {
+                        rb(w, c, true);
+                    }
+                }
+                if now == at + 4 {
+                    for &c in cells {
+                        rb(w, c, false);
+                    }
+                }
+            };
+            let entered = !bo.launch || v.entered;
+            match kind.as_str() {
+                "arr-miss" if entered => pulse(&mut run.world, &[db], v.arrived + 15),
+                "arr-extra" if entered => pulse(&mut run.world, &[da], v.arrived + 60),
+                "r-extra" if entered => pulse(&mut run.world, &[db, n2], v.arrived + 8),
+                "r-miss" => {
+                    if let Some(r) = v.ready {
+                        pulse(&mut run.world, &[da, n1], r + 10);
+                    }
+                }
+                "f-double" => {
+                    if let Some(f) = v.forced {
+                        let fc = BlockPos::new(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]);
+                        if now == f + 30 {
+                            set(&mut run.world, fc, "redstone_block");
+                        }
+                        if now == f + 42 {
+                            set(&mut run.world, fc, "air");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         if let Some((fa, fb)) = force {
             let fc = BlockPos::new(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]);
             let n = rep.visits.len();
@@ -1183,6 +1275,23 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             if t - rep.visits[k].arrived > 2000 && active == Some(k) {
                 rep.visits[k].problem.get_or_insert("still inside 2000 gt after its arrival".into());
                 active = None;
+            }
+        }
+        // (traced: the fault injection's stuck carts and their villagers every 3 gt in the window)
+        if bo.trace && t % 3 == 0 && t - t0 >= bo.trace_window.0 && t - t0 < bo.trace_window.1 {
+            for &k in &stuck {
+                let (cart, villager) = (rep.visits[k].cart, rep.visits[k].villager);
+                let c = w.entities.list.iter().find(|x| x.id == cart && !x.removed).map(|c| (c.pos, c.delta_movement, c.passengers.clone()));
+                let vp = index_of(w, villager).map(|i| w.entities.list[i].pos);
+                if let (Some((cp, cv, ps)), Some(vp)) = (c, vp) {
+                    eprintln!("stuck gt {}: cart {:.2} {:.2} {:.2} v {:.3} {:.3} riders {:?} | villager {:.2} {:.2} {:.2}", t - t0, cp.x, cp.y, cp.z, cv.x, cv.z, ps, vp.x, vp.y, vp.z);
+                }
+            }
+            if let Some(k) = active {
+                let cart = rep.visits[k].cart;
+                if let Some(c) = w.entities.list.iter().find(|x| x.id == cart && !x.removed) {
+                    eprintln!("active gt {}: visit {k} cart {:.2} {:.2} {:.2} v {:.3} {:.3} riders {:?}", t - t0, c.pos.x, c.pos.y, c.pos.z, c.delta_movement.x, c.delta_movement.z, c.passengers);
+                }
             }
         }
         // (the fault injection: a dropped visit's cart left inside, onto the exit branch at last)

@@ -26,6 +26,8 @@ cart-queue.rec	03e88b32b3410e96		26.3	2026-11-10T14:14Z on 766fa97189	mctas moba
 cart-train.rec	17ec81151bf10b6f		26.3	2026-11-10T07:00Z on d811d6f2a	mctas mobai record cart-train --seed 1 --ticks 1400 --dir designs/redsim/recorded/mobai
 cat-creeper.rec	95089d65a7437d0c		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 chicken-jockey-flag.rec	8fa3fe767611d11e		26.3	2026-11-09T09:18Z on 05e0d74842	mctas mobai record chicken-jockey-flag --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+contact6-unload.rec	567ae988487f9e5e		26.3	2026-11-11T03:50Z on 162fbd76d	mctas mobai record contact6-unload --seed 1 --ticks 1100 --dir designs/redsim/recorded/mobai
+contact6.rec	9a04fbba1032ed0f		26.3	2026-11-11T03:50Z on 162fbd76d	mctas mobai record contact6 --seed 1 --ticks 1400 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 drowned-trident.rec	37b7967c66fa587d		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-flower.rec	380b5c44d8b814db		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
@@ -33,6 +35,7 @@ enderman-golem.rec	03bed56814f1516a		26.3	uncommitted	recorded before manifests:
 golem-summon.rec	9211d49a03edc4b0		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record golem-summon --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 horses.rec	0d4fd5510c0f2f5f		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+level32.rec	0ee4f1cd919d8aad		26.3	2026-11-11T03:34Z on 2a49ff7aa	mctas mobai record level32 --seed 1 --ticks 400 --dir designs/redsim/recorded/mobai
 loot-pickup.rec	399481169aa92c26		26.3	2026-11-10T15:13Z on 15717973b	mctas mobai record loot-pickup --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
@@ -50,6 +53,7 @@ squids.rec	63dbb40561554df8		26.3	2026-11-09T02:42Z on 4381c606f	mctas mobai rec
 station-built.rec	64bd4a393012cfde		26.3	2026-11-11T02:01Z on d2e9bbb3d2	mctas mobai record station-built --seed 1 --ticks 1150 --dir designs/redsim/recorded/mobai
 station-raw.rec	52917dfb724eeb7f		26.3	2026-11-11T02:00Z on d2e9bbb3d2	mctas mobai record station-raw --seed 1 --ticks 2400 --dir designs/redsim/recorded/mobai
 sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mobai record sulfur-cubes --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+unload-part-v3-raw.rec	8bd68eb2d7b4d719		26.3	2026-11-11T03:34Z on 2a49ff7aa	mctas mobai record unload-part-v3-raw --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 unload-siding-raw.rec	c0040c175b9b7e6a		26.3	2026-11-11T02:53Z on 9dcfccb602	mctas mobai record unload-siding-raw --seed 1 --ticks 3900 --dir designs/redsim/recorded/mobai
 unload-v3-raw.rec	538476674a40f9ce		26.3	2026-11-11T02:59Z on 19b0f80d6f	mctas mobai record unload-v3-raw --seed 1 --ticks 500 --dir designs/redsim/recorded/mobai
 villager-beds.rec	1f4af3add61d842b		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record villager-beds --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
@@ -63,4 +67,5 @@ zombie-obstacles.rec	26fc66de4a19d6ae		26.3	2026-11-08T21:43Z on 88512141f	mctas
 zombie-spear.rec	28b890397c1c4153		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-stroll.rec	3fda981d2947ddc8		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-stroll --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-village.rec	02c7f373276cdaf0		26.3	2026-11-09T00:47Z on 6205e5357	mctas mobai record zombie-village --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-villager-hard.rec	7aaf2cf57309bf65		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-villager.rec	7d7ed052702f4fba		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-villager --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

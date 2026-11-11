@@ -300,12 +300,25 @@ public final class Protocol {
      * until {@code load} ({@link Sandbox#loadAll}) brings them back.
      */
     private JsonObject unload(JsonObject r) {
-        sandbox(r).unloadAll(this.server);
+        Sandbox sb = sandbox(r);
+        if (r.has("chunks")) {
+            int[] b = ints(r.getAsJsonArray("chunks"));
+            sb.unloadSome(this.server, b[0], b[1], b[2], b[3]);
+        } else {
+            sb.unloadAll(this.server);
+        }
         return new JsonObject();
     }
 
     private JsonObject load(JsonObject r) {
         Sandbox sb = sandbox(r);
+        if (r.has("chunks")) {
+            int[] b = ints(r.getAsJsonArray("chunks"));
+            sb.loadSome(this.server, b[0], b[1], b[2], b[3]);
+            JsonObject o = new JsonObject();
+            o.add("tick_list", sb.tickList());
+            return o;
+        }
         sb.loadAll(this.server);
         JsonObject o = new JsonObject();
         o.addProperty("order", sb.lastLoadOrder);

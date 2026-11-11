@@ -580,6 +580,11 @@ pub fn tick_all(w: &mut World) {
             w.sculk.tickers.remove(i);
             continue;
         }
+        // (tickexact 2026-11-10, a partial unload: no block entity ticks where blocks do not)
+        if !w.block_ticks_at(p) {
+            i += 1;
+            continue;
+        }
         tick_one(w, p);
         i += 1;
     }

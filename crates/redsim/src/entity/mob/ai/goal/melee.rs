@@ -69,6 +69,9 @@ pub fn can_use(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
     let tb = target_block(w, t);
     g.path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, tb, 0, arena));
     let ok = if g.path.is_some() { true } else { within_melee_range(w, i, t) };
+    if std::env::var("MCTAS_TRACE_MELEE").ok().and_then(|v| v.parse::<u32>().ok()) == Some(w.entities.list[i].id) {
+        eprintln!("melee t{}: #{} canUse target {:?} at {:?} path {:?} ok {ok}", w.time, w.entities.list[i].id, t, tb, g.path.as_ref().map(|p| (p.nodes.len(), p.reached)));
+    }
     // DrownedAttackGoal: and a target it may hunt
     if ok && g.kind == MeleeKind::Drowned && !drowned_ok(w, t) {
         return false;

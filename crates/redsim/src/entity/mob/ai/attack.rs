@@ -125,30 +125,26 @@ fn voice_pitch_draws(w: &mut World, i: usize) {
 /// `hurtServer`'s steps after the damage, for a mob of an AI world (`living::hurt` calls it with
 /// whether the hit took full damage): the attacker as `lastHurtByMob`, the knockback away from it,
 /// the death or hurt sound's pitch draws (`Mob.playHurtSound` resets the ambient sound time).
-/// The killer's `killedEntity(level, victim, source)` (the mob AI on): a zombie that kills a
-/// villager on Hard, or on Normal when its own random's `nextBoolean()` is false, converts it
-/// into a zombie villager: refused (zombie villagers are not modeled).
-pub fn killed_entity(w: &mut World, victim: usize, src: Damage) {
-    // Zombie.killedEntity (every Zombie class: a drowned's too): whatever it killed it with (its
-    // hit, its spear, its trident)
+/// `Zombie.killedEntity` (every Zombie class: a drowned's too, whatever it killed it with: its
+/// hit, its spear, its trident): a villager it killed on Normal (a coin from its own random) or
+/// Hard becomes a zombie villager (`convertVillagerToZombieVillager`); then it answers false (no
+/// ENTITY_DIE game event, no death loot). Returns whether the victim's death goes on.
+pub fn killed_entity(w: &mut World, victim: usize, src: Damage) -> bool {
     if !src.by_attacker() {
-        return;
+        return true;
     }
-    let Some(att) = w.mob.ai.attacker.and_then(|id| crate::entity::index_of(w, id)) else { return };
+    let Some(att) = w.mob.ai.attacker.and_then(|id| crate::entity::index_of(w, id)) else { return true };
     if !crate::entity::mob::natural::is_zombie_class(mob(w, att).ty) || mob(w, victim).ty != crate::entity::mob::types::MobType::Villager {
-        return;
+        return true;
     }
     let d = super::difficulty_id(w);
     if d < 2 {
-        return;
+        return true;
     }
     if d == 2 && w.entities.list[att].random.as_mut().expect("random").next(1) != 0 {
-        return;
+        return true;
     }
-    let why = "a zombie converting the villager it killed into a zombie villager is not modeled".to_string();
-    if !w.errors.contains(&why) {
-        w.errors.push(why);
-    }
+    crate::entity::mob::natural::villager_to_zombie_villager(w, victim).is_none()
 }
 
 pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {

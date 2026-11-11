@@ -1384,6 +1384,11 @@ pub enum MobfarmCmd {
         /// Prints what the dropped visit's cart does and what the next visits do.
         #[arg(long)]
         drop_force: Option<usize>,
+        /// Fault injection at a stateful element, KIND:K (K the visit index): arr-miss, arr-extra,
+        /// r-miss, r-extra, f-double (siding::BenchOpts::fault). Prints the visits after it and
+        /// how many until one is clean again.
+        #[arg(long)]
+        fault: Option<String>,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -2491,7 +2496,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             let two_i = |s: &str| -> Result<(i64, i64)> {
@@ -2500,6 +2505,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok((v[0], v[1]))
             };
             let force = if no_force { None } else { Some(two_i(&force_at)?) };
+            let fault_opt: Option<(String, usize)> = match &fault {
+                Some(f) => {
+                    let (k, n) = f.split_once(':').ok_or_else(|| anyhow::anyhow!("--fault KIND:K"))?;
+                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra or f-double");
+                    Some((k.to_string(), n.parse()?))
+                }
+                None => None,
+            };
             let sp: Vec<f64> = speed.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(sp.len() == 2, "--speed a,b");
             let (gap, release) = (two_i(&gap)?, two_i(&release)?);
@@ -2515,7 +2528,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone() });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -2720,7 +2733,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let mut onset: Vec<i64> = oks.iter().flat_map(|r| r.visits.iter()).filter_map(|v| v.slept.map(|s| s - v.arrived)).collect();
                     onset.sort();
                     if !onset.is_empty() {
-                        println!("  sleep onset after the arrival (napped visits): p50 {} p99 {} max {} gt", onset[onset.len() / 2], onset[((onset.len() as f64 - 1.0) * 0.99) as usize], onset[onset.len() - 1]);
+                        let q = |p: f64| onset[((onset.len() as f64 - 1.0) * p) as usize];
+                        let over = |x: i64| onset.iter().filter(|&&o| o > x).count();
+                        println!("  sleep onset after the arrival ({} napped visits): p50 {} p99 {} p99.9 {} p99.99 {} max {} gt; over 60: {}, over 80: {}, over 100: {}; the 8 slowest: {:?}", onset.len(), q(0.5), q(0.99), q(0.999), q(0.9999), onset[onset.len() - 1], over(60), over(80), over(100), &onset[onset.len().saturating_sub(8)..]);
                     }
                     let mut to_exit: Vec<i64> = forced.iter().filter(|v| v.slept.is_none_or(|s| s > v.forced.unwrap())).filter_map(|v| v.exited.map(|x| x - v.forced.unwrap())).collect();
                     to_exit.sort();
@@ -2728,7 +2743,47 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         println!("  sent out by F: the pulse to leaving the exit cell: min {} median {} max {} gt ({} visits)", to_exit[0], to_exit[to_exit.len() / 2], to_exit[to_exit.len() - 1], to_exit.len());
                     }
                 }
-                // (the fault injection: the dropped visit and the next ones, per seed)
+                // (the fault injection at a stateful element: the faulted visit, the next ones,
+                // and the visits until one is clean again, per seed)
+                if let Some((kind, fk)) = &fault_opt {
+                    let clean = |v: &crate::siding::VisitRec| v.slept.is_some() && v.own_cart && v.released.is_some() && v.problem.is_none();
+                    let mut worst = 0usize;
+                    let mut lost_naps = 0usize;
+                    for (_seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))) {
+                        // (the window: the faulted visit and the 5 after it; recovered = the
+                        // first clean visit after the last unclean one in the window)
+                        let after = &r.visits[(*fk).min(r.visits.len())..];
+                        let window = &after[..after.len().min(6)];
+                        let last_bad = window.iter().rposition(|v| !clean(v)).map_or(0, |i| i + 1);
+                        worst = worst.max(last_bad);
+                        lost_naps += window.iter().filter(|v| v.slept.is_none()).count();
+                    }
+                    println!("fault {kind} on visit {fk}: visits until a clean one (napped, own cart, released), worst over the seeds: {worst} (0 = the faulted visit itself clean); naps lost in those: {lost_naps}");
+                    for (seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))).take(4) {
+                        for (j, v) in r.visits.iter().enumerate().skip(*fk).take(3) {
+                            println!("  seed {seed} visit {j} (+{}): V before {:?}; slept {:?} re-boarded {:?} own cart {} ready {:?} released {:?} F {:?}{}", v.arrived - r.visits[*fk].arrived, v.v_before, v.slept.map(|x| x - v.arrived), v.reboarded.map(|x| x - v.arrived), v.own_cart, v.ready.map(|x| x - v.arrived), v.released.map(|x| x - v.arrived), v.forced.map(|x| x - v.arrived), v.problem.as_ref().map(|p| format!("; problem: {p}")).unwrap_or_default());
+                        }
+                    }
+                }
+                // (the fault injection: the dropped visit and the next ones, per seed; first a
+                // one-line summary over every seed)
+                {
+                    let clean = |v: &crate::siding::VisitRec| v.slept.is_some() && v.own_cart && v.released.is_some() && v.problem.is_none();
+                    let mut lines = Vec::new();
+                    for (seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))) {
+                        let Some(k) = r.visits.iter().position(|v| v.force_dropped) else { continue };
+                        let d = &r.visits[k];
+                        let out = d.exited.map(|x| x - d.arrived);
+                        let after = &r.visits[k + 1..];
+                        let window = &after[..after.len().min(5)];
+                        let last_bad = window.iter().rposition(|v| !clean(v)).map_or(0, |i| i + 1);
+                        let later_bad = after.iter().skip(5).filter(|v| !clean(v)).count();
+                        lines.push(format!("seed {seed}: stuck cart out {}; unclean visits after it: the next {last_bad} (later: {later_bad})", out.map_or("never".to_string(), |x| format!("{x} gt after its arrival"))));
+                    }
+                    if !lines.is_empty() {
+                        println!("drop-force summary:\n  {}", lines.join("\n  "));
+                    }
+                }
                 for (seed, r) in rows.iter().filter_map(|(s, r)| r.as_ref().ok().map(|r| (s, r))).take(8) {
                     let Some(k) = r.visits.iter().position(|v| v.force_dropped) else { continue };
                     let d = &r.visits[k];

@@ -482,6 +482,14 @@ impl<K: TickKey> LevelTicks<K> {
     /// Collect the ticks due at `now`, in run order (`collectTicks`: `sortContainersToTick`,
     /// `drainContainers`).
     pub fn collect(&mut self, now: i64) -> Vec<Tick<K>> {
+        self.collect_if(now, |_| true)
+    }
+
+    /// (tickexact 2026-11-10, a partial unload) [`Self::collect`] where only the chunks `ticking`
+    /// accepts tick (`LevelTicks`' tick check, `isPositionTickingWithEntitiesLoaded`): the others'
+    /// due ticks stay where they are (their next tick unchanged) and come due when they tick
+    /// again.
+    pub fn collect_if(&mut self, now: i64, ticking: impl Fn((i32, i32)) -> bool) -> Vec<Tick<K>> {
         let mut out = Vec::new();
         let containers = &mut self.containers;
         // sortContainersToTick: the map's walk, each due container into the heap
@@ -498,6 +506,7 @@ impl<K: TickKey> LevelTicks<K> {
                 match cs.get(&chunk_of_key(k)).and_then(|c| c.queue.first()) {
                     None => Walk::Remove,
                     Some(h) if h.0 > now => Walk::Set(h.0),
+                    Some(_) if !ticking(chunk_of_key(k)) => Walk::Keep,
                     Some(_) => {
                         due.push(k);
                         Walk::Remove

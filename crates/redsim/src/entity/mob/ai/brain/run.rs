@@ -1253,6 +1253,14 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
     true
 }
 
+/// (mob-AI 2026-11-10) `Villager.die`'s `releaseAllPois`: its home, job site, potential job site
+/// and meeting point give their tickets back (`releasePoi` each; the memories stay).
+pub(crate) fn release_all_pois(w: &mut World, i: usize) {
+    for mem in [M::Home, M::JobSite, M::PotentialJobSite, M::MeetingPoint] {
+        release_poi(w, i, mem);
+    }
+}
+
 /// `Villager.releasePoi(memory)`: the memory's POI, still there and of the memory's kind, gives a
 /// ticket back (`PoiManager.release`: `PoiRecord.releaseTicket`, at most its max; a record shared
 /// by two claims after a replace gives back once per release). The memory itself stays.

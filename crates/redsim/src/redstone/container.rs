@@ -1410,6 +1410,12 @@ pub fn tick_hoppers(w: &mut World) {
             w.containers.tickers.remove(i);
             continue;
         }
+        // (tickexact 2026-11-10, a partial unload: tickBlockEntities skips a chunk that does not
+        // tick blocks, shouldTickBlocksAt)
+        if !w.block_ticks_at(p) {
+            i += 1;
+            continue;
+        }
         match w.get(p) {
             Block::Hopper { .. } => push_items_tick(w, p),
             Block::Crafter { .. } => crafter_server_tick(w, p),
