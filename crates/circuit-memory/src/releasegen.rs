@@ -1034,6 +1034,25 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             if !bad.is_empty() {
                 bail!("{} added blocks in a rider's space (the two cells over a rail): {}", bad.len(), bad.iter().take(12).cloned().collect::<Vec<_>>().join("; "));
             }
+            // (no added block may cut a rider's sight of a zombie: the base is the file without the
+            // controller's own blocks (the loop, the siding, the pad as given); MCTAS_SIGHT_CONTROL
+            // x,y,z puts a stone there first, the check's positive control)
+            let pad_cells: std::collections::BTreeSet<P3> = match pad {
+                Some(p) => Design::load(p)?.blocks.keys().copied().collect(),
+                None => Default::default(),
+            };
+            let mut fin = d.blocks.clone();
+            for c in std::env::var("MCTAS_SIGHT_CONTROL").unwrap_or_default().split(';').map(|v| v.split(',').filter_map(|t| t.trim().parse::<i32>().ok()).collect::<Vec<_>>()).filter(|c| c.len() == 3) {
+                fin.insert([c[0], c[1], c[2]], STONE.into());
+            }
+            let base: BTreeMap<P3, String> = d.blocks.iter().filter(|(p, _)| !mine.contains(*p) || siding_cells.contains(*p) || pad_cells.contains(*p)).map(|(p, s)| (*p, s.clone())).collect();
+            let zombies: Vec<[f64; 3]> = d.entities.iter().filter(|e| e.nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie"))).map(|e| e.pos).collect();
+            let (n, cuts) = crate::autoroute::sight_cuts(&base, &fin, &zombies);
+            if !cuts.is_empty() {
+                let show: Vec<String> = cuts.iter().take(8).map(|(r, z, b)| format!("rider over {r:?} to the zombie at {z:?}: stopped by {b:?} {}", fin.get(b).map(|s| s.as_str()).unwrap_or("?"))).collect();
+                bail!("{} rider-zombie sight lines cut by the added blocks (of {n} checked): {}", cuts.len(), show.join("; "));
+            }
+            println!("sight lines: {n} rider-zombie lines within 8 checked ({} zombies), none cut by the added blocks", zombies.len());
         }
     }
     // (the chunk alignment header (the brief's chunk rule, 7b4d7caea): the stand area (stand,

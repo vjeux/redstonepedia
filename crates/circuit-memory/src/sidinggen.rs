@@ -1024,7 +1024,13 @@ pub(crate) fn wire_pad(d: &mut Design, pad: &Path) -> Result<Vec<P3>> {
         let lim = crate::autoroute::Limits { lo: lim.lo, hi: lim.hi, avoid, near_ok: lim.near_ok.clone() };
         let mut pr = crate::autoroute::find(&b, start, pre, &lim)?;
         pr.push(last);
-        if let Err(e) = lay_exact(&mut b, pulse, &pr, 4, 2) {
+        // (MCTAS_GOLEM_EXTRA_RT, measurement only: rt added to the golem path, every timed output
+        // that much later against the golem (the tolerance rule's late corner))
+        let extra: u8 = std::env::var("MCTAS_GOLEM_EXTRA_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        if std::env::var("MCTAS_LIST_ROUTE").is_ok() {
+            eprintln!("the golem route ({} cells): {pr:?}", pr.len());
+        }
+        if let Err(e) = lay_exact(&mut b, pulse, &pr, 4, 2 + extra) {
             bail!("{e}: the golem route ({} cells) {pr:?}", pr.len());
         }
         b.on(fin, &rep(facing_in([fin[0] - inb[0], 0, fin[2] - inb[2]]), 1))?;
