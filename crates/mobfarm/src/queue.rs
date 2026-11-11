@@ -1374,6 +1374,22 @@ pub struct LoopTiming {
     pub rel_on: i64,
     /// With `--watch`: these cells' block states printed too (up to 8).
     pub watch_cells: [Option<[i32; 3]>; 8],
+    /// With `wired`: each slot's golem pulse this many gt late at most (0..=J, from the seed and
+    /// the slot): the gaps between pulses vary over 100 - J ..= 100 + J (the golem's jitter).
+    pub golem_jitter: i64,
+    /// With `wired`: the next golem up to this many gt late (0..=J more gt at each slot's end,
+    /// from the seed and the slot): the gaps between pulses vary over 100 ..= 100 + J.
+    pub golem_late: i64,
+    /// The day time held in the day (no night: a file's night window, its siding visits, never
+    /// opens).
+    pub day_only: bool,
+    /// `--slept`: every rider's LAST_SLEPT set at the start and each night (bench-driven: the
+    /// station bench's stand-in for the siding's naps, for a pad's check without a siding).
+    pub slept: bool,
+    /// The golem pulse to count (the design's `output.pulse` port, a pad's).
+    pub pulse_at: Option<BlockPos>,
+    /// The slots' phase: slot +K on the villagers' summon tick (gameTime % 100 == 0).
+    pub summon_at: Option<i64>,
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
     /// (an ideal-input lab for a wired trigger): G1, then G2, shut this many gt after the first
     /// cart's centre passes this x (a detector rail at cell x0 fires at x0 - 0.29).
@@ -1392,6 +1408,8 @@ pub struct LoopTiming {
     /// Slots whose golem pulse never comes (`--golem-miss`: a missed golem; the design's own
     /// expiry must release that slot); -1 = unused.
     pub golem_miss: [i64; 8],
+    /// `build: fills-last`: the containers' stocks after every block (main's build plan).
+    pub build_fills_last: bool,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -1469,7 +1487,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8] }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None }
     }
 }
 
@@ -1982,15 +2000,28 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 order.push(cell);
             }
         }
+        let mut fills: Vec<(BlockPos, String)> = Vec::new();
         for (p, b, fill) in order {
             run.world.set_block(p, b, redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, b));
             if let Some(f) = fill {
-                redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
-                drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
+                if tm.build_fills_last {
+                    fills.push((p, f));
+                } else {
+                    redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
+                    drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
+                }
             }
             let gap = if tm.build_priced { if edges.contains(&p) { 40 } else { 20 } } else { g };
             for _ in 0..gap.max(1) {
+                run.tick();
+            }
+        }
+        // (`build: fills-last`: the containers' stocks after every block, in the build's order)
+        for (p, f) in fills {
+            redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
+            drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
+            for _ in 0..(if tm.build_priced { 20 } else { g }).max(1) {
                 run.tick();
             }
         }
@@ -2145,6 +2176,23 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
     };
     let input_was = wired.map(|p| run.world.get(p));
+    // (`day_only`: the day time held in the day (back 10,000 once it reaches 11,000): no night,
+    // so a file's night window (its siding visits) never opens; the loop and the stand alone)
+    let hold_day = |w: &mut redsim::world::World| {
+        if tm.day_only && w.day_time().rem_euclid(24000) >= 11000 {
+            w.mob.day_offset -= 10000;
+        }
+    };
+    // (each slot's golem pulse delay, `golem_jitter`: 0..=J gt, from the seed and the slot)
+    let golem_jit = |c: i64| -> i64 {
+        if tm.golem_jitter <= 0 {
+            return 0;
+        }
+        let mut z = (seed as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (c as u64).wrapping_add(0x632B_E59B_D9B4_E019).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        ((z ^ (z >> 31)) % (tm.golem_jitter as u64 + 1)) as i64
+    };
     // (the stop stand's fence gates: shut or open, facing the travel)
     let set_gate = |w: &mut redsim::world::World, p: BlockPos, facing: &str, open: bool| {
         let s = format!("minecraft:oak_fence_gate[facing={facing},in_wall=false,open={open},powered=false]");
@@ -2202,6 +2250,38 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut golems_seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut villager_cells: std::collections::BTreeSet<BlockPos> = std::collections::BTreeSet::new();
     let mut golem_log: Vec<String> = Vec::new();
+    // (with a pad, a Nether part in the design: every golem's summon (its id, tick, summoner,
+    // cell, slot and offset), its crossing and death in the Nether, the pulse, the iron)
+    let has_nether = run.world.nether.is_some();
+    let mut ev_seen = run.world.mob.events.len();
+    let mut crossed_seen = run.world.crossings.len();
+    let mut pad_golems: Vec<(u32, i64, u32, [i32; 3], i64, i64)> = Vec::new();
+    let mut out_of_turn: Vec<String> = Vec::new();
+    // (per summon tick: how many stand riders were willing, panicking, at the stand (0..=3);
+    // the unwilling ones: never slept, slept 24,000 gt ago or more, a golem seen lately)
+    let (mut willing, mut panicking, mut stand_count) = ([0u32; 4], [0u32; 4], [0u32; 4]);
+    let mut unwilling = [0u32; 3];
+    let mut nether_golems: Vec<(u32, i64, Option<i64>, u32)> = Vec::new();
+    let (mut pulses, mut spurious_pulses, mut pulse_was) = (0u32, 0u32, false);
+    let mut slept_night: Option<i64> = None;
+    let mut slept_acts = 0u32;
+    let nether_iron = |w: &redsim::world::World| -> i64 {
+        let Some(n) = w.nether.as_deref() else { return 0 };
+        use redsim::redstone::container as rc;
+        let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
+        let mut iron = 0i64;
+        for c in n.containers.map.values() {
+            for s in c.slots.iter().flatten() {
+                if Some(s.item) == ingot {
+                    iron += s.count as i64;
+                } else if Some(s.item) == block {
+                    iron += 9 * s.count as i64;
+                }
+            }
+        }
+        iron
+    };
+    let iron_start = nether_iron(&run.world);
     let mut bed_claims: Vec<String> = Vec::new();
     // (with visits: T1's and T2's rails each time their shape changes: absolute time, which, shape)
     let mut t_switches: Vec<(i64, &'static str, String)> = Vec::new();
@@ -2230,11 +2310,24 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     for s in 0..40 {
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
+        hold_day(&mut run.world);
         if let Some(w) = watch {
             let ps: Vec<String> = w.iter().filter_map(|k| carts.get(*k)).filter_map(|id| pos_of(&run.world, *id)).map(|p| format!("{:.3},{:.3}", p.x, p.y)).collect();
             println!("settle {s}: {}", ps.join(" | "));
         }
     }
+    // (`summon_at`: the slots' phase: the bench waits until slot +K falls on the villagers' summon
+    // tick (gameTime % 100 == 0): with a pad, the stand batch at rest then; 99 for a controller
+    // that takes the golem pulse (summon +1) as its slot's start)
+    if let Some(k) = tm.summon_at {
+        // (a tick's summon happens at the time it ticks to: the slot's offset k + 1 on it)
+        while (run.world.time + k + 1).rem_euclid(100) != 0 {
+            run.tick();
+            stop_brake(&mut run.world, &mut stop_arm);
+            hold_day(&mut run.world);
+        }
+    }
+    let mut late_total: i64 = 0;
     let mut out = Vec::new();
     let mut problems = Vec::new();
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
@@ -2375,14 +2468,23 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 run.world.set_block(cell, b.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
             }
-            if let (Some(p), false) = (wired, tm.golem_miss.contains(&c)) {
+            if let Some(p) = wired
+                && golem_jit(c) == 0
+                && !tm.golem_miss.contains(&c)
+            {
                 // the golem pulse into the design's input cell (none at a `--golem-miss` slot: the
                 // design's own expiry must release it)
                 run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
             }
         }
-        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == tm.golem_for && !tm.golem_miss.contains(&c)) {
+        // (`golem_jitter`: the slot's golem pulse `golem_jit(c)` gt late, 0..=J from the seed:
+        // the gaps between pulses vary over 100 - J ..= 100 + J)
+        if let (Some(p), true) = (wired, c < cycles && dt > 0 && dt == golem_jit(c) && !tm.golem_miss.contains(&c)) {
+            run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
+        }
+        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == golem_jit(c) + tm.golem_for && !tm.golem_miss.contains(&c)) {
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
@@ -2747,7 +2849,102 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
-        // (every rider's damage and loss from the world, every tick; with a visit also each
+        hold_day(&mut run.world);
+        // (`slept`: every rider's LAST_SLEPT now, at the start and each night from day time
+        // 13,000: the bench's stand-in for the siding's naps, as the station's linear bench does)
+        if tm.slept {
+            let night = (run.world.day_time() - 13000).div_euclid(24000);
+            if slept_night.is_none() || (run.world.day_time().rem_euclid(24000) >= 13000 && slept_night != Some(night)) {
+                slept_night = Some(night);
+                let now = run.world.time;
+                for r in &riders {
+                    if let Some(i) = redsim::entity::index_of(&run.world, *r) {
+                        redsim::entity::mob::ai::brain::brain_mut(&mut run.world, i).last_slept = Some(now);
+                    }
+                }
+                slept_acts += 1;
+            }
+        }
+        // (with a pad: every golem's summon, its crossing into the Nether and its death there,
+        // and the pulse at the design's `output.pulse`)
+        if has_nether {
+            let evs: Vec<redsim::entity::mob::MobEvent> = run.world.mob.events[ev_seen.min(run.world.mob.events.len())..].to_vec();
+            ev_seen = run.world.mob.events.len();
+            for ev in evs {
+                if let redsim::entity::mob::MobEvent::GolemTry { t: et, villager, golem: Some(id), at: Some(cell), .. } = ev {
+                    pad_golems.push((id, et, villager, cell, c, dt));
+                    // (in turn: the summoner on a stand cell or its pocket; any other position
+                    // is an out-of-turn summon onto the pad, the brief's flag, here as it happened)
+                    let at = redsim::entity::index_of(&run.world, villager).map(|i| run.world.entities.list[i].pos);
+                    let in_turn = at.is_some_and(|p| {
+                        let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                        lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1)
+                    });
+                    if !in_turn {
+                        out_of_turn.push(format!("slot {c} +{dt}: villager e#{villager} at {}", at.map_or("gone".to_string(), |p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z))));
+                    }
+                }
+            }
+            for &(ct, from, to) in &run.world.crossings[crossed_seen.min(run.world.crossings.len())..] {
+                if pad_golems.iter().any(|g| g.0 == from) {
+                    nether_golems.push((to, ct, None, from));
+                }
+            }
+            crossed_seen = run.world.crossings.len();
+            if let Some(n) = run.world.nether.as_deref() {
+                for g in nether_golems.iter_mut().filter(|g| g.2.is_none()) {
+                    if !n.entities.list.iter().any(|e| e.id == g.0 && !e.removed) {
+                        g.2 = Some(run.world.time);
+                    }
+                }
+            }
+            // (the stand batch on the tick before the summon tick: each rider in a stand pocket
+            // willing (slept within 24,000 gt, no golem seen lately) and panicking, and why not)
+            if (run.world.time + 1).rem_euclid(100) == 0 {
+                let t_next = run.world.time + 1;
+                let (mut want, mut panic, mut at_stand) = (0usize, 0usize, 0usize);
+                for r in &riders {
+                    let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+                    let p = run.world.entities.list[i].pos;
+                    let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                    if !lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1) {
+                        continue;
+                    }
+                    at_stand += 1;
+                    if let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
+                        && let Some(b) = m.brain.as_deref()
+                    {
+                        if b.wants_golem(t_next) {
+                            want += 1;
+                        } else if b.last_slept.is_none() {
+                            unwilling[0] += 1;
+                        } else if b.last_slept.is_some_and(|s| t_next - s >= 24000) {
+                            unwilling[1] += 1;
+                        } else {
+                            unwilling[2] += 1;
+                        }
+                    }
+                    if redsim::entity::mob::ai::brain::has_exact(&run.world, i) && redsim::entity::mob::ai::brain::ex(&run.world, i).active == redsim::entity::mob::ai::brain::Act::Panic {
+                        panic += 1;
+                    }
+                }
+                willing[want.min(3)] += 1;
+                panicking[panic.min(3)] += 1;
+                stand_count[at_stand.min(3)] += 1;
+            }
+            if let Some(p) = tm.pulse_at {
+                let on = matches!(run.world.get(p), Block::Wire { power, .. } if power > 0);
+                if on && !pulse_was {
+                    let t = run.world.time;
+                    if pad_golems.iter().any(|g| t - g.1 >= 0 && t - g.1 <= 5) {
+                        pulses += 1;
+                    } else {
+                        spurious_pulses += 1;
+                    }
+                }
+                pulse_was = on;
+            }
+        }
         // rider's bed claim, when it starts and ends, and where it rode then)
         for e in run.world.entities.list.iter() {
             if let redsim::entity::EntityKind::Mob(m) = &e.kind {
@@ -2756,10 +2953,22 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
                 if m.ty == redsim::entity::mob::types::MobType::IronGolem && golems_seen.insert(e.id) {
                     golem_log.push(format!("e#{} at slot {c} +{dt} (day time {}) at {:.2},{:.2},{:.2}", e.id, run.world.day_time().rem_euclid(24000), e.pos.x, e.pos.y, e.pos.z));
-                    // (the loop has no pad: a golem here spawned off the pad, a spawn cell
-                    // `queue-loop-spots` lists; a villager that has slept (a napper back from its
-                    // visit) summons one when it panics with two more such villagers near)
-                    problems.push(format!("slot {c} +{dt}: an iron golem spawned at {:.2},{:.2},{:.2}, off the pad (see queue-loop-spots)", e.pos.x, e.pos.y, e.pos.z));
+                    // (a golem on the pad, its box meeting a portal block, is the farm's; any
+                    // other spawned off the pad, a spawn cell `queue-loop-spots` lists; a villager
+                    // that has slept (a napper back from its visit) summons one when it panics
+                    // with two more such villagers near)
+                    let bb = redsim::entity::make_bounding_box(e.pos, 1.4, 2.7).inflate(0.01, 0.01, 0.01);
+                    let mut on_pad = false;
+                    for y in bb.min_y.floor() as i32..=bb.max_y.floor() as i32 {
+                        for z in bb.min_z.floor() as i32..=bb.max_z.floor() as i32 {
+                            for x in bb.min_x.floor() as i32..=bb.max_x.floor() as i32 {
+                                on_pad |= run.world.get(BlockPos::new(x, y, z)).to_string().contains("nether_portal");
+                            }
+                        }
+                    }
+                    if !on_pad {
+                        problems.push(format!("slot {c} +{dt}: an iron golem spawned at {:.2},{:.2},{:.2}, off the pad (see queue-loop-spots)", e.pos.x, e.pos.y, e.pos.z));
+                    }
                 }
             }
         }
@@ -2777,7 +2986,29 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 if let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind {
                     let e = &run.world.entities.list[i];
                     if m.health < rider_last[k].1 {
-                        rider_hurt.push(format!("e{k} hurt at slot {c} +{dt}: health {} -> {} at {:.2},{:.2},{:.2}", rider_last[k].1, m.health, e.pos.x, e.pos.y, e.pos.z));
+                        // (and the damage's source, from the world's mob events; for a wall,
+                        // the suffocating cells the eye's box meets)
+                        let src = run.world.mob.events.iter().rev().find_map(|ev| match ev { redsim::entity::mob::MobEvent::Hurt { id, src, amount, .. } if *id == *r => Some(format!(" ({src:?}, {amount})")), _ => None }).unwrap_or_default();
+                        let eye = e.pos.y + 1.62;
+                        let mut walls = Vec::new();
+                        // (the eye's box as `is_in_wall` makes it, at the rider's position now and
+                        // at its last tick's: the suffocating cells whose boxes it meets)
+                        for (tag, q) in [("now", [e.pos.x, e.pos.y, e.pos.z]), ("last", rider_last[k].0)] {
+                            let ey = q[1] + 1.62;
+                            let bb = redsim::entity::Aabb::new(q[0] - 0.24, ey - 5.0e-7, q[2] - 0.24, q[0] + 0.24, ey + 5.0e-7, q[2] + 0.24);
+                            for y in bb.min_y.floor() as i32..=bb.max_y.floor() as i32 {
+                                for z in bb.min_z.floor() as i32..=bb.max_z.floor() as i32 {
+                                    for x in bb.min_x.floor() as i32..=bb.max_x.floor() as i32 {
+                                        let p = BlockPos::new(x, y, z);
+                                        let s = run.world.get(p);
+                                        if !s.is_air() && redsim::entity::mob::blocks::is_suffocating(&s) && redsim::entity::collide::boxes_at(&run.world, &s, p).iter().any(|b| b.intersects(bb)) {
+                                            walls.push(format!("{tag} {:.2},{:.2},{:.2}: {},{},{} {}", q[0], q[1], q[2], p.x, p.y, p.z, s.to_string().trim_start_matches("minecraft:")));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        rider_hurt.push(format!("e{k} hurt at slot {c} +{dt}: health {} -> {}{src} at {:.2},{:.2},{:.2} (eye {eye:.2}; suffocating near: {})", rider_last[k].1, m.health, e.pos.x, e.pos.y, e.pos.z, walls.join(", ")));
                     }
                     rider_last[k] = ([e.pos.x, e.pos.y, e.pos.z], m.health, run.world.time - t_start);
                 }
@@ -3237,6 +3468,24 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 snaps.push((run.world.time - t_start, v));
             }
         }
+        // (`golem_late`: the next golem comes up to J gt late: the world ticks that many more gt
+        // at the slot's end before the next pulse, so the gaps between pulses vary over
+        // 100 ..= 100 + J; the bench's own per-tick work skips them, its checks stay pulse-relative)
+        if dt == 99 && c + 1 < cycles && tm.golem_late > 0 {
+            let mut z = (seed as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ (c as u64).wrapping_add(0x9E37_79B9_7F4A_7C15).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            let extra = ((z ^ (z >> 31)) % (tm.golem_late as u64 + 1)) as i64;
+            for _ in 0..extra {
+                run.tick();
+                stop_brake(&mut run.world, &mut stop_arm);
+                hold_day(&mut run.world);
+            }
+            late_total += extra;
+        }
+    }
+    if tm.golem_late > 0 {
+        out.push(format!("golem pulses up to {} gt late: {late_total} gt added over {cycles} slots (the gaps between pulses 100..={})", tm.golem_late, 100 + tm.golem_late));
     }
     // the order: each settled snapshot every cart 3 places on from the last
     let mut moves = 0;
@@ -3302,6 +3551,36 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     if tm.no_summons {
         out.push("diagnostic (--no-summons): every rider held GOLEM_DETECTED_RECENTLY, so no golem was summoned anywhere; not a design check".to_string());
+    }
+    if has_nether {
+        let iron = nether_iron(&run.world) - iron_start;
+        let with: std::collections::BTreeSet<i64> = pad_golems.iter().map(|g| g.4).collect();
+        let offsets: Vec<i64> = pad_golems.iter().map(|g| g.5).collect();
+        let died = nether_golems.iter().filter(|g| g.2.is_some()).count();
+        let dwell: Vec<i64> = nether_golems.iter().filter_map(|g| pad_golems.iter().find(|p| p.0 == g.3).map(|p| g.1 - p.1)).collect();
+        out.push(format!(
+            "the pad: {} golems over {cycles} slots ({} slots with a golem: {:.2}%), summoned at slot +{}..+{}; {} through the portal{}, {} died in the Nether ({} alive at the end); pulses at {}: {pulses} with a golem, {spurious_pulses} without; iron into the Nether part's containers: {iron:+} ingots",
+            pad_golems.len(),
+            with.len(),
+            100.0 * with.len() as f64 / cycles.max(1) as f64,
+            offsets.iter().min().copied().unwrap_or(0),
+            offsets.iter().max().copied().unwrap_or(0),
+            nether_golems.len(),
+            if dwell.is_empty() { String::new() } else { format!(" ({}..{} gt after the summon)", dwell.iter().min().unwrap(), dwell.iter().max().unwrap()) },
+            died,
+            nether_golems.len() - died,
+            tm.pulse_at.map_or("(no output.pulse port)".to_string(), |p| format!("{},{},{}", p.x, p.y, p.z)),
+        ));
+        if tm.slept {
+            out.push(format!("LAST_SLEPT bench-driven (--slept): every rider's set {slept_acts} times (the start and each night from day time 13,000), the station bench's stand-in for the siding's naps"));
+        }
+        out.push(format!("summons onto the pad out of turn (the summoner not on a stand cell or its pocket): {} of {}{}", out_of_turn.len(), pad_golems.len(), if out_of_turn.is_empty() { String::new() } else { format!(": {}", out_of_turn.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }));
+        out.push(format!("pad stats: golems {} with {} slots {cycles} crossed {} died {} alive {} pulses {pulses} spurious {spurious_pulses} iron {iron} out_of_turn {}", pad_golems.len(), with.len(), nether_golems.len(), died, nether_golems.len() - died, out_of_turn.len()));
+        out.push(format!("summon ticks: stand riders willing 0/1/2/3: {} {} {} {}; panicking 0/1/2/3: {} {} {} {}; riders at the stand 0/1/2/3: {} {} {} {}; unwilling: never slept {}, slept 24,000 gt ago or more {}, a golem seen lately {}", willing[0], willing[1], willing[2], willing[3], panicking[0], panicking[1], panicking[2], panicking[3], stand_count[0], stand_count[1], stand_count[2], stand_count[3], unwilling[0], unwilling[1], unwilling[2]));
+        out.push(format!("summon stats: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}", willing[0], willing[1], willing[2], willing[3], panicking[0], panicking[1], panicking[2], panicking[3], stand_count[0], stand_count[1], stand_count[2], stand_count[3], unwilling[0], unwilling[1], unwilling[2]));
+        for s in out_of_turn.iter().take(3) {
+            problems.push(format!("a summon onto the pad out of turn: {s}"));
+        }
     }
     if !golem_log.is_empty() {
         out.push(format!("iron golems: {} first seen: {}", golem_log.len(), golem_log.iter().take(12).cloned().collect::<Vec<_>>().join("; ")));
