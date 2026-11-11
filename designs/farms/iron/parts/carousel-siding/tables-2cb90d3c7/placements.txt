@@ -1,0 +1,5 @@
+the judge's placement: 24 of 24 seeds clean over 2 night(s) each, 1008 visits
+settled as placed (raw paste): 24 of 24 seeds clean over 2 night(s) each, 1008 visits
+built in order, each cell's priced gap (20 gt, 40 gt at a place:edge cell): 24 of 24 seeds clean over 2 night(s) each, 1008 visits (build: 348 cells in 348 steps, 8900 gt)
+works every way placed
+196.5 s

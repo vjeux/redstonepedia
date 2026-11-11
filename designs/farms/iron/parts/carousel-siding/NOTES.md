@@ -100,6 +100,30 @@ Rules for the loop:
 
 ## Evidence
 
+### On tick-exact's reload and eject fix (2cb90d3c7; main ad0b401dd, rerun 2026-11-11 01:20-02:23)
+
+Every siding table rerun on the fixed base (the reloaded brain, the boarding cooldown not saved, the
+activator's eject keeping the rider's motion; results before it do not count). The long-nap-path
+member file, `--jobs 16`:
+- **Unchanged:** normal 100 × 6 in both release modes (100/100 seeds, 12,600 visits, 0 problems, 0
+  merged carts); the tail 100 × 25 (52,500 visits napped and out, 0 problems, HOME 21/21 at all 5,200
+  checks; onset max 127 gt, was 121); F→exit 55-58 gt by day and at the k2 corner (F at 134); HOME
+  erased 16/16 clean; the five stateful faults (arr-miss, arr-extra, r-extra, f-double 16/16 clean;
+  r-miss worst 2 visits, 3 naps lost, as before); dropped F (3 of 16 seeds jam, the 13 others
+  recover in one visit; 1 merged pair, seed 4); placements 24 × 2 in all three ways (348 cells,
+  8,900 gt); the partial matrix (only the merged-carts field added, newly counted); the chunk
+  matrix (the siding's chunk at the nap onset N 40: 29 jams, was 30).
+- **Moved, the whole-part unload** (save order, 6 seeds, visit 3): the reload at the wake N 240 now
+  jams (24 jams, 5 out without the napper, 1 merged pair; was clean), at the wake N 700 26 jams (was
+  16); the reload at the re-board now fails at every N (N 3 and 40: 5 jams, 1 out without; N 240 and
+  700: 25-26 jams, 5 out without; all were clean but N 700); at the kick N 700 25 jams (was 16).
+  The kick at N 3-240 is unchanged (3 of 6 out without the napper). The reloaded villager now
+  boards with no saved cooldown and a fresh brain: the losses around the wake and the re-board are
+  design (b)'s territory (the after-wake kick, the free-cell gate).
+- The three member drives re-recorded: byte-identical; `web drive-check` ok on main 690982297.
+- Since then: tick-exact's sleeper-pickup fix (cdbba0054) and the freeze rules (ac84a1263): the
+  kick rows and the freeze rows are being rerun on them.
+
 (Before 2026-11-10 14:30, with the bench's bed acts and its old schedule of about 22 visits a night;
 the run without them is in "The one bed" above.)
 

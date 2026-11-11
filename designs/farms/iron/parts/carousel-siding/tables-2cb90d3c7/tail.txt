@@ -1,0 +1,32 @@
+the judge's placement: 100 of 100 seeds clean
+100 seeds x 25 nights: 52500 visits; dropped 52500, slept 52500, woken 52500, re-boarded 52500 (own cart 52500), ready on the slot 52500, released 52500
+ready after the arrival (gt): min Some(100) median Some(103) p99 Some(125) max Some(195); over 500: 0
+segments, p50/p90/p99/max gt (52500 napped visits): arrival to drop 17/27/39/41; drop to asleep 0/0/0/110; nap 57/65/67/67; woken to re-boarded 11/19/21/21; re-boarded to ready 17/17/19/19; ready (all) 103/113/125/195
+the slowest 525 visits (ready 125..195 gt), mean segments vs all: arrival to drop 37.7 vs 19.0; drop to asleep 6.3 vs 0.1; nap 57.3 vs 57.5; woken to re-boarded 11.1 vs 11.5; re-boarded to ready 17.8 vs 17.0
+  slow: seed 49 villager 19 arrived at time 176925: segments [17, 110, 32, 19, 17, 195]
+  slow: seed 71 villager 41 arrived at time 81612: segments [16, 90, 56, 13, 17, 192]
+  slow: seed 12 villager 13 arrived at time 177701: segments [17, 94, 60, 3, 17, 191]
+mean stage ticks after the arrival: dropped 19.0, asleep 19.0, woken 76.5, re-boarded 88.0
+nap length (asleep to woken, gt): min Some(20) median Some(57) p99 Some(67) max Some(67); drop to re-board: min Some(69) (the boarding cooldown is 60)
+panicking while waiting on the slot at night: 0 of 0 ticks (0.00%)
+visits with calm waiting ticks: 0 of 52500; first calm tick after ready: min None median None max None; last: median None max None
+rest x on the slot: {}
+rest x: (sees the dorm zombie, of): {}
+exit speed at the exit cell (b/t, stored): min 0.658 median 0.888 max 0.888
+speed leaving the exit cell (b/t, stored): min 0.656 median 0.885 max 0.885; over 0.36: 52500 of 52500
+problems: {}
+merged carts (horizontal distance under 0.01, boxes paired by the push; the game never separates them): 0 
+force input (day-1's scheduler, driven by the bench): 52500 pulses, 118..150 gt after the arrival; visits not asleep by it: 0 (pulse to ready on the slot: min None median None max None gt); normal visits it cut short: 0
+  sleep onset after the arrival (52500 napped visits): p50 17 p99 39 p99.9 41 p99.99 110 max 127 gt; over 60: 43, over 80: 32, over 100: 16; the 8 slowest: [110, 110, 111, 113, 118, 120, 121, 127]
+  the siding's T back to entry-bed: 139..234 (52500) gt after a nap visit's arrival, none gt after F on a visit sent out by F; 44..54 (52500) gt after its cart came onto the exit branch, the cart then at x -19.50 or more (the T's cell x 1..2)
+ironspec's check: 5200 dawn/midday checks over 100 seeds, HOME = the bed held by min Some(21) of 21 (checks short of 21: 0); HOME changes (losses and regains): 3922; villager-nights by naps (naps: count): {1: 52500} over 2500 seed-nights (21 each: 52500)
+HOME lost and taken back (the napper's release at its first REST tick and its AcquirePoi reclaim): 1961 times, without HOME p50 Some(10) p99 Some(88) max Some(127) gt; losses not taken back by the end: 0
+  HOME change: t0+30485 (day time 17263): villager 11 loses HOME at -3.70 0.06 0.50, Rest, riding true, bed occupied false
+  HOME change: t0+30487 (day time 17265): villager 11 takes HOME = the bed at -2.90 0.06 0.50, Rest, riding true, bed occupied false
+  HOME change: t0+32693 (day time 19471): villager 16 loses HOME at -3.18 0.06 0.50, Rest, riding true, bed occupied false
+  HOME change: t0+32704 (day time 19482): villager 16 takes HOME = the bed at -0.83 0.06 0.50, Rest, riding true, bed occupied false
+  HOME change: t0+49379 (day time 12157): villager 0 loses HOME at -4.10 0.06 0.50, Rest, riding true, bed occupied false
+  HOME change: t0+49386 (day time 12164): villager 0 takes HOME = the bed at -1.30 0.06 0.50, Rest, riding true, bed occupied false
+  HOME change: t0+51651 (day time 14429): villager 5 loses HOME at -4.10 0.06 0.50, Rest, riding true, bed occupied false
+  HOME change: t0+51657 (day time 14435): villager 5 takes HOME = the bed at -1.70 0.06 0.50, Rest, riding true, bed occupied false
+1913.9 s

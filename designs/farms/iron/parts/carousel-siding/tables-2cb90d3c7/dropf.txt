@@ -1,0 +1,110 @@
+the judge's placement: 0 of 16 seeds clean
+  seed 1: 20 of 21 hold HOME = the bed at time 13422 (day time 0); HOME changes: t0+2729 (day time 13507): villager 3 loses HOME at -4.10 0.06 0.50, Panic, riding true, bed occupied false
+  seed 2: 20 of 21 hold HOME = the bed at time 23808 (day time 0); HOME changes: t0+13040 (day time 13432): villager 3 loses HOME at -4.15 0.06 0.50, Panic, riding true, bed occupied false
+  seed 3: 20 of 21 hold HOME = the bed at time 12353 (day time 0); HOME changes: t0+1613 (day time 13460): villager 3 loses HOME at -4.10 0.06 0.50, Panic, riding true, bed occupied false; t0+3422 (day time 15269): villager 4 loses HOME at 1.50 0.06 1.76, Rest, riding true, bed occupied false; t0+3435 (day time 15282): villager 3 takes HOME = the bed at 1.50 0.00 2.59, Panic, riding false, bed occupied false; t0+5533 (day time 17380): villager 5 loses HOME at 0.52 0.06 0.50, Rest, riding true, bed occupied false
+  seed 4: 1 merged cart pairs (the game's push never separates them): carts 16 and 18 at t0+12273 (1.50,0.06,1.51)
+  seed 5: 20 of 21 hold HOME = the bed at time 15560 (day time 0); HOME changes: t0+4930 (day time 13570): villager 3 loses HOME at -4.36 0.06 0.50, Panic, riding true, bed occupied false
+  seed 6: 20 of 21 hold HOME = the bed at time 13956 (day time 0); HOME changes: t0+3353 (day time 13597): villager 3 loses HOME at -4.10 0.06 0.50, Panic, riding true, bed occupied false
+16 seeds x 1 nights: 311 visits; dropped 283, slept 269, woken 269, re-boarded 269 (own cart 269), ready on the slot 302, released 302
+ready after the arrival (gt): min Some(72) median Some(103) p99 Some(666) max Some(2404); over 500: 14
+segments, p50/p90/p99/max gt (268 napped visits): arrival to drop 17/28/38/40; drop to asleep 0/0/0/0; nap 58/65/67/67; woken to re-boarded 12/19/21/21; re-boarded to ready 17/17/17/19; ready (all) 103/114/124/126
+the slowest 2 visits (ready 125..126 gt), mean segments vs all: arrival to drop 39.5 vs 19.2; drop to asleep 0.0 vs 0.0; nap 63.5 vs 57.5; woken to re-boarded 5.5 vs 11.5; re-boarded to ready 17.0 vs 17.0
+  slow: seed 13 villager 3 arrived at time 7908: segments [40, 0, 61, 8, 17, 126]
+  slow: seed 1 villager 33 arrived at time 8412: segments [39, 0, 66, 3, 17, 125]
+  slow: seed 11 villager 35 arrived at time 12199: segments [38, 0, 48, 21, 17, 124]
+mean stage ticks after the arrival: dropped 19.2, asleep 19.2, woken 76.7, re-boarded 88.2
+nap length (asleep to woken, gt): min Some(48) median Some(57) p99 Some(67) max Some(67); drop to re-board: min Some(63) (the boarding cooldown is 60)
+panicking while waiting on the slot at night: 0 of 0 ticks (0.00%)
+visits with calm waiting ticks: 0 of 313; first calm tick after ready: min None median None max None; last: median None max None
+rest x on the slot: {}
+rest x: (sees the dorm zombie, of): {}
+exit speed at the exit cell (b/t, stored): min 0.579 median 0.888 max 0.888
+speed leaving the exit cell (b/t, stored): min 0.577 median 0.885 max 0.885; over 0.36: 302 of 302
+problems: {"still inside 2000 gt after its arrival": 9}
+merged carts (horizontal distance under 0.01, boxes paired by the push; the game never separates them): 1 seed 4: carts 16 and 18 at t0+12273 (1.50,0.06,1.51)
+force input (day-1's scheduler, driven by the bench): 297 pulses, 118..150 gt after the arrival; visits not asleep by it: 20 (pulse to ready on the slot: min Some(-53) median Some(45) max Some(51) gt); normal visits it cut short: 28
+  sleep onset after the arrival (269 napped visits): p50 17 p99 38 p99.9 39 p99.99 39 max 40 gt; over 60: 0, over 80: 0, over 100: 0; the 8 slowest: [35, 35, 35, 36, 38, 38, 39, 40]
+  sent out by F: the pulse to leaving the exit cell: min -45 median 53 max 58 gt (20 visits)
+  the siding's T back to entry-bed: 140..170 (268) gt after a nap visit's arrival, -83..231 (26) gt after F on a visit sent out by F; 44..54 (288) gt after its cart came onto the exit branch, the cart then at x -19.50 or more (the T's cell x 1..2)
+drop-force summary:
+  seed 1: stuck cart out 689 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 2: stuck cart out 660 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 3: stuck cart out never; unclean visits after it: the next 5 (later: 0)
+  seed 4: stuck cart out never; unclean visits after it: the next 5 (later: 1)
+  seed 5: stuck cart out 578 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 6: stuck cart out 645 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 7: stuck cart out 2412 gt after its arrival; unclean visits after it: the next 5 (later: 0)
+  seed 8: stuck cart out 630 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 9: stuck cart out 681 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 10: stuck cart out 667 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 11: stuck cart out 602 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 12: stuck cart out 626 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 13: stuck cart out 604 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 14: stuck cart out 650 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 15: stuck cart out 597 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+  seed 16: stuck cart out 674 gt after its arrival; unclean visits after it: the next 1 (later: 0)
+drop-force seed 1: visit 3 (villager 9, arrived 2933): napper dropped Some(17) slept None; its cart came onto the exit branch 677 gt after its arrival, left past the exit 689 gt after (ready on the slot: Some(682), released Some(682); with its villager: true)
+  next visit 4 (villager 11, +512 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready Some(165) released Some(165) F Some(120)
+  next visit 5 (villager 13, +929 gt): V lit before it Some(false); dropped Some(16) slept Some(16) re-boarded Some(85) own cart true ready Some(102) released Some(102) F Some(148)
+  next visit 6 (villager 15, +1334 gt): V lit before it Some(false); dropped Some(15) slept Some(15) re-boarded Some(84) own cart true ready Some(101) released Some(101) F Some(131)
+  next visit 7 (villager 17, +1803 gt): V lit before it Some(false); dropped Some(15) slept Some(15) re-boarded Some(84) own cart true ready Some(101) released Some(101) F Some(145)
+  the 13 visits after those: 13 napped, back in their own cart and released; V lit before 0 of them (the bulb's phase inverted)
+drop-force seed 2: visit 3 (villager 9, arrived 13249): napper dropped Some(16) slept None; its cart came onto the exit branch 648 gt after its arrival, left past the exit 660 gt after (ready on the slot: Some(653), released Some(653); with its villager: true)
+  next visit 4 (villager 11, +471 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready Some(177) released Some(177) F Some(132)
+  next visit 5 (villager 13, +871 gt): V lit before it Some(false); dropped Some(15) slept Some(15) re-boarded Some(84) own cart true ready Some(101) released Some(101) F Some(143)
+  next visit 6 (villager 15, +1287 gt): V lit before it Some(false); dropped Some(18) slept Some(18) re-boarded Some(87) own cart true ready Some(104) released Some(104) F Some(137)
+  next visit 7 (villager 17, +1698 gt): V lit before it Some(false); dropped Some(17) slept Some(17) re-boarded Some(86) own cart true ready Some(103) released Some(103) F Some(126)
+  the 13 visits after those: 13 napped, back in their own cart and released; V lit before 0 of them (the bulb's phase inverted)
+drop-force seed 3: visit 3 (villager 9, arrived 1817): napper dropped Some(17) slept None; its cart stayed in the siding to the end of the run (8564 gt)
+  next visit 4 (villager 11, +510 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready None released None F Some(124); problem: still inside 2000 gt after its arrival
+  next visit 5 (villager 13, +2518 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready None released None F Some(126); problem: still inside 2000 gt after its arrival
+  next visit 6 (villager 15, +4528 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready None released None F Some(130); problem: still inside 2000 gt after its arrival
+  next visit 7 (villager 17, +6554 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready None released None F Some(150); problem: still inside 2000 gt after its arrival
+  the 1 visits after those: 0 napped, back in their own cart and released; V lit before 1 of them (the bulb's phase inverted)
+drop-force seed 4: visit 3 (villager 9, arrived 4741): napper dropped Some(16) slept None; its cart stayed in the siding to the end of the run (7379 gt)
+  next visit 4 (villager 11, +434 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready Some(180) released Some(180) F Some(134)
+  next visit 5 (villager 13, +838 gt): V lit before it Some(false); dropped Some(18) slept Some(18) re-boarded Some(81) own cart true ready None released None F Some(149); problem: still inside 2000 gt after its arrival
+  next visit 6 (villager 15, +2853 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready Some(72) released Some(72) F Some(125)
+  next visit 7 (villager 17, +3348 gt): V lit before it Some(false); dropped None slept None re-boarded None own cart false ready None released None F Some(132); problem: still inside 2000 gt after its arrival
+  the 2 visits after those: 0 napped, back in their own cart and released; V lit before 2 of them (the bulb's phase inverted)
+drop-force seed 5: visit 3 (villager 9, arrived 5153): napper dropped Some(35) slept None; its cart came onto the exit branch 566 gt after its arrival, left past the exit 578 gt after (ready on the slot: Some(571), released Some(571); with its villager: true)
+  next visit 4 (villager 11, +386 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready Some(180) released Some(180) F Some(135)
+  next visit 5 (villager 13, +802 gt): V lit before it Some(false); dropped Some(18) slept Some(18) re-boarded Some(87) own cart true ready Some(104) released Some(104) F Some(129)
+  next visit 6 (villager 15, +1225 gt): V lit before it Some(false); dropped Some(16) slept Some(16) re-boarded Some(85) own cart true ready Some(102) released Some(102) F Some(130)
+  next visit 7 (villager 17, +1663 gt): V lit before it Some(false); dropped Some(17) slept Some(17) re-boarded Some(86) own cart true ready Some(103) released Some(103) F Some(146)
+  the 13 visits after those: 13 napped, back in their own cart and released; V lit before 0 of them (the bulb's phase inverted)
+drop-force seed 6: visit 3 (villager 9, arrived 3559): napper dropped Some(15) slept None; its cart came onto the exit branch 633 gt after its arrival, left past the exit 645 gt after (ready on the slot: Some(638), released Some(638); with its villager: true)
+  next visit 4 (villager 11, +441 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready Some(192) released Some(192) F Some(147)
+  next visit 5 (villager 13, +891 gt): V lit before it Some(false); dropped Some(35) slept Some(35) re-boarded Some(104) own cart true ready Some(121) released Some(121) F Some(142)
+  next visit 6 (villager 15, +1286 gt): V lit before it Some(false); dropped Some(28) slept Some(28) re-boarded Some(97) own cart true ready Some(114) released Some(114) F Some(148)
+  next visit 7 (villager 17, +1762 gt): V lit before it Some(false); dropped Some(22) slept Some(22) re-boarded Some(91) own cart true ready Some(108) released Some(108) F Some(136)
+  the 13 visits after those: 13 napped, back in their own cart and released; V lit before 0 of them (the bulb's phase inverted)
+drop-force seed 7: visit 3 (villager 9, arrived 3982): napper dropped Some(18) slept None; its cart came onto the exit branch 2396 gt after its arrival, left past the exit 2412 gt after (ready on the slot: Some(2404), released Some(2404); with its villager: true)
+  next visit 4 (villager 11, +415 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready Some(194) released Some(194) F Some(148)
+  next visit 5 (villager 13, +834 gt): V lit before it Some(false); dropped None slept None re-boarded None own cart false ready Some(196) released Some(196) F Some(145)
+  next visit 6 (villager 15, +1239 gt): V lit before it Some(false); dropped None slept None re-boarded None own cart false ready Some(172) released Some(172) F Some(128)
+  next visit 7 (villager 17, +1726 gt): V lit before it Some(false); dropped None slept None re-boarded None own cart false ready Some(173) released Some(173) F Some(127)
+  the 13 visits after those: 12 napped, back in their own cart and released; V lit before 0 of them (the bulb's phase inverted)
+drop-force seed 8: visit 3 (villager 9, arrived 6906): napper dropped Some(29) slept None; its cart came onto the exit branch 618 gt after its arrival, left past the exit 630 gt after (ready on the slot: Some(623), released Some(623); with its villager: true)
+  next visit 4 (villager 11, +443 gt): V lit before it Some(true); dropped None slept None re-boarded None own cart false ready Some(175) released Some(175) F Some(130)
+  next visit 5 (villager 13, +878 gt): V lit before it Some(false); dropped Some(35) slept Some(35) re-boarded Some(104) own cart true ready Some(121) released Some(121) F Some(143)
+  next visit 6 (villager 15, +1358 gt): V lit before it Some(false); dropped Some(16) slept Some(16) re-boarded Some(85) own cart true ready Some(102) released Some(102) F Some(135)
+  next visit 7 (villager 17, +1816 gt): V lit before it Some(false); dropped Some(15) slept Some(15) re-boarded Some(84) own cart true ready Some(101) released Some(101) F Some(138)
+  the 13 visits after those: 13 napped, back in their own cart and released; V lit before 0 of them (the bulb's phase inverted)
+ironspec's check: 64 dawn/midday checks over 16 seeds, HOME = the bed held by min Some(20) of 21 (checks short of 21: 58); HOME changes (losses and regains): 42; villager-nights by naps (naps: count): {1: 269} over 16 seed-nights (21 each: 336)
+HOME lost and taken back (the napper's release at its first REST tick and its AcquirePoi reclaim): 13 times, without HOME p50 Some(19) p99 Some(3965) max Some(4780) gt; losses not taken back by the end: 16
+  HOME change: t0+2729 (day time 13507): villager 3 loses HOME at -4.10 0.06 0.50, Panic, riding true, bed occupied false
+  HOME change: t0+13040 (day time 13432): villager 3 loses HOME at -4.15 0.06 0.50, Panic, riding true, bed occupied false
+  HOME change: t0+1613 (day time 13460): villager 3 loses HOME at -4.10 0.06 0.50, Panic, riding true, bed occupied false
+  HOME change: t0+3422 (day time 15269): villager 4 loses HOME at 1.50 0.06 1.76, Rest, riding true, bed occupied false
+  HOME change: t0+3435 (day time 15282): villager 3 takes HOME = the bed at 1.50 0.00 2.59, Panic, riding false, bed occupied false
+  HOME change: t0+5533 (day time 17380): villager 5 loses HOME at 0.52 0.06 0.50, Rest, riding true, bed occupied false
+  HOME change: t0+5534 (day time 17381): villager 4 takes HOME = the bed at 1.50 0.06 1.47, Rest, riding true, bed occupied false
+  HOME change: t0+5535 (day time 17382): villager 4 loses HOME at 1.50 0.06 1.47, Rest, riding true, bed occupied false
+  seed 3 villager 11 arrived 2327: still inside 2000 gt after its arrival; dropped None slept None woken None reboarded None ready None
+  seed 3 villager 13 arrived 4335: still inside 2000 gt after its arrival; dropped None slept None woken None reboarded None ready None
+  seed 3 villager 15 arrived 6345: still inside 2000 gt after its arrival; dropped None slept None woken None reboarded None ready None
+  seed 3 villager 17 arrived 8371: still inside 2000 gt after its arrival; dropped None slept None woken None reboarded None ready None
+  seed 3 villager 19 arrived 10381: still inside 2000 gt after its arrival; dropped None slept None woken None reboarded None ready None
+  seed 4 villager 13 arrived 5579: still inside 2000 gt after its arrival; dropped Some(18) slept Some(18) woken Some(67) reboarded Some(81) ready None
+19.0 s

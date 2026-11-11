@@ -1,0 +1,17 @@
+the judge's placement: 16 of 16 seeds clean
+16 seeds x 2 nights: 672 visits; dropped 672, slept 0, woken 0, re-boarded 0 (own cart 0), ready on the slot 672, released 672
+ready after the arrival (gt): min Some(181) median Some(182) p99 Some(185) max Some(185); over 500: 0
+panicking while waiting on the slot at night: 0 of 0 ticks (0.00%)
+visits with calm waiting ticks: 0 of 672; first calm tick after ready: min None median None max None; last: median None max None
+rest x on the slot: {}
+rest x: (sees the dorm zombie, of): {}
+exit speed at the exit cell (b/t, stored): min 0.586 median 0.881 max 0.888
+speed leaving the exit cell (b/t, stored): min 0.585 median 0.878 max 0.885; over 0.36: 672 of 672
+problems: {}
+merged carts (horizontal distance under 0.01, boxes paired by the push; the game never separates them): 0 
+force input (day-1's scheduler, driven by the bench): 672 pulses, 134..134 gt after the arrival; visits not asleep by it: 672 (pulse to ready on the slot: min Some(47) median Some(48) max Some(51) gt); normal visits it cut short: 0
+  sent out by F: the pulse to leaving the exit cell: min 55 median 56 max 58 gt (672 visits)
+  the siding's T back to entry-bed: none gt after a nap visit's arrival, 86..88 (672) gt after F on a visit sent out by F; 44..44 (672) gt after its cart came onto the exit branch, the cart then at x -19.50 or more (the T's cell x 1..2)
+ironspec's check: 126 dawn/midday checks over 16 seeds, HOME = the bed held by min Some(21) of 21 (checks short of 21: 0); HOME changes (losses and regains): 0; villager-nights by naps (naps: count): {} over 32 seed-nights (21 each: 672)
+HOME lost and taken back (the napper's release at its first REST tick and its AcquirePoi reclaim): 0 times, without HOME p50 None p99 None max None gt; losses not taken back by the end: 0
+36.0 s

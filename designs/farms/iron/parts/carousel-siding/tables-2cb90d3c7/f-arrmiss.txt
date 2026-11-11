@@ -1,0 +1,37 @@
+the judge's placement: 16 of 16 seeds clean
+16 seeds x 1 nights: 336 visits; dropped 336, slept 336, woken 336, re-boarded 336 (own cart 336), ready on the slot 336, released 336
+ready after the arrival (gt): min Some(101) median Some(103) p99 Some(124) max Some(127); over 500: 0
+segments, p50/p90/p99/max gt (336 napped visits): arrival to drop 17/28/38/40; drop to asleep 0/0/0/0; nap 58/65/67/67; woken to re-boarded 11/19/21/21; re-boarded to ready 17/17/19/19; ready (all) 103/114/124/127
+the slowest 3 visits (ready 125..127 gt), mean segments vs all: arrival to drop 39.3 vs 19.2; drop to asleep 0.0 vs 0.0; nap 59.0 vs 57.7; woken to re-boarded 10.0 vs 11.3; re-boarded to ready 17.7 vs 17.0
+  slow: seed 3 villager 31 arrived at time 6837: segments [39, 0, 50, 19, 19, 127]
+  slow: seed 13 villager 3 arrived at time 7908: segments [40, 0, 61, 8, 17, 126]
+  slow: seed 1 villager 33 arrived at time 8412: segments [39, 0, 66, 3, 17, 125]
+mean stage ticks after the arrival: dropped 19.2, asleep 19.2, woken 76.9, re-boarded 88.2
+nap length (asleep to woken, gt): min Some(48) median Some(58) p99 Some(67) max Some(67); drop to re-board: min Some(69) (the boarding cooldown is 60)
+panicking while waiting on the slot at night: 0 of 0 ticks (0.00%)
+visits with calm waiting ticks: 0 of 336; first calm tick after ready: min None median None max None; last: median None max None
+rest x on the slot: {}
+rest x: (sees the dorm zombie, of): {}
+exit speed at the exit cell (b/t, stored): min 0.658 median 0.888 max 0.888
+speed leaving the exit cell (b/t, stored): min 0.656 median 0.885 max 0.885; over 0.36: 336 of 336
+problems: {}
+merged carts (horizontal distance under 0.01, boxes paired by the push; the game never separates them): 0 
+force input (day-1's scheduler, driven by the bench): 336 pulses, 118..150 gt after the arrival; visits not asleep by it: 0 (pulse to ready on the slot: min None median None max None gt); normal visits it cut short: 0
+  sleep onset after the arrival (336 napped visits): p50 17 p99 38 p99.9 39 p99.99 39 max 40 gt; over 60: 0, over 80: 0, over 100: 0; the 8 slowest: [35, 36, 37, 38, 38, 39, 39, 40]
+  the siding's T back to entry-bed: 140..172 (336) gt after a nap visit's arrival, none gt after F on a visit sent out by F; 44..54 (336) gt after its cart came onto the exit branch, the cart then at x -19.50 or more (the T's cell x 1..2)
+fault arr-miss on visit 3: visits until a clean one (napped, own cart, released), worst over the seeds: 0 (0 = the faulted visit itself clean); naps lost in those: 0
+  seed 1 visit 3 (+0): V before Some(false); slept Some(17) re-boarded Some(86) own cart true ready Some(103) released Some(103) F Some(129)
+  seed 1 visit 4 (+512): V before Some(false); slept Some(37) re-boarded Some(106) own cart true ready Some(123) released Some(123) F Some(120)
+  seed 1 visit 5 (+929): V before Some(false); slept Some(16) re-boarded Some(85) own cart true ready Some(102) released Some(102) F Some(148)
+  seed 2 visit 3 (+0): V before Some(false); slept Some(16) re-boarded Some(85) own cart true ready Some(102) released Some(102) F Some(149)
+  seed 2 visit 4 (+471): V before Some(false); slept Some(27) re-boarded Some(96) own cart true ready Some(113) released Some(113) F Some(132)
+  seed 2 visit 5 (+871): V before Some(false); slept Some(15) re-boarded Some(84) own cart true ready Some(101) released Some(101) F Some(143)
+  seed 3 visit 3 (+0): V before Some(false); slept Some(17) re-boarded Some(86) own cart true ready Some(103) released Some(103) F Some(135)
+  seed 3 visit 4 (+510): V before Some(false); slept Some(22) re-boarded Some(91) own cart true ready Some(108) released Some(108) F Some(124)
+  seed 3 visit 5 (+925): V before Some(false); slept Some(15) re-boarded Some(84) own cart true ready Some(101) released Some(101) F Some(150)
+  seed 4 visit 3 (+0): V before Some(false); slept Some(16) re-boarded Some(85) own cart true ready Some(102) released Some(102) F Some(122)
+  seed 4 visit 4 (+434): V before Some(false); slept Some(16) re-boarded Some(85) own cart true ready Some(102) released Some(102) F Some(134)
+  seed 4 visit 5 (+838): V before Some(false); slept Some(17) re-boarded Some(86) own cart true ready Some(103) released Some(103) F Some(149)
+ironspec's check: 64 dawn/midday checks over 16 seeds, HOME = the bed held by min Some(21) of 21 (checks short of 21: 0); HOME changes (losses and regains): 0; villager-nights by naps (naps: count): {1: 336} over 16 seed-nights (21 each: 336)
+HOME lost and taken back (the napper's release at its first REST tick and its AcquirePoi reclaim): 0 times, without HOME p50 None p99 None max None gt; losses not taken back by the end: 0
+18.2 s
