@@ -2362,6 +2362,8 @@ pub struct LoopTiming {
     /// The stand's entry hold, emulated (`--entry-hold X,Y,Z`): while pocket 3 reads occupied, a
     /// cart reaching that loop-frame cell is kept at rest at its centre.
     pub entry_hold: Option<[i32; 3]>,
+    /// With `entry_hold`: the hold also stays shut for this many gt after the stand's REL rises.
+    pub entry_hold_after: i64,
     /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
     /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
     pub arrivals: bool,
@@ -2526,7 +2528,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, entry_hold: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, entry_hold: None, entry_hold_after: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], start_random: false, calm: false }
     }
 }
 
@@ -3434,6 +3436,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut entry_clear_since: Option<i64> = None;
     let mut entry_inside: Vec<usize> = Vec::new();
     let mut entry_slack: Vec<i64> = Vec::new();
+    let mut entry_snaps: Vec<String> = Vec::new();
+    let mut entry_rel_rise: Option<i64> = None;
+    let mut entry_rel_was = false;
+    let mut walk_push: i64 = 0;
+    let mut walk_push_log: Vec<String> = Vec::new();
     let mut split_rel_rise: Option<i64> = None;
     let mut split_rel_was = false;
     // (`acts`' restores due: (gt, cell, the block the act replaced)); the bench's own REL state
@@ -4678,6 +4685,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // passing through pocket 3 with G2 open is part of the arriving train)
             let g2_open = lay.pockets.get(2).is_some_and(|(g, _)| run.world.get(*g).to_string().contains("open=true"));
             let p3 = p3 && !g2_open;
+            // (the hold also stays shut until the stand's REL has been on `entry_hold_after` gt, so
+            // a train restarted from it can't reach G0 before the release ends)
+            let rel_on_h = rel_bench.is_some_and(|r| run.world.get(r).to_string().contains("redstone_block"));
+            if rel_on_h && !entry_rel_was {
+                entry_rel_rise = Some(t);
+            }
+            entry_rel_was = rel_on_h;
+            let young = tm.entry_hold_after > 0 && rel_on_h && entry_rel_rise.is_some_and(|r0| t - r0 < tm.entry_hold_after);
+            let p3 = p3 || young;
             let (cx, cy, cz) = (hc[0] as f64 + 0.5 + sx, hc[1] as f64, hc[2] as f64 + 0.5 + sz);
             // (the slack: a cart entering the hold cell with the hold open, gt since it opened)
             if !p3 && entry_p3_was {
@@ -4699,6 +4715,20 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
             if p3 {
+                // (the held train's carts behind the front one, every 10 gt of the first hold
+                // episodes: where they rest, or whether they roll back)
+                if entry_snaps.len() < 24 && t % 10 == 0 && ps.iter().flatten().any(|p| (p.x - cx).abs() < 0.5 && (p.z - cz).abs() < 0.5 && (p.y - cy).abs() < 1.2) {
+                    let mut v: Vec<String> = Vec::new();
+                    for (k, p) in ps.iter().enumerate() {
+                        if let Some(p) = p
+                            && (p.x - cx).abs() < 1.5 && p.z - sz > 0.5 && p.z - sz < 24.0
+                        {
+                            let sp = run.world.entities.list.iter().find(|e| e.id == carts[k]).map(|e| (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()).unwrap_or(0.0);
+                            v.push(format!("c{k} z{:.2} y{:.2} v{:.2}", p.z - sz, p.y, sp));
+                        }
+                    }
+                    entry_snaps.push(format!("slot {} +{}: {}", c, dt, v.join(", ")));
+                }
                 for (k, id) in carts.iter().enumerate() {
                     let Some(p) = ps[k] else { continue };
                     if (p.x - cx).abs() < 0.5 && (p.z - cz).abs() < 0.5 && (p.y - cy).abs() < 1.2 {
@@ -4786,8 +4816,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 let sig = run.world.has_neighbor_signal(*g);
                 let in_gate = ps.iter().flatten().any(|p| (p.x - (g.x as f64 + 0.5)).abs() < 0.6 && (p.z - (g.z as f64 + 0.5)).abs() < 0.99 && p.y > g.y as f64 - 1.7 && p.y < g.y as f64 + 1.0);
                 // (arrivals mode: the interlock binds only while the stand's REL is off, the gates
-                // open by the latch's not-Q for the next train; a release follows its signal)
+                // open by the latch's not-Q for the next train, and only on a resting cart: the
+                // pocket past the gate occupied AND the gate beyond that pocket shut; a cart passing
+                // through with the next gate open is part of the arriving train)
                 let rel_on_now = rel_bench.is_some_and(|r| run.world.get(r).to_string().contains("redstone_block"));
+                let beyond_shut = if k == 0 { true } else { lay.pockets.get(k - 1).is_some_and(|(gb, _)| !run.world.get(*gb).to_string().contains("open=true")) };
+                let empty = if tm.interlock_arrivals { empty || !beyond_shut } else { empty };
                 let want = sig && (empty || (tm.interlock_arrivals && rel_on_now));
                 let open_now = cur.contains("open=true");
                 let open = if open_now && !want && in_gate { true } else { want };
@@ -5413,6 +5447,25 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let homes_now: Vec<Option<BlockPos>> = riders.iter().map(|r| redsim::entity::index_of(&run.world, *r).and_then(|i| match &run.world.entities.list[i].kind { redsim::entity::EntityKind::Mob(m) => m.brain.as_deref().and_then(|b| b.home), _ => None })).collect();
             // (the `cant-reach:` line: each rider's streak where HOME's release can run, and the
             // releases)
+            for (k, r) in riders.iter().enumerate() {
+                // (tick-exact's push check: a seated rider with a walk target whose path reaches
+                // pushes its cart; counted where its cart touches another cart)
+                if let Some(i) = redsim::entity::index_of(&run.world, *r)
+                    && let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
+                    && let Some(x) = m.brain.as_deref().and_then(|b| b.ex.as_deref())
+                    && x.mem.walk_target.is_some()
+                    && x.mem.path.as_ref().is_some_and(|p| p.reached)
+                {
+                    let rp = run.world.entities.list[i].pos;
+                    let near = carts.iter().filter(|id| pos_of(&run.world, **id).is_some_and(|p| ((p.x - rp.x).powi(2) + (p.z - rp.z).powi(2)).sqrt() < 1.05 && (p.y - rp.y).abs() < 1.2)).count();
+                    if near >= 2 {
+                        walk_push += 1;
+                        if walk_push_log.len() < 4 {
+                            walk_push_log.push(format!("rider e{k} slot {c} +{dt} at {:.2},{:.2},{:.2}", rp.x, rp.y, rp.z));
+                        }
+                    }
+                }
+            }
             for (k, r) in riders.iter().enumerate() {
                 let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
                 let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { continue };
@@ -6044,6 +6097,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     if !rider_hurt.is_empty() {
         out.push(format!("riders hurt: {}", rider_hurt.join("; ")));
     }
+    out.push(format!("riders walking with a reachable path while their cart touches another (they push it): {walk_push} rider-ticks{}", if walk_push_log.is_empty() { String::new() } else { format!(" (first: {})", walk_push_log.join("; ")) }));
     out.push(format!(
         "cant-reach: {}; HOME releases: {}",
         match &reach_worst {
@@ -6177,6 +6231,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         if let Some(hc) = tm.entry_hold {
             out.push(format!("entry hold at {},{},{} (pocket 3 occupied): carts held {entry_held_ticks} gt in all; slack at each cart's entry (gt since the hold opened; -1 held, 999 never shut): min {} max {}, {} entries held", hc[0], hc[1], hc[2], entry_slack.iter().min().map_or("-".into(), |v| v.to_string()), entry_slack.iter().filter(|v| **v < 999).max().map_or("-".into(), |v| v.to_string()), entry_slack.iter().filter(|v| **v < 0).count()));
+            for s in &entry_snaps {
+                out.push(format!("  held train: {s}"));
+            }
         }
         if let Some(h) = tm.interlock {
             out.push(format!("interlock (sensor hold {h} gt): G0 held shut against its signal {} gt, G1 {} gt, G2 {} gt", inter_held[0], inter_held[1], inter_held[2]));
