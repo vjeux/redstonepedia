@@ -339,7 +339,7 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
     // (the departure crest's plain dip: the queue head's cart set in the dip 30 gt after slot 5's
     // REL rises (before the departing batch reaches it), at rest or crawling 0.02, at the dip's
     // first three cells' centres; farmopt 2026-11-11, the allowed cells from push-in rows)
-    if partial && o.approach > 0 && (o.approach_climb_boost || o.hump > 0) {
+    if partial && o.approach > 0 && (o.approach_climb_boost || o.humped()) {
         // (the stand chunk frozen 240 gt from every gt of the train's arrival window, slot 5 +30
         // ..= +80: farmopt's (d) sweep on C with the head's arrival latch, widened from +40..+75 so
         // it spans the border crossings of every hump height, C's first cart at +34 to hump 5's
@@ -350,9 +350,21 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
         // (the hump's chunk (loop z 10..25: the boosters, the hump, the dip's north cell) frozen
         // 240 gt from every gt the train crosses the boosters, +3..=+30: a cart frozen on a booster
         // (h4's flat one among them) and the train behind it at the thaw)
-        if o.hump > 0 {
+        if o.humped() {
             for t in 3..=30 {
                 v.push((format!("hump freeze 240 +{t}"), vec![format!("5,{t},unload,0,1,0,1,240")]));
+            }
+        }
+        // (ironspec's h0-against-h5 rows: each chunk the approach crosses frozen 40, 200, 1,500 or
+        // 5,000 gt from every gt a train is in it: the stand's (0,0) over the train's arrival window
+        // +30..=+80, the run's (0,1) (the boosters, the hump or S's flat, the dip's north end) from
+        // the launch +0..=+50; the family's name carries the length so a table can take one length
+        // at its own --cycles)
+        for n in [40, 200, 1500, 5000] {
+            for (cn, b, t0, t1) in [("stand", "0,0,0,0", 30, 80), ("run", "0,1,0,1", 0, 50)] {
+                for t in t0..=t1 {
+                    v.push((format!("freeze{n} {cn} +{t}"), vec![format!("5,{t},unload,{b},{n}")]));
+                }
             }
         }
     }
@@ -372,7 +384,7 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
             v.push((format!("H hold, empty {k}"), vec![gate.clone(), strip.clone()]));
             v.push((format!("riderless {k}"), vec![strip]));
         }
-        if o.hump > 0 {
+        if o.humped() {
             // (C'''/C''+hump: a cart left in the dip (its flat cells, at rest or crawling on) at
             // slot 5 +35, before the train reaches the dip: the train pushes it up the climb, no cart
             // rolling back)
@@ -624,7 +636,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         } else {
             pad
         };
-        let pad = if o.hump > 0 { format!("{pad} | hump back climb {:.2} over top {}", ss.iter().map(|s| s.hump_back.0).fold(0.0, f64::max), ss.iter().map(|s| s.hump_back.1).sum::<usize>()) } else { pad };
+        let pad = if o.humped() { format!("{pad} | hump back climb {:.2} over top {}", ss.iter().map(|s| s.hump_back.0).fold(0.0, f64::max), ss.iter().map(|s| s.hump_back.1).sum::<usize>()) } else { pad };
         // (S3's meter: trains metered in over releases, the least Dh 3 margin to the next tick,
         // openings passing 2+ carts, the follower's least distance short of H's plane at the shut)
         let ms: Vec<(usize, usize, Option<i64>, usize, Option<f64>)> = ss.iter().filter_map(|s| s.meter).collect();
