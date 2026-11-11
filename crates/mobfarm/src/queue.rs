@@ -2650,6 +2650,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut unseated: Vec<bool> = vec![false; 21];
     let mut unseat_log: Vec<String> = Vec::new();
     let mut latch_sets: Vec<i64> = Vec::new();
+    // (the departure corner (9,-3,0), day-1's divert T: each cart's centre entering and leaving
+    // its cell, and G0's openings (REL's onset at the stand), for the divert's contract)
+    let mut corner_in: Vec<Option<i64>> = vec![None; 21];
+    let mut corner_pass: Vec<(i64, i64)> = Vec::new();
+    let mut g0_opens: Vec<i64> = Vec::new();
+    let mut g0_was_open = false;
     let mut t2_was_lit: Option<bool> = None;
     let mut ret_x: Vec<Option<f64>> = vec![None; 21];
     // (the slot-boundary order check: the last slot's queue, train and stand batch; clean slots)
@@ -3579,6 +3585,25 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
                 t2_was_lit = Some(lit);
             }
+            if lay.pockets.len() == 3 {
+                let g0_open = run.world.get(lay.pockets[0].0).to_string().contains("open=true");
+                if g0_open && !g0_was_open {
+                    g0_opens.push(t);
+                }
+                g0_was_open = g0_open;
+                let (cx, cz) = (-o.row_gap + 12 + o.shift[0], o.shift[1]);
+                for (k, id) in carts.iter().enumerate().take(21) {
+                    let inside = pos_of(&run.world, *id).is_some_and(|p| p.x.floor() as i32 == cx && p.z.floor() as i32 == cz && p.y < -1.5);
+                    match (inside, corner_in[k]) {
+                        (true, None) => corner_in[k] = Some(t),
+                        (false, Some(t0)) => {
+                            corner_pass.push((t0, t));
+                            corner_in[k] = None;
+                        }
+                        _ => {}
+                    }
+                }
+            }
             // the departure: each cart past x 9 (the curve) eastward, its gap to the one before)
             let gx = [-o.row_gap as f64 + 3.5, -o.row_gap as f64 + 7.5, -o.row_gap as f64 + 11.5];
             for (k, id) in carts.iter().enumerate() {
@@ -4476,6 +4501,35 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(format!("carts off the rails: {}{}; riders not seated: {}{}", derails.len(), if derails.is_empty() { String::new() } else { format!(" ({})", derails.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }, unseat_log.len(), if unseat_log.is_empty() { String::new() } else { format!(" ({})", unseat_log.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }));
         if o.stand_wired && !latch_sets.is_empty() {
             out.push(format!("latch set (T2 out after +55): +{}..+{} over {} slots", latch_sets.iter().min().unwrap(), latch_sets.iter().max().unwrap(), latch_sets.len()));
+        }
+        // (the departure corner, day-1's divert T: each departure of 3 (passes under 30 gt apart),
+        // cart k's centre in and out of the corner cell, from the slot's start and from G0's last
+        // opening before it (REL's onset), min..max over the slots)
+        {
+            corner_pass.sort();
+            let mut groups: Vec<Vec<(i64, i64)>> = Vec::new();
+            for p in &corner_pass {
+                match groups.last_mut() {
+                    Some(g) if p.0 - g.last().unwrap().0 < 30 => g.push(*p),
+                    _ => groups.push(vec![*p]),
+                }
+            }
+            let mut rng = [[(i64::MAX, i64::MIN); 4]; 3];
+            let mut n = 0;
+            for g in groups.iter().filter(|g| g.len() == 3) {
+                let Some(open) = g0_opens.iter().rev().find(|o| **o <= g[0].0).copied() else { continue };
+                n += 1;
+                let base = g[0].0.div_euclid(100) * 100;
+                for (k, (i, o2)) in g.iter().enumerate() {
+                    for (j, v) in [i - base, o2 - base, i - open, o2 - open].into_iter().enumerate() {
+                        rng[k][j] = (rng[k][j].0.min(v), rng[k][j].1.max(v));
+                    }
+                }
+            }
+            if n > 0 {
+                let r = |p: (i64, i64)| if p.0 == p.1 { format!("{}", p.0) } else { format!("{}..{}", p.0, p.1) };
+                out.push(format!("divert corner (departures of 3, {n} slots): {}", (0..3).map(|k| format!("cart {k} in +{} out +{} (from G0's opening: in {} out {})", r(rng[k][0]), r(rng[k][1]), r(rng[k][2]), r(rng[k][3]))).collect::<Vec<_>>().join("; ")));
+            }
         }
         // (bursts: departures under 30 gt apart; each burst's size, when it leaves in its slot,
         // its gaps, the pairs in contact, and the speeds where the climb ends; the biggest first)
