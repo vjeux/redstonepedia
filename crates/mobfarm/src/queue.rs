@@ -4076,6 +4076,8 @@ pub struct MeterState {
     /// REL time, its departing carts' crest crossings (order, gt after REL, speed) and the count
     /// this REL
     parked: Vec<(usize, i64, i64)>,
+    /// (`vb`) the last tick a parked cart came back (B's carts at most one per 11 gt).
+    vb_back_t: Option<i64>,
     rel_t: Option<i64>,
     crest_offs: Vec<(usize, i64, f64)>,
     crest_seen: usize,
@@ -4301,8 +4303,16 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         for (n, &(k, j, c_go)) in s.parked.iter().enumerate() {
             let Some(&id) = carts.get(k) else { continue };
             let (o, v) = off(j as usize, s);
-            if t >= (c_go + 2) * 100 + rel_dt + o {
-                tp(w, id, redsim::entity::Vec3::new(ox as f64 + 9.5 + fx, (dc - 4) as f64 + 0.0625, dc as f64 + 0.5 + fz), redsim::entity::Vec3::new(0.0, 0.0, v.max(0.05)));
+            // (the crest's cell frozen (its chunk unloaded or not ticking): B's carts wait off the
+            // world and come back once it ticks, at most one per 11 gt; a cart set into a frozen
+            // cell never moves on, and the next one set there merges with it, which no real B
+            // departure does: B's carts come by B's own track)
+            let dest = redsim::entity::Vec3::new(ox as f64 + 9.5 + fx, (dc - 4) as f64 + 0.0625, dc as f64 + 0.5 + fz);
+            let frozen = w.chunk_level((dest.x.floor() as i32).div_euclid(16), (dest.z.floor() as i32).div_euclid(16)) > 31;
+            let spaced = s.vb_back_t.is_none_or(|b| t - b >= 11);
+            if t >= (c_go + 2) * 100 + rel_dt + o && !frozen && spaced {
+                tp(w, id, dest, redsim::entity::Vec3::new(0.0, 0.0, v.max(0.05)));
+                s.vb_back_t = Some(t);
                 back.push(n);
             } else {
                 tp(w, id, redsim::entity::Vec3::new(-400.0 + 3.0 * k as f64, 120.0, -400.0), redsim::entity::Vec3::new(0.0, 0.0, 0.0));
