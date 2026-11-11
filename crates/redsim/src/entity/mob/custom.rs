@@ -525,9 +525,11 @@ fn trader_spawn_position_near(w: &mut World, c: &mut Custom, reference: BlockPos
             let (cx, cz) = (x >> 4, z >> 4);
             let (x0, z0) = (w.min.x >> 4, w.min.z >> 4);
             let (x1, z1) = ((w.min.x + w.size[0] - 1) >> 4, (w.min.z + w.size[2] - 1) >> 4);
-            if w.land.is_none() || ((x0..=x1).contains(&cx) && (z0..=z1).contains(&cz)) {
-                model_error(w, format!("gt {}: a wandering trader's spot ({x}, {z}) is past the modeled box in one of the sample's chunks", w.time));
-                return None;
+            if w.land.is_some() && (x0..=x1).contains(&cx) && (z0..=z1).contains(&cz) {
+                // the game's terrain there is not redsim's: the try fails here, named in the
+                // run's report (an ambient mob's uncovered action: the legacy list, never a stop)
+                w.mob.ai.legacy.insert("minecraft:wandering_trader (a spot try past the terrain box in one of the sample's chunks)");
+                continue;
             }
             if trace {
                 eprintln!("trader t{}: try ({x}, {z}) in a void chunk past the box", w.time);

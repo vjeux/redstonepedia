@@ -333,10 +333,10 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
         let (x0, z0) = (w.min.x >> 4, w.min.z >> 4);
         let (x1, z1) = ((w.min.x + w.size[0] - 1) >> 4, (w.min.z + w.size[2] - 1) >> 4);
         if w.land.is_some() && (x0..=x1).contains(&cx) && (z0..=z1).contains(&cz) {
-            let why = format!("gt {}: an enderman teleports to {p}, past the terrain box in one of the sample's chunks (the game has the whole chunk)", w.time);
-            if !w.errors.iter().any(|e| e.contains("past the terrain box")) {
-                w.errors.push(why);
-            }
+            // an ambient natural mob's action the model does not cover: named in the run's
+            // report (the legacy list), never a stop (the site's views run on: mobviewer
+            // 2026-11-11, cross-4-underground plains gt 87062)
+            w.mob.ai.legacy.insert("minecraft:enderman (a teleport past the terrain box into one of the sample's chunks)");
         }
         return false;
     }
