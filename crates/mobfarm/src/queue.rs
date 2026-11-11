@@ -3636,6 +3636,11 @@ pub struct MeterHold {
     /// and 15; G2 default 6, ironspec's nominal with corners 4..8): the departure gaps.
     pub g2_delay: i64,
     pub g1_delay: i64,
+    /// P2 (`--meter-hold` field 16, 1 on): a REL waits while a cart is in transit from H's plane
+    /// to its count edge, and no opening starts from REL until SE; the transit latch times out
+    /// after T_LIVE live gt (field 17, default 50).
+    pub p2: bool,
+    pub t_live: i64,
 }
 
 /// The metered stand's state and measurements (`meter_tick`).
@@ -3654,6 +3659,14 @@ pub struct MeterState {
     s_shape: String,
     s_flips: usize,
     s_flip_on_cart: Vec<String>,
+    /// P2: the transit latch (set when a cart passes H's plane, cleared by its count edge), its
+    /// live gt, a held REL, and the counts
+    tl: Option<i64>,
+    tl_live: i64,
+    rel_pending: Option<i64>,
+    rels_held: usize,
+    rel_late: Vec<i64>,
+    transit_timeouts: usize,
     /// the opening in progress (or the last one) came from a retry
     cur_open_retry: bool,
     init: bool,
@@ -4033,7 +4046,41 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         }
     }
     let rel_on = rel_on && if s.stand_b { c % 2 == 1 } else { !((m.vb || m.wired_b) && c % 2 == 1) };
-    if rel_on && !s.rel_was {
+    // (P2 (i), `--meter-hold` field 16: a REL waits while a cart is in transit from H's plane to
+    // its count edge; the latch times out after T live gt (field 17), counted only while H's
+    // chunk ticks entities, so a frozen cart never times out)
+    let rel_edge = rel_on && !s.rel_was;
+    if m.p2 {
+        let hc = at(xb, 3, 0);
+        let live = w.chunk_level(hc.x.div_euclid(16), hc.z.div_euclid(16)) <= 31;
+        if s.tl.is_some() && live {
+            s.tl_live += 1;
+            if s.tl_live >= m.t_live {
+                s.tl = None;
+                s.tl_live = 0;
+                s.transit_timeouts += 1;
+                log(s, format!("{c}+{dt} transit timeout (no count edge within {} live gt)", m.t_live));
+            }
+        }
+        if rel_edge && s.tl.is_some() {
+            s.rel_pending = Some(t);
+            s.rels_held += 1;
+            log(s, format!("{c}+{dt} REL held: a cart in transit"));
+        }
+    }
+    let rel_go = (rel_edge && !(m.p2 && s.tl.is_some())) || (s.rel_pending.is_some() && s.tl.is_none());
+    if rel_go {
+        if let Some(h) = s.rel_pending.take() {
+            s.rel_late.push(t - h);
+            log(s, format!("{c}+{dt} REL released {} gt late", t - h));
+        }
+        if m.p2 {
+            // (P2 (ii): at REL a pending opening is cancelled and an open H shuts)
+            s.open_at = None;
+            if s.h_open {
+                s.h_close_at = Some(t);
+            }
+        }
         s.rel_t = Some(t);
         s.metering = false;
         s.crest_seen = 0;
@@ -4161,6 +4208,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
                 s.done_at.push(t);
             }
             s.p3 = true;
+            s.tl = None;
+            s.tl_live = 0;
         } else {
             s.open_at = Some(t + m.d12);
         }
@@ -4176,15 +4225,20 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         } else if !s.l1 {
             s.l1 = true;
             s.face_wait[1] = Some(t);
+            s.tl = None;
+            s.tl_live = 0;
         }
     }
     if rise[3] && !s.rel_open && s.l1 && !s.l2 {
         s.l2 = true;
         s.face_wait[2] = Some(t);
+        s.tl = None;
+        s.tl_live = 0;
     }
     // (the guard, `--meter-hold ...,GUARD` 1: a chained opening (Dh + D12) waits for the cart it
-    // follows to be counted in the stand: opening 2 for L1, opening 3 for L2; a retry doesn't wait)
-    let guard_wait = m.guard && !s.retry_open && ((s.phase == 2 && !s.l1) || (s.phase == 4 && !s.l2));
+    // follows to be counted in the stand: opening 2 for L1, opening 3 for L2; a retry doesn't wait;
+    // P2 (ii): no opening from REL until SE)
+    let guard_wait = (m.guard && !s.retry_open && ((s.phase == 2 && !s.l1) || (s.phase == 4 && !s.l2))) || (m.p2 && s.rel_open && s.se_armed);
     if s.open_at.is_some_and(|a| t >= a) && !s.h_open && !guard_wait {
         s.open_at = None;
         s.cur_open_retry = s.retry_open;
@@ -4450,6 +4504,12 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             }
             if (p.0 - (xb as f64 + 0.5)).abs() < 0.45 && p.1 > 1.5 && q.2 < 0.5 && p.2 >= 0.5 {
                 s.back_entries.push(format!("cart {k} north through H at {c}+{dt}"));
+            }
+            // (P2's transit latch: a cart passing H's plane forward, from the queue into the
+            // snap turn, not H opening)
+            if m.p2 && (p.0 - (xb as f64 + 0.5)).abs() < 0.45 && p.1 > 1.5 && q.2 >= 0.6 && p.2 < 0.6 {
+                s.tl = Some(t);
+                s.tl_live = 0;
             }
         }
         if let Some(Some(q)) = s.prev.get(k)
@@ -4756,6 +4816,7 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
             i = j;
         }
         out.push(format!("meter router S (the switch rule: never a shape change with a cart's box in S's cell): {} changes, {} with a cart in the cell{}", s.s_flips.saturating_sub(1), s.s_flip_on_cart.len(), if s.s_flip_on_cart.is_empty() { String::new() } else { format!(" ({})", s.s_flip_on_cart.join("; ")) }));
+        out.push(format!("meter P2 (a REL held while a cart is in transit from H to its count edge; the latch's live-time timeout): {} RELs held{}, {} transit timeouts", s.rels_held, if s.rel_late.is_empty() { String::new() } else { format!(" (released {} gt late)", s.rel_late.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) }, s.transit_timeouts));
         if !s.s_flip_on_cart.is_empty() {
             problems.push(format!("router S flipped with a cart in its cell: {}", s.s_flip_on_cart[0]));
         }
