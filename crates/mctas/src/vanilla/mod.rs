@@ -386,6 +386,14 @@ impl VanillaServer {
         let out = std::fs::File::create(&log)?;
         let repo = crate::paths::version_dir(&opts.version).join("vanilla-bundler-repo");
         std::fs::create_dir_all(&repo)?;
+        // (farmopt 2026-11-11) the bundler unpacks its libraries into the shared repo on its first
+        // start; servers started together on a fresh box raced on it (8 at once: 3 exited with
+        // "Failed to extract server libraries", a FileAlreadyExistsException on a jar another had
+        // just written). Until the repo holds its marker, a start holds the repo's lock until its
+        // server is up (the bundler done), then writes the marker; a later start sees the marker
+        // and takes no lock (the bundler then only checks the jars). The kernel drops the lock of
+        // a process that dies.
+        let extract_guard = bundler_extract_guard(&repo)?;
         // Never leave an orphan server behind if this process dies without running Drop:
         // util-linux `setpriv --pdeathsig TERM` (when installed) makes the kernel stop it.
         let setpriv = Path::new("/usr/bin/setpriv");
@@ -444,6 +452,11 @@ impl VanillaServer {
             }
             std::thread::sleep(Duration::from_millis(200));
         };
+        // (the server is up: the bundler's libraries are all in the repo)
+        if let Some(lock) = extract_guard {
+            let _ = std::fs::write(repo.join(BUNDLER_MARKER), b"");
+            drop(lock);
+        }
         let mut server = VanillaServer { child, dir, rcon, bot: None, game_port, keep_dir: opts.keep_dir, log, stats: Stats::default(), tick_rate: opts.tick_rate, dirty: None, markers: HashMap::new(), markers_seen: 0, level_name: opts.level_name.clone() };
         for c in [
             "gamerule spawn_mobs false",
@@ -655,6 +668,24 @@ impl VanillaServer {
 
 /// The layer where [`VanillaServer::snapshot`] flips its marker blocks (the overworld floor).
 pub const MARKER_Y: i32 = -64;
+
+/// The marker a bundler repo holds once a server started on it (its libraries all unpacked).
+pub const BUNDLER_MARKER: &str = ".extracted";
+
+/// A server start's lock on the bundler repo while the repo has no marker
+/// ([`BUNDLER_MARKER`]): the lock file `.extract.lock` held exclusively (`File::lock`, blocking),
+/// or None once the marker is there (also when it appeared while this start waited).
+pub fn bundler_extract_guard(repo: &Path) -> Result<Option<std::fs::File>> {
+    if repo.join(BUNDLER_MARKER).exists() {
+        return Ok(None);
+    }
+    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(repo.join(".extract.lock")).with_context(|| format!("the bundler repo's lock in {}", repo.display()))?;
+    f.lock().with_context(|| format!("locking {}", repo.join(".extract.lock").display()))?;
+    if repo.join(BUNDLER_MARKER).exists() {
+        return Ok(None);
+    }
+    Ok(Some(f))
+}
 
 impl Drop for VanillaServer {
     fn drop(&mut self) {
@@ -888,4 +919,29 @@ pub fn read_box(world: &Path, lo: Pos, hi: Pos) -> Result<Snapshot> {
     block_ticks.sort();
     block_entities.sort();
     Ok(Snapshot { region: Region { from: lo, size, palette, flags: Vec::new(), data }, block_ticks, fluid_ticks, block_entities })
+}
+
+#[cfg(test)]
+mod bundler_tests {
+    use super::*;
+
+    /// The bundler repo's first-start lock (farmopt 2026-11-11: servers started together on a
+    /// fresh box raced to unpack the bundler's jars): without the marker a start holds the repo's
+    /// lock (another handle cannot take it meanwhile); once the marker is written and the lock
+    /// dropped, a start takes no lock.
+    #[test]
+    fn the_first_start_holds_the_bundler_repo_until_its_marker() {
+        let repo = std::env::temp_dir().join(format!("mctas-bundler-lock-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        let first = bundler_extract_guard(&repo).unwrap().expect("no marker: the first start locks");
+        let other = std::fs::OpenOptions::new().write(true).open(repo.join(".extract.lock")).unwrap();
+        assert!(other.try_lock().is_err(), "a second start waits while the first unpacks");
+        std::fs::write(repo.join(BUNDLER_MARKER), b"").unwrap();
+        drop(first);
+        assert!(other.try_lock().is_ok(), "the lock is free once the first start is up");
+        drop(other);
+        assert!(bundler_extract_guard(&repo).unwrap().is_none(), "the marker there: no lock");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
 }

@@ -46,6 +46,12 @@ pub enum Act {
     Home(Who, BlockPos),
     LastSlept(Who, i64),
     PoiTake(BlockPos),
+    /// (tickexact 2026-11-11, ironspec's ticket accounting) `unhome eN.pK`: the villager's HOME given
+    /// up as SetWalkTargetFromBlockMemory's release does it (`releasePoi(HOME)`: the record's ticket
+    /// back when one is taken, no holder kept; the memory erased); `forget eN.pK`: the memory erased,
+    /// nothing released (ValidateNearbyPoi near an occupied bed).
+    Unhome(Who),
+    Forget(Who),
     /// (tickexact 2026-11-10, ironspec's fault rule) `unload` / `load`: every chunk of the world
     /// saved and unloaded (a player leaving) / loaded again (`reload::unload_all` / `load_all`;
     /// the bridge's `unload` / `load`).
@@ -172,6 +178,8 @@ impl Drive {
                         Some("home") => Act::Home(who(w.get(3).copied().unwrap_or(""))?, pos(4)?),
                         Some("last-slept") => Act::LastSlept(who(w.get(3).copied().unwrap_or(""))?, w.get(4).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: last-slept eN.pK <t>"))?),
                         Some("poi-take") => Act::PoiTake(pos(3)?),
+                        Some("unhome") => Act::Unhome(who(w.get(3).copied().unwrap_or(""))?),
+                        Some("forget") => Act::Forget(who(w.get(3).copied().unwrap_or(""))?),
                         // (tickexact 2026-11-10, the brief's shared act) `unload all <N>`: every
                         // chunk unloaded now and loaded again N ticks later; bare `unload` / `load`
                         // the two halves; (2026-11-11) a last `order=save|reverse|seed:K`: the
@@ -289,6 +297,15 @@ pub fn apply(w: &mut World, lines: &[u32], t0: i64, a: &Act) {
             }
         }
         Act::PoiTake(p) => super::ai::poi::take(w, *p),
+        Act::Unhome(who) | Act::Forget(who) => {
+            if let Some(i) = index_of(w, lines, *who).filter(|i| matches!(w.entities.list[*i].kind, EntityKind::Mob(_))) {
+                if matches!(a, Act::Unhome(_)) {
+                    super::ai::brain::run::release_home(w, i);
+                } else {
+                    super::ai::brain::run::erase_home(w, i);
+                }
+            }
+        }
         Act::Unload => crate::reload::unload_all(w),
         Act::Load => crate::reload::load_all(w),
         Act::LoadOrdered(o) => crate::reload::load_all_ordered(w, *o),

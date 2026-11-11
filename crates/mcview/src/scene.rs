@@ -233,14 +233,28 @@ pub fn build(atlas: &Atlas, s: &Session, partial: f32, look: &Look) -> Mesh {
     build_part(atlas, s, partial, look, Part::All)
 }
 
+/// [`build`]'s entities alone, lit by the light of its blocks' build when one is lent (`light`:
+/// its slot, given back after; [`crate::remesh::Remesh::light_slot`]), else by the open sky's
+/// (a mob in a cave was lit as if outdoors).
+pub fn build_entities(atlas: &Atlas, s: &Session, partial: f32, look: &Look, light: Option<&mut Option<crate::light::Light>>) -> Mesh {
+    let mut b = Builder::new(atlas);
+    b.ground = look.ground.map(|y| y.floor() as i32);
+    match light {
+        Some(slot) => {
+            b.set_light(slot.take());
+            entities_into(&mut b, s, partial, look);
+            *slot = b.take_light();
+        }
+        None => entities_into(&mut b, s, partial, look),
+    }
+    b.mesh
+}
+
 /// [`build`]'s blocks, outlines and ground, or its entities, or both: the two parts together are
 /// the whole frame.
 pub fn build_part(atlas: &Atlas, s: &Session, partial: f32, look: &Look, part: Part) -> Mesh {
     if part == Part::Entities {
-        let mut b = Builder::new(atlas);
-        b.ground = look.ground.map(|y| y.floor() as i32);
-        entities_into(&mut b, s, partial, look);
-        return b.mesh;
+        return build_entities(atlas, s, partial, look, None);
     }
     let mut st = Staged::new(s, partial, look, part);
     loop {
@@ -459,13 +473,18 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
         for e in &s.design.entities {
             let pos = [e.pos[0] as f32, e.pos[1] as f32, e.pos[2] as f32];
             let yaw = entity_yaw(e.nbt.as_deref());
-            b.entity(&EntityDraw { kind: e.kind.clone(), pos, yaw, mob: still_mob(&e.kind, yaw, false), ..Default::default() });
+            let mob = still_mob(&e.kind, yaw, false);
+            // a mob's light at its eye (`getLightProbePosition`)
+            let probe = mob.as_ref().map(|m| [pos[0], pos[1] + m.eye_standing, pos[2]]);
+            b.entity(&EntityDraw { kind: e.kind.clone(), pos, yaw, mob, probe, ..Default::default() });
             // its passengers (`Passengers:[{id:"minecraft:villager"}]`), seated: a minecart's at
             // its seat (`AbstractMinecart.getPassengerAttachmentPoint`: 0.1875 up), a boat's at its
             // floor (0.25 up: `AbstractBoat`'s first seat), legs forward (`isPassenger`)
             for id in passenger_ids(e.nbt.as_deref()) {
                 let up = if e.kind.ends_with("boat") || e.kind.ends_with("raft") { 0.25 } else { 0.1875 };
-                b.entity(&EntityDraw { kind: id.clone(), pos: [pos[0], pos[1] + up, pos[2]], yaw, mob: still_mob(&id, yaw, true), ..Default::default() });
+                let mob = still_mob(&id, yaw, true);
+                let probe = mob.as_ref().map(|m| [pos[0], pos[1] + up + m.eye_standing, pos[2]]);
+                b.entity(&EntityDraw { kind: id.clone(), pos: [pos[0], pos[1] + up, pos[2]], yaw, mob, probe, ..Default::default() });
             }
         }
     } else {
@@ -1862,6 +1881,42 @@ fn cell_entry(o: [f32; 3], d: [f32; 3], c: Pos) -> Option<f32> {
 mod tests {
     use super::*;
     use crate::session::Options;
+
+    /// A mob is lit by the light at its eye (the parent 2026-11-11, "light each mob the way the
+    /// 26.3 client does": `EntityRenderer.getPackedLightCoords` reads the block at
+    /// `getLightProbePosition`, the eye position): a zombie sealed in stone gets that cell's dark,
+    /// one in the open the sky's, in a whole frame and in a mob farm's entities built apart from
+    /// their blocks (they were lit as if under the open sky: a cave's spider as bright as the
+    /// night outside), and the blocks' light is given back to them after.
+    #[test]
+    fn a_mob_is_lit_at_its_eye() {
+        let text = "name: lit-mobs\npalette:\n  S minecraft:stone\n  G minecraft:grass_block[snowy=false]\n\
+            layer 0:\n  SSSGGGGG\n  SSSGGGGG\n  SSSGGGGG\n\
+            layer 1:\n  SSS.....\n  S.S.....\n  SSS.....\n\
+            layer 2:\n  SSS.....\n  S.S.....\n  SSS.....\n\
+            layer 3:\n  SSS.....\n  S.S.....\n  SSS.....\n\
+            layer 4:\n  SSS.....\n  SSS.....\n  SSS.....\n\
+            entity: minecraft:zombie 1.5 1 1.5\nentity: minecraft:zombie 5.5 1 1.5\n";
+        let s = Session::new(text, &Options::default()).unwrap();
+        let look = viewer_look(&s);
+        let atlas = crate::atlas::Atlas::build();
+        let lights = |m: &Mesh| -> (Vec<[u8; 4]>, Vec<[u8; 4]>) {
+            let pick = |x0: f32, x1: f32| m.solid.iter().filter(|v| v.pos[0] > x0 && v.pos[0] < x1 && v.pos[1] > 1.05 && v.pos[1] < 2.9).map(|v| v.light).collect::<Vec<_>>();
+            (pick(1.0, 2.0), pick(5.0, 6.0))
+        };
+        let (dark, open) = (crate::mesh::lit(0.0, 0.0), crate::mesh::lit(15.0, 0.0));
+        let (inside, outside) = lights(&build(&atlas, &s, 0.0, &look));
+        assert!(!inside.is_empty() && inside.iter().all(|l| *l == dark), "the sealed zombie in the dark: {inside:?}");
+        assert!(!outside.is_empty() && outside.iter().all(|l| *l == open), "the zombie outside in the sky's light");
+        // the entities apart from the blocks (a mob farm's every frame): the blocks' kept light lent
+        let mut st = Staged::new(&s, 0.0, &look, Part::Blocks).keeping();
+        while st.step(&atlas, &s, 0.0, &look, &mut || false).is_none() {}
+        let mut kept = st.take_remesh().expect("its remesh kept");
+        let (inside, outside) = lights(&build_entities(&atlas, &s, 0.0, &look, kept.light_slot()));
+        assert!(!inside.is_empty() && inside.iter().all(|l| *l == dark), "apart: the sealed zombie in the dark: {inside:?}");
+        assert!(!outside.is_empty() && outside.iter().all(|l| *l == open), "apart: the zombie outside");
+        assert!(kept.light_slot().is_some_and(|l| l.is_some()), "the light given back");
+    }
 
     /// The crater a TNT duper blows in its judge's ground is lit like the open air (vjeux
     /// 2026-10-21, "the bedrock texture no longer works correctly": since the game's light on

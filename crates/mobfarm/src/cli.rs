@@ -73,10 +73,18 @@ pub enum MobfarmCmd {
         seed: i64,
     },
     /// The built farm (water settled) along a row: each cell's block from x0 to x1 at y, z.
+    /// `--terrain`: built into its terrain sample at the judge's cheapest spot (design
+    /// coordinates). `--flammable`: instead of a row, every flammable block inside the farm's box
+    /// (`weather::lightning::flammable`, the cells the lightning measure's fire check reads:
+    /// natural terrain included), with whether it sees the sky.
     Probe {
         design: PathBuf,
         #[arg(long, allow_hyphen_values = true, num_args = 4)]
         row: Vec<i32>,
+        #[arg(long)]
+        terrain: Option<String>,
+        #[arg(long)]
+        flammable: bool,
     },
     /// Edit a design in place, its caption and every other line kept: `--chest` puts the farm's
     /// single chest at its `port output` (the download then holds it), `--how` sets its `how:`
@@ -180,6 +188,13 @@ pub enum MobfarmCmd {
         /// Every cell of each exposure, in design coordinates (where to light or seal).
         #[arg(long)]
         cells: bool,
+        /// Instead of the list: this design's exposures against another's (the version before a
+        /// change, say), one line per class (channel, mob and what), unchanged ones included,
+        /// `BEFORE -> AFTER` with the cells added and removed (design coordinates), then the golem
+        /// and interior cells and a count of the classes that changed (ironspec 2026-11-11: a cut
+        /// diff hid C8 and C9 once; every class is printed, so none can be missed).
+        #[arg(long)]
+        against: Option<PathBuf>,
     },
     /// The hostile checks' C1 against the game: at every interior cell of the farm built in a
     /// terrain sample, for every type listed there, C1's verdict (placement, spawn rule at its
@@ -260,6 +275,11 @@ pub enum MobfarmCmd {
         /// (a scan of the listed farms for runs whose world went wrong).
         #[arg(long)]
         sim_only: bool,
+        /// A test of the gate's event log only (ironspec 2026-11-11): at gt 2000 of each build, a
+        /// skeleton trap horse summoned on the farm and the first watched flammable block set to
+        /// air; the log prints both with their position and time, and the gate fails on both.
+        #[arg(long)]
+        inject_events: bool,
     },
     /// redsim's over the same length.
     WeatherStats {
@@ -286,6 +306,55 @@ pub enum MobfarmCmd {
     /// mobinfra: bolts summoned in fixed scenarios (hits through roofs, the box's edge, a boat, a
     /// drop, a golem, the bolt's fire), the game's outcome beside redsim's.
     BoltCheck,
+    /// (tickexact 2026-11-11, ironspec's surroundings question) A design's terrain baked into a new
+    /// design file in the design's own coordinates (the judge's site in a sample: build K, the ground
+    /// line the design y at the ground layer, `margin` cells of terrain round the box, the box as the
+    /// site digs it), so every void-world runner runs it in its built surroundings unchanged
+    Ground {
+        design: PathBuf,
+        /// The sample (flat: the price tool's ground, no sample; village-edge, plains, forest; default
+        /// the design's `sample:`, else flat)
+        #[arg(long)]
+        sample: Option<String>,
+        /// The design y at the ground layer (default the design's `ground:`, else -1: the price tool's)
+        #[arg(long, allow_hyphen_values = true)]
+        ground: Option<i32>,
+        #[arg(long, default_value_t = 0)]
+        build: usize,
+        #[arg(long, default_value_t = 16)]
+        margin: i32,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// (tickexact 2026-11-11, ironspec's weather gap) A design's golems a game day, day by day, at the
+    /// judge's site under the card's windows probe, the headline's natural cycle and no weather
+    WeatherDays {
+        design: PathBuf,
+        #[arg(long, default_value_t = 16)]
+        runs: u32,
+        #[arg(long, default_value_t = 5)]
+        days: u32,
+        /// The judge's build (site) K (0: the cheapest, the card's)
+        #[arg(long, default_value_t = 0)]
+        build: u32,
+    },
+    /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
+    /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
+    /// 16/7 and stroll 2/2, IDLE's stroll 10/7 and walks to villagers within 8, job-site / bell walks,
+    /// REST's HOME walk), the chance an event picks each, and whether a complete path reaches it
+    FleeCheck {
+        design: PathBuf,
+        /// The bed (HOME) for REST's walk: `x,y,z` (default: the design's `port home:` line)
+        #[arg(long, value_delimiter = ',')]
+        home: Vec<i32>,
+        /// Unreached cells printed a place
+        #[arg(long, default_value_t = 6)]
+        show: usize,
+        /// More places a villager stands on foot: `x,y,z,x,y,z,...` (the rail cells within 1 of the
+        /// bed are tried on foot already: a dropped napper)
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        foot: Vec<i32>,
+    },
     /// One judge run of a design on redsim: its table.
     Run {
         design: PathBuf,
@@ -596,6 +665,25 @@ pub enum MobfarmCmd {
         /// The top queue slope a detector too: the landing latch's reset (the cart moved on).
         #[arg(long)]
         adm_latch_reset: bool,
+        /// Admission control's x-queue (ironspec's R1): N plain slopes down west along z 24, the
+        /// curve north and one flat transition cell, all upstream of the forced chunk border z
+        /// 25|26, then the --tail-esc slopes north into G0 and P.
+        #[arg(long, default_value_t = 0)]
+        adm_xq: u32,
+        /// The zombie post beside the escapement (loop z 29) moved to this x, clear of the
+        /// drivers east of G0 and G_P (day-1: x 6).
+        #[arg(long, allow_hyphen_values = true)]
+        tail_post_x: Option<i32>,
+        /// The x-queue's ledge: the gap's width in cells.
+        #[arg(long, default_value_t = 1)]
+        xq_gap: u32,
+        /// The x-queue's ledge: the landing's drop below the take-off's level.
+        #[arg(long, default_value_t = 2)]
+        xq_drop: u32,
+        /// The 6-8 rule's zombie posts beside R1's tail (each the boat's cell X,Y,Z, glass under,
+        /// leaves 3 over; separated by `;`), replacing the strip's posts at z 21 and 29.
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        tail_posts: String,
         #[arg(long)]
         out: PathBuf,
     },
@@ -829,6 +917,92 @@ pub enum MobfarmCmd {
         #[arg(long)]
         flights: Option<String>,
     },
+    /// Two release traces (queue-loop-run with MCTAS_RELEASE_TRACE=path) compared tick by tick,
+    /// the bench-against-wired check: the release group's 3 rails' power and every cart on the
+    /// release run, the first difference of each, their counts and the largest position gap.
+    TraceDiff {
+        a: PathBuf,
+        b: PathBuf,
+        /// Positions closer than this (blocks, on every axis) count as equal.
+        #[arg(long, default_value_t = 0.0001)]
+        tol: f64,
+    },
+    /// The static job-site check (ironspec Nov 11 08:53): every job-site block (composter, barrel,
+    /// lectern, smoker, blast furnace, grindstone, loom, stonecutter, cartography table,
+    /// fletching table, brewing stand, cauldron, smithing table) or bell within `--range` of a
+    /// place a rider can be (a rail cell or the cell above it, a bed), per design; any hit fails.
+    JobsiteCheck {
+        designs: Vec<PathBuf>,
+        #[arg(long, default_value_t = 48.0)]
+        range: f64,
+        /// A block added before the check (`X,Y,Z,BLOCK`, e.g. a composter: the positive control).
+        #[arg(long)]
+        add: Vec<String>,
+    },
+    /// The ledge's follower-gap sweep on redsim: the design's first declared flight, two carts off
+    /// its take-off, the follower GAP gt behind (fractional), at each stored speed, empty and
+    /// ridden; each pair clean, stuck, merged or derailed, printed as bands.
+    LedgeSweep {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', default_values_t = [1.5, 1.82, 1.96, 2.2])]
+        speeds: Vec<f64>,
+        #[arg(long, default_value_t = 0.0)]
+        gap_from: f64,
+        #[arg(long, default_value_t = 10.0)]
+        gap_to: f64,
+        #[arg(long, default_value_t = 0.25)]
+        gap_step: f64,
+        /// Which riders: `both` (default), `ridden` or `empty`.
+        #[arg(long, default_value = "both")]
+        riders: String,
+        #[arg(long, default_value_t = 60)]
+        ticks: u32,
+    },
+    /// R1's queue-contact scenes for the merge bridge: the escapement column of a queue-loop
+    /// design in 4 lanes (RR, RE, ER, EE: the waiting cart's rider, then the arrival's), case g0 (an
+    /// arrival into the front pressed at G0) or p (the admitted cart meeting P's cart), one scene
+    /// file and drive per arrival speed in --out-dir, each also run on redsim and scored as `mctas
+    /// mobai rec-carts` scores a recording.
+    ContactScenes {
+        design: PathBuf,
+        /// g0 or p.
+        #[arg(long, default_value = "g0")]
+        case: String,
+        #[arg(long, value_delimiter = ',', default_values_t = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0])]
+        speeds: Vec<f64>,
+        #[arg(long)]
+        out_dir: PathBuf,
+        #[arg(long, default_value_t = 100)]
+        ticks: u32,
+        /// Where the waiting cart starts along its cell: 0.885 at rest pressed on the gate (as the
+        /// design's tail carts rest), 0.5 the cell's middle (rolling in, as slope-merge's lanes).
+        #[arg(long, default_value_t = 0.885)]
+        front_frac: f64,
+        /// Case p: the arrival starts at G0's rest (the admitted cart's start when G0 opens)
+        /// instead of the middle of the slope 2 cells before G0.
+        #[arg(long)]
+        from_rest: bool,
+    },
+    /// The zombie-post search for the 6-8 rule: the posts to re-lay removed (each `X,Z`, the
+    /// boat's column: its boat and zombie, the glass under it and the leaves over it), then posts
+    /// picked greedily from --area so every rail cell in --panic sees a zombie within 8 while every
+    /// rider point of the design stays 6 or more from every post (both less --margin).
+    PostSearch {
+        design: PathBuf,
+        /// The posts to re-lay, `X,Z` each (separated by `;`).
+        #[arg(long, default_value = "")]
+        remove: String,
+        /// The rail cells that need panic: a box X0,Y0,Z0,X1,Y1,Z1.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        panic: Vec<i32>,
+        /// Where posts may go (the boat's cell): a box X0,Y0,Z0,X1,Y1,Z1.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        area: Vec<i32>,
+        #[arg(long, default_value_t = 0.3)]
+        margin: f64,
+        #[arg(long, default_value_t = 4)]
+        max_posts: usize,
+    },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
     QueueLoopRun {
@@ -840,13 +1014,15 @@ pub enum MobfarmCmd {
         /// Run this many seeds from `--seed` on and print one line each plus the total.
         #[arg(long, default_value_t = 1)]
         seeds: i64,
-        /// The release group's slopes powered this long from the slot's start (day-1's release
-        /// controller: 34).
-        #[arg(long, default_value_t = 34)]
+        /// The release group's slopes powered this long from each one's own opening (day-1's
+        /// release controller: each slope 40 gt, front first at +4/+8/+12).
+        #[arg(long, default_value_t = 40)]
         release_for: i64,
         /// The queue's 3 advance pulses: the first this many gt after the slot's start, then
-        /// every `--advance-every`, each `--pulse` long (day-1's controller: 38, 20, 10).
-        #[arg(long, default_value_t = 38)]
+        /// every `--advance-every`, each `--pulse` long (main's wired controller: 41, 20, 10, with
+        /// slots 0-2 two later (`--skew 2,2,2`); the bench-against-wired check, Nov 11 07:00:
+        /// the old 38 ran the whole register 3 gt early).
+        #[arg(long, default_value_t = 41)]
         advance_at: i64,
         #[arg(long, default_value_t = 20)]
         advance_every: i64,
@@ -918,7 +1094,11 @@ pub enum MobfarmCmd {
         /// SLOT,DT,unload,X0,Z0,X1,Z1,N: the whole part (or a chunk box) away N gt. SLOT,DT,dismount,R
         /// or SLOT,DT,swap,R1,R2: a rider off its cart, or two riders exchanging carts (R:
         /// visit:SLOT, that visit's napper by its current number; visit:SLOT/J, the rider of that
-        /// visit's batch's J-th cart; or an entity number). Repeat for more (up to 8).
+        /// visit's batch's J-th cart; or an entity number). SLOT,DT,place,K,X,Y,Z[,VZ] or
+        /// SLOT,DT,place,K,X,Y,Z,VX,VZ: cart K (or `head`, the cart nearest the queue's head slot;
+        /// `s1`..`s3`, nearest that pocket's rest cell) and its rider set at (X,Y,Z) in the loop's
+        /// frame, at rest or moving (VX,VZ) b/t; DT `rN`: N gt after the stand's REL rises in that
+        /// slot. Repeat for more (up to 8).
         #[arg(long, allow_hyphen_values = true)]
         act: Vec<String>,
         /// A diagnostic for the pocket stand: at this slot's start, a hand reset of the queue only
@@ -958,6 +1138,30 @@ pub enum MobfarmCmd {
         /// and the brake), the design's redstone the queue's 18.
         #[arg(long)]
         bench_stand: bool,
+        /// With `--wired`: the bench still drives the release group's 3 controls (the last 3
+        /// queue slots'): a design without its release controller, for the bench-against-wired
+        /// check (`trace-diff` on MCTAS_RELEASE_TRACE files).
+        #[arg(long)]
+        bench_release: bool,
+        /// Each release slope's off time, q15,q16,q17 (gt into the slot), overriding the computed
+        /// windows: day-1's new core at 24 gt closes q15 with A1's pulse (its +42, here 41:
+        /// --release-offs 41,47,43).
+        #[arg(long, value_delimiter = ',')]
+        release_offs: Vec<i64>,
+        /// Fail the run on the walk-target static check's flee verdict (`mobfarm flee-check`,
+        /// printed by default; ironspec Nov 11 09:29: a void bench's verdict neither passes nor
+        /// fails a design, so it gates only when asked until runs are grounded).
+        #[arg(long)]
+        flee_gate: bool,
+        /// Skip the walk-target static check altogether.
+        #[arg(long)]
+        no_flee_check: bool,
+        /// The release group's first slope (the head) on this many gt into the slot: 3 is main's
+        /// wired controller (q17's rail powered at +3 here, its +4), found by the
+        /// bench-against-wired check (Nov 11 07:00, IDENTICAL with --release-stagger 4
+        /// --advance-at 41 --pulse 10 --skew 2,2,2).
+        #[arg(long, default_value_t = 3)]
+        release_start: i64,
         /// Added to the stand's departure times (with `--wired`, day-1's release starts 4 gt
         /// after the golem pulse: pass 4).
         #[arg(long, default_value_t = 0)]
@@ -1048,9 +1252,15 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         siding_box: Vec<i32>,
         /// With --release-stagger: each staggered slot's off delayed like its on (a repeater in
-        /// front of its control delays both edges), not all three off at --release-for.
+        /// front of its control delays both edges), not all three off at --release-for. The
+        /// default now (day-1's controller); --stagger-common-off restores the old common off.
         #[arg(long)]
         stagger_off: bool,
+        /// With --release-stagger: all three release slopes off together at --release-for (the
+        /// bench's old model; at stagger 5 and more it cuts the last cart off mid-run, which then
+        /// leaks into the release run a slot late).
+        #[arg(long)]
+        stagger_common_off: bool,
         /// Day-1's merge (b), the side drop: C,SLOT,D,V[,PARK]: at slot C, +4 (the queue at rest),
         /// the cart in queue slot PARK (default SLOT) leaves the loop, its hole then moving one
         /// slot per advance; at +D it rolls off a side rail (3 plain rails west of SLOT's slope at
@@ -1080,7 +1290,10 @@ pub enum MobfarmCmd {
         stop_open: i64,
         #[arg(long, default_value_t = 40)]
         stop_close: i64,
-        #[arg(long, default_value_t = 10, allow_hyphen_values = true)]
+        /// The pocket stand's release (its REL at the stand's input, a redstone block from this gt
+        /// of the slot): 13 is main's wired controller at the stand's input repeater (+13..+53,
+        /// 51b2aacd's trace, Nov 11 07:32; the old 10 ran 3 gt early).
+        #[arg(long, default_value_t = 13, allow_hyphen_values = true)]
         pocket_release: i64,
         /// The pocket stand's gates reset (the last shut, the other two open) at this gt of the slot.
         #[arg(long, default_value_t = 52)]
@@ -1175,10 +1388,11 @@ pub enum MobfarmCmd {
         /// the golem-spots check (`queue-loop-spots --positions`).
         #[arg(long)]
         record_positions: Option<PathBuf>,
-        /// Slots whose golem pulse never comes (a missed golem, up to 8): the design's own expiry
-        /// must release them (a wired file).
+        /// Slots whose golem pulse never comes (a missed golem; up to 8 entries, each a slot or a
+        /// range A-B): the design's own expiry must release them (a wired file), or the bench's
+        /// launch model does (--launch-model).
         #[arg(long, value_delimiter = ',')]
-        golem_miss: Vec<i64>,
+        golem_miss: Vec<String>,
         /// With --wired: no golem pulse from the bench at all, the controls left to the design (a
         /// design whose pad gives the pulse).
         #[arg(long)]
@@ -1201,6 +1415,11 @@ pub enum MobfarmCmd {
         /// Admission control: G0's delay for the third advance of each cycle (−1: as the others).
         #[arg(long, default_value_t = -1, allow_hyphen_values = true)]
         adm_k2: i64,
+        /// Lever (b′): G0 keyed to arrival evidence, opening once the queue's front has been
+        /// pressed at G0 this many gt (armed from G_P's opening plus the G0 delay to the next G_P
+        /// opening, once per arm; the timed windows and --adm-k2 unused).
+        #[arg(long)]
+        adm_evidence: Option<i64>,
         /// Admission control's R booster (`--adm-rboost` designs): R's control on for this many gt
         /// from each G_P opening.
         #[arg(long, default_value_t = 0)]
@@ -1241,6 +1460,14 @@ pub enum MobfarmCmd {
         /// delay) instead of snapping to their schedule on the resume tick (the burst, default).
         #[arg(long)]
         l33_delay: bool,
+        /// Every tail arrival printed: the landed cart's free roll, the closing speed at its first
+        /// impact, the met cart's state and the queue's occupancy.
+        #[arg(long)]
+        arrival_log: bool,
+        /// The tail front metric's positive control: from slot C +DT for N gt the queue's second
+        /// cart behind G0 held where it is (C,DT,N).
+        #[arg(long, value_delimiter = ',')]
+        hold_back: Vec<i64>,
         /// Admission control's skip requests, SLOT,DT (up to 8): each sets the latch; the next
         /// G0 opening after it is skipped.
         #[arg(long)]
@@ -1265,6 +1492,20 @@ pub enum MobfarmCmd {
         /// order fails it) with its miss rate and Wilson 95% interval.
         #[arg(long, value_delimiter = ',')]
         reload_orders: Vec<String>,
+        /// (tickexact 2026-11-11, ironspec's forced-phase mode) After each whole-part load
+        /// (`--act ...,unload,N`), these sensor delays forced on one villager:
+        /// `WHO@SENSOR=DELAY[,SENSOR=DELAY]` (WHO `visit:SLOT`, `visit:SLOT/J` or an entity number;
+        /// SENSOR an index or name of the villager's sensors, `living` and `hostiles` the two that
+        /// time a sleeper's wake); the load's own draws are still made, every other draw as sampled
+        #[arg(long)]
+        force_phase: Option<String>,
+        /// The run again for every delay of these sensors, `WHO@SENSOR[=VALUES][,SENSOR[=VALUES]]`
+        /// (VALUES `A..B`, `A` or `A/B/C`; all of 0 up to the scan rate when omitted), forced on WHO
+        /// after every whole-part load, on `--jobs` threads; with `--reload-orders`, under each of
+        /// those load orders too: per combination its problems and the villager's wake after the
+        /// load, then per order the table of outcomes and the failing share
+        #[arg(long)]
+        phase_sweep: Option<String>,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -2267,6 +2508,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let to = to.unwrap_or(ticks).min(ticks);
             let (html, txt) = crate::timeline::write(&tl, &out, &stem, from.min(to), to)?;
             println!("{}", tl.summary(from.min(to), to));
+            println!("{}", tl.golem_lock_line(from.min(to), to));
             println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
@@ -2352,7 +2594,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, tail_posts, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2361,7 +2603,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset };
+            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, tail_posts: {
+                let mut a = [None; 4];
+                for (i, s) in tail_posts.split(';').filter(|s| !s.trim().is_empty()).enumerate() {
+                    anyhow::ensure!(i < 4, "--tail-posts takes up to 4 posts");
+                    let n: Vec<i32> = s.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(n.len() == 3, "--tail-posts takes X,Y,Z per post");
+                    a[i] = Some([n[0], n[1], n[2]]);
+                }
+                a
+            } };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2641,7 +2892,98 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out } => {
+        MobfarmCmd::TraceDiff { a, b, tol } => {
+            println!("{}", crate::queue::trace_diff(&std::fs::read_to_string(&a)?, &std::fs::read_to_string(&b)?, tol));
+        }
+        MobfarmCmd::JobsiteCheck { designs, range, add } => {
+            let mut total = 0usize;
+            for d in &designs {
+                let c = match circuit::Circuit::load(d) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        println!("{}: not a design ({e})", d.display());
+                        continue;
+                    }
+                };
+                let mut blocks: Vec<([i32; 3], String)> = c.clock.design.block_list().into_iter().map(|(q, s)| ([q[0], q[1], q[2]], s)).collect();
+                for a in &add {
+                    let f: Vec<&str> = a.splitn(4, ',').collect();
+                    let [x, y, z, blk] = f.as_slice() else { anyhow::bail!("--add takes X,Y,Z,BLOCK") };
+                    blocks.push(([x.parse()?, y.parse()?, z.parse()?], blk.to_string()));
+                }
+                let (line, n) = crate::queue::jobsite_check_blocks(&blocks, range);
+                total += n;
+                println!("{}: {line}", d.display());
+            }
+            println!("job-site check: {total} hits in {} designs", designs.len());
+            if total > 0 {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::LedgeSweep { design, speeds, gap_from, gap_to, gap_step, riders, ticks } => {
+            let (c, spec) = load(version, &design)?;
+            let hdr = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            let fl = hdr.flights.first().cloned().ok_or_else(|| anyhow::anyhow!("no `flights:` line in the design"))?;
+            let ridden: Vec<bool> = match riders.as_str() {
+                "both" => vec![false, true],
+                "ridden" => vec![true],
+                "empty" => vec![false],
+                _ => anyhow::bail!("--riders: both, ridden or empty"),
+            };
+            anyhow::ensure!(gap_step > 0.0, "--gap-step must be positive");
+            for l in crate::ledge_sweep::sweep(&spec, &fl, &speeds, gap_from, gap_to, gap_step, &ridden, ticks).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::PostSearch { design, remove, panic, area, margin, max_posts } => {
+            let (_c, mut spec) = load(version, &design)?;
+            anyhow::ensure!(panic.len() == 6 && area.len() == 6, "--panic and --area take X0,Y0,Z0,X1,Y1,Z1");
+            let cols: Vec<(i32, i32)> = remove.split(';').filter(|s| !s.trim().is_empty()).map(|s| {
+                let v: Vec<i32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                (v.first().copied().unwrap_or(0), v.get(1).copied().unwrap_or(0))
+            }).collect();
+            // (a post: a boat (with its zombie) whose column is (X, Z), the glass under it and the
+            // leaves over it in that column)
+            let mut removed = 0;
+            spec.entities.retain(|(ty, p, _)| {
+                let hit = ty.ends_with("boat") && cols.contains(&(p[0].floor() as i32, p[2].floor() as i32));
+                removed += hit as usize;
+                !hit
+            });
+            spec.blocks.retain(|(p, b)| {
+                let s = b.to_string();
+                !(cols.contains(&(p.x, p.z)) && (s.contains("glass") || s.contains("leaves")) && (1..=7).contains(&p.y))
+            });
+            let rails: Vec<[i32; 3]> = spec.blocks.iter().filter(|(p, b)| b.to_string().contains("rail") && (panic[0]..=panic[3]).contains(&p.x) && (panic[1]..=panic[4]).contains(&p.y) && (panic[2]..=panic[5]).contains(&p.z)).map(|(p, _)| [p.x, p.y, p.z]).collect();
+            println!("post search: {removed} posts removed, {} panic cells, area {:?}, margin {margin}", rails.len(), area);
+            let f = crate::postsearch::search(&spec, &rails, [area[0], area[1], area[2], area[3], area[4], area[5]], margin, max_posts).map_err(|e| anyhow::anyhow!(e))?;
+            println!("posts (the boat's cell; glass under, leaves 3 over): {}", f.posts.iter().map(|p| format!("({},{},{})", p[0], p[1], p[2])).collect::<Vec<_>>().join(" "));
+            println!("the least distance from any rider point to a post: {:.2}", f.least);
+            let bad: Vec<String> = f.cover.iter().filter(|(_, d, seen)| *d > 8.0 - margin || !seen).map(|(c, d, seen)| format!("({},{},{}) {d:.2}{}", c[0], c[1], c[2], if *seen { "" } else { " unseen" })).collect();
+            println!("panic cells: {} of {} covered (a seen post within 8 - margin from every point){}", f.cover.len() - bad.len(), f.cover.len(), if bad.is_empty() { String::new() } else { format!("; not: {}", bad.join(", ")) });
+        }
+        MobfarmCmd::ContactScenes { design, case, speeds, out_dir, ticks, front_frac, from_rest } => {
+            let src = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            let case = match case.as_str() {
+                "g0" => crate::contact_scene::Case::G0,
+                "p" => crate::contact_scene::Case::P,
+                _ => anyhow::bail!("--case: g0 or p"),
+            };
+            std::fs::create_dir_all(&out_dir)?;
+            let src_name = design.file_name().map_or("the design".to_string(), |n| n.to_string_lossy().to_string());
+            for v in &speeds {
+                let d = crate::contact_scene::scene(&src, case, *v, front_frac, from_rest).map_err(|e| anyhow::anyhow!(e))?;
+                let path = out_dir.join(format!("{}.txt", d.name));
+                std::fs::write(&path, crate::contact_scene::caption(case, *v, &src_name) + &d.to_text())?;
+                std::fs::write(out_dir.join(format!("{}.drive", d.name)), crate::contact_scene::drive(case, *v, ticks))?;
+                let (_c, spec) = load(version, &path)?;
+                let scores = crate::contact_scene::score(&spec, ticks).map_err(|e| anyhow::anyhow!(e))?;
+                for l in crate::contact_scene::score_lines(&d.name, &scores) {
+                    println!("{l}");
+                }
+            }
+        }
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -2690,7 +3032,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 [] => [None; 3],
                 _ => anyhow::bail!("--visit-release-cells takes 3 cells: carts 0, 1, 2 (9 numbers)"),
             };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, build_gap: placed_in_order.filter(|_| !placed_all && !build_gap_sweep).map(|g| if g == 0 { 20 } else { g }), build_priced: placed_in_order == Some(0), stagger_off, side_drop: match side_drop.as_slice() { [c, s, d, v] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *s as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [c, s, d, v, p] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *p as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [] => None, _ => anyhow::bail!("--side-drop takes C,SLOT,D,V[,PARK]") }, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, pocket_close_delay: gate_close_delay, rel_for, pocket_trigger: match pocket_trigger.as_slice() { [a, b, c, d] => Some([(*a, *b as i64), (*c, *d as i64)]), [] => None, _ => anyhow::bail!("--pocket-trigger takes X1,D1,X2,D2") }, no_summons, calm, reach_probe, visit: match (visit.as_slice(), visits_nightly.as_slice()) {
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, build_gap: placed_in_order.filter(|_| !placed_all && !build_gap_sweep).map(|g| if g == 0 { 20 } else { g }), build_priced: placed_in_order == Some(0), stagger_off: stagger_off || !stagger_common_off, side_drop: match side_drop.as_slice() { [c, s, d, v] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *s as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [c, s, d, v, p] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *p as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [] => None, _ => anyhow::bail!("--side-drop takes C,SLOT,D,V[,PARK]") }, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, pocket_close_delay: gate_close_delay, rel_for, pocket_trigger: match pocket_trigger.as_slice() { [a, b, c, d] => Some([(*a, *b as i64), (*c, *d as i64)]), [] => None, _ => anyhow::bail!("--pocket-trigger takes X1,D1,X2,D2") }, no_summons, calm, reach_probe, visit: match (visit.as_slice(), visits_nightly.as_slice()) {
                 ([s, k, r], []) => Some(crate::queue::Visit { slot: *s, k: *k as usize, divert_at: divert_at.unwrap_or(16), release_at: *r, divert: cell3(&divert_cell)?, t1: cell3(&t1_cell)?, t2: cell3(&t2_cell)?, release: cell3(&siding_release_cell)?, every: 0, from: 0, release_k: rel_k, release_cells: rel_cells, t_at_release: visit_t_at_release, t_at: 0, k_mod3: visit_k_mod3, observe: false, branch: redsim::pos::BlockPos::new(0, 0, 0) }),
                 ([], [e, r]) | ([], [e, r, _]) => Some(crate::queue::Visit { slot: -1, k: 0, divert_at: divert_at.unwrap_or(16), release_at: *r, divert: cell3(&divert_cell)?, t1: cell3(&t1_cell)?, t2: cell3(&t2_cell)?, release: cell3(&siding_release_cell)?, every: *e, from: visits_nightly.get(2).copied().unwrap_or(12500), release_k: rel_k, release_cells: rel_cells, t_at_release: visit_t_at_release, t_at: 0, k_mod3: visit_k_mod3, observe: false, branch: redsim::pos::BlockPos::new(0, 0, 0) }),
                 ([], []) if visits_observe => Some(crate::queue::Visit { slot: -1, k: 0, divert_at: divert_at.unwrap_or(16), release_at: 0, divert: cell3(&divert_cell)?, t1: cell3(&t1_cell)?, t2: cell3(&t2_cell)?, release: cell3(&siding_release_cell)?, every: 0, from: 0, release_k: rel_k, release_cells: rel_cells, t_at_release: false, t_at: 0, k_mod3: visit_k_mod3, observe: true, branch: match divert_branch.as_slice() { [x, y, z] => redsim::pos::BlockPos::new(*x, *y, *z), [] => { let d = cell3(&divert_cell)?; redsim::pos::BlockPos::new(d.x, d.y + 1, d.z - 1) } _ => anyhow::bail!("--divert-branch takes x,y,z") } }),
@@ -2737,7 +3079,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some(crate::queue::parse_rider("--watch-mob", s).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 v
-            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, p_always, adm_faults: {
+            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_evidence, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, arrival_log, hold_back: match hold_back.as_slice() { [c, d, n] => Some([*c, *d, *n]), [] => None, _ => anyhow::bail!("--hold-back takes C,DT,N") }, p_always, adm_faults: {
                 anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
                 let mut a = [None; 8];
                 for (i, s) in adm_fault.iter().enumerate() {
@@ -2755,13 +3097,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
                 }
                 a
-            }, arrivals: arrivals_out.is_some(), verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, arrivals: arrivals_out.is_some(), verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match release_offs.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, ..Default::default() };
             // (`--shift name=gt,...`: controls shifted as the sweep shifts them, e.g. to rerun a
             // corner without one of its controls)
             let mut tm = tm;
             for s in &shift {
                 let (n, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--shift takes name=gt"))?;
                 tm = crate::queue::loop_shifted(&tm, n, v.parse()?).map_err(|e| anyhow::anyhow!(e))?;
+            }
+            // (the walk-target static check, printed by default; its flee verdict fails the run with
+            // --flee-gate (ironspec Nov 11 09:29: (ii) until runs are grounded); printed once here
+            // for a sweep, whose runs don't carry the headers)
+            if !no_flee_check {
+                let g = crate::queue::flee_gate(&spec, &std::fs::read_to_string(&design)?);
+                let g = (format!("{}{}", g.0, if flee_gate { "" } else { " (printed only: a void bench's verdict; --flee-gate fails the run on it)" }), g.1 && flee_gate);
+                if !sweep.is_empty() || phase_sweep.is_some() {
+                    println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
+                }
+                hdr.static_checks.push(g);
             }
             if !sweep.is_empty() {
                 // the tolerance lines: one control at a time, to the first failure each way
@@ -2776,6 +3129,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{}", crate::queue::loop_corners(&spec, &o, &tm, &lines, seed, seeds, cycles).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 return Ok(());
+            }
+            if let Some(f) = &force_phase {
+                tm.phase_force = Some(crate::queue::parse_phase_force(f).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            if let Some(sw) = &phase_sweep {
+                return phase_sweep_cmd(&spec, &o, &tm, &hdr, sw, &reload_orders, cycles, seed, jobs);
             }
             if !reload_orders.is_empty() {
                 return reload_orders_cmd(&spec, &o, &tm, &hdr, &reload_orders, cycles, seed, jobs);
@@ -2983,7 +3342,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
-            let tm = crate::queue::LoopTiming { record_positions: record_positions.is_some(), exposure_log: exposure_out.is_some(), golem_miss: { anyhow::ensure!(golem_miss.len() <= 8, "--golem-miss takes up to 8 slots"); let mut a = [-1i64; 8]; for (i, s) in golem_miss.iter().enumerate() { a[i] = *s; } a }, ..tm };
+            let tm = crate::queue::LoopTiming { record_positions: record_positions.is_some(), exposure_log: exposure_out.is_some(), golem_miss: { anyhow::ensure!(golem_miss.len() <= 8, "--golem-miss takes up to 8 entries"); let mut a = [(-1i64, -1i64); 8]; for (i, s) in golem_miss.iter().enumerate() { a[i] = match s.split_once('-') { Some((x, y)) => (x.trim().parse()?, y.trim().parse()?), None => { let n: i64 = s.trim().parse()?; (n, n) } }; } a }, ..tm };
             let s = crate::queue::run_loop_hdr(&spec, &o, &tm, &hdr, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }, drive_out.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             // (`--record-positions F`: the villager positions line written to F, x y z per line)
             if let Some(f) = &record_positions {
@@ -3368,6 +3727,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (c, spec) = load(version, &design)?;
             let turn = c.clock.design.meta.get("turn").and_then(|t| t.parse().ok()).unwrap_or(0);
             for l in crate::siding::check(&spec, turn).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::FleeCheck { design, home, show, foot } => {
+            let (_c, spec) = load(version, &design)?;
+            // (the bed: --home, else the design's `port home:` line)
+            let text = std::fs::read_to_string(&design)?;
+            let port = text.lines().find_map(|l| l.strip_prefix("port home:")).map(|r| r.split_whitespace().filter_map(|t| t.parse::<i32>().ok()).collect::<Vec<_>>());
+            let h = if home.len() == 3 { Some(home) } else { port.filter(|v| v.len() == 3) };
+            let bed = h.map(|v| redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            let foot: Vec<redsim::pos::BlockPos> = foot.chunks(3).filter(|c| c.len() == 3).map(|c| redsim::pos::BlockPos::new(c[0], c[1], c[2])).collect();
+            let places = crate::fleecheck::check(&spec, bed, &foot).map_err(|e| anyhow::anyhow!(e))?;
+            let jobs = crate::fleecheck::job_and_bell_blocks(&spec);
+            for l in crate::fleecheck::report(&places, &jobs, show) {
                 println!("{l}");
             }
         }
@@ -4666,13 +5039,46 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::Probe { design, row } => {
-            let (_, spec) = load(version, &design)?;
-            let o = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
-            let w = redsim::entity::mob::farm::build(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+        MobfarmCmd::Probe { design, row, terrain, flammable } => {
+            let (c, spec) = load(version, &design)?;
+            let mut o = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
+            // (`--terrain`: the farm in its sample at the judge's cheapest spot, as `run
+            // --terrain` builds it; coordinates stay the design's)
+            let (moved, off) = match &terrain {
+                Some(name) => {
+                    let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow::anyhow!(e))?));
+                    o.site = Some(site);
+                    (site.spec(&spec), site.offset)
+                }
+                None => (spec.clone(), [0, 0, 0]),
+            };
+            let w = redsim::entity::mob::farm::build(&moved, &o).map_err(|e| anyhow::anyhow!(e))?;
+            let at = |x: i32, y: i32, z: i32| redsim::BlockPos::new(x + off[0], y + off[1], z + off[2]);
+            if flammable {
+                // (farmopt 2026-11-11: what the card's "a fire beside a flammable block" counts:
+                // `lightning::fire_danger` reads every flammable block inside the farm's box)
+                let mut n = 0;
+                for y in spec.lo.y..=spec.hi.y {
+                    for z in spec.lo.z..=spec.hi.z {
+                        for x in spec.lo.x..=spec.hi.x {
+                            let p = at(x, y, z);
+                            let b = w.get(p);
+                            if let Some((ig, bu)) = redsim::weather::lightning::flammable(&b) {
+                                let sky = redsim::weather::can_see_sky(&w, p.above()).map(|s| if s { "sees the sky" } else { "under cover" }).unwrap_or("sky unknown");
+                                let built = spec.blocks.iter().any(|(q, _)| *q == redsim::BlockPos::new(x, y, z));
+                                println!("{x} {y} {z}: {b} (ignite {ig}, burn {bu}; {}; {sky})", if built { "the design's" } else { "natural" });
+                                n += 1;
+                            }
+                        }
+                    }
+                }
+                println!("{n} flammable blocks in the farm's box {:?}..{:?}", spec.lo, spec.hi);
+                return Ok(());
+            }
+            anyhow::ensure!(row.len() == 4, "--row takes X0 X1 Y Z (or --flammable)");
             let [x0, x1, y, z] = [row[0], row[1], row[2], row[3]];
             for x in x0..=x1 {
-                println!("{x} {y} {z}: {}", w.get(redsim::BlockPos::new(x, y, z)));
+                println!("{x} {y} {z}: {}", w.get(at(x, y, z)));
             }
         }
         MobfarmCmd::Edit { design, chest, how, meta, set } => {
@@ -4738,7 +5144,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}: {:.1} build minutes at {stage} prices ({:.1} of them travel and height); collecting {:.0} s per trip ({} layers each way)", c.name(), bill.seconds / 60.0, travel / 60.0, bill.collect_s, bill.collect_layers);
         }
         MobfarmCmd::SpawnRules { design, terrain, tries, day_time } => crate::spawnrules::run(version, &design, &terrain, tries, day_time)?,
-        MobfarmCmd::Exposures { design, terrain, cells } => {
+        MobfarmCmd::Exposures { design, terrain, cells, against } => {
+            if let Some(before) = against {
+                return exposures_against(version, &before, &design, &terrain);
+            }
             let (c, spec) = load(version, &design)?;
             let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, &terrain).map_err(|e| anyhow::anyhow!(e))?));
             let moved = site.spec(&spec);
@@ -4779,12 +5188,36 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
         }
         MobfarmCmd::Spots { design, terrain, repeat, panicking_only, caps } => spots_cmd(version, &design, &terrain, repeat, !panicking_only, caps)?,
-        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace, terrain, world, no_monsters, runs, sim_only } => {
-            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace, terrain, world, no_monsters, runs, sim_only })?
+        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace, terrain, world, no_monsters, runs, sim_only, inject_events } => {
+            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace, terrain, world, no_monsters, runs, sim_only, inject_events })?
         }
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
+        MobfarmCmd::Ground { design, sample, ground, build, margin, out } => {
+            let (c, spec) = load(version, &design)?;
+            let meta = &c.clock.design.meta;
+            let sample = sample.or_else(|| meta.get("sample").cloned()).unwrap_or_else(|| "flat".to_string());
+            let g = ground.or_else(|| meta.get("ground").and_then(|v| v.trim().parse().ok())).unwrap_or(-1);
+            let r = crate::ground::ground(&design, &spec, &sample, g, build, margin, &out)?;
+            println!(
+                "{}: {} grounded in {} build {build} (offset {:?}), ground line y {g}, box {:?}..{:?}, {} terrain blocks added within {margin}",
+                out.display(),
+                design.display(),
+                r.sample,
+                r.offset,
+                [r.box_lo.x, r.box_lo.y, r.box_lo.z],
+                [r.box_hi.x, r.box_hi.y, r.box_hi.z],
+                r.added
+            );
+        }
+        MobfarmCmd::WeatherDays { design, runs, days, build } => {
+            let (c, spec) = load(version, &design)?;
+            let sample = circuit::mobfarm::terrain_sample(&c).map_err(|e| anyhow::anyhow!(e))?.ok_or_else(|| anyhow::anyhow!("weather-days: the design is not judged in terrain"))?;
+            let sites = circuit::mobfarm::terrain_sites(&c, &spec, sample).map_err(|e| anyhow::anyhow!(e))?;
+            let site = *sites.get(build as usize).ok_or_else(|| anyhow::anyhow!("--build {build}: the judge has {} builds", sites.len()))?;
+            crate::weathercheck::weather_days_cmd(&spec, site, build, runs, days)?;
+        }
         MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, terrain, day0, scan, batch, build, run, no_spawning, only } => {
             let ticks = ticks.unwrap_or((days * 24000.0).round() as u32);
             let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at, terrain, day0, build: build.map(|k| (k, run)), no_spawning, only };
@@ -4796,6 +5229,116 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
+    }
+    Ok(())
+}
+
+/// `queue-loop-run --phase-sweep WHO@S1[,S2]` (ironspec's forced-phase mode, tickexact
+/// 2026-11-11): the same run once per combination of the listed sensors' start delays (each over
+/// 0 up to its scan rate), forced on WHO after every whole-part load, on `jobs` threads; per
+/// combination one line (its problems, first problem, WHO's wake after the load), then the table
+/// (rows S1, columns S2: `.` clean, `X` a problem) and the failing share of the phase space.
+#[allow(clippy::too_many_arguments)]
+fn phase_sweep_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, sweep: &str, orders: &[String], cycles: i64, seed: i64, jobs: usize) -> Result<()> {
+    let (who, rest) = sweep.split_once('@').ok_or_else(|| anyhow::anyhow!("--phase-sweep {sweep}: WHO@SENSOR[=VALUES][,SENSOR[=VALUES]]"))?;
+    let who = crate::queue::parse_rider(sweep, who).map_err(|e| anyhow::anyhow!(e))?;
+    let rate = |k: usize| redsim::entity::mob::villager::SENSORS[k].1;
+    // (each sensor's values: all of 0 up to its scan rate, or `=A..B` / `=A` / `=A/B/C`)
+    let mut ks: Vec<usize> = Vec::new();
+    let mut vals: Vec<Vec<i64>> = Vec::new();
+    for t in rest.split(',') {
+        let (name, v) = t.split_once('=').map_or((t, None), |(n, v)| (n, Some(v)));
+        let k = crate::queue::sensor_index(name).ok_or_else(|| anyhow::anyhow!("--phase-sweep {sweep}: no sensor {name}"))?;
+        let list: Vec<i64> = match v {
+            None => (0..rate(k)).collect(),
+            Some(v) => match v.split_once("..") {
+                Some((a, b)) => (a.parse::<i64>()?..=b.parse::<i64>()?).collect(),
+                None => v.split('/').map(|x| x.parse::<i64>()).collect::<Result<_, _>>()?,
+            },
+        };
+        anyhow::ensure!(!list.is_empty() && list.iter().all(|x| (0..rate(k)).contains(x)), "--phase-sweep {sweep}: {name}'s delays are 0..{}", rate(k) - 1);
+        ks.push(k);
+        vals.push(list);
+    }
+    anyhow::ensure!((1..=2).contains(&ks.len()), "--phase-sweep {sweep}: one or two sensors");
+    anyhow::ensure!(tm.acts.iter().flatten().any(|a| a.unload == Some(None)), "--phase-sweep: no whole-part unload act (--act SLOT,DT,unload,N)");
+    let second: Vec<i64> = if ks.len() == 2 { vals[1].clone() } else { vec![0] };
+    // (ironspec 2026-11-11: phases x orders in one command) the load orders to sweep under
+    // (`--reload-orders`, `crate::queue::parse_reload_orders`; the acts' own when none is named)
+    let mut ords: Vec<Option<redsim::reload::Order>> = crate::queue::parse_reload_orders(orders).map_err(|e| anyhow::anyhow!(e))?.into_iter().map(Some).collect();
+    if ords.is_empty() {
+        ords.push(None);
+    }
+    let label = |o: Option<redsim::reload::Order>| o.map_or_else(|| "the acts' own".to_string(), |o| o.name());
+    let mut combos: Vec<(usize, i64, i64)> = Vec::new();
+    for oi in 0..ords.len() {
+        for &a in &vals[0] {
+            for &b in &second {
+                combos.push((oi, a, b));
+            }
+        }
+    }
+    let mut results: std::collections::BTreeMap<(usize, i64, i64), (bool, String)> = std::collections::BTreeMap::new();
+    for chunk in combos.chunks(jobs.max(1)) {
+        let got: Vec<((usize, i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|&(oi, a, b)| {
+                    let mut t = *tm;
+                    if let Some(ord) = ords[oi] {
+                        for act in t.acts.iter_mut().flatten() {
+                            if act.unload == Some(None) {
+                                act.order = ord;
+                            }
+                        }
+                    }
+                    let mut sensors = [None; 4];
+                    sensors[0] = Some((ks[0], a));
+                    if ks.len() == 2 {
+                        sensors[1] = Some((ks[1], b));
+                    }
+                    t.phase_force = Some(crate::queue::PhaseForce { who, sensors });
+                    sc.spawn(move || ((oi, a, b), crate::queue::run_loop_hdr(spec, o, &t, hdr, cycles, seed, false, None, None)))
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+        });
+        for ((oi, a, b), r) in got {
+            let r = r.map_err(|e| anyhow::anyhow!(e))?;
+            let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").trim_end_matches(':').to_string();
+            let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).map(|l| format!(" (first: {})", l.trim())).unwrap_or_default();
+            let forced = r.lines().find(|l| l.contains("phases forced on")).map(|l| l.split(": ").skip(1).collect::<Vec<_>>().join(": ")).unwrap_or_else(|| "not forced".into());
+            let woke = r.lines().find(|l| l.contains("(phases forced) woke at")).and_then(|l| l.split("woke at ").nth(1)).unwrap_or("not seen").to_string();
+            let ok = probs.starts_with("0 problems");
+            let names: Vec<String> = ks.iter().zip([a, b]).map(|(k, v)| format!("{}={v}", redsim::entity::mob::villager::SENSORS[*k].0)).collect();
+            // (day-1 2026-11-11, ironspec's 05:58 question: the forced villager's own panic on the
+            // slot ticks it spent at the stand after the load, from the stand line's per-villager
+            // counts by its id after the load)
+            let fid = r.lines().find_map(|l| l.split("phases forced on e").nth(1)).and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next()).and_then(|d| d.parse::<u32>().ok());
+            let at_stand = fid
+                .and_then(|id| {
+                    let l = r.lines().find(|l| l.starts_with("stand batch panicking"))?;
+                    let per = l.split("per villager").nth(1)?;
+                    let toks: Vec<&str> = per.split_whitespace().collect();
+                    let k = toks.iter().position(|t| *t == format!("e{id}"))?;
+                    toks.get(k + 1).map(|v| format!("; at the stand e{id} panicking on {v} slot ticks"))
+                })
+                .unwrap_or_else(|| "; at the stand: not seen".into());
+            println!("order {} phases {}: {probs}{first}; woke {woke}{at_stand}; {forced}", label(ords[oi]), names.join(" "));
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            results.insert((oi, a, b), (ok, woke));
+        }
+    }
+    for (oi, ord) in ords.iter().enumerate() {
+        let bad = results.iter().filter(|(k, (ok, _))| k.0 == oi && !ok).count();
+        let n = results.keys().filter(|k| k.0 == oi).count();
+        println!("order {}: table (rows {} {:?}, columns {}; . clean, X a problem):", label(*ord), redsim::entity::mob::villager::SENSORS[ks[0]].0, vals[0], if ks.len() == 2 { format!("{} {:?}", redsim::entity::mob::villager::SENSORS[ks[1]].0, second) } else { "-".into() });
+        for &a in &vals[0] {
+            let row: String = second.iter().map(|&b| if results.get(&(oi, a, b)).is_some_and(|r| r.0) { '.' } else { 'X' }).collect();
+            println!("  {a:>3} {row}");
+        }
+        println!("order {}: failing share of the phase space: {bad} of {n} ({:.1}%)", label(*ord), 100.0 * bad as f64 / n.max(1) as f64);
     }
     Ok(())
 }
@@ -4861,6 +5404,63 @@ fn reload_orders_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queu
     let (lo, hi) = crate::queue::wilson95(failed.len(), orders.len());
     let rate = format!("{} of {} orders missed ({:.0}%, Wilson 95% {:.0}-{:.0}%)", failed.len(), orders.len(), 100.0 * failed.len() as f64 / orders.len().max(1) as f64, 100.0 * lo, 100.0 * hi);
     println!("row {} (seed {seed}, {cycles} slots): {}; {rate}", acts.join(" + "), if failed.is_empty() { format!("PASS under all {} orders", orders.len()) } else { format!("FAIL under {}", failed.join(", ")) });
+    Ok(())
+}
+
+/// A design's exposures in a terrain sample (`mobfarm exposures`' checks): its site's offset, its
+/// golem and interior cell counts, and every exposure.
+fn exposures_of(version: &str, design: &std::path::Path, terrain: &str) -> Result<([i32; 3], usize, usize, Vec<redsim::entity::mob::hostile::Exposure>)> {
+    let (c, spec) = load(version, &design.to_path_buf())?;
+    let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, terrain).map_err(|e| anyhow::anyhow!(e))?));
+    let moved = site.spec(&spec);
+    let w = circuit::mobfarm::settled_world(site, &moved);
+    let summoners = {
+        let mut with = w.clone();
+        for (k, p, n) in &moved.entities {
+            let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
+        }
+        redsim::entity::mob::site::villager_cells(&with)
+    };
+    let farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk, &summoners);
+    let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+    Ok((site.offset, farm.golem_cells.len(), farm.interior.len(), ex))
+}
+
+/// `mobfarm exposures AFTER --against BEFORE`: one line per class (channel, mob, what) in either,
+/// `BEFORE -> AFTER` cells with the ones added and removed (design coordinates), unchanged classes
+/// included; then the golem and interior cells and how many classes changed (ironspec
+/// 2026-11-11: every class printed, so a cut diff cannot hide one).
+fn exposures_against(version: &str, before: &std::path::Path, after: &std::path::Path, terrain: &str) -> Result<()> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let (ob, gb, ib, eb) = exposures_of(version, before, terrain)?;
+    let (oa, ga, ia, ea) = exposures_of(version, after, terrain)?;
+    let design = |o: [i32; 3], cs: &[redsim::BlockPos]| -> BTreeSet<(i32, i32, i32)> { cs.iter().map(|c| (c.x - o[0], c.y - o[1], c.z - o[2])).collect() };
+    let mut classes: BTreeMap<(String, String, String), (BTreeSet<(i32, i32, i32)>, BTreeSet<(i32, i32, i32)>)> = BTreeMap::new();
+    for e in &eb {
+        classes.entry((e.channel.to_string(), e.mob.to_string(), e.what.to_string())).or_default().0 = design(ob, &e.cells);
+    }
+    for e in &ea {
+        classes.entry((e.channel.to_string(), e.mob.to_string(), e.what.to_string())).or_default().1 = design(oa, &e.cells);
+    }
+    let fmt = |s: &BTreeSet<(i32, i32, i32)>| s.iter().map(|(x, y, z)| format!("({x},{y},{z})")).collect::<Vec<_>>().join(" ");
+    println!("exposures of {} against {} in {terrain} (design coordinates):", after.display(), before.display());
+    let mut changed = 0;
+    for ((ch, mob, what), (b, a)) in &classes {
+        let (added, removed): (BTreeSet<_>, BTreeSet<_>) = (a.difference(b).copied().collect(), b.difference(a).copied().collect());
+        let change = match (b.is_empty(), a.is_empty()) {
+            (_, true) => "gone".to_string(),
+            (true, _) => "new".to_string(),
+            _ if added.is_empty() && removed.is_empty() => "unchanged".to_string(),
+            _ => format!("{:+}", a.len() as i64 - b.len() as i64),
+        };
+        if change != "unchanged" {
+            changed += 1;
+        }
+        let detail = [(!added.is_empty()).then(|| format!("added {}", fmt(&added))), (!removed.is_empty()).then(|| format!("removed {}", fmt(&removed)))].into_iter().flatten().collect::<Vec<_>>().join("; ");
+        println!("{ch}: {mob} {what}: {} -> {} cells ({change}){}", b.len(), a.len(), if detail.is_empty() { String::new() } else { format!(": {detail}") });
+    }
+    println!("golem cells {gb} -> {ga}; interior cells {ib} -> {ia}");
+    println!("{changed} of {} classes changed", classes.len());
     Ok(())
 }
 

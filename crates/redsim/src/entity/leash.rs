@@ -19,6 +19,14 @@ pub struct LeashData {
 
 /// Keep the calibrated domain closed when new entity kinds become representable.
 fn domain_error(entity: &Entity, holder: &Entity) -> Option<&'static str> {
+    // (mob-AI 2026-11-11) a trader llama leashed to its wandering trader (a single-point lead: a
+    // trader is no quad holder)
+    if let (EntityKind::Mob(m), EntityKind::Mob(h)) = (&entity.kind, &holder.kind)
+        && m.ty.def().id == "trader_llama"
+        && h.ty.def().id == "wandering_trader"
+    {
+        return if entity.vehicle.is_some() || !entity.passengers.is_empty() { Some("leash: a ridden or riding trader llama's lead is not modeled") } else { None };
+    }
     if !matches!(entity.kind, EntityKind::Boat(_)) {
         Some("leash: only server-owned boats are modeled as leasees")
     } else if entity.vehicle.is_some() {
@@ -80,6 +88,14 @@ pub fn remove(w: &mut World, entity: u32) -> Result<(), String> {
     Ok(())
 }
 
+/// (mob-AI 2026-11-11) `setLeashedTo(holder, true)` of a mob (the wandering trader spawner's
+/// llamas): a new LeashData (no angular momentum); it is not riding anything.
+pub fn attach_mob(w: &mut World, entity: u32, holder: u32) {
+    let Some(i) = index_of(w, entity) else { return };
+    let angular_momentum = w.entities.list[i].leash.map_or(0.0, |l| l.angular_momentum);
+    w.entities.list[i].leash = Some(LeashData { holder, angular_momentum });
+}
+
 fn center_distance(entity: &Entity, holder: &Entity) -> f64 {
     entity.bb.center().distance_to_sqr(holder.bb.center()).sqrt()
 }
@@ -116,7 +132,9 @@ fn angular_friction(w: &World, i: usize) -> f32 {
     if e.on_ground {
         let p = collide::get_on_pos(w, e, 0.500001f32);
         boat::block_friction(&w.get(p)) * 0.91f32
-    } else if e.fluid.in_water() {
+    } else if e.fluid.in_water() || e.fluid.lava_height() > 0.0 {
+        // isInLiquid: water or lava (mob-AI 2026-11-11: a trader llama pulled out of a lava pool,
+        // d1-bed-plate plains b9 t40061)
         0.8f32
     } else {
         0.91f32
@@ -125,9 +143,46 @@ fn angular_friction(w: &World, i: usize) -> f32 {
 
 fn drop_lead(w: &mut World, i: usize) {
     w.entities.list[i].leash = None;
+    // Mob.onLeashRemoved: clearHome (a PathfinderMob's home on its holder goes with the lead;
+    // mob-AI 2026-11-11, d1-bed-plate village-edge b9 t73933: a freed llama strolled off)
+    if matches!(w.entities.list[i].kind, EntityKind::Mob(_)) && crate::entity::mob::ai::has_ai(w, i) {
+        crate::entity::mob::ai::ai_mut(w, i).home = None;
+    }
+    // (mob-AI 2026-11-11) a mob's lead in an exact world: `spawnAtLocation(level, LEAD)` at its
+    // position, the item seeded as its entity number like any drop (a dying trader llama's, the
+    // tick after its death: d1-bed-plate plains b9 t40080)
+    if matches!(w.entities.list[i].kind, EntityKind::Mob(_)) && w.exact_seed.is_some() {
+        let p = w.entities.list[i].pos;
+        crate::entity::mob::living::spawn_item_exact(w, p, "minecraft:lead", 1);
+        return;
+    }
     // Entity.spawnAtLocation uses a new, nanoTime-seeded ItemEntity. Never invent its kick
     // or omit the side effect and claim a fully modeled continuation after a snap.
     w.errors.push("leash: dropped lead has unseeded ItemEntity motion (post-drop continuation is not modeled)".into());
+}
+
+/// `PathfinderMob.isPanicking()`: a running PanicGoal.
+fn panicking(w: &World, i: usize) -> bool {
+    use crate::entity::mob::ai::goal::{Goal, animal::AnimalGoal};
+    crate::entity::mob::ai::ai(w, i).goals.goals.iter().any(|g| g.running && matches!(g.goal, Goal::Animal(AnimalGoal::Panic { .. })))
+}
+
+/// `PathfinderMob.closeRangeLeashBehaviour(holder)`: `enableControlFlag(MOVE)`, then
+/// `moveTo(position + (holder - position).normalize() * max(distanceTo - 2F, 0F), followLeashSpeed)`.
+fn close_range(w: &mut World, i: usize, j: usize) {
+    use crate::entity::mob::ai as mai;
+    mai::ai_mut(w, i).goals.set_control_flag(mai::goal::Flag::Move, true);
+    let (p, h) = (w.entities.list[i].pos, w.entities.list[j].pos);
+    let (dx, dy, dz) = (h.x - p.x, h.y - p.y, h.z - p.z);
+    // Entity.distanceTo: in floats
+    let (fx, fy, fz) = ((p.x - h.x) as f32, (p.y - h.y) as f32, (p.z - h.z) as f32);
+    let dist = crate::entity::mth::sqrt(fx * fx + fy * fy + fz * fz);
+    let d = Vec3::new(dx, dy, dz).normalize().scale((dist - 2.0f32).max(0.0f32) as f64);
+    let (x, y, z) = (p.x + d.x, p.y + d.y, p.z + d.z);
+    let speed = if matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty.def().id == "trader_llama") { 2.0 } else { 1.0 };
+    mai::with_nav(w, i, |w, nm, nav, arena| {
+        nav.move_to_xyz(w, nm, x, y, z, 1, speed, arena);
+    });
 }
 
 /// `Leashable.tickLeash`, called after baseTick's fluid interaction and firstTick=false.
@@ -145,11 +200,23 @@ pub fn tick(w: &mut World, i: usize) {
         w.errors.push(why.into());
         return;
     }
+    // (mob-AI 2026-11-11) whenLeashedTo: PathfinderMob's home on the holder's block, radius
+    // (int) 6 - 1 = 5 (the holder's notifyLeashHolder: nothing for a trader)
+    let mob_leashee = matches!(w.entities.list[i].kind, EntityKind::Mob(_)) && crate::entity::mob::ai::has_ai(w, i);
+    if mob_leashee {
+        let hb = w.entities.list[j].block_position();
+        crate::entity::mob::ai::ai_mut(w, i).home = Some((hb, 5));
+    }
     let e = &w.entities.list[i];
     let holder = &w.entities.list[j];
     let distance = center_distance(e, holder);
+    let mut pulled = false;
     if distance > SNAP {
         drop_lead(w, i);
+        // Mob.leashTooFarBehaviour: the MOVE control flag off
+        if mob_leashee {
+            crate::entity::mob::ai::ai_mut(w, i).goals.set_control_flag(crate::entity::mob::ai::goal::Flag::Move, false);
+        }
         // tickLeash retains its local LeashData through the final yaw/friction update.
     } else if distance > SLACK - holder.kind.dims().0 as f64 - e.kind.dims().0 as f64 {
         let (width, height) = e.kind.dims();
@@ -169,10 +236,19 @@ pub fn tick(w: &mut World, i: usize) {
             if e.delta_movement.y > -0.5 && e.fall_distance > 1.0 {
                 e.fall_distance = 1.0;
             }
+            pulled = true;
         }
+    }
+    // closeRangeLeashBehaviour (no elastic pull): PathfinderMob's, not panicking: the MOVE control
+    // flag on, a walk to 2 short of the holder (followLeashSpeed: a llama's 2.0)
+    if mob_leashee && distance <= SNAP && !pulled && !panicking(w, i) {
+        close_range(w, i, j);
     }
     let friction = angular_friction(w, i);
     let e = &mut w.entities.list[i];
+    if std::env::var("MCTAS_TRACE_LEASH").is_ok_and(|v| v.parse::<u32>().ok() == Some(e.id)) {
+        eprintln!("leash t{} #{}: distance {distance} pulled {pulled} yaw {} momentum {} friction {friction} on_ground {} in_water {}", w.time, e.id, e.y_rot, data.angular_momentum, e.on_ground, e.fluid.in_water());
+    }
     e.y_rot = (e.y_rot as f64 - data.angular_momentum) as f32;
     data.angular_momentum *= friction as f64;
     if e.leash.is_some() {

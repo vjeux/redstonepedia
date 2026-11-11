@@ -1954,7 +1954,7 @@ pub fn run(o: &Opts) -> Result<()> {
         return Ok(());
     }
     let mut out = Vec::new();
-    let mut pieces = crate::testplan::plan(None, &[], &[], true, &mut out);
+    let mut pieces = crate::testplan::plan(None, &[], &[], true, true, &mut out);
     pieces.retain(|p| (!o.quick || p.workers == 0) && o.only.as_ref().is_none_or(|s| s.split(',').any(|q| p.check.name.contains(q))));
     let (cpu, jvms, about) = crate::testplan::machine();
     let cpu = if o.jobs > 0 { o.jobs } else { cpu };

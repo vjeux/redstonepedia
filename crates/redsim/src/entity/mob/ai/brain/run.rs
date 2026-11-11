@@ -272,7 +272,27 @@ fn extra_start(w: &mut World, i: usize, n: usize) -> bool {
             false
         }
         Kind::JumpOnBed => false,
-        Kind::WorkAtPoi { .. } | Kind::HarvestFarmland => {
+        // (tickexact 2026-11-11, ironspec's job-site rows) `WorkAtPoi.checkExtraStartConditions`:
+        // every 300 ticks at most, a level random nextInt(2) == 0, then the JOB_SITE within 1.73 of
+        // the villager's centre (working there is not modeled; a far job site only draws)
+        Kind::WorkAtPoi { last_check } => {
+            let t = w.time;
+            if t - last_check < 300 {
+                return false;
+            }
+            if level_rng(w).next_int(2) != 0 {
+                return false;
+            }
+            if let Kind::WorkAtPoi { last_check } = kind_mut(w, i, n) {
+                *last_check = t;
+            }
+            let near = ex(w, i).mem.job_site.is_some_and(|p| villager::closer_to_center(p, w.entities.list[i].pos, 1.73));
+            if near {
+                refuse(w, "a villager working at its job site is not modeled");
+            }
+            false
+        }
+        Kind::HarvestFarmland => {
             refuse(w, "a villager at a job site is not modeled");
             false
         }
@@ -495,6 +515,13 @@ fn sleep_extra(w: &World, i: usize) -> bool {
 
 // ------------------------------------------------------------------------ MoveToTargetSink
 
+fn reach_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MCTAS_REACH_TRACE").is_some())
+}
+
+static REACH_SEEN: std::sync::Mutex<std::collections::BTreeMap<u32, String>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
 fn move_state(w: &mut World, i: usize, n: usize) -> (&mut i32, &mut Option<crate::entity::mob::ai::path::Path>, &mut Option<BlockPos>, &mut f32) {
     match kind_mut(w, i, n) {
         Kind::MoveToTargetSink { remaining_cooldown, path, last_target, speed, .. } => (remaining_cooldown, path, last_target, speed),
@@ -535,6 +562,23 @@ fn move_extra(w: &mut World, i: usize, n: usize) -> bool {
 fn try_compute_path(w: &mut World, i: usize, n: usize, wt: &WalkTarget) -> bool {
     let Some(target) = tracker_block(w, &wt.target) else { return false };
     let path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, target, 0, arena));
+    // (tickexact probe: MCTAS_REACH_TRACE=1: each villager's walk-target path result, printed when it
+    // changes: reaching, partial or none, and the stamp)
+    if reach_trace() {
+        let id = w.entities.list[i].id;
+        let res = match &path {
+            Some(p) if p.reached => "reaching".to_string(),
+            Some(p) => format!("partial (ends {:?})", p.nodes.last().map(|q| (q.x, q.y, q.z))),
+            None => "none".to_string(),
+        };
+        let key = format!("{target:?} {}", res.split(' ').next().unwrap_or(""));
+        let mut seen = REACH_SEEN.lock().unwrap_or_else(|e| e.into_inner());
+        if seen.get(&id) != Some(&key) {
+            let p = w.entities.list[i].pos;
+            eprintln!("reach t {} villager #{id} at {:.2},{:.2},{:.2} riding {:?} -> {target:?}: {res}; stamp {:?}", w.time, p.x, p.y, p.z, w.entities.list[i].vehicle, ex(w, i).mem.cant_reach_since);
+            seen.insert(id, key);
+        }
+    }
     *move_state(w, i, n).1 = path.clone();
     *move_state(w, i, n).3 = wt.speed;
     if reached(w, i, wt) {
@@ -650,11 +694,19 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
         }
         Kind::SetRaidStatus => level_rng(w).next_int(20) == 0,
         Kind::ValidateNearbyPoi { poi, mem } => validate_nearby_poi(w, i, poi, mem),
+        // (tickexact 2026-11-11) `PoiCompetitorScan` (JOB_SITE and NEAREST_LIVING_ENTITIES present):
+        // when the job site is a POI, each living villager nearby remembering the same job site
+        // whose profession holds that POI competes; an unemployed villager's never does (its
+        // profession holds none), so for redsim's villagers it runs without effect
         Kind::PoiCompetitorScan => {
-            if has(w, i, M::JobSite) {
-                refuse(w, "a villager with a job site is not modeled");
+            if !has(w, i, M::JobSite) || !has(w, i, M::NearestLiving) {
+                return false;
             }
-            false
+            let p = ex(w, i).mem.job_site.expect("a job site");
+            if crate::entity::mob::ai::poi::poi_of(&w.get(p)).is_some() && villager::profession_holds_job_site(w, i) {
+                refuse(w, "villagers competing for a job site are not modeled");
+            }
+            true
         }
         Kind::GoToWantedItem => false,
         Kind::AcquirePoi { .. } => acquire_poi(w, i, n, t),
@@ -713,11 +765,44 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
             }
             false
         }
-        Kind::StrollAroundPoi { mem, .. } | Kind::StrollToPoi { mem, .. } => {
-            if has(w, i, mem) {
-                refuse(w, "a villager strolling around a job site or bell is not modeled");
+        // (tickexact 2026-11-11) `StrollAroundPoi` / `StrollToPoi` (the memory present): nothing when
+        // the POI is farther than their reach from the villager's centre; within it, after the next
+        // start time, a land draw 8/6 around (StrollAroundPoi, again 180 ticks on) or the POI itself
+        // (StrollToPoi, 80 on) as the walk target
+        Kind::StrollAroundPoi { mem, max_dist, next_ok } => {
+            if !has(w, i, mem) {
+                return false;
             }
-            false
+            let p = block_memory(w, i, mem).expect("a block memory");
+            if !villager::closer_to_center(p, w.entities.list[i].pos, max_dist as f64) {
+                return false;
+            }
+            if t <= next_ok {
+                return true;
+            }
+            let land = stroll::land_random_pos(w, i, 8, 6);
+            ex_mut(w, i).mem.walk_target = land.map(|q| WalkTarget::at_point(q, 0.4, 1));
+            if let Kind::StrollAroundPoi { next_ok, .. } = kind_mut(w, i, n) {
+                *next_ok = t + 180;
+            }
+            true
+        }
+        Kind::StrollToPoi { mem, speed, close, max_dist, next_ok } => {
+            if !has(w, i, mem) {
+                return false;
+            }
+            let p = block_memory(w, i, mem).expect("a block memory");
+            if !villager::closer_to_center(p, w.entities.list[i].pos, max_dist as f64) {
+                return false;
+            }
+            if t <= next_ok {
+                return true;
+            }
+            ex_mut(w, i).mem.walk_target = Some(WalkTarget { target: Tracker::Block(p), speed, close });
+            if let Kind::StrollToPoi { next_ok, .. } = kind_mut(w, i, n) {
+                *next_ok = t + 80;
+            }
+            true
         }
         Kind::StrollToPoiList { .. } => false,
         Kind::SetClosestHomeAsWalkTarget { last_update, mut batch } => {
@@ -880,7 +965,23 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
             }
             walk_away_from(w, i, mem, speed)
         }
-        Kind::PlayTagWithOtherKids | Kind::SocializeAtBell => false,
+        // (tickexact 2026-11-11) `SocializeAtBell` (MEETING_POINT and NEAREST_VISIBLE_LIVING_ENTITIES
+        // present, INTERACTION_TARGET absent): a level random nextInt(100) each try, then within 4 of
+        // the bell with a villager in sight (socializing there is not modeled; a far bell only draws)
+        Kind::SocializeAtBell => {
+            if !has(w, i, M::MeetingPoint) || !has(w, i, M::NearestVisibleLiving) || !check(w, i, M::InteractionTarget, Status::Absent) {
+                return false;
+            }
+            if level_rng(w).next_int(100) != 0 {
+                return false;
+            }
+            let p = ex(w, i).mem.meeting_point.expect("a meeting point");
+            if villager::closer_to_center(p, w.entities.list[i].pos, 4.0) {
+                refuse(w, "a villager socializing at its bell is not modeled");
+            }
+            false
+        }
+        Kind::PlayTagWithOtherKids => false,
         Kind::RingBell | Kind::ResetRaidStatus | Kind::RaidSequence | Kind::LocateHidingPlace | Kind::SetHiddenState => {
             refuse(w, "a villager's raid or bell behaviour is not modeled");
             false
@@ -1013,26 +1114,23 @@ fn other_villager_coming_through(w: &World, i: usize, d: BlockPos) -> bool {
 
 /// `ValidateNearbyPoi`: within 16 of the POI, a POI no longer there is forgotten (its ticket left
 /// with its record); a bed OCCUPIED while this villager is awake is forgotten too, its ticket given
-/// back unless a villager sleeps in that bed's cell (`bedIsOccupiedByVillager`).
+/// back unless a villager sleeps in that bed's cell (`bedIsOccupiedByVillager`). (tickexact
+/// 2026-11-11) The POI test of a job site memory is the profession's (`heldJobSite`: an unemployed
+/// villager's holds none, so its JOB_SITE is forgotten within 16), of a potential job site any job
+/// site (`ALL_ACQUIRABLE_JOBS`), of a meeting point a bell (`MEETING`).
 fn validate_nearby_poi(w: &mut World, i: usize, poi: PoiSel, mem: M) -> bool {
-    let pos = match mem {
-        M::Home => brain(w, i).home,
-        M::JobSite => ex(w, i).mem.job_site,
-        M::PotentialJobSite => ex(w, i).mem.potential_job_site,
-        M::MeetingPoint => ex(w, i).mem.meeting_point,
-        _ => None,
-    };
+    let pos = block_memory(w, i, mem);
     let Some(p) = pos else { return false };
     let me = w.entities.list[i].pos;
     if !villager::closer_to_center(p, me, 16.0) {
         return false;
     }
+    let kind = crate::entity::mob::ai::poi::poi_of(&w.get(p));
     let exists = match poi {
         PoiSel::Home => matches!(w.get(p), crate::block::Block::Bed { head: true, .. }),
-        _ => {
-            refuse(w, "a villager's job site or bell memory is not modeled");
-            true
-        }
+        PoiSel::HeldJob => kind == Some(crate::entity::mob::ai::poi::PoiKind::Job) && villager::profession_holds_job_site(w, i),
+        PoiSel::AcquirableJob => kind == Some(crate::entity::mob::ai::poi::PoiKind::Job),
+        PoiSel::Meeting => kind == Some(crate::entity::mob::ai::poi::PoiKind::Meeting),
     };
     if !exists {
         erase(w, i, mem);
@@ -1144,23 +1242,28 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
         eprintln!("acquire t{t}: #{} targets {targets:?} path {:?}", w.entities.list[i].id, path.as_ref().map(|p| (p.target, p.reached, p.node_count())));
     }
     match path {
-        Some(p) if p.reached && poi != PoiSel::Home => {
-            // a job site or a meeting point taken: the profession and the meeting point's
-            // behaviours are not modeled
-            let _ = p;
-            refuse(w, "a villager acquiring a job site or a meeting point is not modeled yet");
+        Some(p) if p.reached && poi == PoiSel::AcquirableJob => {
+            // a job site taken as POTENTIAL_JOB_SITE: the walk to it and the profession are not
+            // modeled (only a target that is a POI: createPath can hand back the current path)
+            if crate::entity::mob::ai::poi::poi_of(&w.get(p.target)).is_some() {
+                refuse(w, "a villager acquiring a job site is not modeled yet");
+            }
         }
         Some(p) if p.reached => {
             let target = p.target;
             // poiManager.getType(target).ifPresent(..): only a target that is a POI (createPath
             // can hand back the current path, whose target is another, when its targetPos is in
             // the set: ironfarm 2026-11-10, a napper's reused stroll path to a rail cell); then
-            // poiManager.take (the record at the target, if this selection's and free), the home
-            // memory (set even when the take found nothing), the event 14 (client particles), the
-            // retry cache cleared
+            // poiManager.take (the record at the target, if this selection's and free), the
+            // memory (HOME, or MEETING_POINT: tickexact 2026-11-11; set even when the take found
+            // nothing), the event 14 (client particles), the retry cache cleared
             if crate::entity::mob::ai::poi::poi_of(&w.get(target)).is_some() {
                 crate::entity::mob::ai::poi::take_if_free(w, poi, target);
-                brain_mut(w, i).home = Some(target);
+                if poi == PoiSel::Meeting {
+                    ex_mut(w, i).mem.meeting_point = Some(target);
+                } else {
+                    brain_mut(w, i).home = Some(target);
+                }
                 if let Kind::AcquirePoi { batch, .. } = kind_mut(w, i, n) {
                     batch.clear();
                 }
@@ -1272,22 +1375,46 @@ pub(crate) fn release_all_pois(w: &mut World, i: usize) {
     }
 }
 
+/// (tickexact 2026-11-11, a bench's fault act: a rider made homeless) Villager `i`'s HOME given up as
+/// SetWalkTargetFromBlockMemory's release does it: `releasePoi(HOME)` (the record's ticket back,
+/// when one is held) and the memory erased, a `Released` event.
+pub fn release_home(w: &mut World, i: usize) {
+    let (t, id) = (w.time, w.entities.list[i].id);
+    w.mob.events.push(crate::entity::mob::MobEvent::Released { t, id });
+    release_poi(w, i, M::Home);
+    erase(w, i, M::Home);
+}
+
+/// (tickexact 2026-11-11, a bench's fault act) Villager `i`'s HOME erased with nothing released, as
+/// ValidateNearbyPoi erases it near an occupied bed (the record's tickets untouched).
+pub fn erase_home(w: &mut World, i: usize) {
+    erase(w, i, M::Home);
+}
+
 /// `Villager.releasePoi(memory)`: the memory's POI, still there and of the memory's kind, gives a
 /// ticket back (`PoiManager.release`: `PoiRecord.releaseTicket`, at most its max; a record shared
 /// by two claims after a replace gives back once per release). The memory itself stays.
-fn release_poi(w: &mut World, i: usize, mem: M) {
-    let pos = match mem {
+/// A block memory's position (HOME, JOB_SITE, POTENTIAL_JOB_SITE, MEETING_POINT).
+fn block_memory(w: &World, i: usize, mem: M) -> Option<BlockPos> {
+    match mem {
         M::Home => brain(w, i).home,
         M::JobSite => ex(w, i).mem.job_site,
         M::PotentialJobSite => ex(w, i).mem.potential_job_site,
         M::MeetingPoint => ex(w, i).mem.meeting_point,
         _ => None,
-    };
-    let Some(p) = pos else { return };
+    }
+}
+
+/// `Villager.releasePoi(memory)`: the record's ticket back when the POI's type passes that memory's
+/// test (`POI_MEMORIES`: HOME a bed, JOB_SITE the profession's held job site (an unemployed
+/// villager's: none), POTENTIAL_JOB_SITE any job site, MEETING_POINT a bell).
+fn release_poi(w: &mut World, i: usize, mem: M) {
+    let Some(p) = block_memory(w, i, mem) else { return };
     let kind_ok = match (mem, crate::entity::mob::ai::poi::poi_of(&w.get(p))) {
         (M::Home, Some(crate::entity::mob::ai::poi::PoiKind::Home)) => true,
         (M::MeetingPoint, Some(crate::entity::mob::ai::poi::PoiKind::Meeting)) => true,
-        (M::JobSite | M::PotentialJobSite, Some(crate::entity::mob::ai::poi::PoiKind::Job)) => true,
+        (M::JobSite, Some(crate::entity::mob::ai::poi::PoiKind::Job)) => villager::profession_holds_job_site(w, i),
+        (M::PotentialJobSite, Some(crate::entity::mob::ai::poi::PoiKind::Job)) => true,
         _ => false,
     };
     if kind_ok {
@@ -1380,6 +1507,13 @@ fn walk_away_from(w: &mut World, i: usize, mem: M, speed: f32) -> bool {
     }
     for _ in 0..10 {
         if let Some(p) = stroll::land_pos_away(w, i, 0.0, 16.0, 7, avoid) {
+            // (tickexact probe: MCTAS_WALK_TRACE=x,y,z: the fleeing mob's and the hostile's
+            // positions when the flee picks that block)
+            if let Some(want) = super::walk_trace()
+                && want == [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32]
+            {
+                eprintln!("flee to {},{},{}: mob #{} at {:.3} {:.3} {:.3}, away from {:.3} {:.3} {:.3}, t{}", want[0], want[1], want[2], w.entities.list[i].id, me.x, me.y, me.z, avoid.x, avoid.y, avoid.z, w.time);
+            }
             ex_mut(w, i).mem.walk_target = Some(WalkTarget::at_point(p, speed, 0));
             break;
         }

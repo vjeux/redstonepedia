@@ -29,6 +29,10 @@ pub struct Vertex {
 /// A vertex's colour drawn as it is (no lightmap).
 pub const UNLIT: [u8; 4] = [0; 4];
 
+/// A vertex drawn as it is, never lit by its entity's light either ([`Builder::entity`] lights
+/// the `UNLIT` vertices of an entity): an emissive layer (`RenderTypes.eyes`: no lightmap).
+pub const EMISSIVE: [u8; 4] = [0, 0, 0, 255];
+
 /// The light of a vertex lit at (sky, block) light levels (0..15, fractional).
 pub fn lit(sky: f32, block: f32) -> [u8; 4] {
     [(sky.clamp(0.0, 15.0) * 16.0).round() as u8, (block.clamp(0.0, 15.0) * 16.0).round() as u8, 1, 0]
@@ -55,6 +59,10 @@ pub struct EntityDraw {
     /// A mob's render state (`LivingEntityRenderState`: the mob farms' villagers, zombies and
     /// golems, [`crate::mobfarm::MobRun::draw`]).
     pub mob: Option<MobDraw>,
+    /// Where its light is read (`EntityRenderer.getPackedLightCoords`: the block at
+    /// `getLightProbePosition`, its eye position: redsim's position and `eye_height`); None: its
+    /// feet.
+    pub probe: Option<[f32; 3]>,
 }
 
 /// What `LivingEntityRenderer` draws a mob from (its render state, from redsim's state of the tick
@@ -86,6 +94,25 @@ pub struct MobDraw {
     /// The bounding box (the flames' size).
     pub width: f32,
     pub height: f32,
+    /// The main hand's item id (`getMainHandItem`: a skeleton's bow), if any: its arm's pose.
+    pub held: Option<String>,
+    /// `isAggressive` (a skeleton drawing its bow at a target).
+    pub aggressive: bool,
+    /// A sheep's wool `DyeColor` id (0 white).
+    pub color: u8,
+    /// A bat hanging upside down (`isResting`).
+    pub resting: bool,
+    /// The tick its keyframe animation started (a bat's: `AnimationState.startTick`).
+    pub anim_start: i32,
+    /// Its entity id (`getId`: a witch's nose wobbles at `id % 10`'s pace).
+    pub entity_id: u32,
+    /// A chicken's wing beat at the frame (`ChickenRenderState.flap`, `flapSpeed`).
+    pub flap: [f32; 2],
+    /// A sheep eating grass (`EatBlockGoal`): its head's drop and angle at the frame
+    /// (`getHeadEatPositionScale`, `getHeadEatAngleScale`).
+    pub eat: Option<[f32; 2]>,
+    /// An enderman's carried block (`getCarriedBlock`), as a block state.
+    pub carried: Option<String>,
 }
 
 /// Everything a frame needs.
@@ -362,6 +389,11 @@ impl BuilderParts {
     pub(crate) fn light(&self) -> Option<&crate::light::Light> {
         self.light.as_ref()
     }
+
+    /// Where its light is kept: an entity build borrows it ([`crate::scene::build_entities`]).
+    pub(crate) fn light_slot(&mut self) -> &mut Option<crate::light::Light> {
+        &mut self.light
+    }
 }
 
 /// A terrain's biome colour at a cell for a face the game tints by biome (`tint`: the plains
@@ -484,6 +516,11 @@ impl<'a> Builder<'a> {
     /// The light computed by [`Builder::blocks`], for the grass under the build.
     pub fn take_light(&mut self) -> Option<crate::light::Light> {
         self.light.take()
+    }
+
+    /// The light its entities are lit by (a blocks build's, lent to an entities build).
+    pub(crate) fn set_light(&mut self, light: Option<crate::light::Light>) {
+        self.light = light;
     }
 
     /// The light back after [`Builder::take_light`].
@@ -886,13 +923,17 @@ impl<'a> Builder<'a> {
     }
 
     /// An entity model at a feet position, turned by yaw (degrees, the game's: 0 = south), lit by
-    /// its cell's light (`EntityRenderer.getPackedLightCoords`: the light at its block position)
-    /// for the frame's lightmap.
+    /// the light at its probe (`EntityRenderer.getPackedLightCoords`: the block at its eye
+    /// position; a burning mob's block light 15, `getBlockLightLevel`) for the frame's lightmap.
     pub fn entity(&mut self, e: &EntityDraw) {
         let (s0, t0) = (self.mesh.solid.len(), self.mesh.translucent.len());
         self.entity_parts(e);
-        let cell = [e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32];
-        let (s, b) = self.light_inside(cell);
+        let p = e.probe.unwrap_or(e.pos);
+        let cell = [p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32];
+        let (s, mut b) = self.light_inside(cell);
+        if e.mob.as_ref().is_some_and(|m| m.fire) {
+            b = 15;
+        }
         let l = lit(s as f32, b as f32);
         for v in &mut self.mesh.solid[s0..] {
             if v.light == UNLIT {
@@ -1063,6 +1104,14 @@ impl<'a> Builder<'a> {
         if let Some(mob) = &e.mob {
             let Some(tris) = em::mob_triangles(g, &e.kind, e.pos, mob) else { return false };
             push(self, tris);
+            // an enderman's carried block (`CarriedBlockLayer`): its block model in its arms
+            if let Some(state) = &mob.carried
+                && let Some(m) = self.model(state)
+            {
+                self.xf = Some(em::carried_block_transform(e.pos, mob));
+                self.add_model(&m, [0.0; 3], None, None);
+                self.xf = None;
+            }
             if mob.fire
                 && let Some(uv) = em::fire_uvs(g)
             {

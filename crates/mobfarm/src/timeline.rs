@@ -402,6 +402,13 @@ fn read_frame_villager(e: &serde_json::Value, t: i64, golems: &[u32]) -> Option<
     })
 }
 
+/// Whether villager entity `i` is panicking (its `VillagerPanicTrigger` running), as the timeline
+/// reads it; none if it is no villager with a brain (the runners' stand-batch count, ironspec
+/// 2026-11-11 05:49).
+pub(crate) fn panicking(w: &World, i: usize) -> Option<bool> {
+    read_villager(w, i).map(|r| r.panic)
+}
+
 fn read_villager(w: &World, i: usize) -> Option<Read> {
     let e = &w.entities.list[i];
     let EntityKind::Mob(m) = &e.kind else { return None };
@@ -1621,6 +1628,39 @@ impl Timeline {
     }
 
     /// The window's counts: slots, spawns, failed tries, no tries, violations by rule.
+    /// (tickexact 2026-11-11, ironspec's golem-lock line; day-1's word) The locks set on villagers
+    /// outside the summoning group (the flags `10.6`: in a summon's 10-box, and `follow`: its own
+    /// golem sensor, each GOLEM_DETECTED_RECENTLY for 599 gt) in `[from, to]`, and the slots they
+    /// cost: a station villager at a slot's tick still locked with the expiry an outside lock set
+    /// (the last lock it took before the slot).
+    pub fn golem_lock_line(&self, from: u32, to: u32) -> String {
+        let outside: Vec<&Flag> = self.flags.iter().filter(|f| f.k >= from && f.k <= to && (f.rule == "10.6" || f.rule == "follow")).collect();
+        let (spawn_box, sensor) = (outside.iter().filter(|f| f.rule == "10.6").count(), outside.iter().filter(|f| f.rule == "follow").count());
+        let expiry = |vi: usize, k: u32| self.villagers[vi].lock.window(k, k).first().map(|(_, e)| *e).unwrap_or(-1);
+        let mut lost: Vec<String> = Vec::new();
+        for s in self.slots.iter().filter(|s| s.k >= from && s.k <= to) {
+            for (vi, v) in self.villagers.iter().enumerate() {
+                let (role, _) = self.role(vi, s.k);
+                let e = expiry(vi, s.k);
+                if !role.starts_with("station") || e <= s.k as i64 {
+                    continue;
+                }
+                // the villager's last lock before the slot: an outside one that set this expiry
+                if let Some(f) = self.flags.iter().rev().find(|f| f.k <= s.k && f.lane == v.label && (f.rule == "10.6" || f.rule == "follow"))
+                    && expiry(vi, f.k) == e
+                {
+                    lost.push(format!("{} at the t={:06} slot, locked until t={e:06} by {} at t={:06}", v.label, s.k, if f.rule == "10.6" { "a summon's 10-box" } else { "its golem sensor" }, f.k));
+                }
+            }
+        }
+        format!(
+            "golem locks outside the summoning group (GOLEM_DETECTED_RECENTLY, 599 gt): {} (a summon's 10-box {spawn_box}, its own golem sensor {sensor}); station slots lost to them (a station villager at a slot still so locked): {}{}",
+            outside.len(),
+            lost.len(),
+            if lost.is_empty() { String::new() } else { format!(": {}", lost.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
+        )
+    }
+
     pub fn summary(&self, from: u32, to: u32) -> String {
         if let Some(src) = &self.source {
             let marks: usize = self.marks.iter().map(|m| m.ev.iter().filter(|(k, _)| *k >= from && *k <= to).count()).sum();

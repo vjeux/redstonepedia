@@ -197,7 +197,7 @@ pub fn part_spec(d: &Design) -> Result<FarmSpec, String> {
     let (lo, hi) = d.bounds().ok_or("an empty design")?;
     let m = crate::mobfarm::WATCH_MARGIN;
     let block_entities = d.block_entities.iter().map(|(p, s)| (BlockPos::new(p[0], p[1], p[2]), s.clone())).collect();
-    Ok(FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(lo[0], lo[1], lo[2]), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether: None })
+    Ok(FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(lo[0], lo[1], lo[2]), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether: None, land: false })
 }
 
 /// A part's terrain ([`is_part_in_terrain`]): the sample's site at its `site:` offset alone (priced

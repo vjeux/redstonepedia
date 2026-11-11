@@ -823,7 +823,8 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
             }
         }
     }
-    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether })
+    // (`grounded:`: a design with its ground baked in, `mobfarm ground`'s: a terrain world's light)
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether, land: d.meta.contains_key("grounded") })
 }
 
 /// What the judge runs.

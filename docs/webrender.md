@@ -618,7 +618,30 @@ each build's page.
   mob (`FlameFeatureRenderer`: `fire_0`/`fire_1` squares turned about the vertical to the camera,
   `Mesh::flames`), the drops (iron ingots, poppies: a flower's item is its block texture's sprite,
   `BLOCK_SPRITE_ITEMS`), all from the vendored atlases (the overlay layers composited into one
-  texture each at packing: `MOB_COMPOSITES`). Lava is drawn as the game draws it: its
+  texture each at packing: `MOB_COMPOSITES`). The natural mobs a terrain view draws (2026-11-11,
+  the parent's ask: they had been stand-in cubes; which kinds from `mctas web kinds` over every
+  mob farm's 5 days) have their 26.3 models too, each its layer definition and `setupAnim` with
+  its renderer's transforms (`entitymodel::{spider, creeper, skeleton, enderman, bat, witch,
+  chicken, sheep, zombie_horse}`, the baby zombie's `BabyZombieModel`): the spider and cave
+  spider (0.7) with their eyes layer and the enderman with its own (`EyesLayer`: the 26.3 `eyes`
+  pipeline blends the texel times white over the model, no shading, no lightmap; its texels are
+  opaque or empty, so the layer is the model's faces again at full brightness,
+  `a_spiders_eyes_are_opaque_or_empty`), a dying spider falling onto its back
+  (`getFlipDegrees` 180), the skeleton's arms hanging or, aggressive with its bow, raised along
+  its look (`BOW_AND_ARROW`; redsim's `aggressive`, `MobState::mainhand`), the enderman's limbs
+  at half swing and its carried block in its arms (`CarriedBlockLayer`, `carried_block_transform`),
+  the bat's keyframe animations (`BatAnimation`: resting hung upside down, flying from the tick
+  it took off, `AnimationState` kept per mob like the walk), the witch's pointed hat (a part
+  added again keeps its children: the villager's hat rim and nose stay) and its nose wobbling at
+  `entityId % 10`'s pace, the chicken's wings beating off the ground (`Chicken.aiStep`'s flap,
+  kept per mob), the sheep's undercoat (dyed) and wool layers tinted by its colour
+  (`ColorLerper.Type.SHEEP`, `coloredCutoutModelCopyLayerRender`) and its head while it eats
+  grass (`EatBlockGoal`'s tick), the zombie horse walking (never rearing nor eating: redsim keeps
+  no horse animation; its tail's swish is the client's own random), the zombie's arms higher
+  when aggressive and a baby's down while it holds an item (`animateZombieArms`). Tests
+  `a_spider_is_drawn_with_the_games_model`, `natural_mobs_stand_like_the_game` (each model's
+  feet and top from its layer definition). Not drawn yet: held items and armor, the sulfur cube,
+  the zombie villager (its profession and the skeleton's handedness wait on redsim keeping them). Lava is drawn as the game draws it: its
   `lava_still` texture, solid, lit by its own light 15 (it was water tinted orange). The time
   badge is the readout (`mobfarm::readout`): the game's day and clock, the golems so far and the
   iron in the farm's chests (`day 1, 13:23 · 2 golems, 9 iron`, two lines on a phone); the left
@@ -883,7 +906,14 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   of air under the lowest cell, or a TNT duper's own ground); the lightmap (`lightmap.fsh` at
   noon, the default brightness: level 14 is 0.908). Dark under overhangs like the real game
   (fidelity pass 2026-10-21, `web compare --still` over 67 picks, both sides through the pictures'
-  encoder: the mean difference over the build fell from 2.76 to 1.31).
+  encoder: the mean difference over the build fell from 2.76 to 1.31). Entities are lit by it
+  too, each by the light of the block at its eye (`EntityRenderer.getPackedLightCoords` at
+  `getLightProbePosition`: redsim's position and eye height, a sleeper's 0.2; a burning mob's
+  block light 15), a mob farm's as well: built apart from its blocks each frame, its entities
+  borrow the blocks' kept light (`scene::build_entities`; until 2026-11-11 they were lit as under
+  the open sky, a cave's spider as bright as the night outside); a hurt mob's red and a TNT's
+  white are mixed in before the lightmap (`entity.fsh`), and the eyes layers are never lit
+  (`mesh::EMISSIVE`). Test `a_mob_is_lit_at_its_eye`.
 * `mcview::render`: wgpu with WebGL2 in the browser (and Vulkan natively): MSAA, the tiles as a
   mipmapped texture array (no bleeding between tiles) beside the game texture, sky gradient, back
   faces culled in both passes like the game's chunk render types (a glass block shows its three
@@ -993,6 +1023,7 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
 | `mctas web mobdiff <design> --build B --seed S [--ticks 120000]` | one of a mob farm's judge runs (its build B of the 8, seed S) played both ways, the judge's runner (`farm::Run` with the card's hand step) and the viewer's session, every tick's worlds compared (time, mob random, every entity's kind, position and motion): the first tick they part and how (or the view stopping, with the judge's world errors then), else the same to the end; fails when they part. 2026-11-09: D1U's build 7 seed 1769114314 had stopped `web check` at t103206 and looked like a wasm divergence; both runs were the same every tick and both hit natural water past the sample's edge (fixed in b686373716); `cargo test -p web-cli -- --ignored d1u_build7` keeps it so |
 | `mctas web compare <designs> -o <dir> [--zoom x,y,w,h] [--floor-margin m] [--still] [--before <dir>]` | real-game picture (`designs/clocks/img`) next to the viewer's frame of the same moment and camera (without the viewer's input outlines) and where they differ (red), with the pixel difference, the difference over the build alone (the grass's noise left out) and the edge offset (where ours sits against the picture, 1/8 px steps); ours is the game's whole window passed through the pictures' own encoder (`clock::shot::encode_picture`: the same integer crop, lanczos and JPEG; resampled apart, it sat a third of a pixel off); `<dir>/sheet.png` and `report.tsv` hold them all; `--zoom` writes a 4x crop of both and their mean colours, `--floor-margin` tries another floor reach, `--still` takes still frames from `web snapshot` as written (tick 0), `--before` an earlier run's folder (another viewer build): `before-after.png` and both means |
 | `mctas web snapshot <designs> -o <dir>` | each design's still frame in the viewer (a door at rest, a circuit settled with its judge's rig, a clock at its still moment) as a plain design of the blocks drawn there, at the height the real game pictures it (lowest cell y = 72: the same random block variants); `mctas clock shot --still` pictures them in the game, `web compare --still` in the viewer: the fidelity pass's pairs (same blocks, same camera) |
+| `mctas web kinds <designs> [--ticks N]` | each view played as the page plays it (default 120000 ticks: the judge's 5 days), every entity it draws: each kind (a mob or not), the most at once, the first tick and where (`--look-at` for a frame of it), the ticks played and why it stopped early; the census behind the mob models (`tools::drawn_kinds`) |
 | `mctas web strip <design> -o <png>` | a grid of frames over time (a door from its flip, a clock from its still moment), half ticks apart: the animation |
 | `mctas web sheet <pngs> -o <png>` | textures scaled up in a grid, to compare them by eye |
 | `mctas web bundle -o web/viewer` | the wasm bundle (needs `rustup target add wasm32-unknown-unknown` and `cargo install wasm-bindgen-cli --version =0.2.129`) |

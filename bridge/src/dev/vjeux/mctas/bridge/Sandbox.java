@@ -636,6 +636,25 @@ final class Sandbox {
                 double zd = target.getZ() - thrower.getZ();
                 double dist = Math.sqrt(xd * xd + zd * zd);
                 trident.shoot(xd, yd + dist * 0.2F, zd, 1.6F, thrower.rangedAttackUncertainty(Sandbox.this.level));
+            } else if (ticking && e instanceof net.minecraft.world.entity.projectile.LlamaSpit spit
+                    && spit.getOwner() instanceof net.minecraft.world.entity.animal.equine.Llama spitter
+                    && Exact.rangedAttackTarget(spitter) != null) {
+                // (mob-AI 2026-11-11) a llama's spit (Llama.spit): its constructor's draw (the UUID)
+                // and spawnProjectileUsingShoot's (shoot's three) came from its unseeded random
+                // before it entered. Reseeded as entity n and the shot redone from it toward the
+                // target its RangedAttackGoal aimed at (getTarget() may be gone: the revenge goal
+                // lets go once it spat; nothing moved since), which redsim mirrors
+                // (entity::arrow::spit_from_llama)
+                java.util.UUID old = e.getUUID();
+                Exact.Seeded info = Exact.seed(e, seed, n, false, true, Exact.ItemPath.NONE, ctor);
+                renameUuid(old, e.getUUID());
+                seeded.put(e, info);
+                net.minecraft.world.entity.LivingEntity target = Exact.rangedAttackTarget(spitter);
+                double xd = target.getX() - spitter.getX();
+                double yd = target.getY(0.3333333333333333) - spit.getY();
+                double zd = target.getZ() - spitter.getZ();
+                double dist = Math.sqrt(xd * xd + zd * zd) * 0.2F;
+                spit.shoot(xd, yd + dist, zd, 1.5F, 10.0F);
             } else if (!e.entityTags().contains(DESIGN_TAG) || (ticking && ctor != null)) {
                 // (tickexact 2026-11-08) every other entity: its own random from the sandbox seed
                 // and its number, the constructor's draws redone (Exact); (mob-AI 2026-11-09) a

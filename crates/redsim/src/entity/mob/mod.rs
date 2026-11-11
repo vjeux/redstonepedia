@@ -109,6 +109,8 @@ pub const MODULE_ITEMS: &[(&str, u8)] = &[
     ("baked_potato", 64),
     ("copper_ingot", 64),
     ("music_disc_lava_chicken", 1),
+    // (mob-AI 2026-11-11) a trader llama's dropped lead
+    ("lead", 64),
 ];
 
 use crate::entity::{EntityKind, Vec3};
@@ -149,18 +151,29 @@ pub enum Damage {
     /// (`fell_out_of_world`'s `out_of_world`: armor and resistance bypassed, no knockback; the
     /// hurt cooldown still holds, `#bypasses_cooldown` being empty).
     OutOfWorld,
+    /// (mob-AI 2026-11-11) A llama's spit (`spit`, message "mob": not `#is_projectile`, no panic
+    /// cause; armor counts; its owner is `MobWorld.ai.attacker` and the spit's motion
+    /// `MobWorld.ai.projectile_motion`: the knockback goes along it, `Projectile`'s
+    /// `calculateHorizontalHurtKnockbackDirection`).
+    Spit,
 }
 
 impl Damage {
     /// Caused by a living attacker (`MobWorld.ai.attacker` during the call): a melee hit, an
-    /// arrow's or a trident's owner, a spear's holder.
+    /// arrow's or a trident's owner, a spear's holder, a spitting llama.
     pub fn by_attacker(self) -> bool {
-        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident)
+        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident | Damage::Spit)
     }
 
     /// A projectile's (`#is_projectile` among the modeled): the knockback goes along its motion.
     pub fn by_projectile(self) -> bool {
         matches!(self, Damage::Arrow | Damage::Trident)
+    }
+
+    /// The direct entity is a `Projectile` (an arrow, a trident, a llama's spit): the knockback
+    /// goes along its motion.
+    pub fn knockback_along_projectile(self) -> bool {
+        matches!(self, Damage::Arrow | Damage::Trident | Damage::Spit)
     }
 }
 
@@ -191,6 +204,7 @@ impl Damage {
             Damage::Spear => "spear",
             Damage::Trident => "trident",
             Damage::OutOfWorld => "out_of_world",
+            Damage::Spit => "spit",
         }
     }
 
@@ -211,6 +225,7 @@ impl Damage {
             Damage::Spear => "spear",
             Damage::Trident => "trident",
             Damage::OutOfWorld => "outOfWorld",
+            Damage::Spit => "mob",
         }
     }
 }
@@ -223,6 +238,10 @@ pub enum MobEvent {
     GolemTry { t: i64, villager: u32, willing: u32, golem: Option<u32>, at: Option<[i32; 3]> },
     /// A villager's golem sensor saw a golem (`golemDetected`).
     GolemSeen { t: i64, villager: u32 },
+    /// (tickexact 2026-11-11, ironspec's golem-lock line) A successful summon's
+    /// `nearbyVillagers.forEach(GolemSensor::golemDetected)`: `villager` (in the summoner's box
+    /// inflated by 10) got `GOLEM_DETECTED_RECENTLY` for 599 gt from `summoner`'s `golem`.
+    GolemLocked { t: i64, villager: u32, summoner: u32, golem: u32 },
     Hurt { t: i64, id: u32, ty: MobType, src: Damage, amount: f32 },
     Death { t: i64, id: u32, ty: MobType, src: Damage, pos: [f64; 3] },
     Drop { t: i64, from: u32, item: u32, what: &'static str, count: u32 },
@@ -330,6 +349,14 @@ pub struct MobState {
     /// (mob-AI 2026-11-10) A zombie's KNOCKBACK_RESISTANCE modifier (`RANDOM_SPAWN_BONUS`,
     /// ADD_VALUE: `nextDouble() * 0.05F`; 0: none), on top of its type's.
     pub knockback_bonus: f64,
+    /// (mob-AI 2026-11-11, for the viewer's models) `Mob.finalizeSpawn`'s
+    /// `setLeftHanded(nextFloat() < 0.05F)`: which arm holds a skeleton's bow.
+    pub left_handed: bool,
+    /// (mob-AI 2026-11-11, for the viewer's models) A cow's, pig's or chicken's variant
+    /// (`VariantUtils.selectVariantToSpawn`: "warm" or "cold" by the biome's
+    /// `#spawns_warm/cold_variant_farm_animals`, else "temperate"); a natural zombie villager's
+    /// type (`finalizeVillagerType`: `VillagerType.byBiome`, else "plains"). None: not drawn.
+    pub variant: Option<&'static str>,
     /// `xxa`, `zza`, `jumping`, `speed` (the walking input).
     pub xxa: f32,
     pub zza: f32,
@@ -416,6 +443,8 @@ impl MobState {
             reinforcement_chance: 0.0,
             max_health_bonus: 0.0,
             knockback_bonus: 0.0,
+            left_handed: false,
+            variant: None,
             xxa: 0.0,
             zza: 0.0,
             jumping: false,
@@ -751,6 +780,10 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     // LAST_SLEPT; `Villager.readAdditionalSaveData` builds its brain from them (no POI ticket taken)
     let mut home: Option<crate::pos::BlockPos> = None;
     let mut last_slept: Option<i64> = None;
+    // (tickexact 2026-11-11) JOB_SITE, POTENTIAL_JOB_SITE and MEETING_POINT (GlobalPos, like HOME)
+    let mut job_site: Option<crate::pos::BlockPos> = None;
+    let mut potential_job_site: Option<crate::pos::BlockPos> = None;
+    let mut meeting_point: Option<crate::pos::BlockPos> = None;
     // (tickexact 2026-11-10, the spider-effects scene) a loaded mob's effects (`active_effects`:
     // amplifier 0, a duration or -1 for infinite) and the one attribute modifier redsim models with
     // them (strength's ATTACK_DAMAGE +3, which a load restores from `attributes`, not the effect)
@@ -831,6 +864,20 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 return Some(Err(format!("entity {type_id}: loaded Brain memories are modeled for villagers only")));
             }
             let mut known = 0;
+            // (a GlobalPos memory: `"minecraft:<key>":{value:{dimension:"minecraft:overworld",pos:[I;x,y,z]}}`)
+            let global = |key: &str| -> Option<Result<crate::pos::BlockPos, String>> {
+                let h = brain.find(&format!("\"minecraft:{key}\""))?;
+                let rest = &brain[h..];
+                let end = rest.find("]}").map_or(rest.len(), |e| e + 2);
+                let one = &rest[..end];
+                let p = one.find("pos:[I;").map(|q| q + "pos:[I;".len());
+                let v: Vec<i32> = p.and_then(|p| one[p..].split(']').next()).map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+                Some(if v.len() != 3 || !one.contains("minecraft:overworld") {
+                    Err(format!("entity {type_id}: a {key} memory needs {{value:{{dimension:\"minecraft:overworld\",pos:[I;x,y,z]}}}}: {brain}"))
+                } else {
+                    Ok(crate::pos::BlockPos::new(v[0], v[1], v[2]))
+                })
+            };
             if let Some(h) = brain.find("\"minecraft:home\"") {
                 let p = brain[h..].find("pos:[I;").map(|q| h + q + "pos:[I;".len());
                 let v: Vec<i32> = p.and_then(|p| brain[p..].split(']').next()).map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
@@ -840,6 +887,18 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 home = Some(crate::pos::BlockPos::new(v[0], v[1], v[2]));
                 known += 1;
             }
+            // (tickexact 2026-11-11, ironspec's job-site rows: a villager brought in still remembering
+            // a job site, a potential one or a meeting point)
+            for (key, slot) in [("job_site", &mut job_site), ("potential_job_site", &mut potential_job_site), ("meeting_point", &mut meeting_point)] {
+                match global(key) {
+                    Some(Ok(p)) => {
+                        *slot = Some(p);
+                        known += 1;
+                    }
+                    Some(Err(e)) => return Some(Err(e)),
+                    None => {}
+                }
+            }
             if let Some(h) = brain.find("\"minecraft:last_slept\"") {
                 let v = brain[h..].find("value:").and_then(|q| brain[h + q + 6..].split(['}', ',']).next()).and_then(|s| s.trim().trim_end_matches(['L', 'l']).parse::<i64>().ok());
                 let Some(v) = v else { return Some(Err(format!("entity {type_id}: a LAST_SLEPT memory needs {{value:<game time>L}}: {brain}"))) };
@@ -847,7 +906,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 known += 1;
             }
             if brain.matches("\":{value:").count() != known {
-                return Some(Err(format!("entity {type_id}: only HOME and LAST_SLEPT memories are modeled when loaded: {brain}")));
+                return Some(Err(format!("entity {type_id}: only HOME, LAST_SLEPT, JOB_SITE, POTENTIAL_JOB_SITE and MEETING_POINT memories are modeled when loaded: {brain}")));
             }
             t = format!("{}{}", &t[..s], &t[e + 1..]);
         }
@@ -996,7 +1055,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     {
         w.entities.list[j].portal_cooldown = c;
     }
-    if (home.is_some() || last_slept.is_some())
+    if (home.is_some() || last_slept.is_some() || job_site.is_some() || potential_job_site.is_some() || meeting_point.is_some())
         && let Some(j) = crate::entity::index_of(w, id)
     {
         // a loaded Brain builds the live brain again (`makeBrain(data)`): its 9 sensors draw their
@@ -1009,6 +1068,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             }
         }
         let fresh = w.entities.list[j].random.is_some();
+        let day = w.day_time();
         if let EntityKind::Mob(m) = &mut w.entities.list[j].kind
             && let Some(b) = m.brain.as_deref_mut()
         {
@@ -1020,6 +1080,27 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             }
             if last_slept.is_some() {
                 b.last_slept = last_slept;
+            }
+            // (the job site, potential job site and meeting point live in the exact brain; its
+            // registerBrainGoals' updateActivityFromSchedule then sees them: WORK with a JOB_SITE,
+            // MEET with a MEETING_POINT, IDLE in their place otherwise)
+            if job_site.is_some() || potential_job_site.is_some() || meeting_point.is_some() {
+                match b.ex.as_deref_mut() {
+                    Some(x) => {
+                        x.mem.job_site = job_site;
+                        x.mem.potential_job_site = potential_job_site;
+                        x.mem.meeting_point = meeting_point;
+                        let sched = ai::brain::scheduled(day);
+                        x.active = match sched {
+                            ai::brain::Act::Work if job_site.is_some() => ai::brain::Act::Work,
+                            ai::brain::Act::Meet if meeting_point.is_some() => ai::brain::Act::Meet,
+                            ai::brain::Act::Work | ai::brain::Act::Meet => ai::brain::Act::Idle,
+                            a => a,
+                        };
+                        b.activity = x.active.simple();
+                    }
+                    None => w.errors.push(format!("entity {type_id}: a job site, potential job site or meeting point memory needs the mob AI on")),
+                }
             }
         }
     }

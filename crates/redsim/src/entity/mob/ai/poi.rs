@@ -403,9 +403,21 @@ pub fn occupied_in_range_ordered(w: &mut World, center: BlockPos, radius: i32) -
     pois_ordered(w, center, radius, |_, taken| taken)
 }
 
-/// The POIs `keep(kind, claimed)` keeps within `radius` of `center`, in the POI manager's order.
+/// `PoiManager.getInRange(predicate, center, radius, occupancy)`' first position of a type (any
+/// occupancy): `find(MEETING, any, center, radius, ANY)`, the wandering trader spawner's.
+pub fn first_meeting_within(w: &mut World, center: BlockPos, radius: i32) -> Option<BlockPos> {
+    pois_ordered(w, center, radius, |k, _| k == PoiKind::Meeting).into_iter().next()
+}
+
+/// The POIs `keep(kind, full)` keeps within `radius` of `center`, in the POI manager's order (`full`:
+/// no free ticket left: homes and job sites hold 1, a meeting point 32 (tickexact 2026-11-11: a bell
+/// one villager took is still free to the next)).
 fn pois_ordered(w: &mut World, center: BlockPos, radius: i32, keep: impl Fn(PoiKind, bool) -> bool) -> Vec<BlockPos> {
-    let taken = claimed(w);
+    let held: Vec<(BlockPos, u32)> = match w.mob.ai.poi_tickets.as_ref() {
+        Some(t) => t.iter().map(|(k, n)| (BlockPos::new(k.0, k.1, k.2), *n)).collect(),
+        None => claimed_by_memory(w).into_iter().map(|p| (p, 1)).collect(),
+    };
+    let full = |p: BlockPos, kind: PoiKind| held.iter().find(|(q, _)| *q == p).map_or(0, |(_, n)| *n) >= if kind == PoiKind::Meeting { 32 } else { 1 };
     let all: Vec<(BlockPos, PoiKind)> = index(w).to_vec();
     let cr = radius.div_euclid(16) + 1;
     let (ccx, ccz) = (center.x.div_euclid(16), center.z.div_euclid(16));
@@ -442,7 +454,7 @@ fn pois_ordered(w: &mut World, center: BlockPos, radius: i32, keep: impl Fn(PoiK
             for k in order {
                 let p = ps[k];
                 let kind = all.iter().find(|(q, _)| *q == p).map(|(_, k)| *k).unwrap();
-                if !keep(kind, taken.contains(&p)) {
+                if !keep(kind, full(p, kind)) {
                     continue;
                 }
                 let (dx, dy, dz) = ((p.x - center.x) as i64, (p.y - center.y) as i64, (p.z - center.z) as i64);

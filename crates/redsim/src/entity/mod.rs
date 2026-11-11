@@ -73,7 +73,7 @@ impl EntityKind {
             EntityKind::ArmorStand(_) => (armor_stand::WIDTH, armor_stand::HEIGHT),
             EntityKind::PrimedTnt(_) => (primed_tnt::WIDTH, primed_tnt::HEIGHT),
             EntityKind::Mob(m) => m.dims(),
-            EntityKind::Arrow(_) => (arrow::WIDTH, arrow::HEIGHT),
+            EntityKind::Arrow(a) => if a.spit { (arrow::SPIT_WIDTH, arrow::SPIT_HEIGHT) } else { (arrow::WIDTH, arrow::HEIGHT) },
         }
     }
 
@@ -86,7 +86,7 @@ impl EntityKind {
             EntityKind::ArmorStand(_) => 1.7775,
             EntityKind::PrimedTnt(_) => primed_tnt::EYE_HEIGHT,
             EntityKind::Mob(m) => m.eye(),
-            EntityKind::Arrow(_) => arrow::EYE_HEIGHT,
+            EntityKind::Arrow(a) => if a.spit { arrow::SPIT_EYE_HEIGHT } else { arrow::EYE_HEIGHT },
         }
     }
 }
@@ -1219,7 +1219,11 @@ pub fn base_tick(w: &mut World, i: usize) {
     }
     let e = &mut w.entities.list[i];
     e.first_tick = false;
-    leash::tick(w, i);
+    // Entity.baseTick ends with tickLeash; a mob's base tick (living.rs) runs its fire's damage
+    // first, then calls the leash itself (mob-AI 2026-11-11: a leashed llama dying of its fire)
+    if !matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
+        leash::tick(w, i);
+    }
 }
 
 /// `Entity.move(type, delta)` of entity `i` (index in the list): `collide::move_`.

@@ -20,6 +20,7 @@ pub struct GateArgs {
     pub no_monsters: bool,
     pub runs: usize,
     pub sim_only: bool,
+    pub inject_events: bool,
 }
 
 /// `mctas mobfarm gate <design>`.
@@ -39,6 +40,7 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
     o.monsters = !a.no_monsters;
     o.runs = a.runs;
     o.sim_only = a.sim_only;
+    o.inject_events = a.inject_events;
     // a terrain sample: `--builds K...` picks runs of its one placement by index (each its own
     // seed: run 6 of D1U's gate is the one to look at again)
     if o.terrain.is_some() {
@@ -93,6 +95,10 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
     println!("{}: {}", if rep.passed() { "PASS" } else { "FAIL" }, rep.line());
     for f in &rep.failures {
         println!("  {f}");
+    }
+    // (ironspec 2026-11-11) each trap horse's and burned block's position and time
+    for e in rep.events() {
+        println!("event: {e}");
     }
     println!("{:.0} s", t0.elapsed().as_secs_f64());
     Ok(())

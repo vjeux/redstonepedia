@@ -22,6 +22,8 @@ pub enum AvoidClass {
     Armadillo,
     /// `Player` with `NO_SPECTATORS` (a fish's).
     Player,
+    /// (mob-AI 2026-11-11) `Zombie` (a wandering trader's: 8, 0.5, 0.5).
+    Zombie,
 }
 
 /// An `AvoidEntityGoal`.
@@ -47,6 +49,8 @@ pub fn can_use(w: &mut World, i: usize, g: &mut AvoidEntity) -> bool {
     let area = w.entities.list[i].bb.inflate(d, 3.0, d);
     let list: Vec<Who> = match g.class {
         AvoidClass::Wolf => target::mobs_in(w, area, |ty| ty.game_id() == "minecraft:wolf"),
+        // (mob-AI 2026-11-11) `Zombie` and its subclasses (a wandering trader's)
+        AvoidClass::Zombie => target::mobs_in(w, area, |ty| matches!(ty.game_id(), "minecraft:zombie" | "minecraft:husk" | "minecraft:drowned" | "minecraft:zombie_villager" | "minecraft:zombified_piglin")),
         // (any cat: a tame one's own predicate is not modeled, none are tame)
         AvoidClass::Cat => target::mobs_in(w, area, |ty| ty.game_id() == "minecraft:cat"),
         AvoidClass::Ocelot | AvoidClass::Armadillo => Vec::new(),

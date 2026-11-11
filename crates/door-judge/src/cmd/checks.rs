@@ -165,11 +165,15 @@ pub struct TestArgs {
     /// With --mutants: skip the positive control (the suite without a mutant), when it just ran.
     #[arg(long)]
     no_control: bool,
+    /// Skip the capped-climb check (`circuit memory stair-lint`) that runs by default on every
+    /// changed wired layout.
+    #[arg(long)]
+    no_stair_lint: bool,
 }
 
 pub fn cmd_test(version: &str, args: TestArgs) -> Result<()> {
     use crate::testplan;
-    let TestArgs { all, pick, design, from, no_diff, plan, only, jobs, jvms, fail_fast, keep, mutants, tree, suite, no_control } = args;
+    let TestArgs { all, pick, design, from, no_diff, plan, only, jobs, jvms, fail_fast, keep, mutants, tree, suite, no_control, no_stair_lint } = args;
     if let Some(m) = mutants {
         let tree = tree.ok_or_else(|| anyhow::anyhow!("--mutants needs --tree <a git worktree>"))?;
         let suite: Vec<String> = suite.unwrap_or_else(|| "test --from HEAD".into()).split_whitespace().map(String::from).collect();
@@ -184,7 +188,7 @@ pub fn cmd_test(version: &str, args: TestArgs) -> Result<()> {
         (None, false) => (String::new(), None),
     };
     let mut lines = Vec::new();
-    let mut pieces = testplan::plan(files.as_deref(), &groups, &designs, all, &mut lines);
+    let mut pieces = testplan::plan(files.as_deref(), &groups, &designs, all, !no_stair_lint, &mut lines);
     if let Some(o) = &only {
         pieces.retain(|p| o.split(',').any(|q| p.name().contains(q)));
     }

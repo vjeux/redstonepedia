@@ -70,9 +70,11 @@ pub fn tick(w: &mut World, i: usize) {
         if (super::ai::squid::is_water_creature(w, i) || super::ai::fish::is_fish(w, i)) && super::ai::squid::handle_air_supply(w, i, pre_air) {
             hurt(w, i, Damage::Drown, 2.0);
         }
-        // LivingEntity.tick after super.tick(): updatingUsingItem (a skeleton's drawn bow)
+        // LivingEntity.tick after super.tick(): updatingUsingItem (a skeleton's drawn bow; a
+        // wandering trader's drink: mob-AI 2026-11-11)
         if !w.entities.list[i].removed {
             super::ai::goal::skeleton::updating_using_item(w, i);
+            super::ai::goal::trader::updating_using_item(w, i);
         }
     }
     // LivingEntity.tick: a sleeper whose bed is gone wakes up
@@ -84,6 +86,8 @@ pub fn tick(w: &mut World, i: usize) {
     if !w.entities.list[i].removed {
         ai_step(w, i);
     }
+    // (mob-AI 2026-11-11) WanderingTrader.aiStep's and TraderLlama.aiStep's maybeDespawn
+    super::ai::goal::trader::after_ai_step(w, i);
     // SkeletonHorse.aiStep's tail: a trap horse no one keeps is discarded once its trapTime
     // passes 18000; SkeletonTrapGoal springing (a player within 10) is not modeled: named
     if let Some(t) = mob(w, i).trap_time
@@ -173,6 +177,12 @@ fn base_tick(w: &mut World, i: usize) {
         // Entity.baseTick: `if (this.isInLava()) this.fallDistance *= 0.5`
         w.entities.list[i].fall_distance *= 0.5;
     }
+    // Entity.baseTick's last step: tickLeash, after the fire's damage (mob-AI 2026-11-11: a
+    // leashed llama killed by its fire drops its lead at once and is not pulled, d1-bed-plate
+    // village-edge b6 t74796)
+    if !w.entities.list[i].removed {
+        crate::entity::leash::tick(w, i);
+    }
     let _ = was_in_lava;
     let ty = mob(w, i).ty;
     if !mob(w, i).dead {
@@ -192,6 +202,7 @@ fn base_tick(w: &mut World, i: usize) {
     // (an infinite one's: the mob's tickCount % 50; `RegenerationMobEffect`), the others count down
     {
         let tick_count = w.entities.list[i].tick_count;
+        let invisibility_before = mob(w, i).effects.invisibility;
         let m = mob_mut(w, i);
         if m.effects.regeneration > 0 && tick_count % 50 == 0 {
             let max = max_health(m);
@@ -210,6 +221,8 @@ fn base_tick(w: &mut World, i: usize) {
             let max = max_health(m);
             m.health = (m.health + 4.0).min(max);
         }
+        // (mob-AI 2026-11-11) a trader's INVISIBLE flag (`updateInvisibilityStatus`)
+        super::ai::goal::trader::after_tick_effects(w, i, invisibility_before);
     }
     if mob(w, i).health <= 0.0 {
         tick_death(w, i);
@@ -427,9 +440,17 @@ fn ai_step(w: &mut World, i: usize) {
         m.zza *= 0.98;
     }
     // isImmobile: dead or dying (AbstractHorse: only when also ridden and saddled, so a dying horse
-    // keeps its AI step); a horse eating or standing
+    // keeps its AI step); a horse eating or standing; a llama (`Llama.isImmobile`): dead or dying,
+    // or eating (mob-AI 2026-11-11: a dying trader llama ran its goals, b9 t40080)
     let horse = super::ai::has_ai(w, i) && super::ai::ai(w, i).horse.is_some();
-    let immobile = if horse { super::ai::goal::animal::horse_immobile(w, i) } else { mob(w, i).dead };
+    let llama = horse && super::ai::goal::trader::is_llama(w, i);
+    let immobile = if llama {
+        mob(w, i).dead || super::ai::ai(w, i).horse.is_some_and(|h| h.eating)
+    } else if horse {
+        super::ai::goal::animal::horse_immobile(w, i)
+    } else {
+        mob(w, i).dead
+    };
     if immobile {
         // isImmobile: no AI
         let m = mob_mut(w, i);
@@ -1187,22 +1208,30 @@ fn drop_loot_exact(w: &mut World, i: usize, src: Damage) {
         if n <= 0 {
             continue;
         }
-        let at = w.entities.next_id;
-        let mut own = w.entering_random(at);
-        crate::rng::replay_uuid(&mut own);
-        own.next_float();
-        let y_rot = own.next_float() * 360.0;
-        let mx = own.next_double() * 0.2 - 0.1;
-        let mz = own.next_double() * 0.2 - 0.1;
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5, ..Default::default() };
-        let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
-        if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
-            e.delta_movement = Vec3::new(mx, 0.2, mz);
-            e.random = Some(own);
-        }
+        let id = spawn_item_exact(w, pos, item, n as u8);
         let t = w.time;
         w.mob.events.push(MobEvent::Drop { t, from: src_id, item: id, what: item, count: n as u32 });
     }
+}
+
+/// `Entity.spawnAtLocation(level, stack)` in an exact world: `new ItemEntity(level, x, y, z,
+/// stack)` entering with its own random seeded as its entity number (the constructor's UUID,
+/// bobOffs, yaw and drift replayed; the drift kept: x and z, 0.2 up), pickup delay 10. Its id.
+pub fn spawn_item_exact(w: &mut World, pos: Vec3, item: &'static str, count: u8) -> u32 {
+    let at = w.entities.next_id;
+    let mut own = w.entering_random(at);
+    crate::rng::replay_uuid(&mut own);
+    own.next_float();
+    let y_rot = own.next_float() * 360.0;
+    let mx = own.next_double() * 0.2 - 0.1;
+    let mz = own.next_double() * 0.2 - 0.1;
+    let state = crate::entity::item::ItemState { item: item.to_string(), count, pickup_delay: 10, age: 0, payload: 0, health: 5, ..Default::default() };
+    let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+        e.delta_movement = Vec3::new(mx, 0.2, mz);
+        e.random = Some(own);
+    }
+    id
 }
 
 /// `LivingEntity.pushEntities`: the pushable entities whose box meets this one's (alive mobs;

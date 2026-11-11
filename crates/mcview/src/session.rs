@@ -2370,15 +2370,17 @@ impl Session {
                 let pitch = e.x_rot_o + (e.x_rot - e.x_rot_o) * partial;
                 let pos = [lerp(e.xo, e.pos.x), lerp(e.yo, e.pos.y), lerp(e.zo, e.pos.z)];
                 let age = e.tick_count as f32 + partial;
+                // its light probe: its eye position (`getEyePosition(partialTicks)`)
+                let probe = Some([pos[0], pos[1] + e.kind.eye_height(), pos[2]]);
                 if let EntityKind::PrimedTnt(st) = &e.kind {
                     // TntRenderer: the fuse as drawn (getFuse() - partialTicks + 1) flashes and swells it
-                    return crate::mesh::EntityDraw { kind: "primed:minecraft:tnt[unstable=false]".to_string(), pos, fuse: st.fuse as f32 - partial + 1.0, ..Default::default() };
+                    return crate::mesh::EntityDraw { kind: "primed:minecraft:tnt[unstable=false]".to_string(), pos, fuse: st.fuse as f32 - partial + 1.0, probe, ..Default::default() };
                 }
                 if let EntityKind::Minecart(_) = &e.kind {
                     // on a rail: the rail's line and slope (AbstractMinecartRenderer.oldRender)
                     let p64 = [e.xo + (e.pos.x - e.xo) * partial as f64, e.yo + (e.pos.y - e.yo) * partial as f64, e.zo + (e.pos.z - e.zo) * partial as f64];
                     let (p, rot, xrot) = crate::entitymodel::minecart_pose(&self.world, p64, yaw, pitch);
-                    return crate::mesh::EntityDraw { kind, pos: [p[0] as f32, p[1] as f32, p[2] as f32], yaw: rot, pitch: xrot, age, ..Default::default() };
+                    return crate::mesh::EntityDraw { kind, pos: [p[0] as f32, p[1] as f32, p[2] as f32], yaw: rot, pitch: xrot, age, probe, ..Default::default() };
                 }
                 // a mob farm's mob: its render state (the game client's, from redsim's state)
                 if let Some(v) = mob_views.iter().find(|v| v.id == e.id) {
@@ -2386,9 +2388,9 @@ impl Session {
                         Some(run) => run.draw(&self.world, v, partial),
                         None => crate::mobfarm::draw_mob(&self.world, v, partial, Default::default()),
                     };
-                    return crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, mob: Some(draw), ..Default::default() };
+                    return crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, mob: Some(draw), probe, ..Default::default() };
                 }
-                crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, ..Default::default() }
+                crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, probe, ..Default::default() }
             })
             .chain(self.world.gravity.entities.iter().filter(|f| !f.removed).map(|f| {
                 // a falling block between where it was before the tick and where it is (one that

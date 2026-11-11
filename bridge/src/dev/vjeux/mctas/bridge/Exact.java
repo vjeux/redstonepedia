@@ -120,6 +120,21 @@ final class Exact {
     private static final Field GOAL_SELECTOR = field(Mob.class, "goalSelector");
     private static final Field TARGET_SELECTOR = field(Mob.class, "targetSelector");
     private static final Field VISIBLE_NEARBY = field(NearestVisibleLivingEntities.class, "nearbyEntities");
+    private static final Field RANGED_ATTACK_TARGET = field(net.minecraft.world.entity.ai.goal.RangedAttackGoal.class, "target");
+
+    /**
+     * (mob-AI 2026-11-11) The target a mob's running {@code RangedAttackGoal} aims at (its own
+     * field: a llama's revenge goal may have cleared {@code getTarget()} while the ranged goal
+     * keeps going to its target), or null.
+     */
+    static net.minecraft.world.entity.LivingEntity rangedAttackTarget(Mob mob) {
+        for (WrappedGoal g : ((net.minecraft.world.entity.ai.goal.GoalSelector) get(GOAL_SELECTOR, mob)).getAvailableGoals()) {
+            if (g.isRunning() && g.getGoal() instanceof net.minecraft.world.entity.ai.goal.RangedAttackGoal ranged) {
+                return (net.minecraft.world.entity.LivingEntity) get(RANGED_ATTACK_TARGET, ranged);
+            }
+        }
+        return null;
+    }
 
     static Field field(Class<?> owner, String name) {
         try {
@@ -449,6 +464,28 @@ final class Exact {
         for (Sensor<?> s : sensors.values()) {
             s.randomlyDelayStart(r);
         }
+    }
+
+    /**
+     * (tickexact 2026-11-11, ironspec's forced-phase mode) Set {@code living}'s k-th brain sensor's
+     * start delay ({@code timeToTick}, in the brain's sensor order); returns the delay it had.
+     */
+    @SuppressWarnings("unchecked")
+    static long setSensorDelay(LivingEntity living, int k, long value) {
+        Map<Object, Sensor<?>> sensors = (Map<Object, Sensor<?>>) get(BRAIN_SENSORS, living.getBrain());
+        int i = 0;
+        for (Sensor<?> s : sensors.values()) {
+            if (i++ == k) {
+                long was = (long) get(SENSOR_TIME_TO_TICK, s);
+                try {
+                    SENSOR_TIME_TO_TICK.setLong(s, value);
+                } catch (IllegalAccessException ex) {
+                    throw new IllegalStateException(ex);
+                }
+                return was;
+            }
+        }
+        throw new IllegalArgumentException("sensor_delay: no sensor " + k + " (the brain has " + sensors.size() + ")");
     }
 
     private static void setInt(Object o, Class<?> owner, String name, int v) {

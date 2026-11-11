@@ -22,7 +22,13 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Install Java, the server and its libraries, and build the bridge.
-    Setup,
+    Setup {
+        /// Then start this many unmodified 26.3 servers at once and stop them: the bundler's first
+        /// unpacking under concurrent starts (each start's outcome and time printed; on a fresh
+        /// `MCTAS_HOME` the first start unpacks while the others wait on the repo's lock).
+        #[arg(long, default_value_t = 0)]
+        vanilla_starts: usize,
+    },
     /// Read the game's source code (decompiled with Vineflower).
     Src {
         /// The client jar's source (models, renderers) instead of the server's.
@@ -174,7 +180,7 @@ enum SimCmd {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Cmd::Setup => {
+        Cmd::Setup { vanilla_starts } => {
             let build = bridge::build(&cli.version)?;
             println!("minecraft {}", build.install.version);
             println!("java      {}", build.install.java.display());
@@ -183,6 +189,29 @@ fn main() -> Result<()> {
             println!("bridge    {}", build.classes.display());
             let mut w = Worker::spawn(&WorkerConfig { version: cli.version.clone(), ..Default::default() })?;
             println!("worker    ok ({})", w.info()?["version"]);
+            if vanilla_starts > 0 {
+                // (farmopt 2026-11-11: the bundler's first unpacking raced when servers started
+                // together on a fresh box; `mctas::vanilla::bundler_extract_guard` serializes it)
+                let t0 = std::time::Instant::now();
+                let results: Vec<(usize, Result<(), String>, f64)> = std::thread::scope(|s| {
+                    let hs: Vec<_> = (0..vanilla_starts)
+                        .map(|k| {
+                            let version = cli.version.clone();
+                            s.spawn(move || {
+                                let r = mctas::vanilla::VanillaServer::start(&mctas::vanilla::VanillaOptions { version, ..Default::default() }).map(drop).map_err(|e| format!("{e:#}"));
+                                (k, r, t0.elapsed().as_secs_f64())
+                            })
+                        })
+                        .collect();
+                    hs.into_iter().map(|h| h.join().unwrap_or((usize::MAX, Err("panicked".into()), 0.0))).collect()
+                });
+                let ok = results.iter().filter(|r| r.1.is_ok()).count();
+                for (k, r, at) in &results {
+                    println!("vanilla start {k}: {} at {at:.1} s", match r { Ok(()) => "up".to_string(), Err(e) => format!("FAILED: {e}") });
+                }
+                println!("vanilla    {ok} of {vanilla_starts} servers started at once came up");
+                anyhow::ensure!(ok == vanilla_starts, "{} of {vanilla_starts} vanilla servers did not start", vanilla_starts - ok);
+            }
         }
         Cmd::Src { client, command } => src(&cli.version, client, command)?,
         Cmd::Sim { command } => sim(&cli.version, command)?,

@@ -233,6 +233,20 @@ enum Cmd {
     /// Two `release-trace` outputs compared port by port: identical, every edge shifted by one
     /// amount, or the first differing edge (crates/circuit-memory/src/releasebench.rs).
     TraceDiff { a: PathBuf, b: PathBuf },
+    /// Capped stairs (ironspec 2026-11-11, the router's source-stair rule): every dust with a dust
+    /// one up and one across whose cell over the lower dust is a conductor (the step can't connect):
+    /// a route that meant to climb is cut. Prints each and the count, across the given files. Each
+    /// capped step is classed by its two nets (drivers: diodes into it, power sources, input ports;
+    /// readers: diodes, mechanisms, torches, other ports): BROKEN when one side is read with no
+    /// driver and the other is driven. `--plant X,Y,Z=BLOCK` places a block in memory first (the
+    /// planted-break control); `--climbs` lists the open climbs.
+    StairLint {
+        designs: Vec<PathBuf>,
+        #[arg(long)]
+        plant: Vec<String>,
+        #[arg(long)]
+        climbs: bool,
+    },
     /// The shared bed's nearest rider (ironspec 2026-11-11: a calm villager within 16 of an
     /// occupied bed loses HOME for good): the least distance from a bed block's centre to a
     /// rider's place on a rail inside the riders' box (the loop's: its carts carry the riders
@@ -553,6 +567,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::FaultSurvey { design, spec, pulses } => releasebench::fault_survey(&design, &spec, pulses)?,
         Cmd::NapReport { log } => releasebench::nap_report(&log)?,
         Cmd::TraceDiff { a, b } => releasebench::trace_diff(&a, &b)?,
+        Cmd::StairLint { designs, plant, climbs } => releasebench::stair_lint(&designs, &plant, climbs)?,
         Cmd::BedDistance { design, riders } => releasebench::bed_distance(&design, &riders)?,
         Cmd::WatchEvents { trace, from_slot } => releasebench::watch_events(&trace, from_slot)?,
         Cmd::Price { designs, ground, stage } => releasebench::price(&designs, ground, &stage)?,

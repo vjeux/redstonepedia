@@ -52,6 +52,22 @@ pub enum MobaiCmd {
         verbose: bool,
     },
     /// A mob-AI scene in the game and in redsim, compared tick for tick (redsim::exact).
+    /// (mob-AI 2026-11-11) The seeds whose WanderingTraderSpawner reaches a spawn try: its own
+    /// random (the bridge's seeding, `rng::trader_seed`) over the 24000-tick attempts of a new
+    /// world (chance 25, +25 up to 75 each attempt; a try needs nextInt(100) <= chance, then 1 in
+    /// 10). `--judge`: the judge's builds FROM..=TO, run 0 (seed JUDGE_SEED0 + 1000 K).
+    TraderTries {
+        #[arg(long, default_value_t = 0)]
+        from: i64,
+        #[arg(long, default_value_t = 11)]
+        to: i64,
+        #[arg(long)]
+        judge: bool,
+        /// Attempts looked at (5: a 5-day judge run's 24000..120000).
+        #[arg(long, default_value_t = 5)]
+        attempts: u32,
+    },
+    /// A mob-AI scene in the game and in redsim, compared tick for tick (redsim::exact).
     Fixture {
         /// The scene (`zombie-stroll`, `zombie-obstacles`, ...).
         name: String,
@@ -81,6 +97,9 @@ pub enum MobaiCmd {
         seed: i64,
         #[arg(long, default_value_t = 2000)]
         ticks: u32,
+        /// Memories printed too that the timeline leaves out by default (walk_target, path, ...)
+        #[arg(long, value_delimiter = ',')]
+        also: Vec<String>,
     },
     /// A recorded scene's panic onset over every phase pair of a sleeping villager's two sensors
     /// (NearestLivingEntitySensor, VillagerHostilesSensor; 400 redsim runs from the scene's state
@@ -95,6 +114,32 @@ pub enum MobaiCmd {
         reveal: u32,
         #[arg(long, default_value = "designs/redsim/recorded/mobai")]
         dir: std::path::PathBuf,
+    },
+    /// (tickexact 2026-11-11, ironspec's forced-phase mode) Scene reload-wake (a sleeper's sandbox
+    /// unloaded and loaded again, a zombie shown at the load) once per pair of forced start delays of
+    /// its NearestLivingEntitySensor and VillagerHostilesSensor (`--living` x `--hostiles`) and per
+    /// sandbox seed, game against redsim tick for tick: the wake after the load on both sides
+    /// against the sensors' rule.
+    ReloadWake {
+        #[arg(long, value_delimiter = ',')]
+        living: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        hostiles: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "1")]
+        seeds: Vec<i64>,
+    },
+    /// (tickexact 2026-11-11, ironspec's ledge on R1's drop) The ledge scenes (ironfarm's escR1 take-off,
+    /// its gap and its landing slopes, one scene per stored speed 1.5/1.82/1.96/2.2 b/t, each row a lone
+    /// cart or two carts touching or 3/4/5/6 gt apart, empty or ridden) in the game and in redsim, and per
+    /// row from the game's frames: take-offs, landings (cell and speed), the least spacing (merges) and
+    /// derails.
+    Ledge {
+        #[arg(long, default_value_t = 100)]
+        ticks: u32,
+        /// Only these scenes (ledge-r1-150/-182/-196/-220, ledge-r1n-182: farmopt's (c′) row,
+        /// ledge-r1s-182: the quarter-tick sweep at both edges of the bad band); default all
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
     },
     /// (tickexact 2026-11-11) A whole-part unload at an event, in the game alone, over game seeds:
     /// for each seed the scene runs as it is (the event's game tick G: the first change of block
@@ -141,6 +186,26 @@ pub enum MobaiCmd {
     Replay {
         /// Recording files or directories of them.
         paths: Vec<std::path::PathBuf>,
+    },
+    /// (tickexact 2026-11-11, ironspec's slope merge) A recorded scene's minecarts lane by lane
+    /// (the carts sharing a block x): positions, speeds, riders, the gaps between neighbours
+    /// (MERGED under 0.01), every `--every` ticks and at every merge
+    RecCarts {
+        path: std::path::PathBuf,
+        #[arg(long, default_value_t = 0)]
+        every: u32,
+        /// Lanes also split by bands of this many blocks of z (0: by x only)
+        #[arg(long, default_value_t = 0)]
+        band: i32,
+        /// One line a lane (its carts, the first contact, the closest centres, a merge)
+        #[arg(long)]
+        summary: bool,
+    },
+    /// (tickexact 2026-11-11, ironspec's raw-placement audit) The scenes (default: every scene
+    /// placed raw) whose written block states one update pass would change (a powered rail on its
+    /// redstone block written unpowered, a rail shape, a gate, dust...): FAIL on any
+    SceneLint {
+        scenes: Vec<String>,
     },
     /// A farm design's redsim run as the exact compare runs it, the level random's (or an
     /// entity's) draws of one game tick printed by call site.
@@ -232,15 +297,41 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::BenchGame { mob, count, ticks, half, seed } => crate::bench::bench_game(version, &mob, count, ticks, half, seed),
         MobaiCmd::BenchRedsim { mob, count, ticks, half, seed } => crate::bench::bench_redsim(&mob, count, ticks, half, seed),
         MobaiCmd::Pathfuzz { cases, seed, density, verbose } => crate::pathfuzz::pathfuzz(version, cases, seed, density, verbose),
+        MobaiCmd::TraderTries { from, to, judge, attempts } => {
+            for k in from..=to {
+                let seed = if judge { redsim::entity::mob::farm::JUDGE_SEED0 + 1000 * k } else { k };
+                let mut r = redsim::rng::LegacyRandom::new(redsim::rng::trader_seed(seed));
+                let mut chance = 25;
+                let mut first = None;
+                for a in 1..=attempts {
+                    let roll = r.next_int(100);
+                    let passed = roll <= chance;
+                    chance = (chance + 25).clamp(25, 75);
+                    if passed && r.next_int(10) == 0 {
+                        first = Some(a);
+                        break;
+                    }
+                }
+                match first {
+                    Some(a) => println!("{} {k} (seed {seed}): a spawn try at attempt {a} (~gt {})", if judge { "build" } else { "seed" }, 24000 * a),
+                    None => println!("{} {k} (seed {seed}): no try in {attempts} attempts", if judge { "build" } else { "seed" }),
+                }
+            }
+            Ok(())
+        }
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
-        MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
+        MobaiCmd::Timeline { name, seed, ticks, also } => crate::fixture::timeline(version, &name, seed, ticks, &also),
         MobaiCmd::SensorSweep { name, villager, reveal, dir } => crate::fixture::sensor_sweep(&name, villager, reveal, &dir),
+        MobaiCmd::ReloadWake { living, hostiles, seeds } => crate::fixture::reload_wake(version, &living, &hostiles, &seeds),
+        MobaiCmd::Ledge { ticks, only } => crate::fixture::ledge(version, ticks, &only),
         MobaiCmd::UnloadRate { name, from, to, cell, state, after, cart, len, check } => {
             let [x, y, z] = cell[..] else { anyhow::bail!("--cell takes x,y,z") };
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
         }
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
+        MobaiCmd::RecCarts { path, every, band, summary } => crate::fixture::rec_carts(&path, every, band, summary),
+        MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
         MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger, make_pad, piglins, ticket } => match (nether, overworld, nether_design) {

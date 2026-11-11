@@ -1330,6 +1330,11 @@ fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, f
                 eprintln!("  {f}");
             }
         }
+        // (ironspec 2026-11-11: each trap horse's and burned block's position and time, pass or
+        // fail)
+        for e in g.events() {
+            eprintln!("{}: the gate's event: {e}", path.display());
+        }
         // (ironspec 2026-11-10: two farms compared on the game's rate with its spread) the game's
         // own mean and 95% interval per window, and its iron a dead golem, on stderr
         let deaths: u32 = g.builds.iter().map(|b| b.deaths).sum();

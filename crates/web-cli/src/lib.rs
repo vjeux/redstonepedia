@@ -206,6 +206,15 @@ pub enum WebCmd {
         #[arg(long, short)]
         out: PathBuf,
     },
+    /// The entities each design's view draws over a run played as the page plays it: each kind
+    /// (a mob or not), the most drawn at once and the first tick. The census behind the viewer's
+    /// mob models (which kinds the site's views show).
+    Kinds {
+        designs: Vec<PathBuf>,
+        /// Ticks to play each view (default 120000: 5 days, the judge's run 0).
+        #[arg(long, default_value_t = 120_000)]
+        ticks: u32,
+    },
     /// Layout-shift check of a page's live viewers in headless Chromium (real time, WebGL2 in
     /// software): opens `<url>?mcview-debug`, brings each viewer on screen in turn (a viewer only
     /// draws and plays on screen) for up to `--seconds`, reads every frame's bounding boxes of the
@@ -368,6 +377,11 @@ pub enum WebCmd {
         /// to `<dir>/frame_00001.png`, ... (one design): a film of the live view, for a video.
         #[arg(long)]
         png_dir: Option<PathBuf>,
+        /// With `--png-dir`: compare each frame with the same name in this folder (an earlier
+        /// build's `--png-dir`) and print where they differ: how many pixels, the most any channel
+        /// moved, and their bounding box (a changed view's change located: a mob's model there).
+        #[arg(long)]
+        png_base: Option<PathBuf>,
         /// The camera's yaw / pitch in degrees, framed as a page's `data-yaw` / `data-pitch`
         /// frame it (default: the live camera).
         #[arg(long)]
@@ -752,6 +766,20 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Demo { designs, out, viewer, live, autoplay } => cmd_demo(&designs, &out, &viewer, live, autoplay),
         WebCmd::Serve { dir, port } => cmd_serve(&dir, port),
         WebCmd::Compare { designs, img_dir, out, procedural, zoom, floor_margin, still, before } => cmd_compare(&designs, &img_dir, &out, procedural, zoom.as_deref(), floor_margin, still, before.as_deref()),
+        WebCmd::Kinds { designs, ticks } => {
+            for p in &designs {
+                let text = std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))?;
+                match mcview::tools::drawn_kinds(&text, ticks) {
+                    Ok((kinds, played, halted)) => {
+                        let list: Vec<String> = kinds.iter().map(|k| format!("{}{} x{} (from tick {} at {:.1},{:.1},{:.1})", k.kind, if k.mob { " [mob]" } else { "" }, k.most, k.first, k.at[0], k.at[1], k.at[2])).collect();
+                        let stop = halted.map(|h| format!(", STOPPED: {h}")).unwrap_or_default();
+                        println!("{} ({played} ticks{stop}): {}", p.display(), if list.is_empty() { "no entities".to_string() } else { list.join(", ") });
+                    }
+                    Err(e) => println!("{}: SKIP {e}", p.display()),
+                }
+            }
+            Ok(())
+        }
         WebCmd::Snapshot { designs, out } => {
             std::fs::create_dir_all(&out)?;
             let mut n = 0;
@@ -934,7 +962,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Recqa { pages, dir, out, engines, window, scale, timeout, browser, chrome } => crate::recqa::cmd_recqa(&dir, &pages, &out, &engines, &window, scale, timeout, &browser, chrome.as_deref()),
         WebCmd::Qa { pages, dir, kinds, clocks, out, window, at, watch, shards } => crate::qa::cmd_qa(&dir, &pages, kinds, clocks, &out, &window, &at, watch, shards),
         WebCmd::Cardcost { designs, budget, top, procedural } => cmd_cardcost(&designs, budget, top, procedural),
-        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, yaw, pitch, zoom, look_at, drive, follow, brightness, fit } => {
+        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, png_base, yaw, pitch, zoom, look_at, drive, follow, brightness, fit } => {
             let fit: Option<([f32; 3], [f32; 3])> = match fit.as_deref() {
                 None => None,
                 Some(s) => {
@@ -1013,6 +1041,39 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                     Err(e) => {
                         println!("{}: ERROR {e}", d.display());
                         bad += 1;
+                    }
+                }
+            }
+            if let (Some(dir), Some(base)) = (&png_dir, &png_base) {
+                let mut names: Vec<PathBuf> = std::fs::read_dir(dir)?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x == "png")).collect();
+                names.sort();
+                for p in names {
+                    let name = p.file_name().unwrap_or_default();
+                    let (Ok(a), Ok(b)) = (std::fs::read(&p), std::fs::read(base.join(name))) else {
+                        println!("{}: no {} to compare", name.to_string_lossy(), base.join(name).display());
+                        continue;
+                    };
+                    let (a, aw, ah) = mcview::tools::decode_png(&a).map_err(anyhow::Error::msg)?;
+                    let (b, bw, bh) = mcview::tools::decode_png(&b).map_err(anyhow::Error::msg)?;
+                    if (aw, ah) != (bw, bh) {
+                        println!("{}: {aw}x{ah} against {bw}x{bh}", name.to_string_lossy());
+                        continue;
+                    }
+                    let (mut n, mut most, mut lo, mut hi) = (0usize, 0u8, [u32::MAX; 2], [0u32; 2]);
+                    for (i, (pa, pb)) in a.chunks_exact(4).zip(b.chunks_exact(4)).enumerate() {
+                        let d = pa.iter().zip(pb).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0);
+                        if d > 0 {
+                            let (x, y) = ((i as u32) % aw, (i as u32) / aw);
+                            n += 1;
+                            most = most.max(d);
+                            lo = [lo[0].min(x), lo[1].min(y)];
+                            hi = [hi[0].max(x), hi[1].max(y)];
+                        }
+                    }
+                    if n == 0 {
+                        println!("{}: same as {}", name.to_string_lossy(), base.display());
+                    } else {
+                        println!("{}: {n} pixels differ (most by {most}) in x {}..{}, y {}..{}", name.to_string_lossy(), lo[0], hi[0], lo[1], hi[1]);
                     }
                 }
             }

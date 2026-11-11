@@ -255,6 +255,10 @@ fn props_at_name(name: &str) -> Option<&'static crate::terrain::blocks::Props> {
 /// drops its target and teleports.
 pub fn custom_server_ai_step(w: &mut World, i: usize) {
     let tick_count = w.entities.list[i].tick_count;
+    if std::env::var("MCTAS_TRACE_ENDERMAN").is_ok_and(|v| v.parse::<u32>().ok() == Some(w.entities.list[i].id)) {
+        let day = w.day_time();
+        eprintln!("enderman t{} sky: day {day} rain {} thunder {} level {} darken {} target {:?} tct {} tick {tick_count}", w.time, w.weather.rain(1.0), w.weather.thunder(1.0), crate::daylight::sky_light_level(day), w.sky_darken(), crate::entity::mob::ai::ai(w, i).target, state(w, i).target_change_time);
+    }
     if !super::zombie::is_bright_outside(w) || tick_count < state(w, i).target_change_time + 600 {
         return;
     }
@@ -263,6 +267,10 @@ pub fn custom_server_ai_step(w: &mut World, i: usize) {
     let cell = BlockPos::new(crate::entity::mth::floor(e.pos.x), crate::entity::mth::floor(e.pos.y + eye), crate::entity::mth::floor(e.pos.z));
     let feet = e.block_position();
     let br = super::stroll::light_magic(w, cell);
+    let eid = w.entities.list[i].id;
+    if std::env::var("MCTAS_TRACE_ENDERMAN").is_ok_and(|v| v.parse::<u32>().ok() == Some(eid)) {
+        eprintln!("enderman t{} #{eid}: eye cell {cell} br {br} feet {feet} sky light {:?} block light {:?} tick {tick_count} target change {}", w.time, w.sky_light(feet), w.block_light(cell), state(w, i).target_change_time);
+    }
     if br > 0.5 && w.can_see_sky(feet).unwrap_or(false) && rnd(w, i).next_float() * 30.0 < (br - 0.4) * 2.0 {
         set_target(w, i, None);
         teleport(w, i);
@@ -310,8 +318,26 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
     if w.entities.list[i].vehicle.is_some() {
         return false;
     }
+    let trace = std::env::var("MCTAS_TRACE_ENDERMAN").is_ok_and(|v| v.parse::<u32>().ok() == Some(w.entities.list[i].id));
     let mut p = BlockPos::new(crate::entity::mth::floor(xx), crate::entity::mth::floor(yy), crate::entity::mth::floor(zz));
+    if trace {
+        let full = w.mob.custom.as_ref().is_some_and(|c| c.full_chunks.contains(&[p.x >> 4, p.z >> 4]));
+        eprintln!("enderman t{} teleport to ({xx}, {yy}, {zz}): start {p} contains {} (box {} size {:?}; the game's chunk loaded {full})", w.time, w.contains(p), w.min, w.size);
+    }
     if !w.contains(p) {
+        // (mob-AI 2026-11-11) past the modeled box in one of the terrain sample's chunks (the
+        // chunks the box overlaps: the game writes their whole sections, redsim keeps the box):
+        // the game's column there is not redsim's (d1u-deep plains b5 t63833: the game landed at
+        // y 8 a block past the box's edge). Past them the sandbox's chunks are void on both sides.
+        let (cx, cz) = (p.x >> 4, p.z >> 4);
+        let (x0, z0) = (w.min.x >> 4, w.min.z >> 4);
+        let (x1, z1) = ((w.min.x + w.size[0] - 1) >> 4, (w.min.z + w.size[2] - 1) >> 4);
+        if w.land.is_some() && (x0..=x1).contains(&cx) && (z0..=z1).contains(&cz) {
+            // an ambient natural mob's action the model does not cover: named in the run's
+            // report (the legacy list), never a stop (the site's views run on: mobviewer
+            // 2026-11-11, cross-4-underground plains gt 87062)
+            w.mob.ai.legacy.insert("minecraft:enderman (a teleport past the terrain box into one of the sample's chunks)");
+        }
         return false;
     }
     let mut y = yy;
@@ -319,7 +345,13 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
     while p.y > min_y {
         p = p.below();
         let tags = props_at(w, p);
+        if trace && tags.is_none() {
+            eprintln!("enderman teleport: {p} {} has no natural row", w.get(p));
+        }
         if tags.is_some_and(|t| t.has_tag("minecraft:entities_can_teleport_to")) {
+            if trace {
+                eprintln!("enderman teleport: lands on {p} {}", w.get(p));
+            }
             // checkPositionAndTeleport
             if tags.is_some_and(|t| t.has_tag("minecraft:enderman_does_not_teleport_to")) {
                 return false;
