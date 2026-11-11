@@ -3693,6 +3693,17 @@ pub struct MeterState {
     last_evidence: Option<i64>,
     retries: usize,
     back_entries: Vec<String>,
+    /// H's frozen-cart chunk check (tick-exact's gate-frozen bridge): every cart in or next to H's
+    /// cell, its box's least clearance to a chunk line of the farm's loop frame (x = -4 + 16k,
+    /// z = 10 + 16k) for A here and for B at A + (0,-27,+32), with the tick and cart of each least
+    h_chunk_a: Option<(f64, i64, usize)>,
+    h_chunk_b: Option<(f64, i64, usize)>,
+    h_chunk_n: usize,
+    /// DEP_X's probe: each cart's press of a detector on A's branch at (xb,1,14) (the cart's centre
+    /// crossing z 15.29 northward on the flat run), as (cycle, cart, gt after the cycle's tick)
+    dep_cross: Vec<(i64, usize, i64)>,
+    dep_level: Vec<(i64, i64, bool)>,
+    dep_level_prev: bool,
     /// per Dh edge: gt since Dh last went off
     dh_off_margin: Vec<i64>,
     /// per detector (Dh, Darr, D1, D2, the departure crest): gaps between consecutive rising
@@ -3764,6 +3775,15 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         }
         if let Some(b) = parse("minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]") {
             w.set_block(hcell, b, redsim::world::flags::ALL);
+        }
+        // (`MCTAS_METER_DEPDET`: DEP_A as a real detector rail at (xb,1,14) on A's branch (its level
+        // recorded: on/off per cycle))
+        if std::env::var("MCTAS_METER_DEPDET").is_ok() {
+            let p = at(xb, 1, 14);
+            let cur = w.get(p).to_string();
+            if let Some(b) = cur.strip_prefix("minecraft:rail[").and_then(|r| parse(&format!("minecraft:detector_rail[powered=false,{r}"))) {
+                w.set_block(p, b, redsim::world::flags::RAW);
+            }
         }
         // (`wired_h`: the monostable in the column x xb-1 (inside the stand's chunk, clear of the
         // riders, the golem boxes (x >= -2.2) and the track): trigger blocks TA (xb-1,3,3) and TB
@@ -4239,6 +4259,43 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     let mut stack = 0usize;
     for (k, p) in pos.iter().enumerate() {
         let Some(p) = p else { continue };
+        // (DEP_X's probe on A's branch: the centre crossing z 15.29 northward at x xb + 0.5 on the
+        // flat run (y ~1), the detector at (xb,1,14) pressing)
+        if k == 0 && std::env::var("MCTAS_METER_DEPDET").is_ok() {
+            let on = w.get(at(xb, 1, 14)).to_string().contains("powered=true");
+            if on != s.dep_level_prev && s.dep_level.len() < 400 {
+                s.dep_level.push((c, dt, on));
+            }
+            s.dep_level_prev = on;
+        }
+        if let Some(Some(q)) = s.prev.get(k)
+            && (p.0 - (xb as f64 + 0.5)).abs() < 0.45
+            && p.1 > 0.5
+            && p.1 < 2.0
+            && q.2 >= 15.29
+            && p.2 < 15.29
+            && s.dep_cross.len() < 400
+        {
+            s.dep_cross.push((c, k, dt));
+        }
+        // (H's frozen-cart chunk check: a cart in or next to H's cell (x xb-1..xb+2, z -1..2, above
+        // the strip), its box (0.98 wide) against the chunk lines x = -4 + 16k, z = 10 + 16k; B's the
+        // same at z + 32)
+        if p.0 > xb as f64 - 1.0 && p.0 < xb as f64 + 2.0 && p.2 > -1.0 && p.2 < 2.0 && p.1 > 1.0 {
+            let clear = |v: f64, base: f64| {
+                let r = (v - base).rem_euclid(16.0);
+                r.min(16.0 - r) - 0.49
+            };
+            let a = clear(p.0, -4.0).min(clear(p.2, 10.0));
+            let b = clear(p.0, -4.0).min(clear(p.2 + 32.0, 10.0));
+            if s.h_chunk_a.is_none_or(|(m, _, _)| a < m) {
+                s.h_chunk_a = Some((a, t, k));
+            }
+            if s.h_chunk_b.is_none_or(|(m, _, _)| b < m) {
+                s.h_chunk_b = Some((b, t, k));
+            }
+            s.h_chunk_n += 1;
+        }
         // (backward entries: west through a stand gate's plane, north through H's)
         if let Some(Some(q)) = s.prev.get(k)
             && s.back_entries.len() < 30
@@ -4416,6 +4473,22 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
             problems.push(format!("meter: {} departing carts back through D2", s.back_d2.len()));
         }
         out.push(format!("meter backward entries through a stand gate or H: {}{}; retry openings: {}", s.back_entries.len(), if s.back_entries.is_empty() { String::new() } else { format!(" ({})", s.back_entries.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }, s.retries));
+        let fmt = |v: Option<(f64, i64, usize)>| v.map_or("-".to_string(), |(m, t, k)| format!("{m:.2} (cart {k} at slot {} +{})", t / 100, t % 100));
+        out.push(format!("meter H's frozen-cart chunk check (a cart in or next to H's cell, its box against the farm's chunk lines x = -4 + 16k, z = 10 + 16k; {} cart-ticks): least clearance A {}, B (A + 0,-27,+32) {}", s.h_chunk_n, fmt(s.h_chunk_a), fmt(s.h_chunk_b)));
+        if s.h_chunk_a.is_some_and(|(m, _, _)| m <= 0.0) || s.h_chunk_b.is_some_and(|(m, _, _)| m <= 0.0) {
+            problems.push("meter: a cart in or next to H's cell touches a chunk line".to_string());
+        }
+        // (DEP_X's probe: per cycle, the first and third presses after the cycle's tick)
+        let mut per: std::collections::BTreeMap<i64, Vec<i64>> = std::collections::BTreeMap::new();
+        for (c, _, dt) in &s.dep_cross {
+            per.entry(*c).or_default().push(*dt);
+        }
+        let rows: Vec<String> = per.iter().map(|(c, v)| format!("{c}: {}", v.iter().map(|d| format!("+{d}")).collect::<Vec<_>>().join("/"))).collect();
+        out.push(format!("meter DEP_X probe (a detector at (xb,1,14) on A's branch, the centre crossing z 15.29 northward; gt after the cycle's tick, each cart): {}", rows.join("; ")));
+        if !s.dep_level.is_empty() {
+            let lv: Vec<String> = s.dep_level.iter().map(|(c, dt, on)| format!("{c}+{dt} {}", if *on { "on" } else { "off" })).collect();
+            out.push(format!("meter DEP_A's level (the real detector rail at (xb,1,14)): {}", lv.join(", ")));
+        }
         if !s.back_entries.is_empty() {
             problems.push(format!("meter: {} backward entries through a stand gate or H", s.back_entries.len()));
         }
