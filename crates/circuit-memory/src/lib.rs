@@ -144,6 +144,16 @@ enum Cmd {
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         r#box: Vec<i32>,
     },
+    /// A box of a design as one ASCII map per y layer (x across, z down): `.` air, `#` stone,
+    /// `g` glass, `+` dust, `>` `<` `^` `v` a repeater's output side, `C` comparator, `D` dropper,
+    /// `H` hopper, `B` copper bulb, `R` redstone block, `T` torch, `=` rail, `o` other; `*` the
+    /// cells listed by `--mark` (to see free channels for a route).
+    Slice {
+        file: PathBuf,
+        /// X0,Y0,Z0,X1,Y1,Z1 (inclusive)
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        r#box: Vec<i32>,
+    },
     /// The bed siding's rejoin as a side drop into an empty queue slot (crates/circuit-memory/src/droptest.rs).
     DropTest {
         #[arg(long, default_value_t = 0.2)]
@@ -190,6 +200,62 @@ enum Cmd {
         /// Golem pulses, every 100 gt from 100.
         #[arg(long, default_value_t = 60)]
         pulses: u64,
+    },
+    /// One Rust command for a sweep or a survey (the parent 22:23: never a shell loop): the wired
+    /// farm generated once, or once per value of a generator knob (`--knob MCTAS_K2_KICK`), then
+    /// `--run` once per value (`{design}` the generated file, `{value}` the value), printing each
+    /// value's problems and visits lines and the lines holding a `--show` string
+    /// (crates/circuit-memory/src/releasebench.rs).
+    ReleaseSweep {
+        #[arg(long = "loop")]
+        loop_file: PathBuf,
+        #[arg(long, default_value = "designs/circuits/pulsemult/archive/off-delay-ring-L20.txt")]
+        offdelay: PathBuf,
+        #[arg(long)]
+        siding: Option<PathBuf>,
+        #[arg(long)]
+        siding_ctl: Option<PathBuf>,
+        #[arg(long)]
+        pad: Option<PathBuf>,
+        /// The generator's environment knob set to each value (none: the design generated once).
+        #[arg(long)]
+        knob: Option<String>,
+        /// The values, `v1|v2|...` (a value may hold commas).
+        #[arg(long, allow_hyphen_values = true)]
+        values: String,
+        /// The runner's command line (split on spaces, no shell): `{design}`, `{value}`.
+        #[arg(long, allow_hyphen_values = true)]
+        run: String,
+        /// More output lines to print per value: those holding this string (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        show: Vec<String>,
+    },
+    /// Two `release-trace` outputs compared port by port: identical, every edge shifted by one
+    /// amount, or the first differing edge (crates/circuit-memory/src/releasebench.rs).
+    TraceDiff { a: PathBuf, b: PathBuf },
+    /// The shared bed's nearest rider (ironspec 2026-11-11: a calm villager within 16 of an
+    /// occupied bed loses HOME for good): the least distance from a bed block's centre to a
+    /// rider's place on a rail inside the riders' box (the loop's: its carts carry the riders
+    /// while the bed is taken; the junctions carry only the napper itself, visits 400 gt apart)
+    /// (the rail cell's centre, 0.35 up), and where (crates/circuit-memory/src/releasebench.rs).
+    BedDistance {
+        design: PathBuf,
+        /// The riders' box, x0,y0,z0,x1,y1,z1 (design frame): rails inside it count.
+        #[arg(long, allow_hyphen_values = true, default_value = "-6,-4,-7,9,6,53")]
+        riders: String,
+    },
+    /// Each design's pricing line for the fold (the parent and ironspec 2026-11-10: "compact:
+    /// volume decides", dig depth priced in build minutes): blocks, box, volume, the box's depth
+    /// under the ground layer and its dug cells (footprint x depth, as the judge's site footprint
+    /// reads it), the dig's minutes, the void bill's build minutes and its mid-air share
+    /// (crates/circuit-memory/src/releasebench.rs).
+    Price {
+        designs: Vec<PathBuf>,
+        /// The ground layer (design y): the box's cells under it are dug.
+        #[arg(long, default_value_t = -1, allow_hyphen_values = true)]
+        ground: i32,
+        #[arg(long, default_value = "middle")]
+        stage: String,
     },
     /// The night-1 lines from a `queue-loop-run --visits-observe` log (one seed): each villager's
     /// first nap, each batch's first fully napped slot, and the startup's slot cost (stand slots
@@ -478,7 +544,48 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::ReleaseTrace { design, at, det, ticks, fault, watch } => releasebench::trace(&design, &at, &det, ticks, &fault, &watch)?,
         Cmd::FaultSurvey { design, spec, pulses } => releasebench::fault_survey(&design, &spec, pulses)?,
         Cmd::NapReport { log } => releasebench::nap_report(&log)?,
+        Cmd::TraceDiff { a, b } => releasebench::trace_diff(&a, &b)?,
+        Cmd::BedDistance { design, riders } => releasebench::bed_distance(&design, &riders)?,
+        Cmd::Price { designs, ground, stage } => releasebench::price(&designs, ground, &stage)?,
+        Cmd::ReleaseSweep { loop_file, offdelay, siding, siding_ctl, pad, knob, values, run, show } => releasebench::release_sweep(&loop_file, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref(), knob.as_deref(), &values, &run, &show)?,
         Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,
+        Cmd::Slice { file, r#box } => {
+            let [x0, y0, z0, x1, y1, z1] = r#box[..] else { anyhow::bail!("--box takes X0,Y0,Z0,X1,Y1,Z1") };
+            let d = mctas::design::Design::load(&file)?;
+            let ch = |s: &str| -> char {
+                let n = s.trim_start_matches("minecraft:");
+                let kind = n.split('[').next().unwrap_or("");
+                let facing = n.split(['[', ',', ']']).find_map(|t| t.strip_prefix("facing=")).unwrap_or("");
+                match kind {
+                    "air" => '.',
+                    "stone" | "smooth_stone" | "cobblestone" => '#',
+                    "glass" => 'g',
+                    "redstone_wire" => '+',
+                    // (a repeater's facing is its input side: the arrow points to its output)
+                    "repeater" => match facing {
+                        "east" => '<',
+                        "west" => '>',
+                        "north" => 'v',
+                        _ => '^',
+                    },
+                    "comparator" => 'C',
+                    "dropper" => 'D',
+                    "hopper" => 'H',
+                    "redstone_block" => 'R',
+                    k if k.contains("copper_bulb") => 'B',
+                    k if k.contains("torch") => 'T',
+                    k if k.contains("rail") => '=',
+                    _ => 'o',
+                }
+            };
+            for y in (y0..=y1).rev() {
+                println!("y {y} (x {x0}..{x1} across, z {z0}..{z1} down)");
+                for z in z0..=z1 {
+                    let row: String = (x0..=x1).map(|x| d.blocks.get(&[x, y, z]).map(|s| ch(s)).unwrap_or('.')).collect();
+                    println!("{z:>4} {row}");
+                }
+            }
+        }
         Cmd::Cells { file, r#box } => {
             let [x0, y0, z0, x1, y1, z1] = r#box[..] else { anyhow::bail!("--box takes X0,Y0,Z0,X1,Y1,Z1") };
             let d = mctas::design::Design::load(&file)?;
