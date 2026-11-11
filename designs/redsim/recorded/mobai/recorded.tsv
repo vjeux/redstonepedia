@@ -15,6 +15,7 @@ carousel-catch.rec	adbbb8812cfc0947		26.3	2026-11-10T17:26Z on b04e233c2f	mctas 
 carousel-catch2.rec	5188db60b3a98b45		26.3	2026-11-10T18:16Z on d553d16cc2	mctas mobai record carousel-catch2 --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 carousel-loop.rec	ec3cee3a9ba1932e		26.3	2026-11-10T15:13Z on 8c648c8c25	mctas mobai record carousel-loop --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 carousel-wired-built.rec	1afdd55355e2eb61		26.3	2026-11-10T20:10Z on 22a810e385	mctas mobai record carousel-wired-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+carousel-wired-pocket.rec	8b8ba056278de04a		26.3	2026-11-11T04:57Z on 752bd65e1	mctas mobai record carousel-wired-pocket --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
 carousel-wired-raw.rec	49f1c26c7edde299		26.3	2026-11-10T19:56Z on 697d581c8d	mctas mobai record carousel-wired-raw --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
 carousel-wired-v2.rec	9cf3237b64e905ab		26.3	2026-11-10T20:10Z on 22a810e385	mctas mobai record carousel-wired-v2 --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
 carousel-wired-v3-built.rec	e9c3fccfbcdfa78f		26.3	2026-11-11T00:53Z on 4effc3db21	mctas mobai record carousel-wired-v3-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
@@ -29,6 +30,7 @@ chicken-jockey-flag.rec	8fa3fe767611d11e		26.3	2026-11-09T09:18Z on 05e0d74842	m
 contact6-unload.rec	567ae988487f9e5e		26.3	2026-11-11T03:50Z on 162fbd76d	mctas mobai record contact6-unload --seed 1 --ticks 1100 --dir designs/redsim/recorded/mobai
 contact6.rec	9a04fbba1032ed0f		26.3	2026-11-11T03:50Z on 162fbd76d	mctas mobai record contact6 --seed 1 --ticks 1400 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+door-halves.rec	b527d9b71d4e4c0f		26.3	2026-11-11T05:09Z on b799dde74	mctas mobai record door-halves --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 drowned-trident.rec	37b7967c66fa587d		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-flower.rec	380b5c44d8b814db		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-golem.rec	03bed56814f1516a		26.3	uncommitted	recorded before manifests: see the recording's header and its commit

@@ -1293,6 +1293,42 @@ impl<'a> Builder<'a> {
         self.add_model(&Model::one(p), base, None, None);
     }
 
+    /// A design's chunk borders (ironspec 2026-11-10: a design with a `chunk:` alignment, its
+    /// reference block at the middle of its ranges, `design::ChunkAlign::borders`): the borders of
+    /// every chunk its footprint (`lo`..`hi`, x and z) touches, as lines on its floor (`y`: the
+    /// bottom of its lowest cells) seen through the blocks, as the game's F3+G shows them. `r`: the
+    /// residues of the design x and z that start a chunk.
+    pub fn chunk_grid(&mut self, lo: Pos, hi: Pos, y: f32, r: [i32; 2]) {
+        const LIFT: f32 = 0.04;
+        const W: f32 = 0.12;
+        const LINE: [u8; 4] = [255, 214, 51, 235];
+        let tile = self.atlas.tile("spawn_spot") as u32 | XRAY;
+        // (the border at or below the footprint's low edge, the one at or above its high edge)
+        let below = |v: i32, r: i32| v - (v - r).rem_euclid(16);
+        let above = |v: i32, r: i32| v + (r - v).rem_euclid(16);
+        let (x0, x1) = (below(lo[0], r[0]), above(hi[0] + 1, r[0]));
+        let (z0, z1) = (below(lo[2], r[1]), above(hi[2] + 1, r[1]));
+        let y = y + LIFT;
+        let quad = |b: &mut Self, pts: [[f32; 3]; 4]| {
+            let uv = [[0.3, 0.3], [0.3, 0.7], [0.7, 0.7], [0.7, 0.3]];
+            let center = [(pts[0][0] + pts[2][0]) / 2.0, y, (pts[0][2] + pts[2][2]) / 2.0];
+            // (seen from above and from under it)
+            for p in [pts, [pts[0], pts[3], pts[2], pts[1]]] {
+                let v: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: p[k], uv: uv[k], layer: tile, color: LINE, light: UNLIT });
+                b.mesh.translucent.push(Quad { v, center });
+            }
+        };
+        let (fx0, fx1, fz0, fz1) = (x0 as f32, x1 as f32, z0 as f32, z1 as f32);
+        for x in (x0..=x1).step_by(16) {
+            let x = x as f32;
+            quad(self, [[x - W / 2.0, y, fz0], [x - W / 2.0, y, fz1], [x + W / 2.0, y, fz1], [x + W / 2.0, y, fz0]]);
+        }
+        for z in (z0..=z1).step_by(16) {
+            let z = z as f32;
+            quad(self, [[fx0, y, z - W / 2.0], [fx0, y, z + W / 2.0], [fx1, y, z + W / 2.0], [fx1, y, z - W / 2.0]]);
+        }
+    }
+
     /// A mob farm's golem spawn area (vjeux 2026-11-08: "Can you make areas continuous for spawn
     /// targets. Also can golems really spawn in the air?"; "What's up with the spawning slots
     /// changing color and the progress bar around the iron golem?"): one steady translucent sheet

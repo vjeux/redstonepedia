@@ -72,6 +72,16 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-10) the natural doors' halves: the first copper door's upper half
+        // removed, the second's lower half, the floor under the third, the fourth's upper half
+        // swapped for an east-facing door's, the oak door's upper half removed
+        "door-halves" => vec![
+            (10, vec![s([4, 65, 4], "minecraft:air")]),
+            (20, vec![s([8, 64, 4], "minecraft:air")]),
+            (30, vec![s([12, 63, 4], "minecraft:air")]),
+            (40, vec![s([16, 65, 4], "minecraft:waxed_oxidized_copper_door[facing=east,half=upper,hinge=left,open=false,powered=false]")]),
+            (50, vec![s([20, 65, 4], "minecraft:air")]),
+        ],
         // (tickexact 2026-11-10) the contact queue: the stone at the slope's foot a rail for 12 gt
         // every 200 gt from t100; the unload variant adds the whole part away 30 gt at t250 (the
         // queue pressed), 5 gt at t702 (mid-release), N = 0 at t900, and the west chunk (the run
@@ -244,6 +254,9 @@ impl Scene {
         if scene_judge_placed(&self.name) {
             v["judge_placed"] = json!(true);
             v["block_entities"] = json!(scene_block_entities(&self.name));
+            if scene_bench_start(&self.name) {
+                v["bench_start"] = json!(true);
+            }
         } else if scene_placement(&self.name) == Placement::Merged {
             v["placed"] = json!("as written");
             v["block_entities"] = json!(scene_block_entities(&self.name));
@@ -382,6 +395,7 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("unload-v3-raw", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/unload-v3-raw.drive")),
     ("unload-siding-raw", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/unload-siding-raw.drive")),
     ("unload-part-v3-raw", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/unload-part-v3-raw.drive")),
+    ("carousel-wired-pocket", include_str!("../scenes/carousel-wired-pocket.txt"), include_str!("../scenes/carousel-wired-pocket.drive")),
 ];
 
 /// A drive scene's day time at its spawn in its bench's run: the bench's world is
@@ -617,7 +631,7 @@ fn scene_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
 /// from the state its redstone settles in with no cart on its detector rails. Its actions count
 /// from the summon.
 fn scene_settle(name: &str) -> u32 {
-    if name == "carousel-wired" { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
+    if name == "carousel-wired" || scene_bench_start(name) { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
 }
 
 /// The ticks before a scene's mobs are summoned: a built-in-order scene's build (its drive log's
@@ -658,7 +672,7 @@ enum Placement {
 /// judge's way, carousel-wired-raw places it as written.
 fn scene_placement(name: &str) -> Placement {
     match name {
-        "carousel-wired" => Placement::Judge,
+        "carousel-wired" | "carousel-wired-pocket" => Placement::Judge,
         "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" | "unload-v3-raw" | "unload-part-v3-raw" => Placement::Merged,
         "carousel-wired-built" | "carousel-wired-v3-built" | "siding-built" | "station-built" => Placement::Built,
         "siding-raw" | "station-raw" | "unload-siding-raw" => Placement::Merged,
@@ -669,6 +683,41 @@ fn scene_placement(name: &str) -> Placement {
 /// Whether a scene is placed the judge's way ([`Placement::Judge`]).
 fn scene_judge_placed(name: &str) -> bool {
     scene_placement(name) == Placement::Judge
+}
+
+/// (tickexact 2026-11-10, day-1's lean pocket loop) Whether a scene starts as its bench's own run
+/// does (`Run::start`, the settle, `Run::arrive`): its daylight detectors held back until the
+/// summon (they would read the settle's sky), then placed raw with their updates; its output chest
+/// (`port output`) set when it is not one, and emptied.
+fn scene_bench_start(name: &str) -> bool {
+    name == "carousel-wired-pocket"
+}
+
+/// The chest a bench start sets at the output.
+const BENCH_CHEST: &str = "minecraft:chest[facing=north,type=single,waterlogged=false]";
+
+/// A scene's blocks as its start places them (a bench start holds its daylight detectors back).
+fn scene_placed_blocks(s: &Scene) -> Vec<([i32; 3], String)> {
+    if !scene_bench_start(&s.name) {
+        return s.blocks.clone();
+    }
+    s.blocks.iter().filter(|(_, st)| !st.starts_with("minecraft:daylight_detector")).cloned().collect()
+}
+
+/// The daylight detectors a bench start places at the summon (none otherwise).
+fn scene_held_detectors(s: &Scene) -> Vec<([i32; 3], String)> {
+    if !scene_bench_start(&s.name) {
+        return Vec::new();
+    }
+    s.blocks.iter().filter(|(_, st)| st.starts_with("minecraft:daylight_detector")).cloned().collect()
+}
+
+/// A bench start's output chest (the design's `port output`).
+fn scene_bench_output(s: &Scene) -> Option<[i32; 3]> {
+    if !scene_bench_start(&s.name) {
+        return None;
+    }
+    drive_design(&s.name)?.ports.get("output").copied()
 }
 
 /// A scene's block-entity data merged after the raw paste (its design's `nbt:` lines; none for a
@@ -785,11 +834,13 @@ fn wall(out: &mut Vec<([i32; 3], String)>, a: (i32, i32), b: (i32, i32), y: i32,
 }
 
 /// The connected states of the scene's oak fences (a fence joins the fences beside it), so raw
-/// placement leaves them as the game would after any shape update.
+/// placement leaves them as the game would after any shape update. (A fence gate is not a fence:
+/// it keeps its own state.)
 fn connect_fences(blocks: &mut [([i32; 3], String)]) {
-    let fences: std::collections::HashSet<[i32; 3]> = blocks.iter().filter(|(_, s)| s.starts_with("minecraft:oak_fence")).map(|(p, _)| *p).collect();
+    let is_fence = |s: &str| s == "minecraft:oak_fence" || s.starts_with("minecraft:oak_fence[");
+    let fences: std::collections::HashSet<[i32; 3]> = blocks.iter().filter(|(_, s)| is_fence(s)).map(|(p, _)| *p).collect();
     for (p, s) in blocks.iter_mut() {
-        if !s.starts_with("minecraft:oak_fence") {
+        if !is_fence(s) {
             continue;
         }
         let has = |dx: i32, dz: i32| fences.contains(&[p[0] + dx, p[1], p[2] + dz]);
@@ -1866,6 +1917,33 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-10, b8949c96's village door) natural doors' halves (DoorBlock.updateShape:
+    // waxed copper doors, natural rows; oak parses as redsim's modeled door): an upper half removed
+    // (a zombie's BreakDoorGoal: the lower half pops its loot), a lower half removed, the floor
+    // under a lower half removed, an upper half swapped for another door's (the lower half follows),
+    // and the modeled oak door's upper half removed (scene_actions: "door-halves")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        let door = |name: &str, facing: &str, hinge: &str, half: &str| format!("minecraft:{name}[facing={facing},half={half},hinge={hinge},open=false,powered=false]");
+        for (x, name, facing, hinge) in [(4, "waxed_copper_door", "east", "left"), (8, "waxed_oxidized_copper_door", "north", "left"), (12, "waxed_oxidized_copper_door", "south", "right"), (16, "waxed_oxidized_copper_door", "west", "right"), (20, "oak_door", "north", "left")] {
+            b.push(([x, 64, 4], door(name, facing, hinge, "lower")));
+            b.push(([x, 65, 4], door(name, facing, hinge, "upper")));
+        }
+        v.push(Scene {
+            name: "door-halves".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 68, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-10, ironspec's contact request) a gravity queue of six minecarts, each
     // with a villager, pressed together down a rail slope against a stone at its foot, the riders
     // panicking at a zombie in a boat in sight (their travel pushes the carts); every 200 gt from
@@ -2677,7 +2755,7 @@ impl GameScene {
             w.call(json!({"op": "world", "sandbox": sb, "player": {"pos": p, "mode": mode, "simulation": 6, "view": 6}}))?;
         }
         if !s.blocks.is_empty() {
-            w.set_blocks(sb, &s.blocks, PlaceMode::Raw)?;
+            w.set_blocks(sb, &scene_placed_blocks(s), PlaceMode::Raw)?;
         }
         // (tickexact 2026-11-10) the block entities' data (a merged or judge-placed scene), then
         // for a judge-placed one the shape update of every wire and the `self` update of every
@@ -2686,10 +2764,18 @@ impl GameScene {
             w.merge_block_entity(sb, p, &nbt)?;
         }
         if scene_judge_placed(&s.name) {
-            let wires: Vec<[i32; 3]> = s.blocks.iter().filter(|(_, st)| st.starts_with("minecraft:redstone_wire")).map(|(p, _)| *p).collect();
+            let placed = scene_placed_blocks(s);
+            let wires: Vec<[i32; 3]> = placed.iter().filter(|(_, st)| st.starts_with("minecraft:redstone_wire")).map(|(p, _)| *p).collect();
             w.update(sb, &wires, "shape")?;
-            let all: Vec<[i32; 3]> = s.blocks.iter().map(|(p, _)| *p).collect();
+            let all: Vec<[i32; 3]> = placed.iter().map(|(p, _)| *p).collect();
             w.update(sb, &all, "self")?;
+        }
+        // (a bench start: the output chest set when it is not one, and emptied)
+        if let Some(out) = scene_bench_output(s) {
+            if !s.blocks.iter().any(|(q, st)| *q == out && st.contains("chest")) {
+                w.set_blocks(sb, &[(out, BENCH_CHEST.to_string())], PlaceMode::Raw)?;
+            }
+            w.merge_block_entity(sb, out, "{Items:[]}")?;
         }
         // (tickexact 2026-11-10, farmopt's station) a design's Nether part: the Nether sandbox
         // (kept loaded, not simulated until a crossing), pasted as redsim's (a merged scene: its
@@ -2771,6 +2857,13 @@ impl GameScene {
 
     /// Summon the scene's mobs (seeded); their numbers.
     pub fn summon(&mut self, s: &Scene) -> Result<Vec<u64>> {
+        // (a bench start: the daylight detectors held back, placed raw with their updates)
+        let held = scene_held_detectors(s);
+        if !held.is_empty() {
+            self.w.set_blocks(self.sb, &held, PlaceMode::Raw)?;
+            let at: Vec<[i32; 3]> = held.iter().map(|(p, _)| *p).collect();
+            self.w.update(self.sb, &at, "self")?;
+        }
         let specs: Vec<serde_json::Value> = s.mobs.iter().map(|(ty, p, nbt)| json!({"type": ty, "pos": p, "nbt": nbt})).collect();
         let v = self.w.call(json!({"op": "summon", "sandbox": self.sb, "mobs": true, "entities": specs}))?;
         Ok(v["net_ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default())
@@ -2914,7 +3007,7 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
         w.mob.ai.players.push(redsim::entity::mob::ai::Player { pos: redsim::entity::Vec3::new(p[0], p[1], p[2]), mode, invulnerable: false });
     }
     let mut list = Vec::new();
-    for (p, st) in &s.blocks {
+    for (p, st) in &scene_placed_blocks(s) {
         // a block redsim models by kind, else a natural state from the table (a nether portal)
         list.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("{st}: {e}"))?));
     }
@@ -2925,6 +3018,14 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     redsim::redstone::container::apply_block_entities(&mut w, bes.iter().map(|(p, nbt)| (*p, nbt.as_str()))).map_err(|e| anyhow!(e))?;
     if scene_judge_placed(&s.name) {
         w.place_updates(&list);
+    }
+    // (a bench start: the output chest set when it is not one, and emptied, as `Run::start`)
+    if let Some(out) = scene_bench_output(s) {
+        let at = BlockPos::new(out[0], out[1], out[2]);
+        if !matches!(w.get(at), Block::Chest { .. }) {
+            w.set_block(at, Block::parse(BENCH_CHEST).map_err(|e| anyhow!(e))?, redsim::world::flags::RAW);
+        }
+        redsim::redstone::container::apply_block_entities(&mut w, [(at, "{Items:[]}")]).map_err(|e| anyhow!(e))?;
     }
     w.mirror_level_random(seed, s.chunks);
     w.random_ticks = Some(redsim::crops::RandomTicks::new(s.random_tick_speed, seed));
@@ -3008,6 +3109,13 @@ fn scene_nether(name: &str, seed: i64, random_tick_speed: u32) -> Result<Option<
 
 /// Summon the scene's mobs in redsim (no follow-range bonus: a summon has none).
 pub fn redsim_summon(w: &mut World, s: &Scene) -> Result<Vec<u64>> {
+    // (a bench start: the daylight detectors held back, placed raw with their updates, as
+    // `Run::arrive` does)
+    let held: Vec<(BlockPos, Block)> = scene_held_detectors(s).iter().map(|(p, st)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).map_err(|e| anyhow!("{st}: {e}"))?))).collect::<Result<_>>()?;
+    if !held.is_empty() {
+        w.place_raw(&held);
+        w.place_updates(&held);
+    }
     let mut ids = Vec::new();
     for (ty, p, nbt) in &s.mobs {
         let id = redsim::entity::spawn(w, ty, *p, nbt.as_deref()).map_err(|e| anyhow!(e))?;
