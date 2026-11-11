@@ -91,6 +91,10 @@ pub enum MobfarmCmd {
         /// sample=village-edge` judges a void design in that terrain sample.
         #[arg(long)]
         meta: Vec<String>,
+        /// A block to set, `x,y,z=state` in the design's own coordinates (repeatable; `air`
+        /// removes the cell): a fault copy of a farm (the bed removed, say).
+        #[arg(long)]
+        set: Vec<String>,
     },
     /// The built farm's lines of sight: each villager's eye to the zombie's eye (the hostile
     /// sensor's test), standing and asleep on its bed (bed + 0.8875), as built and with every
@@ -3142,6 +3146,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let clear: Vec<i64> = all.iter().filter_map(|v| Some(v.tee_back?.0 - v.branch?)).collect();
                     let xmin = all.iter().filter_map(|v| v.tee_back.map(|b| b.1)).filter(|x| x.is_finite()).fold(f64::INFINITY, f64::min);
                     println!("  the siding's T back to entry-bed: {} gt after a nap visit's arrival, {} gt after F on a visit sent out by F; {} gt after its cart came onto the exit branch, the cart then at x {:.2} or more (the T's cell x 1..2)", span(nap_back), span(f_back), span(clear), xmin);
+                    // (design (b)'s napper-aboard sensor, when the design has it)
+                    let seats: Vec<&crate::siding::SeatLog> = oks.iter().filter_map(|r| r.seat.as_ref()).collect();
+                    if !seats.is_empty() {
+                        let sum = |f: fn(&crate::siding::SeatLog) -> u32| seats.iter().map(|s| f(s)).sum::<u32>();
+                        println!("  the napper-aboard sensor at (1,2,1) (a tripwire, or a stone plate on the booster's glass): on {} times with a seated villager in its band, {} times without one; seated villagers in its band with it off: {} ticks; on {} ticks; ticks with a villager standing under it or on the free cell beside it: {}", sum(|s| s.on_seated), sum(|s| s.on_other), sum(|s| s.missed), sum(|s| s.on_ticks), sum(|s| s.seen_standing));
+                        for e in seats.iter().flat_map(|s| s.examples.iter()).take(8) {
+                            println!("    {e}");
+                        }
+                        let tops: Vec<(f64, f64)> = seats.iter().filter_map(|s| s.seated_top).collect();
+                        let feet: Vec<(f64, f64)> = seats.iter().filter_map(|s| s.seated_feet).collect();
+                        if !tops.is_empty() {
+                            println!("    seated villagers anywhere: box top {:.3}..{:.3}, feet {:.3}..{:.3} above their cart's position", tops.iter().map(|x| x.0).fold(f64::INFINITY, f64::min), tops.iter().map(|x| x.1).fold(f64::NEG_INFINITY, f64::max), feet.iter().map(|x| x.0).fold(f64::INFINITY, f64::min), feet.iter().map(|x| x.1).fold(f64::NEG_INFINITY, f64::max));
+                        }
+                    }
                 }
                 // (the fault injection at a stateful element: the faulted visit, the next ones,
                 // and the visits until one is clean again, per seed)
@@ -3830,10 +3848,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{x} {y} {z}: {}", w.get(redsim::BlockPos::new(x, y, z)));
             }
         }
-        MobfarmCmd::Edit { design, chest, how, meta } => {
-            let text = std::fs::read_to_string(&design)?;
-            let out = crate::layouts::edit_meta(&text, chest, how.as_deref(), &meta)?;
-            std::fs::write(&design, out)?;
+        MobfarmCmd::Edit { design, chest, how, meta, set } => {
+            if !set.is_empty() {
+                let mut d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+                for s in &set {
+                    let (c, state) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=state, not {s:?}"))?;
+                    let v: Vec<i32> = c.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--set x,y,z=state, not {s:?}");
+                    let state = state.trim();
+                    let full = if state.contains(':') { state.to_string() } else { format!("minecraft:{state}") };
+                    if full == "minecraft:air" {
+                        d.blocks.remove(&[v[0], v[1], v[2]]);
+                    } else {
+                        d.blocks.insert([v[0], v[1], v[2]], full);
+                    }
+                }
+                std::fs::write(&design, d.to_text())?;
+            }
+            if chest || how.is_some() || !meta.is_empty() {
+                let text = std::fs::read_to_string(&design)?;
+                let out = crate::layouts::edit_meta(&text, chest, how.as_deref(), &meta)?;
+                std::fs::write(&design, out)?;
+            }
             println!("{}", design.display());
         }
         MobfarmCmd::Sight { design, terrain, spawns } => {

@@ -392,6 +392,25 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     for x in 3..=5 {
         on(b, [x, -2, 8], dust)?;
     }
+    // (design (b), the napper-aboard sensing, measured first (ironspec 2026-11-10 23:25):
+    // MCTAS_SIDING_SEAT=1 strings a tripwire at (1,2,1), over the booster north of the free cell,
+    // between hooks at (1,2,0) and (1,2,2) on glass at (1,2,-1) and (1,2,3). A seated villager's
+    // box (its feet on the cart's seat, about 0.25 up) tops out near 2.2 and crosses the string's
+    // band (2.06-2.16); a villager standing on a rail tops out at 1.95, no villager can stand on
+    // the booster (the glass at (1,1,1)), and an empty cart reaches 0.76)
+    if std::env::var("MCTAS_SIDING_SEAT").is_ok_and(|v| v == "1") {
+        put(b, [1, 2, -1], "glass")?;
+        put(b, [1, 2, 0], "tripwire_hook[attached=true,facing=south,powered=false]")?;
+        put(b, [1, 2, 1], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+        put(b, [1, 2, 2], "tripwire_hook[attached=true,facing=north,powered=false]")?;
+        put(b, [1, 2, 3], "glass")?;
+    }
+    // (MCTAS_SIDING_SEAT=2: a stone pressure plate at (1,2,1), on the booster's glass ceiling
+    // (1,1,1): its touch box, y 2.0-2.25, meets a seated villager's top (2.0125 on a flat rail)
+    // and not a standing one's (1.95); no villager can stand on the booster under the glass)
+    if std::env::var("MCTAS_SIDING_SEAT").is_ok_and(|v| v == "2") {
+        put(b, [1, 2, 1], "stone_pressure_plate[powered=false]")?;
+    }
     // glass caps on the circuit's solid tops a golem could stand on (N1, N2, BK, the hook's stone)
     for c in [[-5, -2, 2], [-7, -2, -1], [2, -1, 6], [4, 1, -2]] {
         put(b, c, "glass")?;
@@ -993,6 +1012,25 @@ pub struct BenchReport {
     pub day_visits: bool,
     /// The partial unload: when the chunks were dropped and when they came back.
     pub unload: Option<(i64, Option<i64>)>,
+    /// The napper-aboard sensor (`MCTAS_SIDING_SEAT=1`, the tripwire at (1,2,1)): its turns on
+    /// with a seated villager in its band, its turns on without one (and what was there), the
+    /// ticks a seated villager crossed the band with the string unpowered, the ticks it was on, a
+    /// few examples.
+    pub seat: Option<SeatLog>,
+}
+
+/// The napper-aboard sensor's measurement ([`BenchReport::seat`]).
+#[derive(Clone, Debug, Default)]
+pub struct SeatLog {
+    pub on_seated: u32,
+    pub on_other: u32,
+    pub missed: u32,
+    pub on_ticks: u32,
+    pub seen_standing: u32,
+    /// Every seated villager's box top seen (min, max) and its feet above its cart's (min, max).
+    pub seated_top: Option<(f64, f64)>,
+    pub seated_feet: Option<(f64, f64)>,
+    pub examples: Vec<String>,
 }
 
 fn block(s: &str) -> Block {
@@ -1176,6 +1214,20 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     };
     let mut tee_prev = tee_shape(&run.world);
     let mut kick_seen: Option<i64> = None;
+    // (the napper-aboard sensor, when the design has it: the string's band, or the plate's touch
+    // box, and its last state)
+    let seat_cell = BlockPos::new(1 + dx, 2, 1 + dz);
+    let plate = run.world.get(seat_cell).to_string().contains("pressure_plate");
+    let seat_band = if plate {
+        redsim::entity::Aabb { min_x: seat_cell.x as f64 + 1.0 / 16.0, min_y: 2.0, min_z: seat_cell.z as f64 + 1.0 / 16.0, max_x: seat_cell.x as f64 + 15.0 / 16.0, max_y: 2.25, max_z: seat_cell.z as f64 + 15.0 / 16.0 }
+    } else {
+        redsim::entity::Aabb { min_x: seat_cell.x as f64, min_y: 2.0 + 1.0 / 16.0, min_z: seat_cell.z as f64, max_x: seat_cell.x as f64 + 1.0, max_y: 2.0 + 2.5 / 16.0, max_z: seat_cell.z as f64 + 1.0 }
+    };
+    let mut seat_prev = false;
+    let mut seat_seated_last: i64 = i64::MIN;
+    if plate || matches!(run.world.get(seat_cell), Block::Tripwire { .. }) {
+        rep.seat = Some(SeatLog::default());
+    }
     let mut probe_last: Vec<String> = Vec::new();
     while run.world.time < end {
         let now = run.world.time;
@@ -1438,6 +1490,60 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         run.tick();
         let t = run.world.time;
+        if let Some(sl) = rep.seat.as_mut() {
+            let w = &run.world;
+            let on = w.get(seat_cell).to_string().contains("powered=true");
+            // (who is in the band now: seated villagers, and any other entity)
+            let mut seated: Vec<String> = Vec::new();
+            let mut others: Vec<String> = Vec::new();
+            for e in w.entities.list.iter().filter(|e| !e.removed && e.bb.intersects(seat_band)) {
+                let villager = matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager);
+                let cart = e.vehicle.and_then(|v| w.entities.list.iter().find(|x| x.id == v && !x.removed)).map(|c| format!(" in a cart at {:.3} {:.4} {:.3}", c.pos.x - dx as f64, c.pos.y, c.pos.z - zf)).unwrap_or_default();
+                let what = format!("{} at {:.2} {:.4} {:.2} top {:.4}{}{cart}", if villager { "villager" } else { "entity" }, e.pos.x - dx as f64, e.pos.y, e.pos.z - zf, e.bb.max_y, if e.vehicle.is_some() { " seated" } else { "" });
+                if villager && e.vehicle.is_some() {
+                    seated.push(what);
+                } else {
+                    others.push(what);
+                }
+            }
+            // (a standing villager under the string's cell: near it but not in the band)
+            let near = w.entities.list.iter().any(|e| !e.removed && e.vehicle.is_none() && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) && e.bb.min_x < seat_band.max_x && e.bb.max_x > seat_band.min_x && e.bb.min_z < seat_band.max_z + 1.0 && e.bb.max_z > seat_band.min_z);
+            if near {
+                sl.seen_standing += 1;
+            }
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager)) {
+                if let Some(c) = e.vehicle.and_then(|v| w.entities.list.iter().find(|x| x.id == v && !x.removed)) {
+                    let (top, feet) = (e.bb.max_y, e.pos.y - c.pos.y);
+                    sl.seated_top = Some(sl.seated_top.map_or((top, top), |(a, b)| (a.min(top), b.max(top))));
+                    sl.seated_feet = Some(sl.seated_feet.map_or((feet, feet), |(a, b)| (a.min(feet), b.max(feet))));
+                }
+            }
+            if !seated.is_empty() {
+                seat_seated_last = t;
+            }
+            if on {
+                sl.on_ticks += 1;
+            }
+            if on && !seat_prev {
+                if !seated.is_empty() || t - seat_seated_last <= 2 {
+                    sl.on_seated += 1;
+                    if sl.examples.len() < 3 {
+                        sl.examples.push(format!("on at t0+{}: {}", t - t0, seated.join("; ")));
+                    }
+                } else {
+                    sl.on_other += 1;
+                    sl.examples.push(format!("ON WITHOUT A SEATED VILLAGER at t0+{}: {}", t - t0, if others.is_empty() { "nothing in the band".to_string() } else { others.join("; ") }));
+                }
+            }
+            // (a seated villager in the band two ticks running with the string off: missed)
+            if !seated.is_empty() && !on && !seat_prev && t - seat_seated_last == 0 {
+                sl.missed += 1;
+                if sl.examples.len() < 12 {
+                    sl.examples.push(format!("missed at t0+{}: {}", t - t0, seated.join("; ")));
+                }
+            }
+            seat_prev = on;
+        }
         {
             let sh = tee_shape(&run.world);
             if sh != tee_prev {

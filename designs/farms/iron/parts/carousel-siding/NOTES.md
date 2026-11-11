@@ -26,10 +26,24 @@ joined to the loop.**
 - **Missing:** ironfarm's two junctions (the entry off the departure run, the merge into the
   release run) and the zombies along the loop.
 - **The give-up (day-1's force input F):**
-  - **F's window, met** (2026-11-10 21:30, the long nap path below): the stuck cart's F to past
-    the exit is 55-58 gt against ironspec's 60.5 at k2 with the +6 missed-golem corner (day-1's
-    +4 gt of D at k2): the double-fault corner closes by 2.5 gt; at nominal F the margins are k0
-    25, k1 12.5, k2 8.5.
+  - **Open, a must-have: F's window NOT met** (2026-11-11 00:00, measured on day-1's loop; the
+    earlier "met, the corner closing by 2.5 gt" was against the wrong deadline). The siding's own
+    part is unchanged: F to past the exit 55-58 gt. But a stuck cart's binding deadline is its
+    drop-line hold's 12-gt release pulse, not the queue's kick: on day-1's fold (ca69490a8a) the
+    holds release at k0 +444..455, k1 +432..443, k2 +426..437 (gt after the visit release), and
+    the route from the siding's exit to them takes 67/80/88 gt, so the cart must pass the exit by
+    +388/+363/+349. With F at +320 (+326 at the corner) it passes at +375..378 (+381..384):
+    margins k0 +10/+4, k1 -15/-21, k2 -29/-35. The pre-fold file (71fee73888) is the same (holds
+    about +445/+435, routes about 60/70/80 gt). F per k cannot fix k2 alone: F after the slowest
+    onset (+181 + 121 = +302) and exit by +349 leave a -11 gt window. Fixes being priced: the
+    holds' pulses re-timed (day-1), a shorter exit-to-hold route (the stacked placement's exit
+    must reach k2's hold within 53 gt), a faster kick on F.
+  - **The failure mode today (a miss breaks the loop):** day-1's fold with the bed occupied (no
+    napper can sleep, F sends every cart out): k0's stuck cart made slot 14 (at rest +524); k1's
+    missed its hold and never completed its visit; from the next slot the release group and stand
+    counts went wrong, the queue order broke ("queue slot 15 holds None") and the returning trains
+    missed the tail; it never recovered (305 problems in 60 slots). (day-1's files still carry an
+    older siding with a slower forced exit; day-1 is re-running with main's.)
   - **Open: self-recovery after F dropped** while the napper cannot sleep: 3 of 16 seeds jam (13
     recover within one visit); the cause is traced (below), not yet fixed.
   - **Open: unloads** (the loop's chunk lines through the siding, and the whole part; below): a
@@ -414,6 +428,32 @@ junction tracks': `w` the approach's at the siding's x -9|-8, `e` the run-out's 
   out unnapped).
 - w hi 33 and e lo 33 would leave the far junction's chunk at 34 (its entities saved and
   unloaded): not modeled, not run.
+
+## Design (b), the napper-aboard sensor (emulation; ironspec and farmopt 2026-11-10 23:25)
+
+The re-board mechanism must know a seated villager from one standing on the free cell or in the
+bed, and an empty cart (a detector rail sees any cart). Measured in redsim, behind
+`MCTAS_SIDING_SEAT` (not in the member file):
+- **A tripwire at head height fails** (`=1`, a string at (1,2,1) over the booster, hooks on glass):
+  a seated villager's feet sit at its cart's own y (0.0625 on a flat rail), so its box tops out at
+  2.0125; a standing one at 1.95: 1/16 apart, below the string's band (2.06-2.16). It never fired
+  (8 seeds x 1 night, the dropped-F and by-day runs).
+- **A stone pressure plate on the booster's glass ceiling** (`=2`, at (1,2,1); +1 block, 263, 0
+  golem spots): its touch box (y 2.0-2.25) meets the seated top 2.0125 and not the standing 1.95;
+  no villager can stand on the booster (the glass at (1,1,1) leaves no headroom), and an empty
+  cart's top is 0.76. Normal visits, 8 seeds x 1 night: on 336 times with a seated villager in its
+  band (every pass in and out, 8 x 21 x 2), never without one, each a tick after the box enters;
+  the dropped-F runs (a villager standing on the free cell for thousands of ticks), by day, the
+  whole unload at the kick (empty carts passing) and the nap-onset freeze: 0 false. Its margin is
+  the 1/16 of the seat height (a rider 1/16 lower would not press it); the 26.3 bridge's check
+  (a passenger presses it; a standing villager and an empty cart do not) is asked of tick-exact.
+  Its drives: `faults/plate-normal-seed1`, `faults/plate-day-seed1`,
+  `faults/plate-whole-kick-3-seed4` (`web drive-check` ok on all three), design
+  `faults/carousel-siding-wired-plate.txt`.
+- **The retry** (a cart that fails the pickup stops dead against the villager, z about 3.3, and
+  nothing moves it): a lead, not built: the activator cell tilted to rise toward the free cell so
+  a stalled empty cart rolls back to the park and is kicked again while K holds, with the
+  approach under 0.2 b/t so the retry cannot skip the band either.
 
 ## The give-up's first version, its own timer (2026-11-10; `--give-up timer`, superseded)
 
