@@ -528,8 +528,27 @@ pub enum MobfarmCmd {
         /// carts' speed into the tail); default all boosted.
         #[arg(long)]
         climb_boost: Option<u32>,
+        /// farmopt's approach lab (with --stand-stop): the release run climbs to a flat top, then
+        /// its last N cells before pocket 3's rest slope come down with no flat and no curve (N - 2
+        /// slopes down, a snap turn onto an east-west slope, pocket 3's cell a slope); N >= 2.
+        #[arg(long, default_value_t = 0)]
+        approach: u32,
+        /// The departure's crest (with --stand-stop): the climb ends in a flat crest D cells before
+        /// the chunk line z 9|10, D slopes down to the line, boosters past it and a boosted climb
+        /// back to the tail's level.
+        #[arg(long, default_value_t = 0)]
+        depart_crest: u32,
         #[arg(long)]
         out: PathBuf,
+    },
+    /// Two designs compared cell by cell (a lab change's cost): the cells only B has (added), only
+    /// A has (removed) and those both hold with different blocks (changed), each list counted by
+    /// block kind; positions moved by --shift X,Z first (B's frame back to A's).
+    CellDiff {
+        a: PathBuf,
+        b: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        shift: Vec<i32>,
     },
     /// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
     /// from every position a villager can occupy: a loop scene's rail cells, plus the positions
@@ -1024,6 +1043,40 @@ pub enum MobfarmCmd {
         /// slot's cart positions as `expect <t> pos eN x y z`) for mobviewer's replay.
         #[arg(long)]
         drive_out: Option<PathBuf>,
+        /// The approach's rest check instead of a run: a lone ridden cart set on each cell
+        /// ("x,y,z;x,y,z", the loop's frame; `approach`: every cell from the queue head's slope up
+        /// to pocket 3's rest slope) at each --rest-speeds speed; where it comes to rest.
+        #[arg(long, allow_hyphen_values = true)]
+        place_rest: Option<String>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "0,-0.1,0.1")]
+        rest_speeds: Vec<f64>,
+        /// C', the train-synchronous D1 fallback, emulated: X,Y,Z,DELAY,FOR: each rising edge of the
+        /// detector rail at X,Y,Z (the loop's frame) puts a redstone block on F's stone (5,-2,2)
+        /// DELAY gt later for FOR gt (remove T3 with --act 0,0,5,-3,2,glass).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        c_prime: Vec<i64>,
+        /// With --c-prime: REL held on to C''s edge + E gt when it is on at the edge (a
+        /// train-synchronous end for the stand's release window).
+        #[arg(long)]
+        rel_ext: Option<i64>,
+        /// The stand's REL held at least L gt from its rise (a pulse extender on REL: its end at
+        /// max(the controller's end, rise + L)); no rise, no extension.
+        #[arg(long, default_value_t = 0)]
+        rel_min: i64,
+        /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
+        /// partial unloads too when the design is shifted), on --seeds seeds from --seed, --jobs
+        /// threads; a value keeps only the cases whose name contains it ("D1|REL").
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        fault_table: Option<String>,
+        /// With --fault-table: the perfect tail (the queue reset at every slot from 6).
+        #[arg(long)]
+        perfect_tail: bool,
+        /// With --fault-table: every case at REL nominal, early and late x staggers 2, 3, 4, 6.
+        #[arg(long)]
+        all_corners: bool,
+        /// The tolerance corners instead of a run: REL nominal, early and late x staggers 2, 3, 4, 6.
+        #[arg(long)]
+        corner_table: bool,
     },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
@@ -2001,7 +2054,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2010,7 +2063,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost };
+            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2022,6 +2075,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("stand S1 S2 S3: {}", fmt(&lay.stand));
             if let Some(r) = lay.stand_rel {
                 println!("wired pocket stand: REL input cell ({},{},{}): a redstone block opens the three gates and resets the latch, glass lets it count", r.x, r.y, r.z);
+            }
+        }
+        MobfarmCmd::CellDiff { a, b, shift } => {
+            let (_, sa) = load(version, &a)?;
+            let (_, sb) = load(version, &b)?;
+            let (dx, dz) = match shift.as_slice() { [x, z] => (*x, *z), [] => (0, 0), _ => anyhow::bail!("--shift takes X,Z") };
+            let ma: std::collections::BTreeMap<[i32; 3], String> = sa.blocks.iter().map(|(p, k)| ([p.x, p.y, p.z], k.to_string().replace("minecraft:", ""))).collect();
+            let mb: std::collections::BTreeMap<[i32; 3], String> = sb.blocks.iter().map(|(p, k)| ([p.x - dx, p.y, p.z - dz], k.to_string().replace("minecraft:", ""))).collect();
+            let kind = |s: &str| s.split('[').next().unwrap_or("").to_string();
+            let count = |v: &[String]| { let mut m: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new(); for s in v { *m.entry(kind(s)).or_default() += 1; } m.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", ") };
+            let added: Vec<String> = mb.iter().filter(|(p, _)| !ma.contains_key(*p)).map(|(p, s)| format!("{},{},{} {s}", p[0], p[1], p[2])).collect();
+            let removed: Vec<String> = ma.iter().filter(|(p, _)| !mb.contains_key(*p)).map(|(p, s)| format!("{},{},{} {s}", p[0], p[1], p[2])).collect();
+            let changed: Vec<String> = ma.iter().filter_map(|(p, s)| mb.get(p).filter(|t| *t != s).map(|t| format!("{},{},{} {s} -> {t}", p[0], p[1], p[2]))).collect();
+            let strip = |v: &[String]| v.iter().map(|s| s.split(' ').nth(1).unwrap_or("").to_string()).collect::<Vec<_>>();
+            println!("ADDED ({}): {}", added.len(), count(&strip(&added)));
+            for s in &added {
+                println!("  {s}");
+            }
+            println!("REMOVED ({}): {}", removed.len(), count(&strip(&removed)));
+            for s in &removed {
+                println!("  {s}");
+            }
+            println!("CHANGED ({})", changed.len());
+            for s in &changed {
+                println!("  {s}");
             }
         }
         MobfarmCmd::QueueLoopSpots { design, positions, offset, within, rails, with_entities, list, pad, stand } => {
@@ -2150,7 +2228,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, fault_table, perfect_tail, all_corners, corner_table } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             if let Some(sf) = &siding {
@@ -2213,7 +2291,36 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            // (`--place-rest`: the approach's rest check instead of a run)
+            if let Some(pr) = &place_rest {
+                let cells: Vec<[i32; 3]> = if pr == "approach" {
+                    Vec::new()
+                } else {
+                    pr.split(';').filter(|s| !s.trim().is_empty()).map(|s| {
+                        let v: Vec<i32> = s.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "--place-rest takes x,y,z;x,y,z or approach");
+                        Ok([v[0], v[1], v[2]])
+                    }).collect::<Result<_>>()?
+                };
+                println!("{}", crate::queue::rest_check(&spec, &o, &cells, &rest_speeds, cycles.max(3) * 100).map_err(|e| anyhow::anyhow!(e))?);
+                return Ok(());
+            }
+            // (`--fault-table`, `--corner-table`: farmopt's approach lab tables)
+            let seed_list: Vec<i64> = (seed..seed + seeds).collect();
+            if let Some(f) = &fault_table {
+                let mut t = tm;
+                for s in &shift {
+                    let (n, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--shift takes name=gt"))?;
+                    t = crate::queue::loop_shifted(&t, n, v.parse()?).map_err(|e| anyhow::anyhow!(e))?;
+                }
+                println!("{}", crate::approach::fault_table(&spec, &o, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners).map_err(|e| anyhow::anyhow!(e))?);
+                return Ok(());
+            }
+            if corner_table {
+                println!("{}", crate::approach::corner_table(&spec, &o, &tm, &seed_list, cycles, jobs).map_err(|e| anyhow::anyhow!(e))?);
+                return Ok(());
+            }
             // (`--shift name=gt,...`: controls shifted as the sweep shifts them, e.g. to rerun a
             // corner without one of its controls)
             let mut tm = tm;
