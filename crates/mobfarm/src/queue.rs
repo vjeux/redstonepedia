@@ -2214,6 +2214,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut ev_seen = run.world.mob.events.len();
     let mut crossed_seen = run.world.crossings.len();
     let mut pad_golems: Vec<(u32, i64, u32, [i32; 3], i64, i64)> = Vec::new();
+    let mut out_of_turn: Vec<String> = Vec::new();
     let mut nether_golems: Vec<(u32, i64, Option<i64>, u32)> = Vec::new();
     let (mut pulses, mut spurious_pulses, mut pulse_was) = (0u32, 0u32, false);
     let mut slept_night: Option<i64> = None;
@@ -2821,6 +2822,16 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             for ev in evs {
                 if let redsim::entity::mob::MobEvent::GolemTry { t: et, villager, golem: Some(id), at: Some(cell), .. } = ev {
                     pad_golems.push((id, et, villager, cell, c, dt));
+                    // (in turn: the summoner on a stand cell or its pocket; any other position
+                    // is an out-of-turn summon onto the pad, the brief's flag, here as it happened)
+                    let at = redsim::entity::index_of(&run.world, villager).map(|i| run.world.entities.list[i].pos);
+                    let in_turn = at.is_some_and(|p| {
+                        let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                        lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1)
+                    });
+                    if !in_turn {
+                        out_of_turn.push(format!("slot {c} +{dt}: villager e#{villager} at {}", at.map_or("gone".to_string(), |p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z))));
+                    }
                 }
             }
             for &(ct, from, to) in &run.world.crossings[crossed_seen.min(run.world.crossings.len())..] {
@@ -3455,6 +3466,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         ));
         if tm.slept {
             out.push(format!("LAST_SLEPT bench-driven (--slept): every rider's set {slept_acts} times (the start and each night from day time 13,000), the station bench's stand-in for the siding's naps"));
+        }
+        out.push(format!("summons onto the pad out of turn (the summoner not on a stand cell or its pocket): {} of {}{}", out_of_turn.len(), pad_golems.len(), if out_of_turn.is_empty() { String::new() } else { format!(": {}", out_of_turn.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }));
+        for s in out_of_turn.iter().take(3) {
+            problems.push(format!("a summon onto the pad out of turn: {s}"));
         }
     }
     if !golem_log.is_empty() {
