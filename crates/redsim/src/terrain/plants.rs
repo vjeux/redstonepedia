@@ -147,6 +147,48 @@ pub fn update_shape(w: &mut World, s: Block, id: u16, p: BlockPos, d: Dir, ns: B
     if can_survive(w, id, p) { s } else { Block::Air }
 }
 
+// ------------------------------------------------------------------ natural doors
+
+/// Whether natural row `id` is a door (`DoorBlock`: any wood, copper, iron).
+pub fn is_door(id: u16) -> bool {
+    is_class(blocks::props(id), "DoorBlock")
+}
+
+/// (tickexact 2026-11-10, b8949c96's village door) `DoorBlock.updateShape` of the natural door
+/// `s` (row `id`) at `p`, its neighbour `d` now `ns`: along the vertical toward its other half,
+/// that neighbour's own state with this half when it is a door's other half (the halves follow
+/// each other: facing, hinge, open, powered, the block itself), else air; the lower half air when
+/// the block below no longer holds it (`canSurvive`: a sturdy top face). A half turned to air goes
+/// through `updateOrDestroy`: the lower half's loot pops (a zombie breaking a door removes its
+/// upper half, `doorPos` being its path node's cell above).
+pub fn door_update_shape(w: &mut World, s: Block, id: u16, p: BlockPos, d: Dir, ns: Block) -> Block {
+    let props = blocks::props(id);
+    let lower = is_lower(props);
+    if !matches!(d, Dir::Up | Dir::Down) || lower != (d == Dir::Up) {
+        if lower && d == Dir::Down && !sturdy_up(w, &w.get(p.below()), p.below()) {
+            return Block::Air;
+        }
+        return s;
+    }
+    match ns {
+        Block::Terrain(n) if is_class(blocks::props(n), "DoorBlock") && is_lower(blocks::props(n)) != lower => {
+            let name = blocks::props(n).name.replace(if lower { "half=upper" } else { "half=lower" }, if lower { "half=lower" } else { "half=upper" });
+            match blocks::id_of(&name) {
+                Some(m) => Block::Terrain(m),
+                None => {
+                    let e = format!("natural {} at {p}: its other half {name} has no natural row, not modeled", props.name);
+                    if !w.errors.contains(&e) {
+                        w.errors.push(e);
+                    }
+                    s
+                }
+            }
+        }
+        Block::Door { iron, facing, upper, hinge_right, open, powered } if upper == lower => Block::Door { iron, facing, upper: !lower, hinge_right, open, powered },
+        _ => Block::Air,
+    }
+}
+
 /// A natural state redsim does not model reacting to a neighbour that turned to air on a side its
 /// row says it reacts to (`support`): a named model error (the game changes or breaks it).
 pub fn unmodeled_update(w: &mut World, id: u16, p: BlockPos, d: Dir, ns: &Block) {

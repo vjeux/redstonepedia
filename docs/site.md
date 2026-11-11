@@ -514,7 +514,12 @@ the list by union (`.gitattributes`). The 404 page links absolutely (`/redstonep
   cycle shows that period as the clock's time (`ClockInfo::pulse_every`, `every()`; the cycle is
   its "full cycle"). Every build page says what the build needs in its opening lines
   (`plain::needs`: a TNT duper's height above the ground from its safe-drop metric, the items its
-  containers start with from the design's `nbt:` lines, water, open sky) next to its warning
+  containers start with from the design's `nbt:` lines, water, open sky; first of all a
+  chunk-aligned design's `chunk:` line, `plain::chunk_step`: where its reference block goes,
+  facing as the download does, read on the debug screen's Chunk line, the block's position
+  inside its chunk (0 to 15; "X mod 16" misleads at a negative X), with a worked fallback; the
+  page guard reads the debug key's name as a design code, so the step says "debug screen") next
+  to its warning
   (sculk, facing one way, one spot in the world). One build archived under two kinds (`same_build`)
   shows once on the Circuits tab (`kind-twin`, hidden unless its own kind is picked) with an
   "also a ..." chip on the other; shulker machines timed with other items (the same blocks) are

@@ -47,6 +47,10 @@ pub struct Look {
     /// A mob farm's golem spawn area drawn over its cells (the live viewer's "Spawn spots",
     /// [`crate::mobfarm::MobRun::spots`]).
     pub spawn_spots: bool,
+    /// A design's chunk borders (the live viewer; a design with a `chunk:` alignment,
+    /// [`crate::design::ChunkAlign`]): its footprint's low and high corners and the residues of
+    /// the design x and z that start a chunk ([`crate::mesh::Builder::chunk_grid`]).
+    pub chunk_grid: Option<(Pos, Pos, [i32; 2])>,
 }
 
 /// Where the real-game pictures put the orange marker (`clock/src/shot.rs::marker_cell`): the
@@ -156,7 +160,7 @@ pub fn default_look(s: &Session) -> Look {
     // under the lowest cell
     // (a farm in its terrain stands on its landscape: no ground of the view's own)
     let ground = if s.terrain.is_some() { None } else { Some(lo[1] as f32 - 1.0) };
-    Look { marker, lit_marker: false, outlines, input_spans, port_outlines, ground, floor_margin: None, ghost, track: None, spawn_spots: false }
+    Look { marker, lit_marker: false, outlines, input_spans, port_outlines, ground, floor_margin: None, ghost, track: None, spawn_spots: false, chunk_grid: None }
 }
 
 /// An OUT box's outline colour (the OUT tag's), and while its output is powered.
@@ -203,6 +207,14 @@ pub fn viewer_look(s: &Session) -> Look {
         // under the path; a machine flying up or down: behind it (the pictures' camera looks
         // from the south, toward -z)
         look.track = Some((lo, hi, axis, if axis == 1 { 2 } else { 1 }));
+    }
+    // a design with a chunk alignment (ironspec 2026-11-10): the chunk borders under it, so a
+    // player sees where its aligned part's chunk falls (the reference block at the middle of its
+    // ranges)
+    if let Some(c) = s.design.chunk
+        && let Some((lo, hi)) = s.design.bounds()
+    {
+        look.chunk_grid = Some((lo, hi, c.borders()));
     }
     look
 }
@@ -476,6 +488,11 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
         }
         if look.spawn_spots {
             spawn_spots_into(b, s);
+        }
+        // a design's chunk borders (seen through the blocks, as the spawn sheet: drawn with the
+        // frame's own part, the blocks' kept mesh keeps no X-ray face)
+        if let Some((lo, hi, r)) = look.chunk_grid {
+            b.chunk_grid(lo, hi, lo[1] as f32, r);
         }
     }
 }
@@ -1024,6 +1041,7 @@ pub fn thumbnail_look(s: &Session, look: &mut Look) {
     look.outlines.clear();
     look.input_spans.clear();
     look.track = None;
+    look.chunk_grid = None;
     let targets: Vec<Pos> = s.design.ports.iter().filter(|(n, _)| *n == "target" || n.starts_with("target.")).map(|(_, (p, _))| *p).collect();
     look.port_outlines.retain(|(p, _)| targets.contains(p));
 }
@@ -2034,6 +2052,29 @@ mod tests {
         assert!(viewer_look(&gate).track.is_none());
         let pext = Session::new(&read("circuits/pext/archive/pext-n2-rider7-flat"), &Options::default()).unwrap();
         assert!(viewer_look(&pext).track.is_none(), "an extender comes back: no track");
+    }
+
+    /// ironspec 2026-11-10: a design with a chunk alignment shows the chunk borders on its live
+    /// view (its footprint's chunks, the reference block at the middle of its ranges), seen through
+    /// the blocks; its thumbnail and a design without one show none.
+    #[test]
+    fn a_chunk_aligned_design_shows_its_chunk_borders() {
+        let text = "name: c\nchunk: 2 0 1 3-9 0-4\npalette:\n  S stone\n  R redstone_block\nlayer 0:\n  SSSSS\n  SSRSS\n";
+        let atlas = crate::atlas::Atlas::build();
+        let s = Session::new(text, &Options::default()).unwrap();
+        let mut look = viewer_look(&s);
+        assert_eq!(look.chunk_grid, Some(([0, 0, 0], [4, 0, 1], [12, 15])));
+        let xray = |look: &Look| build(&atlas, &s, 0.0, look).translucent.iter().filter(|q| q.v[0].layer & crate::mesh::XRAY != 0).count();
+        // borders x -4 and 12, z -1 and 15 around the 5 x 2 footprint: 4 lines, each seen from
+        // above and from under it
+        assert_eq!(xray(&look), 8);
+        let line = build(&atlas, &s, 0.0, &look);
+        let xs: Vec<f32> = line.translucent.iter().filter(|q| q.v[0].layer & crate::mesh::XRAY != 0).map(|q| q.center[0]).collect();
+        assert!(xs.iter().any(|x| (x + 4.0).abs() < 0.01) && xs.iter().any(|x| (x - 12.0).abs() < 0.01), "{xs:?}");
+        thumbnail_look(&s, &mut look);
+        assert_eq!((look.chunk_grid, xray(&look)), (None, 0), "no grid on its thumbnail");
+        let plain = Session::new(&text.replace("chunk: 2 0 1 3-9 0-4\n", ""), &Options::default()).unwrap();
+        assert!(viewer_look(&plain).chunk_grid.is_none());
     }
 
     #[test]

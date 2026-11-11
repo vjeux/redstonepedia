@@ -285,8 +285,15 @@ fn alert_others(w: &mut World, i: usize) {
     let p = w.entities.list[i].pos;
     let area = Aabb::new(p.x, p.y, p.z, p.x + 1.0, p.y + 1.0, p.z + 1.0).inflate(within, 10.0, within);
     let ty = mob(w, i).ty;
-    // (a zombified piglin's alertOthers is its class's: both sizes)
-    let family = |t: MobType| t == ty || (ty == MobType::Zombie && matches!(t.def().id, "zombie_villager" | "drowned" | "baby_zombie" | "baby_zombie_villager" | "baby_drowned")) || (super::zombie::is_piglin_type(ty) && super::zombie::is_piglin_type(t));
+    // getEntitiesOfClass(this.mob.getClass()): its Java class and the subclasses (a zombie's, a
+    // baby's too: husks, drowned, zombie villagers, zombified piglins), less `toIgnoreAlert` by
+    // exact class (the Zombie family's setAlertOthers(ZombifiedPiglin.class))
+    let class = java_class(ty.def().id);
+    let zombie_alert = matches!(class, "zombie" | "husk" | "drowned" | "zombie_villager");
+    let family = |t: MobType| {
+        let c = java_class(t.def().id);
+        (c == class || (class == "zombie" && matches!(c, "husk" | "drowned" | "zombie_villager" | "zombified_piglin"))) && !(zombie_alert && c == "zombified_piglin")
+    };
     let Some(by) = ai(w, i).last_hurt_by_mob else { return };
     for t in target::mobs_in(w, area, family) {
         let Who::Entity(j) = t else { continue };
@@ -300,4 +307,10 @@ fn alert_others(w: &mut World, i: usize) {
 #[allow(dead_code)]
 fn _a(w: &mut World, i: usize) {
     let _ = ai_mut(w, i);
+}
+
+/// A mob row's Java class, by its adult row (a baby's class is its adult's: `baby_zombie` is a
+/// `Zombie`).
+fn java_class(id: &str) -> &str {
+    id.strip_prefix("baby_").unwrap_or(id)
 }

@@ -583,12 +583,13 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
         EntityKind::Mob(m) => m.fire_ticks,
         _ => 0,
     };
-    // a burning arrow: `igniteForSeconds(5)` (100 ticks at least) before the hurt
+    // a burning arrow: `igniteForSeconds(5)` (100 ticks at least, x BURNING_TIME) before the hurt
+    let t100 = if matches!(w.entities.list[j].kind, EntityKind::Mob(_)) { crate::entity::mob::ignite_ticks(w, j, 100) } else { 100 };
     if st(w, i).fire > 0
         && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
-        && m.fire_ticks < 100
+        && m.fire_ticks < t100
     {
-        m.fire_ticks = 100;
+        m.fire_ticks = t100;
     }
     let enderman = matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.ty.def().id == "enderman");
     let hurt = if enderman && w.entities.list[j].vehicle.is_none() {
@@ -608,6 +609,15 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
     if hurt {
         if let Some(e) = st(w, i).effect {
             w.mob.ai.legacy.insert(e);
+        }
+        // (mob-AI 2026-11-10) doPostHurtEnemy: thorns armor's post-attack effect on the shooter
+        if let EntityKind::Mob(m) = &w.entities.list[j].kind
+            && m.armor.has(m.helmet.is_some(), "thorns")
+        {
+            let why = "an arrow on thorns armor (its post-attack effect) is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
         }
         // the hit sound's pitch, then gone
         if let Some(r) = w.entities.list[i].random.as_mut() {

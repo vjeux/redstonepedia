@@ -224,6 +224,12 @@ impl Navigation {
     /// The target's chunk is loaded (`getChunkNow` != null): it meets the world's box.
     fn chunk_loaded(w: &World, p: BlockPos) -> bool {
         let (cx, cz) = (p.x >> 4, p.z >> 4);
+        // (mob-AI 2026-11-10) `getChunkNow`: the game's chunks at full status, when the bridge
+        // reported them (a terrain world's sandbox loads void superflat chunks past the sample:
+        // a wolf at the box's edge paths into one; forest build 1 t13035)
+        if let Some(c) = w.mob.custom.as_ref().filter(|c| !c.full_chunks.is_empty()) {
+            return c.full_chunks.contains(&[cx, cz]);
+        }
         let (x0, z0) = (w.min.x >> 4, w.min.z >> 4);
         let (x1, z1) = ((w.min.x + w.size[0] - 1) >> 4, (w.min.z + w.size[2] - 1) >> 4);
         cx >= x0 && cx <= x1 && cz >= z0 && cz <= z1
@@ -294,7 +300,7 @@ impl Navigation {
             {
                 for n in eval.arena.nodes.iter() {
                     let (dx, dy, dz) = ((n.x - want.x) as f32, (n.y - want.y) as f32, (n.z - want.z) as f32);
-                    if (dx * dx + dy * dy + dz * dz).sqrt() <= 4.0 {
+                    if (dx * dx + dy * dy + dz * dz).sqrt() <= std::env::var("MCTAS_PATH_DUMP_RADIUS").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(4.0) {
                         let from = if n.came_from == super::node::NONE { "-".to_string() } else { let c = eval.arena.n(n.came_from); format!("{},{},{}", c.x, c.y, c.z) };
                         eprintln!("path node t{}: {},{},{} {:?} malus {} g {} walked {} closed {} open {} from {}", m.game_time, n.x, n.y, n.z, n.ty, n.cost_malus, n.g, n.walked_distance, n.closed, n.heap_idx >= 0, from);
                     }
@@ -313,6 +319,14 @@ impl Navigation {
             eprintln!("path dump t{} from {:?} reach {} max {} (follow {} required {}): {} nodes [{}] reached {} (searched {} of {} nodes)", m.game_time, m.pos, reach, max_path_length, m.follow_range, self.required_path_length, nodes.len(), nodes.join(" "), p.can_reach(), finder::LAST_COUNT.load(std::sync::atomic::Ordering::Relaxed), finder::LAST_BUDGET.load(std::sync::atomic::Ordering::Relaxed));
         }
         if let Some(p) = &path {
+            if let Ok(v) = std::env::var("MCTAS_TRACE_PATHEND") {
+                let c: Vec<i32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                if let (Some(last), 3) = (p.nodes.last(), c.len())
+                    && (last.x, last.y, last.z) == (c[0], c[1], c[2])
+                {
+                    eprintln!("pathend t{}: from {:?} targets {:?} reach {} max {} radius {} above {}: {:?} reached {}", m.game_time, m.pos, targets, reach, max_path_length, _radius_offset, _above, p.nodes.iter().map(|n| (n.x, n.y, n.z)).collect::<Vec<_>>(), p.reached);
+                }
+            }
             self.target_pos = Some(p.target);
             self.reach_range = reach;
             self.reset_stuck_timeout();

@@ -395,11 +395,26 @@ pub struct LoopOpts {
     /// and resets Q (the reset dominating while REL is on). G0 open = REL; G1, G2 open = REL or
     /// not Q.
     pub stand_wired: bool,
+    /// The re-packing tail (ironspec's call, 2026-11-10): the returning carts roll into a FIFO of
+    /// this many gate pockets in place of the 3 tail slots (each pocket's rest slope a detector
+    /// rail; a pocket's gate opens while the next pocket is empty; the last pocket's gate, the
+    /// intake, opens once after each advance: one cart into slot 0 per advance), and the register
+    /// is 3 slots shorter (15 with 21 carts). 0 = the timed tail.
+    pub tail_fifo: u32,
+    /// The re-packing tail as a two-stage escapement (ironspec's calls, 19:21 and 19:45): the
+    /// returning carts roll down a gravity queue of this many plain slopes onto B (a braked
+    /// powered slope that holds the next cart), X (plain), P (a braked powered slope against a
+    /// gate, pulsed with the gate), R (plain), then the register's slot 0, a sawtooth slot. Each
+    /// advance lets P's cart into slot 0, then moves B's onto P. 0 = off.
+    pub tail_esc: u32,
+    /// The departure climb's boosted cells (from its foot), the rest plain slopes: the returning
+    /// carts' speed into the tail. None = all boosted.
+    pub climb_boost: Option<u32>,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, tail_fifo: 0, tail_esc: 0, climb_boost: None }
     }
 }
 
@@ -431,6 +446,16 @@ pub struct LoopLayout {
     /// The wired pocket stand's (`stand_wired`) input cell REL: a redstone block opens the three
     /// gates and resets the latch, glass lets the latch count.
     pub stand_rel: Option<BlockPos>,
+    /// The re-packing tail's pockets (`tail_fifo`), in travel order (the first the returning carts
+    /// reach first, the last the intake into slot 0): each pocket's gate and its rest cell (a
+    /// detector rail slope).
+    pub fifo: Vec<(BlockPos, [i32; 3])>,
+    /// The escapement tail (`tail_esc`): E's control (the block under it) and the queue's cells
+    /// (its plain slopes and E, in travel order).
+    pub esc: Option<BlockPos>,
+    /// The escapement's P control (the block under P, pulsed with the gate).
+    pub esc_p: Option<BlockPos>,
+    pub queue_cells: Vec<[i32; 3]>,
 }
 
 /// The loop's layout: the entry at (0, 1, 0); queue row A going -x (slots 0 .. slots/2), a U-turn,
@@ -601,7 +626,7 @@ fn finish_layout(mut path: Vec<([i32; 3], Cell)>, slot_cells: Vec<[i32; 3]>, sta
             }
         }
     }
-    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None }
+    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None, fifo: Vec::new(), esc: None, esc_p: None, queue_cells: Vec::new() }
 }
 
 /// The bridge loop: the stand along +x at z 0 (S3's slope at x 0, catch slots) bridging the two
@@ -618,14 +643,107 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     let mut tail_b = Vec::new();
     // (with a turn slot, row A gets one slot fewer than half: its V slots are longer, and the
     // queue's head lands 19 cells from the stand; with deep tail slots, two fewer)
-    let half = if o.row_gap == 3 { if o.tail_deep || o.tail_desc { o.slots / 2 - 2 } else { o.slots / 2 - 1 } } else { o.slots / 2 };
+    let half = if o.row_gap == 3 { if o.tail_fifo > 0 || o.tail_esc > 0 { o.slots - 10 } else if o.tail_deep || o.tail_desc { o.slots / 2 - 2 } else { o.slots / 2 - 1 } } else { o.slots / 2 };
     // (`tail_desc`: the return comes in 3 blocks higher, at y 4, and the tail's 3 slots step down
-    // to the queue's level)
-    let ye = if o.tail_desc { 4 } else { 1 };
+    // to the queue's level; `tail_fifo` N: at y 1 + N, the FIFO's pockets each a block lower;
+    // `tail_esc` Q: at y Q + 6, the ledge, the gravity queue and the escapement stepping down)
+    let ye = if o.tail_esc > 0 { o.tail_esc as i32 + 6 } else if o.tail_fifo > 0 { 2 + o.tail_fifo as i32 } else if o.tail_desc { 4 } else { 1 };
     // row A from its entry curve at (0, ye, zr): north (+z)
     path.push(([0, ye, zr], Cell::Plain));
     let mut z = zr + 1;
-    if o.tail_desc && !o.peak_pad {
+    let mut fifo: Vec<(BlockPos, [i32; 3])> = Vec::new();
+    let mut esc: Option<BlockPos> = None;
+    let mut esc_p: Option<BlockPos> = None;
+    let mut queue_cells: Vec<[i32; 3]> = Vec::new();
+    if o.tail_esc > 0 {
+        // the escapement tail (ironspec's decisions 19:21, 19:45): a flat (the queue's head stays
+        // where the timed tail left it, z 19, and slots 8/9/10 sit where the timed tail's 12/13/14
+        // were: the nap drop lines unmoved), a flat, a one-cell gap (the ledge: off its rail a
+        // cart's speed is clamped to 0.4 b/t and halved while it still touches the rail's top, so
+        // every returning cart lands at ~0.1-0.2 b/t whatever its train did), a booster flat (the
+        // landed cart leaves the landing point at once: a slow one lingering there was hit by the
+        // next cart in the air, which fell into the gap) and a flat a block lower, Q plain slopes
+        // down (the gravity queue), B (a braked powered slope, its own control: it holds the next
+        // cart), X (a plain slope: B's and P's powered rails apart, no box of B's cart reaching
+        // P's), P (a braked powered slope, its own control, pulsed with the gate: its cart rests
+        // against the gate), the gate over R (a plain slope: P's power stays off slot 0), then
+        // slot 0 as a sawtooth slot. Each advance: gate and P open together (P's cart leaves
+        // boosted and enters slot 0 as a queue move does), then B (its cart crosses X and is
+        // braked on P)
+        let q = o.tail_esc as i32;
+        let l = ye - 1;
+        path.push(([0, ye, z], Cell::Plain));
+        z += 1;
+        path.push(([0, ye, z], Cell::Plain));
+        z += 2;
+        for cell in [Cell::Boost, Cell::Plain] {
+            path.push(([0, l, z], cell));
+            queue_cells.push([0, l, z]);
+            z += 1;
+        }
+        for k in 0..q {
+            path.push(([0, l - 1 - k, z], Cell::Plain));
+            queue_cells.push([0, l - 1 - k, z]);
+            z += 1;
+        }
+        let by = l - q - 1;
+        path.push(([0, by, z], Cell::Linked));
+        queue_cells.push([0, by, z]);
+        esc = Some(BlockPos::new(0, by - 1, z));
+        // (X a plain slope between B and P: their powered rails stay apart, and no box of B's cart
+        // reaches P's; P a braked powered slope pulsed with the gate: a cart let through leaves
+        // boosted, and P is braked whenever a cart could arrive on it, so nothing on it is ever
+        // boosted backward)
+        path.push(([0, by - 1, z + 1], Cell::Plain));
+        queue_cells.push([0, by - 1, z + 1]);
+        let pz = z + 2;
+        path.push(([0, by - 2, pz], Cell::Linked));
+        queue_cells.push([0, by - 2, pz]);
+        fifo.push((BlockPos::new(0, by - 2, pz + 1), [0, by - 2, pz]));
+        esc_p = Some(BlockPos::new(0, by - 3, pz));
+        // (R plain, then slot 0 a plain sawtooth slot: a cart let out of P gathers speed down R
+        // and enters slot 0 as a queue move enters a slot, so the register's first moves are its
+        // usual ones; R keeps P's power off slot 0)
+        path.push(([0, by - 3, pz + 1], Cell::Plain));
+        path.push(([0, by - 4, pz + 2], Cell::Slot));
+        path.push(([0, by - 4, pz + 3], Cell::Plain));
+        path.push(([0, by - 3, pz + 4], Cell::Plain));
+        slot_cells.push([0, by - 4, pz + 2]);
+        z = pz + 5;
+    }
+    if o.tail_fifo > 0 {
+        // the re-packing tail: flat cells first (the head where the timed tail left it), then N
+        // gate pockets as the pocket stand's (a flat; the rest slope down, the cart pressed by
+        // gravity against the gate; the gate's slope, a booster under a fence gate over its high
+        // end; a booster back up), each a block lower; then the register's slot 0, a descending
+        // deep slot as the timed tail's last (a flat, braked slopes C and A, one plain slope up,
+        // the peak): the last pocket's gate opens while slot 0 is empty between advances, and a
+        // cart from it, fast off the boosters, stops on C or A
+        let n = o.tail_fifo as i32;
+        // (pocket 0's flat is the entry curve itself)
+        z -= 1;
+        for k in 0..n {
+            let y = ye - k;
+            if k > 0 {
+                path.push(([0, y, z], Cell::Plain));
+            }
+            // (the rest slope a booster too, powered rail all through: a cart let through starts at
+            // once, not creeping from rest; it is pressed against the shut gate harmlessly)
+            path.push(([0, y - 1, z + 1], Cell::Boost));
+            path.push(([0, y - 2, z + 2], Cell::Boost));
+            path.push(([0, y - 2, z + 3], Cell::Boost));
+            fifo.push((BlockPos::new(0, y - 1, z + 2), [0, y - 1, z + 1]));
+            z += 4;
+        }
+        path.push(([0, 2, z], Cell::Plain));
+        path.push(([0, 1, z + 1], Cell::Linked));
+        path.push(([0, 0, z + 2], Cell::Slot));
+        path.push(([0, 0, z + 3], Cell::Plain));
+        path.push(([0, 1, z + 4], Cell::Plain));
+        slot_cells.push([0, 0, z + 2]);
+        z += 5;
+    }
+    if o.tail_desc && !o.peak_pad && o.tail_fifo == 0 && o.tail_esc == 0 {
         // (3 flat cells first: the descending slots are 3 cells shorter than deep ones, and the
         // queue's head stays 19 cells north of the stand, outside the follow box)
         for _ in 0..3 {
@@ -633,8 +751,8 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             z += 1;
         }
     }
-    for k in 0..half {
-        if o.tail_desc && k < 3 {
+    for k in (if o.tail_fifo > 0 || o.tail_esc > 0 { 1 } else { 0 })..half {
+        if o.tail_desc && k < 3 && o.tail_fifo == 0 && o.tail_esc == 0 {
             // a descending deep slot: a braked slope C linked to the slot's slope A (two blocks of
             // braked descent: a fast returning cart stops on one of them), one plain slope up B,
             // the peak a block lower than the last slot's: a queue move climbs only one block
@@ -813,11 +931,13 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // (the shortest return from the stand: the returning batch reaches the tail ~20 gt sooner
         // than by a ramp east first)
         let xd = xb + 12;
-        let top = if o.tail_desc { 4 } else { 1 };
+        let top = ye;
         path.push(([xd, -3, 0], Cell::Plain));
         let mut z = 1;
         for y in -3..top {
-            path.push(([xd, y, z], Cell::Boost));
+            // (`climb_boost` N: only the climb's first N cells boosted, the rest plain slopes)
+            let boosted = o.climb_boost.is_none_or(|n| (y + 3) < n as i32);
+            path.push(([xd, y, z], if boosted { Cell::Boost } else { Cell::Plain }));
             z += 1;
         }
         while z < zr {
@@ -835,6 +955,10 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         lay.pockets = pockets;
         // (wired: the input cell REL, right behind G0's driver dust: see `stand_circuit`)
         lay.stand_rel = o.stand_wired.then(|| BlockPos::new(xb + 11, -2, 2));
+        lay.fifo = fifo;
+        lay.esc = esc;
+        lay.esc_p = esc_p;
+        lay.queue_cells = queue_cells;
         return lay;
     }
     path.push(([xb + 1, 1, 0], if o.plain { Cell::Plain } else { Cell::Linked }));
@@ -1091,9 +1215,17 @@ pub fn stand_circuit(ox: i32) -> Vec<([i32; 3], String)> {
 /// slots full, the stand's three slots full.
 pub fn loop_design(o: &LoopOpts) -> Result<String> {
     // (the line loop starts with one batch on its return: the bench adds it)
-    let held = o.slots + 3 + if o.line { 3 } else { 0 };
-    if held != 21 {
-        bail!("the queue's {} slots and the stand's 3{} must hold the 21 carts", o.slots, if o.line { " and the returning batch's 3" } else { "" });
+    // (the re-packing tail holds the rest at the start: 21 less the register and the stand)
+    let fifo_init = if o.tail_fifo > 0 || o.tail_esc > 0 { (21 - o.slots - 3).max(0) } else { 0 };
+    let held = o.slots + 3 + if o.line { 3 } else { 0 } + fifo_init;
+    if held != 21 || (o.tail_fifo > 0 && fifo_init > o.tail_fifo as i32) || (o.tail_esc > 0 && fifo_init > 2 + o.tail_esc as i32) {
+        bail!("the queue's {} slots and the stand's 3{} must hold the 21 carts", o.slots, if o.line { " and the returning batch's 3" } else if o.tail_fifo > 0 { " and the FIFO's pockets" } else if o.tail_esc > 0 { " and the escapement tail's (P, B and the queue: --slots 14 leaves 4)" } else { "" });
+    }
+    if o.tail_fifo > 0 && (!o.stand_stop || !o.bridge || o.tail_fifo < 3) {
+        bail!("the re-packing tail (--tail-fifo) needs the bridge loop with the pocket stand, and at least 3 pockets");
+    }
+    if o.tail_esc > 0 && (!o.stand_stop || !o.bridge || o.tail_fifo > 0) {
+        bail!("the escapement tail (--tail-esc) needs the bridge loop with the pocket stand, and no --tail-fifo");
     }
     let lay = loop_layout(o);
     let mut b = Builder::new("carousel-loop-scene");
@@ -1161,6 +1293,31 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     for p in &stand_carts {
         b.entity("minecart", *p, if o.stand_stop { stand_rider } else { rider });
     }
+    // the re-packing tail: the rest at rest in the FIFO's last pockets, each pressed against its
+    // gate (as the pocket stand's: 0.885 along the rest slope); a gate open only while its next
+    // pocket is empty (the last's next is slot 0, full)
+    let nf = lay.fifo.len();
+    let fifo_init = fifo_init as usize;
+    for (j, (g, rest)) in lay.fifo.iter().enumerate() {
+        if j + fifo_init >= nf {
+            b.entity("minecart", [rest[0] as f64 + 0.5, rest[1] as f64 + 0.1775, rest[2] as f64 + 0.885], stand_rider);
+        }
+        let open = j + 1 < nf && j + 1 + fifo_init < nf;
+        b.set(g.x, g.y, g.z, &format!("oak_fence_gate[facing=south,in_wall=false,open={open},powered=false]"));
+    }
+    // the escapement tail: the front cart on P against the gate (above), the next braked early on
+    // B (its centre 0.2 into the cell), the rest up the queue's slopes 0.79 apart (the packing
+    // measured on the bench), where the queue's gravity would leave them
+    if let Some(e) = lay.esc {
+        let ez = e.z as f64;
+        let ey = (e.y + 1) as f64;
+        for k in 0..fifo_init.saturating_sub(1) {
+            let zz = ez + 0.2 - 0.79 * k as f64;
+            let cell_z = zz.floor();
+            let ys = ey + (ez - cell_z);
+            b.entity("minecart", [0.5, ys + (1.0 - (zz - cell_z)) + 0.0625, zz], stand_rider);
+        }
+    }
     // the stop stand's gates: the stand's stop shut; the pockets' last gate shut, the other two
     // open (gate 2 lets two carts by, gate 1 one)
     if let Some(g) = lay.stop_gate {
@@ -1191,7 +1348,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
             posts.push((zx, z));
             z += o.zombie_every;
         }
-        if o.tail_desc {
+        if o.tail_desc || o.tail_fifo > 0 || o.tail_esc > 0 {
             // (the raised jog's supports at y 3 hide the queue's head from the post at z 21: one
             // more post west of the head)
             posts.push((-6, 21));
@@ -1214,7 +1371,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default())));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -1248,6 +1405,9 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "short_depart" => o.short_depart = v != "0",
             "stand_stop" => o.stand_stop = v != "0",
             "stand_wired" => o.stand_wired = v != "0",
+            "tail_fifo" => o.tail_fifo = v.parse()?,
+            "tail_esc" => o.tail_esc = v.parse()?,
+            "climb_boost" => o.climb_boost = Some(v.parse()?),
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -1374,6 +1534,25 @@ pub struct LoopTiming {
     pub rel_on: i64,
     /// With `--watch`: these cells' block states printed too (up to 8).
     pub watch_cells: [Option<[i32; 3]>; 8],
+    /// With `wired`: each slot's golem pulse this many gt late at most (0..=J, from the seed and
+    /// the slot): the gaps between pulses vary over 100 - J ..= 100 + J (the golem's jitter).
+    pub golem_jitter: i64,
+    /// With `wired`: the next golem up to this many gt late (0..=J more gt at each slot's end,
+    /// from the seed and the slot): the gaps between pulses vary over 100 ..= 100 + J.
+    pub golem_late: i64,
+    /// The day time held in the day (no night: a file's night window, its siding visits, never
+    /// opens).
+    pub day_only: bool,
+    /// `--slept`: every rider's LAST_SLEPT set at the start and each night (bench-driven: the
+    /// station bench's stand-in for the siding's naps, for a pad's check without a siding).
+    pub slept: bool,
+    /// The golem pulse to count (the design's `output.pulse` port, a pad's).
+    pub pulse_at: Option<BlockPos>,
+    /// The slots' phase: slot +K on the villagers' summon tick (gameTime % 100 == 0).
+    pub summon_at: Option<i64>,
+    /// `--no-inject` (day-1's pad runs): with `wired`, no golem pulse from the bench at all, the
+    /// controls left to the design (its pad gives the pulse).
+    pub no_inject: bool,
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
     /// (an ideal-input lab for a wired trigger): G1, then G2, shut this many gt after the first
     /// cart's centre passes this x (a detector rail at cell x0 fires at x0 - 0.29).
@@ -1389,6 +1568,21 @@ pub struct LoopTiming {
     /// Every villager's block position each tick, printed at the end (`--record-positions`: the
     /// golem-spots check's positions over a full bench night).
     pub record_positions: bool,
+    /// Slots whose golem pulse never comes (`--golem-miss`: a missed golem; the design's own
+    /// expiry must release that slot); -1 = unused.
+    pub golem_miss: [i64; 8],
+    /// `build: fills-last`: the containers' stocks after every block (main's build plan).
+    pub build_fills_last: bool,
+    /// The re-packing tail's intake (`tail_fifo`): its gate opened D gt after each advance's start,
+    /// for W gt (the bench's; one cart into slot 0 per advance).
+    pub fifo_intake: (i64, i64),
+    /// The escapement tail's B (the next cart's hold): powered K gt after the gate opens, for W gt
+    /// (P's cart away first, so B's cart never catches it on the flats).
+    pub esc_b: (i64, i64),
+    /// Print the queue's first slots' carts at each slot's start (a re-packing tail diagnostic).
+    pub verbose_tail: bool,
+    /// Every cart in the tail's cells each tick over cycles C0..=C1 (`--tail-trace C0,C1`).
+    pub tail_trace: Option<(i64, i64)>,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -1419,6 +1613,11 @@ pub struct Visit {
     pub release_cells: [Option<BlockPos>; 3],
     /// T1/T2 set the tick before the release (one release past them) instead of at the divert.
     pub t_at_release: bool,
+    /// T1/T2's set moved by this many gt (the sweep's "t-set").
+    pub t_at: i64,
+    /// The nightly schedule's j-th visit takes the stand's cart j mod 3 (day-1's scheduler: 0, 1,
+    /// 2, 0, ...: consecutive visits on different drop lines) instead of j div 7.
+    pub k_mod3: bool,
     /// Observed: the file drives its own controls; a visit is a cart on `branch`, the divert's
     /// branch rail (the bench writes no control cell).
     pub observe: bool,
@@ -1439,6 +1638,8 @@ struct VisitRun {
     seen: Option<(i64, [f64; 3], f32)>,
     on_rail: bool,
     rolled: Option<(i64, f64)>,
+    /// The first tick the cart is on T1's rail (visit-relative).
+    t1_pass: Option<i64>,
     back: Option<(i64, usize)>,
 }
 
@@ -1459,7 +1660,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None }
     }
 }
 
@@ -1574,7 +1775,23 @@ pub fn loop_shifted(tm: &LoopTiming, control: &str, s: i64) -> Result<LoopTiming
         "rel-start" => t.pocket_release += s,
         "rel-for" => t.rel_for += s,
         "rel-on" => t.rel_on += s,
-        _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, pocket-release, pocket-reset, gate-close, rel-start, rel-for, rel-on, speed")),
+        // (the nap visits' junction timings, bench-driven: the divert's 10 gt window, T1/T2's set,
+        // the holds' kick (every cart's release tick); a design whose controller drives them is
+        // shifted by moving its own delays instead)
+        "divert" | "t-set" | "kick" => {
+            let v = t.visit.as_mut().ok_or_else(|| format!("{control}: the visit timings need --visit or --visits-nightly"))?;
+            match control {
+                "divert" => v.divert_at += s,
+                "t-set" => v.t_at += s,
+                _ => {
+                    v.release_at += s;
+                    for r in v.release_k.iter_mut().flatten() {
+                        *r += s;
+                    }
+                }
+            }
+        }
+        _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, pocket-release, pocket-reset, gate-close, rel-start, rel-for, rel-on, divert, t-set, kick, speed")),
     }
     Ok(t)
 }
@@ -1603,8 +1820,23 @@ pub struct SweepLine {
 /// x `cycles` slots each, pass = 0 problems); `speed` sweeps the release group's entry speed kick
 /// in 0.02 b/t steps instead.
 pub fn loop_sweep(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, control: &str, range: i64, seed: i64, seeds: i64, cycles: i64) -> Result<SweepLine, String> {
+    loop_sweep_jobs(spec, o, tm, control, range, seed, seeds, cycles, 1)
+}
+
+/// [`loop_sweep`] with up to `jobs` shifts tried at once on their own threads (the next `jobs`
+/// shifts outward, the first failure in order ending the side), for slow benches (a wired night).
+#[allow(clippy::too_many_arguments)]
+pub fn loop_sweep_jobs(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, control: &str, range: i64, seed: i64, seeds: i64, cycles: i64, jobs: usize) -> Result<SweepLine, String> {
     let passes = |t: &LoopTiming| loop_passes(spec, o, t, seed, seeds, cycles);
     let shifted = |s: i64| loop_shifted(tm, control, s);
+    // (several shifts at once: each its own thread, the answers in the shifts' order)
+    let passes_many = |shifts: &[i64]| -> Result<Vec<bool>, String> {
+        let ts: Vec<LoopTiming> = shifts.iter().map(|s| shifted(*s)).collect::<Result<_, _>>()?;
+        std::thread::scope(|sc| {
+            let hs: Vec<_> = ts.iter().map(|t| sc.spawn(move || loop_passes(spec, o, t, seed, seeds, cycles))).collect();
+            hs.into_iter().map(|h| h.join().map_err(|_| "a sweep thread panicked".to_string())?).collect()
+        })
+    };
     let line = |early: f64, late: f64, text: String| SweepLine { control: control.to_string(), early, late, text };
     if control == "speed" {
         let at = |v: f64| -> Result<bool, String> { passes(&LoopTiming { entry_speed: v, ..tm.clone() }) };
@@ -1628,11 +1860,30 @@ pub fn loop_sweep(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, control: &str,
         return Ok(line(0.0, 0.0, format!("{control}: the bench fails at the nominal timing")));
     }
     let (mut early, mut late) = (0, 0);
-    while early > -range && passes(&shifted(early - 1)?)? {
-        early -= 1;
-    }
-    while late < range && passes(&shifted(late + 1)?)? {
-        late += 1;
+    if jobs > 1 {
+        for side in [-1i64, 1] {
+            let mut at = 0i64;
+            'side: loop {
+                let batch: Vec<i64> = (1..=jobs as i64).map(|i| at + side * i).filter(|s| s.abs() <= range).collect();
+                if batch.is_empty() {
+                    break;
+                }
+                for (s, ok) in batch.iter().zip(passes_many(&batch)?) {
+                    if !ok {
+                        break 'side;
+                    }
+                    at = *s;
+                }
+            }
+            if side < 0 { early = at } else { late = at }
+        }
+    } else {
+        while early > -range && passes(&shifted(early - 1)?)? {
+            early -= 1;
+        }
+        while late < range && passes(&shifted(late + 1)?)? {
+            late += 1;
+        }
     }
     let edge = |v: i64| if v.abs() == range { format!("{v:+} (the sweep's edge)") } else { format!("{v:+}") };
     Ok(line(early as f64, late as f64, format!("{control}: passes from {} to {} gt ({seeds} seeds x {cycles} slots each){}", edge(early), edge(late), if early == 0 || late == 0 { "; FLAGGED: no slack on one side" } else { "" })))
@@ -1895,9 +2146,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     // (the daylight detectors: `Run::start` holds them back for `Run::arrive`, which this runner
     // never calls (it spawns its own carts): placed here, after the settle, as `arrive` would;
-    // the build in order places them with the rest. day-1 found every run's detector missing)
-    if tm.build_gap.is_none() {
-        let dets: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).cloned().collect();
+    // the build in order places them with the rest. day-1 found every run's detector missing.
+    // With `wired`, placed at slot 0 +0 with the first golem pulse instead (day-1, 19:03): a seed
+    // starting at night would arm the controller's fallback before the bench's first pulse)
+    let dets_at_slot0 = tm.wired.is_some() && tm.build_gap.is_none();
+    let dets: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).cloned().collect();
+    if tm.build_gap.is_none() && !dets_at_slot0 {
         if !dets.is_empty() {
             run.world.place_raw(&dets);
             if !tm.placed_raw {
@@ -1914,25 +2168,47 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // (`build_priced`: each cell's own priced gap, prices.tsv's place 1 s = 20 gt, and 2 s =
         // 40 gt for a cell the bill charges place:edge, the longest priced gap; else `g` for all)
         let edges = edge_cells(spec);
-        // (a design's `build: last x,y,z ...`: those cells after every other, in its order)
+        // (a design's `build: last x,y,z ...`: those cells after every other one, in its order, and
+        // after the `fills-last` stocks too, as placing.rs's build steps list them (day-1, 20:55:
+        // detectors listed last went down before the rings were stocked))
         let mut order = build_order(spec);
+        let mut last: Vec<(BlockPos, Block, Option<String>)> = Vec::new();
         for p in tm.build_last.iter().flatten() {
             if let Some(i) = order.iter().position(|(q, _, _)| q == p) {
-                let cell = order.remove(i);
-                order.push(cell);
+                last.push(order.remove(i));
             }
         }
-        for (p, b, fill) in order {
+        let mut fills: Vec<(BlockPos, String)> = Vec::new();
+        let place = |run: &mut Run, p: BlockPos, b: Block, fill: Option<String>, defer: bool, fills: &mut Vec<(BlockPos, String)>| -> Result<(), String> {
             run.world.set_block(p, b, redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, b));
             if let Some(f) = fill {
-                redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
-                drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
+                if defer {
+                    fills.push((p, f));
+                } else {
+                    redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
+                    drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
+                }
             }
             let gap = if tm.build_priced { if edges.contains(&p) { 40 } else { 20 } } else { g };
             for _ in 0..gap.max(1) {
                 run.tick();
             }
+            Ok(())
+        };
+        for (p, b, fill) in order {
+            place(&mut run, p, b, fill, tm.build_fills_last, &mut fills)?;
+        }
+        // (`build: fills-last`: the containers' stocks after every block, in the build's order)
+        for (p, f) in std::mem::take(&mut fills) {
+            redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
+            drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
+            for _ in 0..(if tm.build_priced { 20 } else { g }).max(1) {
+                run.tick();
+            }
+        }
+        for (p, b, fill) in last {
+            place(&mut run, p, b, fill, false, &mut fills)?;
         }
         // (the cells the build left different from the file: a design that needs a listed order
         // or a "place this last" step shows up here)
@@ -2085,6 +2361,23 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
     };
     let input_was = wired.map(|p| run.world.get(p));
+    // (`day_only`: the day time held in the day (back 10,000 once it reaches 11,000): no night,
+    // so a file's night window (its siding visits) never opens; the loop and the stand alone)
+    let hold_day = |w: &mut redsim::world::World| {
+        if tm.day_only && w.day_time().rem_euclid(24000) >= 11000 {
+            w.mob.day_offset -= 10000;
+        }
+    };
+    // (each slot's golem pulse delay, `golem_jitter`: 0..=J gt, from the seed and the slot)
+    let golem_jit = |c: i64| -> i64 {
+        if tm.golem_jitter <= 0 {
+            return 0;
+        }
+        let mut z = (seed as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (c as u64).wrapping_add(0x632B_E59B_D9B4_E019).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        ((z ^ (z >> 31)) % (tm.golem_jitter as u64 + 1)) as i64
+    };
     // (the stop stand's fence gates: shut or open, facing the travel)
     let set_gate = |w: &mut redsim::world::World, p: BlockPos, facing: &str, open: bool| {
         let s = format!("minecraft:oak_fence_gate[facing={facing},in_wall=false,open={open},powered=false]");
@@ -2142,7 +2435,42 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut golems_seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut villager_cells: std::collections::BTreeSet<BlockPos> = std::collections::BTreeSet::new();
     let mut golem_log: Vec<String> = Vec::new();
+    // (with a pad, a Nether part in the design: every golem's summon (its id, tick, summoner,
+    // cell, slot and offset), its crossing and death in the Nether, the pulse, the iron)
+    let has_nether = run.world.nether.is_some();
+    let mut ev_seen = run.world.mob.events.len();
+    let mut crossed_seen = run.world.crossings.len();
+    let mut pad_golems: Vec<(u32, i64, u32, [i32; 3], i64, i64)> = Vec::new();
+    let mut out_of_turn: Vec<String> = Vec::new();
+    // (per summon tick: how many stand riders were willing, panicking, at the stand (0..=3);
+    // the unwilling ones: never slept, slept 24,000 gt ago or more, a golem seen lately)
+    let (mut willing, mut panicking, mut stand_count) = ([0u32; 4], [0u32; 4], [0u32; 4]);
+    let mut unwilling = [0u32; 3];
+    let mut nether_golems: Vec<(u32, i64, Option<i64>, u32)> = Vec::new();
+    let (mut pulses, mut spurious_pulses, mut pulse_was) = (0u32, 0u32, false);
+    let mut slept_night: Option<i64> = None;
+    let mut slept_acts = 0u32;
+    let nether_iron = |w: &redsim::world::World| -> i64 {
+        let Some(n) = w.nether.as_deref() else { return 0 };
+        use redsim::redstone::container as rc;
+        let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
+        let mut iron = 0i64;
+        for c in n.containers.map.values() {
+            for s in c.slots.iter().flatten() {
+                if Some(s.item) == ingot {
+                    iron += s.count as i64;
+                } else if Some(s.item) == block {
+                    iron += 9 * s.count as i64;
+                }
+            }
+        }
+        iron
+    };
+    let iron_start = nether_iron(&run.world);
     let mut bed_claims: Vec<String> = Vec::new();
+    // (with visits: T1's and T2's rails each time their shape changes: absolute time, which, shape)
+    let mut t_switches: Vec<(i64, &'static str, String)> = Vec::new();
+    let mut t_shapes: [String; 2] = [String::new(), String::new()];
     // (the stop stand's brake: armed with a batch's third cart, set `stop_brake_delay` gt after
     // that cart is on the braked slopes; the design's first batch arms it from the start)
     let mut stop_arm: Option<(u32, Option<i64>)> = None;
@@ -2167,11 +2495,24 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     for s in 0..40 {
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
+        hold_day(&mut run.world);
         if let Some(w) = watch {
             let ps: Vec<String> = w.iter().filter_map(|k| carts.get(*k)).filter_map(|id| pos_of(&run.world, *id)).map(|p| format!("{:.3},{:.3}", p.x, p.y)).collect();
             println!("settle {s}: {}", ps.join(" | "));
         }
     }
+    // (`summon_at`: the slots' phase: the bench waits until slot +K falls on the villagers' summon
+    // tick (gameTime % 100 == 0): with a pad, the stand batch at rest then; 99 for a controller
+    // that takes the golem pulse (summon +1) as its slot's start)
+    if let Some(k) = tm.summon_at {
+        // (a tick's summon happens at the time it ticks to: the slot's offset k + 1 on it)
+        while (run.world.time + k + 1).rem_euclid(100) != 0 {
+            run.tick();
+            stop_brake(&mut run.world, &mut stop_arm);
+            hold_day(&mut run.world);
+        }
+    }
+    let mut late_total: i64 = 0;
     let mut out = Vec::new();
     let mut problems = Vec::new();
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
@@ -2181,6 +2522,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // (the stand's slope-up controls lead its slopes down by this much at the departure)
     let lead: i64 = if lay.stand_b.is_empty() { 0 } else { 5 };
     let intake: Vec<BlockPos> = lay.slots[..3].to_vec();
+    // (the re-packing tail: the FIFO's gates, not timed tail brakes; the carts it held at each
+    // slot's start, and each intake that found its pocket empty)
+    let fifo_on = !lay.fifo.is_empty() || lay.esc.is_some();
+    let mut fifo_held: Vec<usize> = Vec::new();
+    let mut fifo_empty: Vec<String> = Vec::new();
     // (a peak cell: the cell 2 on from a slot's slope down, at y 1)
     // (a peak cell: the cell 2 on from a slot's slope down at y 1, 3 on from a V slot's)
     let tpk = if lay.tail_b.is_empty() { 2 } else { 3 };
@@ -2209,6 +2555,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut tail_rest_at: Vec<i64> = Vec::new();
     for t in 0..cycles * 100 + 150 {
         let (c, dt) = (t / 100, t % 100);
+        // (`wired`: the daylight detectors placed now, at slot 0 +0, with the first golem pulse)
+        if t == 0 && dets_at_slot0 && !dets.is_empty() {
+            run.world.place_raw(&dets);
+            if !tm.placed_raw {
+                run.world.place_updates(&dets);
+            }
+        }
         if c < cycles && dt == 0 {
             // (who sits in a slot's slope cell, moving or not)
             let in_slot = |id: u32, cell: [i32; 3]| pos_of(&run.world, id).is_some_and(|p| p.x.floor() as i32 == cell[0] && p.z.floor() as i32 == cell[2] && p.y < 1.5);
@@ -2239,7 +2592,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 let start = if v.every == 0 {
                     (c == v.slot).then_some(v.k)
                 } else if tod >= v.from && tod < 23000 && tonight < riders.len() && c >= next_visit {
-                    Some(tonight / 7)
+                    Some(if v.k_mod3 { tonight % 3 } else { tonight / 7 })
                 } else {
                     None
                 };
@@ -2260,6 +2613,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             // left the queue's head (front first)
             if o.stand_stop {
                 let queue_now: Vec<Option<u32>> = (0..q).map(|s| by_cell(lay.slot_cells[s])).collect();
+                if fifo_on && tm.verbose_tail {
+                    arrivals.push(format!("slot {c} start: queue slots 0..6 {:?}", &queue_now[..7.min(q)]));
+                }
                 if let Some((pq, prel, _)) = &order_prev {
                     // (the tail's 3 at the last slot's start, or, when it was empty there, the
                     // batch that reached it during the last slot: the stand's batch of the slot
@@ -2312,13 +2668,25 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 run.world.set_block(cell, b.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
             }
-            if let Some(p) = wired {
-                // the golem pulse into the design's input cell
+            if let Some(p) = wired
+                && golem_jit(c) == 0
+                && !tm.golem_miss.contains(&c)
+                && !tm.no_inject
+            {
+                // the golem pulse into the design's input cell (none at a `--golem-miss` slot: the
+                // design's own expiry must release it; none with `no_inject`: the design's pad
+                // gives it)
                 run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
             }
         }
-        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == tm.golem_for) {
+        // (`golem_jitter`: the slot's golem pulse `golem_jit(c)` gt late, 0..=J from the seed:
+        // the gaps between pulses vary over 100 - J ..= 100 + J)
+        if let (Some(p), true) = (wired, c < cycles && dt > 0 && dt == golem_jit(c) && !tm.golem_miss.contains(&c) && !tm.no_inject) {
+            run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
+        }
+        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == golem_jit(c) + tm.golem_for && !tm.golem_miss.contains(&c) && !tm.no_inject) {
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
@@ -2468,7 +2836,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 // way from the siding to its hold, so they are set as it is diverted (the visit
                 // before it has passed them by then, 4 slots on); with one release past them
                 // (--visit-t-at-release), the tick before that release)
-                if now == if v.t_at_release { r0 - 1 } else { d0 + 1 } {
+                if now == if v.t_at_release { r0 - 1 } else { d0 + 1 } + v.t_at {
                     let drop = q - 4 - vr.k;
                     for (cell, powered) in [(v.t1, drop != q - 4), (v.t2, drop == q - 6)] {
                         sets.push((cell, target.clone()));
@@ -2489,7 +2857,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
             }
         }
-        if c < cycles && dt == tm.tail_check_at.unwrap_or(tm.advance_at) {
+        if c < cycles && dt == tm.tail_check_at.unwrap_or(tm.advance_at) && !fifo_on {
             // the queue's tail must hold every earlier returning train before the advance
             for (c0, _, st) in &intake_trains {
                 if *c0 + lag <= c && (*st < 2 || (o.plain && *st != 9) || (tm.tail_check_rest && *st == 2)) {
@@ -2628,20 +2996,87 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     }
                     let open_at = a + w + if s == 0 { tm.tail0_late } else { 0 };
                     let release_open = s + 3 >= q && { let k = s + 3 - q; dt >= st_on(k) && dt < st_off(k) };
-                    if dt == a + w + sk && !(k == 2 && s < 3 && open_at <= a + w + sk) && !release_open {
+                    if dt == a + w + sk && !(k == 2 && s < 3 && open_at <= a + w + sk && !fifo_on) && !release_open {
                         set(&mut run.world, &lay.slots[s..s + 1], false);
                     }
                 }
-                if dt == a + w {
+                if dt == a + w && !fifo_on {
                     if k == 2 {
                         // the tail open for the returning train: slopes down powered too (slot 0
                         // `tail0_late` gt after slots 1-2)
                         set(&mut run.world, if tm.tail0_late > 0 { &intake[1..] } else { &intake[..] }, true);
                     }
                 }
-                if k == 2 && tm.tail0_late > 0 && dt == a + w + tm.tail0_late {
+                if k == 2 && tm.tail0_late > 0 && dt == a + w + tm.tail0_late && !fifo_on {
                     set(&mut run.world, &intake[..1], true);
                 }
+            }
+        }
+        // the re-packing tail's gates (bench-driven): each pocket's gate open while the next
+        // pocket's detector rail is off, the last pocket's (the intake) open `fifo_intake` after
+        // each advance's start; an intake that finds its pocket empty leaves a hole in slot 0
+        if fifo_on {
+            let nf = lay.fifo.len();
+            // (a pocket is occupied while a cart's centre is over its rest cell; slot 0 while one
+            // is over its braked slopes C and A or the slope up after them)
+            let occupied = |w: &redsim::world::World, r: [i32; 3]| carts.iter().any(|id| pos_of(w, *id).is_some_and(|p| p.x.floor() as i32 == r[0] && p.z.floor() as i32 == r[2] && p.y >= r[1] as f64 - 0.2 && p.y < r[1] as f64 + 1.2));
+            let s0 = lay.slot_cells[0];
+            let slot0_full = |w: &redsim::world::World| carts.iter().any(|id| pos_of(w, *id).is_some_and(|p| p.x.floor() as i32 == s0[0] && (s0[2] - 1..=s0[2] + 1).contains(&(p.z.floor() as i32)) && p.y < s0[1] as f64 + 2.2));
+            let slot0_on = run.world.get(lay.slots[0]) == on;
+            for j in 0..nf {
+                // (the last pocket's gate, the intake: opened `fifo_intake` D gt after each
+                // advance's start for W gt, its cart reaching slot 0 just after the pulse)
+                let open = if j + 1 < nf {
+                    !occupied(&run.world, lay.fifo[j + 1].1)
+                } else {
+                    let (d, w) = tm.fifo_intake;
+                    let _ = (slot0_on, &slot0_full);
+                    c < cycles && (0..3).any(|k| {
+                        let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                        dt >= a + d && dt < a + d + w
+                    })
+                };
+                set_gate(&mut run.world, lay.fifo[j].0, "south", open);
+            }
+            // (the escapement: B powered `esc_b` K gt after the gate opens (`fifo_intake` D gt after
+            // each advance's start), for its W gt)
+            if let Some(e) = lay.esc {
+                let (d, _) = tm.fifo_intake;
+                let (kb, wb) = tm.esc_b;
+                let want = c < cycles && (0..3).any(|k| {
+                    let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                    dt >= a + d + kb && dt < a + d + kb + wb
+                });
+                let b = if want { on.clone() } else { off.clone() };
+                if run.world.get(e) != b {
+                    run.world.set_block(e, b, redsim::world::flags::ALL);
+                    drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", run.world.time - t_origin, e.x, e.y, e.z, if want { "redstone_block" } else { "glass" }));
+                }
+                // (P powered with the gate: the same window)
+                if let Some(pc) = lay.esc_p {
+                    let (d, w) = tm.fifo_intake;
+                    let want = c < cycles && (0..3).any(|k| {
+                        let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                        dt >= a + d && dt < a + d + w
+                    });
+                    let b = if want { on.clone() } else { off.clone() };
+                    if run.world.get(pc) != b {
+                        run.world.set_block(pc, b, redsim::world::flags::ALL);
+                        drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", run.world.time - t_origin, pc.x, pc.y, pc.z, if want { "redstone_block" } else { "glass" }));
+                    }
+                }
+            }
+            if c < cycles && dt == 0 {
+                let held = if lay.esc.is_some() {
+                    carts.iter().filter(|id| pos_of(&run.world, **id).is_some_and(|p| lay.queue_cells.iter().any(|r| p.x.floor() as i32 == r[0] && p.z.floor() as i32 == r[2] && p.y >= r[1] as f64 - 0.2 && p.y < r[1] as f64 + 1.2))).count()
+                } else {
+                    lay.fifo.iter().filter(|(_, r)| occupied(&run.world, *r)).count()
+                };
+                fifo_held.push(held);
+            }
+            // (an advance that finds slot 0 empty: a hole into the register)
+            if c < cycles && (0..3).any(|k| dt == tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize]) && !slot0_full(&run.world) {
+                fifo_empty.push(format!("slot {c} +{dt}"));
             }
         }
         // (the wired stand's REL back to glass, whatever slot that falls in)
@@ -2683,7 +3118,102 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
-        // (every rider's damage and loss from the world, every tick; with a visit also each
+        hold_day(&mut run.world);
+        // (`slept`: every rider's LAST_SLEPT now, at the start and each night from day time
+        // 13,000: the bench's stand-in for the siding's naps, as the station's linear bench does)
+        if tm.slept {
+            let night = (run.world.day_time() - 13000).div_euclid(24000);
+            if slept_night.is_none() || (run.world.day_time().rem_euclid(24000) >= 13000 && slept_night != Some(night)) {
+                slept_night = Some(night);
+                let now = run.world.time;
+                for r in &riders {
+                    if let Some(i) = redsim::entity::index_of(&run.world, *r) {
+                        redsim::entity::mob::ai::brain::brain_mut(&mut run.world, i).last_slept = Some(now);
+                    }
+                }
+                slept_acts += 1;
+            }
+        }
+        // (with a pad: every golem's summon, its crossing into the Nether and its death there,
+        // and the pulse at the design's `output.pulse`)
+        if has_nether {
+            let evs: Vec<redsim::entity::mob::MobEvent> = run.world.mob.events[ev_seen.min(run.world.mob.events.len())..].to_vec();
+            ev_seen = run.world.mob.events.len();
+            for ev in evs {
+                if let redsim::entity::mob::MobEvent::GolemTry { t: et, villager, golem: Some(id), at: Some(cell), .. } = ev {
+                    pad_golems.push((id, et, villager, cell, c, dt));
+                    // (in turn: the summoner on a stand cell or its pocket; any other position
+                    // is an out-of-turn summon onto the pad, the brief's flag, here as it happened)
+                    let at = redsim::entity::index_of(&run.world, villager).map(|i| run.world.entities.list[i].pos);
+                    let in_turn = at.is_some_and(|p| {
+                        let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                        lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1)
+                    });
+                    if !in_turn {
+                        out_of_turn.push(format!("slot {c} +{dt}: villager e#{villager} at {}", at.map_or("gone".to_string(), |p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z))));
+                    }
+                }
+            }
+            for &(ct, from, to) in &run.world.crossings[crossed_seen.min(run.world.crossings.len())..] {
+                if pad_golems.iter().any(|g| g.0 == from) {
+                    nether_golems.push((to, ct, None, from));
+                }
+            }
+            crossed_seen = run.world.crossings.len();
+            if let Some(n) = run.world.nether.as_deref() {
+                for g in nether_golems.iter_mut().filter(|g| g.2.is_none()) {
+                    if !n.entities.list.iter().any(|e| e.id == g.0 && !e.removed) {
+                        g.2 = Some(run.world.time);
+                    }
+                }
+            }
+            // (the stand batch on the tick before the summon tick: each rider in a stand pocket
+            // willing (slept within 24,000 gt, no golem seen lately) and panicking, and why not)
+            if (run.world.time + 1).rem_euclid(100) == 0 {
+                let t_next = run.world.time + 1;
+                let (mut want, mut panic, mut at_stand) = (0usize, 0usize, 0usize);
+                for r in &riders {
+                    let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+                    let p = run.world.entities.list[i].pos;
+                    let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                    if !lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1) {
+                        continue;
+                    }
+                    at_stand += 1;
+                    if let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
+                        && let Some(b) = m.brain.as_deref()
+                    {
+                        if b.wants_golem(t_next) {
+                            want += 1;
+                        } else if b.last_slept.is_none() {
+                            unwilling[0] += 1;
+                        } else if b.last_slept.is_some_and(|s| t_next - s >= 24000) {
+                            unwilling[1] += 1;
+                        } else {
+                            unwilling[2] += 1;
+                        }
+                    }
+                    if redsim::entity::mob::ai::brain::has_exact(&run.world, i) && redsim::entity::mob::ai::brain::ex(&run.world, i).active == redsim::entity::mob::ai::brain::Act::Panic {
+                        panic += 1;
+                    }
+                }
+                willing[want.min(3)] += 1;
+                panicking[panic.min(3)] += 1;
+                stand_count[at_stand.min(3)] += 1;
+            }
+            if let Some(p) = tm.pulse_at {
+                let on = matches!(run.world.get(p), Block::Wire { power, .. } if power > 0);
+                if on && !pulse_was {
+                    let t = run.world.time;
+                    if pad_golems.iter().any(|g| t - g.1 >= 0 && t - g.1 <= 5) {
+                        pulses += 1;
+                    } else {
+                        spurious_pulses += 1;
+                    }
+                }
+                pulse_was = on;
+            }
+        }
         // rider's bed claim, when it starts and ends, and where it rode then)
         for e in run.world.entities.list.iter() {
             if let redsim::entity::EntityKind::Mob(m) = &e.kind {
@@ -2692,10 +3222,22 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
                 if m.ty == redsim::entity::mob::types::MobType::IronGolem && golems_seen.insert(e.id) {
                     golem_log.push(format!("e#{} at slot {c} +{dt} (day time {}) at {:.2},{:.2},{:.2}", e.id, run.world.day_time().rem_euclid(24000), e.pos.x, e.pos.y, e.pos.z));
-                    // (the loop has no pad: a golem here spawned off the pad, a spawn cell
-                    // `queue-loop-spots` lists; a villager that has slept (a napper back from its
-                    // visit) summons one when it panics with two more such villagers near)
-                    problems.push(format!("slot {c} +{dt}: an iron golem spawned at {:.2},{:.2},{:.2}, off the pad (see queue-loop-spots)", e.pos.x, e.pos.y, e.pos.z));
+                    // (a golem on the pad, its box meeting a portal block, is the farm's; any
+                    // other spawned off the pad, a spawn cell `queue-loop-spots` lists; a villager
+                    // that has slept (a napper back from its visit) summons one when it panics
+                    // with two more such villagers near)
+                    let bb = redsim::entity::make_bounding_box(e.pos, 1.4, 2.7).inflate(0.01, 0.01, 0.01);
+                    let mut on_pad = false;
+                    for y in bb.min_y.floor() as i32..=bb.max_y.floor() as i32 {
+                        for z in bb.min_z.floor() as i32..=bb.max_z.floor() as i32 {
+                            for x in bb.min_x.floor() as i32..=bb.max_x.floor() as i32 {
+                                on_pad |= run.world.get(BlockPos::new(x, y, z)).to_string().contains("nether_portal");
+                            }
+                        }
+                    }
+                    if !on_pad {
+                        problems.push(format!("slot {c} +{dt}: an iron golem spawned at {:.2},{:.2},{:.2}, off the pad (see queue-loop-spots)", e.pos.x, e.pos.y, e.pos.z));
+                    }
                 }
             }
         }
@@ -2713,7 +3255,29 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 if let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind {
                     let e = &run.world.entities.list[i];
                     if m.health < rider_last[k].1 {
-                        rider_hurt.push(format!("e{k} hurt at slot {c} +{dt}: health {} -> {} at {:.2},{:.2},{:.2}", rider_last[k].1, m.health, e.pos.x, e.pos.y, e.pos.z));
+                        // (and the damage's source, from the world's mob events; for a wall,
+                        // the suffocating cells the eye's box meets)
+                        let src = run.world.mob.events.iter().rev().find_map(|ev| match ev { redsim::entity::mob::MobEvent::Hurt { id, src, amount, .. } if *id == *r => Some(format!(" ({src:?}, {amount})")), _ => None }).unwrap_or_default();
+                        let eye = e.pos.y + 1.62;
+                        let mut walls = Vec::new();
+                        // (the eye's box as `is_in_wall` makes it, at the rider's position now and
+                        // at its last tick's: the suffocating cells whose boxes it meets)
+                        for (tag, q) in [("now", [e.pos.x, e.pos.y, e.pos.z]), ("last", rider_last[k].0)] {
+                            let ey = q[1] + 1.62;
+                            let bb = redsim::entity::Aabb::new(q[0] - 0.24, ey - 5.0e-7, q[2] - 0.24, q[0] + 0.24, ey + 5.0e-7, q[2] + 0.24);
+                            for y in bb.min_y.floor() as i32..=bb.max_y.floor() as i32 {
+                                for z in bb.min_z.floor() as i32..=bb.max_z.floor() as i32 {
+                                    for x in bb.min_x.floor() as i32..=bb.max_x.floor() as i32 {
+                                        let p = BlockPos::new(x, y, z);
+                                        let s = run.world.get(p);
+                                        if !s.is_air() && redsim::entity::mob::blocks::is_suffocating(&s) && redsim::entity::collide::boxes_at(&run.world, &s, p).iter().any(|b| b.intersects(bb)) {
+                                            walls.push(format!("{tag} {:.2},{:.2},{:.2}: {},{},{} {}", q[0], q[1], q[2], p.x, p.y, p.z, s.to_string().trim_start_matches("minecraft:")));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        rider_hurt.push(format!("e{k} hurt at slot {c} +{dt}: health {} -> {}{src} at {:.2},{:.2},{:.2} (eye {eye:.2}; suffocating near: {})", rider_last[k].1, m.health, e.pos.x, e.pos.y, e.pos.z, walls.join(", ")));
                     }
                     rider_last[k] = ([e.pos.x, e.pos.y, e.pos.z], m.health, run.world.time - t_start);
                 }
@@ -2731,6 +3295,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // single visit's divert rail and bed holders; the nightly checks at dawn and midday)
         if let Some(v) = tm.visit {
             let tod = run.world.day_time().rem_euclid(24000);
+            // (T1's and T2's rails: a shape change logged with its absolute time)
+            for (j, (cell, name)) in [(v.t1, "T1"), (v.t2, "T2")].into_iter().enumerate() {
+                let s = run.world.get(BlockPos::new(cell.x, cell.y + 1, cell.z)).to_string();
+                if s != t_shapes[j] {
+                    if !t_shapes[j].is_empty() {
+                        let shape = s.split("shape=").nth(1).and_then(|t| t.split([',', ']']).next()).unwrap_or("?").to_string();
+                        t_switches.push((c * 100 + dt, name, shape));
+                    }
+                    t_shapes[j] = s;
+                }
+            }
             let asleep_now: Vec<bool> = riders.iter().map(|r| redsim::entity::index_of(&run.world, *r).is_some_and(|i| matches!(&run.world.entities.list[i].kind, redsim::entity::EntityKind::Mob(_)) && redsim::entity::mob::mob(&run.world, i).sleeping_pos.is_some())).collect();
             for (k, a) in asleep_now.iter().enumerate() {
                 if *a {
@@ -2805,6 +3380,14 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                             vr.sleep.1 = Some(now);
                         }
                     }
+                    // (the first tick on T1's rail: the coupling with the next visit's T switch)
+                    if vr.t1_pass.is_none() {
+                        if let Some(p) = pos_of(&run.world, id) {
+                            if p.x.floor() as i32 == v.t1.x && p.z.floor() as i32 == v.t1.z && (p.y - (v.t1.y as f64 + 1.0)).abs() < 0.9 {
+                                vr.t1_pass = Some(now);
+                            }
+                        }
+                    }
                     // (ready: at rest on the siding's exit slot, over its release control)
                     if vr.ready.is_none() {
                         if let Some(i) = redsim::entity::index_of(&run.world, id) {
@@ -2872,6 +3455,20 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
             }
         }
+        if let Some((c0, c1)) = tm.tail_trace {
+            if c >= c0 && c <= c1 && (lay.esc.is_some() || !lay.fifo.is_empty()) {
+                // (`--tail-trace`: every cart in the tail's cells, x 0, z 20..slot 0, each tick, with
+                // B, P and the gate)
+                let z1 = lay.slot_cells.first().map_or(40, |s| s[2]) + 1;
+                let ps: Vec<String> = carts.iter().enumerate().filter_map(|(k, id)| pos_of(&run.world, *id).filter(|p| p.x > -0.5 && p.x < 1.5 && p.z > 19.5 && p.z < z1 as f64).map(|p| {
+                    let v = run.world.entities.list.iter().find(|e| e.id == *id).map_or(0.0, |e| e.delta_movement.horizontal_distance());
+                    format!("{k}@{:.2},{:.2} v{:.3}", p.y, p.z, v)
+                })).collect();
+                let on = |b: Option<BlockPos>| b.map_or('?', |b| if matches!(run.world.get(b), Block::RedstoneBlock) { 'P' } else { '-' });
+                let gate = lay.fifo.last().map_or('?', |(g, _)| if matches!(run.world.get(*g), Block::FenceGate { open: true, .. }) { 'o' } else { '-' });
+                println!("tt c{c} +{dt}: B{} P{} G{} | {}", on(lay.esc), on(lay.esc_p), gate, ps.join(" "));
+            }
+        }
         if let Some(w) = watch {
             let ps: Vec<String> = w.iter().filter_map(|k| carts.get(*k)).map(|id| run.world.entities.list.iter().find(|e| e.id == *id).map(|e| {
                 // (and its rider: where, its box's x span)
@@ -2891,7 +3488,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let stand = if o.stand_stop { format!(" | gates {gates}{wired_cells}") } else { String::new() };
             // (`--watch-cells`: those cells' block states too, e.g. a wiring join's line)
             let cells: String = tm.watch_cells.iter().flatten().map(|c| format!(" | {},{},{} {}", c[0], c[1], c[2], run.world.get(BlockPos::new(c[0], c[1], c[2])))).collect();
-            println!("c{c} +{dt}: {}{stand}{cells}", ps.join(" | "));
+            // (and the design's daylight detectors, with the day time and the weather)
+            let dets: String = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).map(|(p, _)| format!(" | det {},{},{} {}", p.x, p.y, p.z, run.world.get(*p).to_string().replace("minecraft:daylight_detector", ""))).collect();
+            let wx = if dets.is_empty() { String::new() } else { format!(" | day {} rain {:.2} thunder {:.2} darken {}", run.world.day_time().rem_euclid(24000), run.world.rain_level(1.0), run.world.thunder_level(1.0), run.world.sky_darken()) };
+            println!("c{c} +{dt}: {}{stand}{cells}{dets}{wx}", ps.join(" | "));
         }
         // the stand fills front first: every slot braked at once (slopes down and up) as the
         // train's front cart reaches S2's peak; its second cart is then in S2 (the train runs 3
@@ -3075,6 +3675,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // the queue's tail fills front first: slots 1 and 2 braked as the returning front cart
         // reaches slot 1's peak, slot 0 as its second reaches slot 0's peak
         for (c0, tr, st) in intake_trains.iter_mut() {
+            if fifo_on {
+                break;
+            }
             if wired.is_some() {
                 // the design's own redstone brakes the tail: done once the train's 3 carts rest
                 // in slots 2, 1, 0
@@ -3151,6 +3754,24 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 snaps.push((run.world.time - t_start, v));
             }
         }
+        // (`golem_late`: the next golem comes up to J gt late: the world ticks that many more gt
+        // at the slot's end before the next pulse, so the gaps between pulses vary over
+        // 100 ..= 100 + J; the bench's own per-tick work skips them, its checks stay pulse-relative)
+        if dt == 99 && c + 1 < cycles && tm.golem_late > 0 {
+            let mut z = (seed as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ (c as u64).wrapping_add(0x9E37_79B9_7F4A_7C15).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            let extra = ((z ^ (z >> 31)) % (tm.golem_late as u64 + 1)) as i64;
+            for _ in 0..extra {
+                run.tick();
+                stop_brake(&mut run.world, &mut stop_arm);
+                hold_day(&mut run.world);
+            }
+            late_total += extra;
+        }
+    }
+    if tm.golem_late > 0 {
+        out.push(format!("golem pulses up to {} gt late: {late_total} gt added over {cycles} slots (the gaps between pulses 100..={})", tm.golem_late, 100 + tm.golem_late));
     }
     // the order: each settled snapshot every cart 3 places on from the last
     let mut moves = 0;
@@ -3165,6 +3786,14 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     out.push(format!("{} settled snapshots, {} clean 3-place moves", snaps.len(), moves));
     if o.stand_stop {
         out.push(format!("slot-boundary order: {order_ok} clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)"));
+        if fifo_on {
+            let mut hist = [0usize; 8];
+            for h in &fifo_held {
+                hist[(*h).min(7)] += 1;
+            }
+            let what = if lay.esc.is_some() { format!("escapement, a queue of {} cells", lay.queue_cells.len()) } else { format!("{} pockets", lay.fifo.len()) };
+            out.push(format!("the re-packing tail ({what}): carts held at the slots' starts {} (0..7); {} advances found slot 0 empty (a hole into the register){}", hist.iter().map(|n| n.to_string()).collect::<Vec<_>>().join("/"), fifo_empty.len(), if fifo_empty.is_empty() { String::new() } else { format!(": {}", fifo_empty.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) }));
+        }
         // (one line in a fixed form, read back by `queue-loop-run --seeds`: min and max of each)
         let mm = |f: &dyn Fn(&(i64, i64, i64, i64)) -> i64| (margins.iter().map(f).min().unwrap_or(0), margins.iter().map(f).max().unwrap_or(0));
         let ((a0, a1), (f0, f1), (b0, b1), (c0, c1)) = (mm(&|m| m.0), mm(&|m| m.1), mm(&|m| m.2), mm(&|m| m.3));
@@ -3217,6 +3846,36 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     if tm.no_summons {
         out.push("diagnostic (--no-summons): every rider held GOLEM_DETECTED_RECENTLY, so no golem was summoned anywhere; not a design check".to_string());
     }
+    if has_nether {
+        let iron = nether_iron(&run.world) - iron_start;
+        let with: std::collections::BTreeSet<i64> = pad_golems.iter().map(|g| g.4).collect();
+        let offsets: Vec<i64> = pad_golems.iter().map(|g| g.5).collect();
+        let died = nether_golems.iter().filter(|g| g.2.is_some()).count();
+        let dwell: Vec<i64> = nether_golems.iter().filter_map(|g| pad_golems.iter().find(|p| p.0 == g.3).map(|p| g.1 - p.1)).collect();
+        out.push(format!(
+            "the pad: {} golems over {cycles} slots ({} slots with a golem: {:.2}%), summoned at slot +{}..+{}; {} through the portal{}, {} died in the Nether ({} alive at the end); pulses at {}: {pulses} with a golem, {spurious_pulses} without; iron into the Nether part's containers: {iron:+} ingots",
+            pad_golems.len(),
+            with.len(),
+            100.0 * with.len() as f64 / cycles.max(1) as f64,
+            offsets.iter().min().copied().unwrap_or(0),
+            offsets.iter().max().copied().unwrap_or(0),
+            nether_golems.len(),
+            if dwell.is_empty() { String::new() } else { format!(" ({}..{} gt after the summon)", dwell.iter().min().unwrap(), dwell.iter().max().unwrap()) },
+            died,
+            nether_golems.len() - died,
+            tm.pulse_at.map_or("(no output.pulse port)".to_string(), |p| format!("{},{},{}", p.x, p.y, p.z)),
+        ));
+        if tm.slept {
+            out.push(format!("LAST_SLEPT bench-driven (--slept): every rider's set {slept_acts} times (the start and each night from day time 13,000), the station bench's stand-in for the siding's naps"));
+        }
+        out.push(format!("summons onto the pad out of turn (the summoner not on a stand cell or its pocket): {} of {}{}", out_of_turn.len(), pad_golems.len(), if out_of_turn.is_empty() { String::new() } else { format!(": {}", out_of_turn.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }));
+        out.push(format!("pad stats: golems {} with {} slots {cycles} crossed {} died {} alive {} pulses {pulses} spurious {spurious_pulses} iron {iron} out_of_turn {}", pad_golems.len(), with.len(), nether_golems.len(), died, nether_golems.len() - died, out_of_turn.len()));
+        out.push(format!("summon ticks: stand riders willing 0/1/2/3: {} {} {} {}; panicking 0/1/2/3: {} {} {} {}; riders at the stand 0/1/2/3: {} {} {} {}; unwilling: never slept {}, slept 24,000 gt ago or more {}, a golem seen lately {}", willing[0], willing[1], willing[2], willing[3], panicking[0], panicking[1], panicking[2], panicking[3], stand_count[0], stand_count[1], stand_count[2], stand_count[3], unwilling[0], unwilling[1], unwilling[2]));
+        out.push(format!("summon stats: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}", willing[0], willing[1], willing[2], willing[3], panicking[0], panicking[1], panicking[2], panicking[3], stand_count[0], stand_count[1], stand_count[2], stand_count[3], unwilling[0], unwilling[1], unwilling[2]));
+        for s in out_of_turn.iter().take(3) {
+            problems.push(format!("a summon onto the pad out of turn: {s}"));
+        }
+    }
     if !golem_log.is_empty() {
         out.push(format!("iron golems: {} first seen: {}", golem_log.len(), golem_log.iter().take(12).cloned().collect::<Vec<_>>().join("; ")));
     }
@@ -3233,13 +3892,30 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 continue;
             }
             done += 1;
-            out.push(format!("visit slot {} cart {}: rider asleep {}; ready at the siding's exit {}; rolled off its drop rail {}; back at rest {}", vr.slot, vr.k, match vr.sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, vr.ready.map_or("never".into(), |t| format!("+{t}")), vr.rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), vr.back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
+            out.push(format!("visit slot {} cart {}: rider asleep {}; ready at the siding's exit {}; passed T1 {}; rolled off its drop rail {}; back at rest {}", vr.slot, vr.k, match vr.sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, vr.ready.map_or("never".into(), |t| format!("+{t}")), vr.t1_pass.map_or("never".into(), |t| format!("at +{t}")), vr.rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), vr.back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
             if vr.sleep.0.is_none() {
                 problems.push(format!("visit (slot {}, cart {}): the napper never slept", vr.slot, vr.k));
             }
             if vr.back.is_none() {
                 problems.push(format!("visit (slot {}, cart {}): the cart never came back to rest in a slot", vr.slot, vr.k));
             }
+        }
+        // (the coupling "the previous visit's cart clears the T's before they switch for the next":
+        // for each visit, the first T switch after it passed T1 and the last one before it did,
+        // relative to its pass; the smallest gaps over the run)
+        let mut after: Vec<i64> = Vec::new();
+        let mut before: Vec<i64> = Vec::new();
+        for vr in &visits {
+            let Some(p) = vr.t1_pass.map(|t| vr.slot * 100 + t) else { continue };
+            if let Some((t, _, _)) = t_switches.iter().find(|(t, _, _)| *t > p) {
+                after.push(t - p);
+            }
+            if let Some((t, _, _)) = t_switches.iter().rev().find(|(t, _, _)| *t <= p) {
+                before.push(p - t);
+            }
+        }
+        if !after.is_empty() {
+            out.push(format!("visit: T1/T2 switches {} times; after a visiting cart passed T1 the next switch came {}..{} gt later; before it passed, the last switch was {}..{} gt earlier", t_switches.len(), after.iter().min().unwrap_or(&0), after.iter().max().unwrap_or(&0), before.iter().min().unwrap_or(&0), before.iter().max().unwrap_or(&0)));
         }
         if v.every > 0 || v.observe {
             out.push(format!("visits: {done} complete; {}", if night_reports.is_empty() { "no dawn reached".to_string() } else { night_reports.join("; ") }));

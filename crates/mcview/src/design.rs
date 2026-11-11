@@ -51,6 +51,9 @@ pub struct Design {
     /// parts inside its box, drawn see-through where they sit; never part of the build), in file
     /// order.
     pub ghosts: Vec<(Pos, String)>,
+    /// `chunk: <x> <y> <z> <X0>-<X1> <Z0>-<Z1>` ([`ChunkAlign`]): where the design must sit
+    /// among the world's chunks.
+    pub chunk: Option<ChunkAlign>,
     /// A mob farm's Nether part (`nether layer Y:` sections from `nether-origin:`, sharing the
     /// palette, as `mctas::design` reads them), in the file's coordinates: the judge's runner's
     /// `World::nether` ([`crate::mobfarm::spec`]), a page's Nether view its second scene.
@@ -131,6 +134,46 @@ pub fn nether_part_text(text: &str) -> Result<String, String> {
         return Err("no Nether part (`nether layer Y:` sections)".into());
     }
     Ok(out)
+}
+
+/// A design's chunk alignment (ironspec 2026-11-10, the carousel brief's rule; the generator derives
+/// the ranges from the part's box, the assembly check holds that box inside one chunk at every
+/// allowed residue): `chunk: <x> <y> <z> <X0>-<X1> <Z0>-<Z1>`, its reference block at design
+/// cell (x, y, z) sits at a world X with X mod 16 in X0..=X1 and a Z with Z mod 16 in Z0..=Z1,
+/// built facing as the download does (Java redstone is directional: no other facing is stated).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChunkAlign {
+    pub cell: Pos,
+    pub x: [i32; 2],
+    pub z: [i32; 2],
+}
+
+impl ChunkAlign {
+    /// The line's value (`x y z X0-X1 Z0-Z1`); a range is 0..=15, low first (a single residue:
+    /// `X-X`).
+    pub fn parse(v: &str) -> Result<ChunkAlign, String> {
+        let usage = || format!("expected 'chunk: x y z X0-X1 Z0-Z1' (ranges of 0..15), got {v:?}");
+        let w: Vec<&str> = v.split_whitespace().collect();
+        let [x, y, z, rx, rz] = w[..] else { return Err(usage()) };
+        let n = |s: &str| s.parse::<i32>().map_err(|_| usage());
+        let range = |s: &str| -> Result<[i32; 2], String> {
+            let (a, b) = s.split_once('-').ok_or_else(usage)?;
+            let (a, b) = (n(a)?, n(b)?);
+            if !(0..16).contains(&a) || !(0..16).contains(&b) || a > b {
+                return Err(usage());
+            }
+            Ok([a, b])
+        };
+        Ok(ChunkAlign { cell: [n(x)?, n(y)?, n(z)?], x: range(rx)?, z: range(rz)? })
+    }
+
+    /// The chunk borders the view draws, the reference block at the middle of its ranges
+    /// (ironspec): the residues r (x, z) for which a design coordinate c is a chunk's low edge
+    /// exactly when (c - r) mod 16 = 0 (a cell at world X = 16k starts a chunk).
+    pub fn borders(&self) -> [i32; 2] {
+        let mid = |r: [i32; 2]| (r[0] + r[1]) / 2;
+        [(self.cell[0] - mid(self.x)).rem_euclid(16), (self.cell[2] - mid(self.z)).rem_euclid(16)]
+    }
 }
 
 /// `+x`, `-y`, `east`, `up`, or `dx dy dz` (a unit vector along one axis), like
@@ -305,6 +348,10 @@ impl Design {
                             let s = normalize_state(words[3]).map_err(|e| err(&e))?;
                             if k == "stop" { d.stops.push((p, s)) } else { d.ghosts.push((p, s)) }
                         }
+                        "chunk" => {
+                            d.chunk = Some(ChunkAlign::parse(v).map_err(|e| err(&e))?);
+                            d.meta.insert(k.to_string(), v.to_string());
+                        }
                         _ => {
                             d.meta.insert(k.to_string(), v.to_string());
                         }
@@ -349,6 +396,12 @@ impl Design {
                 }
             }
         }
+        // (a chunk alignment names its reference block: a cell of the design's own)
+        if let Some(c) = d.chunk
+            && !d.blocks.contains_key(&c.cell)
+        {
+            return Err(format!("chunk: its reference cell {:?} holds no block of the design", c.cell));
+        }
         Ok(d)
     }
 
@@ -387,6 +440,27 @@ impl Design {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ironspec 2026-11-10: `chunk: <x> <y> <z> <X0>-<X1> <Z0>-<Z1>`, the reference block at
+    /// design cell (x, y, z) at world X mod 16 in X0..=X1 and Z mod 16 in Z0..=Z1; the view draws
+    /// the borders with it at the middle of its ranges. A malformed line or an empty reference
+    /// cell is refused (the generator writes it: a slip there must not pass as no alignment).
+    #[test]
+    fn a_chunk_alignment_reads_and_places_the_borders() {
+        let text = "name: c\nchunk: 2 0 1 3-9 0-4\npalette:\n  S stone\n  R redstone_block\nlayer 0:\n  SSSSS\n  SSRSS\n";
+        let d = Design::parse(text).unwrap();
+        let c = d.chunk.unwrap();
+        assert_eq!(c, ChunkAlign { cell: [2, 0, 1], x: [3, 9], z: [0, 4] });
+        assert_eq!(d.meta["chunk"], "2 0 1 3-9 0-4");
+        // the middles 6 and 2: cell x 2 at world X 6 (mod 16), so design x 12 (world 16) starts a
+        // chunk; cell z 1 at world Z 2, so design z 15 (world 16) does
+        assert_eq!(c.borders(), [12, 15]);
+        for b in ["2 0 1 3-9", "2 0 1 9-3 0-4", "2 0 1 3-16 0-4", "2 0 1 3 0-4", "a 0 1 3-9 0-4"] {
+            assert!(Design::parse(&text.replace("2 0 1 3-9 0-4", b)).is_err(), "{b:?} refused");
+        }
+        assert!(Design::parse(&text.replace("chunk: 2 0 1", "chunk: 9 0 1")).is_err(), "its reference cell holds no block");
+        assert_eq!(Design::parse(&text.replace("chunk: 2 0 1 3-9 0-4\n", "")).unwrap().chunk, None);
+    }
 
     #[test]
     fn parses_ports_layers_and_hints() {
