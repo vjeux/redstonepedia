@@ -129,6 +129,15 @@ pub fn take(w: &mut World, p: BlockPos) {
     *ensure_tickets(w).entry((p.x, p.y, p.z)).or_insert(0) += 1;
 }
 
+/// (tickexact 2026-11-11) `PoiRecord.getFreeTickets` of the record at `p` (None: no POI there):
+/// its kind's tickets (a home or a job site 1, a meeting point 32) less the taken ones.
+pub fn free_tickets(w: &mut World, p: BlockPos) -> Option<u32> {
+    let kind = poi_of(&w.get(p))?;
+    let max = if kind == PoiKind::Meeting { 32 } else { 1 };
+    let held = ensure_tickets(w).get(&(p.x, p.y, p.z)).copied().unwrap_or(0);
+    Some(max - held.min(max))
+}
+
 /// (tickexact 2026-11-10, ironfarm's stranded napper) `PoiManager.take(acquirable, (type, pos) ->
 /// pos.equals(p), p, 1)` as AcquirePoi calls it: the record at `p`, when its kind is the
 /// selection's and it has a free ticket (homes and job sites hold 1, a meeting point 32), takes

@@ -3037,6 +3037,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut riders: Vec<u32> = carts.iter().map(|c| run.world.entities.list.iter().find(|e| e.id == *c).and_then(|e| e.passengers.first().copied()).unwrap_or(0)).collect();
     let mut night_ticks = vec![0u64; riders.len()];
     let mut panic_ticks = vec![0u64; riders.len()];
+    let (mut expose_night, mut expose_ticks) = (vec![0u64; riders.len()], vec![0u64; riders.len()]);
+    let mut expose_max: (usize, String) = (0, String::new());
+    let mut expose_multi = 0u64;
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
     // the loop's places in travel order: slot 0 .. slot q-1, S3, S2, S1
     let q = o.slots as usize;
@@ -3232,6 +3235,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (MobEvent::Released: a rider's is its HOME); `calm`: every zombie killed first (the control)
     let mut reach_worst: Option<(i64, String)> = None;
     let mut home_releases: Vec<String> = Vec::new();
+    let mut homes_prev: Option<Vec<Option<BlockPos>>> = None;
+    let mut home_log: Vec<String> = Vec::new();
     let mut rel_seen = run.world.mob.events.len();
     if tm.calm {
         let zombies: Vec<u32> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Zombie)).map(|e| e.id).collect();
@@ -4591,6 +4596,19 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
             let homes_now: Vec<Option<BlockPos>> = riders.iter().map(|r| redsim::entity::index_of(&run.world, *r).and_then(|i| match &run.world.entities.list[i].kind { redsim::entity::EntityKind::Mob(m) => m.brain.as_deref().and_then(|b| b.home), _ => None })).collect();
+            // (tickexact 2026-11-11, ironspec's recoverability) every HOME lost or gained, by whom
+            // and when (a loss's cause: the `cant-reach:` line's releases, ValidateNearbyPoi, ...)
+            if let Some(prev) = &homes_prev {
+                for (k, (was, now)) in prev.iter().zip(homes_now.iter()).enumerate() {
+                    if was != now {
+                        home_log.push(match now {
+                            None => format!("e{k} lost at slot {c} +{dt}"),
+                            Some(p) => format!("e{k} {},{},{} at slot {c} +{dt}", p.x, p.y, p.z),
+                        });
+                    }
+                }
+            }
+            homes_prev = Some(homes_now.clone());
             // (the `cant-reach:` line: each rider's streak where HOME's release can run, and the
             // releases)
             for (k, r) in riders.iter().enumerate() {
@@ -4745,6 +4763,30 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // PANIC at night (the deep night, day time 13,670..22,330): every rider, and where the
         // calm ones ride
         let tod = run.world.day_time().rem_euclid(24000);
+        // (tickexact 2026-11-11, ironspec: the freeze exposure) the villagers calm in REST with a
+        // live CANT_REACH streak and HOME held, this tick (the napper on its visit included): a long
+        // freeze now releases each one's HOME on the resume, and two holders of the one bed losing
+        // it together leave one homeless (the ticket caps at 1)
+        if (13670..22330).contains(&tod) {
+            let mut exposed: Vec<String> = Vec::new();
+            for (k, r) in riders.iter().enumerate() {
+                let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+                expose_night[k] += 1;
+                let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { continue };
+                let (Some(b), Some(x)) = (m.brain.as_deref(), m.brain.as_deref().and_then(|b| b.ex.as_deref())) else { continue };
+                if let (Some(_), redsim::entity::mob::ai::brain::Act::Rest, Some(since)) = (b.home, x.active, x.mem.cant_reach_since) {
+                    expose_ticks[k] += 1;
+                    let p = run.world.entities.list[i].pos;
+                    exposed.push(format!("e{k} at {:.1},{:.1},{:.1} ({} gt)", p.x, p.y, p.z, run.world.time - since));
+                }
+            }
+            if exposed.len() >= 2 {
+                expose_multi += 1;
+            }
+            if exposed.len() > expose_max.0 {
+                expose_max = (exposed.len(), format!("slot {c} +{dt}: {}", exposed.join(", ")));
+            }
+        }
         if (13670..22330).contains(&tod) {
             for (k, r) in riders.iter().enumerate() {
                 // (the napper on its visit is meant to sleep, not panic)
@@ -5218,6 +5260,17 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         },
         if home_releases.is_empty() { "none".to_string() } else { format!("{} ({})", home_releases.len(), home_releases.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }
     ));
+    out.push(format!("home log: {}", if home_log.is_empty() { "no HOME changed".to_string() } else { format!("{} changes: {}", home_log.len(), home_log.iter().take(40).cloned().collect::<Vec<_>>().join("; ")) }));
+    {
+        let mut fr: Vec<(usize, f64)> = expose_night.iter().zip(&expose_ticks).enumerate().filter(|(_, (n, _))| **n > 0).map(|(k, (n, e))| (k, *e as f64 / *n as f64)).collect();
+        fr.sort_by(|a, b| b.1.total_cmp(&a.1));
+        out.push(format!(
+            "freeze exposure (deep night: calm in REST, a live CANT_REACH streak, HOME held): at most {} at once{}; ticks with 2 or more: {expose_multi}; the most exposed: {}",
+            expose_max.0,
+            if expose_max.0 > 0 { format!(" ({})", expose_max.1) } else { String::new() },
+            fr.iter().take(6).map(|(k, f)| format!("e{k} {:.2}%", 100.0 * f)).collect::<Vec<_>>().join(", ")
+        ));
+    }
     if let Some(v) = tm.visit {
         out.extend(visit_lines.iter().cloned());
         out.push(format!("visit: bed claims: {}", if bed_claims.is_empty() { "none".to_string() } else { bed_claims.join("; ") }));

@@ -9,6 +9,9 @@ bed-cart.rec	93599ca7a65ecb37		26.3	2026-11-09T07:58Z on 1ceafd5c85	mctas mobai 
 bed-observer.rec	0788e408cae41642		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 bed-panic.rec	1c9f38eb41aa7b28		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record bed-panic --seed 1 --ticks 6000 --dir designs/redsim/recorded/mobai
 bed-r1.rec	c2199fa6955a6c94		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+bed-radius-zombie-reload.rec	127add6254956063		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record bed-radius-zombie-reload --seed 1 --ticks 700 --dir designs/redsim/recorded/mobai
+bed-radius-zombie.rec	68377fe008aeeaf8		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record bed-radius-zombie --seed 1 --ticks 700 --dir designs/redsim/recorded/mobai
+bed-radius.rec	a161200e1c190f53		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record bed-radius --seed 1 --ticks 700 --dir designs/redsim/recorded/mobai
 bed-retake.rec	07e5f7c3f65e781e		26.3	2026-11-10T07:11Z on 0609ee3f7	mctas mobai record bed-retake --seed 1 --ticks 24500 --dir designs/redsim/recorded/mobai
 bed-shared.rec	dab056dfa27a591c		26.3	2026-11-10T07:21Z on a5d224f10	mctas mobai record bed-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 board-cooldown-reload.rec	126f4129a6e805c0		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record board-cooldown-reload --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
@@ -52,6 +55,9 @@ loot-pickup.rec	399481169aa92c26		26.3	2026-11-10T15:13Z on 15717973b	mctas moba
 loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+recover-occupied.rec	9459a35cd221c296		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-occupied --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
+recover-shared.rec	ab8f7b683acc91d6		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
+recover-single.rec	b3e69998f7c7bb39		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record recover-single --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 siding-fault-nap40.rec	f1df1678c77517e6		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record siding-fault-nap40 --seed 1 --ticks 3300 --dir designs/redsim/recorded/mobai

@@ -103,6 +103,57 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             v
         }
+        // (tickexact 2026-11-11) the recoverability scenes: HOME and tickets at t1-t3, the freeze
+        // 900..2400, the pens opened at t2500
+        "recover-single" | "recover-shared" | "recover-occupied" => {
+            let bed = [5, 64, 6];
+            let open = |x: i32, z: i32| vec![s([x - 1, 64, z], "minecraft:air"), s([x - 1, 65, z], "minecraft:air")];
+            // the bed broken and placed again in one go (no tick sees it missing)
+            let replace = vec![
+                s([5, 64, 5], "minecraft:air"),
+                s([5, 64, 6], "minecraft:air"),
+                s([5, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]"),
+                s([5, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]"),
+            ];
+            match name {
+                "recover-single" => vec![
+                    (1, vec![s(bed, "home:e0"), s(bed, "poi-take")]),
+                    (900, vec![s([0, 0, 0], "unload:0,0,0,0")]),
+                    (2400, vec![s([0, 0, 0], "load:0,0,0,0")]),
+                    (2500, open(8, 6)),
+                ],
+                "recover-shared" => vec![
+                    (1, vec![s(bed, "home:e0"), s(bed, "poi-take")]),
+                    (2, replace),
+                    (3, vec![s(bed, "home:e1"), s(bed, "poi-take")]),
+                    (900, vec![s([0, 0, 0], "unload:0,0,0,0")]),
+                    (2400, vec![s([0, 0, 0], "load:0,0,0,0")]),
+                    (2500, [open(8, 6), open(8, 9)].concat()),
+                ],
+                _ => vec![
+                    (1, vec![s(bed, "home:e1"), s(bed, "poi-take")]),
+                    (2, replace),
+                    (3, vec![s(bed, "home:e0"), s(bed, "poi-take")]),
+                    (100, open(8, 6)),
+                    (900, vec![s([0, 0, 0], "unload:1,0,1,0")]),
+                    (2400, vec![s([0, 0, 0], "load:1,0,1,0")]),
+                    (2500, open(22, 6)),
+                ],
+            }
+        }
+        // (tickexact 2026-11-11) the bed radius: S's HOME and the bed's ticket, the riders' HOME,
+        // at t1; S let out at t100; "-reload": the whole part away 1 gt at t300
+        "bed-radius" | "bed-radius-zombie" | "bed-radius-zombie-reload" | "bed-radius-reload" => {
+            let mut v = vec![
+                (1, vec![s([5, 64, 6], "home:e0"), s([5, 64, 6], "poi-take"), s([5, 64, 6], "home:e1.p0"), s([5, 64, 6], "home:e2.p0")]),
+                (100, vec![s([7, 64, 6], "minecraft:air"), s([7, 65, 6], "minecraft:air")]),
+            ];
+            if name.ends_with("-reload") {
+                v.push((300, vec![s([0, 0, 0], "unload")]));
+                v.push((301, vec![s([0, 0, 0], "load")]));
+            }
+            v
+        }
         // (tickexact 2026-11-11) the freeze across a cant-reach streak: each rider's HOME and its
         // bed's POI at t1, then R1's chunk (0, 0) frozen from t900 for 1500 (or 5000) gt
         "freeze-cantreach" | "freeze-cantreach-5000" | "freeze-cantreach-zombie" | "freeze-cantreach-zombie-5000" => {
@@ -2294,6 +2345,95 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's bed radius: ValidateNearbyPoi(HOME) in REST erases a
+    // villager's HOME when the bed (closerToCenterThan 16 of it) is OCCUPIED and it is not the
+    // sleeper, keeping the bed's ticket while a villager sleeps there) a bed (head (5,64,6)) and
+    // its sleeper S (e0, HOME and the ticket at t1, penned in glass 3 blocks east until t100: it
+    // lies down soon after); two riders in minecarts on rails, both with HOME on that bed from
+    // t1: R15 (e1) 15.0 from the bed's center along x, R17 (e2) 17.0 along z; night (REST from day
+    // time 13000). "-zombie": a zombie in a boat 5 blocks from R15 (out of S's and R17's range: R15
+    // panics before the bed is taken); "-reload": the whole part away 1 gt at t300, S asleep (the
+    // riders' fresh brains calm in REST until their sensors scan)
+    for (name, zombie) in [("bed-radius", false), ("bed-radius-zombie", true), ("bed-radius-zombie-reload", true), ("bed-radius-reload", false)] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 32, 63, stone);
+        b.push(([5, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([5, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        for (x, z) in [(7, 6), (9, 6), (8, 5), (8, 7)] {
+            for y in 64..=65 {
+                b.push(([x, y, z], "minecraft:glass".to_string()));
+            }
+        }
+        b.push(([8, 66, 6], "minecraft:glass".to_string()));
+        b.push(([20, 64, 6], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+        b.push(([5, 64, 23], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = vec![
+            ("minecraft:villager".into(), [8.5, 64.0, 6.5], Some("{PersistenceRequired:1b}".into())),
+            ("minecraft:minecart".into(), [20.5, 64.0, 6.5], Some(rider.into())),
+            ("minecraft:minecart".into(), [5.5, 64.0, 23.5], Some(rider.into())),
+        ];
+        if zombie {
+            mobs.push(("minecraft:oak_boat".into(), [24.5, 64.0, 9.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 1, 1],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's recoverability) one bed (head (5,64,6)); villagers penned
+    // in glass (a 1x1 cell, 2 high, roofed) so the path to the bed never reaches: their streak
+    // builds in REST, a freeze of their chunk (900 for 1500 gt) releases HOME on the resume
+    // (releasePoi: the ticket back, at most the record's 1), then the pens open (their west wall,
+    // t2500) and AcquirePoi may claim the bed again. "recover-single": V (e0) penned 3 blocks east,
+    // HOME and the ticket at t1. "recover-shared": V1 (e0) and V2 (e1) sharing the bed the way the
+    // build does: V1's HOME and ticket, the bed broken and placed again (a fresh record, its ticket
+    // free), V2's HOME and ticket; both penned in the frozen chunk. "recover-occupied": S (e0)
+    // asleep in the bed (let out at t100), V (e1) penned 17 blocks east in chunk (1, 0) (beyond
+    // ValidateNearbyPoi's 16) with HOME on the bed from before the break (its ticket gone with the
+    // old record), S's ticket on the new one; V's chunk frozen; dawn at t4000 (day time 20000)
+    for name in ["recover-single", "recover-shared", "recover-occupied"] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        b.push(([5, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([5, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        let pens: Vec<[i32; 2]> = match name {
+            "recover-single" => vec![[8, 6]],
+            "recover-shared" => vec![[8, 6], [8, 9]],
+            _ => vec![[8, 6], [22, 6]],
+        };
+        for [x, z] in &pens {
+            for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                for y in 64..=65 {
+                    b.push(([x + dx, y, z + dz], "minecraft:glass".to_string()));
+                }
+            }
+            b.push(([*x, 66, *z], "minecraft:glass".to_string()));
+        }
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = pens.iter().map(|[x, z]| ("minecraft:villager".to_string(), [*x as f64 + 0.5, 64.0, *z as f64 + 0.5], Some("{PersistenceRequired:1b}".to_string()))).collect();
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: if name == "recover-occupied" { 20000 } else { 13000 },
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-10, the boarding cooldown across a reload) a ridden minecart over a
     // powered activator rail throws its villager out (`ejectPassengers`: boardingCooldown 60);
     // a second, empty cart on the parallel line behind it comes through the villager's cell
@@ -3586,6 +3726,18 @@ impl Source {
         }
     }
 
+    /// (tickexact 2026-11-11) The game's POI record at `p`: its free tickets (-1: none there; a
+    /// recording does not keep them: None).
+    fn poi_free(&mut self, p: [i32; 3]) -> Result<Option<i64>> {
+        match self {
+            Source::Live(g) => {
+                let sb = g.sb;
+                Ok(g.w.call(json!({"op": "poi_free", "sandbox": sb, "pos": p}))?["free"].as_i64())
+            }
+            Source::Recorded { .. } => Ok(None),
+        }
+    }
+
     fn ticking(&self) -> Vec<[i32; 2]> {
         match self {
             Source::Live(g) => g.ticking.clone(),
@@ -3771,6 +3923,21 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         let (a, b) = v.split_once(',')?;
         Some((a.parse().ok()?, b.parse().ok()?))
     });
+    // (tickexact 2026-11-11, a probe) MOBAI_SHOW_POI="x,y,z[;x,y,z..]@T,T,..": at those ticks from
+    // the summon, each cell's POI record's free tickets, the game's and redsim's
+    let poi_probe: (Vec<[i32; 3]>, Vec<i64>) = std::env::var("MOBAI_SHOW_POI")
+        .ok()
+        .and_then(|v| {
+            let (cells, times) = v.split_once('@')?;
+            let cells = cells.split(';').filter_map(|c| {
+                let f: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                (f.len() == 3).then(|| [f[0], f[1], f[2]])
+            });
+            let mut times: Vec<i64> = times.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            times.sort();
+            Some((cells.collect(), times))
+        })
+        .unwrap_or_default();
     let mut done: i64 = if from_start { pre } else { 0 };
     // (tickexact 2026-11-10) the scene's expected positions (a drive log's): checked on the game's
     // frames, summed up at the end
@@ -3787,6 +3954,10 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         // a batch stops at the next scripted action
         if let Some((t, _)) = next_action(&actions, done + 1) {
             n = n.min((*t as i64 - done).max(1) as u32);
+        }
+        // (and at the next POI probe: MOBAI_SHOW_POI)
+        if let Some(pt) = poi_probe.1.iter().find(|pt| **pt > done) {
+            n = n.min((*pt - done).max(1) as u32);
         }
         let frames = game.frames(n, probe || trace.is_some())?;
         if frames.is_empty() {
@@ -3908,6 +4079,14 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         }
         // a scripted action between the two ticks, on both sides (a recording has the game's in
         // its frames)
+        if poi_probe.1.contains(&done) {
+            for p in &poi_probe.0 {
+                let g = game.poi_free(*p)?;
+                let r = redsim::entity::mob::ai::poi::free_tickets(&mut ours, BlockPos::new(p[0], p[1], p[2])).map_or(-1, |n| n as i64);
+                let differ = if g.is_some_and(|g| g != r) { " DIFFER" } else { "" };
+                eprintln!("poi t {done} {},{},{} free tickets: game {} redsim {r}{differ}", p[0], p[1], p[2], g.map_or("?".to_string(), |g| g.to_string()));
+            }
+        }
         if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
             game.apply(b, &ctx)?;
             apply_redsim(&mut ours, b, &ctx)?;
