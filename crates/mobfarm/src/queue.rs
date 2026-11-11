@@ -476,6 +476,9 @@ pub struct LoopOpts {
     /// take-off's level (default 2).
     pub xq_gap: u32,
     pub xq_drop: u32,
+    /// The x-queue's row (default 24; 25 for farmopt's (c′) departure, its curve then the border's
+    /// flat cell).
+    pub xq_z: Option<i32>,
     /// The zombie post beside the escapement (loop z 29) moved to this x (default the strip's).
     pub tail_post_x: Option<i32>,
     /// The 6-8 rule's posts beside R1's tail (each the boat's cell), replacing the strip's at z 21
@@ -485,7 +488,7 @@ pub struct LoopOpts {
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, xq_gap: 1, xq_drop: 2, tail_post_x: None, tail_posts: [None; 4] }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, xq_gap: 1, xq_drop: 2, xq_z: None, tail_post_x: None, tail_posts: [None; 4] }
     }
 }
 
@@ -1748,24 +1751,31 @@ pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<H
 pub fn flee_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
     let port = design_text.lines().find_map(|l| l.strip_prefix("port home:")).map(|r| r.split_whitespace().filter_map(|t| t.parse::<i32>().ok()).collect::<Vec<_>>());
     let bed = port.filter(|v| v.len() == 3).map(|v| BlockPos::new(v[0], v[1], v[2]));
-    match crate::fleecheck::check(spec, bed, &[]) {
+    let panic_boxes = design_text.lines().find_map(|l| l.strip_prefix("panic:")).and_then(|s| crate::declared::parse_boxes(s).ok()).unwrap_or_default();
+    match crate::fleecheck::check(spec, bed, &[], &panic_boxes) {
         Ok(places) => {
             let bad = |f: &dyn Fn(&crate::fleecheck::Place) -> Option<&crate::fleecheck::Source>| places.iter().filter(|p| f(p).is_some_and(|s| s.live() > 0)).count();
             let flee = bad(&|p| (p.flee_from > 0).then_some(&p.flee));
             let panic = bad(&|p| (p.panic_from > 0).then_some(&p.panic_stroll));
             let stroll = bad(&|p| Some(&p.stroll));
             let others = bad(&|p| Some(&p.others));
+            // (the 6-8 gate, ironspec Nov 11 10:54: a place inside 6.05 of a zombie, or a declared
+            // panic place without a seen one within 7.95)
+            let inside = places.iter().filter(|p| p.near.is_some_and(|n| n.0 < crate::fleecheck::FLEE_BAR)).count();
+            let uncovered = places.iter().filter(|p| p.panic_declared && !p.panic_ok).count();
             let v = |n: usize| if n == 0 { "PASS".to_string() } else { format!("FAIL at {n} places") };
             (
                 format!(
-                    "walk targets (mobfarm flee-check, static, {} rider places): the flee {} (the gate); report only: the panic stroll {}, the idle stroll {}, walks to villagers {}",
+                    "walk targets (mobfarm flee-check, static, {} rider places): the 6-8 gate {} ({inside} inside {}, {uncovered} declared panic places uncovered); the flee {}; report only: the panic stroll {}, the idle stroll {}, walks to villagers {}",
                     places.len(),
+                    v(inside + uncovered),
+                    crate::fleecheck::FLEE_BAR,
                     v(flee),
                     v(panic),
                     v(stroll),
                     v(others)
                 ),
-                flee > 0,
+                inside + uncovered > 0 || flee > 0,
             )
         }
         Err(e) => (format!("walk targets (mobfarm flee-check): not run ({e})"), false),
@@ -2138,18 +2148,23 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // (`xq_gap` G cells of gap (default 1) and `xq_drop` D: the landing D below the take-off's
         // level (default 2), the ledge's geometry for the S3 merge's band-free search)
         let (g, d) = (o.xq_gap.max(1) as i32, o.xq_drop.max(2) as i32);
+        // (`xq_z`: the x-run's row (default 24); at 25, farmopt's (c′) departure's corner row, the
+        // curve (0, y_f, 25) is the border's flat cell and the transition cell goes)
+        let xz = o.xq_z.unwrap_or(24);
         let xd = -o.row_gap + 12;
         for x in (n + 1 + g..xd).rev() {
-            path.push(([x, ye, 24], Cell::Plain));
+            path.push(([x, ye, xz], Cell::Plain));
         }
         for k in 0..n {
             let x = n - k;
-            let cell = [x, ye - d - k, 24];
+            let cell = [x, ye - d - k, xz];
             path.push((cell, if o.adm_sensors && k == 1 { Cell::Detector } else { Cell::Plain }));
         }
         let yf = ye - d + 1 - n;
-        path.push(([0, yf, 24], Cell::Plain));
-        path.push(([0, yf, 25], Cell::Plain));
+        path.push(([0, yf, xz], Cell::Plain));
+        for zt in xz + 1..26 {
+            path.push(([0, yf, zt], Cell::Plain));
+        }
         z = 26;
         Some(yf)
     } else {
@@ -2188,9 +2203,10 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             // second slope down, within 6 gt; its queue cells the x-queue's slopes)
             let n = o.adm_xq as i32;
             let (g, d) = (o.xq_gap.max(1) as i32, o.xq_drop.max(2) as i32);
-            flights.push(crate::flight::Flight { take_off: [n + 1 + g, ye, 24], landing: vec![[n, ye - d, 24], [n - 1, ye - d - 1, 24]], max_air: (6 + 3 * (g - 1) + 3 * (d - 2)) as u32 });
+            let xz = o.xq_z.unwrap_or(24);
+            flights.push(crate::flight::Flight { take_off: [n + 1 + g, ye, xz], landing: vec![[n, ye - d, xz], [n - 1, ye - d - 1, xz]], max_air: (6 + 3 * (g - 1) + 3 * (d - 2)) as u32 });
             for k in 0..n {
-                queue_cells.push([n - k, ye - d - k, 24]);
+                queue_cells.push([n - k, ye - d - k, xz]);
             }
             yf
         } else if o.adm_ledge && o.adm_short {
@@ -2642,7 +2658,7 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         let run_start = z;
         // (`adm_xq`: the run goes on north to z 24 and turns west there into the x-queue's take-off;
         // the tail lays the rest)
-        let zq = if o.adm_xq > 0 { 24 } else { zr };
+        let zq = if o.adm_xq > 0 { o.xq_z.unwrap_or(24) } else { zr };
         while z < zq {
             // (the guard: the run's first cell a booster, so the stand's departures, slower out of
             // the guard's braked gate slopes, reach the tail as fast as before)
@@ -3293,7 +3309,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() } + &if o.xq_gap > 1 { format!(" xq_gap={}", o.xq_gap) } else { String::new() } + &if o.xq_drop > 2 { format!(" xq_drop={}", o.xq_drop) } else { String::new() } + &o.tail_post_x.map(|x| format!(" tail_post_x={x}")).unwrap_or_default() + &{ let ps: Vec<String> = o.tail_posts.iter().flatten().map(|p| format!("{},{},{}", p[0], p[1], p[2])).collect(); if ps.is_empty() { String::new() } else { format!(" tail_posts={}", ps.join(";")) } })));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() } + &if o.xq_gap > 1 { format!(" xq_gap={}", o.xq_gap) } else { String::new() } + &if o.xq_drop > 2 { format!(" xq_drop={}", o.xq_drop) } else { String::new() } + &o.xq_z.map(|z| format!(" xq_z={z}")).unwrap_or_default() + &o.tail_post_x.map(|x| format!(" tail_post_x={x}")).unwrap_or_default() + &{ let ps: Vec<String> = o.tail_posts.iter().flatten().map(|p| format!("{},{},{}", p[0], p[1], p[2])).collect(); if ps.is_empty() { String::new() } else { format!(" tail_posts={}", ps.join(";")) } })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
@@ -3383,6 +3399,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "adm_xq" => o.adm_xq = v.parse().unwrap_or(0),
             "xq_gap" => o.xq_gap = v.parse().unwrap_or(1),
             "xq_drop" => o.xq_drop = v.parse().unwrap_or(2),
+            "xq_z" => o.xq_z = v.parse().ok(),
             "tail_post_x" => o.tail_post_x = v.parse().ok(),
             "tail_posts" => {
                 for (i, s) in v.split(';').filter(|s| !s.is_empty()).take(4).enumerate() {
@@ -6558,7 +6575,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     // (the x-queue's flats, `adm_xq` (ironspec's R1 note 2): a cart at rest (under
                     // 0.01 b/t) on the curve (0, y_f, 24) or the transition cell (0, y_f, 25), its
                     // longest unbroken rest; nothing may rest there in normal flow)
-                    if o.adm_xq > 0 && x.floor() as i32 == 0 && (z.floor() as i32 == 24 || z.floor() as i32 == 25) && y > 7.0 {
+                    if o.adm_xq > 0 && x.floor() as i32 == 0 && (o.xq_z.unwrap_or(24)..=25).contains(&(z.floor() as i32)) && y > 7.0 {
                         if e.delta_movement.horizontal_distance() < 0.01 {
                             let s = flat_rest_since[k].get_or_insert(t);
                             if t - *s + 1 > flat_rest_max.0 {

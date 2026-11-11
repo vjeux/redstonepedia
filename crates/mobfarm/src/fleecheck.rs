@@ -34,6 +34,8 @@ use redsim::pos::BlockPos;
 pub struct Source {
     pub cells: usize,
     pub unreached: Vec<(BlockPos, f64)>,
+    /// The chance one event picks a cell the rider's path reaches (what clears a stamp).
+    pub reached_share: f64,
 }
 
 impl Source {
@@ -66,6 +68,13 @@ pub struct Place {
     /// The nearest hostile's distance: the least and the greatest over the place's points, and
     /// the hostile nearest at the least (None: no hostile in the design).
     pub near: Option<(f64, f64, Vec3)>,
+    /// The closest rider-zombie pair at this place: the distance, the rider's position, the
+    /// zombie's.
+    pub worst: Option<(f64, Vec3, Vec3)>,
+    /// In the design's `panic:` boxes (the part relies on panic there).
+    pub panic_declared: bool,
+    /// Every point sees a zombie within PANIC_BAR (the eyes' line clear).
+    pub panic_ok: bool,
 }
 
 /// The hostiles of the design's entity lines (a zombie, or a zombie riding a boat or a cart): their
@@ -76,6 +85,84 @@ fn hostiles(spec: &FarmSpec) -> Vec<Vec3> {
         .filter(|(ty, _, nbt)| ty.ends_with("zombie") || nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie\"")))
         .map(|(_, p, _)| Vec3::new(p[0], p[1], p[2]))
         .collect()
+}
+
+/// The 6-8 rule's bars (ironspec Nov 11 10:54, scene flee-distance bridged): a zombie inside 6.05
+/// of a rider position fails; a declared panic place needs one seen within 7.95.
+pub const FLEE_BAR: f64 = 6.05;
+pub const PANIC_BAR: f64 = 7.95;
+
+/// The zombies where they sit (ironspec Nov 11 10:54: "every position the zombie can take in its
+/// post, the boat's drift and the zombie's seat height"): each zombie of the settled world at its
+/// own position (a post's zombie seated in its boat, the seat's height included; a boat on its
+/// glass has nothing to move it, so the seat is the post's one position); the design's entity lines
+/// only when the world holds none.
+pub fn zombies_seated(w: &redsim::World, spec: &FarmSpec) -> Vec<Vec3> {
+    let v: Vec<Vec3> = w
+        .entities
+        .list
+        .iter()
+        .filter(|e| !e.removed)
+        .filter_map(|e| {
+            let EntityKind::Mob(m) = &e.kind else { return None };
+            if m.ty != redsim::entity::mob::types::MobType::Zombie {
+                return None;
+            }
+            // (seated in a boat: the boat's y plus its passenger attachment, then the zombie's
+            // ridingOffset, as `Entity.positionRider` orders them; redsim's `position_rider`
+            // seats only cart passengers, so the seat is taken here)
+            let vehicle = e.vehicle.and_then(|id| w.entities.list.iter().find(|x| x.id == id && !x.removed));
+            Some(match vehicle.and_then(|b| redsim::entity::mob::rider_seat(&b.kind, m).map(|s| (b.pos, s))) {
+                Some((bp, (seat, off))) => Vec3::new(bp.x, (bp.y + seat) + off, bp.z),
+                None => e.pos,
+            })
+        })
+        .collect();
+    if !v.is_empty() {
+        return v;
+    }
+    // (the check's world holds no entities of the design (they arrive later): each zombie line at
+    // its own position, and a zombie riding a boat or cart seated: the vehicle's passenger
+    // attachment (a boat's 0.5625 / 3, a cart's 0.1875 for a non-villager) plus the zombie's
+    // ridingOffset (-0.7), the boat's y first)
+    let off = redsim::entity::mob::types::MobType::Zombie.def().riding_offset as f64;
+    spec.entities
+        .iter()
+        .filter_map(|(ty, p, nbt)| {
+            if ty.ends_with("zombie") {
+                return Some(Vec3::new(p[0], p[1], p[2]));
+            }
+            let rides = nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie\""));
+            if rides && ty.ends_with("boat") {
+                return Some(Vec3::new(p[0], (p[1] + (0.5625f32 / 3.0f32) as f64) + off, p[2]));
+            }
+            if rides && ty.ends_with("minecart") {
+                return Some(Vec3::new(p[0], (p[1] + 0.1875f32 as f64) + off, p[2]));
+            }
+            rides.then(|| Vec3::new(p[0], p[1], p[2]))
+        })
+        .collect()
+}
+
+/// A cart's position at fraction `t` along rail `c` (shape from `state`): along the rail's axis,
+/// on a slope at its height there (the cart rides 0.0625 over the rail's surface); a curve's centre.
+pub fn along_rail(c: BlockPos, state: &str, t: f64) -> Vec3 {
+    let (x, y, z) = (c.x as f64, c.y as f64 + 0.0625, c.z as f64);
+    if state.contains("ascending_east") {
+        Vec3::new(x + t, y + t, z + 0.5)
+    } else if state.contains("ascending_west") {
+        Vec3::new(x + t, y + 1.0 - t, z + 0.5)
+    } else if state.contains("ascending_south") {
+        Vec3::new(x + 0.5, y + t, z + t)
+    } else if state.contains("ascending_north") {
+        Vec3::new(x + 0.5, y + 1.0 - t, z + t)
+    } else if state.contains("east_west") {
+        Vec3::new(x + t, y, z + 0.5)
+    } else if state.contains("north_south") {
+        Vec3::new(x + 0.5, y, z + t)
+    } else {
+        Vec3::new(x + 0.5, y, z + 0.5)
+    }
 }
 
 /// The job-site blocks and bells of `spec` (each a SetWalkTargetFromBlockMemory target within 48 for
@@ -95,27 +182,19 @@ pub fn job_and_bell_blocks(spec: &FarmSpec) -> Vec<(BlockPos, String)> {
 /// The check over every rail cell of `spec` (its own world built and settled; a rider seated in a
 /// cart there, at three points along the rail's axis), and on foot at every rail cell within 1 of the
 /// bed `home` (a dropped napper stands there) and at each `foot` cell; the bed `home` for REST's walk.
-pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Result<Vec<Place>, String> {
+pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])]) -> Result<Vec<Place>, String> {
     use redsim::entity::mob::ai::goal::stroll;
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     while run.settle_tick() {}
     let w = &mut run.world;
-    let foes = hostiles(spec);
+    let foes = zombies_seated(w, spec);
     let rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     let rider_at = |c: BlockPos| Vec3::new(c.x as f64 + 0.5, c.y as f64 + 0.0625, c.z as f64 + 0.5);
     // the places: (cell, on foot, the points tried)
     let mut places: Vec<(BlockPos, bool, Vec<Vec3>)> = Vec::new();
     for (c, state) in &rails {
-        let along = |t: f64| {
-            if state.contains("shape=east_west") || state.contains("shape=ascending_east") || state.contains("shape=ascending_west") {
-                Vec3::new(c.x as f64 + t, c.y as f64 + 0.0625, c.z as f64 + 0.5)
-            } else if state.contains("shape=north_south") || state.contains("shape=ascending_north") || state.contains("shape=ascending_south") {
-                Vec3::new(c.x as f64 + 0.5, c.y as f64 + 0.0625, c.z as f64 + t)
-            } else {
-                rider_at(*c)
-            }
-        };
+        let along = |t: f64| along_rail(*c, state, t);
         places.push((*c, false, vec![along(0.1), along(0.5), along(0.9)]));
     }
     for (c, _) in &rails {
@@ -174,6 +253,10 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Resu
         // (the 6-8 rule, ironspec Nov 11 10:18: the nearest hostile's distance at each point, the
         // least and the greatest over the place's points, and that hostile)
         let mut near: Option<(f64, f64, Vec3)> = None;
+        // (the closest pair: the distance, the rider's position, the zombie's; and whether every
+        // point sees a zombie within PANIC_BAR)
+        let mut worst: Option<(f64, Vec3, Vec3)> = None;
+        let mut panic_ok = true;
         for &p in &points {
             let me = put(w, p);
             let eye = Vec3::new(me.x, me.y + 1.62, me.z);
@@ -184,7 +267,11 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Resu
                     None => (d, d, *f),
                     Some((lo, hi, h)) => (lo.min(d), hi.max(d), if d < lo { *f } else { h }),
                 });
+                if worst.is_none_or(|(wd, _, _)| d < wd) {
+                    worst = Some((d, me, *f));
+                }
             }
+            panic_ok &= foes.iter().any(|f| dist(f) <= PANIC_BAR && redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.74, f.z)));
             let near6: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) < 6.0).collect();
             let near8: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) <= 8.0).collect();
             flee_from = flee_from.max(near6.len());
@@ -221,9 +308,11 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Resu
         let me = put(w, p0);
         let mut judge = |w: &mut redsim::World, shares: Vec<(BlockPos, f64)>| -> Source {
             let cells = shares.len();
+            let total: f64 = shares.iter().map(|(_, s)| *s).sum();
             let mut unreached: Vec<(BlockPos, f64)> = shares.into_iter().filter(|(c, _)| !reaches(w, *c)).collect();
             unreached.sort_by(|a, b| b.1.total_cmp(&a.1));
-            Source { cells, unreached }
+            let reached_share = (total - unreached.iter().map(|(_, s)| *s).sum::<f64>()).max(0.0);
+            Source { cells, unreached, reached_share }
         };
         let flee = judge(w, flee_s);
         let panic_stroll = judge(w, panic_s);
@@ -239,7 +328,8 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Resu
         }
         let others = judge(w, others);
         let home_reached = home.map(|h| reaches(w, h));
-        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, near });
+        let panic_declared = panic_boxes.iter().any(|(a, b)| (a[0]..=b[0]).contains(&cell.x) && (a[1]..=b[1]).contains(&cell.y) && (a[2]..=b[2]).contains(&cell.z));
+        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, near, worst, panic_declared, panic_ok });
         let _ = redsim::entity::kill(w, vid);
         if let Some(c) = cart {
             let _ = redsim::entity::kill(w, c);
@@ -251,6 +341,42 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Resu
 
 /// `mctas mobfarm flee-check <design>`: the report, `show` cells a place; the verdicts last.
 pub fn report(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec<String> {
+    report_with(places, jobs, show, false)
+}
+
+/// [`report`], with `clearing`: every place's clearing line (what can clear a stamp there).
+pub fn report_with(places: &[Place], jobs: &[(BlockPos, String)], show: usize, clearing: bool) -> Vec<String> {
+    let mut lines = clearing_lines(places, clearing);
+    lines.extend(report_body(places, jobs, show));
+    lines
+}
+
+/// What can clear a rider's stamp at each place (ironspec Nov 11 11:07; design numbers, not a
+/// bar): panicking (a zombie seen within 8), the panic stroll's cells within 2 and 2 its path
+/// reaches; calm, the calm stroll's chance an event picks a reachable cell.
+fn clearing_lines(places: &[Place], each: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+    let panicking = |p: &Place| p.seen > 0;
+    let pan_ok = places.iter().filter(|p| panicking(p) && p.panic_stroll.cells > p.panic_stroll.unreached.len()).count();
+    let pan_none = places.iter().filter(|p| panicking(p) && p.panic_stroll.cells <= p.panic_stroll.unreached.len()).count();
+    let calm_ok = places.iter().filter(|p| !panicking(p) && p.stroll.reached_share > 1e-9).count();
+    let calm_none = places.iter().filter(|p| !panicking(p) && p.stroll.reached_share <= 1e-9).count();
+    lines.push(format!(
+        "what can clear a stamp, per place (design numbers, not a bar; the oldest-count rows decide): {} panicking places (a zombie seen within 8) with a reachable panic-stroll cell, {} with none; {} calm places whose calm stroll can pick a reachable cell, {} with none",
+        pan_ok, pan_none, calm_ok, calm_none
+    ));
+    for p in places.iter().filter(|p| each || (panicking(p) && p.panic_stroll.cells <= p.panic_stroll.unreached.len()) || (!panicking(p) && p.stroll.reached_share <= 1e-9)) {
+        let tag = if each { "CLEARING" } else { "NO-CLEARING" };
+        if panicking(p) {
+            lines.push(format!("  {tag} {},{},{}{}: panicking ({} seen within 8); the panic stroll reaches {} of its {} cells (an event picks one {:.0}%)", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, p.seen, p.panic_stroll.cells - p.panic_stroll.unreached.len(), p.panic_stroll.cells, 100.0 * p.panic_stroll.reached_share));
+        } else {
+            lines.push(format!("  {tag} {},{},{}{}: calm (no zombie seen within 8); the calm stroll reaches {} of its {} cells (an event picks one {:.1}%)", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, p.stroll.cells - p.stroll.unreached.len(), p.stroll.cells, 100.0 * p.stroll.reached_share));
+        }
+    }
+    lines
+}
+
+fn report_body(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let fmt = |v: &[(BlockPos, f64)], pct: bool| {
         v.iter()
@@ -302,30 +428,39 @@ pub fn report(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec
         ));
     }
     let verdict = |n: usize| if n == 0 { "PASS".to_string() } else { format!("FAIL at {n} places") };
-    // (the 6-8 rule, ironspec Nov 11 10:18: no hostile within 6 of any rider position, so the flee
-    // never runs; a visible one within 8 where panic is needed. Each place's nearest hostile, least
-    // and greatest over its points)
-    let within6: Vec<&Place> = places.iter().filter(|p| p.near.is_some_and(|n| n.0 < 6.0)).collect();
-    let beyond8 = places.iter().filter(|p| p.near.is_none_or(|n| n.1 > 8.0)).count();
+    // (the 6-8 rule, ironspec Nov 11 10:54 (scene flee-distance bridged): every zombie at least
+    // FLEE_BAR (6.05) from every rider position, measured from where it sits in its post; a place
+    // declared in `panic:` sees one within PANIC_BAR (7.95) from every point. Each place's nearest
+    // zombie, least and greatest over its points, and the closest pair overall)
+    let inside: Vec<&Place> = places.iter().filter(|p| p.near.is_some_and(|n| n.0 < FLEE_BAR)).collect();
+    let beyond = places.iter().filter(|p| p.near.is_none_or(|n| n.1 > PANIC_BAR)).count();
+    let declared: Vec<&Place> = places.iter().filter(|p| p.panic_declared).collect();
+    let declared_bad: Vec<&Place> = declared.iter().copied().filter(|p| !p.panic_ok).collect();
     lines.push(format!(
-        "the 6-8 rule (no hostile within 6 of a rider position: the flee never runs; a seen one within 8 where panic is needed): {} rider places with a hostile within 6, {} whose nearest hostile is beyond 8 somewhere (no panic there), {} with the nearest at 6..8 throughout",
-        within6.len(),
-        beyond8,
-        places.iter().filter(|p| p.near.is_some_and(|n| n.0 >= 6.0 && n.1 <= 8.0)).count()
+        "the 6-8 rule (every zombie at least {FLEE_BAR} from every rider position, where it sits in its post; a declared panic place sees one within {PANIC_BAR}): {} rider places inside {FLEE_BAR}, {} whose nearest zombie is beyond {PANIC_BAR} somewhere, {} at {FLEE_BAR}..{PANIC_BAR} throughout; {} places declared in panic:, {} of them without a seen zombie within {PANIC_BAR} at some point",
+        inside.len(),
+        beyond,
+        places.iter().filter(|p| p.near.is_some_and(|n| n.0 >= FLEE_BAR && n.1 <= PANIC_BAR)).count(),
+        declared.len(),
+        declared_bad.len()
     ));
-    for p in within6.iter().take(show.max(1) * 20) {
-        let (lo, hi, h) = p.near.expect("a place within 6 has a hostile");
-        let flee_bad = p.flee.live() > 0;
-        lines.push(format!("  WITHIN-6 {},{},{}{}: the nearest hostile {lo:.2}..{hi:.2} (at {:.1},{:.1},{:.1}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, h.x, h.y, h.z, if flee_bad { "; its flee candidates not all reachable" } else { "; its flee candidates none or all reachable" }));
+    if let Some((p, (d, me, f))) = places.iter().filter_map(|p| p.worst.map(|w| (p, w))).min_by(|a, b| a.1.0.total_cmp(&b.1.0)) {
+        lines.push(format!("the closest rider-zombie pair: {d:.3}, the rider at {:.3},{:.3},{:.3} (place {},{},{}{}), the zombie at {:.3},{:.3},{:.3}", me.x, me.y, me.z, p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, f.x, f.y, f.z));
     }
-    let gate_bad = within6.iter().filter(|p| p.flee.live() > 0).count();
-    for p in places.iter().filter(|p| p.near.is_none_or(|n| n.1 > 8.0)).take(show.max(1) * 20) {
+    for p in inside.iter().take(show.max(1) * 20) {
+        let (lo, hi, h) = p.near.expect("a place inside the bar has a zombie");
+        lines.push(format!("  INSIDE {},{},{}{}: the nearest zombie {lo:.2}..{hi:.2} (at {:.2},{:.2},{:.2})", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, h.x, h.y, h.z));
+    }
+    for p in declared_bad.iter().take(show.max(1) * 20) {
+        lines.push(format!("  PANIC-UNCOVERED {},{},{}: declared in panic:, no seen zombie within {PANIC_BAR} at some point (nearest {})", p.cell.x, p.cell.y, p.cell.z, p.near.map_or("none".to_string(), |n| format!("{:.2}..{:.2}", n.0, n.1))));
+    }
+    for p in places.iter().filter(|p| p.near.is_none_or(|n| n.1 > PANIC_BAR)).take(show.max(1) * 20) {
         match p.near {
-            Some((lo, hi, h)) => lines.push(format!("  BEYOND-8 {},{},{}{}: the nearest hostile {lo:.2}..{hi:.2} (at {:.1},{:.1},{:.1}), {} seen within 8", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, h.x, h.y, h.z, p.seen)),
-            None => lines.push(format!("  BEYOND-8 {},{},{}: no hostile in the design", p.cell.x, p.cell.y, p.cell.z)),
+            Some((lo, hi, h)) => lines.push(format!("  BEYOND {},{},{}{}: the nearest zombie {lo:.2}..{hi:.2} (at {:.2},{:.2},{:.2}), {} seen within 8", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, h.x, h.y, h.z, p.seen)),
+            None => lines.push(format!("  BEYOND {},{},{}: no zombie in the design", p.cell.x, p.cell.y, p.cell.z)),
         }
     }
-    lines.push(format!("the 6-8 gate (a hostile within 6 of a rider position whose flee candidates aren't none or all reachable): {}", verdict(gate_bad)));
+    lines.push(format!("the 6-8 gate (a place inside {FLEE_BAR}, or a declared panic place beyond {PANIC_BAR} or out of sight): {}", verdict(inside.len() + declared_bad.len())));
     lines.push(format!(
         "verdicts (every cell a source can pick reachable wherever it runs): flee {}, panic stroll {}, idle stroll {}, walks to villagers {}",
         verdict(flee_bad),

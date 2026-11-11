@@ -6190,6 +6190,66 @@ pub fn scene_raw_conflicts(s: &Scene) -> Result<Vec<(BlockPos, String, String)>>
     Ok(cells.into_iter().filter(|q| w.get(*q) != u.get(*q)).map(|q| (q, w.get(q).to_string(), u.get(q).to_string())).collect())
 }
 
+/// `mctas mobai flee-control [scene]` (ironspec Nov 11 11:13): `mobfarm flee-check`'s 6-8 metric on
+/// a mob AI scene, default flee-distance (tickexact's lanes: a rider or a standing villager and a
+/// zombie in a boat at 5.80, 5.95, 6.05, 6.20, 7.80, 7.95, 8.05, and a rider at 7.0 behind a wall;
+/// recorded in the game: flee targets at 5.80 and 5.95, panic with none at 6.05..7.95, no panic at
+/// 8.05 or behind the wall). Each villager's distance as flee-check measures it (the zombie seated
+/// in its boat, the rider seated in its cart, the standing villager on its pillar) against the
+/// scene's, and its class (flee: closer than 6; panic: within 8 and seen; none) against the game's.
+/// FAIL on any distance off by more than 1e-6 or any class that differs.
+pub fn flee_control(name: &str) -> Result<()> {
+    let sc = scenes().into_iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
+    anyhow::ensure!(name == "flee-distance", "the control's expected distances and classes are flee-distance's");
+    let mut blocks = Vec::new();
+    for (p, s) in &sc.blocks {
+        blocks.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(s).map_err(|e| anyhow!("{s}: {e}"))?));
+    }
+    let (mut lo, mut hi) = (BlockPos::new(i32::MAX, i32::MAX, i32::MAX), BlockPos::new(i32::MIN, i32::MIN, i32::MIN));
+    for (p, _) in &blocks {
+        lo = BlockPos::new(lo.x.min(p.x - 2), lo.y.min(p.y - 2), lo.z.min(p.z - 2));
+        hi = BlockPos::new(hi.x.max(p.x + 2), hi.y.max(p.y + 10), hi.z.max(p.z + 2));
+    }
+    let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: sc.mobs.clone(), output: BlockPos::new(lo.x, hi.y, lo.z), lo, hi, block_entities: Vec::new(), rock: false, nether: None, land: false };
+    // (the standing villagers' cells, tried on foot)
+    let foot: Vec<BlockPos> = sc.mobs.iter().filter(|(t, _, _)| t == "minecraft:villager").map(|(_, p, _)| BlockPos::new(p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32)).collect();
+    let places = mobfarm::fleecheck::check(&spec, None, &foot, &[]).map_err(|e| anyhow!(e))?;
+    // (the lanes in the scene's order: each distance ridden then standing, then the walled rider)
+    let ds = [5.80, 5.95, 6.05, 6.20, 7.80, 7.95, 8.05];
+    let mut lanes: Vec<(f64, bool, bool)> = ds.iter().flat_map(|d| [(*d, true, false), (*d, false, false)]).collect();
+    lanes.push((7.0, true, true));
+    let villagers: Vec<&(String, [f64; 3], Option<String>)> = sc.mobs.iter().filter(|(t, _, _)| t == "minecraft:minecart" || t == "minecraft:villager").collect();
+    anyhow::ensure!(villagers.len() == lanes.len(), "{} villagers for {} lanes", villagers.len(), lanes.len());
+    let mut bad = 0;
+    for ((d, riding, walled), (_, p, _)) in lanes.iter().zip(&villagers) {
+        let cell = BlockPos::new(p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32);
+        let Some(q) = places.iter().find(|q| q.cell == cell && q.on_foot == !riding) else {
+            println!("  {d:.2} {}: no flee-check place at {},{},{}", if *riding { "rider" } else { "standing" }, cell.x, cell.y, cell.z);
+            bad += 1;
+            continue;
+        };
+        // (flee-check's least over a rider's three points is the scene's cart at the cell's centre:
+        // the other two points lie off the line to the zombie)
+        let got = q.near.map_or(f64::NAN, |n| n.0);
+        let game = if *d < 6.0 { "flee" } else if *d <= 8.0 && !walled { "panic" } else { "none" };
+        let class = if q.flee_from > 0 { "flee" } else if q.seen > 0 { "panic" } else { "none" };
+        let ok = (got - d).abs() <= 1e-6 && class == game;
+        bad += !ok as usize;
+        println!(
+            "  {d:.2} {}{}: flee-check {got:.6} ({}), the game's {game}{}",
+            if *riding { "rider" } else { "standing" },
+            if *walled { " behind the wall" } else { "" },
+            class,
+            if ok { "" } else { "  DIFFERS" }
+        );
+    }
+    println!("flee-control on {name}: {} of {} lanes as recorded{}", lanes.len() - bad, lanes.len(), if bad == 0 { " (PASS)" } else { "" });
+    if bad > 0 {
+        bail!("flee-control: {bad} lanes differ");
+    }
+    Ok(())
+}
+
 /// `mctas mobai scene-lint [scenes...]`: [`scene_raw_conflicts`] of each scene (default: every
 /// scene placed raw); FAIL when any scene has one. First its positive control: case p of r1-sweep
 /// with P written unpowered on its redstone block (the configuration 3be9617b3 measured) must fail.

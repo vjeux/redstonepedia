@@ -36,15 +36,7 @@ fn rider_points(spec: &FarmSpec) -> Result<(Run, Vec<([i32; 3], Vec<(Vec3, Vec3)
     let mut out = Vec::new();
     let w = &mut run.world;
     for (c, state) in &rails {
-        let along = |t: f64| {
-            if state.contains("east_west") || state.contains("ascending_east") || state.contains("ascending_west") {
-                Vec3::new(c.x as f64 + t, c.y as f64 + 0.0625, c.z as f64 + 0.5)
-            } else if state.contains("north_south") || state.contains("ascending_north") || state.contains("ascending_south") {
-                Vec3::new(c.x as f64 + 0.5, c.y as f64 + 0.0625, c.z as f64 + t)
-            } else {
-                Vec3::new(c.x as f64 + 0.5, c.y as f64 + 0.0625, c.z as f64 + 0.5)
-            }
-        };
+        let along = |t: f64| crate::fleecheck::along_rail(*c, state, t);
         let p0 = along(0.5);
         let cart = redsim::entity::spawn(w, "minecraft:minecart", [p0.x, p0.y, p0.z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
         let Some(ci) = redsim::entity::index_of(w, cart) else { continue };
@@ -69,7 +61,45 @@ fn rider_points(spec: &FarmSpec) -> Result<(Run, Vec<([i32; 3], Vec<(Vec3, Vec3)
 /// seen zombie within 8; candidates every cell of `area` (x0, y0, z0, x1, y1, z1) whose glass, boat
 /// and zombie cells and the leaves 3 above are air in the design; `margin` taken off both bounds.
 pub fn search(spec: &FarmSpec, panic: &[[i32; 3]], area: [i32; 6], margin: f64, max_posts: usize) -> Result<Found, String> {
-    let (run, riders) = rider_points(spec)?;
+    search_in(spec, panic, area, margin, max_posts, false)
+}
+
+/// The design's box: the least and greatest cell of its blocks.
+pub fn design_box(spec: &FarmSpec) -> ([i32; 3], [i32; 3]) {
+    let mut lo = [i32::MAX; 3];
+    let mut hi = [i32::MIN; 3];
+    for (p, _) in &spec.blocks {
+        for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+            lo[k] = lo[k].min(v);
+            hi[k] = hi[k].max(v);
+        }
+    }
+    (lo, hi)
+}
+
+/// [`search`]; `in_box`: a post's glass, boat, zombie and leaves cells all inside the design's
+/// box (ironspec Nov 11 11:13: a post must not grow the box).
+pub fn search_in(spec: &FarmSpec, panic: &[[i32; 3]], area: [i32; 6], margin: f64, max_posts: usize, in_box: bool) -> Result<Found, String> {
+    let (blo, bhi) = design_box(spec);
+    let area = if in_box { [area[0].max(blo[0]), area[1].max(blo[1] + 1), area[2].max(blo[2]), area[3].min(bhi[0]), area[4].min(bhi[1] - 3), area[5].min(bhi[2])] } else { area };
+    let (mut run, riders) = rider_points(spec)?;
+    // (the zombie's seat in its boat: the boat's passenger attachment, then the zombie's
+    // ridingOffset (`rider_seat`), as flee-check seats the design's own posts)
+    let seat = {
+        let w = &mut run.world;
+        let b = redsim::entity::spawn(w, "minecraft:oak_boat", [0.5, 300.0, 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
+        let bi = redsim::entity::index_of(w, b).ok_or("the seat probe's boat")?;
+        let zid = *w.entities.list[bi].passengers.first().ok_or("the seat probe's zombie")?;
+        let zi = redsim::entity::index_of(w, zid).ok_or("the seat probe's zombie")?;
+        let off = match &w.entities.list[zi].kind {
+            EntityKind::Mob(m) => redsim::entity::mob::rider_seat(&w.entities.list[bi].kind, m).map_or(0.0, |(s, o)| s + o),
+            _ => 0.0,
+        };
+        let _ = redsim::entity::kill(w, zid);
+        let _ = redsim::entity::kill(w, b);
+        w.entities.list.retain(|e| !e.removed);
+        Vec3::new(0.0, off, 0.0)
+    };
     let w = &run.world;
     let solid: std::collections::HashSet<[i32; 3]> = spec.blocks.iter().map(|(p, _)| [p.x, p.y, p.z]).collect();
     let mut cands: Vec<[i32; 3]> = Vec::new();
@@ -83,7 +113,8 @@ pub fn search(spec: &FarmSpec, panic: &[[i32; 3]], area: [i32; 6], margin: f64, 
             }
         }
     }
-    let boat = |c: [i32; 3]| Vec3::new(c[0] as f64 + 0.5, c[1] as f64, c[2] as f64 + 0.5);
+    // (a post's zombie where it sits: the boat at the cell's centre, the seat's offset added)
+    let boat = |c: [i32; 3]| Vec3::new(c[0] as f64 + 0.5 + seat.x, c[1] as f64 + seat.y, c[2] as f64 + 0.5 + seat.z);
     let dist = |a: Vec3, b: Vec3| ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt();
     // (a candidate is allowed when every rider point is 6 + margin or more from it)
     let allowed: Vec<[i32; 3]> = cands.into_iter().filter(|c| riders.iter().all(|(_, pts)| pts.iter().all(|(p, _)| dist(*p, boat(*c)) >= 6.0 + margin))).collect();
@@ -93,7 +124,7 @@ pub fn search(spec: &FarmSpec, panic: &[[i32; 3]], area: [i32; 6], margin: f64, 
     let covers = |post: [i32; 3], c: [i32; 3], k: usize| {
         let (me, eye) = pt(c, k);
         let b = boat(post);
-        dist(me, b) <= 8.0 - margin && redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(b.x, b.y + 0.6 + 1.74, b.z))
+        dist(me, b) <= 8.0 - margin && redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(b.x, b.y + 1.74, b.z))
     };
     let mut picked: Vec<[i32; 3]> = Vec::new();
     let mut covered = vec![false; panic_pts.len()];

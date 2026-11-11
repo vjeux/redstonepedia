@@ -207,6 +207,16 @@ pub enum MobaiCmd {
     SceneLint {
         scenes: Vec<String>,
     },
+    /// The positive control of `mobfarm flee-check`'s 6-8 metric (ironspec Nov 11 11:13): its
+    /// static check run on a mob AI scene (default scene flee-distance: riders and standing
+    /// villagers at 5.80..8.05 from a zombie in a boat, and 7.0 behind a wall), each villager's
+    /// distance as flee-check measures it (the zombie seated in its boat, the rider seated in its
+    /// cart) and its class (flee / panic / none) against the scene's recorded distance and the
+    /// game's class.
+    FleeControl {
+        #[arg(default_value = "flee-distance")]
+        scene: String,
+    },
     /// A farm design's redsim run as the exact compare runs it, the level random's (or an
     /// entity's) draws of one game tick printed by call site.
     FarmTrace {
@@ -332,6 +342,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::RecCarts { path, every, band, summary } => crate::fixture::rec_carts(&path, every, band, summary),
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
+        MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
         MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger, make_pad, piglins, ticket } => match (nether, overworld, nether_design) {
