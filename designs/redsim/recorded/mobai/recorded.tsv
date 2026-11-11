@@ -11,6 +11,8 @@ bed-panic.rec	1c9f38eb41aa7b28		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai 
 bed-r1.rec	c2199fa6955a6c94		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 bed-retake.rec	07e5f7c3f65e781e		26.3	2026-11-10T07:11Z on 0609ee3f7	mctas mobai record bed-retake --seed 1 --ticks 24500 --dir designs/redsim/recorded/mobai
 bed-shared.rec	dab056dfa27a591c		26.3	2026-11-10T07:21Z on a5d224f10	mctas mobai record bed-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
+board-cooldown-reload.rec	126f4129a6e805c0		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record board-cooldown-reload --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+board-cooldown.rec	9db640e89e866e19		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record board-cooldown --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 carousel-catch.rec	adbbb8812cfc0947		26.3	2026-11-10T17:26Z on b04e233c2f	mctas mobai record carousel-catch --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 carousel-catch2.rec	5188db60b3a98b45		26.3	2026-11-10T18:16Z on d553d16cc2	mctas mobai record carousel-catch2 --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 carousel-loop.rec	ec3cee3a9ba1932e		26.3	2026-11-10T15:13Z on 8c648c8c25	mctas mobai record carousel-loop --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
@@ -45,6 +47,7 @@ piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mob
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+siding-fault-nap40.rec	f1df1678c77517e6		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record siding-fault-nap40 --seed 1 --ticks 3300 --dir designs/redsim/recorded/mobai
 siding-raw.rec	04aee9029e5c9d6f		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-raw --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 skeleton-golem.rec	201cbec2967abec0		26.3	2026-11-10T16:07Z on 4b8e206c1	mctas mobai record skeleton-golem --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 skeleton-night.rec	0c0593037b2d3fb3		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-night --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

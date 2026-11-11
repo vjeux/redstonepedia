@@ -2,7 +2,7 @@ file	name	stage	metrics	used_by
 lava-corner-6-drop.txt	lava corner after a 6-block drop (the villagers still see it)	day-1	lava buckets 1, in sight of the villagers yes, drop 6 blocks, blocks 143, build seconds 658	
 lava-corner-10-drop.txt	lava corner after a 10-block drop (out of the villagers' sight)	day-1	lava buckets 1, in sight of the villagers no, drop 10 blocks, blocks 223, build seconds 818	
 lava-blade-15-drop.txt	lava blade after a 15-block drop, fire-safe chamber	day-1	lava buckets 4, in sight of the villagers no, drop 15 blocks, blocks 148, build seconds 1174	
-lava-corner-12-drop.txt	lava corner after a 12-block drop (out of the villagers' range)	day-1	blocks 7, blocks dug 61, build seconds 73	bed-plate-lava-out-of-sight.txt
-lava-corner-14-drop.txt	lava corner after a 14-block drop (out of the villagers' range)	day-1	blocks 11, blocks dug 61, build seconds 81	dust-pulse-out-of-sight.txt dust-pulse-three-watchers.txt
+lava-corner-12-drop.txt	lava corner after a 12-block drop (out of the villagers' range)	day-1	blocks 7, blocks dug 77, build seconds 89	bed-plate-lava-out-of-sight.txt bed-plate-two-sleepers.txt
+lava-corner-14-drop.txt	lava corner after a 14-block drop (out of the villagers' range)	day-1	blocks 11, blocks dug 77, build seconds 97	dust-pulse-out-of-sight.txt dust-pulse-three-watchers.txt
 side-chute-16.txt	lava corner at the end of a 16-long side channel	day-1	blocks 29, blocks dug 131, build seconds 193	bed-plate-side-chute.txt
 lava-blade-14-drop.txt	lava blade after a 14-block drop	middle	blocks 62, blocks dug 0, build seconds 96	module-two-watchers-sleeper.txt

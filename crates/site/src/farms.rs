@@ -1330,6 +1330,13 @@ fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, f
                 eprintln!("  {f}");
             }
         }
+        // (ironspec 2026-11-10: two farms compared on the game's rate with its spread) the game's
+        // own mean and 95% interval per window, and its iron a dead golem, on stderr
+        let deaths: u32 = g.builds.iter().map(|b| b.deaths).sum();
+        let iron: u32 = g.builds.iter().map(|b| b.iron()).sum();
+        for (name, m, sd, n, hw) in g.game_spread() {
+            eprintln!("{}: the game's {name}: mean {m:.2} golems/h (95% {:.2}-{:.2}), sd {sd:.2} over {n} runs; {:.2} iron per dead golem", path.display(), m - hw, m + hw, iron as f64 / deaths.max(1) as f64);
+        }
         metrics = game_findings(&metrics, &g, c.blocks() as u32);
     }
     let (lo, hi) = c.bounds();
@@ -1361,6 +1368,42 @@ fn write_verdicts(dir: &Path, rows: &[circuit::archive::Row]) -> Result<()> {
     }
     std::fs::write(dir.join(circuit::archive::VERDICTS), out)?;
     Ok(())
+}
+
+/// `mctas site variation --restore <REF>`: each named variation's row and design file put back as
+/// they are at REF, every other row of the stage left as it is (a re-gate that measured less than
+/// the card's own evidence: d1u-deep's card came from 120 game builds, a re-gate of the default 8
+/// is a weaker test; farmopt 2026-11-10). Nothing is judged or gated.
+fn restore(repo: &Path, farm: &str, stage: &str, designs: &[PathBuf], r: &str) -> Result<()> {
+    let dir = repo.join("designs/farms").join(farm).join(stage);
+    let rel = |name: &str| format!("designs/farms/{farm}/{stage}/{name}");
+    let show = |path: &str| -> Result<Vec<u8>> {
+        let o = std::process::Command::new("git").arg("-C").arg(repo).args(["show", &format!("{r}:{path}")]).output()?;
+        if !o.status.success() {
+            bail!("git show {r}:{path}: {}", String::from_utf8_lossy(&o.stderr).trim());
+        }
+        Ok(o.stdout)
+    };
+    // (the ref's rows read by the archive's own reader, from a scratch folder)
+    let tmp = std::env::temp_dir().join(format!("mctas-restore-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp)?;
+    std::fs::write(tmp.join(circuit::archive::VERDICTS), show(&rel(circuit::archive::VERDICTS))?)?;
+    let theirs = circuit::archive::read_rows(&tmp);
+    let _ = std::fs::remove_dir_all(&tmp);
+    let theirs = theirs?;
+    let mut rows = circuit::archive::read_rows(&dir)?;
+    for p in designs {
+        let file = format!("{}.txt", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
+        let row = theirs.iter().find(|x| x.file == file).ok_or_else(|| anyhow::anyhow!("{file}: no row in {r}'s {}", rel(circuit::archive::VERDICTS)))?;
+        let text = show(&rel(&file))?;
+        std::fs::write(dir.join(&file), text)?;
+        match rows.iter_mut().find(|x| x.file == file) {
+            Some(x) => *x = row.clone(),
+            None => rows.push(row.clone()),
+        }
+        println!("{}: its row (archived {}) and its design as at {r}", dir.join(&file).display(), row.archived);
+    }
+    write_verdicts(&dir, &rows)
 }
 
 /// `mctas site variation --regate [design...]`: every listed variation of the farm (or only the ones
@@ -1425,6 +1468,9 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     }
     if !STAGES.iter().any(|s| s.0 == a.stage) {
         bail!("--stage {}: one of {}", a.stage, STAGES.iter().map(|s| s.0).collect::<Vec<_>>().join(", "));
+    }
+    if let Some(r) = &a.restore {
+        return restore(&repo, &a.farm, &a.stage, &a.designs, r);
     }
     let study = "mobfarm";
     let dir = repo.join("designs/farms").join(&a.farm).join(&a.stage);
@@ -1559,6 +1605,30 @@ mod tests {
         assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-station/carousel-linear-stand.drive.txt\"").count(), 1, "{html}");
         let plain = Member { nether: false, ..members[0].clone() };
         assert!(!member_viewer("../", &plain).contains("data-part"));
+    }
+
+    #[test]
+    fn the_kill_transport_and_access_pages_render_every_member() {
+        // (farmopt 2026-11-10: the kill catalog's rows refreshed by `farmopt part-members --parts
+        // kill --refresh`) each of the three catalogs reads, and its page lists every member with
+        // its numbers and the farms built with it
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for part in ["kill", "transport", "access"] {
+            let members = read_members(&repo, "iron", part);
+            assert!(!members.is_empty(), "{part}: no members");
+            let html = part_page(&Site::default(), "iron", part, &members, Scripts::default());
+            for m in &members {
+                assert!(html.contains(&esc(&m.name)), "{part}: {} not on its page", m.name);
+                if let Some((_, v)) = m.metrics.iter().find(|(k, _)| k == "blocks dug") {
+                    assert!(html.contains(v.as_str()), "{part}: {}'s dug cells {v} not on its page", m.stem());
+                }
+            }
+        }
+        // the refreshed pit kill: its lava's reach (5 layers of the 4 x 4 pit), the farms' parts.tsv's 77
+        let kill = read_members(&repo, "iron", "kill");
+        let m = kill.iter().find(|m| m.stem() == "lava-corner-12-drop").expect("lava-corner-12-drop");
+        assert_eq!(m.metrics.iter().find(|(k, _)| k == "blocks dug").map(|(_, v)| v.as_str()), Some("77"));
+        assert!(m.used_by.iter().any(|u| u.trim_end_matches(".txt") == "bed-plate-two-sleepers"), "{:?}", m.used_by);
     }
 
     #[test]

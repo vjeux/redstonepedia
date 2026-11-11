@@ -76,10 +76,19 @@ pub fn layout() -> Siding {
     layout_at(0, 0)
 }
 
+/// (design (b), emulation: MCTAS_SIDING_PARK=7) The park one block further south: the park rail at
+/// (1,0,7), the stop at (1,0,8), K and BK at z 7, so the empty cart meets a napper on the free cell
+/// under the pickup's 0.2 b/t (a cart faster than 0.2 can jump the pickup band and stop dead
+/// against the villager: the dropped-F jam).
+pub fn park7() -> bool {
+    std::env::var("MCTAS_SIDING_PARK").is_ok_and(|v| v == "7")
+}
+
 /// [`layout`] moved `dx` east and `dz` south (the bench's world shifted so the loop's chunk lines
 /// fall on the siding as day-1 pastes it: `BenchOpts::shift_x`, `shift_z`).
 pub fn layout_at(dx: i32, dz: i32) -> Siding {
     let p = |x: i32, y: i32, z: i32| BlockPos::new(x + dx, y, z + dz);
+    let pz = if park7() { 7 } else { 6 };
     Siding {
         entry: p(0, 0, 0),
         tee: p(1, 0, 0),
@@ -88,9 +97,9 @@ pub fn layout_at(dx: i32, dz: i32) -> Siding {
         free_cell: p(1, 0, 2),
         activator_rail: p(1, 0, 3),
         activator: p(1, -1, 3),
-        park_rail: p(1, 0, 6),
-        park: p(1, -1, 6),
-        stop: p(1, 0, 7),
+        park_rail: p(1, 0, pz),
+        park: p(1, -1, pz),
+        stop: p(1, 0, pz + 1),
         bed_head: p(0, 0, 2),
         bed_foot: p(0, 0, 3),
         hatch: p(2, 1, 2),
@@ -348,9 +357,10 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     put(b, [4, 0, 1], "tripwire_hook[attached=true,facing=north,powered=false]")?;
     ensure!(b.d.blocks.get(&[4, 0, 2]).is_some_and(|x| x.to_string().contains("glass")), "the south hook hangs on the dorm zombie's glass at (4,0,2)");
     // K: BK east of the park's torch; the torch under the park rail's support
-    on(b, [2, -2, 6], "stone")?; // BK
-    put(b, [1, -2, 6], "redstone_wall_torch[facing=west,lit=false]")?;
-    b.set(1, -3, 6, "stone");
+    let kz = s.park.z;
+    on(b, [2, -2, kz], "stone")?; // BK
+    put(b, [1, -2, kz], "redstone_wall_torch[facing=west,lit=false]")?;
+    b.set(1, -3, kz, "stone");
     // not H, delayed: off D1 south along x -6 through five 4-tick repeaters, east along z 9,
     // up north into BK
     // (the default: with the long S line (+16 gt on the nap path) the chain [2,1,0,0,0] (a 2-tick
@@ -380,20 +390,52 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     }
     on(b, [2, -3, 9], dust)?;
     on(b, [2, -2, 8], dust)?;
-    on(b, [2, -2, 7], dust)?;
+    if kz == 6 {
+        on(b, [2, -2, 7], dust)?;
+    }
     // L into the same line: a repeater east of the south hook reading it, dust east then south
     // along x 6, down, west along z 8 into (2,-2,8)
+    // (MCTAS_SIDING_PARK=7: BK at (2,-2,7) takes L from the east, (4,-2,8) north to (4,-2,7) and a
+    // repeater at (3,-2,7) into BK, so the chain's dust at (2,-2,8) has one link and points north
+    // into BK)
     on(b, [5, 0, 1], &rep("west", 1))?;
     for z in 1..=6 {
         on(b, [6, 0, z], dust)?;
     }
     on(b, [6, -1, 7], dust)?;
     on(b, [6, -2, 8], dust)?;
-    for x in 3..=5 {
-        on(b, [x, -2, 8], dust)?;
+    if kz == 6 {
+        for x in 3..=5 {
+            on(b, [x, -2, 8], dust)?;
+        }
+    } else {
+        for x in 4..=5 {
+            on(b, [x, -2, 8], dust)?;
+        }
+        on(b, [4, -2, 7], dust)?;
+        on(b, [3, -2, 7], &rep("east", 1))?;
+    }
+    // (design (b), the napper-aboard sensing, measured first (ironspec 2026-11-10 23:25):
+    // MCTAS_SIDING_SEAT=1 strings a tripwire at (1,2,1), over the booster north of the free cell,
+    // between hooks at (1,2,0) and (1,2,2) on glass at (1,2,-1) and (1,2,3). A seated villager's
+    // box (its feet on the cart's seat, about 0.25 up) tops out near 2.2 and crosses the string's
+    // band (2.06-2.16); a villager standing on a rail tops out at 1.95, no villager can stand on
+    // the booster (the glass at (1,1,1)), and an empty cart reaches 0.76)
+    if std::env::var("MCTAS_SIDING_SEAT").is_ok_and(|v| v == "1") {
+        put(b, [1, 2, -1], "glass")?;
+        put(b, [1, 2, 0], "tripwire_hook[attached=true,facing=south,powered=false]")?;
+        put(b, [1, 2, 1], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+        put(b, [1, 2, 2], "tripwire_hook[attached=true,facing=north,powered=false]")?;
+        put(b, [1, 2, 3], "glass")?;
+    }
+    // (MCTAS_SIDING_SEAT=2: a stone pressure plate at (1,2,1), on the booster's glass ceiling
+    // (1,1,1): its touch box, y 2.0-2.25, meets a seated villager's top (2.0125 on a flat rail)
+    // and not a standing one's (1.95); no villager can stand on the booster under the glass)
+    if std::env::var("MCTAS_SIDING_SEAT").is_ok_and(|v| v == "2") {
+        put(b, [1, 2, 1], "stone_pressure_plate[powered=false]")?;
     }
     // glass caps on the circuit's solid tops a golem could stand on (N1, N2, BK, the hook's stone)
-    for c in [[-5, -2, 2], [-7, -2, -1], [2, -1, 6], [4, 1, -2]] {
+    for c in [[-5, -2, 2], [-7, -2, -1], [2, -1, kz], [4, 1, -2]] {
         put(b, c, "glass")?;
     }
     // the build's listed last steps (brief farm-iron-carousel, "built in order"): the two torches
@@ -405,7 +447,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     // update, and BK's power arrives later through dust written at its settled power, which tells K
     // nothing (no power change), so K stays lit and the park rail powered; placed last, BK is
     // powered already.
-    b.d.meta.insert("build".into(), crate::placing::BuildPlan { last: vec![BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, 6)], fills_last: false }.meta());
+    b.d.meta.insert("build".into(), crate::placing::BuildPlan { last: vec![BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, kz)], fills_last: false }.meta());
     Ok(())
 }
 
@@ -697,8 +739,9 @@ pub fn design_full(wired: bool, alone: bool, exit_brake: bool, cage_only: bool, 
         // merged into DA's placement, the comparator reading DA got no update and its line stayed
         // dark, unlike the file; then the glass caps, so the not-V line (about 7 gt from the fill)
         // has settled before the build's two torches end it, at any gap)
-        let mut last: Vec<BlockPos> = [[0, 0, -1], [0, 0, -2], [-5, -2, 2], [-7, -2, -1], [2, -1, 6], [4, 1, -2]].iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
-        last.extend([BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, 6)]);
+        let kz = layout().park.z;
+        let mut last: Vec<BlockPos> = [[0, 0, -1], [0, 0, -2], [-5, -2, 2], [-7, -2, -1], [2, -1, kz], [4, 1, -2]].iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+        last.extend([BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, kz)]);
         b.d.meta.insert("build".into(), crate::placing::BuildPlan { last, fills_last: true }.meta());
     }
     if give_up == GiveUp::Timer {
@@ -857,6 +900,13 @@ pub struct BenchOpts {
     /// 2026-11-10): the forced chunk box set at the start, the chunks dropped when visit K reaches
     /// the state, back N gt later.
     pub unload: Option<Unload>,
+    /// (ironspec 2026-11-11, V as day-1's divert gate, emulated) No visit is sent while V (the
+    /// visit latch) is set: the loop's divert holds the cart back.
+    pub divert_gate: bool,
+    /// (the gate's deadlock guard, emulated: day-1's scheduler's reset pulse VR) Every scheduled
+    /// visit slot, sent or held back, pulses the R line (DB and the H latch's reset, as R does) at
+    /// its arrival time + this many gt.
+    pub v_reset: Option<i64>,
 }
 
 /// A partial unload of the bench's world ([`BenchOpts::unload`]): the forced chunk box (chunk
@@ -993,6 +1043,33 @@ pub struct BenchReport {
     pub day_visits: bool,
     /// The partial unload: when the chunks were dropped and when they came back.
     pub unload: Option<(i64, Option<i64>)>,
+    /// The divert gate (`BenchOpts::divert_gate`): the scheduled visits it held back (when), and
+    /// the reset pulses VR fired (when).
+    pub held_back: Vec<i64>,
+    pub v_resets: Vec<i64>,
+    /// The napper-aboard sensor (`MCTAS_SIDING_SEAT=1`, the tripwire at (1,2,1)): its turns on
+    /// with a seated villager in its band, its turns on without one (and what was there), the
+    /// ticks a seated villager crossed the band with the string unpowered, the ticks it was on, a
+    /// few examples.
+    pub seat: Option<SeatLog>,
+    /// ironspec's hard line (2026-11-11, ironfarm's shared check `merge::MergeTally`): merged
+    /// carts, two carts the game's push pairs but never separates (under 0.01 apart horizontally).
+    pub merged: Vec<(u32, u32)>,
+    pub merged_first: Vec<String>,
+}
+
+/// The napper-aboard sensor's measurement ([`BenchReport::seat`]).
+#[derive(Clone, Debug, Default)]
+pub struct SeatLog {
+    pub on_seated: u32,
+    pub on_other: u32,
+    pub missed: u32,
+    pub on_ticks: u32,
+    pub seen_standing: u32,
+    /// Every seated villager's box top seen (min, max) and its feet above its cart's (min, max).
+    pub seated_top: Option<(f64, f64)>,
+    pub seated_feet: Option<(f64, f64)>,
+    pub examples: Vec<String>,
 }
 
 fn block(s: &str) -> Block {
@@ -1176,6 +1253,26 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     };
     let mut tee_prev = tee_shape(&run.world);
     let mut kick_seen: Option<i64> = None;
+    // (the divert gate's reset pulses VR, emulated: when they fire; and their cells, the R line's
+    // two ends as R pulses them: DB beside its dropper, the H latch's reset input)
+    let mut vr_at: Vec<i64> = Vec::new();
+    let (vr_db, vr_n2) = (BlockPos::new(1 + dx, -1, dz - 2), BlockPos::new(-8 + dx, -3, dz - 1));
+    // (the napper-aboard sensor, when the design has it: the string's band, or the plate's touch
+    // box, and its last state)
+    let seat_cell = BlockPos::new(1 + dx, 2, 1 + dz);
+    let plate = run.world.get(seat_cell).to_string().contains("pressure_plate");
+    let seat_band = if plate {
+        redsim::entity::Aabb { min_x: seat_cell.x as f64 + 1.0 / 16.0, min_y: 2.0, min_z: seat_cell.z as f64 + 1.0 / 16.0, max_x: seat_cell.x as f64 + 15.0 / 16.0, max_y: 2.25, max_z: seat_cell.z as f64 + 15.0 / 16.0 }
+    } else {
+        redsim::entity::Aabb { min_x: seat_cell.x as f64, min_y: 2.0 + 1.0 / 16.0, min_z: seat_cell.z as f64, max_x: seat_cell.x as f64 + 1.0, max_y: 2.0 + 2.5 / 16.0, max_z: seat_cell.z as f64 + 1.0 }
+    };
+    let mut seat_prev = false;
+    // (ironspec's merged-carts hard line: ironfarm's shared tally, fed every tick)
+    let mut merges = crate::merge::MergeTally::default();
+    let mut seat_seated_last: i64 = i64::MIN;
+    if plate || matches!(run.world.get(seat_cell), Block::Tripwire { .. }) {
+        rep.seat = Some(SeatLog::default());
+    }
     let mut probe_last: Vec<String> = Vec::new();
     while run.world.time < end {
         let now = run.world.time;
@@ -1201,6 +1298,29 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 next_visit = Some(now + 1);
             } else if !in_window {
                 next_visit = None;
+            } else if {
+                // (the bench never drops a cart onto another: a cart still on the launcher or the
+                // approach start holds the next arrival back, as the loop's own track would; else
+                // the bench itself makes merged carts)
+                let at = if bo.launch { LAUNCH_X } else { APPROACH_X } + dx as f64;
+                run.world.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (e.pos.x - at).abs() < 1.5 && (e.pos.z - (0.5 + zf)).abs() < 1.0 && (e.pos.y - 0.0625).abs() < 1.0)
+            } {
+                next_visit = Some(now + 20);
+            } else if bo.divert_gate && {
+                // (the divert gate, emulated: V set, or B, the bed occupied (ideal: the bed's own
+                // state), holds the scheduled visit back; ironspec 2026-11-11: V or B)
+                let v = match run.world.get(BlockPos::new(dx, -1, dz - 1)) {
+                    Block::Bulb { lit, .. } => lit,
+                    _ => matches!(run.world.get(BlockPos::new(dx - 1, -1, dz - 1)), Block::Comparator { powered: false, .. }),
+                };
+                v || matches!(run.world.get(bed), Block::Bed { occupied: true, .. })
+            } {
+                rep.held_back.push(now);
+                if let Some(at) = bo.v_reset {
+                    vr_at.push(now + 30 + at);
+                }
+                let gap = bo.gap.0 + rng.next_int((bo.gap.1 - bo.gap.0 + 1) as i32) as i64;
+                next_visit = Some(now + gap);
             } else if active.is_none_or(|a| rep.visits[a].force_dropped) && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
                 // (the fault injection: the dropped visit's cart left inside, the next sent as the
                 // loop would send it)
@@ -1241,6 +1361,9 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         _ => matches!(run.world.get(BlockPos::new(dx - 1, -1, dz - 1)), Block::Comparator { powered: false, .. }),
                     });
                     rep.visits.push(VisitRec { villager, cart, arrived: now + eta, sent: now, night: night_n, failed, force_dropped: dropped_f, v_before, ..Default::default() });
+                    if let Some(at) = bo.v_reset {
+                        vr_at.push(now + eta + at);
+                    }
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
                     night_of_visit[k] = night_n;
@@ -1332,8 +1455,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 "arr-extra" if entered => pulse(&mut run.world, &[da], v.arrived + 60),
                 "r-extra" if entered => pulse(&mut run.world, &[db, n2], v.arrived + 8),
                 "r-miss" => {
+                    // (after R's own pulse has settled: the long nap path delays R by its 4-tick
+                    // repeaters and the R line's two extra ones, so an earlier pulse is undone)
                     if let Some(r) = v.ready {
-                        pulse(&mut run.world, &[da, n1], r + 10);
+                        pulse(&mut run.world, &[da, n1], r + 40);
                     }
                 }
                 "f-double" => {
@@ -1370,6 +1495,16 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 drive.act(now, format!("set {} {} {} minecraft:air", fc.x, fc.y, fc.z));
                 force_off = None;
             }
+        }
+        // (the divert gate's reset pulse VR: a redstone block at both ends of the R line for 4 gt)
+        if vr_at.contains(&now) {
+            set(&mut run.world, vr_db, "redstone_block");
+            set(&mut run.world, vr_n2, "redstone_block");
+            rep.v_resets.push(now);
+        }
+        if vr_at.contains(&(now - 4)) {
+            set(&mut run.world, vr_db, "air");
+            set(&mut run.world, vr_n2, "air");
         }
         // (the partial unload: the chunks dropped when visit K reaches the state, back N gt later;
         // or the whole part saved and unloaded, back as new entities whose ids the bench follows;
@@ -1438,6 +1573,61 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         run.tick();
         let t = run.world.time;
+        merges.observe(&run.world, &format!("t0+{}", t - t0));
+        if let Some(sl) = rep.seat.as_mut() {
+            let w = &run.world;
+            let on = w.get(seat_cell).to_string().contains("powered=true");
+            // (who is in the band now: seated villagers, and any other entity)
+            let mut seated: Vec<String> = Vec::new();
+            let mut others: Vec<String> = Vec::new();
+            for e in w.entities.list.iter().filter(|e| !e.removed && e.bb.intersects(seat_band)) {
+                let villager = matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager);
+                let cart = e.vehicle.and_then(|v| w.entities.list.iter().find(|x| x.id == v && !x.removed)).map(|c| format!(" in a cart at {:.3} {:.4} {:.3}", c.pos.x - dx as f64, c.pos.y, c.pos.z - zf)).unwrap_or_default();
+                let what = format!("{} at {:.2} {:.4} {:.2} top {:.4}{}{cart}", if villager { "villager" } else { "entity" }, e.pos.x - dx as f64, e.pos.y, e.pos.z - zf, e.bb.max_y, if e.vehicle.is_some() { " seated" } else { "" });
+                if villager && e.vehicle.is_some() {
+                    seated.push(what);
+                } else {
+                    others.push(what);
+                }
+            }
+            // (a standing villager under the string's cell: near it but not in the band)
+            let near = w.entities.list.iter().any(|e| !e.removed && e.vehicle.is_none() && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) && e.bb.min_x < seat_band.max_x && e.bb.max_x > seat_band.min_x && e.bb.min_z < seat_band.max_z + 1.0 && e.bb.max_z > seat_band.min_z);
+            if near {
+                sl.seen_standing += 1;
+            }
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager)) {
+                if let Some(c) = e.vehicle.and_then(|v| w.entities.list.iter().find(|x| x.id == v && !x.removed)) {
+                    let (top, feet) = (e.bb.max_y, e.pos.y - c.pos.y);
+                    sl.seated_top = Some(sl.seated_top.map_or((top, top), |(a, b)| (a.min(top), b.max(top))));
+                    sl.seated_feet = Some(sl.seated_feet.map_or((feet, feet), |(a, b)| (a.min(feet), b.max(feet))));
+                }
+            }
+            if !seated.is_empty() {
+                seat_seated_last = t;
+            }
+            if on {
+                sl.on_ticks += 1;
+            }
+            if on && !seat_prev {
+                if !seated.is_empty() || t - seat_seated_last <= 2 {
+                    sl.on_seated += 1;
+                    if sl.examples.len() < 3 {
+                        sl.examples.push(format!("on at t0+{}: {}", t - t0, seated.join("; ")));
+                    }
+                } else {
+                    sl.on_other += 1;
+                    sl.examples.push(format!("ON WITHOUT A SEATED VILLAGER at t0+{}: {}", t - t0, if others.is_empty() { "nothing in the band".to_string() } else { others.join("; ") }));
+                }
+            }
+            // (a seated villager in the band two ticks running with the string off: missed)
+            if !seated.is_empty() && !on && !seat_prev && t - seat_seated_last == 0 {
+                sl.missed += 1;
+                if sl.examples.len() < 12 {
+                    sl.examples.push(format!("missed at t0+{}: {}", t - t0, seated.join("; ")));
+                }
+            }
+            seat_prev = on;
+        }
         {
             let sh = tee_shape(&run.world);
             if sh != tee_prev {
@@ -1751,6 +1941,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     rep.errors = run.world.errors.iter().take(6).cloned().collect();
     rep.built_diff = built_diff;
     rep.build = built.as_ref().map(|b| (b.steps, b.cells, t0 - b.start));
+    rep.merged = merges.pairs.clone();
+    rep.merged_first = merges.first.clone();
     if bo.drive {
         drive.expect_end("golems 0".into());
         let flag = match bo.placement {
