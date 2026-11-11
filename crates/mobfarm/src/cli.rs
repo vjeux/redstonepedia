@@ -73,10 +73,18 @@ pub enum MobfarmCmd {
         seed: i64,
     },
     /// The built farm (water settled) along a row: each cell's block from x0 to x1 at y, z.
+    /// `--terrain`: built into its terrain sample at the judge's cheapest spot (design
+    /// coordinates). `--flammable`: instead of a row, every flammable block inside the farm's box
+    /// (`weather::lightning::flammable`, the cells the lightning measure's fire check reads:
+    /// natural terrain included), with whether it sees the sky.
     Probe {
         design: PathBuf,
         #[arg(long, allow_hyphen_values = true, num_args = 4)]
         row: Vec<i32>,
+        #[arg(long)]
+        terrain: Option<String>,
+        #[arg(long)]
+        flammable: bool,
     },
     /// Edit a design in place, its caption and every other line kept: `--chest` puts the farm's
     /// single chest at its `port output` (the download then holds it), `--how` sets its `how:`
@@ -180,6 +188,13 @@ pub enum MobfarmCmd {
         /// Every cell of each exposure, in design coordinates (where to light or seal).
         #[arg(long)]
         cells: bool,
+        /// Instead of the list: this design's exposures against another's (the version before a
+        /// change, say), one line per class (channel, mob and what), unchanged ones included,
+        /// `BEFORE -> AFTER` with the cells added and removed (design coordinates), then the golem
+        /// and interior cells and a count of the classes that changed (ironspec 2026-11-11: a cut
+        /// diff hid C8 and C9 once; every class is printed, so none can be missed).
+        #[arg(long)]
+        against: Option<PathBuf>,
     },
     /// The hostile checks' C1 against the game: at every interior cell of the farm built in a
     /// terrain sample, for every type listed there, C1's verdict (placement, spawn rule at its
@@ -4712,13 +4727,46 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::Probe { design, row } => {
-            let (_, spec) = load(version, &design)?;
-            let o = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
-            let w = redsim::entity::mob::farm::build(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+        MobfarmCmd::Probe { design, row, terrain, flammable } => {
+            let (c, spec) = load(version, &design)?;
+            let mut o = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
+            // (`--terrain`: the farm in its sample at the judge's cheapest spot, as `run
+            // --terrain` builds it; coordinates stay the design's)
+            let (moved, off) = match &terrain {
+                Some(name) => {
+                    let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow::anyhow!(e))?));
+                    o.site = Some(site);
+                    (site.spec(&spec), site.offset)
+                }
+                None => (spec.clone(), [0, 0, 0]),
+            };
+            let w = redsim::entity::mob::farm::build(&moved, &o).map_err(|e| anyhow::anyhow!(e))?;
+            let at = |x: i32, y: i32, z: i32| redsim::BlockPos::new(x + off[0], y + off[1], z + off[2]);
+            if flammable {
+                // (farmopt 2026-11-11: what the card's "a fire beside a flammable block" counts:
+                // `lightning::fire_danger` reads every flammable block inside the farm's box)
+                let mut n = 0;
+                for y in spec.lo.y..=spec.hi.y {
+                    for z in spec.lo.z..=spec.hi.z {
+                        for x in spec.lo.x..=spec.hi.x {
+                            let p = at(x, y, z);
+                            let b = w.get(p);
+                            if let Some((ig, bu)) = redsim::weather::lightning::flammable(&b) {
+                                let sky = redsim::weather::can_see_sky(&w, p.above()).map(|s| if s { "sees the sky" } else { "under cover" }).unwrap_or("sky unknown");
+                                let built = spec.blocks.iter().any(|(q, _)| *q == redsim::BlockPos::new(x, y, z));
+                                println!("{x} {y} {z}: {b} (ignite {ig}, burn {bu}; {}; {sky})", if built { "the design's" } else { "natural" });
+                                n += 1;
+                            }
+                        }
+                    }
+                }
+                println!("{n} flammable blocks in the farm's box {:?}..{:?}", spec.lo, spec.hi);
+                return Ok(());
+            }
+            anyhow::ensure!(row.len() == 4, "--row takes X0 X1 Y Z (or --flammable)");
             let [x0, x1, y, z] = [row[0], row[1], row[2], row[3]];
             for x in x0..=x1 {
-                println!("{x} {y} {z}: {}", w.get(redsim::BlockPos::new(x, y, z)));
+                println!("{x} {y} {z}: {}", w.get(at(x, y, z)));
             }
         }
         MobfarmCmd::Edit { design, chest, how, meta, set } => {
@@ -4784,7 +4832,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}: {:.1} build minutes at {stage} prices ({:.1} of them travel and height); collecting {:.0} s per trip ({} layers each way)", c.name(), bill.seconds / 60.0, travel / 60.0, bill.collect_s, bill.collect_layers);
         }
         MobfarmCmd::SpawnRules { design, terrain, tries, day_time } => crate::spawnrules::run(version, &design, &terrain, tries, day_time)?,
-        MobfarmCmd::Exposures { design, terrain, cells } => {
+        MobfarmCmd::Exposures { design, terrain, cells, against } => {
+            if let Some(before) = against {
+                return exposures_against(version, &before, &design, &terrain);
+            }
             let (c, spec) = load(version, &design)?;
             let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, &terrain).map_err(|e| anyhow::anyhow!(e))?));
             let moved = site.spec(&spec);
@@ -5041,6 +5092,63 @@ fn reload_orders_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queu
     let (lo, hi) = crate::queue::wilson95(failed.len(), orders.len());
     let rate = format!("{} of {} orders missed ({:.0}%, Wilson 95% {:.0}-{:.0}%)", failed.len(), orders.len(), 100.0 * failed.len() as f64 / orders.len().max(1) as f64, 100.0 * lo, 100.0 * hi);
     println!("row {} (seed {seed}, {cycles} slots): {}; {rate}", acts.join(" + "), if failed.is_empty() { format!("PASS under all {} orders", orders.len()) } else { format!("FAIL under {}", failed.join(", ")) });
+    Ok(())
+}
+
+/// A design's exposures in a terrain sample (`mobfarm exposures`' checks): its site's offset, its
+/// golem and interior cell counts, and every exposure.
+fn exposures_of(version: &str, design: &std::path::Path, terrain: &str) -> Result<([i32; 3], usize, usize, Vec<redsim::entity::mob::hostile::Exposure>)> {
+    let (c, spec) = load(version, &design.to_path_buf())?;
+    let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, terrain).map_err(|e| anyhow::anyhow!(e))?));
+    let moved = site.spec(&spec);
+    let w = circuit::mobfarm::settled_world(site, &moved);
+    let summoners = {
+        let mut with = w.clone();
+        for (k, p, n) in &moved.entities {
+            let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
+        }
+        redsim::entity::mob::site::villager_cells(&with)
+    };
+    let farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk, &summoners);
+    let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+    Ok((site.offset, farm.golem_cells.len(), farm.interior.len(), ex))
+}
+
+/// `mobfarm exposures AFTER --against BEFORE`: one line per class (channel, mob, what) in either,
+/// `BEFORE -> AFTER` cells with the ones added and removed (design coordinates), unchanged classes
+/// included; then the golem and interior cells and how many classes changed (ironspec
+/// 2026-11-11: every class printed, so a cut diff cannot hide one).
+fn exposures_against(version: &str, before: &std::path::Path, after: &std::path::Path, terrain: &str) -> Result<()> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let (ob, gb, ib, eb) = exposures_of(version, before, terrain)?;
+    let (oa, ga, ia, ea) = exposures_of(version, after, terrain)?;
+    let design = |o: [i32; 3], cs: &[redsim::BlockPos]| -> BTreeSet<(i32, i32, i32)> { cs.iter().map(|c| (c.x - o[0], c.y - o[1], c.z - o[2])).collect() };
+    let mut classes: BTreeMap<(String, String, String), (BTreeSet<(i32, i32, i32)>, BTreeSet<(i32, i32, i32)>)> = BTreeMap::new();
+    for e in &eb {
+        classes.entry((e.channel.to_string(), e.mob.to_string(), e.what.to_string())).or_default().0 = design(ob, &e.cells);
+    }
+    for e in &ea {
+        classes.entry((e.channel.to_string(), e.mob.to_string(), e.what.to_string())).or_default().1 = design(oa, &e.cells);
+    }
+    let fmt = |s: &BTreeSet<(i32, i32, i32)>| s.iter().map(|(x, y, z)| format!("({x},{y},{z})")).collect::<Vec<_>>().join(" ");
+    println!("exposures of {} against {} in {terrain} (design coordinates):", after.display(), before.display());
+    let mut changed = 0;
+    for ((ch, mob, what), (b, a)) in &classes {
+        let (added, removed): (BTreeSet<_>, BTreeSet<_>) = (a.difference(b).copied().collect(), b.difference(a).copied().collect());
+        let change = match (b.is_empty(), a.is_empty()) {
+            (_, true) => "gone".to_string(),
+            (true, _) => "new".to_string(),
+            _ if added.is_empty() && removed.is_empty() => "unchanged".to_string(),
+            _ => format!("{:+}", a.len() as i64 - b.len() as i64),
+        };
+        if change != "unchanged" {
+            changed += 1;
+        }
+        let detail = [(!added.is_empty()).then(|| format!("added {}", fmt(&added))), (!removed.is_empty()).then(|| format!("removed {}", fmt(&removed)))].into_iter().flatten().collect::<Vec<_>>().join("; ");
+        println!("{ch}: {mob} {what}: {} -> {} cells ({change}){}", b.len(), a.len(), if detail.is_empty() { String::new() } else { format!(": {detail}") });
+    }
+    println!("golem cells {gb} -> {ga}; interior cells {ib} -> {ia}");
+    println!("{changed} of {} classes changed", classes.len());
     Ok(())
 }
 
