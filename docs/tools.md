@@ -264,8 +264,12 @@ day-1 pastes it: x -3|-2 and z -1|0; SIDE lo or hi the side dropped, LEVEL 32 or
 STATE arrival, arriving, drop, nap, asleep, waking, fpending, kick, reboard or exit of visit K,
 default 3; for N gt), `--unload whole,STATE,N[,K]` the whole part saved and unloaded
 (`unload_all`/`load_all`, the bench following the new entity ids, its visits paused while
-away), and `--unload matrix[:K]` / `whole-matrix[:K]` every case at N = 3, 40, 240 and 700, one
-line each: the visits until a clean one, naps lost, carts out without their napper, jams;
+away), `w,SIDE,LEVEL,STATE,N` / `e,...` the one-chunk placement's junction lines (the world
+shifted 8,3; STATE also `sent`, the cart on the launcher), `--unload-shift DX,DZ` overrides the
+shift (0,0 writes a drive in the design's coordinates, the unload acts as drive lines), and
+`--unload matrix[:K]` / `whole-matrix[:K]` / `chunk-matrix[:K]` every case at N = 3, 40, 240
+(and 700), one line each: the visits until a clean one, naps lost, carts out without their
+napper, jams;
 `siding-bench --day-visits` (every visit by day: no napper sleeps) and `--fail-no-home N` (the
 first N villagers' HOME erased before each of their visits) are its forced failures: every cart
 must still be on the slot with its villager within 500 gt of its arrival;
