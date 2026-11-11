@@ -1382,15 +1382,16 @@ pub enum MobfarmCmd {
         /// last release.
         #[arg(long)]
         hold_progress: bool,
-        /// S3(ii)'s metered stand, emulated: D12,D23,CLOSE,DEP,HOLD_ON[,CHAIN[,FALLBACK[,MISS_D1[,WIDTH]]]]
+        /// S3(ii)'s metered stand, emulated: D12,D23,CLOSE,DEP,HOLD_ON[,CHAIN[,FALLBACK[,MISS_D1[,VB[,OPEN_LEN]]]]]
         /// (`queue::MeterHold`: the stand's circuit cut, the bench driving G0..G2, their slopes
-        /// and a hold gate over the snap turn from detector edges only; WIDTH > 0: H's fixed
-        /// opening, shut WIDTH gt after each opening).
+        /// and a hold gate over the snap turn from detector edges only; VB 1: a virtual stand B
+        /// takes the odd GOs' trains, so the stand cycles every 200 gt; OPEN_LEN: H's fixed short
+        /// opening).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         meter_hold: Vec<i64>,
-        /// With --meter-hold: H's fixed opening swept at every gt step: W0,W1[,D0,D1] (widths, and
-        /// the chained delays of openings 2 and 3), one run per combination on --jobs threads,
-        /// the openings passing 0 / 1 / 2+ carts and the follower's margin per combination.
+        /// With --meter-hold: H's fixed opening swept at every gt step: L0,L1[,S0,S1] (open lengths,
+        /// and start shifts: HOLD_ON and D12/D23 each + S), one run per combination on --jobs
+        /// threads, the openings passing 0 / 1 / 2+ carts and the follower's margin per combination.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         meter_sweep: Vec<i64>,
         /// With --meter-hold: the freeze rows: SLOT,DT0,DT1,N[,X0,Z0,X1,Z1]: one run per gt from
@@ -3226,7 +3227,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some(crate::queue::parse_rider("--watch-mob", s).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 v
-            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] | [s, t, l, _] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,D,L[,U]") }, rel_gate_unset: rel_gate.get(3).copied().unwrap_or(0), split: match split.as_slice() { [x, y, z, w] => Some(([*x as i32, *y as i32, *z as i32], *w)), [] => None, _ => anyhow::bail!("--split takes X,Y,Z,W") }, interlock, interlock_launch, interlock_arrivals, stand_hold: match stand_hold.as_slice() { [x, y, z] => Some([*x, *y, *z]), [x, y, z, _] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--stand-hold takes X,Y,Z[,H]") }, stand_hold_after: stand_hold.get(3).map(|h| *h as i64).unwrap_or(0), depart_space, rel_end_n: match rel_end_n.as_slice() { [d, to] => Some((*d, *to)), [] => None, _ => anyhow::bail!("--rel-end-n takes DELAY,TIMEOUT") }, rel_end_count: match rel_end_count.as_slice() { [k, to] => Some((*k, *to)), [] => None, _ => anyhow::bail!("--rel-end-count takes K,TIMEOUT") }, rel_end_rear: match rel_end_rear.as_slice() { [x, y, z, d, to] => Some(([*x as i32, *y as i32, *z as i32], *d, *to)), [] => None, _ => anyhow::bail!("--rel-end-rear takes X,Y,Z,D,TIMEOUT") }, unset_quiet, q_needs_p1, chain_study, release_gaps: match release_gaps.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--release-gaps takes G12,G23") }, gate_delay, g2_tripwire, stand_meter, arrivals: arrivals_out.is_some(), adm_k2, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, p_always, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, meter: match meter_hold.as_slice() { [] => None, [d12, d23, close, dep, hold_on, rest @ ..] => Some(crate::queue::MeterHold { d12: *d12, d23: *d23, close: *close, dep: *dep, hold_on: *hold_on, chain: rest.first().copied().unwrap_or(0), fallback: rest.get(1).copied().unwrap_or(0), miss_d1: rest.get(2).copied().unwrap_or(-1), width: rest.get(3).copied().unwrap_or(0) }), _ => anyhow::bail!("--meter-hold takes D12,D23,CLOSE,DEP,HOLD_ON[,CHAIN[,FALLBACK[,MISS_D1[,WIDTH]]]]") }, reg_interlock, l33_delay, arrival_log, hold_back: match hold_back.as_slice() { [c, d, n] => Some([*c, *d, *n]), [] => None, _ => anyhow::bail!("--hold-back takes C,DT,N") }, adm_faults: {
+            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] | [s, t, l, _] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,D,L[,U]") }, rel_gate_unset: rel_gate.get(3).copied().unwrap_or(0), split: match split.as_slice() { [x, y, z, w] => Some(([*x as i32, *y as i32, *z as i32], *w)), [] => None, _ => anyhow::bail!("--split takes X,Y,Z,W") }, interlock, interlock_launch, interlock_arrivals, stand_hold: match stand_hold.as_slice() { [x, y, z] => Some([*x, *y, *z]), [x, y, z, _] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--stand-hold takes X,Y,Z[,H]") }, stand_hold_after: stand_hold.get(3).map(|h| *h as i64).unwrap_or(0), depart_space, rel_end_n: match rel_end_n.as_slice() { [d, to] => Some((*d, *to)), [] => None, _ => anyhow::bail!("--rel-end-n takes DELAY,TIMEOUT") }, rel_end_count: match rel_end_count.as_slice() { [k, to] => Some((*k, *to)), [] => None, _ => anyhow::bail!("--rel-end-count takes K,TIMEOUT") }, rel_end_rear: match rel_end_rear.as_slice() { [x, y, z, d, to] => Some(([*x as i32, *y as i32, *z as i32], *d, *to)), [] => None, _ => anyhow::bail!("--rel-end-rear takes X,Y,Z,D,TIMEOUT") }, unset_quiet, q_needs_p1, chain_study, release_gaps: match release_gaps.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--release-gaps takes G12,G23") }, gate_delay, g2_tripwire, stand_meter, arrivals: arrivals_out.is_some(), adm_k2, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, p_always, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, meter: match meter_hold.as_slice() { [] => None, [d12, d23, close, dep, hold_on, rest @ ..] => Some(crate::queue::MeterHold { d12: *d12, d23: *d23, close: *close, dep: *dep, hold_on: *hold_on, chain: rest.first().copied().unwrap_or(0), fallback: rest.get(1).copied().unwrap_or(0), miss_d1: rest.get(2).copied().unwrap_or(-1), vb: rest.get(3).copied().unwrap_or(0) != 0, open_len: rest.get(4).copied().unwrap_or(0) }), _ => anyhow::bail!("--meter-hold takes D12,D23,CLOSE,DEP,HOLD_ON[,CHAIN[,FALLBACK[,MISS_D1[,VB[,OPEN_LEN]]]]]") }, reg_interlock, l33_delay, arrival_log, hold_back: match hold_back.as_slice() { [c, d, n] => Some([*c, *d, *n]), [] => None, _ => anyhow::bail!("--hold-back takes C,DT,N") }, adm_faults: {
                 anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
                 let mut a = [None; 8];
                 for (i, s) in adm_fault.iter().enumerate() {
@@ -3325,20 +3326,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if let Some(f) = &force_phase {
                 tm.phase_force = Some(crate::queue::parse_phase_force(f).map_err(|e| anyhow::anyhow!(e))?);
             }
-            // (`--meter-sweep W0,W1[,D0,D1]`: H's fixed opening swept at every gt step, each width
-            // W with the chained delay D (openings 2 and 3 = the previous Dh edge + D), one run each
-            // on `jobs` threads; per combination the openings that passed 0 / 1 / 2+ carts, the
-            // carts in H's box at its shuts, the follower's least margin short of H's plane, the
-            // problems: the band where every opening passes exactly one cart)
+            // (`--meter-sweep L0,L1[,S0,S1]`: H's fixed opening swept at every gt step: each open
+            // length L (OPEN_LEN) with every start shift S (each opening's start S gt later: HOLD_ON
+            // and D12/D23 each + S, so H1 = the train's Darr-on + HOLD_ON + S, H2/H3 = the previous
+            // Dh edge + D + S), one run each on `jobs` threads; per combination the openings that
+            // passed 0 / 1 / 2+ carts, the carts in H's box at its shuts, the follower's margin,
+            // the window line and the problems: the band where every opening passes exactly one
+            // cart and no cart is in H's cell at the shut)
             if !meter_sweep.is_empty() {
                 let base = tm.meter.ok_or_else(|| anyhow::anyhow!("--meter-sweep needs --meter-hold"))?;
                 let (w0, w1, d0, d1) = match meter_sweep.as_slice() {
-                    [a, b] => (*a, *b, base.d12, base.d12),
+                    [a, b] => (*a, *b, 0, 0),
                     [a, b, c, d] => (*a, *b, *c, *d),
-                    _ => anyhow::bail!("--meter-sweep takes W0,W1[,D0,D1]"),
+                    _ => anyhow::bail!("--meter-sweep takes L0,L1[,S0,S1]"),
                 };
                 let combos: Vec<(i64, i64)> = (w0..=w1).flat_map(|w| (d0..=d1).map(move |d| (w, d))).collect();
-                println!("meter sweep: widths {w0}..{w1} gt, chained delays {d0}..{d1} gt ({} runs, seed {seed}, {cycles} cycles)", combos.len());
+                println!("meter sweep: open lengths {w0}..{w1} gt, start shifts {d0}..{d1} gt on HOLD_ON {} D12 {} D23 {} ({} runs, seed {seed}, {cycles} cycles)", base.hold_on, base.d12, base.d23, combos.len());
                 for chunk in combos.chunks(jobs.max(1)) {
                     let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
                         let hs: Vec<_> = chunk
@@ -3346,7 +3349,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             .map(|&(w, d)| {
                                 let (spec, o, hdr) = (&spec, &o, &hdr);
                                 let mut t2 = tm.clone();
-                                t2.meter = Some(crate::queue::MeterHold { width: w, d12: d, d23: d, ..base });
+                                t2.meter = Some(crate::queue::MeterHold { open_len: w, hold_on: base.hold_on + d, d12: base.d12 + d, d23: base.d23 + d, ..base });
                                 sc.spawn(move || ((w, d), crate::queue::run_loop_hdr(spec, o, &t2, hdr, cycles, seed, false, None, None)))
                             })
                             .collect();
@@ -3356,7 +3359,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let r = r.map_err(|e| anyhow::anyhow!(e))?;
                         let pick = |p: &str| r.lines().filter(|l| l.starts_with(p)).map(|l| l.trim_start_matches(p).trim().to_string()).collect::<Vec<_>>().join(" | ");
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
-                        println!("W {w} D {d}: {} | shuts: {} | {probs}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"));
+                        println!("L {w} S {d:+}: {} | shuts: {} | window: {} | {probs}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), r.lines().find_map(|l| l.split("common window ").nth(1)).unwrap_or("-"));
                     }
                 }
                 return Ok(());
