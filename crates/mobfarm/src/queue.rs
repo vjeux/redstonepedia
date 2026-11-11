@@ -477,11 +477,17 @@ pub struct LoopOpts {
     pub adm_room_k: u32,
     /// The top queue slope a detector too: the landing latch's reset (the cart moved on).
     pub adm_latch_reset: bool,
+    /// S2, the comb stand (`crate::comb`, with `stand_stop` and `approach` 5): 1 the stem-in S_y,
+    /// 2 the straight S_y (wrong-side, pending its bridge); 0 off.
+    pub stand_comb: u32,
+    /// With `stand_comb`: the gravity pockets ((b)): gate slopes plain, the cells past G2 and G1
+    /// detector rails (else the gate slopes powered while their gates are open, as the guard's G0).
+    pub comb_gravity: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, stand_comb: 0, comb_gravity: false }
     }
 }
 
@@ -547,6 +553,8 @@ pub struct LoopLayout {
     /// The design's intended flights (`crate::flight`): take-off cell, landing cells, maximum
     /// airtime; the runners exempt them from the off-the-rails check.
     pub flights: Vec<crate::flight::Flight>,
+    /// S2's comb (`stand_comb`): its branch rails, switches, detectors and gates.
+    pub comb: Option<crate::comb::CombCells>,
 }
 
 /// The loop's layout in the bench's frame: [`loop_layout_frame`] moved by `o.shift`.
@@ -588,6 +596,7 @@ pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
         lay.esc_flat_b.iter_mut().for_each(c);
         lay.queue_cells.iter_mut().for_each(c);
         lay.flights = lay.flights.iter().map(|f| f.shifted(sx, sz)).collect();
+        lay.comb = lay.comb.take().map(|c| c.shifted(sx, sz));
     }
     lay
 }
@@ -764,7 +773,7 @@ pub fn rider_space_check(w: &mut redsim::world::World, spec: &FarmSpec, declared
     }
     let ok = &hdr.rider_space_ok;
     let lay = loop_layout(o);
-    let gates: Vec<[i32; 3]> = lay.pockets.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz]).chain(lay.stop_gate.map(|g| [g.x + dx, g.y, g.z + dz])).chain(lay.fifo.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz])).collect();
+    let gates: Vec<[i32; 3]> = lay.pockets.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz]).chain(lay.stop_gate.map(|g| [g.x + dx, g.y, g.z + dz])).chain(lay.fifo.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz])).chain(lay.comb.iter().flat_map(|cb| cb.gf.iter().map(|(g, _)| [g[0] + dx, g[1], g[2] + dz]).collect::<Vec<_>>())).collect();
     let rails: Vec<[i32; 3]> = spec.blocks.iter().filter(|(_, b)| redsim::rails::is_rail(b)).map(|(p, _)| [p.x, p.y, p.z]).collect();
     let allowed: std::collections::HashSet<[i32; 3]> = declared.iter().map(|d| d.cell).chain(gates).chain(ok.iter().map(|c| [c[0] + dx, c[1], c[2] + dz])).collect();
     crate::declared::rider_space(w, &rails, &allowed).into_iter().map(|b| format!("rider space: {b}")).collect()
@@ -1050,7 +1059,7 @@ fn finish_layout(mut path: Vec<([i32; 3], Cell)>, slot_cells: Vec<[i32; 3]>, sta
             }
         }
     }
-    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None, fifo: Vec::new(), esc: None, esc_p: None, esc_door: None, esc_gb: None, esc_g0: None, esc_adm_a1: None, esc_g1: None, esc_flat_b: None, queue_cells: Vec::new(), shape_over: Vec::new(), extra: Vec::new(), downgraded, flights: Vec::new() }
+    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None, fifo: Vec::new(), esc: None, esc_p: None, esc_door: None, esc_gb: None, esc_g0: None, esc_adm_a1: None, esc_g1: None, esc_flat_b: None, queue_cells: Vec::new(), shape_over: Vec::new(), extra: Vec::new(), downgraded, flights: Vec::new(), comb: None }
 }
 
 /// The bridge loop: the stand along +x at z 0 (S3's slope at x 0, catch slots) bridging the two
@@ -1454,13 +1463,25 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             path.push(([xb, 1 + k, foot - k], if k == 2 && n >= 4 { Cell::Detector } else { Cell::Plain }));
         }
         path.push(([xb, n + 1, n - 1], Cell::Plain));
-        for k in (1..=n - 2).rev() {
-            path.push(([xb, 2 + k, k], Cell::Plain));
+        if o.stand_comb > 0 {
+            // S2's P3 line (`crate::comb`): T's west output, a curve, three slopes down along
+            // x xb - 1 (the second D_P3, the ring's first detector), a curve east, then the
+            // landing slope into pocket 3 as before (now fed from the west at height 3)
+            path.push(([xb - 1, n + 1, n - 1], Cell::Plain));
+            path.push(([xb - 1, n, n - 2], Cell::Plain));
+            path.push(([xb - 1, n - 1, n - 3], Cell::Detector));
+            path.push(([xb - 1, n - 2, n - 4], Cell::Plain));
+            path.push(([xb - 1, n - 2, 0], Cell::Plain));
+            path.push(([xb, 2, 0], Cell::Plain));
+        } else {
+            for k in (1..=n - 2).rev() {
+                path.push(([xb, 2 + k, k], Cell::Plain));
+            }
+            // (the landing: an ascending_west rail, its high side's sturdy block west of it)
+            path.push(([xb, 2, 0], Cell::Plain));
+            shape_over.push(([xb, 2, 0], "ascending_west"));
+            extra.push(([xb - 1, 2, 0], "glass"));
         }
-        // (the landing: an ascending_west rail, its high side's sturdy block west of it)
-        path.push(([xb, 2, 0], Cell::Plain));
-        shape_over.push(([xb, 2, 0], "ascending_west"));
-        extra.push(([xb - 1, 2, 0], "glass"));
     } else {
         while z >= 1 {
             let k = if i < o.boost_first { Cell::Boost } else if o.detector && z == 4 { Cell::Detector } else { Cell::Plain };
@@ -1543,19 +1564,26 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // apart. Riders at x -1, 3, 7 (y 0, -1, -2): `linear-check` gives them 40, 44 and 40
         // valid columns, 0 strays, 99.03% per slot (3 cells apart would give 44 each, 99.30%)
         let mut pockets = Vec::new();
+        let comb = o.stand_comb > 0;
         for k in 0..3 {
             let (b, l) = (xb + 1 + 4 * k, 1 - k);
-            // (wired: pocket 1's flat a detector rail D1, the first cart past G1 sets the latch)
-            path.push(([b, l, 0], if o.stand_wired && k == 2 { Cell::Detector } else { Cell::Plain }));
+            // (wired: pocket 1's flat a detector rail D1, the first cart past G1 sets the latch;
+            // the comb: pockets 2's and 1's flats the fixed junctions J2 and J1, curves from +z)
+            path.push(([b, l, 0], if o.stand_wired && k == 2 && !comb { Cell::Detector } else { Cell::Plain }));
+            if comb && k > 0 {
+                shape_over.push(([b, l, 0], "south_east"));
+            }
             path.push(([b + 1, l - 1, 0], Cell::Plain));
             // (the guard: the gate slope a powered rail on glass, powered from its gate's driver
             // dust through a stone under the dust (`stand_circuit`); else a booster on a redstone
-            // block)
-            path.push(([b + 2, l - 2, 0], if o.stand_guard { Cell::Linked } else { Cell::Boost }));
+            // block; the comb: powered on glass while its gate is open (bench), or plain in the
+            // gravity pockets)
+            path.push(([b + 2, l - 2, 0], if comb { if o.comb_gravity { Cell::Plain } else { Cell::Linked } } else if o.stand_guard { Cell::Linked } else { Cell::Boost }));
             pockets.insert(0, (BlockPos::new(b + 2, l - 1, 0), [b + 2, l - 2, 0]));
             if k < 2 {
-                // (the guard: the booster-up a plain rail: nothing boosts a cart drifting back)
-                path.push(([b + 3, l - 2, 0], if o.stand_guard { Cell::Plain } else { Cell::Boost }));
+                // (the guard: the booster-up a plain rail: nothing boosts a cart drifting back;
+                // the gravity comb: a detector rail, the pocket's own exit edge)
+                path.push(([b + 3, l - 2, 0], if comb { if o.comb_gravity { Cell::Detector } else { Cell::Plain } } else if o.stand_guard { Cell::Plain } else { Cell::Boost }));
             }
         }
         // (S1, S2, S3: the rest cells, front first; no rail control)
@@ -1647,6 +1675,7 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         lay.queue_cells = queue_cells;
         lay.shape_over = shape_over;
         lay.extra = extra;
+        lay.comb = comb.then(|| crate::comb::CombCells::new(o.stand_comb, o.comb_gravity));
         return lay;
     }
     path.push(([xb + 1, 1, 0], if o.plain { Cell::Plain } else { Cell::Linked }));
@@ -2034,6 +2063,25 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.set(c[0], c[1], c[2], &rail);
         b.set(c[0], c[1] - 1, c[2], support);
     }
+    // S2's comb (`crate::comb`): the branch rails on glass, T powered (the P3 route) by a
+    // redstone block under it, S_y unpowered (the P1 route), the line gates GF shut (the
+    // pockets start full)
+    if let Some(cb) = &lay.comb {
+        for (c, s) in &cb.rails {
+            if b.d.blocks.contains_key(c) || b.d.blocks.contains_key(&[c[0], c[1] - 1, c[2]]) {
+                bail!("the comb's rail at {c:?} meets the loop");
+            }
+            b.set(c[0], c[1], c[2], s);
+            b.set(c[0], c[1] - 1, c[2], "glass");
+        }
+        b.set(cb.t_ctl[0], cb.t_ctl[1], cb.t_ctl[2], "redstone_block");
+        for (g, f) in &cb.gf {
+            if b.d.blocks.contains_key(g) {
+                bail!("the comb's gate at {g:?} meets the loop");
+            }
+            b.set(g[0], g[1], g[2], &format!("oak_fence_gate[facing={f},in_wall=false,open=false,powered=false]"));
+        }
+    }
     // (the stop stand's braked slope starts braked, as the catch leaves it)
     if o.stand_stop && false {
         for (c, k) in &lay.path {
@@ -2225,7 +2273,10 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         let mut posts: Vec<(i32, i32)> = Vec::new();
         let mut z = 5;
         while z <= 58 {
-            posts.push((zx, z));
+            // (the comb: the first post's cell is the P1 line's; it moves under the stand, below)
+            if !(lay.comb.is_some() && z < 10) {
+                posts.push((zx, z));
+            }
             z += o.zombie_every;
         }
         if o.tail_desc || o.tail_fifo > 0 || o.tail_esc > 0 {
@@ -2249,6 +2300,15 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
             b.set(px, 6, pz, "oak_leaves[distance=1,persistent=true,waterlogged=false]");
             b.entity("oak_boat", [px as f64 + 0.5, 3.0, pz as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
         }
+        // (the comb's two posts: the station zombie under the stand's level, clear of every
+        // line's riders, and a post for the approach's top)
+        if let Some(cb) = &lay.comb {
+            for (pos, glass, leaves) in [cb.zombie, cb.top_post] {
+                b.set(glass[0], glass[1], glass[2], "glass");
+                b.set(leaves[0], leaves[1], leaves[2], "oak_leaves[distance=1,persistent=true,waterlogged=false]");
+                b.entity("oak_boat", pos, Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+            }
+        }
     }
     // (the layout's extra blocks: the snap turn's sturdy high side)
     for (c, s) in &lay.extra {
@@ -2260,6 +2320,11 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
+    if o.stand_comb > 0
+        && let Some(q) = b.d.meta.get_mut("queue")
+    {
+        q.push_str(&format!(" stand_comb={}{}", o.stand_comb, if o.comb_gravity { " comb_gravity=1" } else { "" }));
+    }
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
         let fl: Vec<crate::flight::Flight> = lay.flights.iter().map(|f| f.shifted(o.shift[0], o.shift[1])).collect();
@@ -2323,6 +2388,8 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "stand_stop" => o.stand_stop = v != "0",
             "stand_wired" => o.stand_wired = v != "0",
             "stand_guard" => o.stand_guard = v != "0",
+            "stand_comb" => o.stand_comb = v.parse()?,
+            "comb_gravity" => o.comb_gravity = v == "1",
             "tail_fifo" => o.tail_fifo = v.parse()?,
             "tail_esc" => o.tail_esc = v.parse()?,
             "climb_boost" => o.climb_boost = Some(v.parse()?),
@@ -3629,6 +3696,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     run.own = (first..run.world.entities.next_id).collect();
     let lay = loop_layout(o);
+    // (S2's comb: its bench state, `crate::comb`)
+    let mut comb_run = lay.comb.clone().map(crate::comb::CombRun::new);
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)
     let (fx, fz) = (o.shift[0] as f64, o.shift[1] as f64);
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -4554,7 +4623,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             bad.push(format!("queue slot {} holds {:?}, not {:?}", s + 3, queue_now[s + 3], want));
                         }
                     }
-                    if &dep != prel {
+                    // (the comb fills its pockets in its ring's order, not the train's: one cart a
+                    // pocket is its line)
+                    let comb_same = lay.comb.is_some() && {
+                        let (mut a, mut b) = (dep.clone(), prel.clone());
+                        a.sort();
+                        b.sort();
+                        a == b
+                    };
+                    if &dep != prel && !comb_same {
                         bad.push(format!("the stand holds {dep:?}, not the train {prel:?}"));
                     }
                     if !bad.is_empty() {
@@ -4612,6 +4689,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
         if c < cycles && dt == tm.release_start {
+            if let Some(cr) = comb_run.as_mut() {
+                cr.on_launch(t, c);
+            }
             set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
             // (`entry_speed`: a speed kick along each release cart's slope, the tolerance probe)
             if tm.entry_speed != 0.0 {
@@ -4967,12 +5047,16 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     for (g, _) in &lay.pockets {
                         set_gate(&mut run.world, *g, "east", true);
                     }
+                    if let Some(cr) = comb_run.as_mut() {
+                        cr.on_rel(&mut run.world, t, &lay.pockets);
+                    }
                     pocket_hold = false;
                     pocket_released_at = Some(t);
                 }
                 // (the reset at its own time of the slot, not counted from the release: the two
-                // controls' windows then stack, the release late and the reset late together)
-                if !o.stand_wired && pocket_released_at.is_some() && dt == so + tm.pocket_reset {
+                // controls' windows then stack, the release late and the reset late together;
+                // the comb's gates shut on its own arrival edges)
+                if !o.stand_wired && lay.comb.is_none() && pocket_released_at.is_some() && dt == so + tm.pocket_reset {
                     for (k, (g, _)) in lay.pockets.iter().enumerate() {
                         set_gate(&mut run.world, *g, "east", k > 0);
                     }
@@ -5922,6 +6006,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
                 late_was_holding[gk] = hold;
             }
+        }
+        if let Some(cr) = comb_run.as_mut() {
+            cr.pre_tick(&mut run.world, t, c, dt, &lay.pockets, &lay.stand_cells);
         }
         run.tick();
         merges.observe(&run.world, &format!("t {t}"));
@@ -6964,7 +7051,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // the pocket stand's gates while they hold: gate k shuts once k carts have passed it (a
             // cart's centre 1.29 past the gate slope's start: its tail past the gate); the wired
             // stand's gates are the design's own
-            if pocket_hold && !o.stand_wired {
+            if pocket_hold && !o.stand_wired && lay.comb.is_none() {
                 for k in 1..lay.pockets.len() {
                     let (g, cell) = lay.pockets[k];
                     for id in &carts {
@@ -7741,6 +7828,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     // (which slots had a problem, and how many each: a fault's reach at a glance; a returning train
     // still missing from the tail is counted once, at its first report, not again every slot)
+    if let Some(cr) = comb_run.as_mut() {
+        out.extend(cr.report());
+        if verbose {
+            out.extend(cr.detail());
+        }
+        problems.extend(cr.problems.iter().cloned());
+    }
     if !problems.is_empty() {
         let mut by: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
         let mut trains_seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();

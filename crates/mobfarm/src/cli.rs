@@ -606,6 +606,16 @@ pub enum MobfarmCmd {
         /// The top queue slope a detector too: the landing latch's reset (the cart moved on).
         #[arg(long)]
         adm_latch_reset: bool,
+        /// S2, the comb stand (with --stand-stop --approach 5, not --stand-wired): each pocket on
+        /// its own branch through stem-in switches flipped by single-cart detector edges
+        /// (`mobfarm::comb`): 1 the stem-in S_y, 2 the straight S_y (wrong-side entry, pending
+        /// its bridge). Emulation: the latches and gates bench-driven, the junctions real.
+        #[arg(long, default_value_t = 0)]
+        stand_comb: u32,
+        /// With --stand-comb: the gravity pockets (gate slopes plain, the cells past G2 and G1
+        /// detector rails).
+        #[arg(long)]
+        comb_gravity: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -2426,7 +2436,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, stand_comb, comb_gravity, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2435,7 +2445,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset };
+            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, stand_comb: if stand_stop && approach == 5 && !stand_wired { stand_comb } else { 0 }, comb_gravity: comb_gravity && stand_comb > 0 };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
