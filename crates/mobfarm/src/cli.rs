@@ -2288,6 +2288,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let to = to.unwrap_or(ticks).min(ticks);
             let (html, txt) = crate::timeline::write(&tl, &out, &stem, from.min(to), to)?;
             println!("{}", tl.summary(from.min(to), to));
+            println!("{}", tl.golem_lock_line(from.min(to), to));
             println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
