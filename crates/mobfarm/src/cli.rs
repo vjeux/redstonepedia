@@ -1547,7 +1547,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             results.push((s, r.map_err(|e| anyhow::anyhow!(e))?));
                         }
                     }
-                    for (s, r) in results {
+                    for (s, r) in &results {
+                        let s = *s;
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
                         let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).unwrap_or("").trim().to_string();
                         if seeds > 1 {
@@ -1559,6 +1560,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     all_clean &= bad.is_empty();
                     println!("{label}: {clean} of {seeds} seeds clean over {cycles} slots each{}", if bad.is_empty() { String::new() } else { format!("; problems on seeds {bad:?}") });
+                    // (the pocket stand's margins over every seed: each run's `stand margins:` line)
+                    let mut agg: Option<[i64; 9]> = None;
+                    for (_, r) in &results {
+                        let Some(l) = r.lines().find(|l| l.starts_with("stand margins: ")) else { continue };
+                        let v: Vec<i64> = l.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+                        if v.len() != 9 || v[8] == 0 {
+                            continue;
+                        }
+                        agg = Some(match agg {
+                            None => [v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]],
+                            Some(a) => [a[0].min(v[0]), a[1].max(v[1]), a[2].min(v[2]), a[3].max(v[3]), a[4].min(v[4]), a[5].max(v[5]), a[6].min(v[6]), a[7].max(v[7]), a[8] + v[8]],
+                        });
+                    }
+                    if let Some(a) = agg {
+                        println!("{label}: the pocket stand over {} slots: cart 1 to cart 2 at D2 {}..{} gt apart; G2 shut {}..{} gt after cart 2's front was in it ({}..{} after its tail left), {}..{} gt before cart 3 reached it", a[8], a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
+                    }
                     if build_gap_sweep && !bad.is_empty() {
                         println!("built in order: the first gap that fails is {} gt", gap.unwrap_or(0));
                         break;
