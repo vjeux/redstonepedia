@@ -3560,6 +3560,12 @@ pub struct Act {
     /// `SLOT,DT,dismount,R` (R off its cart, to the cart's dismount spot) or `SLOT,DT,swap,R1,R2`
     /// (the two riders exchange carts). `cell` and `block` unused then.
     pub ride: Option<RideAct>,
+    /// (farmopt's approach lab; ironfarm's R1 rows) `SLOT,DT,place,K,X,Y,Z[,VZ]` or
+    /// `SLOT,DT,place,K,X,Y,Z,VX,VZ`: cart K (the bench's numbering; `head`: the cart nearest the
+    /// queue's head slot; `s1`..`s3`: nearest that pocket's rest cell) and its rider set at (X, Y,
+    /// Z) in the loop's frame, at rest or moving (VX, VZ) b/t; DT `rN`: N gt after the stand's REL
+    /// rises in that slot. `[x, y, z, vx, vz, rel]` (rel 1: DT counted from REL).
+    pub place: Option<(usize, [f64; 6])>,
 }
 
 /// A rider named by an act: a visit's napper (`visit:SLOT`, the visit that started at that slot,
@@ -3698,7 +3704,7 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
             _ => return Err(format!("--act {s}: give SLOT,DT,dismount,R, SLOT,DT,swap,R1,R2, SLOT,DT,unhome,R or SLOT,DT,forget,R (R: visit:SLOT or an entity number)")),
         };
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
-        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: None, unload: None, order: redsim::reload::Order::Save, ride: Some(ride) });
+        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: None, unload: None, order: redsim::reload::Order::Save, ride: Some(ride), place: None });
     }
     if f.len() >= 3 && f[2] == "unload" {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
@@ -3710,7 +3716,21 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
             _ => return Err(format!("--act {s}: give SLOT,DT,unload,N[,ORDER] or SLOT,DT,unload,X0,Z0,X1,Z1,N (a chunk box)")),
         };
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
-        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload), order, ride: None });
+        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload), order, ride: None, place: None });
+    }
+    if (7..=9).contains(&f.len()) && f[2] == "place" {
+        let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
+        let fl = |t: &str, what: &str| t.parse::<f64>().map_err(|e| format!("--act {s}: {what}: {e}"));
+        let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
+        // (K `head`: the cart nearest the queue's head slot when the act fires, so the next
+        // release group is one short and the placed cart is the one it misses, in order; `s1`,
+        // `s2`, `s3`: the cart nearest that stand pocket's rest place)
+        let k = match f[3] { "head" => usize::MAX, "s1" => usize::MAX - 1, "s2" => usize::MAX - 2, "s3" => usize::MAX - 3, _ => num(f[3], "K")? as usize };
+        // (DT `rN`: N gt after the stand's REL rises in that slot, whatever the corner)
+        let (dt, rel) = match f[1].strip_prefix('r') { Some(r) => (num(r, "DT")?, 1.0), None => (num(f[1], "DT")?, 0.0) };
+        // (the speed: none (at rest), VZ along z (the old form), or VX,VZ)
+        let (vx, vz) = match f.len() { 8 => (0.0, fl(f[7], "VZ")?), 9 => (fl(f[7], "VX")?, fl(f[8], "VZ")?), _ => (0.0, 0.0) };
+        return Ok(Act { slot: num(f[0], "SLOT")?, dt, cell: [0; 3], block: air, hold: None, unload: None, order: redsim::reload::Order::Save, ride: None, place: Some((k, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?, vx, vz, rel])) });
     }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
@@ -3723,7 +3743,7 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
     };
     let name = if block.contains(':') { block.to_string() } else { format!("minecraft:{block}") };
     let block = Block::parse(&name).map_err(|e| format!("--act {s}: {e}"))?;
-    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None, order: redsim::reload::Order::Save, ride: None })
+    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None, order: redsim::reload::Order::Save, ride: None, place: None })
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -4946,7 +4966,36 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // (`acts`, fault injection: each block set at its slot offset, then the block it replaced
         // put back after its hold, before the bench's own controls this gt)
         for a in tm.acts.iter().flatten() {
-            if a.slot == c && a.dt == dt {
+            // (a place act's DT `rN` counts from the stand's REL rise in that slot)
+            let adt = a.dt + if a.place.is_some_and(|(_, p)| p[5] > 0.5) { tm.pocket_release + if o.stand_wired { tm.rel_on } else { 0 } } else { 0 };
+            if a.slot == c && adt == dt {
+                if let Some((k, [x, y, z, vx, vz, _])) = a.place {
+                    // (a lab act: cart k and its rider set at a loop-frame point, at rest, or moving
+                    // (VX, VZ): a crawl, or a batch arriving from elsewhere)
+                    let p = redsim::entity::Vec3::new(x + fx, y, z + fz);
+                    let k = if k >= usize::MAX - 3 {
+                        // (`head`: the cart nearest the queue's head slot; `s1`..`s3`: nearest that
+                        // pocket's rest cell)
+                        let h = if k == usize::MAX { lay.slot_cells[lay.slot_cells.len() - 1] } else { lay.stand_cells[usize::MAX - 1 - k] };
+                        let hp = redsim::entity::Vec3::new(h[0] as f64 + 0.5 + fx, h[1] as f64, h[2] as f64 + 0.5 + fz);
+                        let d = |id: &u32| redsim::entity::index_of(&run.world, *id).map(|i| { let q = run.world.entities.list[i].pos; (q.x - hp.x).powi(2) + (q.y - hp.y).powi(2) + (q.z - hp.z).powi(2) }).unwrap_or(f64::MAX);
+                        (0..carts.len()).min_by(|a, b| d(&carts[*a]).total_cmp(&d(&carts[*b]))).unwrap_or(0)
+                    } else {
+                        k
+                    };
+                    if let Some(i) = carts.get(k).and_then(|id| redsim::entity::index_of(&run.world, *id)) {
+                        run.world.entities.set_pos(i, p);
+                        run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(vx, 0.0, vz);
+                        for r in run.world.entities.list[i].passengers.clone() {
+                            if let Some(j) = redsim::entity::index_of(&run.world, r) {
+                                run.world.entities.set_pos(j, p);
+                                run.world.entities.list[j].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
+                            }
+                        }
+                        drive.borrow_mut().push(format!("act {} tp e{k} {:.3} {:.3} {:.3} {:.3} {:.3}", run.world.time - t_origin, p.x, p.y, p.z, vx, vz));
+                    }
+                    continue;
+                }
                 // (a rider act: the napper of a visit, or an entity, by its current number)
                 if let Some(ra) = a.ride {
                     let who = |r: RiderRef| -> Option<u32> {
@@ -7964,6 +8013,23 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
 #[cfg(test)]
 mod paste_tests {
     use super::*;
+
+    /// The place act's forms (farmopt's approach lab; ironfarm's R1 rows): at rest, VZ alone (the
+    /// old form), VX,VZ, the `head`/`s1..s3` carts and DT `rN` (from the stand's REL rise).
+    #[test]
+    fn place_act_forms() {
+        let a = parse_act("5,10,place,3,-2.5,6,4.5").unwrap();
+        assert_eq!((a.slot, a.dt, a.place), (5, 10, Some((3, [-2.5, 6.0, 4.5, 0.0, 0.0, 0.0]))));
+        let a = parse_act("5,10,place,3,-2.5,6,4.5,0.05").unwrap();
+        assert_eq!(a.place, Some((3, [-2.5, 6.0, 4.5, 0.0, 0.05, 0.0])));
+        let a = parse_act("5,r20,place,head,8,13,24.5,-0.4,0").unwrap();
+        assert_eq!((a.dt, a.place), (20, Some((usize::MAX, [8.0, 13.0, 24.5, -0.4, 0.0, 1.0]))));
+        let a = parse_act("2,0,place,s3,0,0,0").unwrap();
+        assert_eq!(a.place.map(|p| p.0), Some(usize::MAX - 3));
+        assert!(parse_act("5,10,place,x,0,0,0").is_err() && parse_act("5,10,place,1,0,0,0,1,2,3").is_err());
+        // (the other acts carry no place)
+        assert_eq!(parse_act("5,10,1,2,3,minecraft:glass").unwrap().place, None);
+    }
 
     /// `--reload-orders`' forms (ironspec 2026-11-11 05:12: `all` samples 40 orders, save, reverse
     /// and seed:1..38; `all:N` N orders) and the row's Wilson interval (tick-exact's 6 of 32:

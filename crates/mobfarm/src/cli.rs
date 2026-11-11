@@ -957,7 +957,11 @@ pub enum MobfarmCmd {
         /// SLOT,DT,unload,X0,Z0,X1,Z1,N: the whole part (or a chunk box) away N gt. SLOT,DT,dismount,R
         /// or SLOT,DT,swap,R1,R2: a rider off its cart, or two riders exchanging carts (R:
         /// visit:SLOT, that visit's napper by its current number; visit:SLOT/J, the rider of that
-        /// visit's batch's J-th cart; or an entity number). Repeat for more (up to 8).
+        /// visit's batch's J-th cart; or an entity number). SLOT,DT,place,K,X,Y,Z[,VZ] or
+        /// SLOT,DT,place,K,X,Y,Z,VX,VZ: cart K (or `head`, the cart nearest the queue's head slot;
+        /// `s1`..`s3`, nearest that pocket's rest cell) and its rider set at (X,Y,Z) in the loop's
+        /// frame, at rest or moving (VX,VZ) b/t; DT `rN`: N gt after the stand's REL rises in that
+        /// slot. Repeat for more (up to 8).
         #[arg(long, allow_hyphen_values = true)]
         act: Vec<String>,
         /// A diagnostic for the pocket stand: at this slot's start, a hand reset of the queue only
