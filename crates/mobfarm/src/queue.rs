@@ -410,11 +410,21 @@ pub struct LoopOpts {
     /// The departure climb's boosted cells (from its foot), the rest plain slopes: the returning
     /// carts' speed into the tail. None = all boosted.
     pub climb_boost: Option<u32>,
+    /// The escapement tail's entry: one never-powered braked slope instead of the ledge (a cart
+    /// at ≤ 0.4 b/t of movement spends ~3.5 gt on it, its speed halved each tick).
+    pub tail_brake: bool,
+    /// With `tail_brake`: that slope plain (no speed reducer at the entry; for slow returns).
+    pub tail_plain: bool,
+    /// The departure climb: a booster on every Nth cell from its foot, plain slopes between
+    /// (2: alternate, the speed held about level up the climb); 0 = every cell boosted.
+    pub climb_every: u32,
+    /// The ledge's landing as a booster slope then a plain slope (not two flats).
+    pub ledge_slope: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, tail_fifo: 0, tail_esc: 0, climb_boost: None }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false }
     }
 }
 
@@ -462,6 +472,12 @@ pub struct LoopLayout {
 /// row B going +x (the rest, the head ending at x -1, z 4); the release run +x along z 4, the
 /// stand (S3, S2, S1 in travel order), the departure run, a U-turn to z 0 and the return run -x
 /// back to the entry.
+/// The escapement tail's level (`tail_esc`): the return run's and the ledge's y (the queue of Q
+/// slopes, B, X, P and R stepping down to slot 0 at y 0; 2 more with `ledge_slope`'s landing).
+pub fn esc_ye(o: &LoopOpts) -> i32 {
+    o.tail_esc as i32 + 6 + if o.ledge_slope && !o.tail_brake { if o.tail_esc >= 5 { 1 } else { 2 } } else { 0 }
+}
+
 pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
     if o.straight {
         return loop_layout_straight(o);
@@ -647,7 +663,7 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     // (`tail_desc`: the return comes in 3 blocks higher, at y 4, and the tail's 3 slots step down
     // to the queue's level; `tail_fifo` N: at y 1 + N, the FIFO's pockets each a block lower;
     // `tail_esc` Q: at y Q + 6, the ledge, the gravity queue and the escapement stepping down)
-    let ye = if o.tail_esc > 0 { o.tail_esc as i32 + 6 } else if o.tail_fifo > 0 { 2 + o.tail_fifo as i32 } else if o.tail_desc { 4 } else { 1 };
+    let ye = if o.tail_esc > 0 { esc_ye(o) } else if o.tail_fifo > 0 { 2 + o.tail_fifo as i32 } else if o.tail_desc { 4 } else { 1 };
     // row A from its entry curve at (0, ye, zr): north (+z)
     path.push(([0, ye, zr], Cell::Plain));
     let mut z = zr + 1;
@@ -672,15 +688,49 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // braked on P)
         let q = o.tail_esc as i32;
         let l = ye - 1;
-        path.push(([0, ye, z], Cell::Plain));
-        z += 1;
-        path.push(([0, ye, z], Cell::Plain));
-        z += 2;
-        for cell in [Cell::Boost, Cell::Plain] {
-            path.push(([0, l, z], cell));
+        if o.tail_brake {
+            // (`tail_brake`: no ledge. Four flats, then one braked slope that is never powered:
+            // a returning cart moves at most 0.4 b/t whatever its speed, so it spends ~3.5 gt on
+            // the cell and leaves with its speed halved each tick, ~1/11 of it (1.0-2.4 b/t in,
+            // 0.1-0.2 out), carts in contact included; arrivals are always fast off the boosted
+            // climb, and the queue below holds the worst burst, so no slow cart ever stops on it)
+            // (the flats keep the queue's head at z 19 whatever Q: 7 − Q of them)
+            for _ in 0..(7 - q).max(0) {
+                path.push(([0, ye, z], Cell::Plain));
+                z += 1;
+            }
+            path.push(([0, l, z], if o.tail_plain { Cell::Plain } else { Cell::Linked }));
             queue_cells.push([0, l, z]);
             z += 1;
+        } else {
+            // (8 − Q cells before the queue's slopes keep the head at z 19: 4 − Q head flats (none
+            // from Q = 4), the pre-ledge flat, the gap and the landing, one landing cell for Q = 5)
+            for _ in 0..(4 - q).max(0) {
+                path.push(([0, ye, z], Cell::Plain));
+                z += 1;
+            }
+            path.push(([0, ye, z], Cell::Plain));
+            z += 2;
+            let landing: &[Cell] = if q >= 5 { &[Cell::Boost] } else { &[Cell::Boost, Cell::Plain] };
+            if o.ledge_slope {
+                // (`ledge_slope`: the landing is a booster slope then a plain slope down, so a
+                // landed cart leaves the landing point at once and a cart behind it, a few gt
+                // later, lands clear of it)
+                for (k, cell) in landing.iter().enumerate() {
+                    path.push(([0, l - 1 - k as i32, z], *cell));
+                    queue_cells.push([0, l - 1 - k as i32, z]);
+                    z += 1;
+                }
+            } else {
+                for cell in landing {
+                    path.push(([0, l, z], *cell));
+                    queue_cells.push([0, l, z]);
+                    z += 1;
+                }
+            }
         }
+        // (the queue's slopes start below the landing: lower by its slopes with `ledge_slope`)
+        let l = if o.ledge_slope && !o.tail_brake { l - if q >= 5 { 1 } else { 2 } } else { l };
         for k in 0..q {
             path.push(([0, l - 1 - k, z], Cell::Plain));
             queue_cells.push([0, l - 1 - k, z]);
@@ -932,13 +982,27 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // than by a ramp east first)
         let xd = xb + 12;
         let top = ye;
+        // (`tail_esc`: the climb tops out 2 higher, then a flat peak and two slopes back down to the
+        // return run's level: from the climb's top to B the track never rises, so a cart bounced
+        // backward by a contact anywhere ahead climbs a slope and comes back instead of rolling
+        // back down the boosted climb)
+        let lip = if o.tail_esc > 0 { 2 } else { 0 };
         path.push(([xd, -3, 0], Cell::Plain));
         let mut z = 1;
-        for y in -3..top {
-            // (`climb_boost` N: only the climb's first N cells boosted, the rest plain slopes)
-            let boosted = o.climb_boost.is_none_or(|n| (y + 3) < n as i32);
+        for y in -3..top + lip {
+            // (`climb_boost` N: only the climb's first N cells boosted, the rest plain slopes;
+            // `climb_every` K: a booster on every Kth cell)
+            let boosted = o.climb_boost.is_none_or(|n| (y + 3) < n as i32) && (o.climb_every <= 1 || (y + 3) % o.climb_every as i32 == 0);
             path.push(([xd, y, z], if boosted { Cell::Boost } else { Cell::Plain }));
             z += 1;
+        }
+        if lip > 0 {
+            path.push(([xd, top + lip, z], Cell::Plain));
+            z += 1;
+            for k in 1..=lip {
+                path.push(([xd, top + lip - k, z], Cell::Plain));
+                z += 1;
+            }
         }
         while z < zr {
             path.push(([xd, top, z], Cell::Plain));
@@ -1218,7 +1282,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     // (the re-packing tail holds the rest at the start: 21 less the register and the stand)
     let fifo_init = if o.tail_fifo > 0 || o.tail_esc > 0 { (21 - o.slots - 3).max(0) } else { 0 };
     let held = o.slots + 3 + if o.line { 3 } else { 0 } + fifo_init;
-    if held != 21 || (o.tail_fifo > 0 && fifo_init > o.tail_fifo as i32) || (o.tail_esc > 0 && fifo_init > 2 + o.tail_esc as i32) {
+    if held != 21 || (o.tail_fifo > 0 && fifo_init > o.tail_fifo as i32) || (o.tail_esc > 0 && fifo_init > 2 + o.tail_esc as i32 + if o.ledge_slope { 2 } else { 0 }) {
         bail!("the queue's {} slots and the stand's 3{} must hold the 21 carts", o.slots, if o.line { " and the returning batch's 3" } else if o.tail_fifo > 0 { " and the FIFO's pockets" } else if o.tail_esc > 0 { " and the escapement tail's (P, B and the queue: --slots 14 leaves 4)" } else { "" });
     }
     if o.tail_fifo > 0 && (!o.stand_stop || !o.bridge || o.tail_fifo < 3) {
@@ -1371,7 +1435,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default())));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -1408,6 +1472,10 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "tail_fifo" => o.tail_fifo = v.parse()?,
             "tail_esc" => o.tail_esc = v.parse()?,
             "climb_boost" => o.climb_boost = Some(v.parse()?),
+            "tail_brake" => o.tail_brake = v == "1",
+            "tail_plain" => o.tail_plain = v == "1",
+            "climb_every" => o.climb_every = v.parse()?,
+            "ledge_slope" => o.ledge_slope = v == "1",
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -3925,6 +3993,18 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         problems.insert(0, format!("side drop: the side rail reshaped {} loop cells: {}", side_changed.len(), side_changed.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
     }
     out.extend(arrivals);
+    // (the hard count, ironspec 21:24: every cart and rider at the start and at the end; a cart
+    // short is a derail)
+    {
+        let alive = |id: u32| run.world.entities.list.iter().any(|e| e.id == id && !e.removed && e.pos.y > -6.0);
+        let c_end = carts.iter().filter(|id| alive(**id)).count();
+        let r_end = riders.iter().filter(|id| alive(**id)).count();
+        let seated = carts.iter().zip(riders.iter()).filter(|(c, r)| run.world.entities.list.iter().any(|e| e.id == **c && e.passengers.contains(r))).count();
+        out.push(format!("carts and riders: {} and {} at the start, {c_end} and {r_end} at the end ({seated} seated)", carts.len(), riders.len()));
+        if c_end < carts.len() || r_end < riders.len() {
+            problems.push(format!("the count: {c_end} of {} carts and {r_end} of {} riders at the end", carts.len(), riders.len()));
+        }
+    }
     if verbose {
         let ps: Vec<String> = carts.iter().map(|id| pos_of(&run.world, *id).map(|p| format!("{:.1},{:.1},{:.1}", p.x, p.y, p.z)).unwrap_or_default()).collect();
         out.push(format!("  carts: {}", ps.join(" ")));

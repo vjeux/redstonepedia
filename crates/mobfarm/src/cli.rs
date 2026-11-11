@@ -494,6 +494,18 @@ pub enum MobfarmCmd {
         /// carts' speed into the tail); default all boosted.
         #[arg(long)]
         climb_boost: Option<u32>,
+        /// The escapement tail's entry: one never-powered braked slope instead of the ledge.
+        #[arg(long)]
+        tail_brake: bool,
+        /// With --tail-brake: that slope plain (no speed reducer; for slow returns).
+        #[arg(long)]
+        tail_plain: bool,
+        /// The departure climb: a booster every Nth cell from its foot, plain slopes between.
+        #[arg(long, default_value_t = 0)]
+        climb_every: u32,
+        /// The ledge's landing as a booster slope then a plain slope (not two flats).
+        #[arg(long)]
+        ledge_slope: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -1930,10 +1942,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, tail_fifo, tail_esc, climb_boost, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, tail_fifo, tail_esc, climb_boost };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2055,13 +2067,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 let ooo = num("out of arrival order: ");
                                 let fell = num("fell or left the rails: ");
                                 let gate = num("through the shut gate: ");
-                                let back = num("backward on a powered rail (B, P, slot 0): ");
+                                let back = num("backward on a powered rail (B, P, slot 0) while it is powered: ");
+                                let rolled = num("pushed back down the return (onto the climb): ");
+                                let count = line("count: ");
+                                let lost_carts = count.split(", ").last().and_then(|t| t.split_whitespace().next()).unwrap_or("?").to_string();
                                 let hurt = num("villagers: ");
-                                let clean = [&lost, &starv, &dbl, &ooo, &fell, &gate, &back, &hurt].iter().all(|v| v.as_str() == "0");
+                                // (starved intakes are the pipeline refilling after an empty tail: a
+                                // line of their own, not a fault)
+                                let clean = [&lost, &dbl, &ooo, &fell, &rolled, &gate, &back, &hurt, &lost_carts].iter().all(|v| v.as_str() == "0");
                                 if !clean {
                                     bad.push(*s);
                                 }
-                                println!("seed {s}: lost {lost} starved {starv} doubles {dbl} out-of-order {ooo} fell {fell} gate {gate} backward {back} villagers-hurt {hurt} | {} | {} | {}", line("at rest in the tail: "), line("creep while quiet"), line("the tail's most carts at once: "));
+                                println!("seed {s}: lost {lost} starved {starv} doubles {dbl} out-of-order {ooo} fell {fell} rolled-back {rolled} gate {gate} backward-powered {back} villagers-hurt {hurt} carts-lost {lost_carts} | {} | {} | {}", line("at rest in the tail: "), line("creep while quiet"), line("the tail's most carts at once: "));
                             }
                             Err(e) => {
                                 bad.push(*s);

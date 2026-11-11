@@ -92,7 +92,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let b_cell = [b_ctl.x, b_ctl.y + 1, b_ctl.z];
     let p_cell = [p_ctl.x, p_ctl.y + 1, p_ctl.z];
     let on_cell = |p: &redsim::entity::Vec3, c: [i32; 3]| p.x.floor() as i32 == c[0] && p.z.floor() as i32 == c[2] && p.y >= c[1] as f64 - 0.1 && p.y < c[1] as f64 + 1.2;
-    let ye = o.tail_esc as i32 + 6;
+    let ye = crate::queue::esc_ye(o);
     // every cart: keep the tail's (its initial queue), remove the rest with their riders
     let all: Vec<(u32, redsim::entity::Vec3, Vec<u32>)> = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.passengers.clone())).collect();
     let mut carts: Vec<u32> = Vec::new();
@@ -152,6 +152,9 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let mut fell: Vec<String> = Vec::new();
     let mut backward: Vec<String> = Vec::new();
     let mut max_back = 0.0f64;
+    let mut max_back_braked = 0.0f64;
+    let mut back_braked = 0usize;
+    let mut rolled: Vec<String> = Vec::new();
     let mut gate_through: Vec<String> = Vec::new();
     let mut min_gap = f64::INFINITY;
     let mut min_gap_at = String::new();
@@ -162,6 +165,11 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let mut rest_from: Vec<Option<redsim::entity::Vec3>> = Vec::new();
     let mut last_pos: Vec<Option<redsim::entity::Vec3>> = Vec::new();
     let mut slow: Vec<u32> = Vec::new();
+    let mut brake_slow: Vec<u32> = Vec::new();
+    let mut stuck_brake: Vec<String> = Vec::new();
+    let mut removed_past = 0usize;
+    // (`tail_brake`'s entry brake: the never-powered braked slope ahead of the queue)
+    let entry_brake: Option<[i32; 3]> = if o.tail_brake { lay.queue_cells.first().copied() } else { None };
     let mut max_tail = 0usize;
     let mut reload: Vec<i64> = Vec::new();
     let mut reload_open: Option<i64> = None;
@@ -191,6 +199,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             rest_from.push(None);
             last_pos.push(None);
             slow.push(0);
+            brake_slow.push(0);
         }
         // the register's slots 0..=3: the loop's advance pulses
         for k in 0..3 {
@@ -268,20 +277,36 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             };
             let p = e.pos;
             let v = e.delta_movement;
-            if p.y < -2.0 {
+            if p.y < -6.0 {
                 if !fell.iter().any(|f| f.starts_with(&format!("cart {i} "))) {
                     fell.push(format!("cart {i} at slot {c} +{dt}: {:.2},{:.2},{:.2}", p.x, p.y, p.z));
                 }
                 continue;
             }
+            // (pushed back down the return: past the return run's east end onto the climb)
+            if p.x > 8.9 && p.z < 19.5 && !rolled.iter().any(|f: &String| f.starts_with(&format!("cart {i} "))) {
+                rolled.push(format!("cart {i} at slot {c} +{dt}: {:.2},{:.2},{:.2}", p.x, p.y, p.z));
+            }
             if in_tail(&p) {
                 tail_n += 1;
             }
-            let on_powered = on_cell(&p, b_cell) || on_cell(&p, p_cell) || on_cell(&p, s0);
-            if on_powered && v.z < -0.003 && p.x > -0.5 && p.x < 1.5 {
-                max_back = max_back.max(-v.z);
-                if backward.len() < 12 {
-                    backward.push(format!("cart {i} at slot {c} +{dt}: z {:.2} vz {:.3}", p.z, v.z));
+            // (backward on a powered rail: B, P or slot 0, split by the rail's state: boosted
+            // backward while powered, or braked while unpowered)
+            let ctl = if on_cell(&p, b_cell) { Some(b_ctl) } else if on_cell(&p, p_cell) { Some(p_ctl) } else if on_cell(&p, s0) { lay.slots.first().copied() } else { None };
+            if let Some(cb) = ctl
+                && v.z < -0.003
+                && p.x > -0.5
+                && p.x < 1.5
+            {
+                let powered = matches!(run.world.get(cb), Block::RedstoneBlock);
+                if powered {
+                    max_back = max_back.max(-v.z);
+                    if backward.len() < 12 {
+                        backward.push(format!("cart {i} at slot {c} +{dt}: z {:.2} vz {:.3}", p.z, v.z));
+                    }
+                } else {
+                    max_back_braked = max_back_braked.max(-v.z);
+                    back_braked += 1;
                 }
             }
             // (through the gate while shut: the centre crossing the gate cell's middle)
@@ -325,6 +350,19 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
                     redsim::entity::kill(&mut run.world, x)?;
                 }
                 riders[i] = None;
+                removed_past += 1;
+                continue;
+            }
+            // (the entry brake's 0.03 trap: a cart under 0.03 b/t on it for 20 gt)
+            if let Some(bc) = entry_brake {
+                if on_cell(&p, bc) && v.horizontal_distance() < 0.03 {
+                    brake_slow[i] += 1;
+                    if brake_slow[i] == 20 {
+                        stuck_brake.push(format!("cart {i} at slot {c} +{dt}"));
+                    }
+                } else {
+                    brake_slow[i] = 0;
+                }
             }
         }
         max_tail = max_tail.max(tail_n);
@@ -378,17 +416,25 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let out_of_order: Vec<String> = entered.windows(2).filter(|w| w[1] < w[0]).map(|w| format!("{} before {}", w[0], w[1])).collect();
     let fed = entered.len();
     let spawned = carts.len() - initial;
+    // (the hard count: every cart and rider in is out past slot 2, still in the bench, or lost)
+    let alive = |id: u32| run.world.entities.list.iter().any(|e| e.id == id && !e.removed);
+    let still: usize = carts.iter().filter(|id| alive(**id) && pos_of(&run.world, **id).is_some_and(|p| p.y > -6.0)).count();
+    let riders_still: usize = riders.iter().flatten().filter(|r| alive(**r)).count();
+    let out_past = removed_past;
     let mut s = String::new();
     s += &format!("tail bench: {} cycles ({} patterned), seed {seed}; gate and P at advance {:+} for {w_gate} gt, B at gate {:+} for {wb} gt\n", cycles, pattern.len(), d, kb);
     s += &format!("carts: {initial} in the tail at the start, {spawned} spawned; {fed} rested in slot 0\n");
+    s += &format!("count: {} carts in, {out_past} out past slot 2 with their riders, {still} still in the bench ({riders_still} riders), {} lost\n", initial + spawned, initial + spawned - out_past - still);
+    s += &format!("stuck on the entry brake (under 0.03 b/t for 20 gt on it): {}\n", if stuck_brake.is_empty() { "0".to_string() } else { format!("{} ({})", stuck_brake.len(), stuck_brake.join("; ")) });
     s += &format!("lost intakes (P loaded, slot 0 empty at the next advance): {} {}\n", holes_waiting.len(), if holes_waiting.is_empty() { String::new() } else { format!("({})", holes_waiting.iter().take(10).cloned().collect::<Vec<_>>().join("; ")) });
     s += &format!("starved intakes (carts waiting in the tail, P empty): {} {}\n", starved.len(), if starved.is_empty() { String::new() } else { format!("({})", starved.iter().take(10).cloned().collect::<Vec<_>>().join("; ")) });
     s += &format!("holes with nothing waiting (no supply): {holes_empty}\n");
     s += &format!("doubles (two carts in slot 0 at an advance): {} {}\n", doubles.len(), doubles.iter().take(6).cloned().collect::<Vec<_>>().join("; "));
     s += &format!("out of arrival order: {} {}\n", out_of_order.len(), out_of_order.iter().take(10).cloned().collect::<Vec<_>>().join(", "));
     s += &format!("fell or left the rails: {} {}\n", fell.len(), fell.join("; "));
+    s += &format!("pushed back down the return (onto the climb): {} {}\n", rolled.len(), rolled.iter().take(6).cloned().collect::<Vec<_>>().join("; "));
     s += &format!("through the shut gate: {} {}\n", gate_through.len(), gate_through.iter().take(6).cloned().collect::<Vec<_>>().join("; "));
-    s += &format!("backward on a powered rail (B, P, slot 0): {} ticks, max {:.3} b/t {}\n", backward.len(), max_back, backward.iter().take(4).cloned().collect::<Vec<_>>().join("; "));
+    s += &format!("backward on a powered rail (B, P, slot 0) while it is powered: {} ticks, max {:.3} b/t {}; while braked: {back_braked} ticks, max {:.3} b/t\n", backward.len(), max_back, backward.iter().take(4).cloned().collect::<Vec<_>>().join("; "), max_back_braked);
     s += &format!("at rest in the tail: min cart-to-cart box gap {} ({}), max per-tick drift {:.4}, max drift over a rest {:.4}\n", if min_gap.is_finite() { format!("{min_gap:.3}") } else { "none".into() }, min_gap_at, max_step, max_drift);
     s += &format!("creep while quiet (gate shut, P and B off, the cart under 0.02 b/t for 5 gt; one tick / over the stretch): on P {:.4} / {:.4}, on B {:.4} / {:.4}, in the queue {:.4} / {:.4}\n", creep[0].0, creep[0].1, creep[1].0, creep[1].1, creep[2].0, creep[2].1);
     let (rmin, rmax) = (reload.iter().min().copied().unwrap_or(-1), reload.iter().max().copied().unwrap_or(-1));
