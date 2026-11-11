@@ -26,24 +26,24 @@ joined to the loop.**
 - **Missing:** ironfarm's two junctions (the entry off the departure run, the merge into the
   release run) and the zombies along the loop.
 - **The give-up (day-1's force input F):**
-  - **Open, a must-have: F's window NOT met** (2026-11-11 00:00, measured on day-1's loop; the
-    earlier "met, the corner closing by 2.5 gt" was against the wrong deadline). The siding's own
-    part is unchanged: F to past the exit 55-58 gt. But a stuck cart's binding deadline is its
-    drop-line hold's 12-gt release pulse, not the queue's kick: on day-1's fold (ca69490a8a) the
-    holds release at k0 +444..455, k1 +432..443, k2 +426..437 (gt after the visit release), and
-    the route from the siding's exit to them takes 67/80/88 gt, so the cart must pass the exit by
-    +388/+363/+349. With F at +320 (+326 at the corner) it passes at +375..378 (+381..384):
-    margins k0 +10/+4, k1 -15/-21, k2 -29/-35. The pre-fold file (71fee73888) is the same (holds
-    about +445/+435, routes about 60/70/80 gt). F per k cannot fix k2 alone: F after the slowest
-    onset (+181 + 121 = +302) and exit by +349 leave a -11 gt window. Fixes being priced: the
-    holds' pulses re-timed (day-1), a shorter exit-to-hold route (the stacked placement's exit
-    must reach k2's hold within 53 gt), a faster kick on F.
-  - **The failure mode today (a miss breaks the loop):** day-1's fold with the bed occupied (no
-    napper can sleep, F sends every cart out): k0's stuck cart made slot 14 (at rest +524); k1's
-    missed its hold and never completed its visit; from the next slot the release group and stand
-    counts went wrong, the queue order broke ("queue slot 15 holds None") and the returning trains
-    missed the tail; it never recovered (305 problems in 60 slots). (day-1's files still carry an
-    older siding with a slower forced exit; day-1 is re-running with main's.)
+  - **F's window: met, against the right deadline** (2026-11-11 00:22, reconciled with day-1 on
+    one trace). A stuck cart's binding deadline is its drop-line hold's 12-gt release pulse: on
+    day-1's fold (ca69490a8a) the holds release at k0 +471..482, k1 +469..480, k2 +473..484 (gt
+    from the visit slot's start, day-1's and the tool's frame; F rises at slot S+3 +19 = +319,
+    B3a's +320) and the route from the siding's exit to them takes 67/80/88 gt, so the cart must
+    pass the exit by +415/+400/+396 (close to the earlier queue-based +413/+398/+386.5). With F
+    at +320 (+326 at the missed-golem corner) and F to past the exit 55-58 gt it passes at
+    +375..378 (+381..384): margins k0 +37/+31, k1 +22/+16, k2 +18/+12; day-1, with main's siding
+    pasted into the integrated file and the bed occupied (+6 corner), measured every stuck cart
+    making its slot with 16-25 gt to spare. (A first reading, 00:00, said k1 and k2 missed: the
+    cart traces were timed from the "visit (observed)" line, slot S +27/37/47, with F put at +320
+    in that frame: 27-47 gt off. Retracted.)
+  - **The failure mode when a stuck cart misses its hold (a miss breaks the loop):** day-1's fold
+    with its older siding (a slower forced exit) and the bed occupied (no napper can sleep, F sends
+    every cart out): k0's stuck cart made slot 14 (at rest +524); k1's missed its hold and never
+    completed its visit; from the next slot the release group and stand counts went wrong, the
+    queue order broke ("queue slot 15 holds None") and the returning trains missed the tail; it
+    never recovered (305 problems in 60 slots). Closing it (a safe miss) is a must-have.
   - **Open: self-recovery after F dropped** while the napper cannot sleep: 3 of 16 seeds jam (13
     recover within one visit); the cause is traced (below), not yet fixed.
   - **Open: unloads** (the loop's chunk lines through the siding, and the whole part; below): a
