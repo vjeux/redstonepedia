@@ -3181,6 +3181,31 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                                 v.iter_mut().for_each(r);
                             }
                             intake_trains.iter_mut().for_each(|(_, v, _)| v.iter_mut().for_each(r));
+                            // (tickexact 2026-11-11) the visits' records too (each visit's cart,
+                            // napper and batch: a visit spanning the reload read the old numbers,
+                            // "the napper is not back in its own cart" / "the cart never came back
+                            // to rest in a slot" whatever the world did), the stop brake's armed
+                            // cart and the pad's golems
+                            for vr in visits.iter_mut() {
+                                if let Some(c) = vr.cart.as_mut() {
+                                    r(c);
+                                }
+                                if let Some(x) = vr.rider.as_mut() {
+                                    r(x);
+                                }
+                                vr.batch.iter_mut().for_each(r);
+                            }
+                            if let Some((id, _)) = stop_arm.as_mut() {
+                                r(id);
+                            }
+                            for g in pad_golems.iter_mut() {
+                                r(&mut g.0);
+                                r(&mut g.2);
+                            }
+                            for g in nether_golems.iter_mut() {
+                                r(&mut g.0);
+                                r(&mut g.3);
+                            }
                             unload_log.push(format!("slot {c} +{dt}: the whole part away {n} gt, {} entities back under new numbers", m.len()));
                         }
                         Some(b) => {
