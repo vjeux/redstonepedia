@@ -3953,6 +3953,8 @@ pub struct MeterState {
     /// REL time, its departing carts' crest crossings (order, gt after REL, speed) and the count
     /// this REL
     parked: Vec<(usize, i64, i64)>,
+    /// (9fc3155f's VB fix) the last parked cart's return tick
+    vb_back_t: Option<i64>,
     rel_t: Option<i64>,
     crest_offs: Vec<(usize, i64, f64)>,
     crest_seen: usize,
@@ -4175,12 +4177,23 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             }
         };
         let mut back = Vec::new();
+        // (9fc3155f's fix, cce1515dc7: a parked cart comes back only while the crest's chunk
+        // ticks, at most one per 11 gt; a return blind to a frozen crest stacked carts there;
+        // `MCTAS_VB_BLIND_RETURN=1` the old timed return)
+        let crest_p = redsim::entity::Vec3::new(ox as f64 + 9.5 + fx, (dc - 4) as f64 + 0.0625, dc as f64 + 0.5 + fz);
+        let crest_ticks = w.unforced.is_empty() || w.chunk_level(crest_p.x.floor() as i32 >> 4, crest_p.z.floor() as i32 >> 4) <= 31;
+        // (cc767b78: and the departure's run past the crest ticking too (A's departure, x 9.5,
+        // up to 24 blocks on): a return into a departure blocked at a frozen border stacks B's
+        // carts behind A's batch, which B's own departure never does)
+        let crest_ticks = crest_ticks && (w.unforced.is_empty() || (0..=24).step_by(4).all(|dz| w.chunk_level(crest_p.x.floor() as i32 >> 4, (crest_p.z.floor() as i32 + dz) >> 4) <= 31));
+        let blind = std::env::var("MCTAS_VB_BLIND_RETURN").is_ok_and(|v| v == "1");
         for (n, &(k, j, c_go)) in s.parked.iter().enumerate() {
             let Some(&id) = carts.get(k) else { continue };
             let (o, v) = off(j as usize, s);
-            if t >= (c_go + 2) * 100 + rel_dt + o {
-                tp(w, id, redsim::entity::Vec3::new(ox as f64 + 9.5 + fx, (dc - 4) as f64 + 0.0625, dc as f64 + 0.5 + fz), redsim::entity::Vec3::new(0.0, 0.0, v.max(0.05)));
+            if t >= (c_go + 2) * 100 + rel_dt + o && (blind || (crest_ticks && s.vb_back_t.is_none_or(|b| t - b >= 11))) {
+                tp(w, id, crest_p, redsim::entity::Vec3::new(0.0, 0.0, v.max(0.05)));
                 back.push(n);
+                s.vb_back_t = Some(t);
             } else {
                 tp(w, id, redsim::entity::Vec3::new(-400.0 + 3.0 * k as f64, 120.0, -400.0), redsim::entity::Vec3::new(0.0, 0.0, 0.0));
             }
