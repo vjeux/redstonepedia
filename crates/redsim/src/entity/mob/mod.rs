@@ -520,6 +520,31 @@ pub struct MobWorld {
     /// the mob's own vehicle): `Some` logs them (whoever reads it drains it,
     /// [`crate::entity::minecart::take_cart_pushes`]), `None` (the default) logs nothing.
     pub cart_pushes: Option<Vec<CartPush>>,
+    /// (cc767b78 2026-11-11, the riderless merge in a pressed queue, for tick-exact's bridge) Every
+    /// minecart-on-minecart `push` (`AbstractMinecart.push(otherMinecart)`): `Some` logs them, with
+    /// the alignment test and the motions before and after (whoever reads it drains it,
+    /// [`crate::entity::minecart::take_cart_cart_pushes`]), `None` (the default) logs nothing.
+    pub cart_cart_pushes: Option<Vec<CartCartPush>>,
+}
+
+/// One minecart-on-minecart push ([`MobWorld::cart_cart_pushes`]): cart `this` pushed by cart
+/// `other` (`AbstractMinecart.push(other)`, then `pushOtherMinecart`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CartCartPush {
+    pub t: i64,
+    /// The pushed cart (`this`) and the pushing one (`other`).
+    pub this: u32,
+    pub other: u32,
+    /// The horizontal distance between their centres.
+    pub dist: f64,
+    /// `|dir · facing|`, the alignment test (the push applies at 0.8 or more; NaN when not reached).
+    pub dot: f64,
+    /// What happened: "merged" (centres under 0.01 apart: no push, `dd < 1e-4`), "misaligned"
+    /// (dot under 0.8: no push) or "applied".
+    pub what: &'static str,
+    /// The two motions (x, z) before and after: this, then other.
+    pub before: [f64; 4],
+    pub after: [f64; 4],
 }
 
 /// One push of a minecart by a mob ([`MobWorld::cart_pushes`]): `AbstractMinecart.push(mob)`'s
@@ -540,7 +565,7 @@ pub struct CartPush {
 
 impl Default for MobWorld {
     fn default() -> MobWorld {
-        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default(), cart_pushes: None }
+        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default(), cart_pushes: None, cart_cart_pushes: None }
     }
 }
 

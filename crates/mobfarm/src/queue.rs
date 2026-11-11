@@ -433,6 +433,34 @@ pub struct LoopOpts {
     /// The approach's last climb slope (the cell before T) an always-on booster (`approach`):
     /// a pusher slowed by a cart resting on T is driven on instead of rolling back.
     pub approach_boost: bool,
+    /// The approach's climb slopes all boosters but D (farmopt's (d) proposal: the acceleration
+    /// on the climb, the release run plain with `boost_first` 0).
+    pub approach_climb_boost: bool,
+    /// C''' (ironspec 2026-11-11, `approach` 5): a plain hump between the run's `boost_first`
+    /// boosters and the chunk line z 9|10, its flat top this many blocks above the dip; then the
+    /// dip (`dip_flat` plain flat cells at height `dip_y` ending at z 9, across the line), a plain
+    /// climb from the dip to T, T and the descent as approach 5's. The queue's head moves north
+    /// as far as the run needs (flat cells at row A's start). 0 = no hump.
+    pub hump: u32,
+    /// With `hump`: the dip's height (2: z 9 flat, the climb's four slopes z 8..5 to T at height 6).
+    pub dip_y: u32,
+    /// With `hump`: the dip's flat cells, z 9 and north (2: z 9..10, the line between them).
+    pub dip_flat: u32,
+    /// With `hump`: the run's boosters as slopes up toward the hump (each a block of the hump's
+    /// rise), not flat at the head's height.
+    pub boost_slopes: bool,
+    /// With `boost_slopes`: the first this many boosters flat at the head's height, the rest as
+    /// slopes (S3's DP cell two before the hump's top clear of the boosters).
+    pub boost_flat: u32,
+    /// With `hump`: the hump's flat top this many cells long (1: a single flat at the peak).
+    pub top_flat: u32,
+    /// With `hump`: the top's flat cells boosters (a backward cart never reaches them: the hump's
+    /// height is its bound).
+    pub top_boost: bool,
+    /// The hump's path with no hump (ironspec's h0): the run's boosters, one slope up to the dip's
+    /// level, then flat across the line z 9|10 to the climb (the border on plain flat cells at
+    /// approach 5, whose climb needs the dip at y 2).
+    pub dip_run: bool,
     /// The departure crest's dip past the line as plain flat rails (the boosted rise climbs
     /// alone): a cart stopped there meets the next on flat ground, nothing boosts it back.
     pub crest_plain_dip: bool,
@@ -490,15 +518,29 @@ pub struct LoopOpts {
     pub adm_room_k: u32,
     /// The top queue slope a detector too: the landing latch's reset (the cart moved on).
     pub adm_latch_reset: bool,
+    /// S2, the comb stand (`crate::comb`, with `stand_stop` and `approach` 5): 1 the stem-in S_y,
+    /// 2 the straight S_y (wrong-side, pending its bridge); 0 off.
+    pub stand_comb: u32,
+    /// With `stand_comb`: the gravity pockets ((b)): gate slopes plain, the cells past G2 and G1
+    /// detector rails (else the gate slopes powered while their gates are open, as the guard's G0).
+    pub comb_gravity: bool,
     /// Admission control's x-queue (ironspec's R1): N plain slopes down west along z 24 from the
     /// return run's take-off, the curve north and one flat transition cell upstream of z 25|26,
     /// then the `tail_esc` slopes north into G0 and P (0: the column queue).
     pub adm_xq: u32,
 }
 
+impl LoopOpts {
+    /// The approach takes the hump's path (a hump, or `dip_run`'s h0: the boosters, the dip's
+    /// flat across the line, the climb from the dip).
+    pub fn humped(&self) -> bool {
+        self.hump > 0 || self.dip_run
+    }
+}
+
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, approach_boost: false, crest_plain_dip: false, crest_descent: 0, cprime: None, adm_xq: 0 }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, approach_boost: false, crest_plain_dip: false, crest_descent: 0, cprime: None, adm_xq: 0, stand_comb: 0, comb_gravity: false, approach_climb_boost: false, hump: 0, dip_y: 2, dip_flat: 2, boost_slopes: false, boost_flat: 0, top_flat: 1, top_boost: false, dip_run: false }
     }
 }
 
@@ -564,6 +606,8 @@ pub struct LoopLayout {
     /// The design's intended flights (`crate::flight`): take-off cell, landing cells, maximum
     /// airtime; the runners exempt them from the off-the-rails check.
     pub flights: Vec<crate::flight::Flight>,
+    /// S2's comb (`stand_comb`): its branch rails, switches, detectors and gates.
+    pub comb: Option<crate::comb::CombCells>,
 }
 
 /// The loop's layout in the bench's frame: [`loop_layout_frame`] moved by `o.shift`.
@@ -603,6 +647,7 @@ pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
         lay.esc_flat_b.iter_mut().for_each(c);
         lay.queue_cells.iter_mut().for_each(c);
         lay.flights = lay.flights.iter().map(|f| f.shifted(sx, sz)).collect();
+        lay.comb = lay.comb.take().map(|c| c.shifted(sx, sz));
     }
     lay
 }
@@ -1388,7 +1433,7 @@ pub fn rider_space_check(w: &mut redsim::world::World, spec: &FarmSpec, declared
     }
     let ok = &hdr.rider_space_ok;
     let lay = loop_layout(o);
-    let gates: Vec<[i32; 3]> = lay.pockets.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz]).chain(lay.stop_gate.map(|g| [g.x + dx, g.y, g.z + dz])).chain(lay.fifo.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz])).collect();
+    let gates: Vec<[i32; 3]> = lay.pockets.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz]).chain(lay.stop_gate.map(|g| [g.x + dx, g.y, g.z + dz])).chain(lay.fifo.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz])).chain(lay.comb.iter().flat_map(|cb| cb.gf.iter().map(|(g, _)| [g[0] + dx, g[1], g[2] + dz]).collect::<Vec<_>>())).collect();
     let rails: Vec<[i32; 3]> = spec.blocks.iter().filter(|(_, b)| redsim::rails::is_rail(b)).map(|(p, _)| [p.x, p.y, p.z]).collect();
     let allowed: std::collections::HashSet<[i32; 3]> = declared.iter().map(|d| d.cell).chain(gates).chain(ok.iter().map(|c| [c[0] + dx, c[1], c[2] + dz])).collect();
     let mut bad: Vec<String> = crate::declared::rider_space(w, &rails, &allowed).into_iter().map(|b| format!("rider space: {b}")).collect();
@@ -1726,7 +1771,7 @@ fn finish_layout(mut path: Vec<([i32; 3], Cell)>, slot_cells: Vec<[i32; 3]>, sta
             }
         }
     }
-    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None, fifo: Vec::new(), esc: None, esc_p: None, esc_door: None, esc_gb: None, esc_g0: None, esc_adm_a1: None, esc_g1: None, esc_flat_b: None, queue_cells: Vec::new(), shape_over: Vec::new(), extra: Vec::new(), downgraded, flights: Vec::new() }
+    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None, fifo: Vec::new(), esc: None, esc_p: None, esc_door: None, esc_gb: None, esc_g0: None, esc_adm_a1: None, esc_g1: None, esc_flat_b: None, queue_cells: Vec::new(), shape_over: Vec::new(), extra: Vec::new(), downgraded, flights: Vec::new(), comb: None }
 }
 
 /// The bridge loop: the stand along +x at z 0 (S3's slope at x 0, catch slots) bridging the two
@@ -1735,6 +1780,25 @@ fn finish_layout(mut path: Vec<([i32; 3], Cell)>, slot_cells: Vec<[i32; 3]>, sta
 /// two rows north of z 20 (row A, the tail, north along x 0; a U-turn at its far end; row B, the
 /// head, south along x -2, straight into the release run). The return is about as short as the
 /// release run, so a returning train is in the queue's tail before the next release.
+/// C''' (`hump`): the flat cells added at row A's start so that the release run fits the run's
+/// boosters, the hump and the dip's `dip_flat` cells (the queue's head moves north by as many; 0
+/// without a hump).
+pub fn hump_pad(o: &LoopOpts) -> i32 {
+    if !o.humped() || o.approach == 0 || !o.stand_stop || !o.bridge {
+        return 0;
+    }
+    let base = loop_layout_bridge(&LoopOpts { hump: 0, dip_run: false, ..*o });
+    let Some(head) = base.slot_cells.last() else { return 0 };
+    let n = o.approach as i32;
+    let (dy, top) = (o.dip_y as i32, if o.dip_run { 1 } else { (o.dip_y + o.hump) as i32 });
+    let b = o.boost_first as i32;
+    let y0 = if o.boost_slopes { 1 + b - (o.boost_flat as i32).min(b) } else { 1 };
+    // (from the head's peak (the head slot's z - 2) the run's cells down to the climb's foot)
+    let need = b + (top - y0) + o.top_flat.max(1) as i32 + (top - dy).abs() + o.dip_flat as i32;
+    let have = (head[2] - 3) - (2 * n - dy);
+    (need - have).max(0)
+}
+
 fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     let zr = 20;
     let mut path: Vec<([i32; 3], Cell)> = Vec::new();
@@ -2051,6 +2115,12 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             z += 1;
         }
     }
+    // (`hump`, C''': as many flat cells more as the release run needs for its boosters, the hump
+    // and the dip: the queue's head moves north by as many)
+    for _ in 0..hump_pad(o) {
+        path.push(([0, ye, z], Cell::Plain));
+        z += 1;
+    }
     for k in (if o.tail_fifo > 0 || o.tail_esc > 0 { 1 } else { 0 })..half {
         if o.tail_desc && k < 3 && o.tail_fifo == 0 && o.tail_esc == 0 {
             // a descending deep slot: a braked slope C linked to the slot's slope A (two blocks of
@@ -2154,26 +2224,91 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // D1 fallback's edge: one rising edge per train, no powered rail beside it, no rest cell
         // under it)
         let n = o.approach as i32;
-        let foot = 2 * n - 1;
-        while z > foot {
-            path.push(([xb, 1, z], Cell::Boost));
-            z -= 1;
-        }
-        for k in 0..n {
-            let last_boosted = o.approach_boost && k == n - 1;
-            path.push(([xb, 1 + k, foot - k], if last_boosted { Cell::Boost } else if k == 2 && n >= 4 { Cell::Detector } else { Cell::Plain }));
+        if o.humped() {
+            // (C''' (ironspec 2026-11-11): the run's boosters right after the head's peak (flat, or
+            // with `boost_slopes` the hump's first slopes up), the plain hump (slopes up to its flat
+            // top `hump` blocks above the dip, slopes down), the dip's plain flat across the line
+            // z 9|10, the plain climb from the dip to T (its third slope the detector D, as C's),
+            // then T and the descent as approach 5's: a cart rolling back from T or bounced off a
+            // stack held on the dip stops on the hump's far face, never reaching the boosters)
+            let (dy, top) = (o.dip_y as i32, if o.dip_run { 1 } else { (o.dip_y + o.hump) as i32 });
+            let foot = 2 * n - dy;
+            let b = o.boost_first as i32;
+            // (`boost_flat`: the first boosters flat, the rest as slopes: S3's DP clear of them)
+            let bf = (o.boost_flat as i32).min(b);
+            for i in 0..b {
+                path.push(([xb, 1 + if o.boost_slopes { (i - bf).max(0) } else { 0 }, z], Cell::Boost));
+                z -= 1;
+            }
+            let y0 = if o.boost_slopes { 1 + b - bf } else { 1 };
+            for y in y0..top {
+                path.push(([xb, y, z], Cell::Plain));
+                z -= 1;
+            }
+            // (the flat top, `top_flat` cells, boosters with `top_boost`; with `dip_run` (h0) the
+            // run's own level, plain flat cells for S)
+            for _ in 0..o.top_flat.max(1) {
+                path.push(([xb, top, z], if o.top_boost { Cell::Boost } else { Cell::Plain }));
+                z -= 1;
+            }
+            for y in (dy..top).rev() {
+                path.push(([xb, y, z], Cell::Plain));
+                z -= 1;
+            }
+            // (`dip_run`: from the run's level up to the dip's)
+            for y in top..dy {
+                path.push(([xb, y, z], Cell::Plain));
+                z -= 1;
+            }
+            while z > foot {
+                path.push(([xb, dy, z], Cell::Plain));
+                z -= 1;
+            }
+            for k in 0..n + 1 - dy {
+                path.push(([xb, dy + k, foot - k], if k == 2 && n >= 4 { Cell::Detector } else if o.approach_climb_boost { Cell::Boost } else { Cell::Plain }));
+            }
+        } else {
+            let foot = 2 * n - 1;
+            let mut ib = 0;
+            while z > foot {
+                // (`approach_climb_boost`: the run plain but its first `boost_first` cells from the head
+                // (C'': the gaps stretched near the head, a plain flat through the line), the
+                // acceleration on the climb)
+                path.push(([xb, 1, z], if o.approach_climb_boost && ib >= o.boost_first { Cell::Plain } else { Cell::Boost }));
+                z -= 1;
+                ib += 1;
+            }
+            for k in 0..n {
+                let last_boosted = o.approach_boost && k == n - 1;
+                // (`approach_climb_boost`: every climb slope a booster but the detector D, the
+                // acceleration on the climb instead of a flat booster run)
+                let climb_boosted = o.approach_climb_boost && !(k == 2 && n >= 4);
+                path.push(([xb, 1 + k, foot - k], if last_boosted || climb_boosted { Cell::Boost } else if k == 2 && n >= 4 { Cell::Detector } else { Cell::Plain }));
+            }
         }
         path.push(([xb, n + 1, n - 1], Cell::Plain));
-        for k in (1..=n - 2).rev() {
-            path.push(([xb, 2 + k, k], Cell::Plain));
+        if o.stand_comb > 0 {
+            // S2's P3 line (`crate::comb`): T's west output, a curve, three slopes down along
+            // x xb - 1 (the second D_P3, the ring's first detector), a curve east, then the
+            // landing slope into pocket 3 as before (now fed from the west at height 3)
+            path.push(([xb - 1, n + 1, n - 1], Cell::Plain));
+            path.push(([xb - 1, n, n - 2], Cell::Plain));
+            path.push(([xb - 1, n - 1, n - 3], Cell::Detector));
+            path.push(([xb - 1, n - 2, n - 4], Cell::Plain));
+            path.push(([xb - 1, n - 2, 0], Cell::Plain));
+            path.push(([xb, 2, 0], Cell::Plain));
+        } else {
+            for k in (1..=n - 2).rev() {
+                path.push(([xb, 2 + k, k], Cell::Plain));
+            }
+            // (the landing: an ascending_west rail, its high side's sturdy block west of it, two
+            // high: a cart pushed back west by a jam in pocket 3 meets a wall instead of climbing
+            // onto the block's top, off the rails)
+            path.push(([xb, 2, 0], Cell::Plain));
+            shape_over.push(([xb, 2, 0], "ascending_west"));
+            extra.push(([xb - 1, 2, 0], "glass"));
+            extra.push(([xb - 1, 3, 0], "glass"));
         }
-        // (the landing: an ascending_west rail, its high side's sturdy block west of it, two high:
-        // a cart pushed back west by a jam in pocket 3 meets a wall instead of climbing onto the
-        // block's top, off the rails)
-        path.push(([xb, 2, 0], Cell::Plain));
-        shape_over.push(([xb, 2, 0], "ascending_west"));
-        extra.push(([xb - 1, 2, 0], "glass"));
-        extra.push(([xb - 1, 3, 0], "glass"));
     } else {
         while z >= 1 {
             let k = if i < o.boost_first { Cell::Boost } else if o.detector && z == 4 { Cell::Detector } else { Cell::Plain };
@@ -2256,19 +2391,26 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // apart. Riders at x -1, 3, 7 (y 0, -1, -2): `linear-check` gives them 40, 44 and 40
         // valid columns, 0 strays, 99.03% per slot (3 cells apart would give 44 each, 99.30%)
         let mut pockets = Vec::new();
+        let comb = o.stand_comb > 0;
         for k in 0..3 {
             let (b, l) = (xb + 1 + 4 * k, 1 - k);
-            // (wired: pocket 1's flat a detector rail D1, the first cart past G1 sets the latch)
-            path.push(([b, l, 0], if o.stand_wired && k == 2 { Cell::Detector } else { Cell::Plain }));
+            // (wired: pocket 1's flat a detector rail D1, the first cart past G1 sets the latch;
+            // the comb: pockets 2's and 1's flats the fixed junctions J2 and J1, curves from +z)
+            path.push(([b, l, 0], if o.stand_wired && k == 2 && !comb { Cell::Detector } else { Cell::Plain }));
+            if comb && k > 0 {
+                shape_over.push(([b, l, 0], "south_east"));
+            }
             path.push(([b + 1, l - 1, 0], Cell::Plain));
             // (the guard: the gate slope a powered rail on glass, powered from its gate's driver
             // dust through a stone under the dust (`stand_circuit`); else a booster on a redstone
-            // block)
-            path.push(([b + 2, l - 2, 0], if o.stand_guard { Cell::Linked } else { Cell::Boost }));
+            // block; the comb: powered on glass while its gate is open (bench), or plain in the
+            // gravity pockets)
+            path.push(([b + 2, l - 2, 0], if comb { if o.comb_gravity { Cell::Plain } else { Cell::Linked } } else if o.stand_guard { Cell::Linked } else { Cell::Boost }));
             pockets.insert(0, (BlockPos::new(b + 2, l - 1, 0), [b + 2, l - 2, 0]));
             if k < 2 {
-                // (the guard: the booster-up a plain rail: nothing boosts a cart drifting back)
-                path.push(([b + 3, l - 2, 0], if o.stand_guard { Cell::Plain } else { Cell::Boost }));
+                // (the guard: the booster-up a plain rail: nothing boosts a cart drifting back;
+                // the gravity comb: a detector rail, the pocket's own exit edge)
+                path.push(([b + 3, l - 2, 0], if comb { if o.comb_gravity { Cell::Detector } else { Cell::Plain } } else if o.stand_guard { Cell::Plain } else { Cell::Boost }));
             }
         }
         // (S1, S2, S3: the rest cells, front first; no rail control)
@@ -2368,6 +2510,7 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         lay.queue_cells = queue_cells;
         lay.shape_over = shape_over;
         lay.extra = extra;
+        lay.comb = comb.then(|| crate::comb::CombCells::new(o.stand_comb, o.comb_gravity));
         return lay;
     }
     path.push(([xb + 1, 1, 0], if o.plain { Cell::Plain } else { Cell::Linked }));
@@ -2717,7 +2860,7 @@ pub fn stand_circuit(ox: i32, guard: bool) -> Vec<([i32; 3], String)> {
 /// the forbidden ones, the climb with its crest top and the descent; the stand area's x extent);
 /// `handoff:` and the ports `input.g0` (G0's slope) and `output.handoff` (the return run's first
 /// cell, the tail's, not in the part).
-pub fn departure_part(o: &LoopOpts, design: &str, handoff_at: Option<(i32, i32)>) -> Result<String> {
+pub fn departure_part(o: &LoopOpts, design: &str, handoff_at: Option<(i32, i32)>, allowed_z: Option<(i32, i32)>) -> Result<String> {
     let d = mctas::design::Design::parse(design)?;
     let lay = loop_layout(o);
     let (g0, g0_rail) = *lay.pockets.first().ok_or_else(|| anyhow::anyhow!("the departure part needs the pocket stand (--stand-stop)"))?;
@@ -2808,12 +2951,20 @@ pub fn departure_part(o: &LoopOpts, design: &str, handoff_at: Option<(i32, i32)>
     // z + 3; every other cell forbidden; a boosted dip is forbidden-class whole)
     let plain_dip = dip.0 < dip.1 && (dip.0..dip.1).all(|i| p.blocks.get(&col_cells[i]).is_some_and(|s| s.starts_with("rail")));
     let desc_last_z = if desc.0 < desc.1 { col_cells[desc.1 - 1][2] } else { col_cells[top][2] };
-    let a0 = (dip.0..dip.1).find(|&i| col_cells[i][2] >= desc_last_z + 3).unwrap_or(dip.1);
-    let a1 = dip.1;
+    // (`allowed_z` Z0,Z1: the allowed cells taken from push-in rows instead (ironspec 2026-11-11:
+    // the keep-off distance is a minimum; every cell a cart can rest on needs its rows))
+    let (a0, a1) = match allowed_z {
+        Some((z0, z1)) => ((dip.0..dip.1).find(|&i| col_cells[i][2] >= z0).unwrap_or(dip.1), (dip.0..dip.1).rev().find(|&i| col_cells[i][2] <= z1).map_or(dip.0, |i| i + 1)),
+        None => ((dip.0..dip.1).find(|&i| col_cells[i][2] >= desc_last_z + 3).unwrap_or(dip.1), dip.1),
+    };
+    let why = if allowed_z.is_some() { "the dip's plain flat cells push-in rows show clean: a cart at rest or crawling there pushed through by the next at every corner, no reversal, no meeting on the rise" } else { "the dip's plain flat where a stop's pusher is 1.3 or more past the descent: the 1.2 rule" };
     let border = if plain_dip && a0 < a1 {
         format!(
-            "allowed {} (the dip's plain flat where a stop's pusher is 1.3 or more past the descent: the 1.2 rule); forbidden {} (the climb and its flat top); forbidden {} (the descent); forbidden {} (the dip short of that); forbidden {} (the rise and the corner); stand-x {}..{}",
-            span(a0, a1), span(0, top + 1), span(desc.0, desc.1), span(dip.0, a0), span(rise.0, col_cells.len()), -4 + sx, 9 + sx
+            "allowed {} ({why}); forbidden {} (the climb and its flat top); forbidden {} (the descent){}{}; forbidden {} (the rise and the corner); stand-x {}..{}",
+            span(a0, a1), span(0, top + 1), span(desc.0, desc.1),
+            if dip.0 < a0 { format!("; forbidden {} (the dip before the allowed cells)", span(dip.0, a0)) } else { String::new() },
+            if a1 < dip.1 { format!("; forbidden {} (the dip after them)", span(a1, dip.1)) } else { String::new() },
+            span(rise.0, col_cells.len()), -4 + sx, 9 + sx
         )
     } else {
         format!("allowed none; forbidden {} (the climb and its flat top); forbidden {} (the descent); forbidden {} (the dip: {}); forbidden {} (the rise and the corner); stand-x {}..{}", span(0, top + 1), span(desc.0, desc.1), span(dip.0, dip.1), if plain_dip { "no cell far enough past the descent for the 1.2 rule" } else { "boosters, forbidden-class" }, span(rise.0, col_cells.len()), -4 + sx, 9 + sx)
@@ -2879,6 +3030,25 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
         b.set(c[0], c[1], c[2], &rail);
         b.set(c[0], c[1] - 1, c[2], support);
+    }
+    // S2's comb (`crate::comb`): the branch rails on glass, T powered (the P3 route) by a
+    // redstone block under it, S_y unpowered (the P1 route), the line gates GF shut (the
+    // pockets start full)
+    if let Some(cb) = &lay.comb {
+        for (c, s) in &cb.rails {
+            if b.d.blocks.contains_key(c) || b.d.blocks.contains_key(&[c[0], c[1] - 1, c[2]]) {
+                bail!("the comb's rail at {c:?} meets the loop");
+            }
+            b.set(c[0], c[1], c[2], s);
+            b.set(c[0], c[1] - 1, c[2], "glass");
+        }
+        b.set(cb.t_ctl[0], cb.t_ctl[1], cb.t_ctl[2], "redstone_block");
+        for (g, f) in &cb.gf {
+            if b.d.blocks.contains_key(g) {
+                bail!("the comb's gate at {g:?} meets the loop");
+            }
+            b.set(g[0], g[1], g[2], &format!("oak_fence_gate[facing={f},in_wall=false,open=false,powered=false]"));
+        }
     }
     // (the stop stand's braked slope starts braked, as the catch leaves it)
     if o.stand_stop && false {
@@ -3089,7 +3259,10 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         let mut posts: Vec<(i32, i32)> = Vec::new();
         let mut z = 5;
         while z <= 58 {
-            posts.push((zx, z));
+            // (the comb: the first post's cell is the P1 line's; it moves under the stand, below)
+            if !(lay.comb.is_some() && z < 10) {
+                posts.push((zx, z));
+            }
             z += o.zombie_every;
         }
         if o.tail_desc || o.tail_fifo > 0 || o.tail_esc > 0 {
@@ -3113,6 +3286,15 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
             b.set(px, 6, pz, "oak_leaves[distance=1,persistent=true,waterlogged=false]");
             b.entity("oak_boat", [px as f64 + 0.5, 3.0, pz as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
         }
+        // (the comb's two posts: the station zombie under the stand's level, clear of every
+        // line's riders, and a post for the approach's top)
+        if let Some(cb) = &lay.comb {
+            for (pos, glass, leaves) in [cb.zombie, cb.top_post] {
+                b.set(glass[0], glass[1], glass[2], "glass");
+                b.set(leaves[0], leaves[1], leaves[2], "oak_leaves[distance=1,persistent=true,waterlogged=false]");
+                b.entity("oak_boat", pos, Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+            }
+        }
     }
     // (the layout's extra blocks: the snap turn's sturdy high side)
     for (c, s) in &lay.extra {
@@ -3122,8 +3304,13 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.set(c[0], c[1], c[2], s);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.approach_boost { " approach_boost=1" } else { "" } + if o.crest_plain_dip { " crest_plain_dip=1" } else { "" } + &(if o.crest_descent > 0 { format!(" crest_descent={}", o.crest_descent) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default() + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() })));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.approach_boost { " approach_boost=1" } else { "" } + if o.approach_climb_boost { " approach_climb_boost=1" } else { "" } + &(if o.hump > 0 || o.dip_run { format!(" hump={} dip_y={} dip_flat={}{}{}{}{}", o.hump, o.dip_y, o.dip_flat, if o.boost_slopes { if o.boost_flat > 0 { format!(" boost_slopes=1 boost_flat={}", o.boost_flat) } else { " boost_slopes=1".to_string() } } else { String::new() }, if o.top_flat != 1 { format!(" top_flat={}", o.top_flat) } else { String::new() }, if o.top_boost { " top_boost=1" } else { "" }, if o.dip_run { " dip_run=1" } else { "" }) } else { String::new() }) + if o.crest_plain_dip { " crest_plain_dip=1" } else { "" } + &(if o.crest_descent > 0 { format!(" crest_descent={}", o.crest_descent) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default() + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
+    if o.stand_comb > 0
+        && let Some(q) = b.d.meta.get_mut("queue")
+    {
+        q.push_str(&format!(" stand_comb={}{}", o.stand_comb, if o.comb_gravity { " comb_gravity=1" } else { "" }));
+    }
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
         let fl: Vec<crate::flight::Flight> = lay.flights.iter().map(|f| f.shifted(o.shift[0], o.shift[1])).collect();
@@ -3187,12 +3374,23 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "stand_stop" => o.stand_stop = v != "0",
             "stand_wired" => o.stand_wired = v != "0",
             "stand_guard" => o.stand_guard = v != "0",
+            "stand_comb" => o.stand_comb = v.parse()?,
+            "comb_gravity" => o.comb_gravity = v == "1",
             "tail_fifo" => o.tail_fifo = v.parse()?,
             "tail_esc" => o.tail_esc = v.parse()?,
             "climb_boost" => o.climb_boost = Some(v.parse()?),
             "approach" => o.approach = v.parse()?,
             "depart_crest" => o.depart_crest = v.parse()?,
             "approach_boost" => o.approach_boost = v == "1",
+            "approach_climb_boost" => o.approach_climb_boost = v == "1",
+            "hump" => o.hump = v.parse()?,
+            "dip_y" => o.dip_y = v.parse()?,
+            "dip_flat" => o.dip_flat = v.parse()?,
+            "boost_slopes" => o.boost_slopes = v == "1",
+            "boost_flat" => o.boost_flat = v.parse().unwrap_or(0),
+            "top_flat" => o.top_flat = v.parse()?,
+            "top_boost" => o.top_boost = v == "1",
+            "dip_run" => o.dip_run = v == "1",
             "crest_plain_dip" => o.crest_plain_dip = v == "1",
             "crest_descent" => o.crest_descent = v.parse()?,
             "cprime" => {
@@ -3517,6 +3715,13 @@ pub struct LoopTiming {
     pub g2_tripwire: bool,
     /// With `stand_hold`: the hold passes at most one cart per N gt (`--stand-meter N`, S1t).
     pub stand_meter: i64,
+    /// The departure's take-off stand-in (loop z on the x 9 column) whose crossing gaps are printed
+    /// (`--takeoff-z Z`; R1's ledge sticks carts 4..6 gt apart).
+    pub takeoff_z: i32,
+    /// Router S's cell and DP's (loop frame; ironspec's interlock rows): at each flip of the
+    /// head model's router, the carts whose centre is in S's cell, ridden or empty (an empty one
+    /// with the gt since it left DP's cell).
+    pub s_cell: Option<([i32; 3], Option<[i32; 3]>)>,
     /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
     /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
     pub arrivals: bool,
@@ -3528,6 +3733,60 @@ pub struct LoopTiming {
     /// farmopt's departure-clear input, emulated: REL_eff rises only while no cart is in this
     /// cell (loop frame).
     pub rel_clear: Option<[i32; 3]>,
+    /// With `rel_clear`: the queue head's release waits on the same input (farmopt's hand-off).
+    pub head_wait: bool,
+    /// The "train arrived since launch" latch: (K, the arrival cell); the head launches only
+    /// once the K-th cart since its last launch has entered the cell.
+    pub head_latch: Option<(usize, [i32; 3])>,
+    /// S3(ii)'s per-stand head-launch permissions (`crate::headperm`): D_arr, Dh (loop frame),
+    /// whether they gate the head, the router emulated (A here, B virtual), B held (C0, N).
+    pub head_perm: Option<([i32; 3], [i32; 3], bool, bool, Option<(i64, i64)>)>,
+    /// Riderless trains (cc767b78, H's rows): the riders of carts entering this cell (loop
+    /// frame) in slots S0..=S1 removed (an empty cart from there on); K > 0: only the K-th cart to
+    /// enter the cell in each slot (a single riderless cart in its train).
+    pub strip_riders: Option<([i32; 3], i64, i64, usize)>,
+    /// (cc767b78) Two carts traced per tick from T0 to T1 (the run's gt): (A, B, T0, T1), entity
+    /// ids: their gap, motions and every push on either.
+    pub trace_pair: Option<(u32, u32, i64, i64)>,
+    /// (cc767b78) day-1's RETRY-only head on `head_perm`'s router: (A forced held from cycle C0 for
+    /// N of its GOs, a lost REL at one slot): the positive controls.
+    pub head_retry: Option<(Option<(i64, i64)>, Option<i64>)>,
+    /// (cc767b78) a partial train: at slot SLOT's launch only the front K release slopes go (K 1:
+    /// a 1-cart train; the rest stay as stragglers for the next launch).
+    pub train_size: Option<(i64, i64)>,
+    /// (cc767b78) the pulse-driven router on `head_perm` (day-1's ports): [B's missed tick slot
+    /// ×2, a slot B's pulse doubles onto ×2, a forced wrong GO slot], -1 for none.
+    pub router_pulses: Option<[i64; 5]>,
+    /// (cc767b78) day-1's DEP_X, ideal: the approach column's plane (loop z) a cart crosses going
+    /// down toward the hold; with `head_retry`, ARR_X/EMP_X re-arm on it instead of the launch.
+    pub dep_x: Option<f64>,
+    /// (cc767b78) a train that never arrives: from (SLOT, DT) for N ticks every cart on the stand's
+    /// approach column between loop z Z0 and Z1 is removed with its rider.
+    pub vanish: Option<(i64, i64, f64, f64, i64)>,
+    /// (cc767b78) a CANCEL_X stand-in until day-1's spec: ARR_X armed this many gt with no D_arr
+    /// edge is cleared.
+    pub cancel_x: Option<i64>,
+    /// (cc767b78) day-1's stale-ARR clear (ARR_X still set at the 2nd EXPIRE edge since DEP_X,
+    /// no Dh3_X between, the branch empty; branch-empty emulated).
+    pub stale_clear: bool,
+    /// (cc767b78) the stale-ARR clear without the branch gate (the time-only fallback).
+    pub stale_ungated: bool,
+    /// (cc767b78) the stale-ARR clear without its "no Dh3_X between" condition (a variant for day-1).
+    pub stale_ignore_dh3: bool,
+    /// (cc767b78) ironspec's ruling on the ARR gap: the stale clear guarded by the liveness gate
+    /// (`stale_live`), and GO toward A also requiring D_arr low (`darr_gate`).
+    pub stale_live: bool,
+    pub darr_gate: bool,
+    /// (cc767b78) the head's GO decides this many gt before the release acts (day-1's GO-to-core-
+    /// REL: 2); 0: the decision at the release itself.
+    pub go_lead: i64,
+    /// (cc767b78) an emulated freeze of K carts alone: at (SLOT, DT) the K highest carts on A's
+    /// approach column between loop z Z0 and Z1 are held in place for N gt.
+    pub hold_cart: Option<(i64, i64, f64, f64, i64, i64)>,
+    /// (cc767b78) a fix candidate for (i)'s drain: day-1's RETRY also fires while D_arr is on.
+    pub retry_darr: bool,
+    /// (cc767b78) a fault: the head's D_arr read stuck at a level from a slot on (SLOT, LEVEL).
+    pub darr_stuck: Option<(i64, bool)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -3646,6 +3905,9 @@ pub struct MeterHold {
 /// The metered stand's state and measurements (`meter_tick`).
 #[derive(Default)]
 pub struct MeterState {
+    /// (9fc3155f) Each Dh 3 edge's world time, and each stand REL's.
+    dh3_wt: Vec<i64>,
+    rel_wt: Vec<i64>,
     /// the stand's offset from A (0 for A; stand B's paste offset) and whether this is stand B
     /// (its meter acts on the odd cycles' REL)
     off: [i32; 3],
@@ -3682,6 +3944,15 @@ pub struct MeterState {
     /// past it), and the released cart's Dh edge after the opening (gt)
     short_at_shut: Vec<f64>,
     open_to_dh: Vec<i64>,
+    /// per opening (cc767b78): its index in the train (1..3), the carts whose centre crossed H's
+    /// plane while it was the latest opening, the follower short at its shut, and the released
+    /// cart's speed (b/t) at its Dh edge
+    opening_rows: Vec<(u8, usize, f64, f64)>,
+    inside_at_shut: Vec<usize>,
+    passes_now: usize,
+    open_idx: u8,
+    short_now: f64,
+    released_v: f64,
     last_open_t: Option<i64>,
     phase: u8,
     h_open: bool,
@@ -3695,6 +3966,8 @@ pub struct MeterState {
     gate_open_since: [Option<i64>; 3],
     miss_used: bool,
     rel_count: usize,
+    /// (cc767b78) each stand REL rise the meter saw (bench t)
+    pub rel_rise_ts: Vec<i64>,
     /// the occupancy latched at REL (P1, P2, P3), SE armed for its rearmost pocket, SE's count;
     /// P3 (a Dh edge while L2 was set); ARR (Darr's edge, reset by Dh1) and when it set; opening
     /// 1's condition last gt (edge-triggered, as the wired trigger is)
@@ -3763,6 +4036,13 @@ pub struct MeterState {
     /// edges under 100 gt
     spacing: [Vec<i64>; 5],
     shut_on_cart: Vec<String>,
+    /// (cc767b78, day-1's RETRY-only head) this slot's stand REL allowed (None: no head model),
+    /// and the stand emptied (E) since this stand's last launch
+    pub rel_allow: Option<bool>,
+    pub emptied_since_launch: bool,
+    /// (cc767b78) each stand gate shut on a cart: (the cart, when, which gate, the gate's cell, its
+    /// fate 10 and 40 gt later)
+    shut_fate: Vec<(u32, i64, usize, BlockPos, String)>,
     /// per H close: gt until a cart's box touches H's face (99: none within 60 gt)
     h_touch: Vec<i64>,
     h_pending: Option<i64>,
@@ -3775,6 +4055,15 @@ pub struct MeterState {
     /// per cart, a reversal in progress at the hold: (stored speed, visible speed, contact z, max z)
     bounce: Vec<Option<(f64, f64, f64, f64)>>,
     rows: Vec<(f64, f64, f64, f64)>,
+    /// (cc767b78) per arrival at a waiting cart on the hold's column: (stored speed the tick before
+    /// its first box contact, the closest centres after, when); the pairs in progress; the carts'
+    /// stored speeds last tick
+    contact_rows: Vec<(f64, f64, String)>,
+    my_contacts: std::collections::HashMap<(usize, usize), (i64, f64, f64, String)>,
+    my_prev_v: Vec<f64>,
+    /// (cc767b78) each cart's last rail cell and whether its last few rails were slopes
+    rail_cell: Vec<Option<BlockPos>>,
+    rail_hist: Vec<Vec<bool>>,
     /// per slot (the REL that opened it): the metered train's openings and Dh edges
     events: Vec<String>,
     done_at: Vec<i64>,
@@ -3802,7 +4091,7 @@ pub struct MeterState {
 
 /// One gt of the metered stand (`MeterHold`), before the world's tick.
 #[allow(clippy::too_many_arguments)]
-fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, lay: &LoopLayout, o: &LoopOpts, rel_bench: Option<BlockPos>, carts: &[u32], t: i64, c: i64, dt: i64) {
+fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, lay: &LoopLayout, o: &LoopOpts, rel_bench: Option<BlockPos>, carts: &[u32], t: i64, c: i64, dt: i64, cc: &[redsim::entity::mob::CartCartPush]) {
     let (sx, sz) = (o.shift[0], o.shift[1]);
     let [offx, offy, offz] = s.off;
     let (fx, fz) = (sx as f64 + offx as f64, sz as f64 + offz as f64);
@@ -3967,7 +4256,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.det_was[k] = det_on[k];
     }
     let log = |s: &mut MeterState, e: String| {
-        if s.events.len() < 60 {
+        if s.events.len() < 400 {
             s.events.push(e);
         }
     };
@@ -4048,6 +4337,9 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         }
     }
     let rel_on = rel_on && if s.stand_b { c % 2 == 1 } else { !((m.vb || m.wired_b) && c % 2 == 1) };
+    // (cc767b78, day-1's RETRY-only head, with `--head-perm`'s router: this slot's stand REL only
+    // with a launch for this stand, or by RETRY (held, the stand not emptied since its last launch))
+    let rel_on = rel_on && s.rel_allow.unwrap_or(true);
     // (P2 (i), `--meter-hold` field 16: a REL waits while a cart is in transit from H's plane to
     // its count edge; the latch times out after T live gt (field 17), counted only while H's
     // chunk ticks entities, so a frozen cart never times out)
@@ -4072,6 +4364,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     }
     let rel_go = (rel_edge && !(m.p2 && s.tl.is_some())) || (s.rel_pending.is_some() && s.tl.is_none());
     if rel_go {
+        s.rel_rise_ts.push(t);
+        s.rel_wt.push(w.time);
         if let Some(h) = s.rel_pending.take() {
             s.rel_late.push(t - h);
             log(s, format!("{c}+{dt} REL released {} gt late", t - h));
@@ -4129,6 +4423,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     if s.se_armed && s.rel_open && se_edge {
         s.se_armed = false;
         s.se_count += 1;
+        // (cc767b78's RETRY-only head: the stand emptied since this stand's last launch)
+        s.emptied_since_launch = true;
         if !s.empty {
             s.empty = true;
             s.dep_at = Some(t);
@@ -4191,6 +4487,15 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         if m.open_len == 0 && s.h_open {
             s.h_close_at = Some(t + m.close);
         }
+        // (the released cart's speed at its Dh edge: the cart nearest Dh's centre)
+        let dh_c = ((xb + 1) as f64 + 0.5, 1.5, 0.5);
+        if let Some(p) = pos.iter().flatten().min_by(|a, b| {
+            let da = (a.0 - dh_c.0).powi(2) + (a.1 - dh_c.1).powi(2) + (a.2 - dh_c.2).powi(2);
+            let db = (b.0 - dh_c.0).powi(2) + (b.1 - dh_c.1).powi(2) + (b.2 - dh_c.2).powi(2);
+            da.total_cmp(&db)
+        }) {
+            s.released_v = p.3;
+        }
         s.dh_off_margin.push(s.det_off[0].map_or(999, |x| t - x));
         s.dh_times.push(t);
         if let Some(o) = s.last_open_t {
@@ -4216,6 +4521,11 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             s.open_at = Some(t + m.d12);
         }
         log(s, format!("{c}+{dt} Dh{}", if first { " 1" } else if s.p3 { " 3" } else { "" }));
+        // (the stand's 3rd cart in (Dh 3), its world time: the report sets it against the batch's
+        // last golem summon tick (world time a multiple of 100) before the stand's next REL)
+        if !first && s.p3 {
+            s.dh3_wt.push(w.time);
+        }
         if s.phase % 2 == 1 {
             s.phase += 1;
         }
@@ -4264,6 +4574,15 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.win_follow = None;
         s.through = 0;
         s.last_open_t = Some(t);
+        // (the previous opening's row closes (cc767b78's per-index rows); a fixed opening
+        // schedules its own shut)
+        if s.open_idx > 0 {
+            s.opening_rows.push((s.open_idx, s.passes_now, s.short_now, s.released_v));
+        }
+        s.open_idx = s.phase.div_ceil(2);
+        s.passes_now = 0;
+        s.short_now = f64::NAN;
+        s.released_v = f64::NAN;
         s.last_evidence = Some(t);
         if m.open_len > 0 {
             s.h_close_at = Some(t + m.open_len);
@@ -4286,7 +4605,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             s.win_follow = Some(t - o);
         }
     }
-    // (carts through H: a centre crossing z 0.5 toward the snap turn on the descent's column)
+    // (carts through H: a centre crossing z 0.5 toward the snap turn on the descent's column;
+    // `passes_now` the same from z 0.55, the snap turn putting the centre on its axis exactly)
     for (k, p) in pos.iter().enumerate() {
         if let (Some(p), Some(Some(q))) = (p, s.prev.get(k))
             && (p.0 - (xb as f64 + 0.5)).abs() < 0.45
@@ -4298,28 +4618,37 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             s.back_into_t.push(format!("cart {k} at {c}+{dt} (z {:.2}, y {:.2})", p.2, p.1));
         }
     }
-    for (k, p) in pos.iter().enumerate() {
-        if let (Some(p), Some(Some(q))) = (p, s.prev.get(k))
+    for (_k, p) in pos.iter().enumerate() {
+        if let (Some(p), Some(Some(q))) = (p, s.prev.get(_k))
             && (p.0 - (xb as f64 + 0.5)).abs() < 0.45
-            && q.2 > 0.5
-            && p.2 <= 0.5
             && p.1 > 1.5
         {
-            s.through += 1;
+            if q.2 > 0.5 && p.2 <= 0.5 {
+                s.through += 1;
+            }
+            if q.2 > 0.55 && p.2 <= 0.55 && p.1 < 4.5 {
+                s.passes_now += 1;
+            }
         }
     }
     if s.h_close_at.is_some_and(|a| t >= a) {
         s.h_close_at = None;
         s.h_open = false;
-        if let Some(p) = pos.iter().flatten().find(|p| in_h(p, 0.0)) {
-            s.shut_on_cart.push(format!("H at slot {c} +{dt} (a cart at {:.2},{:.2},{:.2})", p.0, p.1, p.2));
+        // (carts in H's box at the shut: with a fixed opening the released cart, by design (it
+        // moves on out); two, or any with H shut on Dh's edge, are shut on a cart)
+        let inside: Vec<&(f64, f64, f64, f64)> = pos.iter().flatten().filter(|p| in_h(p, 0.0)).collect();
+        s.inside_at_shut.push(inside.len());
+        if (m.open_len == 0 && !inside.is_empty()) || inside.len() >= 2 {
+            let p = inside[0];
+            s.shut_on_cart.push(format!("H at slot {c} +{dt} ({} carts in its box, one at {:.2},{:.2},{:.2})", inside.len(), p.0, p.1, p.2));
         }
-        // (the follower: the nearest cart on the descent's hold side, its box front's distance
-        // short of H's plane (the gate's south face, z 0.625); negative: it is past the face)
-        let short = pos.iter().flatten().filter(|p| (p.0 - (xb as f64 + 0.5)).abs() < 0.3 && p.2 > 0.5 && p.2 < 5.0 && p.1 > 2.0).map(|p| p.2 - 0.49 - 0.625).fold(f64::MAX, f64::min);
+        // (the follower: the nearest cart on the descent's hold side still short of H's plane
+        // (the gate's south face, z 0.625), not in H's box: its box front's distance to it)
+        let short = pos.iter().flatten().filter(|p| (p.0 - (xb as f64 + 0.5)).abs() < 0.3 && p.2 > 0.0 && p.2 < 5.0 && p.1 > 2.0 && !in_h(p, 0.0)).map(|p| p.2 - 0.49 - 0.625).filter(|d| *d >= -1.0e-6).fold(f64::MAX, f64::min);
         if short < 9.0 {
             s.short_at_shut.push(short);
         }
+        s.short_now = short;
         s.h_pending = Some(t);
     }
     // (H's follower: the first cart touching H's face after a close)
@@ -4334,6 +4663,20 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     }
     // (the gates and their slopes; `g` in A's frame for the cart tests, `gw` this stand's own)
     let g: Vec<BlockPos> = lay.pockets.iter().take(3).map(|p| p.0).collect();
+    // (cc767b78: each gate shut on a cart, the cart's fate 10 and 40 gt later: still in the gate's
+    // cell, or where it went, and at what stored speed)
+    for f in s.shut_fate.iter_mut() {
+        let age = t - f.1;
+        if age == 10 || age == 40 {
+            let at = carts.iter().position(|id| *id == f.0).and_then(|ki| pos.get(ki).copied().flatten());
+            let what = match at {
+                Some(p) if in_g(&p, f.3) => format!("+{age}: still in G{}'s cell at {:.2},{:.2},{:.2} (stored {:.3})", f.2, p.0, p.1, p.2, p.3),
+                Some(p) => format!("+{age}: out, at {:.2},{:.2},{:.2} (stored {:.3})", p.0, p.1, p.2, p.3),
+                None => format!("+{age}: gone"),
+            };
+            f.4 = if f.4.is_empty() { what } else { format!("{}; {what}", f.4) };
+        }
+    }
     let gw: Vec<BlockPos> = g.iter().map(|p| BlockPos::new(p.x + offx, p.y + offy, if mz { offz - (p.z - sz) + sz } else { p.z + offz })).collect();
     if g.len() == 3 {
         // (`MCTAS_METER_G2_DELAY` k / `MCTAS_METER_G1_DELAY` k: at REL, G2 (pocket 3's gate) or G1
@@ -4351,9 +4694,12 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             let open_now = cur.contains("open=true");
             if want[k] != open_now {
                 if !want[k]
-                    && let Some(p) = pos.iter().flatten().find(|p| in_g(p, g[k]))
+                    && let Some((ki, p)) = pos.iter().enumerate().find_map(|(ki, p)| p.filter(|p| in_g(p, g[k])).map(|p| (ki, p)))
                 {
-                    s.shut_on_cart.push(format!("G{k} at slot {c} +{dt} (a cart at {:.2},{:.2},{:.2})", p.0, p.1, p.2));
+                    let id = carts.get(ki).copied().unwrap_or(0);
+                    let dz = s.prev.get(ki).copied().flatten().map_or(0.0, |q| (p.0 - q.0).hypot(p.2 - q.2));
+                    s.shut_on_cart.push(format!("G{k} at slot {c} +{dt} (e{id} at {:.2},{:.2},{:.2}, stored {:.3}, {})", p.0, p.1, p.2, p.3, if dz > 0.001 { "moving" } else { "not moving" }));
+                    s.shut_fate.push((id, t, k, g[k], String::new()));
                 }
                 let st = cur.replace("open=true", &format!("open={}", want[k])).replace("open=false", &format!("open={}", want[k])).replace("powered=true", "powered=false");
                 if let Some(b) = parse(&st) {
@@ -4417,6 +4763,94 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
                     w.draw_sound_pitch();
                 }
             }
+        }
+    }
+    // (cc767b78, the speed rule for every waiting point (ironspec): each arrival at a waiting cart
+    // on the hold's column, recorded at its first contact: the first cart-on-cart push between a
+    // moving cart and one at rest (redsim's push log, last tick's), or, with no push, the moving
+    // cart stopped dead within 1.0 of the resting one (a ridden cart's rider box is a wall): the
+    // mover's horizontal stored speed before the contact, the waiting cart ridden or empty, the
+    // slope rails the mover came down just before, then the closest centres over 20 gt (under
+    // 0.01: merged); stand A's column only (B's meter state records none))
+    let stand_a = !s.stand_b;
+    let on_col = |p: &(f64, f64, f64, f64)| stand_a && (p.0 - (xb as f64 + 0.5)).abs() < 0.45 && p.2 > -0.5 && p.2 < 6.0 && p.1 > 1.5;
+    if s.my_prev_v.len() != pos.len() {
+        s.my_prev_v = vec![0.0; pos.len()];
+        s.rail_cell = vec![None; pos.len()];
+        s.rail_hist = vec![Vec::new(); pos.len()];
+    }
+    for (k, p) in pos.iter().enumerate() {
+        let Some(p) = p else { continue };
+        let bp = BlockPos::new((p.0 + fx).floor() as i32, (p.1 + 0.01).floor() as i32, (p.2 + fz).floor() as i32);
+        if s.rail_cell[k] != Some(bp) {
+            s.rail_cell[k] = Some(bp);
+            let st = w.get(bp).to_string();
+            if st.contains("rail") {
+                s.rail_hist[k].push(st.contains("ascending"));
+                if s.rail_hist[k].len() > 6 {
+                    s.rail_hist[k].remove(0);
+                }
+            }
+        }
+    }
+    let slopes_before = |k: usize| s.rail_hist.get(k).map_or(0, |h| h.iter().rev().take_while(|b| **b).count());
+    let ridden = |id: u32| w.entities.list.iter().find(|e| e.id == id).is_some_and(|e| !e.passengers.is_empty());
+    // (the approach: a moving cart's centre first within 1.0 of a resting one; then a push between
+    // them within 5 gt replaces the speed with the push's own before-speed; none means a dead stop
+    // at the waiting cart's rider box, or a touch too slow to push)
+    for (i, pi) in pos.iter().enumerate() {
+        let Some(pi) = pi.filter(|p| on_col(p) && p.3 >= 0.01) else { continue };
+        for (j, pj) in pos.iter().enumerate() {
+            let Some(pj) = pj.filter(|p| j != i && on_col(p) && p.3 < 0.01) else { continue };
+            let d = (pi.0 - pj.0).hypot(pi.2 - pj.2);
+            if d < 1.0 && !s.my_contacts.contains_key(&(i, j)) && !s.my_contacts.contains_key(&(j, i)) {
+                let (idm, idw) = (carts[i], carts[j]);
+                s.my_contacts.insert((i, j), (t, s.my_prev_v[i], d, format!("slot {c} +{dt}: e{idm} onto e{idw} ({}), {} slope rails before, at z {:.2} onto z {:.2}, [no push], stored {:.3} before", if ridden(idw) { "ridden" } else { "empty" }, slopes_before(i), pi.2, pj.2, s.my_prev_v[i])));
+            }
+        }
+    }
+    for p in cc {
+        let (Some(a), Some(b)) = (carts.iter().position(|x| *x == p.this), carts.iter().position(|x| *x == p.other)) else { continue };
+        let (va, vb) = (p.before[0].hypot(p.before[1]), p.before[2].hypot(p.before[3]));
+        let (m, wt, vm, vw) = if va >= vb { (a, b, va, vb) } else { (b, a, vb, va) };
+        if vw >= 0.01 || vm < 0.01 {
+            continue;
+        }
+        let (Some(Some(pm)), Some(Some(pw))) = (pos.get(m), pos.get(wt)) else { continue };
+        if !on_col(pm) || !on_col(pw) {
+            continue;
+        }
+        let (idm, idw) = (carts[m], carts[wt]);
+        let text = format!("slot {c} +{dt}: e{idm} onto e{idw} ({}), {} slope rails before, at z {:.2} onto z {:.2}, a push (alignment {:.3}), stored {vm:.3} before", if ridden(idw) { "ridden" } else { "empty" }, slopes_before(m), pm.2, pw.2, p.dot);
+        let key = if s.my_contacts.contains_key(&(wt, m)) { (wt, m) } else { (m, wt) };
+        match s.my_contacts.get_mut(&key) {
+            Some(rec) if rec.3.contains("[no push]") && t - rec.0 <= 5 => {
+                rec.1 = vm;
+                rec.3 = text;
+            }
+            Some(_) => {}
+            None => {
+                s.my_contacts.insert(key, (t, vm, (pm.0 - pw.0).hypot(pm.2 - pw.2), text));
+            }
+        }
+    }
+    let mut done: Vec<(usize, usize)> = Vec::new();
+    for (&(i, j), rec) in s.my_contacts.iter_mut() {
+        if let (Some(Some(a)), Some(Some(b))) = (pos.get(i), pos.get(j)) {
+            rec.2 = rec.2.min((a.0 - b.0).hypot(a.2 - b.2));
+        }
+        if t - rec.0 >= 20 {
+            done.push((i, j));
+        }
+    }
+    for k in done {
+        if let Some(r) = s.my_contacts.remove(&k) {
+            s.contact_rows.push((r.1, r.2, r.3.replace("[no push]", "no push (a dead stop at the waiting cart's rider box, or a touch too slow to push)")));
+        }
+    }
+    for (k, p) in pos.iter().enumerate() {
+        if let Some(p) = p {
+            s.my_prev_v[k] = p.3;
         }
     }
     // (the stand's summoning moment: world time a multiple of 100 (the bench's summon tick), the
@@ -4738,6 +5172,14 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
     out.push(format!("meter (S3(ii)'s hold, emulated): {} releases, {} trains metered in; events: {}", s.rel_count, s.done_at.len(), s.events.iter().take(40).cloned().collect::<Vec<_>>().join(", ")));
+    // (each Dh 3 against its batch's summon tick: the last world time that is a multiple of 100
+    // before the stand's next REL (the batch leaves at that REL), negative when the 3rd cart lands
+    // after it; the bar is 2 gt. Unpaired: no REL after it within the run)
+    let dh3: Vec<i64> = s.dh3_wt.iter().filter_map(|&d| s.rel_wt.iter().find(|&&r| r > d).map(|&r| (r - 1).div_euclid(100) * 100 - d)).collect();
+    out.push(format!("meter Dh 3 (the stand's 3rd cart in): gt before its batch's golem summon tick (the last before the stand's next REL) {}", span(&dh3)));
+    if s.events.len() > 40 {
+        out.push(format!("meter events after the first 40: {}", s.events.iter().skip(40).cloned().collect::<Vec<_>>().join(", ")));
+    }
     out.push(format!("meter margins: H closes, gt until a cart touches its face {}; Dh edges, gt since Dh was last off {}; G0 shut after the last departing cart cleared it {}; the first cart at G0's face after G0 shut {}, at G1's after G1 shut {}, at G2's after G2 shut {}", span(&s.h_touch), span(&s.dh_off_margin), span(&s.g0_dep), span(&s.face[0]), span(&s.face[1]), span(&s.face[2])));
     let fspan = |v: &[f64]| if v.is_empty() { "-".to_string() } else { format!("{:.2}..{:.2} (n {})", v.iter().cloned().fold(f64::MAX, f64::min), v.iter().cloned().fold(f64::MIN, f64::max), v.len()) };
     out.push(format!("meter H per opening: the released cart's Dh edge after the opening {} gt; the follower short of H's plane when H shut {} blocks (ironfarm's escapement: >= 0.66); carts through H per opening {}", span(&s.open_to_dh), fspan(&s.short_at_shut), { let mut v: Vec<usize> = s.per_opening.clone(); v.push(s.through); let n = |k: usize| v.iter().filter(|x| **x == k).count(); format!("0: {}, 1: {}, 2+: {}", n(0), n(1), v.iter().filter(|x| **x >= 2).count()) }));
@@ -4754,6 +5196,35 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
         out.push(format!("meter H's fixed-opening window per opening (gt after the opening: H's cell clear of the released cart .. the follower within 0.66 of the plane): {}; common window {lo}..{hi} ({} gt)", win.join(" "), hi - lo));
     }
     out.push(format!("meter spacing (consecutive rising edges under 100 gt): Dh {}, Darr {}, D1 {}, D2 {}, crest {}", span(&s.spacing[0]), span(&s.spacing[1]), span(&s.spacing[2]), span(&s.spacing[3]), span(&s.spacing[4])));
+    // (cc767b78: per opening, by its index in the train: carts through (2+: a double), the
+    // follower short of H's plane at the shut (NaN: H still open at the next opening), the released
+    // cart's speed at its Dh edge)
+    let mut rows = s.opening_rows.clone();
+    if s.open_idx > 0 {
+        rows.push((s.open_idx, s.passes_now, s.short_now, s.released_v));
+    }
+    for k in 1..=3u8 {
+        let r: Vec<&(u8, usize, f64, f64)> = rows.iter().filter(|r| r.0 == k).collect();
+        if r.is_empty() {
+            continue;
+        }
+        let sh: Vec<f64> = r.iter().map(|x| x.2).filter(|v| v.is_finite() && *v < 9.0).collect();
+        let vs: Vec<f64> = r.iter().map(|x| x.3).filter(|v| v.is_finite()).collect();
+        out.push(format!(
+            "meter H opening {k}: {} openings; carts through 0/1/2+: {}/{}/{}; follower short of H's plane at the shut {}; released cart's speed at Dh {}",
+            r.len(),
+            r.iter().filter(|x| x.1 == 0).count(),
+            r.iter().filter(|x| x.1 == 1).count(),
+            r.iter().filter(|x| x.1 >= 2).count(),
+            fspan(&sh),
+            fspan(&vs)
+        ));
+    }
+    let doubles = rows.iter().filter(|x| x.1 >= 2).count();
+    out.push(format!("meter H shuts: carts in H's box at the shut 0/1/2+: {}/{}/{}", s.inside_at_shut.iter().filter(|n| **n == 0).count(), s.inside_at_shut.iter().filter(|n| **n == 1).count(), s.inside_at_shut.iter().filter(|n| **n >= 2).count()));
+    if doubles > 0 {
+        problems.push(format!("meter: {doubles} H openings passed two or more carts"));
+    }
     let worst = |f: &dyn Fn(&(f64, f64, f64, f64)) -> f64| s.rows.iter().map(f).fold(0.0f64, f64::max);
     let back: Vec<f64> = s.rows.iter().map(|r| r.3 - r.2).collect();
     let t_z = s.t_z;
@@ -4877,8 +5348,55 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
         }
     }
     out.push(format!("meter hold arrivals (reversals toward T on the descent): {} rows; stored speed at the reversal up to {:.3}, visible up to {:.3}; contact z {:.2}..{:.2}; back travel up to {:.3} blocks, the farthest back z {:.2} ({} rows reach z {t_z}); cell crossings back up to {}", s.rows.len(), worst(&|r| r.0), worst(&|r| r.1), s.rows.iter().map(|r| r.2).fold(f64::MAX, f64::min).min(99.0), worst(&|r| r.2), back.iter().cloned().fold(0.0f64, f64::max), worst(&|r| r.3), into_t, s.rows.iter().map(|r| (r.3.floor() - r.2.floor()) as i64).max().unwrap_or(0)));
+    // (cc767b78, the speed rule: each arrival at a waiting cart, at its first contact (a push, or a
+    // dead stop against a rider's box): the mover's stored speed before, the waiting cart ridden or
+    // empty, the slope rails before the contact point, the closest centres after, merges)
+    {
+        let mut rows = s.contact_rows.clone();
+        rows.extend(s.my_contacts.values().map(|r| (r.1, r.2, r.3.clone())));
+        let vmax_of = |empty: Option<bool>| rows.iter().filter(|r| empty.is_none_or(|e| r.2.contains("(empty)") == e)).map(|r| r.0).fold(0.0f64, f64::max);
+        let dmin = rows.iter().map(|r| r.1).fold(f64::MAX, f64::min);
+        let merges = rows.iter().filter(|r| r.1 < 0.01).count();
+        let mut worst = rows.clone();
+        worst.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let n_empty = rows.iter().filter(|r| r.2.contains("(empty)")).count();
+        out.push(format!(
+            "meter arrivals at a waiting cart (first contact on the hold's column: a push, or a dead stop at a rider's box): {} rows ({} onto an empty cart); stored speed before contact up to {:.3} (onto empty carts {:.3}, onto ridden {:.3}); closest centres {}; merged {merges}; the worst: {}",
+            rows.len(),
+            n_empty,
+            vmax_of(None),
+            vmax_of(Some(true)),
+            vmax_of(Some(false)),
+            if rows.is_empty() { "-".to_string() } else { format!("{dmin:.3}") },
+            worst.iter().take(3).map(|r| format!("{} (closest {:.3})", r.2, r.1)).collect::<Vec<_>>().join(" | ")
+        ));
+        if merges > 0 {
+            problems.push(format!("meter: {merges} arrivals merged into a waiting cart"));
+        }
+        // (by rest place: the waiting cart's z (place 1 under 1.5, place 2 to 2.4, place 3 beyond):
+        // each place's contacts, its closest centres and the arrivals' stored speeds; then every
+        // arrival's stored speed in order)
+        let onto_z = |txt: &str| txt.split("onto z ").nth(1).and_then(|x| x.split(|ch: char| ch == ',' || ch == ' ').next()).and_then(|x| x.parse::<f64>().ok());
+        let place_of = |z: f64| if z < 1.5 { 0 } else if z < 2.4 { 1 } else { 2 };
+        let mut by_place: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+        for r in &rows {
+            if let Some(z) = onto_z(&r.2) {
+                by_place[place_of(z)].push((r.0, r.1));
+            }
+        }
+        let place_txt = |k: usize| {
+            let v = &by_place[k];
+            if v.is_empty() {
+                format!("place {}: none", k + 1)
+            } else {
+                format!("place {}: {} arrivals, closest centres {:.3}, stored up to {:.3}", k + 1, v.len(), v.iter().map(|x| x.1).fold(f64::MAX, f64::min), v.iter().map(|x| x.0).fold(0.0f64, f64::max))
+            }
+        };
+        out.push(format!("meter arrivals by rest place: {}; {}; {}; each arrival's stored speed: {}", place_txt(0), place_txt(1), place_txt(2), if rows.is_empty() { "-".to_string() } else { rows.iter().map(|r| format!("{:.3}", r.0)).collect::<Vec<_>>().join(" ") }));
+    }
     if !s.shut_on_cart.is_empty() {
         out.push(format!("meter: gates shut on a cart: {} ({})", s.shut_on_cart.len(), s.shut_on_cart.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
+        out.push(format!("meter: the carts' fates after a stand gate shut on them: {}", s.shut_fate.iter().take(6).map(|f| format!("e{} (G{} at t {}): {}", f.0, f.2, f.1, if f.4.is_empty() { "-" } else { &f.4 })).collect::<Vec<_>>().join(" | ")));
         problems.push(format!("meter: {} gate closes on a cart", s.shut_on_cart.len()));
     }
     (out, problems)
@@ -4959,7 +5477,7 @@ pub struct Act {
     pub unload: Option<Option<[i32; 4]>>,
     /// `SLOT,DT,place,K,X,Y,Z`: cart K (the bench's numbering) and its rider set at (X, Y, Z) in
     /// the loop's frame, at rest (a lab act: the merged-pairs control, a cart stopped anywhere).
-    pub place: Option<(usize, [f64; 4])>,
+    pub place: Option<(usize, [f64; 5])>,
     /// (tickexact 2026-11-11, the reload-order rule) A whole-part unload's load order
     /// (`SLOT,DT,unload,N,ORDER`: `save`, `reverse` or `seed:K`; `reload::load_all_ordered`).
     pub order: redsim::reload::Order,
@@ -5120,7 +5638,9 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
         // release group is one short and the placed cart is the one it misses, in order; `s1`,
         // `s2`, `s3`: the cart nearest that stand pocket's rest place)
         let k = match f[3] { "head" => usize::MAX, "s1" => usize::MAX - 1, "s2" => usize::MAX - 2, "s3" => usize::MAX - 3, _ => num(f[3], "K")? as usize };
-        return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: None, unload: None, place: Some((k, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?, if f.len() == 8 { fl(f[7], "VZ")? } else { 0.0 }])), order: redsim::reload::Order::Save, ride: None });
+        // (DT `rN`: N gt after the stand's REL rises in that slot, whatever the corner)
+        let (dt, rel) = match f[1].strip_prefix('r') { Some(r) => (num(r, "DT")?, 1.0), None => (num(f[1], "DT")?, 0.0) };
+        return Ok(Act { slot: num(f[0], "SLOT")?, dt, cell: [0; 3], block: air, hold: None, unload: None, place: Some((k, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?, if f.len() == 8 { fl(f[7], "VZ")? } else { 0.0 }, rel])), order: redsim::reload::Order::Save, ride: None });
     }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
@@ -5153,7 +5673,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, meter: None }
     }
 }
 
@@ -5884,6 +6404,64 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     run.own = (first..run.world.entities.next_id).collect();
     let lay = loop_layout(o);
+    // (S2's comb: its bench state, `crate::comb`)
+    let mut comb_run = lay.comb.clone().map(crate::comb::CombRun::new);
+    // (S3(ii)'s per-stand head permissions, `crate::headperm`)
+    let mut head_perm = tm.head_perm.map(|(a, d, g, r, bh)| {
+        let mut h = crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, lay.stand_rel, g, r, bh);
+        h.frame = match tm.summon_at {
+            Some(93) => "+93 (the slot starts at input.golem, S+7, day-1's wired offset; the head model's default; S+7 an assumption until S3's pads are wired)".to_string(),
+            Some(99) => "+99 (the slot starts at the pad pulse, S+1)".to_string(),
+            Some(k) => format!("+{k} (summon ticks at slot +{k})"),
+            None => "unaligned (summon ticks at slot +60; --summon-unaligned)".to_string(),
+        };
+        h.b_physical = tm.meter.is_some_and(|m| m.vb || m.wired_b);
+        if let Some((ah, lost)) = tm.head_retry {
+            h.retry = true;
+            h.day1 = true;
+            h.a_hold = ah;
+            h.rel_lost = lost;
+            h.fault_slot = lost.or(ah.map(|x| x.0)).or(tm.train_size.map(|x| x.0)).or(tm.vanish.map(|x| x.0));
+            h.dep_x = tm.dep_x;
+            h.cancel_x = tm.cancel_x;
+            h.stale_clear = tm.stale_clear || tm.stale_ungated || tm.stale_ignore_dh3 || tm.stale_live;
+            h.stale_ungated = tm.stale_ungated;
+            h.stale_ignore_dh3 = tm.stale_ignore_dh3;
+            h.stale_live = tm.stale_live;
+            h.darr_gate = tm.darr_gate;
+            h.retry_darr = tm.retry_darr;
+            h.darr_stuck = tm.darr_stuck;
+        }
+        if let Some(rp) = tm.router_pulses {
+            h.pulse_router = true;
+            h.b_miss = rp[0..2].iter().copied().filter(|x| *x >= 0).collect();
+            h.b_double = rp[2..4].iter().copied().filter(|x| *x >= 0).collect();
+            h.wrong_go = Some(rp[4]).filter(|x| *x >= 0);
+            // (the run starts after B's tick: R points at B, A's GO next)
+            h.r_a = false;
+        }
+        h
+    });
+    let mut summon_lock: std::collections::HashMap<u32, i64> = std::collections::HashMap::new();
+    // (the head's edges against the summon events: each A launch's decision tick and its core REL
+    // edge, then the stand REL from G0's rises)
+    let mut rel_obs_pending: Option<(i64, i64)> = None;
+    let mut edge_rows: Vec<(i64, i64, i64)> = Vec::new();
+    let mut golem_ts: Vec<i64> = Vec::new();
+    let mut pending_skip: Option<bool> = None;
+    let mut last_go_t: i64 = 0;
+    let mut dep_prev_z: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+    let mut dh3_seen: usize = 0;
+    let (mut s_prev_r, mut s_flips, mut s_ridden, mut s_empty): (Option<bool>, usize, usize, usize) = (None, 0, 0, 0);
+    let mut s_hits: Vec<String> = Vec::new();
+    let mut s_dp_seen: std::collections::HashMap<u32, i64> = std::collections::HashMap::new();
+    let mut adv_blocked_slot: Option<i64> = None;
+    let mut stripped: Vec<String> = Vec::new();
+    let mut vanished: Vec<String> = Vec::new();
+    let mut held_carts: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = Vec::new();
+    let mut held_until: i64 = i64::MIN;
+    let mut held_log: Vec<String> = Vec::new();
+    let (mut strip_seen, mut strip_now): (Vec<u32>, Vec<u32>) = (Vec::new(), Vec::new());
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)
     let (fx, fz) = (o.shift[0] as f64, o.shift[1] as f64);
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -5926,6 +6504,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // pushEntities gives another cart (redsim's log, drained each tick), by the pusher's walk state;
     // the largest; the most in one tick; the cells; other mobs' pushes on carts
     redsim::entity::minecart::log_cart_pushes(&mut run.world);
+    // (`trace_pair`, and the meter's contact rows: the cart-on-cart pushes logged too)
+    let mut pair_lines: Vec<String> = Vec::new();
+    let mut pair_prev: std::collections::HashMap<u32, redsim::entity::Vec3> = std::collections::HashMap::new();
+    let mut cc_last: Vec<redsim::entity::mob::CartCartPush> = Vec::new();
+    if tm.trace_pair.is_some() || tm.meter.is_some() {
+        redsim::entity::minecart::log_cart_cart_pushes(&mut run.world);
+    }
     let mut pushes = [0u64; 4];
     let mut push_big = 0.0f64;
     let mut push_max: (usize, String) = (0, String::new());
@@ -6108,6 +6693,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut chain_rel_rise: Option<i64> = None;
     let mut chain_log: Vec<String> = Vec::new();
     let mut g2p_prev: Vec<Option<f64>> = Vec::new();
+    let mut tko_prev: Vec<Option<f64>> = Vec::new();
+    let mut tko_last: Option<i64> = None;
+    let mut tko_gaps: Vec<i64> = Vec::new();
     let mut g2p_cross: Vec<(i64, i64, i64)> = Vec::new();
     let mut gd_hist: [Vec<bool>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut meter_prev: Vec<bool> = Vec::new();
@@ -6147,6 +6735,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut dep_prev_x: Vec<Option<f64>> = Vec::new();
     let mut dep_last_cross: Option<i64> = None;
     let mut rel_at_g0: Vec<String> = Vec::new();
+    let mut g0_rises: Vec<i64> = Vec::new();
     let mut rel_at_g0_was = false;
     let mut walk_push: i64 = 0;
     let (mut summon_ticks, mut summon_panic) = (0i64, 0i64);
@@ -6314,6 +6903,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut bed_min: Option<(f64, String)> = None;
     let mut bed_min_app: Option<(f64, String)> = None;
     let mut approach_log: Vec<String> = Vec::new();
+    let (mut head_pending, mut head_off_at, mut head_held): (bool, Option<i64>, Vec<i64>) = (false, None, Vec::new());
+    let mut stand_emptied = true;
+    let (mut hl_set, mut hl_count, mut hl_in) = (true, 0usize, [false; 21]);
     let (mut clear_last_busy, mut clear_raw_was, mut clear_eff, mut clear_held): (Option<i64>, bool, bool, i64) = (None, false, false, 0);
     let mut clear_rises: Vec<(i64, i64, Option<i64>)> = Vec::new();
     let mut t_still = [0u32; 21];
@@ -6329,6 +6921,96 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut t_prev_v = [0f64; 21];
     let mut meet_n = [0usize; 3];
     let mut meet_min: [Option<(f64, String)>; 3] = [None, None, None];
+    let mut meet_cls = [0usize; 7];
+    let mut meet_cls_min: [Option<f64>; 7] = [None; 7];
+    let mut meet_cls_log: Vec<String> = Vec::new();
+    // (each meeting's cause by the met cart's place (flat, climb, T, descent, and with C''''s hump
+    // its falling face, its rising face and top, the run's boosters up to the head): 0 a frozen
+    // cart in the pair, 1 a cart pushed back over T (its backward move crossed from T onto the
+    // climb), 2 head-on (the upper cart moving forward, the lower back), 3 a stalled cart met
+    // (under 0.15 b/t), 4 a catch-up (both moving the same way), 5 other; and when: 0 during a
+    // freeze, 1 within 200 gt of a thaw, 2 other. A traced example per place and cause)
+    let mut meet_cause = [[0usize; 6]; 7];
+    let mut meet_when = [[0usize; 3]; 7];
+    let mut meet_cause_log: Vec<String> = Vec::new();
+    let mut meet_cause_seen = [[false; 6]; 7];
+    let mut meet_n_cause = [[0usize; 6]; 3];
+    let mut meet_n_when = [[0usize; 3]; 3];
+    let mut m_prev_vz = [0f64; 21];
+    let mut m_prev_lz: [Option<f64>; 21] = [None; 21];
+    let mut over_t = [false; 21];
+    let mut vt_n = 0usize;
+    let mut vt_max: (f64, f64, String) = (0.0, 0.0, String::new());
+    let mut hump_back: (f64, String) = (0.0, String::new());
+    let (mut hump_over, mut hump_over_n) = ([false; 21], 0usize);
+    // (contacts at a waiting cart on the approach's column (tick-exact's merge bar; cc767b78's
+    // definition, aa931d88b): a moving cart's centre within 1.0 horizontally of a cart at rest
+    // (under 0.01 b/t, or frozen), by the waiting cart's place: the mover's stored speed the tick
+    // before (before the contact's pushes), the closest centres over the next 20 gt (under 0.01:
+    // merged), the mover and the waiting cart riderless or not; the pairs being watched with their
+    // log index and start, and the pairs within 1.0 the tick before)
+    let mut bc_active: Vec<((usize, usize), usize, i64)> = Vec::new();
+    let mut bc_close: Vec<(usize, usize)> = Vec::new();
+    let mut bc_log: Vec<(usize, i64, i64, usize, usize, f64, f64, f64, bool, bool)> = Vec::new();
+    let mut m_was_unforced = false;
+    let mut last_thaw: Option<i64> = None;
+    let mut upstream_max = 0usize;
+    let mut back_start: [Option<f64>; 21] = [None; 21];
+    let mut back_in_boost = [false; 21];
+    let mut back_max: (f64, String) = (0.0, String::new());
+    let mut back_boost = 0usize;
+    let mut back_prev_z: [Option<f64>; 21] = [None; 21];
+    let mut back_vmax: (f64, f64, String) = (0.0, 0.0, String::new());
+    // (the run's boosters' nearest cell to the climb, loop frame: a backward cart reaching it is
+    // boosted toward the head)
+    let run_boost_min_z: Option<i32> = if o.approach > 0 && o.humped() {
+        // (C''': the run's boosters are the first `boost_first` cells after the head's peak; the
+        // top's boosters (`top_boost`) are not the run's)
+        lay.slot_cells.last().map(|c| c[2] - o.shift[1] - 2 - o.boost_first as i32).filter(|_| o.boost_first > 0)
+    } else if o.approach > 0 {
+        let n = o.approach as i32;
+        lay.path.iter().filter(|(p, k)| p[0] - o.shift[0] == -o.row_gap && p[1] == 1 && *k == Cell::Boost && p[2] - o.shift[1] > 2 * n - 1).map(|(p, _)| p[2] - o.shift[1]).min()
+    } else {
+        None
+    };
+    // (the approach's zones along its column, loop frame z: the head slot; with C''''s hump the
+    // dip's north end, the hump's top and the boosters' first cell)
+    let ap_head_z = lay.slot_cells.last().map_or(19, |c| c[2] - o.shift[1]) as f64;
+    let (ap_dip_hi, ap_top_z) = if o.humped() {
+        let b = o.boost_first as f64;
+        let (dy, top) = (o.dip_y as f64, if o.dip_run { 1.0 } else { (o.dip_y + o.hump) as f64 });
+        let y0 = if o.boost_slopes { 1.0 + b - (o.boost_flat as f64).min(b) } else { 1.0 };
+        // (the top's southmost flat cell; the falling face below it (with `dip_run`, the rise to
+        // the dip))
+        let zt = ap_head_z - 3.0 - b - (top - y0) - (o.top_flat.max(1) as f64 - 1.0);
+        (zt - (top - dy).abs(), zt)
+    } else {
+        (0.0, 0.0)
+    };
+    let ap_foot = if o.humped() { 2.0 * o.approach as f64 - o.dip_y as f64 } else { 2.0 * o.approach as f64 - 1.0 };
+    // (the forward profile's planes along the approach, loop frame z, crossed going -z: the
+    // boosters' end and the hump's top (C'''), the line z 9|10, the climb's foot, T's entry, T's
+    // exit, the snap turn's cell)
+    let prof_planes: Vec<(&'static str, f64)> = if o.approach > 0 {
+        let n = o.approach as f64;
+        let mut v = Vec::new();
+        if o.humped() {
+            v.push(("boosters' end", run_boost_min_z.map_or(ap_head_z, |b| b as f64)));
+            v.push((if o.dip_run { "S's flat" } else { "hump top" }, ap_top_z + 0.5));
+        }
+        v.extend([("line z 9|10", 10.0), ("climb foot", ap_foot + 1.0), ("T", n), ("T's exit", n - 1.0), ("snap turn", 1.0)]);
+        v
+    } else {
+        Vec::new()
+    };
+    let mut prof: Vec<(usize, i64, i64, usize, f64, f64, bool)> = Vec::new();
+    let mut d_prev_vz = [0f64; 21];
+    let mut d_prev_v = [0f64; 21];
+    let mut d_pairs: Vec<(usize, usize)> = Vec::new();
+    let (mut d_meet, mut d_rev, mut d_rise) = (0usize, 0usize, 0usize);
+    let mut d_meet_min: Option<(f64, String)> = None;
+    let mut d_rise_min: Option<(f64, String)> = None;
+    let mut d_rev_log: Vec<String> = Vec::new();
     let mut latch_all: Vec<(i64, i64, bool)> = Vec::new();
     let mut t3_was_lit = false;
     let mut t3_rises: Vec<(i64, i64)> = Vec::new();
@@ -6596,8 +7278,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // (`acts`, fault injection: each block set at its slot offset, then the block it replaced
         // put back after its hold, before the bench's own controls this gt)
         for a in tm.acts.iter().flatten() {
-            if a.slot == c && a.dt == dt {
-                if let Some((k, [x, y, z, vz])) = a.place {
+            let adt = a.dt + if a.place.is_some_and(|(_, p)| p[4] > 0.5) { tm.pocket_release + if o.stand_wired { tm.rel_on } else { 0 } } else { 0 };
+            if a.slot == c && adt == dt {
+                if let Some((k, [x, y, z, vz, _])) = a.place {
                     // (a lab act: cart k and its rider set at a loop-frame point, at rest, or moving
                     // VZ along z (a crawl))
                     let p = redsim::entity::Vec3::new(x + fx, y, z + fz);
@@ -6834,7 +7517,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // kept where it is: frozen, it is no tail's to move; no cart is put on a spot a kept cart
             // holds)
             let frozen = |id: u32| !run.world.unforced.is_empty() && pos_of(&run.world, id).is_some_and(|p| run.world.chunk_level(p.x.floor() as i32 >> 4, p.z.floor() as i32 >> 4) > 31);
-            let keep = |id: u32| frozen(id) || (!tm.reset_stand_carts && (place_of(&run.world, id).is_some_and(|k| k >= q) || (!tm.reset_stragglers && pos_of(&run.world, id).is_some_and(in_region))));
+            // (and a cart parked off the loop by the meter's virtual stand B (`vb`, at y 120): B's,
+            // no tail's to re-pack (a queue reset taking it starved B's returns: 1 train metered
+            // in 12 slots instead of 6))
+            let keep = |id: u32| frozen(id) || pos_of(&run.world, id).is_some_and(|p| p.y > 100.0) || (!tm.reset_stand_carts && (place_of(&run.world, id).is_some_and(|k| k >= q) || (!tm.reset_stragglers && pos_of(&run.world, id).is_some_and(in_region))));
             // (front first: carts before the stand (the queue, the release run) by their place along
             // the loop, then those past it (the departure, the return), likewise)
             let mut others: Vec<(usize, u32)> = carts.iter().copied().filter(|id| !keep(*id)).filter_map(|id| pos_of(&run.world, id).map(|p| (index_of(p), id))).collect();
@@ -6987,7 +7673,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             bad.push(format!("queue slot {} holds {:?}, not {:?}", s + 3, queue_now[s + 3], want));
                         }
                     }
-                    if &dep != prel {
+                    // (the comb fills its pockets in its ring's order, not the train's: one cart a
+                    // pocket is its line)
+                    let comb_same = lay.comb.is_some() && {
+                        let (mut a, mut b) = (dep.clone(), prel.clone());
+                        a.sort();
+                        b.sort();
+                        a == b
+                    };
+                    if &dep != prel && !comb_same {
                         bad.push(format!("the stand holds {dep:?}, not the train {prel:?}"));
                     }
                     if !bad.is_empty() {
@@ -7044,6 +7738,72 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
+        // (`head_wait`, with `rel_clear`: the queue head's release waits on the departure-clear
+        // input too (farmopt's hand-off to day-1): while a cart is in the cell, the release group
+        // stays off; the release goes when the cell clears, for the window's length)
+        let dep_busy = tm.head_wait
+            && tm.rel_clear.is_some_and(|cell| {
+                carts.iter().any(|id| {
+                    run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| {
+                        let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                        lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                    })
+                })
+            });
+        // (and, cart evidence, the stand emptied since the head's last launch: no cart on the
+        // stand's strip (x xb+1 ..= xb+12, z 0) at some tick since; ironspec 2026-11-11)
+        if tm.head_wait {
+            let xb = -o.row_gap as f64;
+            let on_stand = carts.iter().any(|id| {
+                run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    lx >= xb + 1.0 && lx < xb + 13.0 && (0.0..1.0).contains(&lz)
+                })
+            });
+            if !on_stand {
+                stand_emptied = true;
+            }
+        }
+        // (`head_latch` K,X,Y,Z: the "train arrived since launch" latch (ironspec 2026-11-11): set
+        // when the K-th cart since the head's last launch enters the arrival cell X,Y,Z (loop frame;
+        // K 1 = the first cart's edge, 3 = the last's), reset by the launch; the head launches
+        // only while it is set)
+        if let Some((k_need, cell)) = tm.head_latch {
+            for (k, id) in carts.iter().enumerate().take(21) {
+                let inside = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                });
+                if inside && !hl_in[k] {
+                    hl_count += 1;
+                    if hl_count >= k_need {
+                        hl_set = true;
+                    }
+                }
+                hl_in[k] = inside;
+            }
+        }
+        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set);
+        // (`head_perm` without its router: the head's release waits on the latches)
+        let dep_busy = dep_busy || head_perm.as_ref().is_some_and(|h| h.gate && !h.router && !h.permit());
+        if head_pending && !dep_busy {
+            if let Some(cr) = comb_run.as_mut() {
+                cr.on_launch(t, c);
+            }
+            if let Some(h) = head_perm.as_mut() {
+                h.on_launch(t, c);
+            }
+            set(&mut run.world, &release_group[..], true);
+            head_pending = false;
+            stand_emptied = false;
+            hl_set = false;
+            hl_count = 0;
+            head_off_at = Some(t + (tm.release_for - tm.release_start).max(1));
+        }
+        if head_off_at == Some(t) {
+            set(&mut run.world, &release_group[..], false);
+            head_off_at = None;
+        }
         // (`reg_interlock`, ideal sensors, bench-driven (ironspec Nov 11 04:38): the head releases
         // only into a stand that isn't holding a batch back (its last REL held or dropped by the
         // entry hold); a held release leaves the head's carts in place, and the register's
@@ -7052,8 +7812,111 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if c < cycles && dt == tm.release_start && stand_has_carts {
             reg_held.push(format!("slot {c}: release held (the stand holds carts)"));
         }
-        if c < cycles && dt == tm.release_start && !stand_has_carts {
-            set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
+        // (`head_perm` with its router: at each GO the stand the router points to is launched if
+        // ready (the router toggles), else held; the virtual stand B's launches send no train;
+        // with `go_lead` the GO decides that many gt before the release acts, day-1's GO-to-REL)
+        let mut decide = |h: &mut crate::headperm::HeadPerm, t: i64| -> bool {
+            h.router && {
+                h.go_t = t;
+                let g = h.go(c);
+                if g != crate::headperm::Go::Launch {
+                    reg_held.push(format!("slot {c}: release {}", if g == crate::headperm::Go::Hold { "held (router)" } else { "to the virtual stand B" }));
+                }
+                // (a GO for B: A's stand gets no REL)
+                if h.retry && !h.last_to_a {
+                    meter_state.rel_allow = Some(false);
+                }
+                // (day-1's RETRY-only head: A's stand REL only with its launch, or by RETRY)
+                if h.retry && h.last_to_a {
+                    let expire = h.last_expire;
+                    let kind = if expire { "EXPIRE GO" } else { "pulse GO" };
+                    let (allow, why) = if g == crate::headperm::Go::Launch {
+                        if h.rel_lost == Some(c) {
+                            (false, "launch, its REL lost (fault)".to_string())
+                        } else {
+                            (true, "launch + REL".to_string())
+                        }
+                    } else if h.day1 {
+                        // (day-1's RETRY = EXPIRE and EMP_X armed; with `retry_darr`, also while
+                        // D_arr is on: carts wait at H, the stand's REL lets the meter restart)
+                        if !expire {
+                            (false, "held, the pulse dropped: no REL".to_string())
+                        } else if h.emp_armed {
+                            (true, "held, RETRY (EXPIRE, EMP_X armed): REL alone".to_string())
+                        } else if h.retry_darr && h.darr_on() {
+                            (true, "held, RETRY (EXPIRE, D_arr on: carts wait at H): REL alone".to_string())
+                        } else {
+                            (false, "held, EMP_X clear (the stand emptied since its last launch): no REL".to_string())
+                        }
+                    } else if !expire {
+                        (false, "held, the pulse dropped: no REL".to_string())
+                    } else if meter_state.emptied_since_launch {
+                        (false, "held, the stand emptied since its last launch: no REL".to_string())
+                    } else if !h.arr {
+                        (false, "held, a train in flight: no REL".to_string())
+                    } else {
+                        (true, "held, RETRY: REL alone".to_string())
+                    };
+                    if g == crate::headperm::Go::Launch {
+                        meter_state.emptied_since_launch = false;
+                    }
+                    meter_state.rel_allow = Some(allow);
+                    h.rel_log.push(format!("{c} ({kind}): {why}"));
+                }
+                // (day-1's hold blocks the launch and the advances)
+                if h.retry && g == crate::headperm::Go::Hold {
+                    adv_blocked_slot = Some(c);
+                }
+                g != crate::headperm::Go::Launch
+            }
+        };
+        if tm.go_lead > 0 && c < cycles && dt == tm.release_start - tm.go_lead && !(tm.reg_interlock && stand_held) {
+            pending_skip = head_perm.as_mut().map(|h| decide(h, t));
+            last_go_t = t;
+        }
+        let router_skip = c < cycles
+            && dt == tm.release_start
+            && !stand_has_carts
+            && if tm.go_lead > 0 {
+                pending_skip.take().unwrap_or(false)
+            } else {
+                last_go_t = t;
+                head_perm.as_mut().is_some_and(|h| decide(h, t))
+            };
+        let stand_has_carts = stand_has_carts || router_skip;
+        if c < cycles && dt == tm.release_start && !stand_has_carts && dep_busy {
+            head_pending = true;
+            head_held.push(c);
+        } else if c < cycles && dt == tm.release_start && !stand_has_carts {
+            if let Some(cr) = comb_run.as_mut() {
+                cr.on_launch(t, c);
+            }
+            if let Some(h) = head_perm.as_mut() {
+                let for_a = !h.launching_b();
+                if for_a && h.retry {
+                    rel_obs_pending = Some((c, last_go_t));
+                }
+                h.on_launch(t, c);
+                // (day-1's latches: the launch re-arms ARR_X, and EMP_X while the stand holds a
+                // batch; the carts stopped at H at that moment recorded)
+                if h.day1 && for_a {
+                    let xb = -o.row_gap as f64;
+                    let waiting = carts
+                        .iter()
+                        .filter_map(|id| run.world.entities.list.iter().find(|e| e.id == *id && !e.removed))
+                        .filter(|e| {
+                            let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                            (lx - (xb + 0.5)).abs() < 0.45 && lz > 0.5 && lz < 7.0 && e.pos.y > 1.5 && e.delta_movement.x.hypot(e.delta_movement.z) < 0.01
+                        })
+                        .count();
+                    h.day1_launch(t, c, meter_state.occ.iter().any(|x| *x), waiting);
+                }
+            }
+            stand_emptied = false;
+            hl_set = false;
+            hl_count = 0;
+            let split_k = tm.train_size.filter(|(sl, _)| *sl == c).map(|(_, k)| k.clamp(0, 3) as usize);
+            set(&mut run.world, if let Some(k) = split_k { &release_group[3 - k..] } else if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
             // (`entry_speed`: a speed kick along each release cart's slope, the tolerance probe)
             if tm.entry_speed != 0.0 {
                 if let Some((_, tr, _)) = &stand_train {
@@ -7242,10 +8105,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let st_off = |k: usize| tm.release_offs.map(|o| o[k]).unwrap_or(tm.release_for + if tm.stagger_off && (tm.release_stagger > 0 || tm.release_gaps.is_some()) { st_on(k) } else { tm.release_start });
             let adv_on = |s: usize, dt: i64| (0..3usize).any(|k| { let a = tm.advance_at + k as i64 * tm.advance_every + tm.adv_shift[k] + tm.skew.get(s).copied().unwrap_or(0); dt >= a && dt < a + tm.pulse + tm.adv_width[k] });
             for k in 0..3usize {
-                if tm.release_stagger > 0 && k < 2 && dt == st_on(k) {
+                // (`train_size` SLOT,K: at that slot's launch only the front K release slopes go:
+                // a K-cart train, the rest stragglers for the next launch)
+                let split_off = tm.train_size.is_some_and(|(sl, kk)| sl == c && (k as i64) < 3 - kk);
+                if tm.release_stagger > 0 && k < 2 && dt == st_on(k) && !head_pending && head_off_at.is_none() && !split_off {
                     set(&mut run.world, &release_group[k..k + 1], true);
                 }
-                if dt == st_off(k) && !adv_on(q - 3 + k, dt) {
+                if dt == st_off(k) && !adv_on(q - 3 + k, dt) && !head_pending && head_off_at.is_none() {
                     set(&mut run.world, &release_group[k..k + 1], false);
                 }
             }
@@ -7415,12 +8281,16 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     for (g, _) in &lay.pockets {
                         set_gate(&mut run.world, *g, "east", true);
                     }
+                    if let Some(cr) = comb_run.as_mut() {
+                        cr.on_rel(&mut run.world, t, &lay.pockets);
+                    }
                     pocket_hold = false;
                     pocket_released_at = Some(t);
                 }
                 // (the reset at its own time of the slot, not counted from the release: the two
-                // controls' windows then stack, the release late and the reset late together)
-                if !o.stand_wired && pocket_released_at.is_some() && dt == so + tm.pocket_reset {
+                // controls' windows then stack, the release late and the reset late together;
+                // the comb's gates shut on its own arrival edges)
+                if !o.stand_wired && lay.comb.is_none() && pocket_released_at.is_some() && dt == so + tm.pocket_reset {
                     for (k, (g, _)) in lay.pockets.iter().enumerate() {
                         set_gate(&mut run.world, *g, "east", k > 0);
                     }
@@ -7489,7 +8359,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
                 for s in 0..q {
                     let sk = tm.skew.get(s).copied().unwrap_or(0);
-                    if dt == a + sk && (!tm.reg_interlock || reg_allow.get(s).copied().unwrap_or(true)) {
+                    // (day-1's hold blocks the launch and the advances: with `--head-retry`, a held
+                    // GO's slot advances nothing, so the release group keeps its batch)
+                    let adv_blocked = adv_blocked_slot == Some(c);
+                    if dt == a + sk && !adv_blocked && (!tm.reg_interlock || reg_allow.get(s).copied().unwrap_or(true)) {
                         set(&mut run.world, &lay.slots[s..s + 1], true);
                     }
                     let open_at = a + w + if s == 0 { tm.tail0_late } else { 0 };
@@ -7951,6 +8824,88 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // behind it come to rest as the track lets them)
         // (riders panicking on the summon tick: the game's golem summon runs when the world time is
         // a multiple of 100, for a panicking villager only)
+        // (day-1's RETRY-only head: A's raw pad pulse at a summon tick, three unlocked panicking
+        // riders in the stand's carts; a summoning group is then golem-locked 599 gt
+        // (GOLEM_DETECTED_RECENTLY), so a batch whose REL was lost pulses no more)
+        if run.world.time % 100 == 0
+            && let Some(h) = head_perm.as_mut().filter(|h| h.retry)
+        {
+            let xb = -o.row_gap as f64;
+            let mut ready: Vec<u32> = Vec::new();
+            let (mut n_strip, mut n_panic) = (0usize, 0usize);
+            for id in carts.iter() {
+                let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
+                let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                if !(lx >= xb + 1.0 && lx < xb + 13.0 && (0.0..1.0).contains(&lz) && e.pos.y < 2.5) {
+                    continue;
+                }
+                for r in e.passengers.iter() {
+                    n_strip += 1;
+                    let unlocked = summon_lock.get(r).is_none_or(|t0| t - *t0 >= 599);
+                    if unlocked {
+                        ready.push(*r);
+                    }
+                    if let Some(i) = redsim::entity::index_of(&run.world, *r)
+                        && let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
+                        && m.brain.as_deref().and_then(|b| b.ex.as_deref()).is_some_and(|x| x.active == redsim::entity::mob::ai::brain::Act::Panic)
+                        && unlocked
+                    {
+                        n_panic += 1;
+                    }
+                }
+            }
+            if h.summon_log.len() < 24 {
+                h.summon_log.push(format!("{t}:{n_strip}/{n_panic}/{}", ready.len()));
+            }
+            // (the router rows' check: A's batch at rest in its pockets at this summon tick (A's
+            // tick: three riders in stopped carts west of G0) and carts stopped in A's hold, inside
+            // the summoners' 10-box)
+            let in_pockets = carts
+                .iter()
+                .filter_map(|id| run.world.entities.list.iter().find(|e| e.id == *id && !e.removed))
+                .filter(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    lx >= xb + 1.0 && lx < 8.0 && (0.0..1.0).contains(&lz) && e.pos.y < 2.5 && !e.passengers.is_empty() && e.delta_movement.x.hypot(e.delta_movement.z) < 0.01
+                })
+                .count();
+            let waiting: Vec<(f64, f64, f64)> = carts
+                .iter()
+                .filter_map(|id| run.world.entities.list.iter().find(|e| e.id == *id && !e.removed))
+                .filter(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    (lx - (xb + 0.5)).abs() < 0.45 && lz > 0.5 && lz < 7.0 && e.pos.y > 1.5 && e.delta_movement.x.hypot(e.delta_movement.z) < 0.01
+                })
+                .map(|e| (e.pos.x, e.pos.y, e.pos.z))
+                .collect();
+            h.last_tick = (t, in_pockets, waiting.len());
+            if in_pockets >= 3 {
+                if !waiting.is_empty() {
+                    let riders_at: Vec<(f64, f64, f64)> = carts
+                        .iter()
+                        .filter_map(|id| run.world.entities.list.iter().find(|e| e.id == *id && !e.removed))
+                        .filter(|e| {
+                            let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                            lx >= xb + 1.0 && lx < xb + 13.0 && (0.0..1.0).contains(&lz) && e.pos.y < 2.5 && !e.passengers.is_empty()
+                        })
+                        .map(|e| (e.pos.x, e.pos.y, e.pos.z))
+                        .collect();
+                    let d = waiting.iter().flat_map(|a| riders_at.iter().map(move |b| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2) + (a.2 - b.2).powi(2)).sqrt())).fold(f64::MAX, f64::min);
+                    h.tick_waits.push(format!("t {t} (slot {c} +{dt}): {} carts stopped in A's hold, the nearest {:.1} blocks from a summoner", waiting.len(), d));
+                }
+            }
+            // (the game's summon: a panicking villager's spawnGolemIfNeeded with 3 villagers near
+            // that want a golem (none golem-locked); the pulse is the golem it spawns on the pad)
+            let pulsed = n_panic >= 1 && ready.len() >= 3;
+            if pulsed {
+                for r in &ready {
+                    summon_lock.insert(*r, t);
+                }
+                h.a_pulse(t);
+            }
+            // (ironspec: every margin against a summoning moment from the run's own summon
+            // events: each summon tick, A's riders at rest in its pockets and whether it pulsed)
+            h.summon_checks.push((t, in_pockets, pulsed));
+        }
         if run.world.time % 100 == 0 {
             for r in riders.iter() {
                 if let Some(i) = redsim::entity::index_of(&run.world, *r)
@@ -7966,10 +8921,26 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         // (REL at the stand: G0's own signal, each rise and fall against the slot, so a freeze that
         // delays or holds the release shows against the bench's schedule)
+        // (the head's core REL edge for an A launch: the release group's front slope seen powered
+        // (the rail above its control cell), else its control cell seen as a redstone block)
+        if let Some((sl, td)) = rel_obs_pending
+            && release_group.len() > 2
+            && {
+                let cc = release_group[2];
+                let up = run.world.get(BlockPos::new(cc.x, cc.y + 1, cc.z)).to_string();
+                if up.contains("rail") { up.contains("powered=true") } else { run.world.get(cc).to_string().contains("redstone_block") }
+            }
+        {
+            edge_rows.push((sl, td, t));
+            rel_obs_pending = None;
+        }
         if let Some((g0, _)) = lay.pockets.first() {
             let s0 = run.world.has_neighbor_signal(*g0);
             if s0 != rel_at_g0_was {
                 rel_at_g0.push(format!("{}{} +{}", if s0 { "↑" } else { "↓" }, c, dt));
+                if s0 {
+                    g0_rises.push(t);
+                }
                 rel_at_g0_was = s0;
             }
         }
@@ -7985,6 +8956,24 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
             g2p_prev = xs;
+        }
+        // (the departures' gaps at R1's take-off stand-in: each cart's centre crossing loop z
+        // `takeoff_z` + 0.5 northward on the departure's x 9 column; R1's ledge sticks carts 4..6 gt
+        // apart, tick-exact)
+        {
+            let gx = 9.5 + o.shift[0] as f64;
+            let zc = tm.takeoff_z as f64 + 0.5 + o.shift[1] as f64;
+            let zs: Vec<Option<f64>> = carts.iter().map(|id| pos_of(&run.world, *id).filter(|p| (p.x - gx).abs() < 0.6).map(|p| p.z)).collect();
+            for (i, z) in zs.iter().enumerate() {
+                if let (Some(z), Some(Some(w))) = (z, tko_prev.get(i)) && *w < zc && *z >= zc {
+                    if let Some(l) = tko_last {
+                        let g = t - l;
+                        tko_gaps.push(g);
+                    }
+                    tko_last = Some(t);
+                }
+            }
+            tko_prev = zs;
         }
         // (`chain_study`: where the carts are when today's chain fires each step: a gate slope's
         // power rising (B′'s launches) and REL at G0 falling (the release's end), each against the
@@ -8480,10 +9469,201 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 late_was_holding[gk] = hold;
             }
         }
+        if let Some(cr) = comb_run.as_mut() {
+            cr.pre_tick(&mut run.world, t, c, dt, &lay.pockets, &lay.stand_cells);
+        }
+        if let Some(h) = head_perm.as_mut() {
+            // (day-1's latches: SE_X clears EMP_X)
+            if h.day1 && meter_state.se_count as u64 > h.se_seen {
+                h.se_seen = meter_state.se_count as u64;
+                h.day1_se();
+            }
+            // (DEP_X, ideal: a cart crossing the approach column's plane going down toward the
+            // hold re-arms ARR_X (and EMP_X while the stand holds a batch))
+            if h.day1
+                && let Some(zp) = h.dep_x
+            {
+                let xb = -o.row_gap as f64;
+                let occupied = meter_state.occ.iter().any(|x| *x);
+                let mut on_branch = false;
+                for id in carts.iter() {
+                    let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    if let Some(pz) = dep_prev_z.get(id)
+                        && (lx - (xb + 0.5)).abs() < 0.4
+                        && *pz >= zp
+                        && lz < zp
+                    {
+                        h.day1_dep(t, occupied);
+                    }
+                    // (BRANCH_EMPTY_X, emulated: a cart on the approach column between DEP_X and
+                    // the hold, above D_arr's cell)
+                    if (lx - (xb + 0.5)).abs() < 0.45 && lz > 3.0 && lz <= zp {
+                        on_branch = true;
+                    }
+                    dep_prev_z.insert(*id, lz);
+                }
+                h.branch_occupied = on_branch;
+                // (the liveness gate, emulated: a branch chunk (the approach column from H up to
+                // DEP_X) frozen, its entities not ticking)
+                let (bx, sz) = (-o.row_gap + o.shift[0], o.shift[1]);
+                h.branch_frozen = (0..=zp.ceil() as i32).any(|z| run.world.chunk_level(bx.div_euclid(16), (z + sz).div_euclid(16)) > 31);
+            }
+            // (Dh3_X: the meter's third Dh edge of a fill)
+            if meter_state.done_at.len() > dh3_seen {
+                dh3_seen = meter_state.done_at.len();
+                h.dh3_since_dep = true;
+                if let Some(t3) = meter_state.done_at.last() {
+                    h.dh3_times.push(*t3);
+                }
+            }
+            let cp: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
+            h.pre_tick(&run.world, &cp, t);
+        }
+        // (`s_cell`, ironspec's interlock rows: at each flip of the router (its position after a
+        // GO changing), every cart whose centre is in S's cell, ridden or empty; DP's cell, the
+        // last tick each cart was in it, for an empty cart's gt since it left DP)
+        if let (Some((sc, dpc)), Some(h)) = (tm.s_cell, head_perm.as_ref()) {
+            let cell_of = |e: &redsim::entity::Entity| [(e.pos.x - fx).floor() as i32, (e.pos.y + 0.01).floor() as i32, (e.pos.z - fz).floor() as i32];
+            if let Some(dp) = dpc {
+                for id in carts.iter() {
+                    if run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| cell_of(e) == dp) {
+                        s_dp_seen.insert(*id, t);
+                    }
+                }
+            }
+            let r = h.last_to_a;
+            if h.router && s_prev_r.is_some_and(|p| p != r) {
+                s_flips += 1;
+                for (k, id) in carts.iter().enumerate() {
+                    let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
+                    if cell_of(e) != sc {
+                        continue;
+                    }
+                    let ridden = !e.passengers.is_empty();
+                    let since = s_dp_seen.get(id).map(|d| t - d);
+                    if ridden {
+                        s_ridden += 1;
+                    } else {
+                        s_empty += 1;
+                    }
+                    if s_hits.len() < 12 {
+                        s_hits.push(format!("slot {c} +{dt}: cart {k} {}{}", if ridden { "ridden" } else { "empty" }, since.map_or(String::new(), |s| format!(", {s} gt after leaving DP's cell"))));
+                    }
+                }
+            }
+            s_prev_r = Some(r);
+        }
+        // (`strip_riders`: the riders of carts entering the cell removed: riderless trains; with
+        // K, only the K-th cart to enter it in the slot)
+        // (`vanish` SLOT,DT,Z0,Z1: every cart on the stand's approach column between loop z Z0 and
+        // Z1 at that tick removed with its rider: a train that never arrives, after DEP)
+        if let Some((vs, vdt, z0, z1, vn)) = tm.vanish
+            && c == vs
+            && dt >= vdt
+            && dt < vdt + vn.max(1)
+        {
+            let xb = -o.row_gap as f64;
+            let gone: Vec<usize> = run
+                .world
+                .entities
+                .list
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && (lx - (xb + 0.5)).abs() < 0.45 && lz >= z0 && lz <= z1
+                })
+                .map(|(i, _)| i)
+                .collect();
+            for i in gone {
+                for p in run.world.entities.list[i].passengers.clone() {
+                    if let Some(pi) = redsim::entity::index_of(&run.world, p) {
+                        run.world.entities.list[pi].removed = true;
+                        redsim::entity::stop_riding(&mut run.world, pi);
+                    }
+                }
+                let id = run.world.entities.list[i].id;
+                run.world.entities.list[i].removed = true;
+                vanished.push(format!("slot {c} +{dt}: cart e{id}"));
+            }
+        }
+        if dt == 0 {
+            strip_seen.clear();
+        }
+        // (`hold_cart` SLOT,DT,Z0,Z1,N,K: the K highest carts on A's approach column between loop
+        // z Z0 and Z1 at that tick held in place, position and stored motion, for N gt: an
+        // emulated freeze of those carts alone, the rest of the chunk running)
+        if let Some((hs, hdt, z0, z1, hn, hk)) = tm.hold_cart {
+            if c == hs && dt == hdt {
+                let xb = -o.row_gap as f64;
+                let mut cand: Vec<(f64, u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run
+                    .world
+                    .entities
+                    .list
+                    .iter()
+                    .filter(|e| {
+                        let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                        !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && (lx - (xb + 0.5)).abs() < 0.45 && lz >= z0 && lz <= z1
+                    })
+                    .map(|e| (e.pos.z - fz, e.id, e.pos, e.delta_movement))
+                    .collect();
+                cand.sort_by(|a, b| b.0.total_cmp(&a.0));
+                held_carts = cand.into_iter().take(hk.max(1) as usize).map(|(_, id, p, v)| (id, p, v)).collect();
+                held_until = t + hn;
+                held_log.push(format!("slot {c} +{dt}: {} held for {hn} gt ({})", held_carts.len(), held_carts.iter().map(|(id, p, _)| format!("e{id} at loop z {:.2}", p.z - fz)).collect::<Vec<_>>().join(", ")));
+            }
+            if t < held_until {
+                for (id, p, v) in held_carts.clone() {
+                    if let Some(i) = redsim::entity::index_of(&run.world, id) {
+                        run.world.entities.set_pos(i, p);
+                        run.world.entities.list[i].delta_movement = v;
+                        for r in run.world.entities.list[i].passengers.clone() {
+                            if let Some(j) = redsim::entity::index_of(&run.world, r) {
+                                run.world.entities.set_pos(j, p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if let Some((cell, s0, s1, k_only)) = tm.strip_riders
+            && c >= s0
+            && c <= s1
+        {
+            let inside: Vec<(u32, Vec<u32>)> = run
+                .world
+                .entities
+                .list
+                .iter()
+                .filter(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                })
+                .map(|e| (e.id, e.passengers.clone()))
+                .collect();
+            for (cart, ps) in inside {
+                if !strip_seen.contains(&cart) {
+                    strip_seen.push(cart);
+                    if k_only == 0 || strip_seen.len() == k_only {
+                        strip_now.push(cart);
+                    }
+                }
+                if strip_now.contains(&cart) {
+                    for p in ps {
+                        if let Some(pi) = redsim::entity::index_of(&run.world, p) {
+                            run.world.entities.list[pi].removed = true;
+                            redsim::entity::stop_riding(&mut run.world, pi);
+                            stripped.push(format!("slot {c} +{dt}: e{p} (cart e{cart})"));
+                        }
+                    }
+                }
+            }
+        }
         if let Some(m) = tm.meter {
-            meter_tick(&mut run.world, &m, &mut meter_state, &lay, o, rel_bench, &carts, t, c, dt);
+            meter_tick(&mut run.world, &m, &mut meter_state, &lay, o, rel_bench, &carts, t, c, dt, &cc_last);
             if m.wired_b {
-                meter_tick(&mut run.world, &m, &mut meter_state_b, &lay, o, rel_bench, &carts, t, c, dt);
+                meter_tick(&mut run.world, &m, &mut meter_state_b, &lay, o, rel_bench, &carts, t, c, dt, &cc_last);
             }
         }
         run.tick();
@@ -8607,7 +9787,67 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // (`approach_trace` C0,C1: every cart on the approach's column (x xb, z -0.5 ..= 21) each
             // tick of slots C0..=C1, front first: position, speed, and the gap to the cart ahead)
             if o.approach > 0 {
-                // (a cart at rest on the approach's flat top T for 5 ticks or more, and how it came
+                // (the departure crest's column: reversals onto a slope (a cart moving forward, +z,
+                // one tick and backward the next while on the climb, the descent or the rise), and
+                // meetings in the dip (a pair coming into contact there) with the slowest met cart)
+                if o.depart_crest > 0 {
+                    let xd = -o.row_gap as f64 + 12.5;
+                    let zc = 9 - o.depart_crest as i32;
+                    let dd = if o.crest_descent > 0 { o.crest_descent as i32 } else { o.depart_crest as i32 };
+                    let (dip0, dip_y) = ((zc + dd + 1) as f64, (-3 + (zc - 1) - dd) as f64);
+                    let mut dc: Vec<(usize, f64, f64, f64, f64)> = Vec::new();
+                    for (k, id) in carts.iter().enumerate().take(21) {
+                        if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) {
+                            let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                            if (lx - xd).abs() < 0.6 && lz > 0.5 && lz < 25.0 {
+                                dc.push((k, lz, e.pos.y, e.delta_movement.z, e.delta_movement.x));
+                                continue;
+                            }
+                        }
+                        d_prev_vz[k] = 0.0;
+                    }
+                    let on_flat = |z: f64, y: f64| (y - dip_y - 0.0625).abs() < 0.05 && z >= dip0;
+                    // (on the rise: past the dip's start, above its level)
+                    let on_rise = |z: f64, y: f64| z > dip0 && y > dip_y + 0.2;
+                    let mut pairs: Vec<(usize, usize)> = Vec::new();
+                    for a in 0..dc.len() {
+                        for b in a + 1..dc.len() {
+                            let (ka, za, ya, ..) = dc[a];
+                            let (kb, zb, yb, ..) = dc[b];
+                            // (the push reaches 1.25 between a cart on a slope and one on the flat)
+                            if (za - zb).abs() < 1.3 && (ya - yb).abs() < 1.2 {
+                                let pr = (ka.min(kb), ka.max(kb));
+                                pairs.push(pr);
+                                let (va, vb) = (d_prev_v[ka], d_prev_v[kb]);
+                                let (met, by, mz, my, mv) = if va <= vb { (ka, kb, za, ya, va) } else { (kb, ka, zb, yb, vb) };
+                                if !d_pairs.contains(&pr) && (on_flat(za, ya) || on_flat(zb, yb)) {
+                                    d_meet += 1;
+                                    if d_meet_min.as_ref().is_none_or(|(v, _)| mv < *v) {
+                                        d_meet_min = Some((mv, format!("cart {met} at z {mz:.2}, met by cart {by}, slot {c} +{dt}")));
+                                    }
+                                } else if !d_pairs.contains(&pr) && (on_rise(za, ya) || on_rise(zb, yb)) {
+                                    d_rise += 1;
+                                    if d_rise_min.as_ref().is_none_or(|(v, _)| mv < *v) {
+                                        d_rise_min = Some((mv, format!("cart {met} at z {mz:.2} y {my:.2}, met by cart {by}, slot {c} +{dt}")));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    d_pairs = pairs;
+                    for &(k, lz, y, vz, vx) in &dc {
+                        d_prev_v[k] = (vx * vx + vz * vz).sqrt();
+                        if vz.abs() > 0.001 {
+                            if !on_flat(lz, y) && d_prev_vz[k] > 0.001 && vz < -0.001 {
+                                d_rev += 1;
+                                if d_rev_log.len() < 4 {
+                                    d_rev_log.push(format!("slot {c} +{dt}: cart {k} at z {lz:.2} y {y:.2}"));
+                                }
+                            }
+                            d_prev_vz[k] = vz;
+                        }
+                    }
+                }
                 // there: (a) a forward arrival with no contact in the 40 gt before, (b) a backward
                 // arrival (from the stand's side), (c) a contact while carts rest on the descent
                 // ahead (a held train), or another contact; `other`: no arrival seen (placed). Also
@@ -8621,7 +9861,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 for (k, id) in carts.iter().enumerate().take(21) {
                     if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) {
                         let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
-                        if (lx - xb).abs() < 0.6 && lz > -0.5 && lz < 21.0 {
+                        if (lx - xb).abs() < 0.6 && lz > -0.5 && lz < ap_head_z + 2.0 {
                             col.push((k, lz, e.pos.y, e.delta_movement.z, e.delta_movement.x));
                             continue;
                         }
@@ -8629,7 +9869,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     t_was_on[k] = false;
                     t_prev_vz[k] = 0.0;
                     t_still[k] = 0;
+                    m_prev_lz[k] = None;
+                    m_prev_vz[k] = 0.0;
+                    over_t[k] = false;
                 }
+                // (a thaw: the world's unforced chunks gone since the last tick)
+                if m_was_unforced && run.world.unforced.is_empty() {
+                    last_thaw = Some(now);
+                }
+                m_was_unforced = !run.world.unforced.is_empty();
                 for &(k, lz, y, vz, vx) in &col {
                     if let Some(&(j, ..)) = col.iter().find(|&&(j, z2, y2, _, _)| j != k && (z2 - lz).abs() < 1.2 && (y2 - y).abs() < 1.2) {
                         t_contact[k] = Some((now, j));
@@ -8640,7 +9888,107 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // before (ironspec 2026-11-11: a cart crawling across T reverses the pusher as a
                 // stopped one does); the slowest met cart on the climb and on T is kept)
                 let in_t = |z: f64, y: f64| z >= n - 1.0 && z < n && (y - ty).abs() < 0.3;
-                let in_climb = |z: f64| z >= n && z < 2.0 * n;
+                let in_climb = |z: f64| z >= n && z < ap_foot + 1.0;
+                // (carts on the release run between the head and the line z 9|10: the most at once)
+                let up = col.iter().filter(|&&(_, z, ..)| (10.0..ap_head_z).contains(&z)).count();
+                upstream_max = upstream_max.max(up);
+                // (backward travel: each cart's backward excursion on the column (from where it began
+                // moving back, +z, to the farthest it got), and backward entries onto the run's
+                // boosters (C'': no bounce may reach them))
+                for &(k, lz, _, vz, vx) in &col {
+                    // (excursions from downstream of the run's boosters only (z below them; the
+                    // queue's head region rocks in its own slots))
+                    let zlim = run_boost_min_z.map_or(17.0, |z| z as f64);
+                    if vz > 0.001 && (back_start[k].is_some() || lz < zlim) {
+                        // (the backward speed off the held stack: stored (the cart's own) and visible
+                        // (its move this tick), the largest of any excursion)
+                        let vis = back_prev_z[k].map_or(0.0, |pz| lz - pz);
+                        if vz > back_vmax.0 && lz < zlim {
+                            back_vmax.0 = vz;
+                            back_vmax.2 = format!("cart {k} at z {lz:.2}, slot {c} +{dt}");
+                        }
+                        if lz < zlim {
+                            back_vmax.1 = back_vmax.1.max(vis);
+                        }
+                        let s = *back_start[k].get_or_insert(lz);
+                        if lz - s > back_max.0 {
+                            back_max = (lz - s, format!("cart {k} from z {s:.2} to {lz:.2}, slot {c} +{dt}"));
+                        }
+                        if run_boost_min_z.is_some_and(|zb| lz >= zb as f64 && s < zb as f64) && !back_in_boost[k] {
+                            back_boost += 1;
+                            back_in_boost[k] = true;
+                        }
+                    } else if vz < -0.001 {
+                        back_start[k] = None;
+                        back_in_boost[k] = false;
+                    }
+                    back_prev_z[k] = Some(lz);
+                    // (the forward profile: each forward crossing of the approach's planes, with the
+                    // cart's stored speed (its own) and visible speed (its move this tick); riderless
+                    // carts apart)
+                    if let Some(pz) = m_prev_lz[k] {
+                        for (pi, (_, zp)) in prof_planes.iter().enumerate() {
+                            if pz >= *zp && lz < *zp && vz < 0.0 {
+                                let riderless = run.world.entities.list.iter().find(|e| e.id == carts[k]).is_some_and(|e| e.passengers.is_empty());
+                                prof.push((pi, c, dt, k, (vx * vx + vz * vz).sqrt(), pz - lz, riderless));
+                            }
+                        }
+                    }
+                    // (pushed back over T: a cart moving back (+z) from T or below (z under n) onto
+                    // the climb (z n or more); cleared when it moves forward below T again)
+                    if m_prev_lz[k].is_some_and(|pz| pz < n) && vz > 0.001 && lz >= n {
+                        over_t[k] = true;
+                        // (v_T: the backward crossing's stored and visible speed, the hump's bound
+                        // T + 64 v_T^2 + 1)
+                        let st = (vx * vx + vz * vz).sqrt();
+                        let vis = m_prev_lz[k].map_or(0.0, |pz| lz - pz);
+                        vt_n += 1;
+                        if st > vt_max.0 {
+                            vt_max = (st, vis, format!("cart {k} slot {c} +{dt}"));
+                        }
+                    }
+                    if vz < -0.001 && lz < n - 1.0 {
+                        over_t[k] = false;
+                    }
+                    m_prev_lz[k] = Some(lz);
+                }
+                // (the run's flat below the climb's foot: farmopt's border flat for `approach` 4; with
+                // C''''s hump, the dip's flat from the climb's foot to the hump's falling face)
+                let in_flat = |z: f64| if o.humped() { z >= ap_foot + 1.0 && z < ap_dip_hi } else { z >= 2.0 * n && z < 2.0 * n + 3.0 };
+                // (C''': the hump's falling face (4, the declared downhill queue's), its rising face
+                // and top (5), the run's boosters up to the head (6))
+                let boost_lo = run_boost_min_z.map_or(ap_head_z, |b| b as f64);
+                let hump_zone = |z: f64| -> Option<usize> {
+                    if !o.humped() {
+                        None
+                    } else if z >= ap_dip_hi && z < ap_top_z {
+                        Some(4)
+                    } else if z >= ap_top_z && z < boost_lo {
+                        Some(5)
+                    } else if z >= boost_lo && z < ap_head_z - 0.5 {
+                        Some(6)
+                    } else {
+                        None
+                    }
+                };
+                let places = ["flat", "climb", "T", "descent", "hump-down", "hump-up", "run"];
+                // (the hump's bound from the rows: the highest a backward-moving cart gets on the
+                // hump's falling face above the dip, and backward carts on its top or beyond; with
+                // `dip_run` (h0), backward carts off the dip onto S's flat or beyond)
+                if o.humped() {
+                    for &(k, lz, y, vz, _) in &col {
+                        if vz > 0.001 && lz >= ap_dip_hi && lz < ap_top_z && y - o.dip_y as f64 > hump_back.0 {
+                            hump_back = (y - o.dip_y as f64, format!("cart {k} at z {lz:.2} y {y:.2}, slot {c} +{dt}"));
+                        }
+                        if vz > 0.001 && lz >= ap_top_z && lz < boost_lo && !hump_over[k] {
+                            hump_over[k] = true;
+                            hump_over_n += 1;
+                        }
+                        if vz < -0.001 {
+                            hump_over[k] = false;
+                        }
+                    }
+                }
                 let mut pairs: Vec<(usize, usize)> = Vec::new();
                 for a in 0..col.len() {
                     for b in a + 1..col.len() {
@@ -8650,12 +9998,69 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         if (za - zb).abs() < 1.2 && (ya - yb).abs() < 1.2 {
                             let pr = (ka.min(kb), ka.max(kb));
                             pairs.push(pr);
-                            if !t_pairs.contains(&pr) && (in_t(za, ya) || in_t(zb, yb) || in_climb(za) || in_climb(zb)) {
+                            if !t_pairs.contains(&pr) && (in_t(za, ya) || in_t(zb, yb) || in_climb(za) || in_climb(zb) || in_flat(za) || in_flat(zb) || hump_zone(za).is_some() || hump_zone(zb).is_some()) {
                                 let (va, vb) = (t_prev_v[ka], t_prev_v[kb]);
                                 let (met, by, mz, my, mv) = if va <= vb { (ka, kb, za, ya, va) } else { (kb, ka, zb, yb, vb) };
+                                let pz = if met == ka { zb } else { za };
+                                // (the class by where the met cart is: the flat run below the climb,
+                                // the climb's slopes, T, the descent; C''''s hump zones)
+                                let cls = if in_t(mz, my) { 2 } else if mz < n - 1.0 { 3 } else if in_climb(mz) { 1 } else if let Some(h) = hump_zone(mz) { h } else { 0 };
+                                meet_cls[cls] += 1;
+                                if meet_cls_min[cls].is_none_or(|v| mv < v) {
+                                    meet_cls_min[cls] = Some(mv);
+                                }
+                                if meet_cls_log.len() < 6 {
+                                    meet_cls_log.push(format!("{} slot {c} +{dt}: cart {met} at z {mz:.2} y {my:.2} v {mv:.3}, pusher cart {by} at z {pz:.2} v {:.3}", places[cls], va.max(vb)));
+                                }
+                                // (the meeting's cause and when, by the met cart's place)
+                                let (cause, when) = {
+                                    let frozen = |k: usize| !run.world.unforced.is_empty() && pos_of(&run.world, carts[k]).is_some_and(|p| run.world.chunk_level(p.x.floor() as i32 >> 4, p.z.floor() as i32 >> 4) > 31);
+                                    let (fa, fb) = (frozen(ka), frozen(kb));
+                                    let (vza, vzb) = (m_prev_vz[ka], m_prev_vz[kb]);
+                                    // (the upper cart (larger z) and the lower one's moves: head-on when
+                                    // the upper moves forward (-z) and the lower back (+z))
+                                    let (up_vz, lo_vz) = if za > zb { (vza, vzb) } else { (vzb, vza) };
+                                    let cause = if fa || fb {
+                                        0
+                                    } else if over_t[ka] || over_t[kb] {
+                                        1
+                                    } else if up_vz < -0.005 && lo_vz > 0.005 {
+                                        2
+                                    } else if mv < 0.15 {
+                                        3
+                                    } else if vza * vzb > 0.0 {
+                                        4
+                                    } else {
+                                        5
+                                    };
+                                    let when = if !run.world.unforced.is_empty() { 0 } else if last_thaw.is_some_and(|t0| now - t0 <= 200) { 1 } else { 2 };
+                                    meet_cause[cls][cause] += 1;
+                                    meet_when[cls][when] += 1;
+                                    if !meet_cause_seen[cls][cause] {
+                                        meet_cause_seen[cls][cause] = true;
+                                        let thaw = last_thaw.map_or(String::new(), |t0| format!(", {} gt after the thaw", now - t0));
+                                        meet_cause_log.push(format!(
+                                            "{} {}: slot {c} +{dt}{thaw}: cart {ka} z {za:.2} y {ya:.2} vz {vza:.3}{}{} / cart {kb} z {zb:.2} y {yb:.2} vz {vzb:.3}{}{}",
+                                            ["flat", "climb", "T", "descent", "hump-down", "hump-up", "run"][cls],
+                                            ["frozen", "over T", "head-on", "stalled", "catch-up", "other"][cause],
+                                            if fa { " frozen" } else { "" },
+                                            if over_t[ka] { " (back over T)" } else { "" },
+                                            if fb { " frozen" } else { "" },
+                                            if over_t[kb] { " (back over T)" } else { "" },
+                                        ));
+                                    }
+                                    (cause, when)
+                                };
+                                // (the climb/T/descent count: neither a flat meeting nor one on C''''s
+                                // hump or run)
+                                if cls >= 4 || (in_flat(mz) && !in_climb(za) && !in_climb(zb) && !in_t(za, ya) && !in_t(zb, yb)) {
+                                    continue;
+                                }
                                 // (where the met cart is: the climb's slopes, T, or the descent below T)
                                 let slot = if in_t(mz, my) { 1 } else if mz < n - 1.0 { 2 } else { 0 };
                                 meet_n[slot] += 1;
+                                meet_n_cause[slot][cause] += 1;
+                                meet_n_when[slot][when] += 1;
                                 if meet_min[slot].as_ref().is_none_or(|(v, _)| mv < *v) {
                                     meet_min[slot] = Some((mv, format!("cart {met} at z {mz:.2} y {my:.2}, met by cart {by}, slot {c} +{dt}")));
                                 }
@@ -8663,9 +10068,46 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         }
                     }
                 }
+                // (contacts at a waiting cart: a moving cart (0.01 b/t or more the tick before, not
+                // frozen) whose centre comes within 1.0 horizontally of a waiting one (under 0.01 or
+                // frozen); the pair then watched 20 gt for the closest centres)
+                {
+                    let frozen = |k: usize| !run.world.unforced.is_empty() && pos_of(&run.world, carts[k]).is_some_and(|p| run.world.chunk_level(p.x.floor() as i32 >> 4, p.z.floor() as i32 >> 4) > 31);
+                    let riderless = |k: usize| run.world.entities.list.iter().find(|e| e.id == carts[k]).is_some_and(|e| e.passengers.is_empty());
+                    let zs: Vec<(usize, f64, f64)> = col.iter().map(|&(k, z, y, ..)| (k, z, y)).collect();
+                    let dz = |a: usize, b: usize| -> Option<f64> {
+                        let za = zs.iter().find(|(k, ..)| *k == a)?.1;
+                        let zb = zs.iter().find(|(k, ..)| *k == b)?.1;
+                        Some((za - zb).abs())
+                    };
+                    let mut close_now: Vec<(usize, usize)> = Vec::new();
+                    for &(km, zm, _) in &zs {
+                        for &(kf, zf, yf) in &zs {
+                            if km == kf || (zm - zf).abs() >= 1.0 {
+                                continue;
+                            }
+                            close_now.push((km, kf));
+                            let waiting = t_prev_v[kf] < 0.01 || frozen(kf);
+                            let moving = t_prev_v[km] >= 0.01 && !frozen(km);
+                            if waiting && moving && !bc_close.contains(&(km, kf)) && !bc_active.iter().any(|(p, ..)| *p == (km, kf)) {
+                                let place = if in_t(zf, yf) { 2 } else if zf < n - 1.0 { 3 } else if in_climb(zf) { 1 } else if let Some(h) = hump_zone(zf) { h } else { 0 };
+                                bc_log.push((place, c, dt, km, kf, t_prev_v[km], t_prev_v[kf], (zm - zf).abs(), riderless(km), riderless(kf)));
+                                bc_active.push(((km, kf), bc_log.len() - 1, now));
+                            }
+                        }
+                    }
+                    for (p, li, _) in &bc_active {
+                        if let Some(d) = dz(p.0, p.1) {
+                            bc_log[*li].7 = bc_log[*li].7.min(d);
+                        }
+                    }
+                    bc_active.retain(|(_, _, t0)| now - t0 < 20);
+                    bc_close = close_now;
+                }
                 t_pairs = pairs;
                 for &(k, _, _, vz, vx) in &col {
                     t_prev_v[k] = (vx * vx + vz * vz).sqrt();
+                    m_prev_vz[k] = vz;
                 }
                 for &(k, lz, y, vz, vx) in &col {
                     let on_t = lz >= n - 1.0 && lz < n && (y - ty).abs() < 0.3;
@@ -8716,7 +10158,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 for (k, id) in carts.iter().enumerate().take(21) {
                     if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) {
                         let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
-                        if (lx - xb).abs() < 0.6 && lz > -0.5 && lz < 26.0 {
+                        if (lx - xb).abs() < 0.6 && lz > -0.5 && lz < ap_head_z.max(24.0) + 2.0 {
                             let v = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
                             on.push((fwd * -lz, format!("e{k} z{lz:.2} y{:.2} v{v:.3}{}", e.pos.y, if e.delta_movement.z * fwd < -0.001 { " back" } else { "" })));
                         }
@@ -8858,8 +10300,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         front_prev[k] = front;
                     }
                 }
-                // (off the rails, with the design's declared flights: `crate::flight`)
-                rail_watch.observe(&run.world, k, *id, Some(riders[k]), &format!("slot {c} +{dt}"));
+                // (off the rails, with the design's declared flights: `crate::flight`; a cart the
+                // virtual stand B parked off the world (y 120) is not on the farm's rails)
+                if e.pos.y < 100.0 {
+                    rail_watch.observe(&run.world, k, *id, Some(riders[k]), &format!("slot {c} +{dt}"));
+                }
                 let seated = e.passengers.contains(&riders[k]);
                 if !seated && !unseated[k] {
                     unseat_log.push(format!("slot {c} +{dt}: cart {k}'s rider not seated (cart at {:.2},{:.2},{:.2})", e.pos.x - fx, e.pos.y, e.pos.z - fz));
@@ -9140,6 +10585,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     villager_cells.insert(e.block_position());
                 }
                 if m.ty == redsim::entity::mob::types::MobType::IronGolem && golems_seen.insert(e.id) {
+                    golem_ts.push(t);
                     golem_log.push(format!("e#{} at slot {c} +{dt} (day time {}) at {:.2},{:.2},{:.2}", e.id, run.world.day_time().rem_euclid(24000), e.pos.x, e.pos.y, e.pos.z));
                     // (a golem on the pad, its box meeting a portal block, is the farm's; any
                     // other spawned off the pad, a spawn cell `queue-loop-spots` lists; a villager
@@ -9596,6 +11042,39 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
             // the pushes this tick, at the push (redsim's log)
             let now = redsim::entity::minecart::take_cart_pushes(&mut run.world);
+            // (`trace_pair`: the two carts per tick, their gap, stored and visible motion, and every
+            // push on either (a mob's on a cart; a cart's on a cart with the alignment test): the
+            // riderless merge, for tick-exact's bridge)
+            let cc = if tm.trace_pair.is_some() || tm.meter.is_some() { redsim::entity::minecart::take_cart_cart_pushes(&mut run.world) } else { Vec::new() };
+            if let Some((a, b, t0, t1)) = tm.trace_pair {
+                if t >= t0 && t <= t1 {
+                    let get = |id: u32| redsim::entity::index_of(&run.world, id).map(|i| {
+                        let e = &run.world.entities.list[i];
+                        (e.pos, e.delta_movement, e.passengers.first().copied())
+                    });
+                    if let (Some((pa, va, ra)), Some((pb, vb, rb))) = (get(a), get(b)) {
+                        let vis = |id: u32, p: redsim::entity::Vec3| pair_prev.get(&id).map_or(f64::NAN, |q: &redsim::entity::Vec3| ((p.x - q.x).powi(2) + (p.z - q.z).powi(2)).sqrt());
+                        let mut line = format!(
+                            "pair t {t} (slot {c} +{dt}): gap {:.4} | e{a}{} at {:.3},{:.3},{:.3} stored ({:.4},{:.4}) |{:.4}| visible {:.4} | e{b}{} at {:.3},{:.3},{:.3} stored ({:.4},{:.4}) |{:.4}| visible {:.4}",
+                            ((pa.x - pb.x).powi(2) + (pa.z - pb.z).powi(2)).sqrt(),
+                            ra.map_or(" (empty)".to_string(), |r| format!(" (rider e{r})")),
+                            pa.x - fx, pa.y, pa.z - fz, va.x, va.z, va.x.hypot(va.z), vis(a, pa),
+                            rb.map_or(" (empty)".to_string(), |r| format!(" (rider e{r})")),
+                            pb.x - fx, pb.y, pb.z - fz, vb.x, vb.z, vb.x.hypot(vb.z), vis(b, pb)
+                        );
+                        for p in now.iter().filter(|p| p.cart == a || p.cart == b) {
+                            line.push_str(&format!(" || mob e{} pushes cart e{} by ({:.4},{:.4}) at {:.3}", p.mob, p.cart, p.push[0], p.push[1], p.dist));
+                        }
+                        for p in cc.iter().filter(|p| [a, b].contains(&p.this) || [a, b].contains(&p.other)) {
+                            line.push_str(&format!(" || cart e{} pushes cart e{}: {} (dot {:.3}, gap {:.4}) motions e{} ({:.4},{:.4})->({:.4},{:.4}) e{} ({:.4},{:.4})->({:.4},{:.4})", p.other, p.this, p.what, p.dot, p.dist, p.this, p.before[0], p.before[1], p.after[0], p.after[1], p.other, p.before[2], p.before[3], p.after[2], p.after[3]));
+                        }
+                        pair_lines.push(line);
+                        pair_prev.insert(a, pa);
+                        pair_prev.insert(b, pb);
+                    }
+                }
+            }
+            cc_last = cc;
             // (the push's harm, ironspec Nov 11 04:53: per pushed cart an episode from the push, its
             // displacement along the push, the peak, and the tick it is back (the displacement back to
             // 0 or below), and whether it crossed a cell boundary backward)
@@ -9891,7 +11370,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // the pocket stand's gates while they hold: gate k shuts once k carts have passed it (a
             // cart's centre 1.29 past the gate slope's start: its tail past the gate); the wired
             // stand's gates are the design's own
-            if pocket_hold && !o.stand_wired {
+            if pocket_hold && !o.stand_wired && lay.comb.is_none() {
                 for k in 1..lay.pockets.len() {
                     let (g, cell) = lay.pockets[k];
                     for id in &carts {
@@ -10183,6 +11662,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         out.push(format!("stand margins: gap12 {a0} {a1} in {f0} {f1} clear {b0} {b1} arrive {c0} {c1} slots {}", margins.len()));
         out.push(format!("stand margins at G1: cart 2 reaches G1's face {} gt after G1 shuts (slots {})", if g1_margins.is_empty() { "-".to_string() } else { format!("{}..{}", g1_margins.iter().min().unwrap(), g1_margins.iter().max().unwrap()) }, g1_margins.len()));
         // (the trains at G2's plane: crossings closer than 30 gt form one train; its gaps)
+        {
+            let bad = tko_gaps.iter().filter(|g| (4..=6).contains(*g)).count();
+            let edge = tko_gaps.iter().filter(|g| **g == 7).count();
+            let near: Vec<i64> = tko_gaps.iter().copied().filter(|g| *g < 30).collect();
+            out.push(format!("departures at the take-off (z {} on x 9): {} gaps under 30 gt, 4..6 gt: {bad}; 7 gt (the band's edge, 6.75, inside a tick): {edge}; min {}", tm.takeoff_z, near.len(), near.iter().min().map_or("-".to_string(), |v| v.to_string())));
+        }
         {
             let mut trains: Vec<(i64, i64, Vec<i64>)> = Vec::new();
             let mut last: Option<i64> = None;
@@ -10574,16 +12059,18 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         let gaps: Vec<(i64, i64, bool)> = departs.windows(2).map(|w| (w[1].0 / 100, w[1].0 - w[0].0, w[1].2)).collect();
         let normal: Vec<i64> = gaps.iter().filter(|(_, g, _)| *g < 60).map(|(_, g, _)| *g).collect();
         let contact = departs.iter().filter(|(_, _, tch)| *tch).count();
-        // (the most carts out of the stand in one release window: departures closer than 60 gt to
-        // the one before belong to one window; the bar is 3)
+        // (the most carts out of the stand in one release window: the departures between two rises
+        // of G0's signal (REL at the stand) belong to one window; the bar is 3)
         let mut win_max = 0usize;
-        let mut win = 0usize;
-        for (k, d) in departs.iter().enumerate() {
-            if k == 0 || d.0 - departs[k - 1].0 >= 60 {
-                win = 0;
+        {
+            let mut counts: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+            for d in &departs {
+                let key = g0_rises.iter().rev().find(|r| **r <= d.0).copied().unwrap_or(i64::MIN);
+                *counts.entry(key).or_insert(0) += 1;
             }
-            win += 1;
-            win_max = win_max.max(win);
+            for v in counts.values() {
+                win_max = win_max.max(*v);
+            }
         }
         out.push(format!("stand departures: {} carts, gap min {} max {} gt (gaps under 60 gt), {contact} in contact with the one before; most in one window {win_max}", departs.len(), normal.iter().min().map_or("-".to_string(), |v| v.to_string()), normal.iter().max().map_or("-".to_string(), |v| v.to_string())));
         let small: Vec<String> = gaps.iter().filter(|(_, g, tch)| *g < 8 || *tch).take(12).map(|(s, g, tch)| format!("slot {s} {g} gt{}", if *tch { " touching" } else { "" })).collect();
@@ -10670,12 +12157,158 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 min.map_or("- (never occupied)".to_string(), |(m, c, d)| format!("{m} gt (slot {c} +{d})"))
             ));
         }
+        if tm.head_wait || tm.head_latch.is_some() {
+            out.push(format!("head release waited (departure-clear, the stand emptied since its last launch, the arrival latch) in {} slots{}", head_held.len(), if head_held.is_empty() { String::new() } else { format!(" ({})", head_held.iter().take(8).map(|c| format!("slot {c}")).collect::<Vec<_>>().join(", ")) }));
+        }
         if o.approach > 0 {
             let [ca, cb, cc, ck, co] = t_causes;
             out.push(format!("carts at rest on T: {} (a {ca}, b {cb}, c {cc}, contact {ck}, other {co}){}", t_rests.len(), if t_rests.is_empty() { String::new() } else { format!(" ({})", t_rests.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
             out.push(format!("climb reversals: {climb_rev}{}", if climb_rev_log.is_empty() { String::new() } else { format!(" ({})", climb_rev_log.join("; ")) }));
             let m = |i: usize| meet_min[i].as_ref().map_or("-".to_string(), |(v, at)| format!("{v:.3} ({at})"));
             out.push(format!("meetings on the climb: {} (slowest met {}); on T: {} (slowest met {}); below T on the descent: {} (slowest met {})", meet_n[0], m(0), meet_n[1], m(1), meet_n[2], m(2)));
+            let cm = |i: usize| meet_cls_min[i].map_or("-".to_string(), |v| format!("{v:.3}"));
+            out.push(format!(
+                "meetings by the met cart's place: flat run below the climb {} (slowest {}), climb {} (slowest {}), T {} (slowest {}), descent {} (slowest {}), hump-down {} (slowest {}), hump-up {} (slowest {}), run {} (slowest {}){}",
+                meet_cls[0], cm(0), meet_cls[1], cm(1), meet_cls[2], cm(2), meet_cls[3], cm(3), meet_cls[4], cm(4), meet_cls[5], cm(5), meet_cls[6], cm(6),
+                if meet_cls_log.is_empty() { String::new() } else { format!(" ({})", meet_cls_log.join("; ")) }
+            ));
+            // (the same meetings by cause: per place, frozen/over T/head-on/stalled/catch-up/other,
+            // then in a freeze/within 200 gt of a thaw/other; one traced example per place and cause)
+            let pc = |i: usize| format!("{} {} when {}", ["flat", "climb", "T", "descent", "hump-down", "hump-up", "run"][i], meet_cause[i].iter().map(|v| v.to_string()).collect::<Vec<_>>().join("/"), meet_when[i].iter().map(|v| v.to_string()).collect::<Vec<_>>().join("/"));
+            let nc = |i: usize| format!("{} {} when {}", ["climb", "T", "descent"][i], meet_n_cause[i].iter().map(|v| v.to_string()).collect::<Vec<_>>().join("/"), meet_n_when[i].iter().map(|v| v.to_string()).collect::<Vec<_>>().join("/"));
+            out.push(format!("meetings on the climb, on T, below T by cause (frozen/over T/head-on/stalled/catch-up/other, when in a freeze/after a thaw/other): {}; {}; {}", nc(0), nc(1), nc(2)));
+            out.push(format!(
+                "meetings by cause (frozen/over T/head-on/stalled/catch-up/other, when in a freeze/after a thaw/other): {}; {}; {}; {}; {}; {}; {}{}",
+                pc(0), pc(1), pc(2), pc(3), pc(4), pc(5), pc(6),
+                if meet_cause_log.is_empty() { String::new() } else { format!(" (examples: {})", meet_cause_log.join("; ")) }
+            ));
+            out.push(format!("carts on the release run upstream of the line z 9|10 at once: at most {upstream_max}"));
+            out.push(format!("pushed back over T (backward crossings onto the climb): {vt_n}; fastest: stored {:.3}, visible {:.3}{}", vt_max.0, vt_max.1, if vt_max.2.is_empty() { String::new() } else { format!(" ({})", vt_max.2) }));
+            if o.humped() {
+                out.push(format!("hump: highest backward climb on its falling face {:.2} above the dip ({}){}; backward onto its top or beyond: {hump_over_n}", hump_back.0, if o.dip_run { "h0: no hump; its top is S's flat at the run's level, below the dip, and beyond it the run's boosters".to_string() } else { format!("the top {} above", o.hump) }, if hump_back.1.is_empty() { String::new() } else { format!(" ({})", hump_back.1) }));
+            }
+            // (the forward profile per plane: crossings, +gt after the slot's start, stored and
+            // visible speeds (ridden and riderless apart), the gaps between consecutive crossings
+            // under 60 gt)
+            if !prof_planes.is_empty() {
+                type P = (usize, i64, i64, usize, f64, f64, bool);
+                let mut parts = Vec::new();
+                let mut summ: Vec<String> = Vec::new();
+                for (pi, (name, zp)) in prof_planes.iter().enumerate() {
+                    for rl in [false, true] {
+                        let xs: Vec<&P> = prof.iter().filter(|p| p.0 == pi && p.6 == rl).collect();
+                        if xs.is_empty() {
+                            continue;
+                        }
+                        let mm = |f: &dyn Fn(&P) -> f64| xs.iter().map(|p| f(p)).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
+                        let ((d0, d1), (s0, s1), (w0, w1)) = (mm(&|p| p.2 as f64), mm(&|p| p.4), mm(&|p| p.5));
+                        parts.push(format!("{name} z {zp:.1}{}: {} crossings, +{d0:.0}..+{d1:.0}, stored {s0:.3}..{s1:.3}, visible {w0:.3}..{w1:.3}", if rl { " riderless" } else { "" }, xs.len()));
+                    }
+                    let mut ts: Vec<i64> = prof.iter().filter(|p| p.0 == pi).map(|p| p.1 * 100 + p.2).collect();
+                    ts.sort();
+                    let gaps: Vec<i64> = ts.windows(2).map(|w| w[1] - w[0]).filter(|g| *g < 60).collect();
+                    if let (Some(a), Some(b)) = (gaps.iter().min(), gaps.iter().max()) {
+                        parts.push(format!("{name} gaps {a}..{b} gt"));
+                    }
+                    // (by the cart's place in its train at this plane: crossings grouped by the slot
+                    // the cart crossed the first plane in (its train's launch slot), in order; +gt
+                    // from that slot's start, so a late cart reads +102, not +2)
+                    let launch = |k: usize, t: i64| prof.iter().filter(|q| q.0 == 0 && q.3 == k && q.1 * 100 + q.2 <= t).map(|q| q.1).max();
+                    let mut xs: Vec<(&P, i64, i64)> = prof.iter().filter(|p| p.0 == pi).filter_map(|p| { let t = p.1 * 100 + p.2; launch(p.3, t).map(|s| (p, s, t - 100 * s)) }).collect();
+                    xs.sort_by_key(|(p, ..)| p.1 * 100 + p.2);
+                    let mut pos: Vec<(usize, &P, i64)> = Vec::new();
+                    for (i, (p, s, rel)) in xs.iter().enumerate() {
+                        let k = xs[..i].iter().filter(|(_, s2, _)| s2 == s).count();
+                        pos.push((k, p, *rel));
+                    }
+                    let code = match *name { "boosters' end" => "boost", "hump top" | "S's flat" => "top", "line z 9|10" => "line", "climb foot" => "foot", "T" => "T", "T's exit" => "Texit", _ => "snap" };
+                    let by: Vec<String> = (0..3)
+                        .filter_map(|j| {
+                            let ys: Vec<(&P, i64)> = pos.iter().filter(|(q, ..)| *q == j).map(|(_, p, r)| (*p, *r)).collect();
+                            if ys.is_empty() {
+                                return None;
+                            }
+                            let (s0, s1) = ys.iter().map(|(p, _)| p.4).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
+                            let (d0, d1) = ys.iter().map(|(_, r)| *r).fold((i64::MAX, i64::MIN), |(a, b), v| (a.min(v), b.max(v)));
+                            summ.push(format!("{code}:{}:{s0:.3}:{s1:.3}:{d0}:{d1}", j + 1));
+                            Some(format!("{} {s0:.3}..{s1:.3} at +{d0}..+{d1}", ["1st", "2nd", "3rd"][j]))
+                        })
+                        .collect();
+                    if !by.is_empty() {
+                        parts.push(format!("{name} by train place: {}", by.join(", ")));
+                    }
+                }
+                // (G2's plane, the stand's entry (loop x 0.5 eastward): +gt by train place, a train
+                // being crossings under 30 gt apart)
+                {
+                    let mut places: [Vec<i64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+                    let mut k = 0usize;
+                    let mut last: Option<i64> = None;
+                    let mut base = 0i64;
+                    for (tt, sc, sdt) in &g2p_cross {
+                        k = if last.is_some_and(|l| tt - l < 30) { k + 1 } else { 0 };
+                        // (a train's slot: its first crossing's, the one before when that crossing
+                        // is under +40 (a late train crossing after the next slot's start))
+                        if k == 0 {
+                            base = 100 * if *sdt < 40 { sc - 1 } else { *sc };
+                        }
+                        if k < 3 {
+                            places[k].push(tt - base);
+                        }
+                        last = Some(*tt);
+                    }
+                    let by: Vec<String> = (0..3).filter(|j| !places[*j].is_empty()).map(|j| format!("{} +{}..+{}", ["1st", "2nd", "3rd"][j], places[j].iter().min().unwrap(), places[j].iter().max().unwrap())).collect();
+                    for (j, pl) in places.iter().enumerate() {
+                        if let (Some(a), Some(b)) = (pl.iter().min(), pl.iter().max()) {
+                            summ.push(format!("G2:{}:0:0:{a}:{b}", j + 1));
+                        }
+                    }
+                    if !by.is_empty() {
+                        parts.push(format!("G2 x 0.5 by train place: {}", by.join(", ")));
+                    }
+                }
+                out.push(format!("approach profile (forward crossings: +gt after the slot's start, stored and visible b/t): {}", parts.join("; ")));
+                out.push(format!("approach profile summary (plane:place:stored min:max:+gt min:max): {}", summ.join(" ")));
+            }
+            // (box contacts by the front cart's place: count, the follower's highest stored speed at
+            // first contact (riderless apart), how many at 0.8 and at 1.0 or more (the bridged merge
+            // threshold), the closest centres; each contact on T and the descent (S3's H: the held
+            // train's arrivals); and a numbers-only summary line)
+            {
+                type B = (usize, i64, i64, usize, usize, f64, f64, f64, bool, bool);
+                let names = ["flat", "climb", "T", "descent", "hump-down", "hump-up", "run"];
+                let mut parts = Vec::new();
+                let mut nums = Vec::new();
+                for (pi, name) in names.iter().enumerate() {
+                    let xs: Vec<&B> = bc_log.iter().filter(|b| b.0 == pi).collect();
+                    let top = xs.iter().copied().max_by(|a, b| a.5.total_cmp(&b.5));
+                    let empty_max = xs.iter().filter(|b| b.9).map(|b| b.5).fold(0.0, f64::max);
+                    let (n06, n10) = (xs.iter().filter(|b| b.5 >= 0.6).count(), xs.iter().filter(|b| b.5 >= 1.0).count());
+                    let merged = xs.iter().filter(|b| b.7 < 0.01).count();
+                    let close = xs.iter().map(|b| b.7).fold(f64::INFINITY, f64::min);
+                    nums.push(format!("{name} {}/{:.3}/{n06}/{n10}/{:.3}/{empty_max:.3}/{merged}", xs.len(), top.map_or(0.0, |t| t.5), if close.is_finite() { close } else { 9.0 }));
+                    if let Some(t) = top {
+                        parts.push(format!("{name} {} (stored the tick before max {:.3}: cart {}{} onto {}{}, slot {} +{}; onto an empty cart max {empty_max:.3}; at 0.6 or more {n06}, at 1.0 or more {n10}; closest centres {close:.3}, merged {merged})", xs.len(), t.5, t.3, if t.8 { " (riderless)" } else { "" }, t.4, if t.9 { " (riderless)" } else { "" }, t.1, t.2));
+                    }
+                }
+                let hl: Vec<String> = bc_log.iter().filter(|b| b.0 == 3 || b.0 == 2).take(16).map(|b| format!("slot {} +{}: cart {}{} at {:.3} onto cart {}{} at {:.3}, closest {:.3}", b.1, b.2, b.3, if b.8 { " (riderless)" } else { "" }, b.5, b.4, if b.9 { " (riderless)" } else { "" }, b.6, b.7)).collect();
+                out.push(format!("contacts at a waiting cart by its place (a mover's centre within 1.0 horizontally of a cart under 0.01 b/t or frozen): {}{}", if parts.is_empty() { "none".to_string() } else { parts.join("; ") }, if hl.is_empty() { String::new() } else { format!(" (T and the descent: {})", hl.join("; ")) }));
+                out.push(format!("waiting-cart contact summary (n/stored max/at 0.6+/at 1.0+/closest/onto an empty cart max/merged): {}", nums.join("; ")));
+            }
+            out.push(format!(
+                "backward travel on the approach: largest {:.2} blocks{}; fastest backward: stored {:.3}, visible {:.3} b/t{}; backward onto the run's boosters (z >= {}): {back_boost}",
+                back_max.0, if back_max.1.is_empty() { String::new() } else { format!(" ({})", back_max.1) },
+                back_vmax.0, back_vmax.1, if back_vmax.2.is_empty() { String::new() } else { format!(" ({})", back_vmax.2) },
+                run_boost_min_z.map_or("-".to_string(), |z| z.to_string())
+            ));
+            if o.depart_crest > 0 {
+                out.push(format!(
+                    "departure: meetings in the dip: {d_meet} (slowest met {}); reversals onto a slope: {d_rev}{}; meetings on the rise: {d_rise} (slowest met {})",
+                    d_meet_min.as_ref().map_or("-".to_string(), |(v, at)| format!("{v:.3} ({at})")),
+                    if d_rev_log.is_empty() { String::new() } else { format!(" ({})", d_rev_log.join("; ")) },
+                    d_rise_min.as_ref().map_or("-".to_string(), |(v, at)| format!("{v:.3} ({at})"))
+                ));
+            }
         }
         if o.stand_wired && !latch_sets.is_empty() {
             out.push(format!("latch set (T2 out after +55): +{}..+{} over {} slots", latch_sets.iter().min().unwrap(), latch_sets.iter().max().unwrap(), latch_sets.len()));
@@ -10790,6 +12423,66 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     // (which slots had a problem, and how many each: a fault's reach at a glance; a returning train
     // still missing from the tail is counted once, at its first report, not again every slot)
+    if let Some(cr) = comb_run.as_mut() {
+        out.extend(cr.report());
+        if verbose {
+            out.extend(cr.detail());
+        }
+        problems.extend(cr.problems.iter().cloned());
+    }
+    if let Some(h) = head_perm.as_ref() {
+        let (lines, probs) = h.report();
+        out.extend(lines);
+        // (the head's edges against each launch's preceding summon tick S: the GO decision, the
+        // core REL (the release group's front slope powered), the stand REL (G0's signal rising);
+        // day-1's wired offsets: GO S+9, core REL S+11, stand REL S+21)
+        if h.retry && !edge_rows.is_empty() {
+            // (S: the summon tick (gameTime % 100 == 0, the riders' summon check; this bench has no
+            // golem pad, so no golem spawns to time it by); a golem first seen is printed beside it)
+            let rows: Vec<String> = edge_rows
+                .iter()
+                .map(|(sl, td, tr)| {
+                    let s = h.summon_checks.iter().map(|x| x.0).filter(|x| *x <= *td).max();
+                    let gol = golem_ts.iter().copied().filter(|x| *x <= *td).max();
+                    let srel = meter_state.rel_rise_ts.iter().copied().find(|g| *g >= *td);
+                    match s {
+                        Some(s) => format!("slot {sl}: GO (decision) S+{}, core REL S+{}, stand REL {}{}", td - s, tr - s, srel.map_or("-".to_string(), |g| format!("S+{}", g - s)), gol.filter(|g| td - g < 100).map_or(String::new(), |g| format!(" (golem first seen S{:+})", g - s))),
+                        None => format!("slot {sl}: no summon tick before it"),
+                    }
+                })
+                .collect();
+            out.push(format!("head-perm edges vs the summon tick S before each A launch (bench ticks; day-1 wired: GO S+9, core REL S+11, stand REL S+21; frame {}): {}", h.frame, rows.join("; ")));
+        }
+        // (never two stand RELs in one A-cycle (200 gt))
+        if h.retry {
+            let mut per: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+            for tr in &meter_state.rel_rise_ts {
+                *per.entry(tr.div_euclid(200)).or_default() += 1;
+            }
+            let twice: Vec<String> = per.iter().filter(|(_, n)| **n >= 2).map(|(k, n)| format!("slots {}-{} ({n})", k * 2, k * 2 + 1)).collect();
+            out.push(format!("head-perm stand RELs: {} in {} A-cycles; slots with two or more: {}", meter_state.rel_rise_ts.len(), per.len(), if twice.is_empty() { "none".to_string() } else { twice.join(", ") }));
+            if !twice.is_empty() {
+                problems.push(format!("head-perm: two stand RELs in one A-cycle: {}", twice.join(", ")));
+            }
+        }
+        if verbose {
+            out.extend(h.detail());
+        }
+        problems.extend(probs);
+    }
+    if tm.strip_riders.is_some() {
+        out.push(format!("riders removed (riderless trains): {}{}", stripped.len(), if stripped.is_empty() { String::new() } else { format!(" ({})", stripped.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) }));
+    }
+    if let Some((sc, _)) = tm.s_cell {
+        out.push(format!("router S at {},{},{}: {s_flips} flips; with a cart's centre in S's cell at the flip: ridden {s_ridden} (the rider string sees each), empty {s_empty}{}", sc[0], sc[1], sc[2], if s_hits.is_empty() { String::new() } else { format!(" ({})", s_hits.join("; ")) }));
+    }
+    if tm.vanish.is_some() {
+        out.push(format!("carts removed after DEP (a train that never arrives): {}{}", vanished.len(), if vanished.is_empty() { String::new() } else { format!(" ({})", vanished.join(", ")) }));
+    }
+    if tm.hold_cart.is_some() {
+        out.push(format!("carts held in place (an emulated freeze of those carts alone): {}", if held_log.is_empty() { "none found".to_string() } else { held_log.join("; ") }));
+    }
+    out.extend(pair_lines);
     if !problems.is_empty() {
         let mut by: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
         let mut trains_seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();

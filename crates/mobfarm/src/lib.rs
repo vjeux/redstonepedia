@@ -7,6 +7,8 @@ pub mod bury;
 pub mod approach;
 pub mod carousel;
 pub mod cli;
+pub mod comb;
+pub mod headperm;
 pub mod day1;
 pub mod entlog;
 pub mod exact;
