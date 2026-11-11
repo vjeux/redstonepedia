@@ -26,10 +26,45 @@
 //! (`--meter-hold` converts them), else ideally (`comb::VDet`). With `gate`, the head's release
 //! waits on ARR and EMP; without, the latches are only observed and printed.
 
-use crate::comb::{VDet, meets};
 use redsim::entity::Vec3;
 use redsim::pos::BlockPos;
 use redsim::world::World;
+
+/// A detector read ideally: on while a cart's box meets the cell's search box (inset 0.2, 0.8
+/// high), re-checked every 20 gt from its on-edge, as the game's detector rail.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct VDet {
+    pub(crate) on: bool,
+    next: i64,
+}
+
+impl VDet {
+    /// Returns true on the on-edge.
+    pub(crate) fn step(&mut self, present: bool, t: i64) -> bool {
+        if !self.on {
+            if present {
+                self.on = true;
+                self.next = t + 20;
+                return true;
+            }
+            return false;
+        }
+        if t >= self.next {
+            if present {
+                self.next = t + 20;
+            } else {
+                self.on = false;
+            }
+        }
+        false
+    }
+}
+
+/// A cart's box (0.98 wide) meets the cell's search box: its centre within 0.79 of the cell's
+/// centre on both horizontal axes, its feet within the cell's lower metre.
+pub(crate) fn meets(p: Vec3, c: [i32; 3]) -> bool {
+    (p.x - (c[0] as f64 + 0.5)).abs() < 0.79 && (p.z - (c[2] as f64 + 0.5)).abs() < 0.79 && p.y >= c[1] as f64 - 0.3 && p.y < c[1] as f64 + 1.0
+}
 
 /// The head's decision at a GO (`HeadPerm::go`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -7081,7 +7081,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 hl_in[k] = inside;
             }
         }
-        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set) || head_perm.as_ref().is_some_and(|h| h.gate && !h.router && !h.permit());
+        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set);
+        // (`head_perm` without its router: the head's release waits on the latches)
+        let dep_busy = dep_busy || head_perm.as_ref().is_some_and(|h| h.gate && !h.router && !h.permit());
         if head_pending && !dep_busy {
             if let Some(cr) = comb_run.as_mut() {
                 cr.on_launch(t, c);
