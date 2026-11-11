@@ -550,11 +550,18 @@ station needs no drop and no overworld kill.
 - **Shared bed radius.** While a napper sleeps, the shared bed is OCCUPIED, and any other villager
   in REST within 16 blocks of it (Euclidean, from the center of the bed's head block, its POI
   position, which HOME holds, to the villager's position) has its HOME erased (ValidateNearbyPoi). Because the occupied POI isn't released, it can
-  never re-claim the bed, so its naps stop for good. Every position a non-sleeping villager can
-  occupy at night (loop riders anywhere on the loop, the queue, the tail, the stand, the pad, and
-  the siding's waiting and free cells) lies at least 16 blocks plus a stated margin (≥ 1, for rider
-  position spread) from the bed's center. The assembly prints the minimum distance and where it
-  occurs. Panic is not a protection: a reload drops the hostile memory, and riders stay calm until
+  never re-claim the bed, so its naps stop for good. The rule has two parts:
+  - **Distance:** every position a villager can occupy on the loop, the queue, the tail, the stand
+    and the pad lies more than 16 + the stated margin (≥ 1, for rider position spread) from the
+    centre of the bed's head block, panic or not. The assembly prints the minimum distance and
+    where it occurs.
+  - **Time:** in the siding's own cells and on its junction rails (where a napper must be, within 16
+    of the bed, to use it), no non-sleeping villager is present while another villager is asleep in
+    the bed, faults included. The named case: a napper still asleep when the next visit arrives
+    (tick-exact's asleep700 late wake). Either the scheduler doesn't divert while the bed is
+    occupied, or the design shows that the arriving napper keeps HOME.
+
+  Panic is not a protection: a reload drops the hostile memory, and riders stay calm until
   their sensor re-scans. Why: a stacked placement put the bed about 12 from the stand's riders; the
   current side-by-side layout has only about 18.
 - **No merged carts.** Merged carts (two carts within 0.01 of each other, which the game's cart push
