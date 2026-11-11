@@ -482,6 +482,15 @@ pub enum MobfarmCmd {
         /// How many cells to list (default 40).
         #[arg(long, default_value_t = 40)]
         list: usize,
+        /// The pad, a box x0,y0,z0,x1,y1,z1 (or the design's `pad:` line): spots inside it are
+        /// allowed only when every position that sees them is a stand position; a pad cell seen
+        /// from another position is an out-of-turn summon, listed on its own line.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        pad: Vec<i32>,
+        /// The stand positions, "x,y,z;x,y,z;..." (or the design's `stand:` line), besides a loop
+        /// scene's own stand cells and pockets.
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        stand: String,
     },
     /// The stop-based stand's lab (farmopt): a run, the stand's cells from a spec (`mobfarm::
     /// standlab`), three ridden carts moving +x at each speed of a sweep: where they rest, when,
@@ -1453,7 +1462,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("wired pocket stand: REL input cell ({},{},{}): a redstone block opens the three gates and resets the latch, glass lets it count", r.x, r.y, r.z);
             }
         }
-        MobfarmCmd::QueueLoopSpots { design, positions, offset, within, rails, with_entities, list } => {
+        MobfarmCmd::QueueLoopSpots { design, positions, offset, within, rails, with_entities, list, pad, stand } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta).ok();
             let off = match offset.as_slice() { [x, y, z] => [*x, *y, *z], [] => [0, 0, 0], _ => anyhow::bail!("--offset takes dx,dy,dz") };
@@ -1482,6 +1491,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             anyhow::ensure!(o.is_some() || !extra.is_empty() || rails, "not a loop scene and no positions: give --positions, --rails or a design `positions:` line");
+            // (the pad, a box: --pad or the design's `pad:` line; the stand positions: --stand or
+            // the design's `stand:` line, plus a loop scene's stand cells and pockets)
+            let six = |v: &[i32]| -> Result<Option<(redsim::pos::BlockPos, redsim::pos::BlockPos)>> { match v { [a, b, c, d, e, f] => Ok(Some((redsim::pos::BlockPos::new(*a.min(d), *b.min(e), *c.min(f)), redsim::pos::BlockPos::new(*a.max(d), *b.max(e), *c.max(f))))), [] => Ok(None), _ => anyhow::bail!("a pad takes x0,y0,z0,x1,y1,z1") } };
+            let meta_pad: Vec<i32> = c.clock.design.meta.get("pad").map(|s| s.split([',', ' ']).filter(|t| !t.is_empty()).map(|n| n.parse::<i32>()).collect::<Result<Vec<_>, _>>()).transpose()?.unwrap_or_default();
+            let pad_box = match six(&pad)? { Some(b) => Some(b), None => six(&meta_pad)? };
+            let mut stand_cells: Vec<redsim::pos::BlockPos> = Vec::new();
+            for t in stand.split(';').chain(c.clock.design.meta.get("stand").map(|s| s.as_str()).unwrap_or("").split_whitespace()).map(str::trim).filter(|t| !t.is_empty()) {
+                let v: Vec<i32> = t.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "a stand position takes x,y,z: {t}");
+                stand_cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            }
             // (`--rails`: every rail cell of the design is a position: a rider sits in its cart's
             // cell, on any branch, the give-up path included)
             if rails {
@@ -1491,7 +1511,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
             }
-            println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list).map_err(|e| anyhow::anyhow!(e))?);
+            println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::StandLab { spec, speeds, skew, ai, reverse, gaps, start_x, depart_at, hold_at, release_at, meter, close_at, pockets, stand_open_at, stand_close_at, releases, ticks, out, trace } => {
             let text = crate::standlab::design(&spec)?;

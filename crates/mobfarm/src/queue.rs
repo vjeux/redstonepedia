@@ -1474,7 +1474,7 @@ impl Default for LoopTiming {
 /// 17 x 17 columns with `checkSpawnObstruction`) would spawn a golem, with the design built and
 /// its carts in place. A summon anywhere but the pad must find none.
 pub fn loop_spots(spec: &FarmSpec, o: &LoopOpts) -> Result<String, String> {
-    golem_spots(spec, Some(o), &[], false, 40)
+    golem_spots(spec, Some(o), &[], false, 40, None, &[])
 }
 
 /// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
@@ -1482,8 +1482,12 @@ pub fn loop_spots(spec: &FarmSpec, o: &LoopOpts) -> Result<String, String> {
 /// (`o`, a loop scene), plus `extra` (positions recorded over a full bench night, or a design's
 /// `positions:` list: the siding's branch, the cage, the bed, the dismount and stand-up cells, the
 /// way back). Block-only unless `with_entities`: a cell whose only obstruction is an entity in the
-/// golem's box (a cart, a rider, the zombie: they move) counts as a spot.
-pub fn golem_spots(spec: &FarmSpec, o: Option<&LoopOpts>, extra: &[BlockPos], with_entities: bool, list: usize) -> Result<String, String> {
+/// golem's box (a cart, a rider, the zombie: they move) counts as a spot. With a `pad` (a box): a
+/// spot inside it is allowed only when every position that sees it is a stand position (`stand`,
+/// plus a loop scene's own stand cells and pockets); a pad cell seen from any other position (the
+/// arriving or returning batch, the queue, the napper's path) is an out-of-turn summon, listed on
+/// its own line.
+pub fn golem_spots(spec: &FarmSpec, o: Option<&LoopOpts>, extra: &[BlockPos], with_entities: bool, list: usize, pad: Option<(BlockPos, BlockPos)>, stand: &[BlockPos]) -> Result<String, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, 400, WalkMode::Random) };
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
@@ -1517,7 +1521,18 @@ pub fn golem_spots(spec: &FarmSpec, o: Option<&LoopOpts>, extra: &[BlockPos], wi
     }
     let only_extra = found.values().filter(|f| !f.1).count();
     let covered = found.values().filter(|f| f.2).count();
-    let mut out = vec![format!("{} golem spawn cells seen from {} positions ({} rail cells of the loop, {} more listed or recorded){}; {} of them only from the extra positions, {} covered by an entity at the check", found.len(), starts.len(), path.len(), starts.len() - path.len(), if with_entities { ", entities counted" } else { ", block-only (a cell only an entity covers counts)" }, only_extra, covered)];
+    // (the pad: its cells allowed from the stand positions only)
+    let lay_stand: Vec<BlockPos> = o.map(|o| { let l = loop_layout(o); l.stand_cells.iter().map(|c| BlockPos::new(c[0], c[1], c[2])).chain(l.pockets.iter().map(|(_, c)| BlockPos::new(c[0], c[1], c[2]))).collect::<Vec<_>>() }).unwrap_or_default();
+    let stands: std::collections::HashSet<BlockPos> = stand.iter().copied().chain(lay_stand.iter().copied()).collect();
+    let in_pad = |c: &[i32; 3]| pad.is_some_and(|(lo, hi)| c[0] >= lo.x && c[0] <= hi.x && c[1] >= lo.y && c[1] <= hi.y && c[2] >= lo.z && c[2] <= hi.z);
+    let off_pad: Vec<(&[i32; 3], &(Vec<BlockPos>, bool, bool))> = found.iter().filter(|(c, _)| !in_pad(c)).collect();
+    let pad_ok: Vec<&[i32; 3]> = found.iter().filter(|(c, f)| in_pad(c) && f.0.iter().all(|p| stands.contains(p))).map(|(c, _)| c).collect();
+    let out_of_turn: Vec<(&[i32; 3], Vec<BlockPos>)> = found.iter().filter(|(c, _)| in_pad(c)).map(|(c, f)| (c, f.0.iter().filter(|p| !stands.contains(p)).copied().collect::<Vec<_>>())).filter(|(_, v)| !v.is_empty()).collect();
+    let mut out = vec![format!("{} golem spawn cells off the pad seen from {} positions ({} rail cells of the loop, {} more listed or recorded){}; {} of them only from the extra positions, {} covered by an entity at the check", off_pad.len(), starts.len(), path.len(), starts.len() - path.len(), if with_entities { ", entities counted" } else { ", block-only (a cell only an entity covers counts)" }, only_extra, covered)];
+    if pad.is_some() {
+        out.push(format!("pad: {} pad cells seen from the {} stand positions only (allowed); {} pad cells seen from another position (out-of-turn summons onto the pad){}", pad_ok.len(), stands.len(), out_of_turn.len(), if out_of_turn.is_empty() { String::new() } else { format!(": {}", out_of_turn.iter().take(list.max(1)).map(|(c, v)| format!("{} {} {} from {} positions, e.g. {} {} {}", c[0], c[1], c[2], v.len(), v[0].x, v[0].y, v[0].z)).collect::<Vec<_>>().join("; ")) }));
+    }
+    let found: std::collections::BTreeMap<[i32; 3], (Vec<BlockPos>, bool, bool)> = off_pad.into_iter().map(|(c, f)| (*c, f.clone())).collect();
     for (cell, (from, _, cov)) in found.iter().take(list) {
         out.push(format!("  {} {} {} (from {} positions, e.g. {} {} {}){}", cell[0], cell[1], cell[2], from.len(), from[0].x, from[0].y, from[0].z, if *cov { " [an entity covered it]" } else { "" }));
     }
