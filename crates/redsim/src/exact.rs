@@ -174,6 +174,12 @@ impl Watch {
         f.entered.sort();
         f.left = self.present.difference(&now).copied().collect();
         self.present = now;
+        // (tickexact 2026-11-10) the part unloaded: its blocks and containers not read (the
+        // bridge's watch reads nothing while its chunks are away: a read would load them); what
+        // changed before or while it was away shows at the reload, as there
+        if w.away.is_some() {
+            return f;
+        }
         let mut i = 0;
         if !self.blocks.is_empty() {
             for y in self.lo.y..=self.hi.y {

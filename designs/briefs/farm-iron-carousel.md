@@ -34,6 +34,10 @@ Every stateful element in a part (latch, copper bulb, counter, register, ring) r
 
 A design may require a part to sit inside one chunk, stated in the design file as a header line `chunk: <x> <y> <z> <X0>-<X1> <Z0>-<Z1>` (the reference block's design cell and the allowed world X & 15 and Z & 15 ranges, floorMod 16, so negative coordinates read right: the chunk is X >> 4), derived by the generator from the part's box, never hand-entered; it holds for the download's facing only, since rotated or mirrored builds aren't verified, and the build steps say so. The header's ranges are the part's box ranges narrowed to the offsets at which every chunk line of the placed design was tested. The partial-unload faults (stages 32 and 33) then run at every chunk line the design has when placed at that alignment, and each must pass. The carousel requires its stand area (stand, approach, circuit, pad; x −3..9, z −6..7 in the loop's frame) inside one chunk: X & 15 ∈ 3..6, Z & 15 ∈ 6..8. The assembly check verifies the placed footprint against the stated alignment: the stand area's blocks all fall inside one chunk at the stated offsets, and it prints each chunk line the placed farm crosses. Why: a boundary through the stand at level 32 splits a train (measured); aligning removes it at no block cost.
 
+#### Reload order
+
+After an unload, the game brings entities back in an order the design doesn't control: chunks load asynchronously, and within a chunk entities return in save order, which depends on their history. A design must not depend on that order. Every unload/reload fault runs under several orders: the save order, the reverse chunk order, and at least 8 seeded orders (chunk order shuffled, rider histories seeded). A case that fails under any sampled order fails. Each seeded order also re-rolls the brain state a reload resets, as the game can: sensor scan phases (drawn from a static Random), behavior timers (e.g., AcquirePoi's next scheduled start), and memories that aren't saved, which are dropped. The bridge validates the restore for a given order; the runners sample orders. Why: day-1's unload-mid-visit cases re-board in the bridged order but lose the napper in the runner's order, because a different rider history gives different entity ids; both are orders the real game can produce.
+
 #### Settled as placed, and built in order (every part)
 
 1. **Settled as placed.** The design file pasted raw, with no settle ticks and no shape or neighbour updates, passes the part's bench under the same criteria as the settled run. So every cell is written in its settled, self-consistent state (wire and rail shapes, repeater, comparator and powered states), and item stocks (a hopper's or dropper's stock, a sorter's fillers) are listed build steps, not pre-stocked file states. Why: the wired loop's release failed from slot 1 in the real game when its hopper's item stock was missing (the paste hadn't filled it); with the stock merged, the loop placed raw runs 60 slots at 0 differences against the 26.3 server. So item stocks are listed build steps, and a design must work from its file as placed.
@@ -94,17 +98,23 @@ lists. Every candidate meets all three rules; there is no first version without 
    - **The occupied erase:** no other sharer in REST within 16 of the bed while it's occupied
      (ValidateNearbyPoi(HOME), in the REST package only, erases the HOME of any villager within 16
      of an occupied bed that isn't the sleeper). So a nap happens only when every other sharer is
-     farther than 16 from the bed or not in REST (panicking).
+     more than 16 + the stated margin from the bed, panic or not (the Shared bed radius must-have).
    - No second bed within any villager's POI search: a free bed would be claimed and break the
      sharing.
 2. **Compact.** The target is the portal-pad station of "Golems removed by portal, and the
    smallest box" (about 24 x 12 x 5 at 99% summon success), with the queue and the bed inside a
    small box. The objective is the whole build's box volume, the queue and the bed included. No
    giant loops: short return paths or a compact loop are allowed when they measure smallest; the
-   volume objective decides. Villagers move in short hops: carts on short shuttles, water streams, pistons,
+   volume objective decides. Volume decides: the assembled overworld box's volume is the measure,
+   with dig depth priced in build minutes, and horizontal over vertical as the tie-breaker (vjeux's
+   rules, via the parent): at equal volume (with dig depth already priced in build minutes), the
+   lower box, the one with the smaller y extent, wins; stacking is allowed whenever it gives the
+   smaller volume, and the tie-breaker only decides ties. A layout change prints box extents, volume, dug cells, build minutes and
+   blocks before and after. Villagers move in short hops: carts on short shuttles, water streams, pistons,
    whatever measures smallest. The lock box still holds (waiting groups more than 10.6 from every
    summoner on one horizontal axis, or 11.95 vertically, at every summon tick), and so does the
-   occupied-erase distance (16 from the bed during a nap); the layout is the smallest arrangement
+   occupied-erase distance (more than 16 + the stated margin from the bed during a nap, panic or
+   not); the layout is the smallest arrangement
    of the station, the queue and the bed that keeps both. GolemSensor re-locks any villager whose
    scan still sees a golem within its follow range (16, up to 17.8 with the spawn bonus; no sight
    test), and the detection is phase-locked to the slot grid (the sensor periods 20 and 200 divide
@@ -171,7 +181,7 @@ that arrives already panicking with a zombie kept in its sight the whole way), w
 still outside the golem's follow box; the summon happens at the slot; the golem leaves through the
 portal 1-2 gt later; the leaving batch is out of the station's 10.6 box before the next slot; each
 villager's once-a-night bed visit fits inside its 600-gt wait, with the rest of the queue more than
-16 from the bed while it sleeps. Dispatch is event-driven from each golem spawn, so the farm
+16 + the stated margin from the bed while it sleeps, panic or not. Dispatch is event-driven from each golem spawn, so the farm
 phase-locks to the game clock, and a slot with no golem still advances the rotation on the next
 grid tick (a fallback clock), so one failed summon never stalls it. Every interval in the diagram
 is checked tick by tick in redsim and on the bridge, and G1 checks the diagram against the code.
@@ -232,13 +242,14 @@ the timing diagram checks every coupling.
    (LAST_SLEPT set at start: a one-tick nap counts), the observer on OCCUPIED opens a hatch on a
    dorm zombie, it panics and wakes within up to 39 gt (measured 18), stands up at the one free cell,
    and is taken back; SleepInBed can't restart until 40 gt after a wake (nextOkStartTime) and 100
-   gt after LAST_WOKEN. With the panicking hold, only the napper is in REST, so the occupied erase
+   gt after LAST_WOKEN. Every other villager stays more than 16 + the stated margin from the bed,
+   panic or not (the Shared bed radius must-have), so the occupied erase
    can't hit anyone else. The napper's release at its first REST tick is expected; AcquirePoi(HOME)
    re-takes the bed 20-39 gt after it is unoccupied (measured 28), from the cart too, provided a
    path with reach 1 succeeds and no other bed with a free ticket lies within 48 (a failed path
    backs off 40-79 gt, growing to 400). Invariants: every villager's HOME = the bed at every dawn and
-   midday (the R1 claims kept); while the bed is occupied, every other villager is in PANIC or more
-   than 16 from it; each villager's LAST_SLEPT advances at least once a night. Contract: each visit fits
+   midday (the R1 claims kept); while the bed is occupied, every other villager is more than 16 + the
+   stated margin from it, panic or not; each villager's LAST_SLEPT advances at least once a night. Contract: each visit fits
    inside that villager's wait; the 21 visits fit inside the night. The golem condition is
    gameTime − LAST_SLEPT < 24,000 (strict), so for each villager no gap window [its last nap +
    24,000, its next nap) may contain one of its batch's slots; that window condition is the
@@ -536,7 +547,40 @@ station needs no drop and no overworld kill.
   (a shared dormitory keeps its claims through the nightly HOME release of iteration 14, judged
   over many nights, not only through a save and load), and the farm restarts after days away (a
   stalled advance recovers: a fallback pulse when no golem has come for a full cycle).
+- **Shared bed radius.** While a napper sleeps, the shared bed is OCCUPIED, and any other villager
+  in REST within 16 blocks of it (Euclidean, from the center of the bed's head block, its POI
+  position, which HOME holds, to the villager's position) has its HOME erased (ValidateNearbyPoi). Because the occupied POI isn't released, it can
+  never re-claim the bed, so its naps stop for good. The rule has two parts:
+  - **Distance:** every position a villager can occupy on the loop, the queue, the tail, the stand
+    and the pad lies more than 16 + the stated margin (≥ 1, for rider position spread) from the
+    centre of the bed's head block, panic or not. The assembly prints the minimum distance and
+    where it occurs.
+  - **Time:** in the siding's own cells and on its junction rails (where a napper must be, within 16
+    of the bed, to use it), no non-sleeping villager is present while another villager is asleep in
+    the bed, faults included. The named case: a napper still asleep when the next visit arrives
+    (tick-exact's asleep700 late wake). Either the scheduler doesn't divert while the bed is
+    occupied, or the design shows that the arriving napper keeps HOME.
+
+  Panic is not a protection: a reload drops the hostile memory, and riders stay calm until
+  their sensor re-scans. Why: a stacked placement put the bed about 12 from the stand's riders; the
+  current side-by-side layout has only about 18.
+- **No merged carts.** Merged carts (two carts within 0.01 of each other, which the game's cart push
+  never separates) are a hard fail anywhere in the loop; every runner checks for them. "Within
+  0.01" is the horizontal distance between two carts whose boxes the push would pair (they overlap
+  once inflated 0.2 sideways, as the minecart's own collector OldMinecartBehavior.pushAndPickupEntities collects them; AbstractMinecart.push skips a
+  pair whose squared horizontal distance is under 1.0E-4), so carts on stacked tracks a block apart
+  are not merged. The one check is `mobfarm::merge` (with its test), which every runner calls. Why:
+  a cart sliding into a resting one on a slope gets pressed to the identical spot, and a merged pair
+  later swaps order (measured on the tail's 10-slope queue, 2026-11-10).
 - No escapes (villagers, golems, the zombie), the hostile and sky rules of the parent brief.
+- **Compact, measured** (rule 2 made measurable). The assembly prints the assembled overworld
+  bounding box (x × y × z extents and its volume) and each part's own box, next to the block count;
+  minimizing the assembled box is rule 2's objective. A part placed outside the loop's footprint
+  (beside it, or above or below it) states why it can't fold in, and no part is placed just where
+  space happened to be free. Any change that grows the box states by how much and why. These
+  reasons live in the part's NOTES and the assembly report, not on the site page. The Nether side
+  follows its own portal-ticket rule. Why: the controller's parts were spread over 107 × 82 blocks,
+  and vjeux rejected the first carousel as "a giant circle".
 
 ## Objectives
 

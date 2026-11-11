@@ -1469,6 +1469,10 @@ pub struct GateReport {
     pub windows: Vec<WindowCheck>,
     pub sim_runs: usize,
     pub failures: Vec<String>,
+    /// The runs that did not run (a harness failure: the game could not start or stopped; also
+    /// in `failures`): the gate measured nothing for them, so a card is never made from it
+    /// (`site variation`, farmopt 2026-11-10).
+    pub unrun: Vec<String>,
     /// Lightning's breaks the builds saw against the card's rates.
     pub tradeoffs: Vec<Tradeoff>,
     /// Redsim's delivered iron per dead golem over the reference runs (dropped less burnt) and the
@@ -1579,7 +1583,11 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
                 }
                 rep.builds.push(b);
             }
-            Err(e) => rep.failures.push(format!("build {k}: the game run failed: {e:#}")),
+            Err(e) => {
+                let why = format!("build {k}: the game run failed: {e:#}");
+                rep.unrun.push(why.clone());
+                rep.failures.push(why);
+            }
         }
     }
     // the rates: every window against redsim's runs of the same schedule (the judge's own runs,

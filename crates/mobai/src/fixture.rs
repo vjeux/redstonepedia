@@ -412,12 +412,26 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
 ///   while slot 30's visitor sleeps in the bed;
 /// - t5040 for 100 gt, rows z 0..2 (frame z -6..41): rows 0 and 2 at level 32, row 1 at 33 (the
 ///   stand and the queue's south end loaded but frozen) for a whole slot.
-const MOVED_SCENES: &[(&str, &str, [i32; 3], &str)] = &[(
-    "carousel-wired-pocket-a6",
-    "carousel-wired-pocket",
-    [6, 0, 6],
-    "act 1250 unload -5,1,2,1 30\nact 2080 unload -5,2,2,2 60\nact 3200 unload -2,-2,-2,3 200\nact 5040 unload -5,0,2,2 100\n",
-)];
+const MOVED_SCENES: &[(&str, &str, [i32; 3], &str)] = &[
+    (
+        "carousel-wired-pocket-a6",
+        "carousel-wired-pocket",
+        [6, 0, 6],
+        "act 1250 unload -5,1,2,1 30\nact 2080 unload -5,2,2,2 60\nact 3200 unload -2,-2,-2,3 200\nact 5040 unload -5,0,2,2 100\n",
+    ),
+    // (tickexact 2026-11-10, day-1's question: the whole part unloaded during a k2 visit, slot 38's
+    // (slot k's ticks from 100 k; its napper asleep +203..+234, the k2 cart leaving the siding at
+    // +386): at visit +250 for 40 gt and at +280 for 15 gt, both back before the next golem pulse)
+    ("carousel-wired-pocket-u250", "carousel-wired-pocket", [0, 0, 0], "act 4050 unload all 40\n"),
+    ("carousel-wired-pocket-u280", "carousel-wired-pocket", [0, 0, 0], "act 4080 unload all 15\n"),
+    // (and as day-1's fault runner does it, away 4,000 gt, its golem pulses while away dropped
+    // (`drop T0 T1`: the base's acts strictly inside): at visit +250 (the napper just woke,
+    // walking back), +280 (waiting in the siding), +392 (the k2 cart moving from the siding's exit
+    // toward its hold, the napper aboard))
+    ("carousel-wired-pocket-u250l", "carousel-wired-pocket", [0, 0, 0], "act 4050 unload all 4000\ndrop 4050 8050\n"),
+    ("carousel-wired-pocket-u280l", "carousel-wired-pocket", [0, 0, 0], "act 4080 unload all 4000\ndrop 4080 8080\n"),
+    ("carousel-wired-pocket-u392l", "carousel-wired-pocket", [0, 0, 0], "act 4192 unload all 4000\ndrop 4192 8192\n"),
+];
 
 /// A moved scene's copy: (the drive scene, the shift, the extra drive lines).
 fn moved(name: &str) -> Option<(&'static str, [i32; 3], &'static str)> {
@@ -490,6 +504,13 @@ fn shift_drive(text: &str, s: [i32; 3], extra: &str) -> String {
     for line in extra.lines().filter(|l| l.starts_with("act ")) {
         let t: u32 = line.split(' ').nth(1).and_then(|x| x.parse().ok()).unwrap_or_else(|| panic!("an extra drive line's tick: {line:?}"));
         acts.push((t, line.to_string()));
+    }
+    // (`drop T0 T1`: the base's acts strictly between T0 and T1 left out: a bench's controls while
+    // its player is away)
+    for line in extra.lines().filter(|l| l.starts_with("drop ")) {
+        let w: Vec<u32> = line.split(' ').skip(1).filter_map(|x| x.parse().ok()).collect();
+        let [t0, t1] = w[..] else { panic!("an extra drive line: {line:?} is not `drop T0 T1`") };
+        acts.retain(|(t, l)| !(*t > t0 && *t < t1 && !l.contains(" unload") && !l.contains(" load")));
     }
     acts.sort_by_key(|(t, _)| *t);
     let mut out = head;
@@ -662,6 +683,8 @@ impl ActCtx {
         match who {
             Who::Line(n) => self.lines.get(n).copied(),
             Who::Rider(n, k) => self.riders.get(n).and_then(|r| r.get(k)).copied(),
+            // (an id: redsim's, the bridge's number for the same entity)
+            Who::Id(id) => Some(id),
         }
         .ok_or_else(|| anyhow!("the drive names {who:?}: no such entity in the scene"))
     }
@@ -670,7 +693,10 @@ impl ActCtx {
 /// A drive's `eN` / `eN.pK`.
 fn parse_who(s: &str) -> Result<redsim::entity::mob::drive::Who> {
     use redsim::entity::mob::drive::Who;
-    let bad = || anyhow!("{s:?}: eN or eN.pK");
+    let bad = || anyhow!("{s:?}: eN, eN.pK or idN");
+    if let Some(n) = s.strip_prefix("id") {
+        return Ok(Who::Id(n.parse().map_err(|_| bad())?));
+    }
     let s = s.strip_prefix('e').ok_or_else(bad)?;
     Ok(match s.split_once(".p") {
         Some((n, k)) => Who::Rider(n.parse().map_err(|_| bad())?, k.parse().map_err(|_| bad())?),
@@ -719,8 +745,12 @@ fn drive_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
             if f.len() != 7 || f[2] != "pos" {
                 return None;
             }
-            let k: usize = f[3].strip_prefix('e')?.parse().ok()?;
             let p = [f[4].parse::<f64>().ok()?, f[5].parse::<f64>().ok()?, f[6].parse::<f64>().ok()?];
+            // (`idN`: an entity by its id, redsim's and the bridge's number)
+            if let Some(id) = f[3].strip_prefix("id") {
+                return Some((f[1].parse().ok()?, id.parse().ok()?, p));
+            }
+            let k: usize = f[3].strip_prefix('e')?.parse().ok()?;
             Some((f[1].parse().ok()?, *lines.get(k)?, p))
         })
         .collect()
@@ -2210,6 +2240,33 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // (tickexact 2026-11-10, d1u-deep's refusal) an adult sulfur cube beside a dropped rail (no
+    // pickup delay): not in `#sulfur_cube_swallowable`, so SulfurCubeSearchForItemsGoal ignores it
+    // (the scene runs, no model error); sulfur-cube-dirt: a dirt item instead (swallowable: the
+    // goal would chase it, a named model error)
+    for (name, item) in [("sulfur-cube-rail", "minecraft:rail"), ("sulfur-cube-dirt", "minecraft:dirt")] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for (a, c) in [((8, 8), (8, 39)), ((39, 8), (39, 39)), ((8, 8), (39, 8)), ((8, 39), (39, 39))] {
+            wall(&mut b, a, c, 63, 3, stone);
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:sulfur_cube".into(), [16.5, 64.0, 16.5], Some("{PersistenceRequired:1b,Size:1}".into())),
+                ("minecraft:item".into(), [20.5, 64.0, 18.5], Some(format!("{{Item:{{id:\"{item}\",count:1}},PickupDelay:0s,Age:-32768s}}"))),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 72.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 3,
+        });
+    }
     // a zombie at night outside a closed stone house whose three villagers claim their beds:
     // MoveThroughVillageGoal (the claimed POIs, LandRandomPos scored by the nearest unvisited
     // one, the path toward it)
@@ -3507,6 +3564,15 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
             if show && o.t % 100 == 0 {
                 for e in &o.entities {
                     eprintln!("t {} #{} {} pos {:?} goals {:?} path {:?} target {:?} no_action {:?}", o.t, e.n, e.ty, e.pos, e.goals, e.path, e.target, e.no_action);
+                }
+            }
+            // (tickexact probe: MOBAI_SHOW_RIDERS="T": at tick T, each of the game's villagers: its
+            // position and what it rides)
+            if let Ok(v) = std::env::var("MOBAI_SHOW_RIDERS")
+                && v.split(',').filter_map(|x| x.parse::<i64>().ok()).any(|x| x == f.t)
+            {
+                for e in f.entities.iter().filter(|e| e.ty.ends_with("villager")) {
+                    eprintln!("t {} #{} villager at {:.2} {:.2} {:.2} riding {:?} activities {:?} home {:?}", f.t, e.n, e.pos[0], e.pos[1], e.pos[2], e.vehicle, e.activities, e.memories.as_ref().and_then(|m| m.get("home").cloned()));
                 }
             }
             // (tickexact probe: MOBAI_SHOW_BLOCKS="T0:T1": the game's block and container changes

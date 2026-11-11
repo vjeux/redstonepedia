@@ -55,6 +55,7 @@ spider-walls.rec	460e567ed52121ef		26.3	2026-11-08T22:18Z on 8068118d7	mctas mob
 squids.rec	63dbb40561554df8		26.3	2026-11-09T02:42Z on 4381c606f	mctas mobai record squids --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 station-built.rec	64bd4a393012cfde		26.3	2026-11-11T02:01Z on d2e9bbb3d2	mctas mobai record station-built --seed 1 --ticks 1150 --dir designs/redsim/recorded/mobai
 station-raw.rec	52917dfb724eeb7f		26.3	2026-11-11T02:00Z on d2e9bbb3d2	mctas mobai record station-raw --seed 1 --ticks 2400 --dir designs/redsim/recorded/mobai
+sulfur-cube-rail.rec	8099a548983c70e9		26.3	2026-11-11T07:12Z on 244b9196d	mctas mobai record sulfur-cube-rail --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mobai record sulfur-cubes --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 unload-part-v3-raw.rec	8bd68eb2d7b4d719		26.3	2026-11-11T03:34Z on 2a49ff7aa	mctas mobai record unload-part-v3-raw --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 unload-siding-raw.rec	c0040c175b9b7e6a		26.3	2026-11-11T02:53Z on 9dcfccb602	mctas mobai record unload-siding-raw --seed 1 --ticks 3900 --dir designs/redsim/recorded/mobai

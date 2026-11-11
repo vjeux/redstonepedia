@@ -24,7 +24,7 @@ use std::collections::HashMap;
 pub struct Drive {
     pub on: bool,
     pub t0: i64,
-    names: HashMap<u32, String>,
+    names: RefCell<HashMap<u32, String>>,
     golems: RefCell<HashMap<u32, usize>>,
     next_golem: RefCell<usize>,
     lines: RefCell<Vec<String>>,
@@ -32,7 +32,7 @@ pub struct Drive {
 
 impl Drive {
     pub fn new(on: bool) -> Drive {
-        Drive { on, t0: 0, names: HashMap::new(), golems: RefCell::new(HashMap::new()), next_golem: RefCell::new(0), lines: RefCell::new(Vec::new()) }
+        Drive { on, t0: 0, names: RefCell::new(HashMap::new()), golems: RefCell::new(HashMap::new()), next_golem: RefCell::new(0), lines: RefCell::new(Vec::new()) }
     }
 
     /// Name the design's entities: `spawned[n]` is the id `entity::spawn` returned for line n.
@@ -41,18 +41,28 @@ impl Drive {
         if !self.on {
             return;
         }
+        let mut names = self.names.borrow_mut();
         for (n, id) in spawned.iter().enumerate() {
-            self.names.insert(*id, format!("e{n}"));
+            names.insert(*id, format!("e{n}"));
             if let Some(e) = w.entities.list.iter().find(|e| e.id == *id) {
                 for (k, p) in e.passengers.iter().enumerate() {
-                    self.names.insert(*p, format!("e{n}.p{k}"));
+                    names.insert(*p, format!("e{n}.p{k}"));
                 }
             }
         }
     }
 
     pub fn name(&self, id: u32) -> String {
-        self.names.get(&id).cloned().unwrap_or_else(|| format!("id{id}"))
+        self.names.borrow().get(&id).cloned().unwrap_or_else(|| format!("id{id}"))
+    }
+
+    /// An entity back from a reload under a new id keeps its name (`reload::load_all`'s
+    /// renumbering: `World::renumbered`).
+    pub fn renamed(&self, old: u32, new: u32) {
+        let mut names = self.names.borrow_mut();
+        if let Some(n) = names.get(&old).cloned() {
+            names.insert(new, n);
+        }
     }
 
     /// An action at absolute world time `now` (before its next tick).

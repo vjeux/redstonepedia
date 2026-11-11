@@ -61,7 +61,7 @@ pub static DEFS: &[TypeDef] = &[
     TypeDef { loot: &[("minecraft:string", 0, 2)], ..row(1, "cave_spider", "minecraft:cave_spider", 0.7, 0.5, 0.45, 12.0, 0.3f32 as f64, true, false, 0.6) },
     // the zombie family's FOLLOW_RANGE is 35 and its ARMOR 2 (Zombie.createAttributes), babies
     // included
-    TypeDef { follow_range: 35.0, armor: 2.0, ..row(2, "zombie_villager", "minecraft:zombie_villager", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 0.6) },
+    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, ..row(2, "zombie_villager", "minecraft:zombie_villager", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 0.6) },
     row(3, "zombie_horse", "minecraft:zombie_horse", 1.3964844, 1.6, 1.52, 25.0, 0.2f32 as f64, false, true, 1.0),
     TypeDef { loot: &[("minecraft:arrow", 0, 2), ("minecraft:bone", 0, 2)], riding_offset: -0.7, ..row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6) },
     TypeDef { loot: &[("minecraft:gunpowder", 0, 2)], ..row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6) },
@@ -91,7 +91,9 @@ pub static DEFS: &[TypeDef] = &[
     // 0.40625, Chicken 0.3 x 0.4 eye 0.28125, Cow 0.45 x 0.7 eye 0.69, Wolf 0.3 x 0.425 eye
     // 0.34375, Rabbit 0.24 x 0.4 eye 0.39), else `getAgeScale` 0.5
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.1875, ..row(25, "baby_zombie", "minecraft:zombie", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
-    TypeDef { follow_range: 35.0, armor: 2.0, ..row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.49, 0.98, 0.67, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
+    // (mob-AI 2026-11-10) ZombieVillager.BABY_DIMENSIONS' vehicle attachment 0.125F (a baby
+    // zombie's is 0.1875F); dust-pulse-three-watchers plains build 1 t59298, a chicken jockey
+    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.125, ..row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.49, 0.98, 0.67, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.1875, ..row(27, "baby_drowned", "minecraft:drowned", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0) },
     row(28, "baby_sheep", "minecraft:sheep", 0.45, 0.65, 0.65625, 8.0, 0.23f32 as f64, false, false, 0.6),
     row(29, "baby_pig", "minecraft:pig", 0.45, 0.45, 0.40625, 10.0, 0.25, false, false, 0.6),
@@ -122,7 +124,7 @@ pub static DEFS: &[TypeDef] = &[
     // a nether portal's zombified piglin (MONSTER, fire immune; Zombie's FOLLOW_RANGE 35 and ARMOR
     // 2; its baby's BABY_DIMENSIONS 0.49 x 0.98, eye 0.78)
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(47, "zombified_piglin", "minecraft:zombified_piglin", 0.6, 1.95, 1.79, 20.0, 0.23f32 as f64, true, false, 0.6) },
-    TypeDef { follow_range: 35.0, armor: 2.0, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(48, "baby_zombified_piglin", "minecraft:zombified_piglin", 0.49, 0.98, 0.78, 20.0, 0.23f32 as f64 * 1.5, true, false, 0.6) },
+    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.1875, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(48, "baby_zombified_piglin", "minecraft:zombified_piglin", 0.49, 0.98, 0.78, 20.0, 0.23f32 as f64 * 1.5, true, false, 0.6) },
     // (mob-AI 2026-11-10) a baby zombie horse (AbstractHorse.finalizeSpawn: 1 in 5):
     // ZombieHorse.BABY_DIMENSIONS, the zombie horse's x 0.7 (its passenger seat: `rider_seat`)
     row(49, "baby_zombie_horse", "minecraft:zombie_horse", 1.3964844 * 0.7, 1.6 * 0.7, 1.52 * 0.7, 25.0, 0.2f32 as f64, false, true, 1.0),
@@ -1397,30 +1399,32 @@ fn mob_armor(w: &mut World, special: f32, hard: bool) -> (usize, u8) {
 /// `Mob.populateDefaultEquipmentEnchantments`: the weapon (0.25), then each armor piece (0.5) in
 /// `EquipmentSlot.VALUES` order (feet, legs, chest, head), times the special multiplier, each
 /// enchanted by `MOB_SPAWN_EQUIPMENT` (`enchant::mob_spawn_equipment`, its draws in order).
-/// Returns whether the weapon got enchantments, and each armor piece's enchantments (by slot: 0
-/// head, 1 chest, 2 legs, 3 feet).
-fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Item>, armor: (usize, u8)) -> (bool, [Vec<(&'static str, i32)>; 4]) {
-    let mut enchanted = false;
+/// Returns the weapon's enchantments, and each armor piece's (by slot: 0 head, 1 chest, 2 legs, 3
+/// feet).
+fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Item>, armor: (usize, u8)) -> (Vec<(&'static str, i32)>, [Vec<(&'static str, i32)>; 4]) {
+    let mut weapon_ench = Vec::new();
     let mut ench: [Vec<(&'static str, i32)>; 4] = Default::default();
     if let Some(item) = weapon
         && rng(w).next_float() < 0.25 * special
     {
-        enchanted = !super::enchant::mob_spawn_equipment(rng(w), item, special).is_empty();
+        weapon_ench = super::enchant::mob_spawn_equipment(rng(w), item, special);
     }
     for slot in (0..4u8).rev() {
         if (slot as usize) < armor.0 && rng(w).next_float() < 0.5 * special {
             ench[slot as usize] = super::enchant::mob_spawn_equipment(rng(w), super::enchant::Item::Armor { slot, material: armor.1 }, special);
         }
     }
-    (enchanted, ench)
+    (weapon_ench, ench)
 }
 
 /// What finalizeSpawn put in a natural mob's hand (`Mob::set_hand`): `setCanPickUpLoot`'s roll
-/// and its main-hand weapon (id, enchanted); (mob-AI 2026-11-10) and the armor it wears.
+/// and its main-hand weapon (id, enchanted); (mob-AI 2026-11-10) the weapon's enchantments and
+/// the armor it wears.
 #[derive(Clone, Default, PartialEq, Debug)]
 struct Hand {
     loot: bool,
     weapon: Option<(&'static str, bool)>,
+    weapon_ench: Vec<(&'static str, i32)>,
     armor: super::Armor,
 }
 
@@ -1580,8 +1584,9 @@ fn zombie_finalize_at(w: &mut World, special: f32, hard: bool, g: &mut GroupData
         };
         (armor, weapon)
     };
-    let (enchanted, ench) = enchant_draws(w, special, weapon, armor);
-    hand.weapon = weapon.and_then(weapon_id).map(|id| (id, enchanted));
+    let (weapon_ench, ench) = enchant_draws(w, special, weapon, armor);
+    hand.weapon = weapon.and_then(weapon_id).map(|id| (id, !weapon_ench.is_empty()));
+    hand.weapon_ench = weapon_ench;
     hand.armor = super::Armor { pieces: armor.0 as u8, material: armor.1, ench };
     // SpecialDates.isHalloween: the server's date is outside it (no draw); handleAttributes draws
     // from the zombie's own random
@@ -1626,8 +1631,9 @@ fn piglin_finalize(w: &mut World, nat: &Natural, hand: &mut Hand) -> (bool, Jock
     let spear = rng(w).next_int(20) == 0;
     // (a golden spear: its SpearUseGoal is modeled, goal::spear)
     let weapon = if spear { super::enchant::Item::GoldenSpear } else { super::enchant::Item::GoldenSword };
-    let (enchanted, _) = enchant_draws(w, special, Some(weapon), (0, 0));
-    hand.weapon = weapon_id(weapon).map(|id| (id, enchanted));
+    let (weapon_ench, _) = enchant_draws(w, special, Some(weapon), (0, 0));
+    hand.weapon = weapon_id(weapon).map(|id| (id, !weapon_ench.is_empty()));
+    hand.weapon_ench = weapon_ench;
     // SpecialDates.isHalloween: outside it (no draw); handleAttributes: its own random
     (baby, jockey, breaks_doors)
 }
@@ -2136,8 +2142,9 @@ fn skeleton_finalize(w: &mut World, nat: &Natural, hand: &mut Hand) -> Option<u8
     mob_base(w);
     let armor = mob_armor(w, special, hard);
     // AbstractSkeleton.populateDefaultEquipmentSlots: a bow
-    let (enchanted, ench) = enchant_draws(w, special, Some(super::enchant::Item::Bow), armor);
-    hand.weapon = Some(("minecraft:bow", enchanted));
+    let (weapon_ench, ench) = enchant_draws(w, special, Some(super::enchant::Item::Bow), armor);
+    hand.weapon = Some(("minecraft:bow", !weapon_ench.is_empty()));
+    hand.weapon_ench = weapon_ench;
     hand.armor = super::Armor { pieces: armor.0 as u8, material: armor.1, ench };
     hand.loot = rng(w).next_float() < 0.55 * special; // setCanPickUpLoot
     (armor.0 > 0).then_some(armor.1)
@@ -2435,7 +2442,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
     super::set_helmet(w, id, f.helmet);
     super::set_armor(w, id, &f.hand.armor);
     if f.hand != Hand::default() {
-        super::set_hand(w, id, f.hand.loot, f.hand.weapon);
+        super::set_hand(w, id, f.hand.loot, f.hand.weapon, &f.hand.weapon_ench);
     }
     // (tickexact 2026-11-10) a spider's group effect, infinite (`addEffect(new
     // MobEffectInstance(effect, -1))`, amplifier 0): speed (x 1.2 on its MOVEMENT_SPEED, the
@@ -2517,7 +2524,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
                 super::set_armor(w, r, &f.rider_hand.armor);
-                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
+                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon, &f.rider_hand.weapon_ench);
                 if let (Some(ri), Some(vi)) = (crate::entity::index_of(w, r), crate::entity::index_of(w, id)) {
                     // Spider.finalizeSpawn: skeleton.snapTo(the spider's x, y, z, yRot, 0)
                     let yaw = w.entities.list[vi].y_rot;
@@ -2535,7 +2542,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
                 super::set_armor(w, r, &f.rider_hand.armor);
-                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
+                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon, &f.rider_hand.weapon_ench);
                 ride(w, r, id);
                 rider = Some(r);
             }
@@ -2558,7 +2565,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
                 super::set_armor(w, r, &f.rider_hand.armor);
-                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
+                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon, &f.rider_hand.weapon_ench);
                 if let (Some(ri), Some(vi)) = (crate::entity::index_of(w, r), crate::entity::index_of(w, id)) {
                     // the bridge reports the rider at yaw 0 on its first tick (its snapTo's yaw is
                     // not the horse's here: D1U's t4032)
@@ -2579,7 +2586,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
                 super::set_armor(w, r, &f.rider_hand.armor);
-                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
+                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon, &f.rider_hand.weapon_ench);
                 ride(w, r, id);
                 rider = Some(r);
             }

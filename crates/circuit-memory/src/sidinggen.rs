@@ -797,6 +797,8 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     for z in -2..=8 {
         b.on([24, -4, z], DUST)?;
     }
+    // (the corner's route and its repeater: the fold's, under the stand's guard, below; +4 gt net
+    // as main's 3 rt repeater)
     // R'': droppers a (26, -6, 4), b (28, -6, 4), c (27, -6, 5), hoppers h (27, -6, 4), H (28, -6, 5),
     // j (26, -6, 5); a -> b -> c -> a; state 0 = c empty at power-on. Rows of NOT l_k west to the
     // P sides (21, -6, z_k - 2): l0 (c, tap south) -> row 7; l1 (a, tap north) -> row 1; l2 (b, tap
@@ -1181,6 +1183,26 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         seg_to(&mut fr, [FORCE[0] + 1, FORCE[1] - 1, FORCE[2] - 2]);
         fr.push([FORCE[0], FORCE[1], FORCE[2] - 2]);
         route_d(&mut b, [fx, -4, 17], &fr, 6, 0, 1)?;
+        // (measurement only, ironspec 2026-11-11: the integration gate's F +6 corner (the
+        // missed-golem +6): the route's first straight dust a 3 rt repeater along it)
+        if std::env::var("MCTAS_F_PLUS6").is_ok() {
+            let mut all = vec![[fx, -4, 17]];
+            all.extend(fr.iter().copied());
+            let i = (1..all.len() - 1)
+                .find(|&i| {
+                    let (a, c, n) = (all[i - 1], all[i], all[i + 1]);
+                    a[1] == c[1] && c[1] == n[1] && [c[0] - a[0], c[2] - a[2]] == [n[0] - c[0], n[2] - c[2]] && b.blocks.get(&c).is_some_and(|s| s.contains("redstone_wire"))
+                })
+                .ok_or_else(|| anyhow::anyhow!("F's rear route has no straight dust for the +6 corner"))?;
+            let (a, c) = (all[i - 1], all[i]);
+            let input = match (c[0] - a[0], c[2] - a[2]) {
+                (1, 0) => "west",
+                (-1, 0) => "east",
+                (0, 1) => "north",
+                _ => "south",
+            };
+            b.blocks.insert(c, rep(input, 3));
+        }
     }
     b.on([FORCE[0], FORCE[1], FORCE[2] - 1], &comp("north", "subtract"))?;
     b.on(FORCE, DUST)?;
