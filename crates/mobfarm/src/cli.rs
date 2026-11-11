@@ -341,6 +341,12 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 0)]
         bins: u32,
     },
+    /// (ironspec 2026-11-11 12:50) The rail-junction check: every plain rail joined to three or four
+    /// rails, its stored shape against the game's settle order for its signal at rest (both power
+    /// states printed); exit status 1 when a stored shape would re-settle at its first update.
+    JunctionCheck {
+        design: PathBuf,
+    },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
     /// 16/7 and stroll 2/2, IDLE's stroll 10/7 and walks to villagers within 8, job-site / bell walks,
@@ -1234,6 +1240,10 @@ pub enum MobfarmCmd {
         /// along the track fails the run; the blind places are printed).
         #[arg(long)]
         no_eye_check: bool,
+        /// Skip the rail-junction check (every three-arm rail settled as the game would for its
+        /// signal at rest; a stored shape it would not keep fails the run); the run says so.
+        #[arg(long)]
+        no_junction_check: bool,
         /// The release group's first slope (the head) on this many gt into the slot: 3 is main's
         /// wired controller (q17's rail powered at +3 here, its +4), found by the
         /// bench-against-wired check (Nov 11 07:00, IDENTICAL with --release-stagger 4
@@ -3046,7 +3056,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3193,6 +3203,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
                 }
                 hdr.static_checks.push(g);
+            }
+            // (the rail-junction check, a default gate (ironspec Nov 11 12:50): a stored junction
+            // shape the game would not keep fails the run; the opt-out says so)
+            if !no_junction_check {
+                let g = crate::queue::junction_gate(&spec);
+                if !sweep.is_empty() || phase_sweep.is_some() {
+                    println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
+                }
+                hdr.static_checks.push(g);
+            } else {
+                hdr.static_checks.push(("rail junctions: NOT CHECKED (--no-junction-check)".to_string(), false));
             }
             if !sweep.is_empty() {
                 // the tolerance lines: one control at a time, to the first failure each way
@@ -3791,6 +3812,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (_c, spec) = load(version, &design)?;
             for l in crate::siding::check(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
+            }
+        }
+        MobfarmCmd::JunctionCheck { design } => {
+            let (_c, spec) = load(version, &design)?;
+            let (text, failed) = crate::queue::junction_gate(&spec);
+            println!("{text}");
+            if failed {
+                std::process::exit(1);
             }
         }
         MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, sampled } => {
