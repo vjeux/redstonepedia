@@ -93,6 +93,19 @@ pub fn box_of(w: &World, t: Who) -> Aabb {
     }
 }
 
+/// (mob-AI 2026-11-10) `LivingEntity.getHitbox()`: a rider's box starts no lower than its seat
+/// (`vehicle.getPassengerRidingPosition(this).y`: the vehicle's y plus its passenger attachment;
+/// a spider jockey's skeleton is hit only above the spider's 0.765, forest build 3 t20115).
+pub fn hitbox_of(w: &World, t: Who) -> Aabb {
+    let bb = box_of(w, t);
+    let Who::Entity(j) = t else { return bb };
+    let Some(vi) = w.entities.list[j].vehicle.and_then(|v| crate::entity::index_of(w, v)) else { return bb };
+    let crate::entity::EntityKind::Mob(m) = &w.entities.list[j].kind else { return bb };
+    let Some((seat, _)) = crate::entity::mob::rider_seat(&w.entities.list[vi].kind, m) else { return bb };
+    let y = w.entities.list[vi].pos.y + seat;
+    Aabb::new(bb.min_x, y.max(bb.min_y), bb.min_z, bb.max_x, bb.max_y, bb.max_z)
+}
+
 pub fn id_of(w: &World, t: Who) -> u32 {
     match t {
         Who::Entity(j) => w.entities.list[j].id,

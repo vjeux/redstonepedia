@@ -32,6 +32,38 @@ pub fn base_attack_damage(w: &World, i: usize) -> f32 {
     base_attack_damage_by_id(mob(w, i).ty.def().id)
 }
 
+/// (mob-AI 2026-11-10) `EnchantmentHelper.modifyDamage(weapon, victim, source, dmg)`: the
+/// weapon's `damage` effects in its order (each `add` a `LevelBasedValue.linear` float): sharpness
+/// 1 + 0.5 a level past the first; smite 2.5 a level on #sensitive_to_smite (#undead); bane of
+/// arthropods 2.5 a level on #arthropod; power 1 + 0.5 a level when an arrow hits (`arrow`).
+pub fn enchant_damage(ench: &[(&'static str, i32)], victim: &str, arrow: bool, mut dmg: f32) -> f32 {
+    let victim = victim.strip_prefix("baby_").unwrap_or(victim);
+    let undead = matches!(victim, "skeleton" | "stray" | "wither_skeleton" | "skeleton_horse" | "bogged" | "parched" | "zombie_horse" | "camel_husk" | "zombie" | "zombie_villager" | "zombified_piglin" | "zoglin" | "drowned" | "husk" | "zombie_nautilus" | "wither" | "phantom");
+    let arthropod = matches!(victim, "bee" | "endermite" | "silverfish" | "spider" | "cave_spider");
+    for &(e, l) in ench {
+        let above = (l - 1) as f32;
+        match e {
+            "sharpness" => dmg += 1.0f32 + 0.5f32 * above,
+            "smite" if undead => dmg += 2.5f32 + 2.5f32 * above,
+            "bane_of_arthropods" if arthropod => dmg += 2.5f32 + 2.5f32 * above,
+            "power" if arrow => dmg += 1.0f32 + 0.5f32 * above,
+            _ => {}
+        }
+    }
+    dmg
+}
+
+/// The ids of a weapon's enchantments whose effects on a hit are not modeled (bane of
+/// arthropods' slowness on an arthropod, impaling).
+fn unmodeled_hit_enchantment(ench: &[(&'static str, i32)], victim: &str) -> Option<&'static str> {
+    let victim = victim.strip_prefix("baby_").unwrap_or(victim);
+    ench.iter().find_map(|&(e, _)| match e {
+        "bane_of_arthropods" if matches!(victim, "bee" | "endermite" | "silverfish" | "spider" | "cave_spider") => Some("a bane of arthropods hit's slowness"),
+        "impaling" => Some("an impaling weapon's hit"),
+        _ => None,
+    })
+}
+
 /// [`base_attack_damage`] by mob type id.
 pub fn base_attack_damage_by_id(id: &str) -> f32 {
     match id {
@@ -75,14 +107,24 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
         return false;
     }
     let golem = mob(w, i).ty == crate::entity::mob::types::MobType::IronGolem;
+    // (mob-AI 2026-11-10) the held weapon's enchantments (Mob.doHurtTarget's
+    // EnchantmentHelper.modifyDamage, getKnockback, doPostAttackEffects)
+    let ench: Vec<(&'static str, i32)> = if golem { Vec::new() } else { mob(w, i).mainhand.as_ref().map(|h| h.ench.clone()).unwrap_or_default() };
+    let victim_id = mob(w, j).ty.def().id;
     let dmg = if golem {
         // IronGolem.doHurtTarget: half the damage plus nextInt(damage) from its own random
         let a = attack_damage(w, i);
         let r = w.entities.list[i].random.as_mut().expect("random").next_int(a as i32);
         a / 2.0 + r as f32
     } else {
-        attack_damage(w, i)
+        enchant_damage(&ench, victim_id, false, attack_damage(w, i))
     };
+    if let Some(why) = unmodeled_hit_enchantment(&ench, victim_id) {
+        let why = format!("{why} is not modeled");
+        if !w.errors.contains(&why) {
+            w.errors.push(why);
+        }
+    }
     let attacker = w.entities.list[i].id;
     // (mob-AI 2026-11-10) EnchantmentHelper.doPostAttackEffects: thorns armor's post_attack (a
     // level-random chance, then damage to the attacker) is not modeled
@@ -105,14 +147,28 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
         e.delta_movement = e.delta_movement.add(0.0, (0.4f32 as f64) * scale, 0.0);
     }
     if hurt {
-        // causeExtraKnockback: no ATTACK_KNOCKBACK on the modeled melee mobs; setLastHurtMob
+        // causeExtraKnockback(getKnockback: (ATTACK_KNOCKBACK + the knockback enchantment) / 2):
+        // the target knocked along the attacker's yaw, the attacker's motion x 0.6 sideways
+        let kb = ench.iter().find(|&&(e, _)| e == "knockback").map_or(0.0f32, |&(_, l)| l as f32) / 2.0f32;
+        if kb > 0.0 {
+            let yaw = w.entities.list[i].y_rot * (std::f64::consts::PI / 180.0) as f32;
+            knockback(w, j, kb as f64, crate::entity::mth::sin(yaw as f64) as f64, -(crate::entity::mth::cos(yaw as f64) as f64));
+            let e = &mut w.entities.list[i];
+            e.delta_movement = e.delta_movement.multiply(0.6, 1.0, 0.6);
+        }
+        // doPostAttackEffects: fire aspect's ignite (igniteForSeconds(4 a level))
+        let fire = ench.iter().find(|&&(e, _)| e == "fire_aspect").map_or(0, |&(_, l)| l);
+        if fire > 0 && !mob(w, j).ty.def().fire_immune {
+            let t = crate::entity::mob::ignite_ticks(w, j, ((4.0f32 + 4.0f32 * (fire - 1) as f32) * 20.0f32).floor() as i32);
+            let m = crate::entity::mob::mob_mut(w, j);
+            if m.fire_ticks < t {
+                m.fire_ticks = t;
+            }
+        }
+        // setLastHurtMob
         if has_ai(w, i) {
             ai_mut(w, i).last_hurt_mob = Some(w.entities.list[j].id);
         }
-    }
-    // an enchanted weapon's hit (EnchantmentHelper.modifyDamage, its post-attack effects): named
-    if mob(w, i).mainhand.as_ref().is_some_and(|h| h.enchanted) {
-        w.mob.ai.legacy.insert("an enchanted weapon's hit (its enchantments)");
     }
     // Zombie.doHurtTarget: a burning zombie with an empty hand may set the target on fire (with
     // something in its hand: no roll)
