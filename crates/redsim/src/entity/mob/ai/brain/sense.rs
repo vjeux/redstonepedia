@@ -163,16 +163,25 @@ fn wanted(item: &str) -> bool {
     matches!(item.trim_start_matches("minecraft:"), "bread" | "potato" | "carrot" | "wheat" | "wheat_seeds" | "beetroot" | "beetroot_seeds" | "torchflower_seeds" | "pitcher_pod")
 }
 
-/// `NearestItemSensor`.
+/// `NearestItemSensor`: the items in the box grown by (32, 16, 32), nearest first, the first one
+/// it wants (`wantsToPickUp`: an empty inventory takes any), closer than 32 (`closerThan`) and in
+/// its sight (`LivingEntity.hasLineOfSight`: eye to eye, no Sensing cache). (mob-AI 2026-11-10:
+/// the distance and the sight; bed-plate-lava-in-sight plains build 1 t46266, wheat seeds 33.1
+/// away.)
 fn items(w: &mut World, i: usize) {
     let (pos, bb) = (w.entities.list[i].pos, w.entities.list[i].bb);
     let ids = w.get_entities(bb.inflate(32.0, 16.0, 32.0), |e| matches!(e.kind, EntityKind::Item(_)));
     let mut items: Vec<(f64, usize)> = ids.into_iter().map(|j| (pos.distance_to_sqr(w.entities.list[j].pos), j)).collect();
     items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let mut found = None;
-    for (_, j) in items {
+    let eye = crate::entity::mob::ai::eye_pos(w, i);
+    for (d2, j) in items {
         let EntityKind::Item(it) = &w.entities.list[j].kind else { continue };
-        if !wanted(&it.item) {
+        if !wanted(&it.item) || !(d2 < 32.0 * 32.0) {
+            continue;
+        }
+        let to = crate::entity::mob::ai::eye_pos(w, j);
+        if to.distance_to_sqr(eye).sqrt() > 128.0 || !crate::entity::mob::los::has_line_of_sight(w, eye, to) {
             continue;
         }
         refuse(w, "an item a villager wants in its sight (NearestItemSensor, GoToWantedItem) is not modeled");

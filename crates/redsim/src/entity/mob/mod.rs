@@ -1043,6 +1043,10 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
 /// Add a mob of type `ty` at `pos` (`addFreshEntity`): its yaw, follow-range bonus and own random
 /// drawn from [`MobWorld::rng`]; a villager gets its brain. Returns its id.
 pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
+    // (a probe: MCTAS_TRACE_ADD=<id>: the call stack that creates mob #id)
+    if std::env::var("MCTAS_TRACE_ADD").ok().and_then(|v| v.parse::<u32>().ok()) == Some(w.entities.next_id) {
+        eprintln!("add t{}: #{} {:?}\n{}", w.time, w.entities.next_id, ty, std::backtrace::Backtrace::force_capture());
+    }
     let (y_rot, bonus, seed) = {
         let r = w.mob.rng_mut();
         let y_rot = crate::entity::mth::wrap_degrees(r.next_float() * 360.0);
@@ -1352,33 +1356,55 @@ pub fn seed_entered(w: &mut World, id: u32) -> Option<f32> {
 /// `moveDist` grows by the horizontal move x 0.6 (climbing is refused elsewhere); past `nextStep`
 /// over a block that is not air, a mob on the ground steps (its step sounds draw nothing) and one
 /// in water swims: `playSwimSound`'s pitch draws two floats from its own random.
+/// `Entity.isStateClimbable`: #climbable (ladders, vines, scaffolding, the nether and cave vines)
+/// or powder snow.
+fn is_state_climbable(b: &crate::block::Block) -> bool {
+    match b {
+        crate::block::Block::Scaffolding { .. } | crate::block::Block::PowderSnow => true,
+        crate::block::Block::Terrain(id) => {
+            let p = crate::terrain::blocks::props(*id);
+            p.has_tag("minecraft:climbable") || p.block_id() == "minecraft:powder_snow"
+        }
+        _ => false,
+    }
+}
+
 pub fn movement_emission(w: &mut World, i: usize, movement: Vec3) {
-    let moved = (movement.horizontal_distance() * 0.6f32 as f64) as f32;
+    // (mob-AI 2026-11-10) applyMovementEmissionAndPlaySound: the whole move (x 0.6) counts on a
+    // climbable supporting block, the sideways part elsewhere (forest build 3 t12500..t13750: a
+    // wolf through a vine counted 0.364 more)
+    let moved = (movement.length() * 0.6f32 as f64) as f32;
+    let moved_sideways = (movement.horizontal_distance() * 0.6f32 as f64) as f32;
+    let e = &w.entities.list[i];
+    let supporting = crate::entity::collide::get_on_pos(w, e, 1.0e-5);
+    let supporting_state = w.get(supporting);
+    let climbing = is_state_climbable(&supporting_state);
     let m = mob_mut(w, i);
-    m.move_dist += moved;
-    if !(m.move_dist > m.next_step) {
+    m.move_dist += if climbing { moved } else { moved_sideways };
+    if !(m.move_dist > m.next_step) || supporting_state.is_air() {
         return;
     }
     let e = &w.entities.list[i];
-    let supporting = crate::entity::collide::get_on_pos(w, e, 1.0e-5);
-    if w.get(supporting).is_air() {
-        return;
-    }
     let (on_ground, in_water) = (e.on_ground, e.was_touching_water);
-    // vibrationAndSoundEffectsFromBlock steps only `(onGround || ...) && !isSwimming()`: a swimming
-    // drowned on the bottom makes the swim sound instead (cross-4-underground t12882)
+    // vibrationAndSoundEffectsFromBlock: a block that is not air, `(onGround || climbable) &&
+    // !isSwimming()` (a swimming drowned on the bottom makes the swim sound instead:
+    // cross-4-underground t12882); first on the effect cell (`getOnPosLegacy`: 0.2 down) with the
+    // sound, then on the supporting cell when it is another (no sound)
     let swimming = mob(w, i).ai.as_deref().is_some_and(|a| a.swimming);
-    if on_ground && !swimming {
-        // walkingStepSound on the effect cell (`getOnPosLegacy`: 0.2 down) for a mob whose steps
-        // sound: an amethyst block (`#crystal_sound_blocks`) 20 ticks after the last chime draws
-        // the chime's pitch from its own random
-        let effect = crate::entity::collide::get_on_pos(w, e, 0.2);
+    let effect = crate::entity::collide::get_on_pos(w, e, 0.2);
+    let effect_state = w.get(effect);
+    let steps_on = |s: &crate::block::Block| !s.is_air() && (on_ground || is_state_climbable(s)) && !swimming;
+    let mut produced = false;
+    if steps_on(&effect_state) {
+        produced = true;
+        // walkingStepSound on the effect cell for a mob whose steps sound: an amethyst block
+        // (`#crystal_sound_blocks`) 20 ticks after the last chime draws the chime's pitch from
+        // its own random
         let tick = e.tick_count;
         let sounds = !matches!(mob(w, i).ty.def().id, "bat" | "squid" | "glow_squid" | "baby_squid" | "baby_glow_squid");
         if sounds && tick >= mob(w, i).last_crystal_tick + 20 {
-            let s = w.get(effect);
-            let crystal = match s {
-                crate::block::Block::Terrain(id) => crate::terrain::blocks::props(id).has_tag("minecraft:crystal_sound_blocks"),
+            let crystal = match &effect_state {
+                crate::block::Block::Terrain(id) => crate::terrain::blocks::props(*id).has_tag("minecraft:crystal_sound_blocks"),
                 crate::block::Block::Air => false,
                 b => crate::terrain::blocks::id_of(&b.to_string()).is_some_and(|id| crate::terrain::blocks::props(id).has_tag("minecraft:crystal_sound_blocks")),
             };
@@ -1393,6 +1419,11 @@ pub fn movement_emission(w: &mut World, i: usize, movement: Vec3) {
                 }
             }
         }
+    }
+    if supporting != effect && steps_on(&supporting_state) {
+        produced = true;
+    }
+    if produced {
         let m = mob_mut(w, i);
         m.next_step = (m.move_dist as i32 + 1) as f32;
     } else if in_water {
