@@ -4208,7 +4208,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         && run.world.get(BlockPos::new(a1[0] + fx as i32, a1[1], a1[2] + fz as i32)).to_string().contains("powered=true")
                     {
                         if p_back.len() < 6 {
-                            p_back.push(format!("slot {c} +{dt}: cart {k} at z {z:.2} vz {:.3}", e.delta_movement.z));
+                            // (who pushed it: the non-cart entities within 1.6 blocks)
+                            let near: Vec<String> = run.world.entities.list.iter().filter(|o| o.id != *id && !matches!(o.kind, redsim::entity::EntityKind::Minecart(_)) && (o.pos.x - e.pos.x).abs() < 1.6 && (o.pos.z - e.pos.z).abs() < 1.6 && (o.pos.y - e.pos.y).abs() < 2.5).map(|o| format!("{}#{} at {:.2},{:.2},{:.2}{}", match &o.kind { redsim::entity::EntityKind::Mob(m) => format!("{:?}", m.ty), k => format!("{k:?}").chars().take(12).collect() }, o.id, o.pos.x - fx, o.pos.y, o.pos.z - fz, match o.vehicle { Some(v) => format!(" riding #{v}"), None => String::new() })).collect();
+                            p_back.push(format!("slot {c} +{dt}: cart {k} at z {z:.2} vz {:.3}; near: {}", e.delta_movement.z, if near.is_empty() { "none".to_string() } else { near.join(", ") }));
                         }
                         p_back_ticks += 1;
                     }
