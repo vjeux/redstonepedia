@@ -406,6 +406,37 @@ pub fn tick_order(chunks: [i32; 4]) -> Vec<[i32; 2]> {
     map.iter().into_iter().map(|k| (k as i32, (k >> 32) as i32)).filter(|c| forced.contains(c)).map(|(x, z)| [x, z]).collect()
 }
 
+/// (tickexact 2026-11-10, the bridge's Nether sandbox) The Nether's chunks a PORTAL ticket at
+/// chunk (`cx`, `cz`) ticks, in `tickChunks`' order: the ticket (radius 3) gives its chunk
+/// simulation level 30, the ring around it 31, the next 32 (`SimulationChunkTracker.chunks` takes
+/// them as its updates set them: the ticket's chunk, then each ring in the order the previous
+/// ring's neighbour checks queued it, x offset outer, z inner); the entity-ticking ones (31 and
+/// below, `forEachBlockTickingChunk`) in the map's iteration order.
+pub fn ticket_tick_order(cx: i32, cz: i32) -> Vec<[i32; 2]> {
+    let mut inserted: Vec<(i32, i32)> = vec![(cx, cz)];
+    let mut frontier = vec![(cx, cz)];
+    for _ in 0..2 {
+        let mut next = Vec::new();
+        for &(x, z) in &frontier {
+            for dx in -1..=1 {
+                for dz in -1..=1 {
+                    let n = (x + dx, z + dz);
+                    if !inserted.contains(&n) {
+                        inserted.push(n);
+                        next.push(n);
+                    }
+                }
+            }
+        }
+        frontier = next;
+    }
+    let mut map = OpenMap::new();
+    for &(x, z) in &inserted {
+        map.put(pack(x, z));
+    }
+    map.iter().into_iter().map(|k| (k as i32, (k >> 32) as i32)).filter(|&(x, z)| (x - cx).abs() <= 1 && (z - cz).abs() <= 1).map(|(x, z)| [x, z]).collect()
+}
+
 /// `randomTick` (the blocks [`randomly_ticking`] names).
 pub fn random_tick(w: &mut World, s: Block, p: BlockPos) {
     match s {

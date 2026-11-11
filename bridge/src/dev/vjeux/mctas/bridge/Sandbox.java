@@ -139,6 +139,15 @@ final class Sandbox {
     final int maxChunkZ;
     final long seed;
     private Player mockPlayer;
+    /**
+     * (tickexact 2026-11-10, farmopt's station) The Nether sandbox of this overworld sandbox
+     * ({@link #createNether}), or null; on the Nether sandbox, its overworld one ({@code owner}):
+     * it is never stepped alone (its owner's {@link #tick} ticks it after its own level, as
+     * MinecraftServer.tickChildren orders the levels), and its entities are numbered and seeded by
+     * the owner's drop seeder (one entity count across the two levels).
+     */
+    Sandbox nether;
+    Sandbox owner;
 
     private Sandbox(int id, ServerLevel level, PrimaryLevelData data, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed) {
         this.id = id;
@@ -249,6 +258,83 @@ final class Sandbox {
     }
 
     private static final Field TRADER_RANDOM = field(net.minecraft.world.entity.npc.wanderingtrader.WanderingTraderSpawner.class, "random");
+
+    /**
+     * (tickexact 2026-11-10, farmopt's station: a farm's Nether part) The Nether of {@code owner}:
+     * a level under the key {@code minecraft:the_nether} (a nether portal of the owner's level
+     * leads there: NetherPortalBlock.getPortalDestination asks the server for Level.NETHER), the
+     * Nether's dimension type over a void of nether wastes ({@link SimServer#netherStem}). Its
+     * chunks {@code min..max} are kept loaded but not simulated (PLAYER_LOADING tickets of radius
+     * 0: ticket level 33, no block ticks, random ticks or entities) until a crossing's PORTAL
+     * ticket simulates around its arrival, as a real Nether with no player there. Its own random,
+     * randValue and loot sequences seeded from {@code netherSeed}; its entities numbered and seeded
+     * by the owner's drop seeder. One Nether per server: a previous one is dropped.
+     */
+    static Sandbox createNether(SimServer server, Sandbox owner, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long netherSeed) {
+        ServerLevel old = server.getLevel(Level.NETHER);
+        if (old != null) {
+            Sandbox prev = BY_LEVEL.get(old);
+            if (prev != null && prev.owner != null) {
+                prev.owner.nether = null;
+            }
+            server.unregisterLevel(old);
+            BY_LEVEL.remove(old);
+            try {
+                old.close();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        PrimaryLevelData data = new PrimaryLevelData(server.levelSettings, PrimaryLevelData.SpecialWorldProperty.FLAT, Lifecycle.stable());
+        data.setInitialized(true);
+        // (its own game time, advanced by its own tick in step with its owner's: a real Nether's
+        // DerivedLevelData shares the overworld's; its scheduled ticks are keyed by it)
+        data.setGameTime(owner.level.getGameTime());
+        ServerLevel level = new ServerLevel(
+                server,
+                Util.backgroundExecutor(),
+                server.storage(),
+                data,
+                Level.NETHER,
+                server.netherStem(),
+                false,
+                BiomeManager.obfuscateSeed(netherSeed),
+                List.of(),
+                true);
+        level.noSave = true;
+        server.registerLevel(level);
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                level.getChunkSource().addTicketWithRadius(net.minecraft.server.level.TicketType.PLAYER_LOADING, new ChunkPos(cx, cz), 0);
+            }
+        }
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                level.getChunk(cx, cz);
+            }
+        }
+        PersistentEntitySectionManager<?> entityManager = (PersistentEntitySectionManager<?>) get(ENTITY_MANAGER, level);
+        long deadline = System.nanoTime() + 30_000_000_000L;
+        while (!entitiesLoaded(level, minChunkX, minChunkZ, maxChunkX, maxChunkZ)) {
+            server.pumpTasks();
+            level.getChunkSource().pollTask();
+            entityManager.tick();
+            if (System.nanoTime() > deadline) {
+                throw new IllegalStateException("entity sections of the Nether sandbox " + id + " did not load");
+            }
+            LockSupport.parkNanos(20_000L);
+        }
+        level.getRandom().setSeed(netherSeed);
+        seedRandValue(level, netherSeed);
+        seedLootSequences(level, netherSeed);
+        seedSounds(level, netherSeed);
+        Sandbox sb = new Sandbox(id, level, data, minChunkX, minChunkZ, maxChunkX, maxChunkZ, netherSeed);
+        sb.owner = owner;
+        owner.nether = sb;
+        owner.installDropSeeder(entityManager);
+        BY_LEVEL.put(level, sb);
+        return sb;
+    }
     /** The world seed the level reports ({@code getSeed}), Long.MIN_VALUE: the server's ({@link #create}). */
     long[] worldSeed = {Long.MIN_VALUE};
 
@@ -410,6 +496,9 @@ final class Sandbox {
      * reports n as {@code net_id}.
      */
     int entityIdBase() {
+        if (this.owner != null) {
+            return this.owner.entityIdBase();
+        }
         return 0x40000000 + ((this.id & 0x3FF) << 20);
     }
 
@@ -656,6 +745,9 @@ final class Sandbox {
      * gap, so they are always done before the next tick).
      */
     void tick(SimServer server) {
+        if (this.owner != null) {
+            throw new IllegalStateException("a Nether sandbox ticks with its overworld sandbox (step that one)");
+        }
         // a real server's light engine has finished the updates queued before this tick
         // (between-tick edits: placements, commands): drainLight
         drainLight();
@@ -674,6 +766,12 @@ final class Sandbox {
         this.ticking = true;
         try {
             this.level.tick(() -> true);
+            // (tickexact 2026-11-10) the Nether's level after the overworld's, as
+            // MinecraftServer.tickChildren orders them: what crossed this tick arrived before it
+            if (this.nether != null) {
+                this.nether.drainLight();
+                this.nether.level.tick(() -> true);
+            }
         } finally {
             this.ticking = false;
         }
@@ -707,6 +805,12 @@ final class Sandbox {
             // drain
         }
         drainLight();
+        if (this.nether != null) {
+            while (this.nether.level.getChunkSource().pollTask()) {
+                // drain
+            }
+            this.nether.drainLight();
+        }
     }
 
     // ---- the light engine (clk-misc 2026-10-22) ----
@@ -1608,6 +1712,17 @@ final class Sandbox {
     }
 
     void drop(SimServer server) {
+        if (this.nether != null) {
+            Sandbox n = this.nether;
+            this.nether = null;
+            server.unregisterLevel(n.level);
+            BY_LEVEL.remove(n.level);
+            try {
+                n.level.close();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        }
         clear();
         for (int cx = this.minChunkX; cx <= this.maxChunkX; cx++) {
             for (int cz = this.minChunkZ; cz <= this.maxChunkZ; cz++) {

@@ -153,6 +153,7 @@ public final class Protocol {
             case "mobstate" -> MobAiProbe.mobState(sandbox(r));
             case "info" -> info();
             case "create" -> create(r);
+            case "nether_create" -> netherCreate(r);
             case "drop" -> drop(r);
             case "clear" -> clear(r);
             case "reload" -> reload(r);
@@ -244,6 +245,32 @@ public final class Protocol {
         o.addProperty("sandbox", id);
         o.add("min", pos(sb.minX(), sb.level.getMinY(), sb.minZ()));
         o.add("max", pos(sb.maxX(), sb.level.getMaxY(), sb.maxZ()));
+        // (tickexact 2026-11-10, farmopt's station) {"nether": {"chunks": [x0, z0, x1, z1], "seed":
+        // N}}: its Nether sandbox (Sandbox.createNether), addressed by its own id for blocks and
+        // block entities, ticked by this one
+        if (r.has("nether") && r.get("nether").isJsonObject()) {
+            JsonObject n = r.getAsJsonObject("nether");
+            n.addProperty("sandbox", id);
+            o.add("nether", netherCreate(n).get("nether"));
+        }
+        return o;
+    }
+
+    /**
+     * (tickexact 2026-11-10, farmopt's station) {@code nether_create}: the Nether of sandbox
+     * {@code sandbox} ({@link Sandbox#createNether}): {@code chunks} [x0, z0, x1, z1] kept loaded,
+     * {@code seed} its level random's; answers its own sandbox id ({@code nether}) for blocks and
+     * block entities (it ticks with its overworld sandbox).
+     */
+    private JsonObject netherCreate(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        JsonArray c = r.getAsJsonArray("chunks");
+        int nid = this.nextSandboxId++;
+        long nseed = r.has("seed") ? r.get("seed").getAsLong() : sb.seed;
+        Sandbox nsb = Sandbox.createNether(this.server, sb, nid, c.get(0).getAsInt(), c.get(1).getAsInt(), c.get(2).getAsInt(), c.get(3).getAsInt(), nseed);
+        this.sandboxes.put(nid, nsb);
+        JsonObject o = new JsonObject();
+        o.addProperty("nether", nid);
         return o;
     }
 
@@ -1167,6 +1194,9 @@ public final class Protocol {
         int ticks = r.has("ticks") ? r.get("ticks").getAsInt() : 1;
         boolean draws = r.has("draws") && r.get("draws").getAsBoolean();
         Exact.Watch watch = sb.watch(r.has("box") ? r.getAsJsonObject("box") : null);
+        // (tickexact 2026-11-10) its Nether's frame beside each frame ("nether_box": the Nether
+        // sandbox's watched cells)
+        Exact.Watch netherWatch = sb.nether != null && r.has("nether_box") ? sb.nether.watch(r.getAsJsonObject("nether_box")) : null;
         JsonArray frames = new JsonArray();
         for (int i = 0; i < ticks; i++) {
             Exact.DrawLog log = draws ? new Exact.DrawLog() : null;
@@ -1179,6 +1209,9 @@ public final class Protocol {
                 Exact.drawLog = null;
             }
             JsonObject f = watch.frame(sb, log);
+            if (netherWatch != null) {
+                f.add("nether", netherWatch.frame(sb.nether, null));
+            }
             if (log != null && log.shuffleState >= 0) {
                 // Util.shuffle(list, level.random) redone from the state its first draw saw
                 net.minecraft.world.level.levelgen.LegacyRandomSource copy = new net.minecraft.world.level.levelgen.LegacyRandomSource(0L);

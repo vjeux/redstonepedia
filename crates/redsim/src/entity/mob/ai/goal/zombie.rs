@@ -239,9 +239,11 @@ impl MoveThroughVillage {
     }
 }
 
-/// `Level.isBrightOutside()`: the sky darkened by less than 4 (rain and thunder darken it too).
+/// `Level.isBrightOutside()`: the sky darkened by less than 4 (rain and thunder darken it too);
+/// never in a dimension of fixed time (`hasFixedTime`: the Nether, redsim's ultrawarm world:
+/// tickexact 2026-11-10, a golem in the station's Nether part draws no OfferFlowerGoal roll).
 pub fn is_bright_outside(w: &World) -> bool {
-    w.sky_darken() < 4
+    !w.ultrawarm && w.sky_darken() < 4
 }
 
 /// `canUse()`.

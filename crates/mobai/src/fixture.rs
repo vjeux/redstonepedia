@@ -289,9 +289,14 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
 /// - station-raw / station-built: farmopt's linear stand with its Nether part
 ///   (`carousel-linear-stand.txt`), its `linear-bench --from 1 --to 1 --days 1 --lead 60
 ///   --placed-raw | --placed-in-order` drive logs (bench-driven: the batches teleported to the
-///   stand). Not exact yet: the bridge has no Nether, so a golem at the portal stays in the game's
-///   overworld while redsim's crosses (t102); its Nether part and `nether-set` / `nether-nbt` acts
-///   are redsim's alone ([`scene_nether`]).
+///   stand). The bridge's Nether sandbox (`nether_create`: its own level under the Nether's key,
+///   its chunks loaded but not simulated until a crossing's PORTAL ticket) and redsim's Nether
+///   part ([`scene_nether`]) take the design's `nether` lines (built in order: the drive's
+///   `nether-set` / `nether-nbt` acts); each frame carries the Nether's. Exact to t401 placed as
+///   written (four golems through the portal, their Nether ticks) and through the build to t9401
+///   built in order; then a golem crossing while angry at a zombie post keeps it as its target
+///   from the Nether (NeutralMob's saved anger target, resolved in any dimension), which redsim's
+///   copy does not.
 const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
@@ -2387,6 +2392,9 @@ pub struct GameScene {
     pub ticking: Vec<[i32; 2]>,
     /// The spawning chunks before the shuffle (a scene with a player).
     pub spawning: Vec<[i32; 2]>,
+    /// (tickexact 2026-11-10) A scene's Nether sandbox ([`scene_nether_part`]): its id and the box
+    /// both sides watch.
+    nether: Option<(u32, [i32; 3], [i32; 3])>,
 }
 
 impl GameScene {
@@ -2420,6 +2428,32 @@ impl GameScene {
             let all: Vec<[i32; 3]> = s.blocks.iter().map(|(p, _)| *p).collect();
             w.update(sb, &all, "self")?;
         }
+        // (tickexact 2026-11-10, farmopt's station) a design's Nether part: the Nether sandbox
+        // (kept loaded, not simulated until a crossing), pasted as redsim's (a merged scene: its
+        // cells raw, its data merged, its output chest emptied; a built one: by its drive's acts)
+        let nether = match scene_nether_part(&s.name)? {
+            Some(part) => {
+                // (the chunks kept loaded: the part's and 4 around them, every chunk a crossing's
+                // PORTAL ticket (radius 3) and its ticking neighbours need already full, so the
+                // ticket's promotion waits on no chunk generation: a fixed number of level ticks)
+                let ch = part.chunks;
+                let v = w.call(json!({"op": "nether_create", "sandbox": sb, "chunks": [ch[0] - 4, ch[1] - 4, ch[2] + 4, ch[3] + 4], "seed": seed ^ NETHER_SALT}))?;
+                let nsb = v["nether"].as_u64().ok_or_else(|| anyhow!("nether_create: no id"))? as u32;
+                if scene_placement(&s.name) != Placement::Built {
+                    w.set_blocks(nsb, &part.blocks, PlaceMode::Raw)?;
+                    for (p, nbt) in part.spec.block_entities_at() {
+                        w.merge_block_entity(nsb, [p.x, p.y, p.z], &nbt)?;
+                    }
+                    if let Some(out) = part.spec.output_at()
+                        && part.blocks.iter().any(|(q, st)| *q == [out.x, out.y, out.z] && st.contains("chest"))
+                    {
+                        w.merge_block_entity(nsb, [out.x, out.y, out.z], "{Items:[]}")?;
+                    }
+                }
+                Some((nsb, part.lo, part.hi))
+            }
+            None => None,
+        };
         // the block-ticking and spawning chunks right before the first tick (a player's ring
         // widens them; the spawning list is shuffled every tick, spawning or not)
         let (ticking, spawning) = if s.player.is_some() {
@@ -2429,7 +2463,7 @@ impl GameScene {
         } else {
             (Vec::new(), Vec::new())
         };
-        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning })
+        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether })
     }
 
     /// Summon the scene's mobs (seeded); their numbers.
@@ -2445,7 +2479,11 @@ impl GameScene {
 
     /// The bridge's frames of the next `ticks` ticks as it sends them (what a recording keeps).
     pub fn trace_raw(&mut self, ticks: u32, draws: bool) -> Result<Vec<serde_json::Value>> {
-        let v = self.w.call(json!({"op": "trace", "sandbox": self.sb, "ticks": ticks, "draws": draws, "box": {"from": self.lo, "to": self.hi}}))?;
+        let mut req = json!({"op": "trace", "sandbox": self.sb, "ticks": ticks, "draws": draws, "box": {"from": self.lo, "to": self.hi}});
+        if let Some((_, lo, hi)) = self.nether {
+            req["nether_box"] = json!({"from": lo, "to": hi});
+        }
+        let v = self.w.call(req)?;
         Ok(v["frames"].as_array().ok_or_else(|| anyhow!("trace: no frames"))?.clone())
     }
 
@@ -2455,8 +2493,18 @@ impl GameScene {
         // entity act through its bridge op
         let mut run: Vec<([i32; 3], &str)> = Vec::new();
         for (p, s) in blocks {
-            // (a Nether build act: the bridge has no Nether, redsim's part alone takes it)
+            // (a Nether build act: the Nether sandbox's, placed like a player's)
             if s.starts_with("nether:") || s.starts_with("nether-nbt:") {
+                if !run.is_empty() {
+                    self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+                    run.clear();
+                }
+                let (nsb, _, _) = self.nether.ok_or_else(|| anyhow!("a Nether act in a scene without a Nether sandbox"))?;
+                if let Some(st) = s.strip_prefix("nether:") {
+                    self.w.set_blocks(nsb, &[(*p, st)], PlaceMode::Update)?;
+                } else if let Some(snbt) = s.strip_prefix("nether-nbt:") {
+                    self.w.merge_block_entity(nsb, *p, snbt)?;
+                }
                 continue;
             }
             let special = s.starts_with("nbt:") || entity_act(*p, s)?.is_some();
@@ -2554,29 +2602,68 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     // the sandbox's SPAWN_MOBS / SPAWN_MONSTERS rules ([`scene_spawns`]: a nether portal's random
     // tick draws only with monsters spawning)
     w.spawn_monsters = Some(scene_spawns(&s.name));
-    if let Some(n) = scene_nether(&s.name)? {
+    if let Some(n) = scene_nether(&s.name, seed, s.random_tick_speed)? {
         w.nether = Some(Box::new(n));
     }
     Ok(w)
 }
 
-/// (tickexact 2026-11-10, farmopt's station) A drive scene's Nether part in redsim, as the farm's
-/// `Run::start` builds it (`World::nether`: its own world, the design's `nether` lines at the
-/// anchor's Nether image, its `nether nbt:` data merged, its output chest emptied; a built-in-order
-/// scene's part starts empty, its drive's `nether-set` acts build it). The bridge has no Nether: a
-/// golem crossing leaves both overworlds, the Nether side is redsim's alone (not compared).
-fn scene_nether(name: &str) -> Result<Option<World>> {
+/// (tickexact 2026-11-10, farmopt's station) The salt of a scene's Nether level random (and its
+/// randValue and loot sequences): the scene's seed ^ "nether", on both sides.
+const NETHER_SALT: i64 = 0x6e65_7468_6572;
+
+/// A drive scene's Nether part as the farm's Run::start places it (`NetherSpec`: the design's
+/// `nether` lines at the anchor's Nether image): its cells and states, its block-entity data, its
+/// output chest, the chunks the bridge keeps loaded for it and the box both sides watch.
+struct SceneNether {
+    spec: redsim::entity::mob::farm::NetherSpec,
+    blocks: Vec<([i32; 3], String)>,
+    chunks: [i32; 4],
+    lo: [i32; 3],
+    hi: [i32; 3],
+}
+
+fn scene_nether_part(name: &str) -> Result<Option<SceneNether>> {
     let Some(d) = drive_design(name) else { return Ok(None) };
     if d.nether_blocks.is_empty() {
         return Ok(None);
     }
     let spec = circuit::mobfarm::spec_of(&circuit::Circuit::from_design(d)?).map_err(|e| anyhow!(e))?;
     let Some(ns) = spec.nether else { return Ok(None) };
-    let seed = drive_text(name)
+    let placed = ns.placed();
+    let blocks: Vec<([i32; 3], String)> = placed.iter().map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for (p, _) in &blocks {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    // (a margin of a cell around the part; its chunks and the ring a crossing's PORTAL ticket
+    // simulates are the game's own business)
+    let (lo, hi) = ([lo[0] - 1, lo[1] - 1, lo[2] - 1], [hi[0] + 1, hi[1] + 1, hi[2] + 1]);
+    let chunks = [lo[0].div_euclid(16), lo[2].div_euclid(16), hi[0].div_euclid(16), hi[2].div_euclid(16)];
+    Ok(Some(SceneNether { spec: ns, blocks, chunks, lo, hi }))
+}
+
+/// (tickexact 2026-11-10, farmopt's station) A drive scene's Nether part in redsim, as the farm's
+/// `Run::start` builds it (`World::nether`: its own world, the design's `nether` lines at the
+/// anchor's Nether image, its `nether nbt:` data merged, its output chest emptied; a built-in-order
+/// scene's part starts empty, its drive's `nether-set` acts build it), its randoms the bridge's
+/// Nether sandbox's (the level random, randValue and loot sequences from seed ^ [`NETHER_SALT`];
+/// its entities numbered and seeded as the overworld's, by the scene's seed).
+fn scene_nether(name: &str, seed: i64, random_tick_speed: u32) -> Result<Option<World>> {
+    let Some(part) = scene_nether_part(name)? else { return Ok(None) };
+    let ns = &part.spec;
+    let bench_seed = drive_text(name)
         .and_then(|t| t.lines().find_map(|l| l.trim_start_matches('#').trim_start().strip_prefix("seed ").and_then(|s| s.trim().parse::<i64>().ok())))
         .unwrap_or(1);
-    let o = redsim::entity::mob::farm::RunOpts { ai: true, raw: true, ..redsim::entity::mob::farm::RunOpts::steady(seed, 24000, redsim::entity::mob::farm::WalkMode::Random) };
+    let o = redsim::entity::mob::farm::RunOpts { ai: true, raw: true, ..redsim::entity::mob::farm::RunOpts::steady(bench_seed, 24000, redsim::entity::mob::farm::WalkMode::Random) };
     let mut n = ns.world(&o).map_err(|e| anyhow!(e))?;
+    let nseed = seed ^ NETHER_SALT;
+    n.mirror_level_random(nseed, part.chunks);
+    n.exact_seed = Some(seed);
+    n.random_ticks = Some(redsim::crops::RandomTicks::new(random_tick_speed, nseed));
     if scene_placement(name) != Placement::Built {
         n.place_raw(&ns.placed());
         let bes = ns.block_entities_at();
@@ -2718,6 +2805,12 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
     }
     // (the watch's baseline after the actions at 0, as the game's first traced tick has it)
     let mut early_watch = from_start.then(|| Watch::new(&ours, wlo, whi));
+    // (a scene's Nether: its own watch over its part's box, its frame beside each frame)
+    let nether_box = scene_nether_part(&s.name)?.map(|p| (BlockPos::new(p.lo[0], p.lo[1], p.lo[2]), BlockPos::new(p.hi[0], p.hi[1], p.hi[2])));
+    let mut nwatch: Option<Watch> = match (nether_box, ours.nether.as_deref()) {
+        (Some((lo, hi)), Some(n)) => Some(Watch::new(n, lo, hi)),
+        _ => None,
+    };
     let mut pre: i64 = 0;
     while pre < spawn as i64 {
         let mut n = (spawn as i64 - pre).min(batch as i64) as u32;
@@ -2734,11 +2827,20 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 if let Some(d) = f.day {
                     ours.mob.day_offset = d - f.t;
                 }
+                // (a scene's Nether: the same clocks)
+                let (t, day) = (ours.time, ours.mob.day_offset);
+                if let Some(n) = ours.nether.as_deref_mut() {
+                    n.time = t;
+                    n.mob.day_offset = day;
+                }
                 first = false;
             }
             ours.tick();
             if let Some(wt) = early_watch.as_mut() {
-                let o = wt.frame(&ours);
+                let mut o = wt.frame(&ours);
+                if let (Some(nw), Some(n)) = (nwatch.as_mut(), ours.nether.as_deref()) {
+                    o.nether = Some(Box::new(nw.frame(n)));
+                }
                 cmp.tick(f, &o);
             }
         }
@@ -2824,20 +2926,37 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 if let Some(d) = f.day {
                     ours.mob.day_offset = d - f.t;
                 }
+                // (a scene's Nether: the same clocks)
+                let (t, day) = (ours.time, ours.mob.day_offset);
+                if let Some(n) = ours.nether.as_deref_mut() {
+                    n.time = t;
+                    n.mob.day_offset = day;
+                }
                 first = false;
             }
             let tracing = trace.filter(|(at, _)| *at == ours.time + 1);
             if let Some((at, ent)) = tracing {
                 let addr = match ent {
                     None => ours.level_random.as_ref().map(|r| r as *const _ as usize).unwrap_or(0),
-                    Some(id) => ours.entities.list.iter().find(|e| e.id == id).and_then(|e| e.random.as_ref()).map(|r| r as *const _ as usize).unwrap_or(0),
+                    Some(id) => ours
+                        .entities
+                        .list
+                        .iter()
+                        .chain(ours.nether.as_deref().map(|n| n.entities.list.iter()).into_iter().flatten())
+                        .find(|e| e.id == id)
+                        .and_then(|e| e.random.as_ref())
+                        .map(|r| r as *const _ as usize)
+                        .unwrap_or(0),
                 };
                 eprintln!("redsim's draws at game time {at}:");
                 redsim::rng::TRACE.store(addr, std::sync::atomic::Ordering::Relaxed);
             }
             ours.tick();
             redsim::rng::TRACE.store(0, std::sync::atomic::Ordering::Relaxed);
-            let o = watch.frame(&ours);
+            let mut o = watch.frame(&ours);
+            if let (Some(nw), Some(n)) = (nwatch.as_mut(), ours.nether.as_deref()) {
+                o.nether = Some(Box::new(nw.frame(n)));
+            }
             if show && o.t % 100 == 0 {
                 for e in &o.entities {
                     eprintln!("t {} #{} {} pos {:?} goals {:?} path {:?} target {:?} no_action {:?}", o.t, e.n, e.ty, e.pos, e.goals, e.path, e.target, e.no_action);
@@ -2851,8 +2970,10 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 let (a, b) = (parts.get(1).and_then(|x| x.parse::<i64>().ok()).unwrap_or(0), parts.get(2).and_then(|x| x.parse::<i64>().ok()).unwrap_or(i64::MAX));
                 if f.t >= a && f.t <= b {
                     for n in ids {
-                        let (g, e) = (f.entities.iter().find(|e| e.n == n), o.entities.iter().find(|e| e.n == n));
-                        eprintln!("t {} #{n} game {:?} {:?} | redsim {:?} {:?}", f.t, g.map(|e| e.pos), g.map(|e| e.motion), e.map(|e| e.pos), e.map(|e| e.motion));
+                        // (the Nether's frame too: a crossed entity's copy)
+                        let find = |fr: &redsim::exact::Frame| fr.entities.iter().find(|e| e.n == n).cloned().or_else(|| fr.nether.as_ref().and_then(|nf| nf.entities.iter().find(|e| e.n == n).cloned()));
+                        let (g, e) = (find(&f), find(&o));
+                        eprintln!("t {} #{n} game {:?} {:?} | redsim {:?} {:?}", f.t, g.as_ref().map(|e| e.pos), g.as_ref().map(|e| e.motion), e.as_ref().map(|e| e.pos), e.as_ref().map(|e| e.motion));
                     }
                 }
             }

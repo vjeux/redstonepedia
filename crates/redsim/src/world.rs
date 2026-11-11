@@ -294,6 +294,9 @@ pub struct World {
     /// The PORTAL tickets on this world (chunk, game time made: `TicketType.PORTAL`, 300 gt, radius
     /// 3): entities tick within 1 chunk of one, blocks within 2.
     pub portal_tickets: Vec<([i32; 2], i64)>,
+    /// (tickexact 2026-11-10) When the PORTAL tickets' simulation began (the game time a ticket
+    /// was made while none held: a refresh keeps it; `None` with no ticket).
+    pub portal_since: Option<i64>,
     /// Entities through a portal out of this Nether this tick, for the overworld to place.
     pub outgoing: Vec<crate::entity::portal::Crossing>,
     /// The crossings placed in this world or sent from it to the Nether (game time, the entity's
@@ -401,6 +404,7 @@ impl World {
             nether: None,
             ultrawarm: false,
             portal_tickets: Vec::new(),
+            portal_since: None,
             outgoing: Vec::new(),
             crossings: Vec::new(),
             explosion_rolls: Default::default(),
