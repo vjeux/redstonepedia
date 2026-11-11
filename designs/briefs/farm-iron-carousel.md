@@ -538,12 +538,13 @@ station needs no drop and no overworld kill.
   stalled advance recovers: a fallback pulse when no golem has come for a full cycle).
 - No escapes (villagers, golems, the zombie), the hostile and sky rules of the parent brief.
 - **Compact, measured** (rule 2 made measurable). The assembly prints the assembled overworld
-  bounding box (x × y × z extents and its volume) and each part's own box, next to the block count.
-  The design minimizes the assembled box. A part placed outside the loop's footprint (beside it, or
-  above or below it) states why it can't fold in, and no part is placed just where space happened
-  to be free. Any change that grows the box states by how much and why. The Nether side follows its
-  own portal-ticket rule. Why: the controller's parts were spread over 107 × 82 blocks, and vjeux
-  rejected the first carousel as "a giant circle".
+  bounding box (x × y × z extents and its volume) and each part's own box, next to the block count;
+  minimizing the assembled box is rule 2's objective. A part placed outside the loop's footprint
+  (beside it, or above or below it) states why it can't fold in, and no part is placed just where
+  space happened to be free. Any change that grows the box states by how much and why. These
+  reasons live in the part's NOTES and the assembly report, not on the site page. The Nether side
+  follows its own portal-ticket rule. Why: the controller's parts were spread over 107 × 82 blocks,
+  and vjeux rejected the first carousel as "a giant circle".
 
 ## Objectives
 
