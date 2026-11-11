@@ -370,6 +370,15 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     for (p, s) in &m.blocks {
         b.put(at(*p), &turn2(s))?;
     }
+    if far {
+        // (column 3 (c): a stone over each of the core's dusts on its first row (z 17), which
+        // cuts their diagonals onto the divert unit's top row (y -4, z 16) just north of it)
+        let z0 = m.blocks.keys().map(|p| at(*p)[2]).min().unwrap_or(0);
+        let row: Vec<P3> = m.blocks.iter().filter(|(_, s)| s.contains("redstone_wire")).map(|(p, _)| at(*p)).filter(|q| q[2] == z0).collect();
+        for q in row {
+            b.put([q[0], q[1] + 1, q[2]], STONE)?;
+        }
+    }
     for (p, n) in &m.nbt {
         b.nbt.insert(at(*p), n.clone());
     }
@@ -918,7 +927,13 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         let m = crate::sidinggen::module_at;
         let u = crate::sidinggen::unit_at;
         sp.ports.insert("input.golem".into(), golem);
-        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", u([20, -6, 9])), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-16, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-11, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", { let f = crate::sidinggen::FORCE; [f[0] - 2, f[1], f[2] - 1] }), ("fa_rel", { let f = crate::sidinggen::FORCE; [f[0], f[1], f[2] - 2] }), ("thr", { let d = crate::sidinggen::DETECTOR; [d[0], d[1], d[2] + 13] }), ("lock", { let d = crate::sidinggen::DETECTOR; [d[0] + 1, d[1], d[2] + 12] }), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", u([18, -6, 10])), ("g2_loc", u([20, -6, 9]))] {
+        let far = crate::sidinggen::FAR;
+        let rel_port = if far { core_place([0, 1, -3]) } else { [-2, -1, 13] };
+        let dt = crate::sidinggen::DETECTOR;
+        // (column 3 (c): thr at (d0 + 1, -17, d2 - 11) facing north, its output the cell north of
+        // it, the lock repeater on its west side)
+        let (thr_port, lock_port) = if far { ([dt[0] + 1, -17, dt[2] - 12], [dt[0], -17, dt[2] - 11]) } else { ([dt[0], dt[1], dt[2] + 13], [dt[0] + 1, dt[1], dt[2] + 12]) };
+        for (n, q) in [("rel", rel_port), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", u([20, -6, 9])), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-16, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-11, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", { let f = crate::sidinggen::FORCE; [f[0] - 2, f[1], f[2] - 1] }), ("fa_rel", { let f = crate::sidinggen::FORCE; [f[0], f[1], f[2] - 2] }), ("thr", thr_port), ("lock", lock_port), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", u([18, -6, 10])), ("g2_loc", u([20, -6, 9]))] {
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {

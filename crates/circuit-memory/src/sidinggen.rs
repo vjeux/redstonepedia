@@ -712,6 +712,75 @@ pub(crate) fn facing_in(d: P3) -> &'static str {
     }
 }
 
+/// Lays `cells` from `from` (a source whose signal is `run0` dust old at `from`) with repeaters
+/// on straight flat cells, at least one every 14 dust, their delays adding up to exactly
+/// `total_rt` (spread evenly, 1..4 each; more repeaters where the total needs them). Returns the
+/// repeaters' cells.
+pub(crate) fn lay_exact(b: &mut B, from: P3, cells: &[P3], run0: usize, total_rt: u8) -> Result<Vec<P3>> {
+    use crate::schedgen::rep;
+    let straight = |i: usize| -> bool {
+        let p = if i == 0 { from } else { cells[i - 1] };
+        let c = cells[i];
+        let Some(n) = cells.get(i + 1) else { return false };
+        c[1] == p[1] && n[1] == c[1] && [n[0] - c[0], n[2] - c[2]] == [c[0] - p[0], c[2] - p[2]] && (c[0] - p[0]).abs() + (c[2] - p[2]).abs() == 1
+    };
+    let mut reps: Vec<usize> = Vec::new();
+    let mut cand: Option<usize> = None;
+    for i in 0..cells.len() {
+        if straight(i) {
+            cand = Some(i);
+        }
+        let since = match reps.last() {
+            Some(&r) => i - r,
+            None => i + 1 + run0,
+        };
+        if since > 14 {
+            let c = cand.filter(|&c| reps.last().is_none_or(|&r| c > r)).ok_or_else(|| anyhow::anyhow!("lay_exact: no straight flat cell for a repeater before {:?}", cells[i]))?;
+            reps.push(c);
+            cand = None;
+        }
+    }
+    let mut k = reps.len();
+    if k == 0 && total_rt == 0 {
+        route_d(b, from, cells, 0, run0, 1)?;
+        return Ok(Vec::new());
+    }
+    if k == 0 && total_rt > 0 {
+        let c = (0..cells.len()).find(|&i| straight(i)).ok_or_else(|| anyhow::anyhow!("lay_exact: no straight flat cell at all on the {}-cell path {from:?} -> {:?}: {cells:?}", cells.len(), cells.last()))?;
+        reps.push(c);
+        k = 1;
+    }
+    if (k as u8) > total_rt {
+        bail!("lay_exact: the path needs {k} repeaters, more than {total_rt} rt");
+    }
+    while (k as u8) * 4 < total_rt {
+        let c = (0..cells.len()).find(|&i| straight(i) && !reps.contains(&i)).ok_or_else(|| anyhow::anyhow!("lay_exact: no room for {total_rt} rt"))?;
+        reps.push(c);
+        reps.sort();
+        k += 1;
+    }
+    let base = total_rt / k as u8;
+    let rem = total_rt as usize % k;
+    let mut start = 0;
+    let mut src = from;
+    let mut placed = Vec::new();
+    for (j, &r) in reps.iter().enumerate() {
+        if r > start {
+            route_d(b, src, &cells[start..r], 0, 0, 1)?;
+        }
+        let p = if r == 0 { from } else { cells[r - 1] };
+        let c = cells[r];
+        b.on(c, &rep(facing_in([c[0] - p[0], 0, c[2] - p[2]]), base + u8::from(j < rem)))?;
+        placed.push(c);
+        src = c;
+        start = r + 1;
+    }
+    if start < cells.len() {
+        route_d(b, src, &cells[start..], 0, 0, 1)?;
+    }
+    Ok(placed)
+}
+
 pub(crate) fn seg_to(cells: &mut Vec<P3>, to: P3) {
     let mut c = *cells.last().expect("seg_to after a start");
     while c != to {
@@ -753,7 +822,25 @@ pub(crate) fn stand_rel(d: &mut Design) -> Result<Vec<P3>> {
         let d = [tap[0] - src[0], tap[1] - src[1], tap[2] - src[2]];
         b.on(tap, &rep(facing_in(d), 1))?;
         let start = [tap[0] + d[0], tap[1] + d[1], tap[2] + d[2]];
-        let lim = crate::autoroute::Limits { lo: [-6, -9, -6], hi: [11, -1, 60], avoid: Default::default(), near_ok: [tap, src].into_iter().collect() };
+        // (kept off the module's REL lead, off the core's REL stone's free side: core (0, 1, -4..-6)
+        // and every cell next to them; and out of the divert unit's box (placed later: its first
+        // frame x 16..34 shifted by UNIT_SHIFT, with its corner route, x -10..11, y -9..-3,
+        // z -3..18))
+        let mut avoid: std::collections::BTreeSet<P3> = Default::default();
+        for x in -10..=11 {
+            for y in -9..=-3 {
+                for z in -3..=18 {
+                    avoid.insert([x, y, z]);
+                }
+            }
+        }
+        for z in [-4, -5, -6, -7] {
+            let c = crate::releasegen::core_place([0, 1, z]);
+            for dc in [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
+                avoid.insert([c[0] + dc[0], c[1] + dc[1], c[2] + dc[2]]);
+            }
+        }
+        let lim = crate::autoroute::Limits { lo: [-6, -9, -6], hi: [11, -1, 60], avoid, near_ok: [tap, src].into_iter().collect() };
         let path = crate::autoroute::find(&b, start, [0, -1, 11], &lim)?;
         route_d(&mut b, tap, &path, 14, 0, 1)?;
         let n = path.iter().filter(|p| b.blocks.get(*p).is_some_and(|s| s.contains("repeater"))).count() as u8;
@@ -920,7 +1007,7 @@ fn mrot(s: &str) -> String {
 /// The night window's inverted daylight detector: west of the module at its depth, nothing of the
 /// farm over it (open sky), its 11-dust strength filter south along x -26 and the night latch at
 /// z 36.
-pub(crate) const DETECTOR: P3 = if FAR { [-5, -9, 55] } else { [-27, -9, 24] };
+pub(crate) const DETECTOR: P3 = if FAR { [9, -9, 55] } else { [-27, -9, 24] };
 /// The siding's force-re-board input F (farmopt's child 58f770cc: (-5, -3, -4) in the siding's
 /// frame), a dust the siding's repeater reads from the south.
 pub(crate) const FORCE: P3 = if SIDING_TURNS == 2 { [SIDING_AT[0] + 5, SIDING_AT[1] - 3, SIDING_AT[2] + 4] } else { [SIDING_AT[0] - 5, SIDING_AT[1] - 3, SIDING_AT[2] - 4] };
@@ -1064,18 +1151,55 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     // z 20, west along z 20 to x -10, north to the feed's row + 1, east along it past the REL-late
     // branch's source (unit (18, -6, 13)) to G2''s feed column, north into its feed (unit
     // (20, -6, 12))
-    b.on([0, -1, 14], &rep("north", 1))?;
     let feed = u([20, -6, 12]);
+    // (the REL-late branch's dust (unit (18, -6, 12)) touches the route on purpose: it reads REL
+    // from it; out of the way while the route checks its neighbours)
+    let lifted: Vec<(P3, String)> = [u([18, -6, 12])].iter().filter_map(|p| b.blocks.remove(p).map(|s| (*p, s))).collect();
+    if FAR {
+        // (column 3 (c), milestone B: the core under the lanes; a 1-rt tap beside its REL dust
+        // (core (-2, 1, -3)) at core (-2, 1, -4), an auto-routed line to the old approach's last
+        // cells (along the feed's row + 1 past the REL-late dust, north into the feed), the
+        // repeaters adding up to the old tap and route's 2 rt + FAR_SHIFT_RT)
+        let src = crate::releasegen::core_place([-2, 1, -3]);
+        let tap = crate::releasegen::core_place([-3, 1, -3]);
+        let dv = [tap[0] - src[0], 0, tap[2] - src[2]];
+        let start = [tap[0] + dv[0], tap[1], tap[2] + dv[2]];
+        let late = u([18, -6, 12]);
+        let tail = vec![[late[0], -6, feed[2] + 1], [late[0] + 1, -6, feed[2] + 1], [feed[0], -6, feed[2] + 1], feed];
+        // (the tap is the first of the line's repeaters, placed before the search so the line
+        // keeps off it)
+        b.on(tap, &rep(facing_in(dv), 1))?;
+        // (the search ends at the approach's first cell and keeps off the rest of it and every cell
+        // next to it)
+        let mut avoid: std::collections::BTreeSet<P3> = Default::default();
+        for t in &tail[1..] {
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        avoid.insert([t[0] + dx, t[1] + dy, t[2] + dz]);
+                    }
+                }
+            }
+        }
+        avoid.remove(&tail[0]);
+        for t in &tail {
+            avoid.remove(&[t[0], t[1] - 1, t[2]]);
+        }
+        let lim = crate::autoroute::Limits { lo: [-10, -9, 13], hi: [11, -3, 55], avoid, near_ok: [tap].into_iter().collect() };
+        let mut rel = crate::autoroute::find(b, start, tail[0], &lim)?;
+        rel.extend(tail[1..].iter().copied());
+        let total = 2 + crate::releasegen::FAR_SHIFT_RT;
+        lay_exact(b, tap, &rel, 0, total - 1)?;
+    } else {
+    b.on([0, -1, 14], &rep("north", 1))?;
     let mut rel = vec![[0, -1, 15]];
     seg_to(&mut rel, [0, -6, 20]);
     seg_to(&mut rel, [-10, -6, 20]);
     seg_to(&mut rel, [-10, -6, feed[2] + 1]);
     seg_to(&mut rel, [feed[0], -6, feed[2] + 1]);
     rel.push(feed);
-    // (the REL-late branch's dust (unit (18, -6, 12)) touches the route on purpose: it reads REL
-    // from it; out of the way while the route checks its neighbours)
-    let lifted: Vec<(P3, String)> = [u([18, -6, 12])].iter().filter_map(|p| b.blocks.remove(p).map(|s| (*p, s))).collect();
     route_d(b, [0, -1, 14], &rel, 14, 0, 1)?;
+    }
     for (p, s) in lifted {
         b.blocks.insert(p, s);
     }
@@ -1144,21 +1268,22 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // (glass over it: a golem's legacy spawn takes a daylight detector for a floor; glass keeps
     // the sky light)
     b.put([DETECTOR[0], DETECTOR[1] + 1, DETECTOR[2]], "minecraft:glass")?;
-    // (column 3 (c): the detector at (-5, -9, 55) under an open column (nothing of the farm over
-    // x -5 at z 55, inside the loop's z <= 55); its eleven dusts west, down a stair north along
-    // x -6 to y -17, east two cells; thr (-5, -17, 45) south of the module's last row (world z 44),
-    // so the latch fits on thr's east side with nothing over its torch; the line on north into a
-    // block (-5, -17, 39) and a wall torch on its east face (lit = day), the day line east along
-    // z 39 through the module's corridor (its (3, -3, -5..-1)) into its day input)
-    let far_thr = [DETECTOR[0], -17, DETECTOR[2] - 10];
+    // (column 3 (c): the detector at (8, -9, 55) under an open column (nothing of the farm over
+    // x 8 at z 55, inside the loop's z <= 55), clear of the module, which fills x -5..4 down to
+    // z 55; its eleven dusts east, down a stair north along x 9 to y -17, on two cells; thr
+    // (9, -17, 44) facing north, the latch on its west side (x 8..5); thr's output auto-routed
+    // (a day/night line: its delay is moot) into the inverter block (-5, -17, 39) from the north,
+    // a wall torch on its east face (lit = day), the day line east along z 39 through the
+    // module's corridor (its (3, -3, -5..-1)) into its day input)
+    let far_thr = [DETECTOR[0] + 1, -17, DETECTOR[2] - 11];
     if FAR {
-        let x = DETECTOR[0] - 1;
+        let x = DETECTOR[0] + 1;
         let mut c = vec![[x, DETECTOR[1], DETECTOR[2]]];
         for k in 1..=8 {
             c.push([x, DETECTOR[1] - k, DETECTOR[2] - k]);
         }
-        c.push([x + 1, -17, DETECTOR[2] - 8]);
-        c.push([x + 1, -17, DETECTOR[2] - 9]);
+        c.push([x, -17, DETECTOR[2] - 9]);
+        c.push([x, -17, DETECTOR[2] - 10]);
         if c.len() != 11 || c[10] != [far_thr[0], far_thr[1], far_thr[2] + 1] {
             bail!("the detector's filter has {} dusts ending at {:?}, not 11 into thr {far_thr:?}", c.len(), c.last());
         }
@@ -1166,14 +1291,27 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
             b.on(*p, DUST)?;
         }
         b.on(far_thr, &rep("south", 1))?;
-        for z in 40..far_thr[2] {
-            b.on([far_thr[0], -17, z], DUST)?;
-        }
-        let blk = [far_thr[0], -17, 39];
+        // (the inverter block at (-6, -17, 39), its torch at (-5, -17, 39): a torch powers the block
+        // over it, and (-4, -16, 39) is the module's REL bus support, so the torch stays off x -4)
+        let blk = [-6, -17, 39];
         b.put(blk, STONE)?;
         b.put([blk[0] + 1, -17, 39], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
         let dl: Vec<P3> = (blk[0] + 2..=-2).map(|xx| [xx, -17, 39]).chain([at([3, -3, -1]), at([3, -2, 0]), at([3, -2, 1])]).collect();
         route_d(&mut b, [blk[0] + 1, -17, 39], &dl, 6, 0, 1)?;
+        // (thr's output north into the inverter: auto-routed to the block's south neighbour's
+        // south neighbour, then north into it; the latch's cells kept clear)
+        let out0 = [far_thr[0], -17, far_thr[2] - 1];
+        let last = [blk[0], -17, blk[2] + 1];
+        let pre = [blk[0], -17, blk[2] + 2];
+        let mut avoid: std::collections::BTreeSet<P3> = Default::default();
+        for dx in 1..=5 {
+            avoid.insert([far_thr[0] - dx, -17, far_thr[2]]);
+        }
+        avoid.insert(last);
+        let lim = crate::autoroute::Limits { lo: [-6, -19, 30], hi: [11, -10, 55], avoid, near_ok: [far_thr, blk].into_iter().collect() };
+        let mut tl = crate::autoroute::find(&b, out0, pre, &lim)?;
+        tl.push(last);
+        route_d(&mut b, far_thr, &tl, 14, 0, 1)?;
     } else {
     for dz in 1..=11 {
         b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + dz], DUST)?;
@@ -1206,13 +1344,39 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // ---- the holds' kick route first (REL from the core's REL stone (-2, -1, 13) through
     // (-2, -1, 14), down a stair south to y -4, west along z 18 to x -21, the delay south along
     // x -21 into the gate KA (-21, -4, 30)): the module's REL and F's rear branch off it (the fold)
+    // (column 3 (c), milestone B: the core under the lanes; the module's REL straight off the
+    // core's REL stone (core (0, 1, -3)) through its one free side, an auto-routed line to the
+    // feed with main's delay + FAR_SHIFT_RT: main brings REL to the module's input block 14 gt
+    // after the stone (release-trace: rel +4, rel_in +18), 7 rt with the feed's repeater; the
+    // layout's own parts (the kick's delay and KA, F, the holds, the T drives) are left out under
+    // `MCTAS_FAR_B_ONLY`, B's check)
+    let b_only = FAR && std::env::var("MCTAS_FAR_B_ONLY").is_ok();
+    let mut rel: Vec<P3> = Vec::new();
+    let mut unlock_src: Option<P3> = None;
+    let mut tap_x = 0;
+    if FAR {
+        // (a straight lead off the stone's free side along core x 0 (core (0, 1, -4..-7), all
+        // free): a 1-rt repeater, a dust (the night latch's unlock taps it, REL + 2 gt), a 4-rt and
+        // a 3-rt repeater (8 rt in all), then an auto-routed stair down to the feed that holds none)
+        let stone = crate::releasegen::core_place([0, 1, -3]);
+        let lead: Vec<P3> = (4..=8).map(|z| crate::releasegen::core_place([0, 1, -z])).collect();
+        let dv = [lead[0][0] - stone[0], 0, lead[0][2] - stone[2]];
+        let total = 7 - 1 + crate::releasegen::FAR_SHIFT_RT;
+        b.on(lead[0], &rep(facing_in(dv), 1))?;
+        b.on(lead[1], DUST)?;
+        b.on(lead[2], &rep(facing_in(dv), 4))?;
+        b.on(lead[3], &rep(facing_in(dv), total - 5))?;
+        let lim = crate::autoroute::Limits { lo: [-6, -17, 14], hi: [11, -3, 55], avoid: Default::default(), near_ok: [lead[3]].into_iter().collect() };
+        rel = crate::autoroute::find(&b, lead[4], [-6, -16, 29], &lim)?;
+        lay_exact(&mut b, lead[3], &rel, 0, 0)?;
+        unlock_src = Some(lead[1]);
+    }
+    if !FAR {
     let mut kr = vec![[-2, -1, 14], [-2, -1, 15]];
     for k in 1..=3 {
         kr.push([-2, -1 - k, 15 + k]);
     }
-    // (column 3 (c): the delay chain and KA at x -10, under the release core's west half (y -2..-1),
-    // inside x >= -11 with the core)
-    let kx = if FAR { -10 } else { -21 };
+    let kx = -21;
     seg_to(&mut kr, [kx, -4, 18]);
     route(&mut b, [-2, -1, 13], &kr, 6)?;
     let kick_delay = 6;
@@ -1223,6 +1387,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         b.on([kx, -4, z], DUST)?;
     }
     b.on([kx, -4, 30], &comp("north", "subtract"))?;
+    }
     // (a dust of the kick route along z 18 near x0, to branch from: a repeater there would not
     // feed a repeater beside it)
     let kick_dust_near = |b: &B, x0: i32| -> Result<i32> {
@@ -1237,27 +1402,17 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // REL into the module: a repeater on the kick route's dust near x -16 into (x, -4, 20), down a
     // stair west along z 20 to y -15, west to x -27, south along x -27 to z 28, east into the
     // module's feed dust and its repeater into the input block (module (14, -2, -4))
-    let tap_x = kick_dust_near(&b, if FAR { -8 } else { -16 })?;
+    if !FAR {
+    tap_x = kick_dust_near(&b, -16)?;
     // (2 rt: the module's REL at the time the old route brought it, so its outputs keep their times)
     b.on([tap_x, -4, 19], &rep("north", 2))?;
-    let mut rel = vec![[tap_x, -4, 20]];
-    if FAR {
-        // (column 3 (c): on south one cell, down a stair south along the tap's x to y -16 (past
-        // the unit's REL-in row at z 20, y -6), east to x -6 (the module's west column, free
-        // there), north along it to z 29; the feed dust (-6, -16, 28) next)
-        rel.push([tap_x, -4, 21]);
-        for k in 1..=12 {
-            rel.push([tap_x, -4 - k, 21 + k]);
-        }
-        seg_to(&mut rel, [-6, -16, 33]);
-        seg_to(&mut rel, [-6, -16, 29]);
-    } else {
+    rel = vec![[tap_x, -4, 20]];
     seg_to(&mut rel, [tap_x - 11, -15, 20]);
     seg_to(&mut rel, [-27, -15, 20]);
     seg_to(&mut rel, [-27, -15, 28]);
     seg_to(&mut rel, at([14, -2, -7]));
-    }
     route_d(&mut b, [tap_x, -4, 19], &rel, rel_every(), 0, 1)?;
+    }
     // (the feed dust touches the module's REL branch on purpose: the same signal)
     b.on(at([14, -2, -6]), DUST)?;
     b.on(at([14, -2, -5]), &mrot(&rep("north", 1)))?;
@@ -1275,21 +1430,27 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         // its block, thr + 4 the unlock's repeater into that block, fed from (0, -17, 45) by a line
         // auto-routed off the REL branch's last flat run)
         let thr = far_thr;
-        b.on([thr[0] + 4, thr[1], thr[2]], &rep("east", 4))?;
-        b.put([thr[0] + 3, thr[1], thr[2]], STONE)?;
-        b.put([thr[0] + 2, thr[1], thr[2]], "minecraft:redstone_wall_torch[facing=west,lit=true]")?;
-        b.on([thr[0] + 1, thr[1], thr[2]], &rep("east", 4))?;
-        let sink = [thr[0] + 5, thr[1], thr[2]];
-        let tap = rel.iter().rev().copied().find(|c| b.blocks.get(c).is_some_and(|s| s.contains("redstone_wire")) && c[1] == -16).ok_or_else(|| anyhow::anyhow!("the REL branch has no dust at y -16 to tap"))?;
-        let (tr, start) = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
-            .iter()
-            .map(|d| ([tap[0] + d[0], tap[1], tap[2] + d[2]], [tap[0] + 2 * d[0], tap[1], tap[2] + 2 * d[2]]))
-            .find(|(r, s)| b.blocks.get(r).is_none() && b.blocks.get(s).is_none() && !rel.contains(r) && !rel.contains(s))
-            .ok_or_else(|| anyhow::anyhow!("no free side of the REL branch's {tap:?} for the unlock's tap"))?;
-        b.on(tr, &rep(facing_in([tr[0] - tap[0], 0, tr[2] - tap[2]]), 1))?;
-        let lim = crate::autoroute::Limits { lo: [-6, -18, 14], hi: [11, -10, 55], avoid: Default::default(), near_ok: [tr, [thr[0] + 4, thr[1], thr[2]]].into_iter().collect() };
+        b.on([thr[0] - 4, thr[1], thr[2]], &rep("west", 4))?;
+        b.put([thr[0] - 3, thr[1], thr[2]], STONE)?;
+        b.put([thr[0] - 2, thr[1], thr[2]], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
+        b.on([thr[0] - 1, thr[1], thr[2]], &rep("west", 4))?;
+        let sink = [thr[0] - 5, thr[1], thr[2]];
+        // (the unlock off the REL lead's dust: a 1-rt tap on its east side, an auto-routed line
+        // with 8 rt more (measured: 4 rt dropped the lock at golem + 26), so the lock drops at
+        // + 34: main's + 30 and the controller's FAR_SHIFT)
+        let src = unlock_src.ok_or_else(|| anyhow::anyhow!("no REL lead to tap for the unlock"))?;
+        let d = [1, 0, 0];
+        let tr = [src[0] + d[0], src[1], src[2] + d[2]];
+        let start = [tr[0] + d[0], tr[1], tr[2] + d[2]];
+        b.on(tr, &rep(facing_in(d), 1))?;
+        let lim = crate::autoroute::Limits { lo: [-6, -18, 14], hi: [11, -3, 55], avoid: Default::default(), near_ok: [tr, [thr[0] - 4, thr[1], thr[2]]].into_iter().collect() };
         let lk = crate::autoroute::find(&b, start, sink, &lim)?;
-        route_d(&mut b, tr, &lk, 3, 0, 1)?;
+        lay_exact(&mut b, tr, &lk, 0, 8)?;
+        let laid = true;
+        let why = String::new();
+        if !laid {
+            bail!("no tap on the REL branch reaches the latch's unlock input {sink:?} (last: {why})");
+        }
     } else {
     let thr = [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 12];
     // (the unlock: a repeater off the module's REL branch where its stair crosses x thr + 5, south
@@ -1334,7 +1495,27 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     if !FAR {
         seg_to(&mut nv, unit_at([16, -6, 10]));
     }
+    if FAR {
+        // (column 3 (c): the route is shorter than main's (12 gt from the module's NV to the
+        // unit's junction against main's 22): its repeaters (every 6) are given delays adding up
+        // to main's 11 rt, so NV reaches the unit main's + 4 gt like every controller line)
+        route(&mut b, nv_port, &nv, 6)?;
+        let reps: Vec<P3> = nv.iter().copied().filter(|p| b.blocks.get(p).is_some_and(|s| s.contains("repeater"))).collect();
+        let k = reps.len() as u8;
+        // (measured: 12 gt module NV -> unit junction with these at 1 rt; main 22: 5 rt more)
+        let want: u8 = k + 5;
+        if k == 0 || want < k || want > 4 * k {
+            bail!("the NV route has {k} repeaters: cannot spread {want} rt over them");
+        }
+        for (j, p) in reps.iter().enumerate() {
+            let d = want / k + u8::from((j as u8) < want % k);
+            let s = b.blocks[p].clone();
+            let s = s.split("delay=").enumerate().map(|(i, part)| if i == 1 { format!("{d}{}", &part[1..]) } else { part.to_string() }).collect::<Vec<_>>().join("delay=");
+            b.blocks.insert(*p, s);
+        }
+    } else {
     route(&mut b, nv_port, &nv, 6)?;
+    }
     let (t1_row, t2_row) = divert_unit(&mut b)?;
     b.blocks.insert(DIVERT, STONE.into());
     // ---- T1 and T2 from the unit's ring: each T's support driven from below by two torches (a
@@ -1351,7 +1532,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // T1 = NOT l1: off row 1 at (24, -6, 1), north, down a stair to y -11, west along z -5, south
     // along x -17, up a stair south to (-17, -4, 27), into (-17, -4, 28)
     // (WIP, column 3 (c): `MCTAS_FAR_NO_T` leaves T1 and T2 unwired, to lay their routes out)
-    let skip_t = FAR && std::env::var("MCTAS_FAR_NO_T").is_ok();
+    let skip_t = FAR && (std::env::var("MCTAS_FAR_NO_T").is_ok() || b_only);
     if !skip_t {
     let mut t1 = vec![[t1_row[0], -6, t1_row[2] - 1]];
     for k in 1..=5 {
@@ -1428,6 +1609,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     tower(&mut b, T2)?;
     }
     }
+    if !b_only {
     // ---- the holds' kick: REL from the core's REL stone (-2, -1, 13) through (-2, -1, 14), down a
     // stair south to y -4, west along z 18 to x -21, a delay (`kick_delay` repeaters of 4 gt)
     // south along x -21, the gate KA (-21, -4, 30): REL late minus NS5 (the module's NOT "a
@@ -1633,6 +1815,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         b.put([h[0], 0, h[2] + 2], STONE)?;
         b.on([h[0] - 1, 0, h[2] + 2], &rep("west", ra))?;
         b.on([h[0] - 2, 0, h[2] + 2], DUST)?;
+    }
     }
     // (the divert unit's ring items)
     for (q, n) in &b.nbt {
