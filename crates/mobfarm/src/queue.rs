@@ -1274,7 +1274,8 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         let n = o.approach as i32;
         let foot = 2 * n - 1;
         while z > foot {
-            path.push(([xb, 1, z], Cell::Boost));
+            // (`approach_climb_boost`: the run plain, the acceleration on the climb)
+            path.push(([xb, 1, z], if o.approach_climb_boost { Cell::Plain } else { Cell::Boost }));
             z -= 1;
         }
         for k in 0..n {
@@ -3645,6 +3646,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut bed_min_app: Option<(f64, String)> = None;
     let mut approach_log: Vec<String> = Vec::new();
     let (mut head_pending, mut head_off_at, mut head_held): (bool, Option<i64>, Vec<i64>) = (false, None, Vec::new());
+    let mut stand_emptied = true;
     let (mut clear_last_busy, mut clear_raw_was, mut clear_eff, mut clear_held): (Option<i64>, bool, bool, i64) = (None, false, false, 0);
     let mut clear_rises: Vec<(i64, i64, Option<i64>)> = Vec::new();
     let mut t_still = [0u32; 21];
@@ -4258,9 +4260,25 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     })
                 })
             });
+        // (and, cart evidence, the stand emptied since the head's last launch: no cart on the
+        // stand's strip (x xb+1 ..= xb+12, z 0) at some tick since; ironspec 2026-11-11)
+        if tm.head_wait {
+            let xb = -o.row_gap as f64;
+            let on_stand = carts.iter().any(|id| {
+                run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).is_some_and(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    lx >= xb + 1.0 && lx < xb + 13.0 && (0.0..1.0).contains(&lz)
+                })
+            });
+            if !on_stand {
+                stand_emptied = true;
+            }
+        }
+        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied);
         if head_pending && !dep_busy {
             set(&mut run.world, &release_group[..], true);
             head_pending = false;
+            stand_emptied = false;
             head_off_at = Some(t + (tm.release_for - tm.release_start).max(1));
         }
         if head_off_at == Some(t) {
@@ -4271,6 +4289,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             head_pending = true;
             head_held.push(c);
         } else if c < cycles && dt == tm.release_start {
+            stand_emptied = false;
             set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
             // (`entry_speed`: a speed kick along each release cart's slope, the tolerance probe)
             if tm.entry_speed != 0.0 {
@@ -6323,9 +6342,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 cell[0], cell[1], cell[2], held_rises.len(), if held_rises.is_empty() { String::new() } else { format!(" ({})", held_rises.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) },
                 min.map_or("- (never occupied)".to_string(), |(m, c, d)| format!("{m} gt (slot {c} +{d})"))
             ));
-            if tm.head_wait {
-                out.push(format!("head release waited on departure-clear in {} slots{}", head_held.len(), if head_held.is_empty() { String::new() } else { format!(" ({})", head_held.iter().take(8).map(|c| format!("slot {c}")).collect::<Vec<_>>().join(", ")) }));
-            }
+        }
+        if tm.head_wait {
+            out.push(format!("head release waited (departure-clear, the stand emptied since its last launch) in {} slots{}", head_held.len(), if head_held.is_empty() { String::new() } else { format!(" ({})", head_held.iter().take(8).map(|c| format!("slot {c}")).collect::<Vec<_>>().join(", ")) }));
         }
         if o.approach > 0 {
             let [ca, cb, cc, ck, co] = t_causes;
