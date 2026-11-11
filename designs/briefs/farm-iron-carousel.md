@@ -548,7 +548,7 @@ station needs no drop and no overworld kill.
 - **No merged carts.** Merged carts (two carts within 0.01 of each other, which the game's cart push
   never separates) are a hard fail anywhere in the loop; every runner checks for them. "Within
   0.01" is the horizontal distance between two carts whose boxes the push would pair (they overlap
-  once inflated 0.2 sideways, as Entity.pushEntities collects them; AbstractMinecart.push skips a
+  once inflated 0.2 sideways, as the minecart's own collector OldMinecartBehavior.pushAndPickupEntities collects them; AbstractMinecart.push skips a
   pair whose squared horizontal distance is under 1.0E-4), so carts on stacked tracks a block apart
   are not merged. The one check is `mobfarm::merge` (with its test), which every runner calls. Why:
   a cart sliding into a resting one on a slope gets pressed to the identical spot, and a merged pair
