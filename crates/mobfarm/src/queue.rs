@@ -1419,6 +1419,8 @@ pub struct Visit {
     pub release_cells: [Option<BlockPos>; 3],
     /// T1/T2 set the tick before the release (one release past them) instead of at the divert.
     pub t_at_release: bool,
+    /// T1/T2's set moved by this many gt (the sweep's "t-set").
+    pub t_at: i64,
     /// Observed: the file drives its own controls; a visit is a cart on `branch`, the divert's
     /// branch rail (the bench writes no control cell).
     pub observe: bool,
@@ -1574,7 +1576,23 @@ pub fn loop_shifted(tm: &LoopTiming, control: &str, s: i64) -> Result<LoopTiming
         "rel-start" => t.pocket_release += s,
         "rel-for" => t.rel_for += s,
         "rel-on" => t.rel_on += s,
-        _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, pocket-release, pocket-reset, gate-close, rel-start, rel-for, rel-on, speed")),
+        // (the nap visits' junction timings, bench-driven: the divert's 10 gt window, T1/T2's set,
+        // the holds' kick (every cart's release tick); a design whose controller drives them is
+        // shifted by moving its own delays instead)
+        "divert" | "t-set" | "kick" => {
+            let v = t.visit.as_mut().ok_or_else(|| format!("{control}: the visit timings need --visit or --visits-nightly"))?;
+            match control {
+                "divert" => v.divert_at += s,
+                "t-set" => v.t_at += s,
+                _ => {
+                    v.release_at += s;
+                    for r in v.release_k.iter_mut().flatten() {
+                        *r += s;
+                    }
+                }
+            }
+        }
+        _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, pocket-release, pocket-reset, gate-close, rel-start, rel-for, rel-on, divert, t-set, kick, speed")),
     }
     Ok(t)
 }
@@ -2468,7 +2486,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 // way from the siding to its hold, so they are set as it is diverted (the visit
                 // before it has passed them by then, 4 slots on); with one release past them
                 // (--visit-t-at-release), the tick before that release)
-                if now == if v.t_at_release { r0 - 1 } else { d0 + 1 } {
+                if now == if v.t_at_release { r0 - 1 } else { d0 + 1 } + v.t_at {
                     let drop = q - 4 - vr.k;
                     for (cell, powered) in [(v.t1, drop != q - 4), (v.t2, drop == q - 6)] {
                         sets.push((cell, target.clone()));
