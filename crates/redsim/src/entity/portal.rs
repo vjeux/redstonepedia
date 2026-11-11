@@ -329,60 +329,27 @@ fn place(w: &mut World, c: Crossing, radius: i32, ticket: bool) {
         e.random = Some(w.construct());
     }
     // (tickexact 2026-11-10, the bridge's Nether sandbox) what `restoreFrom` (`load` of its saved
-    // data) does not carry: a new entity's own state. Its tick count, first tick, collisions and
-    // fluid state; a mob's goals and controls (`registerGoals` again: `MobAi::new`), its speed and
-    // inputs, its noActionTime, damage cooldown, last hurt and damage source. Kept: what its data
-    // saves (health, fire, air, fall distance, hurt and death time, effects, attributes, equipment,
-    // persistence, brain memories).
+    // data) does not carry: a new entity's own state (`entity::restore_fresh`); the saved anger
+    // target it resolves in any dimension (a Nether copy of a golem angry at an overworld zombie
+    // keeps that zombie, `target::Who::Foreign`)
+    // (the old entity's rotation: teleportSetPosition turns it, unwrapped, PositionMoveRotation.of)
+    let (old_yaw, old_pitch) = (e.y_rot, e.x_rot);
     if living_copy {
-        e.tick_count = 0;
-        e.first_tick = true;
-        e.horizontal_collision = false;
-        e.vertical_collision = false;
-        e.vertical_collision_below = false;
-        e.minor_horizontal_collision = false;
-        e.was_touching_water = false;
-        e.was_eye_in_water = false;
-        e.fluid_height = [0.0; 2];
-        e.fluid = Default::default();
-        e.invulnerable_time = 0;
-        e.stuck_speed = crate::entity::Vec3::ZERO;
-        e.main_support = None;
-        e.movement_this_tick.clear();
-        e.final_movements.clear();
-        let yaw = e.y_rot;
-        if let EntityKind::Mob(m) = &mut e.kind {
-            if let Some(old) = m.ai.take() {
-                let mut fresh = crate::entity::mob::ai::MobAi::new(m.ty, yaw);
-                // NeutralMob's saved anger (readPersistentAngerSaveData): its end time and target,
-                // and the target it resolves in any dimension (setTarget: a Nether copy of a golem
-                // angry at an overworld zombie keeps that zombie, `target::Who::Foreign`)
-                fresh.anger_end = old.anger_end;
-                fresh.anger_target = old.anger_target;
-                fresh.target = old.anger_target;
-                m.ai = Some(Box::new(fresh));
-            }
-            m.no_action_time = 0;
-            m.damage_cooldown = 0;
-            m.last_hurt = 0.0;
-            m.speed = 0.0;
-            m.xxa = 0.0;
-            m.zza = 0.0;
-            m.jumping = false;
-            m.no_jump_delay = 0;
-            m.last_damage = None;
-            m.lava_height = 0.0;
-            m.on_climbable = false;
-            m.climbing = false;
+        crate::entity::restore_fresh(&mut e);
+        if let EntityKind::Mob(m) = &mut e.kind
+            && let Some(a) = m.ai.as_deref_mut()
+        {
+            a.target = a.anger_target;
         }
     }
     let dims = e.kind.dims();
     let pos = collision_free(w, arrival(&r, c.rel, dims), dims);
-    // Entity.load gave the head and the body the saved yaw; the transition's relative rotation
-    // then turns the yaw by 90 when the portals' axes differ, and teleportSetPosition gives the
-    // head the new yaw too (setYHeadRot), the body keeping the saved one
-    let loaded = e.y_rot;
-    e.y_rot += if r.x_axis == c.x_axis { 0.0 } else { 90.0 };
+    // Entity.load gave the head and the body the saved yaw; teleportSetPosition then sets the yaw
+    // (and the head) to the old entity's turned by the transition's relative rotation (90 when the
+    // portals' axes differ), the pitch to its own, the body keeping the saved yaw
+    let loaded = old_yaw;
+    e.y_rot = old_yaw + if r.x_axis == c.x_axis { 0.0 } else { 90.0 };
+    e.x_rot = old_pitch;
     let turned = e.y_rot;
     if let EntityKind::Mob(m) = &mut e.kind
         && let Some(a) = m.ai.as_deref_mut()

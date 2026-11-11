@@ -509,6 +509,66 @@ fn spawn_falling_block(w: &mut World, pos: [f64; 3], nbt: Option<&str>) -> Resul
     Ok(id)
 }
 
+/// (tickexact 2026-11-10) `EntityType.create` + `load` of another entity's saved data (a portal
+/// copy's `restoreFrom`; a chunk's entities loaded again, `reload::load_all`): what the new object
+/// starts fresh. Its tick count, first tick, collisions and fluid state; a mob's goals and
+/// controls (`registerGoals` again: `MobAi::new`, keeping NeutralMob's saved anger end and target,
+/// no target yet: the caller resolves it), its speed and inputs, noActionTime, damage cooldown,
+/// last hurt and damage source; its rotation as `Entity.load` leaves it (yaw and pitch modulo 360,
+/// head, body and the old rotation the saved values). Kept: what its data saves (position,
+/// motion, fall distance, fire, air, invulnerable time, health, hurt and death time, effects,
+/// attributes, equipment, persistence, brain memories: a villager's brain is the caller's,
+/// `reload`). Its id, random and section entry are the caller's.
+pub fn restore_fresh(e: &mut Entity) {
+    e.tick_count = 0;
+    e.first_tick = true;
+    e.horizontal_collision = false;
+    e.vertical_collision = false;
+    e.vertical_collision_below = false;
+    e.minor_horizontal_collision = false;
+    e.was_touching_water = false;
+    e.was_eye_in_water = false;
+    e.fluid_height = [0.0; 2];
+    e.fluid = Default::default();
+    e.stuck_speed = Vec3::ZERO;
+    e.main_support = None;
+    e.movement_this_tick.clear();
+    e.final_movements.clear();
+    // Entity.load: the saved rotation, the old position and rotation set from it, head and body
+    // the saved yaw; then setRot(yRot, xRot) keeps each modulo 360 (a saved 360 comes back 0, the
+    // head and the body still 360)
+    let (yaw, pitch) = (e.y_rot, e.x_rot);
+    e.xo = e.pos.x;
+    e.yo = e.pos.y;
+    e.zo = e.pos.z;
+    e.y_rot_o = yaw;
+    e.x_rot_o = pitch;
+    e.y_rot = yaw % 360.0;
+    e.x_rot = pitch % 360.0;
+    if let EntityKind::Mob(m) = &mut e.kind {
+        if let Some(old) = m.ai.take() {
+            let mut fresh = crate::entity::mob::ai::MobAi::new(m.ty, yaw);
+            fresh.anger_end = old.anger_end;
+            fresh.anger_target = old.anger_target;
+            fresh.y_head_rot = yaw;
+            fresh.y_body_rot = yaw;
+            m.ai = Some(Box::new(fresh));
+        }
+        m.no_action_time = 0;
+        m.damage_cooldown = 0;
+        m.last_hurt = 0.0;
+        m.speed = 0.0;
+        m.xxa = 0.0;
+        m.zza = 0.0;
+        m.jumping = false;
+        m.no_jump_delay = 0;
+        m.last_damage = None;
+        m.lava_height = 0.0;
+        m.on_climbable = false;
+        m.climbing = false;
+    }
+}
+
 impl Entities {
     /// `addFreshEntity`: appended (ticked after every older entity). Returns its id.
     pub fn add(&mut self, kind: EntityKind, pos: Vec3, y_rot: f32) -> u32 {
