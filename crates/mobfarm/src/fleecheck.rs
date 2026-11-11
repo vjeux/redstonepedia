@@ -1,9 +1,11 @@
 //! (tickexact 2026-11-11, ironspec's HOME rule after 58f770cc's finding) The walk-target static
 //! check: from every place a rider can be (each rail cell of the design, the rider seated in a cart
 //! there), every cell its brain can take as a walk target, the chance each event picks it, and
-//! whether the rider has a complete path to it (redsim's villager pathfinder: a path is capped by the
-//! villager's FOLLOW_RANGE, 16 x (1 + a spawn bonus within +-0.11485), its visited nodes by 16x
-//! that). A target with no complete path starts the rider's CANT_REACH count, which nothing clears
+//! whether the rider has a complete path to it (redsim's villager pathfinder: the villager's own
+//! navigation, `setRequiredPathLength(48)`: the path's walked length under 48 and its search
+//! stopping after 767 nodes, ironspec Nov 11 11:48; `mctas mobai flee-control` holds the
+//! reachability controls). A target with no complete path starts the rider's CANT_REACH count, which
+//! nothing clears
 //! until a path reaches; at its first REST tick by the bed a count over 1,200 gt releases HOME (the
 //! bench's z -5 stone: scene flee-stone bridges the flee's part against the game).
 //!
@@ -87,10 +89,187 @@ fn hostiles(spec: &FarmSpec) -> Vec<Vec3> {
         .collect()
 }
 
+/// A cart's path through rail cell `c` (shape from `state`) as a segment, 0.0625 over the rail's
+/// surface: straight and sloped rails from edge to edge (a slope rising toward its side), a curve
+/// between its two exits (the cart runs the chord between them). None for an unknown shape.
+pub fn rail_segment(c: BlockPos, state: &str) -> Option<(Vec3, Vec3)> {
+    let (x, y, z) = (c.x as f64, c.y as f64 + 0.0625, c.z as f64);
+    let s = state.split("shape=").nth(1)?.split([',', ']']).next()?;
+    Some(match s {
+        "north_south" => (Vec3::new(x + 0.5, y, z), Vec3::new(x + 0.5, y, z + 1.0)),
+        "east_west" => (Vec3::new(x, y, z + 0.5), Vec3::new(x + 1.0, y, z + 0.5)),
+        "ascending_east" => (Vec3::new(x, y, z + 0.5), Vec3::new(x + 1.0, y + 1.0, z + 0.5)),
+        "ascending_west" => (Vec3::new(x, y + 1.0, z + 0.5), Vec3::new(x + 1.0, y, z + 0.5)),
+        "ascending_south" => (Vec3::new(x + 0.5, y, z), Vec3::new(x + 0.5, y + 1.0, z + 1.0)),
+        "ascending_north" => (Vec3::new(x + 0.5, y + 1.0, z), Vec3::new(x + 0.5, y, z + 1.0)),
+        "south_east" => (Vec3::new(x + 0.5, y, z + 1.0), Vec3::new(x + 1.0, y, z + 0.5)),
+        "south_west" => (Vec3::new(x + 0.5, y, z + 1.0), Vec3::new(x, y, z + 0.5)),
+        "north_west" => (Vec3::new(x + 0.5, y, z), Vec3::new(x, y, z + 0.5)),
+        "north_east" => (Vec3::new(x + 0.5, y, z), Vec3::new(x + 1.0, y, z + 0.5)),
+        _ => return None,
+    })
+}
+
+/// The least distance from point `p` to segment `a`-`b`, and the segment's nearest point.
+pub fn seg_dist(a: Vec3, b: Vec3, p: Vec3) -> (f64, Vec3) {
+    let (dx, dy, dz) = (b.x - a.x, b.y - a.y, b.z - a.z);
+    let l2 = dx * dx + dy * dy + dz * dz;
+    let t = if l2 > 0.0 { (((p.x - a.x) * dx + (p.y - a.y) * dy + (p.z - a.z) * dz) / l2).clamp(0.0, 1.0) } else { 0.0 };
+    let q = Vec3::new(a.x + t * dx, a.y + t * dy, a.z + t * dz);
+    (((p.x - q.x).powi(2) + (p.y - q.y).powi(2) + (p.z - q.z).powi(2)).sqrt(), q)
+}
+
 /// The 6-8 rule's bars (ironspec Nov 11 10:54, scene flee-distance bridged): a zombie inside 6.05
 /// of a rider position fails; a declared panic place needs one seen within 7.95.
 pub const FLEE_BAR: f64 = 6.05;
 pub const PANIC_BAR: f64 = 7.95;
+
+/// One rider position whose eye sits inside a block with a collision shape.
+pub struct EyeHit {
+    /// The rail cell (the place).
+    pub cell: BlockPos,
+    /// The seated rider's eye.
+    pub eye: Vec3,
+    /// The block its eye box meets, and its state.
+    pub block: BlockPos,
+    pub state: String,
+    /// The block suffocates (`isSuffocating`: `Entity.isInWall` hurts the rider every tick).
+    pub suffocating: bool,
+}
+
+/// The reachability controls (ironspec Nov 11 11:48: flee-check's paths are the villager's own
+/// navigation, required length 48, the search stopping after 767 nodes): a villager at (1,1,1) in
+/// a serpentine corridor one block wide (an open floor beside a wall measured unreachable at a
+/// walk of about 30: the search's walked distances, overwritten from every neighbour as the game's
+/// are, inflate there); target A (1,1,4) a 31-long walk (reachable at 48, unreachable at a 14-17.8
+/// follow range); target B (1,1,10) a 63-long walk (unreachable); target C (3,1,1) plain. Each
+/// target's reach (a complete path, reach 0) and the path's node count.
+pub fn reach_control() -> Result<Vec<(&'static str, bool, usize, bool)>, String> {
+    let stone = redsim::block::Block::parse("minecraft:stone")?;
+    // (a serpentine corridor one block wide, walled everywhere else so no open floor can inflate
+    // the search's walked distances: east along z 1 (x 1..15), north at x 15 (z 2..3), west along
+    // z 4 (to x 1), north at x 1 (z 5..6), east along z 7, north at x 15 (z 8..9), west along z 10)
+    let mut open: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    for x in 1..=15 {
+        open.insert((x, 1));
+        open.insert((x, 4));
+        open.insert((x, 7));
+        open.insert((x, 10));
+    }
+    for z in [2, 3, 8, 9] {
+        open.insert((15, z));
+    }
+    for z in [5, 6] {
+        open.insert((1, z));
+    }
+    let mut blocks = Vec::new();
+    for x in -1..=17 {
+        for z in -1..=12 {
+            blocks.push((BlockPos::new(x, 0, z), stone.clone()));
+            if !open.contains(&(x, z)) {
+                for y in 1..=3 {
+                    blocks.push((BlockPos::new(x, y, z), stone.clone()));
+                }
+            }
+        }
+    }
+    let spec = FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(60, 1, 12), lo: BlockPos::new(-4, -2, -4), hi: BlockPos::new(64, 12, 16), block_entities: Vec::new(), rock: false, nether: None, land: false };
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(&spec, &o)?;
+    while run.settle_tick() {}
+    let w = &mut run.world;
+    let vid = redsim::entity::spawn(w, "minecraft:villager", [1.5, 1.0, 1.5], Some("{PersistenceRequired:1b}"))?;
+    let i = redsim::entity::index_of(w, vid).ok_or("the control's villager")?;
+    // (standing on the floor: on the ground, as `canUpdatePath` needs)
+    w.entities.list[i].on_ground = true;
+    let mut out = Vec::new();
+    for (name, t, want) in [("C plain, 2 along the corridor (3,1,1)", BlockPos::new(3, 1, 1), true), ("A a 31-long corridor walk (1,1,4)", BlockPos::new(1, 1, 4), true), ("B a 63-long corridor walk (1,1,10)", BlockPos::new(1, 1, 10), false)] {
+        let (reached, nodes) = redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
+            let mut copy = nav.clone();
+            copy.create_path_pos(w, nm, t, 0, arena).map_or((false, 0), |p| (p.reached, p.nodes.len()))
+        });
+        out.push((name, reached, nodes, reached == want));
+    }
+    Ok(out)
+}
+
+/// The eye check (ironspec Nov 11 11:53, after 58f770cc's R plate support): at every rail cell,
+/// the rider seated at three points along it, its eye box (`Entity.isInWall`'s: width x 0.8 around
+/// the eye, 1e-6 tall) against every block with a collision shape. A suffocating one hurts the
+/// rider every tick (the census: a cause of a rider's death the farm must exclude); any other
+/// (glass, a closed gate, a slab) blinds it, since its sight ray starts inside the shape. With
+/// `control`, a stone set at the eye cell of the first rail cell whose eye cell is air first (the
+/// positive control: it must fail). Returns the places checked and the hits.
+pub fn eye_check(spec: &FarmSpec, control: bool) -> Result<(usize, Vec<EyeHit>), String> {
+    let mut s = spec.clone();
+    s.entities.clear();
+    let mut rails: Vec<(BlockPos, String)> = s.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
+    rails.sort_by_key(|(p, _)| (p.x, p.y, p.z));
+    if control {
+        let taken: std::collections::HashSet<BlockPos> = s.blocks.iter().map(|(p, _)| *p).collect();
+        if let Some((c, _)) = rails.iter().find(|(c, _)| !taken.contains(&BlockPos::new(c.x, c.y + 1, c.z))) {
+            s.blocks.push((BlockPos::new(c.x, c.y + 1, c.z), redsim::block::Block::parse("minecraft:stone")?));
+        }
+    }
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(&s, &o)?;
+    while run.settle_tick() {}
+    let w = &mut run.world;
+    let mut hits = Vec::new();
+    for (c, state) in &rails {
+        let p0 = along_rail(*c, state, 0.5);
+        let cart = redsim::entity::spawn(w, "minecraft:minecart", [p0.x, p0.y, p0.z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
+        let Some(ci) = redsim::entity::index_of(w, cart) else { continue };
+        let Some(&vid) = w.entities.list[ci].passengers.first() else { continue };
+        let Some(vi) = redsim::entity::index_of(w, vid) else { continue };
+        let (width, eye_h) = match &w.entities.list[vi].kind {
+            EntityKind::Mob(m) => (m.dims().0 as f64, m.eye() as f64),
+            _ => (0.6, 1.62),
+        };
+        for t in [0.1, 0.5, 0.9] {
+            w.entities.list[ci].pos = along_rail(*c, state, t);
+            redsim::entity::position_rider(w, ci, vi);
+            let me = w.entities.list[vi].pos;
+            let eye = Vec3::new(me.x, me.y + eye_h, me.z);
+            let half = (width as f32 * 0.8f32) as f64 / 2.0;
+            let bb = redsim::entity::Aabb::new(eye.x - half, eye.y - 5.0e-7, eye.z - half, eye.x + half, eye.y + 5.0e-7, eye.z + half);
+            for y in bb.min_y.floor() as i32 - 1..=bb.max_y.floor() as i32 {
+                for z in bb.min_z.floor() as i32..=bb.max_z.floor() as i32 {
+                    for x in bb.min_x.floor() as i32..=bb.max_x.floor() as i32 {
+                        let p = BlockPos::new(x, y, z);
+                        let b = w.get(p);
+                        if b.is_air() || !redsim::entity::collide::boxes_at(w, &b, p).iter().any(|q| q.intersects(bb)) {
+                            continue;
+                        }
+                        if !hits.iter().any(|h: &EyeHit| h.cell == *c && h.block == p) {
+                            hits.push(EyeHit { cell: *c, eye, block: p, state: b.to_string(), suffocating: redsim::entity::mob::blocks::is_suffocating(&b) });
+                        }
+                    }
+                }
+            }
+        }
+        let _ = redsim::entity::kill(w, vid);
+        let _ = redsim::entity::kill(w, cart);
+        w.entities.list.retain(|e| !e.removed);
+    }
+    Ok((rails.len(), hits))
+}
+
+/// The eye check's lines: the suffocation gate (a failing line) and the blind places (information).
+pub fn eye_lines(places: usize, hits: &[EyeHit], show: usize) -> (Vec<String>, bool) {
+    let suff: Vec<&EyeHit> = hits.iter().filter(|h| h.suffocating).collect();
+    let blind: Vec<&EyeHit> = hits.iter().filter(|h| !h.suffocating).collect();
+    let mut lines = vec![format!(
+        "rider eyes (every rail cell, the rider seated at three points; the census: no suffocating block at a rider's eye): {} of {places} places with a suffocating block at the eye{}; {} blind places (the eye inside a collision shape that doesn't suffocate: the sight ray starts inside it)",
+        suff.iter().map(|h| h.cell).collect::<std::collections::HashSet<_>>().len(),
+        if suff.is_empty() { String::new() } else { format!(" ({})", suff.iter().take(8).map(|h| format!("{},{},{} at {},{},{} {}", h.cell.x, h.cell.y, h.cell.z, h.block.x, h.block.y, h.block.z, h.state.trim_start_matches("minecraft:").split('[').next().unwrap_or(""))).collect::<Vec<_>>().join("; ")) },
+        blind.iter().map(|h| h.cell).collect::<std::collections::HashSet<_>>().len()
+    )];
+    for h in blind.iter().take(show.max(1) * 10) {
+        lines.push(format!("  BLIND {},{},{}: the eye at {:.2},{:.2},{:.2} in {} at {},{},{}", h.cell.x, h.cell.y, h.cell.z, h.eye.x, h.eye.y, h.eye.z, h.state, h.block.x, h.block.y, h.block.z));
+    }
+    (lines, !suff.is_empty())
+}
 
 /// The zombies where they sit (ironspec Nov 11 10:54: "every position the zombie can take in its
 /// post, the boat's drift and the zombie's seat height"): each zombie of the settled world at its
@@ -183,6 +362,13 @@ pub fn job_and_bell_blocks(spec: &FarmSpec) -> Vec<(BlockPos, String)> {
 /// cart there, at three points along the rail's axis), and on foot at every rail cell within 1 of the
 /// bed `home` (a dropped napper stands there) and at each `foot` cell; the bed `home` for REST's walk.
 pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])]) -> Result<Vec<Place>, String> {
+    check_with(spec, home, foot, panic_boxes, true)
+}
+
+/// [`check`]; `continuous`: each rider place's least zombie distance also over the cart's whole
+/// path through the cell (the default), else only at the sampled points.
+pub fn check_with(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])], continuous: bool) -> Result<Vec<Place>, String> {
+    let continuous_off = !continuous;
     use redsim::entity::mob::ai::goal::stroll;
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
@@ -230,7 +416,12 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_b
                     w.entities.list[ci].pos = p;
                     redsim::entity::position_rider(w, ci, i);
                 }
-                None => w.entities.list[i].pos = p,
+                None => {
+                    // (a villager standing on the floor is on the ground: `canUpdatePath` needs it,
+                    // else no path is made and every target reads unreachable)
+                    w.entities.list[i].pos = p;
+                    w.entities.list[i].on_ground = true;
+                }
             }
             w.entities.list[i].pos
         };
@@ -328,6 +519,31 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_b
         }
         let others = judge(w, others);
         let home_reached = home.map(|h| reaches(w, h));
+        // (the least distance over the continuous track path, ironspec Nov 11 12:23: the cart's
+        // path through the cell as a segment (a curve's between its two exits, a slope's rising),
+        // the rider's seat offset added, the exact least distance to each zombie's seated position;
+        // the sampled points' least kept when it is lower, as for an on-foot place)
+        if !on_foot && !continuous_off
+            && let Some((_, state)) = rails.iter().find(|(c, _)| *c == cell)
+            && let Some((a, b)) = rail_segment(cell, state)
+        {
+            let cart_mid = along_rail(cell, state, 0.5);
+            let rider_mid = put(w, cart_mid);
+            let off = Vec3::new(rider_mid.x - cart_mid.x, rider_mid.y - cart_mid.y, rider_mid.z - cart_mid.z);
+            let (a, b) = (Vec3::new(a.x + off.x, a.y + off.y, a.z + off.z), Vec3::new(b.x + off.x, b.y + off.y, b.z + off.z));
+            for f in &foes {
+                let (d, q) = seg_dist(a, b, *f);
+                if near.is_none_or(|n| d < n.0) {
+                    near = Some(match near {
+                        None => (d, d, *f),
+                        Some((_, hi, _)) => (d, hi.max(d), *f),
+                    });
+                }
+                if worst.is_none_or(|(wd, _, _)| d < wd) {
+                    worst = Some((d, q, *f));
+                }
+            }
+        }
         let panic_declared = panic_boxes.iter().any(|(a, b)| (a[0]..=b[0]).contains(&cell.x) && (a[1]..=b[1]).contains(&cell.y) && (a[2]..=b[2]).contains(&cell.z));
         out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, near, worst, panic_declared, panic_ok });
         let _ = redsim::entity::kill(w, vid);

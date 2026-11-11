@@ -361,6 +361,14 @@ pub enum MobfarmCmd {
         /// reachable cells, or the calm stroll's reachable share), not only the places with none.
         #[arg(long)]
         clearing: bool,
+        /// The eye check's positive control: a stone set at the first rail cell's rider eye (the
+        /// suffocation gate must fail).
+        #[arg(long)]
+        eye_control: bool,
+        /// Each place's least zombie distance at the three sampled points only (default: also
+        /// the exact least over the cart's whole path through the cell).
+        #[arg(long)]
+        sampled: bool,
     },
     /// One judge run of a design on redsim: its table.
     Run {
@@ -1202,6 +1210,10 @@ pub enum MobfarmCmd {
         /// Skip the walk-target static check altogether.
         #[arg(long)]
         no_flee_check: bool,
+        /// Skip the rider-eye check (by default a suffocating block at any seated rider's eye
+        /// along the track fails the run; the blind places are printed).
+        #[arg(long)]
+        no_eye_check: bool,
         /// The release group's first slope (the head) on this many gt into the slot: 3 is main's
         /// wired controller (q17's rail powered at +3 here, its +4), found by the
         /// bench-against-wired check (Nov 11 07:00, IDENTICAL with --release-stagger 4
@@ -1443,6 +1455,10 @@ pub enum MobfarmCmd {
         /// design whose pad gives the pulse).
         #[arg(long)]
         no_inject: bool,
+        /// Every take-off crossing listed (time, cart, gap, stored and visible speed): a
+        /// departure's arrivals for a trace-diff.
+        #[arg(long)]
+        takeoff_list: bool,
         /// Start each run at a day time drawn from its seed (0..24,000): the power-on sweep. With
         /// a pad, each run prints the first golem, the first release and the releases before the
         /// first one locked to the golem grid (G0 open 1..20 gt after the pad's pulse).
@@ -3007,7 +3023,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check, no_eye_check, takeoff_list } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3103,7 +3119,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some(crate::queue::parse_rider("--watch-mob", s).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 v
-            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_evidence, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, arrival_log, hold_back: match hold_back.as_slice() { [c, d, n] => Some([*c, *d, *n]), [] => None, _ => anyhow::bail!("--hold-back takes C,DT,N") }, p_always, adm_faults: {
+            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, takeoff_list, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_evidence, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, arrival_log, hold_back: match hold_back.as_slice() { [c, d, n] => Some([*c, *d, *n]), [] => None, _ => anyhow::bail!("--hold-back takes C,DT,N") }, p_always, adm_faults: {
                 anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
                 let mut a = [None; 8];
                 for (i, s) in adm_fault.iter().enumerate() {
@@ -3135,6 +3151,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !no_flee_check {
                 let g = crate::queue::flee_gate(&spec, &std::fs::read_to_string(&design)?);
                 let g = (format!("{}{}", g.0, if flee_gate { "" } else { " (printed only: a void bench's verdict; --flee-gate fails the run on it)" }), g.1 && flee_gate);
+                if !sweep.is_empty() || phase_sweep.is_some() {
+                    println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
+                }
+                hdr.static_checks.push(g);
+            }
+            // (the census's rider-eye check, ironspec Nov 11 11:53: a suffocating block at any
+            // seated rider's eye along the track fails the run by default; the blind places
+            // printed)
+            if !no_eye_check {
+                let (n, hits) = crate::fleecheck::eye_check(&spec, false).map_err(|e| anyhow::anyhow!(e))?;
+                let (lines, fails) = crate::fleecheck::eye_lines(n, &hits, 0);
+                let g = (lines.first().cloned().unwrap_or_default(), fails);
                 if !sweep.is_empty() || phase_sweep.is_some() {
                     println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
                 }
@@ -3739,7 +3767,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, sampled } => {
             let (_c, spec) = load(version, &design)?;
             // (the bed: --home, else the design's `port home:` line)
             let text = std::fs::read_to_string(&design)?;
@@ -3752,11 +3780,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(s) => crate::declared::parse_boxes(s).map_err(|e| anyhow::anyhow!("panic: {e}"))?,
                 None => Vec::new(),
             };
-            let places = crate::fleecheck::check(&spec, bed, &foot, &panic_boxes).map_err(|e| anyhow::anyhow!(e))?;
+            let places = crate::fleecheck::check_with(&spec, bed, &foot, &panic_boxes, !sampled).map_err(|e| anyhow::anyhow!(e))?;
             let jobs = crate::fleecheck::job_and_bell_blocks(&spec);
             for l in crate::fleecheck::report_with(&places, &jobs, show, clearing) {
                 println!("{l}");
             }
+            // (the rider eyes: the suffocation gate and the blind places, ironspec Nov 11 11:53)
+            let (n, hits) = crate::fleecheck::eye_check(&spec, eye_control).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, fails) = crate::fleecheck::eye_lines(n, &hits, show);
+            for l in &lines {
+                println!("{l}");
+            }
+            println!("the suffocation gate{}: {}", if eye_control { " (with the positive control's stone)" } else { "" }, if fails { "FAIL" } else { "PASS" });
         }
         MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset } => {
             let (c, spec) = load(version, &design)?;

@@ -1064,6 +1064,11 @@ pub struct TailWatch {
     takeoff: Option<([i32; 3], f64, f64)>,
     prev_xyz: std::collections::HashMap<u32, (f64, f64, f64)>,
     cross_ts: Vec<(f64, String)>,
+    /// (dfb89499's trace-diff of the departure's arrivals) each take-off crossing's cart, stored
+    /// speed (|delta_movement| horizontally) and visible speed (the last tick's displacement along
+    /// the take-off's axis), aligned with `cross_ts`; `list_takeoffs`: every crossing listed.
+    cross_v: Vec<(usize, f64, f64)>,
+    pub list_takeoffs: bool,
     /// A landed cart reaching G0's rest without meeting another: its landing to pressed, in gt
     /// (least, most).
     lone_roll: Option<(i64, i64)>,
@@ -1125,9 +1130,10 @@ impl TailWatch {
         if let Some((tc, dx, dz)) = self.takeoff {
             let (dir, along_x) = if dx != 0.0 { (dx, true) } else { (dz, false) };
             let plane = if along_x { tc[0] as f64 + if dx > 0.0 { 1.0 } else { 0.0 } } else { tc[2] as f64 + if dz > 0.0 { 1.0 } else { 0.0 } };
-            for id in carts {
+            for (ck, id) in carts.iter().enumerate() {
                 let Some(e) = w.entities.list.iter().find(|e| e.id == *id) else { continue };
                 let (x, y, z) = (e.pos.x, e.pos.y, e.pos.z);
+                let stored = e.delta_movement.horizontal_distance();
                 if let Some((px, py, pz)) = self.prev_xyz.insert(*id, (x, y, z)) {
                     let (pc, nc) = if along_x { (px, x) } else { (pz, z) };
                     let row_ok = if along_x { (pz - (tc[2] as f64 + 0.5)).abs() < 0.6 } else { (px - (tc[0] as f64 + 0.5)).abs() < 0.6 };
@@ -1135,6 +1141,7 @@ impl TailWatch {
                     if row_ok && lvl_ok && (pc - plane) * dir < 0.0 && (nc - plane) * dir >= 0.0 && nc != pc {
                         let f = (plane - pc) / (nc - pc);
                         self.cross_ts.push(((t - 1) as f64 + f, format!("slot {c} +{dt}")));
+                        self.cross_v.push((ck, stored, (nc - pc).abs()));
                     }
                 }
             }
@@ -1479,9 +1486,23 @@ impl TailWatch {
                     bad.len(),
                     if bad.is_empty() { String::new() } else { format!(" ({})", bad.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) },
                     self.lone_roll.map_or("-".to_string(), |(a, b)| format!("{a}..{b} gt"))
-                )
+                ) + &{
+                    // (the speeds at the crossing, stored and visible)
+                    let sv: Vec<f64> = self.cross_v.iter().map(|v| v.1).collect();
+                    let vv: Vec<f64> = self.cross_v.iter().map(|v| v.2).collect();
+                    let rng = |v: &[f64]| if v.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", v.iter().cloned().fold(f64::INFINITY, f64::min), v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)) };
+                    format!("; at the crossing the stored speed {} b/t, the visible {} b/t", rng(&sv), rng(&vv))
+                }
             },
         ];
+        // (`--takeoff-list`: every take-off crossing, for a trace-diff of a departure's arrivals)
+        if self.list_takeoffs {
+            let mut prev: Option<f64> = None;
+            for ((tc, label), (k, s, v)) in self.cross_ts.iter().zip(&self.cross_v) {
+                out.push(format!("  TAKEOFF t {tc:.2} ({label}): cart {k}, gap {}, stored {s:.3}, visible {v:.3}", prev.map_or("-".to_string(), |p| format!("{:.2} gt", tc - p))));
+                prev = Some(*tc);
+            }
+        }
         // (each batch against the openings that admit its carts, ironspec 06:14: every cart of a
         // batch pressed at G0 at least 2 gt before the first opening that can admit it, the one
         // that finds it the front; a batch is the landings less than 30 gt apart; per batch the
@@ -3593,6 +3614,9 @@ pub struct LoopTiming {
     /// `--no-inject` (day-1's pad runs): with `wired`, no golem pulse from the bench at all, the
     /// controls left to the design (its pad gives the pulse).
     pub no_inject: bool,
+    /// `--takeoff-list`: every take-off crossing listed (time, cart, gap, stored and visible
+    /// speed), for a trace-diff of a departure's arrivals.
+    pub takeoff_list: bool,
     /// `--start-random`: the run starts at a day time drawn from the seed (the power-on sweep).
     pub start_random: bool,
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
@@ -3988,7 +4012,7 @@ impl LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -4935,6 +4959,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the tail's arrivals, impacts, backward crossings, the front's readiness at each G0 opening,
     // the jump's spacing and the landing's clearance, the queue's occupancy: escapement designs)
     let mut tail_watch = TailWatch::new(&lay);
+    tail_watch.list_takeoffs = tm.takeoff_list;
     tail_watch.sched = Some((tm.advance_at, tm.advance_every));
     tail_watch.rel_at = o.stand_stop.then_some(tm.pocket_release);
     let mut cart_count = CartCount::new(&lay);
@@ -6936,6 +6961,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             }
                         }
                         rider_hurt.push(format!("e{k} hurt at slot {c} +{dt}: health {} -> {}{src} at {:.2},{:.2},{:.2} (eye {eye:.2}; suffocating near: {})", rider_last[k].1, m.health, e.pos.x, e.pos.y, e.pos.z, walls.join(", ")));
+                        // (ironspec Nov 11 12:12, after 58f770cc's R plate: any hurt to any
+                        // villager fails the run, whatever the cause (InWall, a fall, a mob, fire,
+                        // cramming))
+                        problems.push(format!("slot {c} +{dt}: villager e{k} hurt (health {} -> {}{src}) at {:.2},{:.2},{:.2}", rider_last[k].1, m.health, e.pos.x, e.pos.y, e.pos.z));
                     }
                     rider_last[k] = ([e.pos.x, e.pos.y, e.pos.z], m.health, run.world.time - t_start);
                 }

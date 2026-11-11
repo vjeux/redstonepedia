@@ -6836,6 +6836,19 @@ pub fn flee_control(name: &str) -> Result<()> {
         );
     }
     println!("flee-control on {name}: {} of {} lanes as recorded{}", lanes.len() - bad, lanes.len(), if bad == 0 { " (PASS)" } else { "" });
+    // (the reachability controls: flee-check's paths are the villager's own navigation, 48 long,
+    // the search stopping after 767 nodes; ironspec Nov 11 11:48)
+    let rc = mobfarm::fleecheck::reach_control().map_err(|e| anyhow!(e))?;
+    for (what, reached, nodes, ok) in &rc {
+        println!("  reach {what}: {} ({nodes} nodes){}", if *reached { "reachable" } else { "unreachable" }, if *ok { "" } else { "  DIFFERS" });
+    }
+    let rbad = rc.iter().filter(|r| !r.3).count();
+    println!("reach-control: {} of {} as expected{}", rc.len() - rbad, rc.len(), if rbad == 0 { " (PASS)" } else { "" });
+    // (the eye check's positive control: a stone at a seated rider's eye must fail it)
+    let (n, hits) = mobfarm::fleecheck::eye_check(&spec, true).map_err(|e| anyhow!(e))?;
+    let (_, eye_fails) = mobfarm::fleecheck::eye_lines(n, &hits, 0);
+    println!("eye-control (a stone at the first rail cell's rider eye): the suffocation gate {}", if eye_fails { "FAILS, as it must (PASS)" } else { "passes  DIFFERS" });
+    let bad = bad + rbad + (!eye_fails) as usize;
     if bad > 0 {
         bail!("flee-control: {bad} lanes differ");
     }

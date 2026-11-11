@@ -26,7 +26,7 @@ pub struct Found {
 
 /// The rider points of every rail cell: (cell, the seated rider's position and eye at three
 /// points along the rail).
-fn rider_points(spec: &FarmSpec) -> Result<(Run, Vec<([i32; 3], Vec<(Vec3, Vec3)>)>), String> {
+fn rider_points(spec: &FarmSpec) -> Result<(Run, Vec<([i32; 3], Vec<(Vec3, Vec3)>)>, Vec<Option<(Vec3, Vec3)>>), String> {
     let mut s = spec.clone();
     s.entities.clear();
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
@@ -34,6 +34,7 @@ fn rider_points(spec: &FarmSpec) -> Result<(Run, Vec<([i32; 3], Vec<(Vec3, Vec3)
     while run.settle_tick() {}
     let rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     let mut out = Vec::new();
+    let mut segs = Vec::new();
     let w = &mut run.world;
     for (c, state) in &rails {
         let along = |t: f64| crate::fleecheck::along_rail(*c, state, t);
@@ -49,12 +50,23 @@ fn rider_points(spec: &FarmSpec) -> Result<(Run, Vec<([i32; 3], Vec<(Vec3, Vec3)
             let me = w.entities.list[vi].pos;
             pts.push((me, Vec3::new(me.x, me.y + 1.62, me.z)));
         }
+        // (the cart's whole path through the cell, the rider's seat offset added: the continuous
+        // least distance, as flee-check takes it)
+        let seg = crate::fleecheck::rail_segment(*c, state).map(|(a, b)| {
+            let mid = along(0.5);
+            w.entities.list[ci].pos = mid;
+            redsim::entity::position_rider(w, ci, vi);
+            let me = w.entities.list[vi].pos;
+            let off = Vec3::new(me.x - mid.x, me.y - mid.y, me.z - mid.z);
+            (Vec3::new(a.x + off.x, a.y + off.y, a.z + off.z), Vec3::new(b.x + off.x, b.y + off.y, b.z + off.z))
+        });
+        segs.push(seg);
         let _ = redsim::entity::kill(w, vid);
         let _ = redsim::entity::kill(w, cart);
         w.entities.list.retain(|e| !e.removed);
         out.push(([c.x, c.y, c.z], pts));
     }
-    Ok((run, out))
+    Ok((run, out, segs))
 }
 
 /// The search: `spec` with the posts to re-lay already removed; `panic` the rail cells that need a
@@ -82,7 +94,7 @@ pub fn design_box(spec: &FarmSpec) -> ([i32; 3], [i32; 3]) {
 pub fn search_in(spec: &FarmSpec, panic: &[[i32; 3]], area: [i32; 6], margin: f64, max_posts: usize, in_box: bool) -> Result<Found, String> {
     let (blo, bhi) = design_box(spec);
     let area = if in_box { [area[0].max(blo[0]), area[1].max(blo[1] + 1), area[2].max(blo[2]), area[3].min(bhi[0]), area[4].min(bhi[1] - 3), area[5].min(bhi[2])] } else { area };
-    let (mut run, riders) = rider_points(spec)?;
+    let (mut run, riders, segs) = rider_points(spec)?;
     // (the zombie's seat in its boat: the boat's passenger attachment, then the zombie's
     // ridingOffset (`rider_seat`), as flee-check seats the design's own posts)
     let seat = {
@@ -117,7 +129,10 @@ pub fn search_in(spec: &FarmSpec, panic: &[[i32; 3]], area: [i32; 6], margin: f6
     let boat = |c: [i32; 3]| Vec3::new(c[0] as f64 + 0.5 + seat.x, c[1] as f64 + seat.y, c[2] as f64 + 0.5 + seat.z);
     let dist = |a: Vec3, b: Vec3| ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt();
     // (a candidate is allowed when every rider point is 6 + margin or more from it)
-    let allowed: Vec<[i32; 3]> = cands.into_iter().filter(|c| riders.iter().all(|(_, pts)| pts.iter().all(|(p, _)| dist(*p, boat(*c)) >= 6.0 + margin))).collect();
+    let allowed: Vec<[i32; 3]> = cands
+        .into_iter()
+        .filter(|c| riders.iter().all(|(_, pts)| pts.iter().all(|(p, _)| dist(*p, boat(*c)) >= 6.0 + margin)) && segs.iter().flatten().all(|(a, b)| crate::fleecheck::seg_dist(*a, *b, boat(*c)).0 >= 6.0 + margin))
+        .collect();
     let panic_pts: Vec<([i32; 3], usize)> = riders.iter().filter(|(c, _)| panic.contains(c)).flat_map(|(c, pts)| (0..pts.len()).map(move |k| (*c, k))).collect();
     let pt = |c: [i32; 3], k: usize| riders.iter().find(|(x, _)| *x == c).map(|(_, p)| p[k]).expect("a panic point");
     // (a post covers a panic point when within 8 - margin and its zombie's eye sees the rider's)
@@ -156,6 +171,7 @@ pub fn search_in(spec: &FarmSpec, panic: &[[i32; 3]], area: [i32; 6], margin: f6
         })
         .collect();
     let least = riders.iter().flat_map(|(_, pts)| pts.iter()).flat_map(|(me, _)| picked.iter().map(move |p| dist(*me, boat(*p)))).fold(f64::INFINITY, f64::min);
+    let least = segs.iter().flatten().flat_map(|(a, b)| picked.iter().map(move |p| crate::fleecheck::seg_dist(*a, *b, boat(*p)).0)).fold(least, f64::min);
     let _ = EntityKind::Minecart;
     Ok(Found { posts: picked, cover, least })
 }
