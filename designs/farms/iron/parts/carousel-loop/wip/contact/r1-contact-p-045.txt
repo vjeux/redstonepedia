@@ -1,0 +1,113 @@
+# R1's queue contact for the merge bridge (ironfarm, ironspec Nov 11 09:55): the cart admitted through G0 meeting P's cart (G0 open): P's cart at rest on P pressed on G_P, the arrival at the middle of the slope 2 cells before G0, moving toward G0, at stored 0.45 b/t.
+# Lanes 2 apart in x, one per rider pairing (the waiting cart's, then the arrival's: R ridden, E empty): RR, RE, ER, EE.
+# The escapement column copied from escR1.txt (mctas mobfarm contact-scenes); P on a redstone block (always on, as R1 runs). No zombies.
+name: r1-contact-p-045
+circuit: mob-farm iron_ingot
+port output: -2 3 31
+entity: minecraft:minecart 0.5 2.1775 31.885 {Motion:[0.0d,0.0d,0.0000d],Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
+entity: minecraft:minecart 0.5 4.5625 29.5 {Motion:[0.0d,0.0d,0.4500d],Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
+entity: minecraft:minecart 2.5 2.1775 31.885 {Motion:[0.0d,0.0d,0.0000d],Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
+entity: minecraft:minecart 2.5 4.5625 29.5 {Motion:[0.0d,0.0d,0.4500d]}
+entity: minecraft:minecart 4.5 2.1775 31.885 {Motion:[0.0d,0.0d,0.0000d]}
+entity: minecraft:minecart 4.5 4.5625 29.5 {Motion:[0.0d,0.0d,0.4500d],Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
+entity: minecraft:minecart 6.5 2.1775 31.885 {Motion:[0.0d,0.0d,0.0000d]}
+entity: minecraft:minecart 6.5 4.5625 29.5 {Motion:[0.0d,0.0d,0.4500d]}
+origin: 0 0 26
+palette:
+  A minecraft:redstone_block
+  G minecraft:glass
+  O minecraft:oak_fence_gate[facing=south,in_wall=false,open=false,powered=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+  R minecraft:rail[shape=ascending_north,waterlogged=false]
+  o minecraft:oak_fence_gate[facing=south,in_wall=false,open=true,powered=false]
+  r minecraft:rail[shape=ascending_south,waterlogged=false]
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  G.G.G.G
+  G.G.G.G
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  G.G.G.G
+  P.P.P.P
+  r.r.r.r
+layer 1:
+  .
+  .
+  .
+  .
+  .
+  A.A.A.A
+  R.R.R.R
+  .
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  G.G.G.G
+  P.P.P.P
+  O.O.O.O
+  .
+  .
+layer 3:
+  .
+  .
+  .
+  G.G.G.G
+  R.R.R.R
+  o.o.o.o
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  G.G.G.G
+  R.R.R.R
+  .
+  .
+  .
+  .
+  .
+layer 5:
+  .
+  G.G.G.G
+  R.R.R.R
+  .
+  .
+  .
+  .
+  .
+  .
+layer 6:
+  G.G.G.G
+  R.R.R.R
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 7:
+  R.R.R.R
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
