@@ -141,6 +141,14 @@ pub struct HeadPerm {
     /// (a variant for day-1) the clear without its "no Dh3_X between" condition: the branch gate
     /// alone says no train is in flight
     pub stale_ignore_dh3: bool,
+    /// (ironspec's ruling) the stale clear guarded by the liveness gate (EXPIRE edges counted
+    /// only while no branch chunk is frozen; >= 2 counted after DEP_X; no Dh3 condition, no branch
+    /// gate), and whether a branch chunk is frozen now
+    pub stale_live: bool,
+    pub branch_frozen: bool,
+    /// (ironspec's ruling, (i)) GO toward X also requires D_arr_X low; the GOs it held
+    pub darr_gate: bool,
+    pub darr_holds: Vec<String>,
     pub expire_since_dep: u32,
     pub dh3_since_dep: bool,
     pub branch_occupied: bool,
@@ -220,6 +228,10 @@ impl HeadPerm {
             stale_clear: false,
             stale_ungated: false,
             stale_ignore_dh3: false,
+            stale_live: false,
+            branch_frozen: false,
+            darr_gate: false,
+            darr_holds: Vec::new(),
             expire_since_dep: 0,
             dh3_since_dep: false,
             branch_occupied: false,
@@ -322,9 +334,17 @@ impl HeadPerm {
         // since DEP_X with no Dh3_X between, gated by BRANCH_EMPTY_X (no cart on the branch
         // between the switch and H; emulated): ARR_X cleared, nothing else)
         if self.last_expire && self.day1 {
-            self.expire_since_dep += 1;
-            if self.stale_clear && self.arr_armed && self.expire_since_dep >= 2 && (!self.dh3_since_dep || self.stale_ignore_dh3) {
-                if self.branch_occupied && !self.stale_ungated {
+            // (ironspec's liveness gate: the count advances only while every branch chunk's cart
+            // clock pulses; emulated: only while no branch chunk is frozen)
+            if self.stale_live && self.branch_frozen {
+                if self.stale_log.len() < 30 {
+                    self.stale_log.push(format!("{c}: count held (a branch chunk frozen)"));
+                }
+            } else {
+                self.expire_since_dep += 1;
+            }
+            if self.stale_clear && self.arr_armed && self.expire_since_dep >= 2 && (!self.dh3_since_dep || self.stale_ignore_dh3 || self.stale_live) {
+                if self.branch_occupied && !self.stale_ungated && !self.stale_live {
                     if self.stale_log.len() < 20 {
                         self.stale_log.push(format!("{c}: held off (a cart on the branch)"));
                     }
@@ -342,7 +362,12 @@ impl HeadPerm {
         }
         let (who, d) = if to_a {
             let forced = self.a_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + 2 * n);
-            ("A", if forced || (self.gate && !self.permit()) { Go::Hold } else { Go::Launch })
+            // (ironspec's ruling on the ARR gap, (i): GO toward X also requires D_arr_X low)
+            let darr_block = self.darr_gate && self.prev[0];
+            if darr_block && !forced && (!self.gate || self.permit()) && self.darr_holds.len() < 40 {
+                self.darr_holds.push(c.to_string());
+            }
+            ("A", if forced || (self.gate && !self.permit()) || darr_block { Go::Hold } else { Go::Launch })
         } else {
             ("B", if self.b_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + n) {
                 Go::Hold
@@ -585,9 +610,12 @@ impl HeadPerm {
                 if self.stale_clear {
                     out.push(format!(
                         "head-perm stale-ARR clear ({}): {}",
-                        if self.stale_ungated { "the time-only fallback: ARR_X still set at the 2nd EXPIRE edge since DEP_X, no Dh3_X between, NO branch gate" } else if self.stale_ignore_dh3 { "variant: ARR_X still set at the 2nd EXPIRE edge since DEP_X, branch empty, Dh3_X ignored; branch-empty emulated" } else { "day-1: ARR_X still set at the 2nd EXPIRE edge since DEP_X, no Dh3_X between, branch empty; branch-empty emulated: no cart on the approach column between DEP_X and H" },
+                        if self.stale_live { "ironspec's ruling: ARR_X still set at the 2nd counted EXPIRE edge since DEP_X, counted only while no branch chunk is frozen (liveness gate, emulated); no Dh3 condition, no branch gate" } else if self.stale_ungated { "the time-only fallback: ARR_X still set at the 2nd EXPIRE edge since DEP_X, no Dh3_X between, NO branch gate" } else if self.stale_ignore_dh3 { "variant: ARR_X still set at the 2nd EXPIRE edge since DEP_X, branch empty, Dh3_X ignored; branch-empty emulated" } else { "day-1: ARR_X still set at the 2nd EXPIRE edge since DEP_X, no Dh3_X between, branch empty; branch-empty emulated: no cart on the approach column between DEP_X and H" },
                         if self.stale_log.is_empty() { "never fired".to_string() } else { self.stale_log.join("; ") }
                     ));
+                }
+                if self.darr_gate {
+                    out.push(format!("head-perm D_arr gate (ironspec's ruling (i): GO toward A also requires D_arr low): A's GOs held by it: {}", if self.darr_holds.is_empty() { "none".to_string() } else { self.darr_holds.join(",") }));
                 }
             }
             if !self.tick_waits.is_empty() {
