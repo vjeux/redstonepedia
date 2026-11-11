@@ -1,0 +1,191 @@
+1 settled snapshots, 0 clean 3-place moves
+slot-boundary order: 129 clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)
+lap order: kept (373 departures; the last 21 are the first 21's cycle)
+stand margins: gap12 11 13 in 4 6 clear 0 2 arrive 5 7 slots 129
+stand braked at - after its slot's start; tail slots 1-2 braked at -, slot 0 at - after the train's departure
+zombies alive at the end: 9
+PANIC at night (day time 13,670..22,330, 171679 rider-ticks): 98.25% of rider-ticks, the least-panicking rider 97.01%; calm most at 9 0 4 (375), 9 -2 2 (372), 9 2 6 (364), 9 -1 3 (360), 9 1 5 (360), 9 3 7 (296)
+the stand's REL cell 8 -2 2 is the file's own (minecraft:stone): the bench leaves it
+visit (observed): slot 30 +27 (day time 13845), the stand's cart 0 (e14) on the divert's branch, its drop slot 14
+visit (observed): slot 34 +37 (day time 14255), the stand's cart 1 (e1) on the divert's branch, its drop slot 13
+visit (observed): slot 38 +47 (day time 14665), the stand's cart 2 (e9) on the divert's branch, its drop slot 12
+visit (observed): slot 42 +27 (day time 15045), the stand's cart 0 (e18) on the divert's branch, its drop slot 14
+visit (observed): slot 46 +37 (day time 15455), the stand's cart 1 (e7) on the divert's branch, its drop slot 13
+visit (observed): slot 50 +47 (day time 15865), the stand's cart 2 (e15) on the divert's branch, its drop slot 12
+visit (observed): slot 54 +27 (day time 16245), the stand's cart 0 (e5) on the divert's branch, its drop slot 14
+visit (observed): slot 58 +37 (day time 16655), the stand's cart 1 (e13) on the divert's branch, its drop slot 13
+visit (observed): slot 62 +47 (day time 17065), the stand's cart 2 (e0) on the divert's branch, its drop slot 12
+visit (observed): slot 66 +27 (day time 17445), the stand's cart 0 (e11) on the divert's branch, its drop slot 14
+visit (observed): slot 70 +37 (day time 17855), the stand's cart 1 (e19) on the divert's branch, its drop slot 13
+visit (observed): slot 74 +47 (day time 18265), the stand's cart 2 (e6) on the divert's branch, its drop slot 12
+visit (observed): slot 78 +27 (day time 18645), the stand's cart 0 (e17) on the divert's branch, its drop slot 14
+visit (observed): slot 82 +37 (day time 19055), the stand's cart 1 (e4) on the divert's branch, its drop slot 13
+visit (observed): slot 86 +47 (day time 19465), the stand's cart 2 (e12) on the divert's branch, its drop slot 12
+visit (observed): slot 90 +27 (day time 19845), the stand's cart 0 (e2) on the divert's branch, its drop slot 14
+visit (observed): slot 94 +37 (day time 20255), the stand's cart 1 (e10) on the divert's branch, its drop slot 13
+visit (observed): slot 98 +47 (day time 20665), the stand's cart 2 (e20) on the divert's branch, its drop slot 12
+visit (observed): slot 102 +27 (day time 21045), the stand's cart 0 (e8) on the divert's branch, its drop slot 14
+visit (observed): slot 106 +37 (day time 21455), the stand's cart 1 (e16) on the divert's branch, its drop slot 13
+visit (observed): slot 110 +47 (day time 21865), the stand's cart 2 (e3) on the divert's branch, its drop slot 12
+visit (observed): slot 114 +27 (day time 22245), the stand's cart 0 (e14) on the divert's branch, its drop slot 14
+visit: bed claims: e0 took the bed (-20,2,12) at slot 0 +0 riding at 0.5,2.7,25.3; e1 took the bed (-20,2,12) at slot 0 +0 riding at 0.5,1.7,29.3; e2 took the bed (-20,2,12) at slot 0 +0 riding at 0.5,0.7,33.3; e3 took the bed (-20,2,12) at slot 0 +0 riding at 0.5,0.7,36.3; e4 took the bed (-20,2,12) at slot 0 +0 riding at 0.5,0.7,39.3; e5 took the bed (-20,2,12) at slot 0 +0 riding at 0.5,0.7,42.3; e6 took the bed (-20,2,12) at slot 0 +0 riding at 0.5,0.7,45.3; e7 took the bed (-20,2,12) at slot 0 +0 riding at -0.3,0.7,47.5; e8 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,46.7; e9 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,43.7; e10 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,40.7; e11 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,37.7; e12 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,34.7; e13 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,31.7; e14 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,28.7; e15 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,25.7; e16 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,22.7; e17 took the bed (-20,2,12) at slot 0 +0 riding at -2.5,0.7,19.7; e18 took the bed (-20,2,12) at slot 0 +0 riding at 7.9,-1.8,0.5; e19 took the bed (-20,2,12) at slot 0 +0 riding at 3.9,-0.8,0.5; e20 took the bed (-20,2,12) at slot 0 +0 riding at -0.1,0.2,0.5
+visit slot 30 cart 0: rider asleep +185..+200; ready at the siding's exit +347; passed T1 at +489; rolled off its drop rail at +514 at 0.29 b/t; back at rest in slot 14 at +520
+visit slot 34 cart 1: rider asleep +193..+217; ready at the siding's exit +368; passed T1 never; rolled off its drop rail at +507 at 0.29 b/t; back at rest in slot 13 at +513
+visit slot 38 cart 2: rider asleep +203..+234; ready at the siding's exit +386; passed T1 never; rolled off its drop rail at +516 at 0.29 b/t; back at rest in slot 12 at +522
+visit slot 42 cart 0: rider asleep +185..+203; ready at the siding's exit +347; passed T1 at +489; rolled off its drop rail at +514 at 0.29 b/t; back at rest in slot 14 at +520
+visit slot 46 cart 1: rider asleep +193..+210; ready at the siding's exit +368; passed T1 never; rolled off its drop rail at +507 at 0.29 b/t; back at rest in slot 13 at +513
+visit slot 50 cart 2: rider asleep +203..+225; ready at the siding's exit +386; passed T1 never; rolled off its drop rail at +516 at 0.29 b/t; back at rest in slot 12 at +522
+visit slot 54 cart 0: rider asleep +185..+206; ready at the siding's exit +347; passed T1 at +489; rolled off its drop rail at +514 at 0.29 b/t; back at rest in slot 14 at +520
+visit slot 58 cart 1: rider asleep +193..+209; ready at the siding's exit +368; passed T1 never; rolled off its drop rail at +507 at 0.29 b/t; back at rest in slot 13 at +513
+visit slot 62 cart 2: rider asleep +203..+232; ready at the siding's exit +386; passed T1 never; rolled off its drop rail at +516 at 0.29 b/t; back at rest in slot 12 at +522
+visit slot 66 cart 0: rider asleep +185..+207; ready at the siding's exit +347; passed T1 at +489; rolled off its drop rail at +514 at 0.29 b/t; back at rest in slot 14 at +520
+visit slot 70 cart 1: rider asleep +193..+213; ready at the siding's exit +368; passed T1 never; rolled off its drop rail at +507 at 0.29 b/t; back at rest in slot 13 at +513
+visit slot 74 cart 2: rider asleep +203..+229; ready at the siding's exit +386; passed T1 never; rolled off its drop rail at +516 at 0.29 b/t; back at rest in slot 12 at +522
+visit slot 78 cart 0: rider asleep +185..+211; ready at the siding's exit +347; passed T1 at +489; rolled off its drop rail at +514 at 0.29 b/t; back at rest in slot 14 at +520
+visit slot 82 cart 1: rider asleep +193..+223; ready at the siding's exit +368; passed T1 never; rolled off its drop rail at +507 at 0.29 b/t; back at rest in slot 13 at +513
+visit slot 86 cart 2: rider asleep +203..+223; ready at the siding's exit +386; passed T1 never; rolled off its drop rail at +516 at 0.29 b/t; back at rest in slot 12 at +522
+visit slot 90 cart 0: rider asleep +185..+207; ready at the siding's exit +347; passed T1 at +489; rolled off its drop rail at +514 at 0.29 b/t; back at rest in slot 14 at +520
+visit slot 94 cart 1: rider asleep +193..+223; ready at the siding's exit +368; passed T1 never; rolled off its drop rail at +507 at 0.29 b/t; back at rest in slot 13 at +513
+visit slot 98 cart 2: rider asleep +203..+227; ready at the siding's exit +386; passed T1 never; rolled off its drop rail at +516 at 0.29 b/t; back at rest in slot 12 at +522
+visit slot 102 cart 0: rider asleep +185..+219; ready at the siding's exit +347; passed T1 at +489; rolled off its drop rail at +514 at 0.29 b/t; back at rest in slot 14 at +520
+visit slot 106 cart 1: rider asleep +193..+215; ready at the siding's exit +368; passed T1 never; rolled off its drop rail at +507 at 0.29 b/t; back at rest in slot 13 at +513
+visit slot 110 cart 2: rider asleep +203..+224; ready at the siding's exit +386; passed T1 never; rolled off its drop rail at +516 at 0.29 b/t; back at rest in slot 12 at +522
+visit slot 114 cart 0: rider asleep +185..+200; ready at the siding's exit +347; passed T1 at +489; rolled off its drop rail at +514 at 0.29 b/t; back at rest in slot 14 at +520
+visits: 22 complete; no dawn reached
+slot 0: returning train at rest in the tail +133
+slot 1: returning train at rest in the tail +133
+slot 2: returning train at rest in the tail +133
+slot 3: returning train at rest in the tail +133
+slot 4: returning train at rest in the tail +133
+slot 5: returning train at rest in the tail +133
+slot 6: returning train at rest in the tail +133
+slot 7: returning train at rest in the tail +133
+slot 8: returning train at rest in the tail +133
+slot 9: returning train at rest in the tail +133
+slot 10: returning train at rest in the tail +133
+slot 11: returning train at rest in the tail +133
+slot 12: returning train at rest in the tail +133
+slot 13: returning train at rest in the tail +133
+slot 14: returning train at rest in the tail +133
+slot 15: returning train at rest in the tail +133
+slot 16: returning train at rest in the tail +133
+slot 17: returning train at rest in the tail +133
+slot 18: returning train at rest in the tail +133
+slot 19: returning train at rest in the tail +133
+slot 20: returning train at rest in the tail +133
+slot 21: returning train at rest in the tail +133
+slot 22: returning train at rest in the tail +133
+slot 23: returning train at rest in the tail +133
+slot 24: returning train at rest in the tail +133
+slot 25: returning train at rest in the tail +133
+slot 26: returning train at rest in the tail +133
+slot 27: returning train at rest in the tail +133
+slot 28: returning train at rest in the tail +133
+slot 29: returning train at rest in the tail +133
+slot 30: returning train at rest in the tail +133
+slot 31: returning train at rest in the tail +133
+slot 32: returning train at rest in the tail +133
+slot 33: returning train at rest in the tail +133
+slot 34: returning train at rest in the tail +133
+slot 35: returning train at rest in the tail +133
+slot 36: returning train at rest in the tail +133
+slot 37: returning train at rest in the tail +133
+slot 38: returning train at rest in the tail +133
+slot 39: returning train at rest in the tail +133
+slot 40: returning train at rest in the tail +133
+slot 41: returning train at rest in the tail +133
+slot 42: returning train at rest in the tail +133
+slot 43: returning train at rest in the tail +133
+slot 44: returning train at rest in the tail +133
+slot 45: returning train at rest in the tail +133
+slot 46: returning train at rest in the tail +133
+slot 47: returning train at rest in the tail +133
+slot 48: returning train at rest in the tail +133
+slot 49: returning train at rest in the tail +133
+slot 50: returning train at rest in the tail +133
+slot 51: returning train at rest in the tail +133
+slot 52: returning train at rest in the tail +133
+slot 53: returning train at rest in the tail +133
+slot 54: returning train at rest in the tail +133
+slot 55: returning train at rest in the tail +133
+slot 56: returning train at rest in the tail +133
+slot 57: returning train at rest in the tail +133
+slot 58: returning train at rest in the tail +133
+slot 59: returning train at rest in the tail +133
+slot 60: returning train at rest in the tail +133
+slot 61: returning train at rest in the tail +133
+slot 62: returning train at rest in the tail +133
+slot 63: returning train at rest in the tail +133
+slot 64: returning train at rest in the tail +133
+slot 65: returning train at rest in the tail +133
+slot 66: returning train at rest in the tail +133
+slot 67: returning train at rest in the tail +133
+slot 68: returning train at rest in the tail +133
+slot 69: returning train at rest in the tail +133
+slot 70: returning train at rest in the tail +133
+slot 71: returning train at rest in the tail +133
+slot 72: returning train at rest in the tail +133
+slot 73: returning train at rest in the tail +133
+slot 74: returning train at rest in the tail +133
+slot 75: returning train at rest in the tail +133
+slot 76: returning train at rest in the tail +133
+slot 77: returning train at rest in the tail +133
+slot 78: returning train at rest in the tail +133
+slot 79: returning train at rest in the tail +133
+slot 80: returning train at rest in the tail +133
+slot 81: returning train at rest in the tail +133
+slot 82: returning train at rest in the tail +133
+slot 83: returning train at rest in the tail +133
+slot 84: returning train at rest in the tail +133
+slot 85: returning train at rest in the tail +133
+slot 86: returning train at rest in the tail +133
+slot 87: returning train at rest in the tail +133
+slot 88: returning train at rest in the tail +133
+slot 89: returning train at rest in the tail +133
+slot 90: returning train at rest in the tail +133
+slot 91: returning train at rest in the tail +133
+slot 92: returning train at rest in the tail +133
+slot 93: returning train at rest in the tail +133
+slot 94: returning train at rest in the tail +133
+slot 95: returning train at rest in the tail +133
+slot 96: returning train at rest in the tail +133
+slot 97: returning train at rest in the tail +133
+slot 98: returning train at rest in the tail +133
+slot 99: returning train at rest in the tail +133
+slot 100: returning train at rest in the tail +133
+slot 101: returning train at rest in the tail +133
+slot 102: returning train at rest in the tail +133
+slot 103: returning train at rest in the tail +133
+slot 104: returning train at rest in the tail +133
+slot 105: returning train at rest in the tail +133
+slot 106: returning train at rest in the tail +133
+slot 107: returning train at rest in the tail +133
+slot 108: returning train at rest in the tail +133
+slot 109: returning train at rest in the tail +133
+slot 110: returning train at rest in the tail +133
+slot 111: returning train at rest in the tail +133
+slot 112: returning train at rest in the tail +133
+slot 113: returning train at rest in the tail +133
+slot 114: returning train at rest in the tail +133
+slot 115: returning train at rest in the tail +133
+slot 116: returning train at rest in the tail +133
+slot 117: returning train at rest in the tail +133
+slot 118: returning train at rest in the tail +133
+slot 119: returning train at rest in the tail +133
+slot 120: returning train at rest in the tail +133
+slot 121: returning train at rest in the tail +133
+slot 122: returning train at rest in the tail +133
+slot 123: returning train at rest in the tail +133
+slot 124: returning train at rest in the tail +133
+slot 125: returning train at rest in the tail +133
+slot 126: returning train at rest in the tail +133
+slot 127: returning train at rest in the tail +133
+slot 128: returning train at rest in the tail +133
+slot 129: returning train at rest in the tail +133
+stand departures: 395 carts, gap min 10 max 10 gt (gaps under 60 gt), 0 in contact with the one before
+back through a gate: 0
+carts off the rails: 0; riders not seated: 22 (slot 31 +85: cart 14's rider not seated (cart at -18.50,2.06,13.76), slot 35 +93: cart 1's rider not seated (cart at -18.50,2.06,13.80), slot 40 +3: cart 9's rider not seated (cart at -18.50,2.06,13.80), slot 43 +85: cart 18's rider not seated (cart at -18.50,2.06,13.76), slot 47 +93: cart 7's rider not seated (cart at -18.50,2.06,13.80), slot 52 +3: cart 15's rider not seated (cart at -18.50,2.06,13.80))
+latch set (T2 out after +55): +80..+82 over 130 slots
+stand bursts: 2x1 3x131 (size x count); the biggest: 3 carts (slot 0 +24..+44, gaps 10/10, top 1.05/1.33/1.65)
+tail entry: 371 carts, gap min 10 gt within groups, 0 touching; groups 2x22 3x109; the biggest: 3 carts (slot 131 +1, gaps 10/10, speeds 0.90/1.14/1.41)
+0 problems

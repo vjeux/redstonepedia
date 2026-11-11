@@ -1,0 +1,103 @@
+RELmissed benchtail GC37 s1: merged 0|29 problems:
+RELmissed perfect GC37 s1: merged 0|5 problems:
+RELmissed benchtail GC37 s2: merged 0|29 problems:
+RELmissed perfect GC37 s2: merged 0|3 problems:
+RELmissed benchtail GC37 s3: merged 0|37 problems:
+RELmissed perfect GC37 s3: merged 0|2 problems:
+RELmissed benchtail F(unguarded) s1: merged 1 (slot 9 +82: carts 13 and 14 at -1.89,1.06,0.50 (cell -2,1,0))|45 problems:
+RELmissed benchtail F(unguarded) s2: merged 0|45 problems:
+D1extra50 benchtail GC37 s1: merged 0|33 problems:
+D1extra50 perfect GC37 s1: merged 0|5 problems:
+D1extra50 benchtail GC37 s2: merged 1 (slot 6 +81: carts 19 and 20 at -1.89,1.06,0.50 (cell -2,1,0))|40 problems:
+D1extra50 perfect GC37 s2: merged 0|4 problems:
+D1extra50 benchtail GC37 s3: merged 1 (slot 10 +80: carts 8 and 9 at -1.89,1.06,0.50 (cell -2,1,0))|44 problems:
+D1extra50 perfect GC37 s3: merged 1 (slot 15 +44: carts 5 and 6 at -1.89,1.06,0.50 (cell -2,1,0))|3 problems:
+D1extra50 benchtail F(unguarded) s1: merged 0|33 problems:
+D1extra50 benchtail F(unguarded) s2: merged 2 (slot 6 +81: carts 19 and 20 at -1.89,1.06,0.50 (cell -2,1,0); slot 14 +95: carts 13 and 15 at 5.12,-1.82,0.50 (cell 5,-2,0))|44 problems:
+D1extra66 benchtail GC37 s1: merged 0|42 problems:
+D1extra66 perfect GC37 s1: merged 0|5 problems:
+D1extra66 benchtail GC37 s2: merged 0|28 problems:
+D1extra66 perfect GC37 s2: merged 2 (slot 8 +65: carts 14 and 15 at -1.89,1.06,0.50 (cell -2,1,0); slot 8 +74: carts 14 and 15 at -1.91,1.06,0.41 (cell -2,1,0))|3 problems:
+D1extra66 benchtail GC37 s3: merged 0|26 problems:
+D1extra66 perfect GC37 s3: merged 2 (slot 8 +63: carts 14 and 15 at -1.89,1.06,0.50 (cell -2,1,0); slot 11 +67: carts 10 and 11 at -1.89,1.06,0.50 (cell -2,1,0))|6 problems:
+D1extra66 benchtail F(unguarded) s1: merged 0|44 problems:
+D1extra66 benchtail F(unguarded) s2: merged 0|42 problems:
+D1missed45 benchtail GC37 s1: merged 1 (slot 8 +76: carts 17 and 20 at 9.50,4.06,17.61 (cell 9,4,17))|37 problems:
+D1missed45 perfect GC37 s1: merged 0|1 problems:
+D1missed45 benchtail GC37 s2: merged 2 (slot 8 +76: carts 17 and 20 at 9.50,4.06,17.61 (cell 9,4,17); slot 9 +61: carts 17 and 20 at 9.50,4.06,18.54 (cell 9,4,18))|40 problems:
+D1missed45 perfect GC37 s2: merged 0|1 problems:
+D1missed45 benchtail GC37 s3: lap CHANGED|merged 0|33 problems:
+D1missed45 perfect GC37 s3: merged 0|1 problems:
+D1missed45 benchtail F(unguarded) s1: merged 0|43 problems:
+D1missed45 benchtail F(unguarded) s2: merged 1 (slot 10 +8: carts 16 and 17 at 0.50,4.06,21.87 (cell 0,4,21))|44 problems:
+D1missed65 benchtail GC37 s1: merged 1 (slot 8 +76: carts 17 and 20 at 9.50,4.06,17.61 (cell 9,4,17))|37 problems:
+D1missed65 perfect GC37 s1: merged 0|1 problems:
+D1missed65 benchtail GC37 s2: merged 2 (slot 8 +76: carts 17 and 20 at 9.50,4.06,17.61 (cell 9,4,17); slot 9 +61: carts 17 and 20 at 9.50,4.06,18.54 (cell 9,4,18))|40 problems:
+D1missed65 perfect GC37 s2: merged 0|1 problems:
+D1missed65 benchtail GC37 s3: lap CHANGED|merged 0|33 problems:
+D1missed65 perfect GC37 s3: merged 0|1 problems:
+D1missed65 benchtail F(unguarded) s1: merged 0|41 problems:
+D1missed65 benchtail F(unguarded) s2: merged 0|40 problems:
+RELextra85 benchtail GC37 s1: lap CHANGED|merged 4 (slot 13 +46: carts 9 and 10 at 8.63,-2.56,0.50 (cell 8,-3,0); slot 13 +48: carts 9 and 10 at 8.71,-2.65,0.50 (cell 8,-3,0); slot 13 +54: carts 9 and 10 at 9.50,-2.66,1.27 (cell 9,-3,1); slot|32 problems:
+RELextra85 perfect GC37 s1: merged 0|1 problems:
+RELextra85 benchtail GC37 s2: lap CHANGED|merged 0|36 problems:
+RELextra85 perfect GC37 s2: merged 0|1 problems:
+RELextra85 benchtail GC37 s3: lap CHANGED|merged 0|24 problems:
+RELextra85 perfect GC37 s3: merged 0|1 problems:
+RELextra85 benchtail F(unguarded) s1: lap CHANGED|merged 1 (slot 15 +11: carts 5 and 7 at 6.89,-0.94,0.50 (cell 6,-1,0))|28 problems:
+RELextra85 benchtail F(unguarded) s2: lap CHANGED|merged 1 (slot 10 +14: carts 13 and 14 at 0.50,2.87,25.19 (cell 0,2,25))|33 problems:
+RELextra92 benchtail GC37 s1: lap CHANGED|merged 1 (slot 11 +80: carts 7 and 8 at 8.34,-2.28,0.50 (cell 8,-3,0))|31 problems:
+RELextra92 perfect GC37 s1: merged 0|1 problems:
+RELextra92 benchtail GC37 s2: lap CHANGED|merged 1 (slot 12 +98: carts 10 and 11 at 9.50,-1.07,2.87 (cell 9,-2,2))|31 problems:
+RELextra92 perfect GC37 s2: merged 0|1 problems:
+RELextra92 benchtail GC37 s3: lap CHANGED|merged 0|24 problems:
+RELextra92 perfect GC37 s3: merged 0|1 problems:
+RELextra92 benchtail F(unguarded) s1: lap CHANGED|merged 0|38 problems:
+RELextra92 benchtail F(unguarded) s2: lap CHANGED|merged 1 (slot 12 +51: carts 5 and 6 at -2.50,1.06,1.75 (cell -3,1,1))|34 problems:
+glitch92 benchtail GC37 s1: merged 1 (slot 8 +52: carts 0 and 18 at 0.50,1.06,35.25 (cell 0,1,35))|43 problems:
+glitch92 perfect GC37 s1: merged 0|5 problems:
+glitch92 benchtail GC37 s2: merged 0|37 problems:
+glitch92 perfect GC37 s2: merged 3 (slot 8 +65: carts 14 and 15 at -1.89,1.06,0.50 (cell -2,1,0); slot 8 +74: carts 14 and 15 at -1.91,1.06,0.41 (cell -2,1,0); slot 13 +82: carts 6 and 7 at -1.89,1.06,0.50 (cell -2,1,0))|7 problems:
+glitch92 benchtail GC37 s3: merged 0|37 problems:
+glitch92 perfect GC37 s3: merged 2 (slot 8 +63: carts 14 and 15 at -1.89,1.06,0.50 (cell -2,1,0); slot 11 +67: carts 10 and 11 at -1.89,1.06,0.50 (cell -2,1,0))|5 problems:
+glitch92 benchtail F(unguarded) s1: merged 0|32 problems:
+glitch92 benchtail F(unguarded) s2: merged 0|34 problems:
+Cextra50 benchtail GC37 s1: merged 0|33 problems:
+Cextra50 perfect GC37 s1: merged 0|5 problems:
+Cextra50 benchtail GC37 s2: merged 1 (slot 6 +81: carts 19 and 20 at -1.89,1.06,0.50 (cell -2,1,0))|40 problems:
+Cextra50 perfect GC37 s2: merged 0|4 problems:
+Cextra50 benchtail GC37 s3: merged 1 (slot 10 +80: carts 8 and 9 at -1.89,1.06,0.50 (cell -2,1,0))|44 problems:
+Cextra50 perfect GC37 s3: merged 1 (slot 15 +44: carts 5 and 6 at -1.89,1.06,0.50 (cell -2,1,0))|3 problems:
+Cextra50 benchtail F(unguarded) s1: lap kept|merged 0|0 problems
+Cextra50 benchtail F(unguarded) s2: lap kept|merged 0|0 problems
+z10 stand32 arriving N40 perfect s1: merged 0|8 problems:
+z10 stand32 arriving N240 perfect s1: merged 0|8 problems:
+z10 stand33 arriving N40 perfect s1: merged 2 (slot 9 +69: carts 18 and 19 at -1.89,1.06,0.50 (cell -2,1,0); slot 12 +85: carts 17 and 20 at -1.89,1.06,0.50 (cell -2,1,0))|9 problems:
+z10 stand33 arriving N240 perfect s1: merged 0|11 problems:
+z10 queue32 arriving N40 perfect s1: merged 0|9 problems:
+z10 queue32 arriving N240 perfect s1: merged 6 (slot 7 +0: carts 6 and 8 at 0.50,2.73,25.32 (cell 0,2,25); slot 8 +0: carts 6 and 10 at 0.50,2.73,25.32 (cell 0,2,25); slot 8 +0: carts 8 and 10 at 0.50,2.73,25.32 (cell 0,2,25); slot 8 +49:|9 problems:
+z10 stand32 rest N40 perfect s1: merged 0|7 problems:
+z10 stand32 rest N240 perfect s1: merged 0|1 problems:
+z10 stand33 rest N40 perfect s1: merged 0|8 problems:
+z10 stand33 rest N240 perfect s1: merged 0|5 problems:
+z10 queue32 rest N40 perfect s1: merged 0|9 problems:
+z10 queue32 rest N240 perfect s1: merged 6 (slot 7 +0: carts 6 and 8 at 0.50,2.73,25.32 (cell 0,2,25); slot 8 +0: carts 6 and 10 at 0.50,2.73,25.32 (cell 0,2,25); slot 8 +0: carts 8 and 10 at 0.50,2.73,25.32 (cell 0,2,25); slot 8 +49:|7 problems:
+z10 stand32 RELstart N40 perfect s1: merged 0|10 problems:
+z10 stand32 RELstart N240 perfect s1: merged 0|3 problems:
+z10 stand33 RELstart N40 perfect s1: merged 0|12 problems:
+z10 stand33 RELstart N240 perfect s1: merged 0|9 problems:
+z10 queue32 RELstart N40 perfect s1: merged 1 (slot 10 +35: carts 3 and 17 at -0.22,0.28,0.50 (cell -1,0,0))|11 problems:
+z10 queue32 RELstart N240 perfect s1: merged 2 (slot 7 +0: carts 8 and 9 at 0.50,2.73,25.32 (cell 0,2,25); slot 7 +97: carts 8 and 9 at 0.50,0.41,39.65 (cell 0,0,39))|10 problems:
+z10 stand32 departure N40 perfect s1: merged 0|1 problems:
+z10 stand32 departure N240 perfect s1: merged 0|10 problems:
+z10 stand33 departure N40 perfect s1: merged 0|10 problems:
+z10 stand33 departure N240 perfect s1: merged 1 (slot 14 +85: carts 0 and 19 at -1.89,1.06,0.50 (cell -2,1,0))|9 problems:
+z10 queue32 departure N40 perfect s1: merged 1 (slot 7 +73: carts 2 and 18 at -1.89,1.06,0.50 (cell -2,1,0))|9 problems:
+z10 queue32 departure N240 perfect s1: merged 1 (slot 7 +0: carts 6 and 7 at 0.50,2.73,25.32 (cell 0,2,25))|9 problems:
+z10 stand32 RELend N40 perfect s1: merged 1 (slot 9 +65: carts 3 and 17 at -1.89,1.06,0.50 (cell -2,1,0))|7 problems:
+z10 stand32 RELend N240 perfect s1: merged 1 (slot 12 +76: carts 19 and 20 at -1.89,1.06,0.50 (cell -2,1,0))|9 problems:
+z10 stand33 RELend N40 perfect s1: merged 1 (slot 10 +77: carts 17 and 20 at -1.89,1.06,0.50 (cell -2,1,0))|8 problems:
+z10 stand33 RELend N240 perfect s1: merged 0|9 problems:
+z10 queue32 RELend N40 perfect s1: merged 0|1 problems:
+z10 queue32 RELend N240 perfect s1: merged 0|8 problems:
+normal 100 seeds x 1440 stays separate

@@ -1,0 +1,126 @@
+RELmissed benchtail GC37 s1: merged 0 |29 problems:
+RELmissed perfect GC37 s1: merged 0 |5 problems:
+RELmissed benchtail GC37 s2: merged 0 |29 problems:
+RELmissed perfect GC37 s2: merged 0 |3 problems:
+RELmissed benchtail GC37 s3: merged 0 |37 problems:
+RELmissed perfect GC37 s3: merged 0 |2 problems:
+RELmissed benchtail F(unguarded) s1: merged 1 carts 26 and 28 at t 982 (-1.89,1.06,0.50)|46 problems:
+RELmissed benchtail F(unguarded) s2: merged 0 |45 problems:
+RELmissed benchtail F(unguarded) s3: lap CHANGED|merged 4 carts 28 and 30 at t 1322 (8.76,-2.70,0.50); carts 26 and 28 at t 1376 (9.50,4.06,19.62); carts 26 and 30 at t 1376 (9.50,4.06,19.62)|37 problems:
+D1extra50 benchtail GC37 s1: merged 0 |33 problems:
+D1extra50 perfect GC37 s1: merged 0 |5 problems:
+D1extra50 benchtail GC37 s2: merged 1 carts 38 and 40 at t 681 (-1.89,1.06,0.50)|41 problems:
+D1extra50 perfect GC37 s2: merged 0 |4 problems:
+D1extra50 benchtail GC37 s3: merged 1 carts 16 and 18 at t 1080 (-1.89,1.06,0.50)|45 problems:
+D1extra50 perfect GC37 s3: merged 1 carts 10 and 12 at t 1544 (-1.89,1.06,0.50)|4 problems:
+D1extra50 benchtail F(unguarded) s1: merged 0 |33 problems:
+D1extra50 benchtail F(unguarded) s2: merged 2 carts 38 and 40 at t 681 (-1.89,1.06,0.50); carts 26 and 30 at t 1495 (5.12,-1.82,0.50)|45 problems:
+D1extra50 benchtail F(unguarded) s3: merged 2 carts 26 and 28 at t 1001 (-1.89,1.06,0.50); carts 22 and 24 at t 1088 (-1.89,1.06,0.50)|45 problems:
+D1extra66 benchtail GC37 s1: merged 0 |42 problems:
+D1extra66 perfect GC37 s1: merged 0 |5 problems:
+D1extra66 benchtail GC37 s2: merged 0 |28 problems:
+D1extra66 perfect GC37 s2: merged 1 carts 28 and 30 at t 865 (-1.89,1.06,0.50)|4 problems:
+D1extra66 benchtail GC37 s3: merged 0 |26 problems:
+D1extra66 perfect GC37 s3: merged 2 carts 28 and 30 at t 863 (-1.89,1.06,0.50); carts 20 and 22 at t 1167 (-1.89,1.06,0.50)|7 problems:
+D1extra66 benchtail F(unguarded) s1: merged 0 |44 problems:
+D1extra66 benchtail F(unguarded) s2: merged 0 |42 problems:
+D1extra66 benchtail F(unguarded) s3: merged 0 |44 problems:
+D1missed45 benchtail GC37 s1: merged 1 carts 34 and 40 at t 876 (9.50,4.06,17.61)|38 problems:
+D1missed45 perfect GC37 s1: merged 0 |1 problems:
+D1missed45 benchtail GC37 s2: merged 1 carts 34 and 40 at t 876 (9.50,4.06,17.61)|41 problems:
+D1missed45 perfect GC37 s2: merged 0 |1 problems:
+D1missed45 benchtail GC37 s3: lap CHANGED|merged 0 |33 problems:
+D1missed45 perfect GC37 s3: merged 0 |1 problems:
+D1missed45 benchtail F(unguarded) s1: merged 0 |43 problems:
+D1missed45 benchtail F(unguarded) s2: merged 1 carts 32 and 34 at t 1008 (0.50,4.06,21.87)|45 problems:
+D1missed45 benchtail F(unguarded) s3: merged 0 |44 problems:
+D1missed65 benchtail GC37 s1: merged 1 carts 34 and 40 at t 876 (9.50,4.06,17.61)|38 problems:
+D1missed65 perfect GC37 s1: merged 0 |1 problems:
+D1missed65 benchtail GC37 s2: merged 1 carts 34 and 40 at t 876 (9.50,4.06,17.61)|41 problems:
+D1missed65 perfect GC37 s2: merged 0 |1 problems:
+D1missed65 benchtail GC37 s3: lap CHANGED|merged 0 |33 problems:
+D1missed65 perfect GC37 s3: merged 0 |1 problems:
+D1missed65 benchtail F(unguarded) s1: merged 0 |41 problems:
+D1missed65 benchtail F(unguarded) s2: merged 0 |40 problems:
+D1missed65 benchtail F(unguarded) s3: merged 0 |41 problems:
+RELextra85 benchtail GC37 s1: lap CHANGED|merged 2 carts 18 and 20 at t 1346 (8.63,-2.56,0.50); carts 30 and 32 at t 1436 (9.50,1.00,4.94)|33 problems:
+RELextra85 perfect GC37 s1: merged 0 |1 problems:
+RELextra85 benchtail GC37 s2: lap CHANGED|merged 0 |36 problems:
+RELextra85 perfect GC37 s2: merged 0 |1 problems:
+RELextra85 benchtail GC37 s3: lap CHANGED|merged 0 |24 problems:
+RELextra85 perfect GC37 s3: merged 0 |1 problems:
+RELextra85 benchtail F(unguarded) s1: lap CHANGED|merged 1 carts 10 and 14 at t 1511 (6.89,-0.94,0.50)|29 problems:
+RELextra85 benchtail F(unguarded) s2: lap CHANGED|merged 1 carts 26 and 28 at t 1014 (0.50,2.87,25.19)|34 problems:
+RELextra85 benchtail F(unguarded) s3: lap CHANGED|merged 5 carts 38 and 40 at t 1299 (0.50,0.86,33.21); carts 18 and 20 at t 1493 (9.50,0.60,4.54); carts 14 and 16 at t 1509 (7.88,-1.82,0.50)|36 problems:
+RELextra92 benchtail GC37 s1: lap CHANGED|merged 1 carts 14 and 16 at t 1180 (8.34,-2.28,0.50)|32 problems:
+RELextra92 perfect GC37 s1: merged 0 |1 problems:
+RELextra92 benchtail GC37 s2: lap CHANGED|merged 1 carts 20 and 22 at t 1298 (9.50,-1.07,2.87)|32 problems:
+RELextra92 perfect GC37 s2: merged 0 |1 problems:
+RELextra92 benchtail GC37 s3: lap CHANGED|merged 0 |24 problems:
+RELextra92 perfect GC37 s3: merged 0 |1 problems:
+RELextra92 benchtail F(unguarded) s1: lap CHANGED|merged 0 |38 problems:
+RELextra92 benchtail F(unguarded) s2: lap CHANGED|merged 1 carts 10 and 12 at t 1251 (-2.50,1.06,1.75)|35 problems:
+RELextra92 benchtail F(unguarded) s3: lap CHANGED|merged 0 |29 problems:
+glitch92 benchtail GC37 s1: merged 1 carts 0 and 36 at t 852 (0.50,1.06,35.25)|44 problems:
+glitch92 perfect GC37 s1: merged 0 |5 problems:
+glitch92 benchtail GC37 s2: merged 0 |37 problems:
+glitch92 perfect GC37 s2: merged 2 carts 28 and 30 at t 865 (-1.89,1.06,0.50); carts 12 and 14 at t 1382 (-1.89,1.06,0.50)|8 problems:
+glitch92 benchtail GC37 s3: merged 0 |37 problems:
+glitch92 perfect GC37 s3: merged 2 carts 28 and 30 at t 863 (-1.89,1.06,0.50); carts 20 and 22 at t 1167 (-1.89,1.06,0.50)|6 problems:
+glitch92 benchtail F(unguarded) s1: merged 0 |32 problems:
+glitch92 benchtail F(unguarded) s2: merged 0 |34 problems:
+glitch92 benchtail F(unguarded) s3: lap CHANGED|merged 1 carts 14 and 16 at t 1424 (7.55,4.06,20.50)|40 problems:
+Cextra50 benchtail GC37 s1: merged 0 |33 problems:
+Cextra50 perfect GC37 s1: merged 0 |5 problems:
+Cextra50 benchtail GC37 s2: merged 1 carts 38 and 40 at t 681 (-1.89,1.06,0.50)|41 problems:
+Cextra50 perfect GC37 s2: merged 0 |4 problems:
+Cextra50 benchtail GC37 s3: merged 1 carts 16 and 18 at t 1080 (-1.89,1.06,0.50)|45 problems:
+Cextra50 perfect GC37 s3: merged 1 carts 10 and 12 at t 1544 (-1.89,1.06,0.50)|4 problems:
+Cextra50 benchtail F(unguarded) s1: lap kept|merged 0 |0 problems
+Cextra50 benchtail F(unguarded) s2: lap kept|merged 0 |0 problems
+Cextra50 benchtail F(unguarded) s3: lap kept|merged 0 |0 problems
+Cextra66 benchtail GC37 s1: merged 0 |42 problems:
+Cextra66 perfect GC37 s1: merged 0 |5 problems:
+Cextra66 benchtail GC37 s2: merged 0 |28 problems:
+Cextra66 perfect GC37 s2: merged 1 carts 28 and 30 at t 865 (-1.89,1.06,0.50)|4 problems:
+Cextra66 benchtail GC37 s3: merged 0 |26 problems:
+Cextra66 perfect GC37 s3: merged 2 carts 28 and 30 at t 863 (-1.89,1.06,0.50); carts 20 and 22 at t 1167 (-1.89,1.06,0.50)|7 problems:
+Cextra66 benchtail F(unguarded) s1: lap kept|merged 0 |0 problems
+Cextra66 benchtail F(unguarded) s2: lap kept|merged 0 |0 problems
+Cextra66 benchtail F(unguarded) s3: lap kept|merged 0 |0 problems
+z10 stand32 arriving N40 perfect s1: merged 0 |8 problems:
+z10 stand32 arriving N240 perfect s1: merged 1 carts 0 and 4 at t 1175 (4.11,1.06,6.50)|11 problems:
+z10 stand33 arriving N40 perfect s1: merged 1 carts 30 and 38 at t 1373 (4.11,1.06,6.50)|11 problems:
+z10 stand33 arriving N240 perfect s1: merged 0 |10 problems:
+z10 queue32 arriving N40 perfect s1: merged 0 |1 problems:
+z10 queue32 arriving N240 perfect s1: merged 0 |4 problems:
+z10 stand32 D1cart3 N40 perfect s1: merged 0 |9 problems:
+z10 stand32 D1cart3 N240 perfect s1: merged 0 |10 problems:
+z10 stand33 D1cart3 N40 perfect s1: merged 0 |8 problems:
+z10 stand33 D1cart3 N240 perfect s1: merged 0 |10 problems:
+z10 queue32 D1cart3 N40 perfect s1: merged 1 carts 30 and 38 at t 1077 (4.11,1.06,6.50)|9 problems:
+z10 queue32 D1cart3 N240 perfect s1: merged 0 |8 problems:
+z10 stand32 rest N40 perfect s1: merged 0 |7 problems:
+z10 stand32 rest N240 perfect s1: merged 0 |1 problems:
+z10 stand33 rest N40 perfect s1: merged 0 |8 problems:
+z10 stand33 rest N240 perfect s1: merged 0 |6 problems:
+z10 queue32 rest N40 perfect s1: merged 3 carts 34 and 40 at t 875 (4.11,1.06,6.50); carts 26 and 28 at t 1284 (4.11,1.06,6.50); carts 28 and 32 at t 1493 (4.11,1.06,6.50)|10 problems:
+z10 queue32 rest N240 perfect s1: merged 0 |8 problems:
+z10 stand32 RELstart N40 perfect s1: merged 0 |10 problems:
+z10 stand32 RELstart N240 perfect s1: merged 0 |3 problems:
+z10 stand33 RELstart N40 perfect s1: merged 0 |12 problems:
+z10 stand33 RELstart N240 perfect s1: merged 0 |10 problems:
+z10 queue32 RELstart N40 perfect s1: merged 1 carts 6 and 34 at t 1035 (5.78,0.28,6.50)|12 problems:
+z10 queue32 RELstart N240 perfect s1: merged 0 |9 problems:
+z10 stand32 departure N40 perfect s1: merged 0 |1 problems:
+z10 stand32 departure N240 perfect s1: merged 1 carts 28 and 38 at t 1544 (4.11,1.06,6.50)|9 problems:
+z10 stand33 departure N40 perfect s1: merged 0 |10 problems:
+z10 stand33 departure N240 perfect s1: merged 0 |7 problems:
+z10 queue32 departure N40 perfect s1: merged 1 carts 4 and 36 at t 773 (4.11,1.06,6.50)|10 problems:
+z10 queue32 departure N240 perfect s1: merged 0 |8 problems:
+z10 stand32 RELend N40 perfect s1: merged 1 carts 34 and 6 at t 965 (4.11,1.06,6.50)|8 problems:
+z10 stand32 RELend N240 perfect s1: merged 0 |8 problems:
+z10 stand33 RELend N40 perfect s1: merged 1 carts 34 and 40 at t 1077 (4.11,1.06,6.50)|9 problems:
+z10 stand33 RELend N240 perfect s1: merged 0 |7 problems:
+z10 queue32 RELend N40 perfect s1: merged 0 |1 problems:
+z10 queue32 RELend N240 perfect s1: merged 0 |9 problems:

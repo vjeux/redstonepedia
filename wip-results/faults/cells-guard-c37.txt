@@ -1,0 +1,81 @@
+ADDED (63):
+  0,-3,1 glass
+  0,-3,2 glass
+  0,-3,3 glass
+  0,-2,1 repeater[delay=2,facing=south]
+  0,-2,2 redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  0,-2,3 redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  1,-3,3 glass
+  1,-2,3 redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  2,-3,3 glass
+  2,-2,3 redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  3,-3,3 glass
+  3,-2,3 redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  4,-4,1 glass
+  4,-4,2 glass
+  4,-3,1 repeater[delay=1,facing=south]
+  4,-3,2 repeater[delay=1,facing=south]
+  4,-3,3 stone
+  4,-2,3 redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  4,0,2 redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  5,-5,3 glass
+  5,-5,4 glass
+  5,-5,5 glass
+  5,-4,2 stone
+  5,-4,3 redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  5,-4,4 repeater[delay=2,facing=south]
+  5,-4,5 redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  5,-3,2 redstone_torch[lit=true]
+  5,-3,3 glass
+  5,-2,2 stone
+  5,-2,3 repeater[delay=1,facing=east]
+  5,-1,2 redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  5,0,2 stone
+  5,1,2 glass
+  6,-5,1 stone
+  6,-5,2 glass
+  6,-5,5 stone
+  6,-4,1 redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  6,-4,2 redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  6,-4,5 redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  6,-3,1 stone
+  7,-6,1 glass
+  7,-6,5 glass
+  7,-5,1 repeater[delay=4,facing=west]
+  7,-5,2 glass
+  7,-5,3 glass
+  7,-5,4 glass
+  7,-5,5 repeater[delay=2,facing=east]
+  7,-4,1 glass
+  7,-4,2 redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  7,-4,3 redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  7,-4,4 repeater[delay=1,facing=north]
+  7,-4,5 stone
+  7,-3,1 repeater[delay=1,facing=east]
+  7,-3,5 glass
+  8,-6,2 glass
+  8,-6,3 glass
+  8,-6,4 glass
+  8,-6,5 glass
+  8,-5,1 stone
+  8,-5,2 repeater[delay=4,facing=north]
+  8,-5,3 repeater[delay=2,facing=north]
+  8,-5,4 repeater[delay=2,facing=north]
+  8,-5,5 redstone_wire[east=none,north=side,power=0,south=none,west=side]
+REMOVED (1) (left as air):
+  4,-2,2 glass
+CHANGED (14):
+  0,-2,0 redstone_block -> stone
+  0,-1,0 powered_rail[powered=true,shape=ascending_west] -> powered_rail[powered=false,shape=ascending_west]
+  1,-2,0 redstone_block -> glass
+  1,-1,0 powered_rail[powered=true,shape=ascending_east] -> rail[shape=ascending_east]
+  4,-3,0 redstone_block -> stone
+  4,-2,0 powered_rail[powered=true,shape=ascending_west] -> powered_rail[powered=false,shape=ascending_west]
+  4,-1,2 redstone_wire[east=none,north=side,power=0,south=up,west=none] -> stone
+  5,-3,0 redstone_block -> glass
+  5,-2,0 powered_rail[powered=true,shape=ascending_east] -> rail[shape=ascending_east]
+  8,-4,0 redstone_block -> glass
+  8,-3,0 powered_rail[powered=true,shape=ascending_west] -> powered_rail[powered=false,shape=ascending_west]
+  8,-3,1 glass -> stone
+  9,3,8 glass -> redstone_block
+  9,4,8 rail[shape=north_south] -> powered_rail[powered=true,shape=north_south]

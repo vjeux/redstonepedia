@@ -1,0 +1,37 @@
+fault table: 36 cases x seeds [1, 2, 3], 12 slots, the fault at slot 5, the perfect tail (queue reset every slot from 6); per case over the seeds: clean 3 from slot (the latest seed; never = -), carts back through a gate, departures' min gap (contacts), tail entry min gap within groups (touching), its biggest group, problems
+REL 10..50 st 2: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: normal   clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: normal   clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: normal   clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: normal   clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 6: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 6: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 6: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0

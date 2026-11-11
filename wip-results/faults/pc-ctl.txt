@@ -1,0 +1,477 @@
+1 settled snapshots, 0 clean 3-place moves
+slot-boundary order: 1 clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)
+lap order: CHANGED (65 departures; the last 21 are not the first 21's cycle)
+stand margins: gap12 11 11 in 6 6 clear 2 2 arrive 5 5 slots 1
+stand braked at +83..+83 after its slot's start; tail slots 1-2 braked at +119..+119, slot 0 at +123..+123 after the train's departure
+returning trains at rest in the tail at +133..+133 after their departure (the next slot's first advance reaches the tail at +138)
+zombies alive at the end: 8
+PANIC at night (day time 13,670..22,330, 6279 rider-ticks): 98.09% of rider-ticks, the least-panicking rider 77.59%; calm most at 7 -2 0 (43), 8 -3 0 (33), 9 -3 1 (7), 9 -3 0 (6), 9 -2 2 (6), 9 -1 3 (5)
+slot 0: batch at rest at the stand +83
+slot 0: returning train braked into the tail +123
+slot 1: returning train braked into the tail +123
+slot 3: returning train braked into the tail +123
+  carts: -2.5,0.1,19.0 -2.5,0.9,18.1 8.7,-2.7,0.5 0.5,2.7,28.4 8.0,-1.9,0.5 0.5,1.9,29.2 0.5,1.3,30.3 0.5,2.1,31.2 0.5,1.6,32.4 0.5,0.8,33.2 0.5,0.1,34.0 0.5,0.9,34.8 0.5,0.1,37.0 0.5,0.8,37.8 0.5,0.1,40.0 -2.5,0.1,31.0 -2.5,0.8,30.2 -2.5,0.9,28.8 -2.5,0.9,19.8 -2.5,0.8,27.2 -2.5,0.1,28.0
+  stand rail [7, -2, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+  stand rail [3, -1, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+  stand rail [-1, 0, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+slot 0 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 1 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 2 start: pockets S1 1 S2 1 S3 0, 0 more in the stand's strip, latch set
+slot 3 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 4 start: pockets S1 1 S2 0 S3 1, 1 more in the stand's strip (x -0.99), latch set
+slot 5 start: pockets S1 1 S2 0 S3 1, 1 more in the stand's strip (x -2.39), latch set
+slot 6 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 7 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 8 start: pockets S1 1 S2 1 S3 1, 1 more in the stand's strip (x -0.98), latch set
+slot 9 start: pockets S1 1 S2 0 S3 0, 1 more in the stand's strip (x 7.02), latch set
+slot 10 start: pockets S1 0 S2 0 S3 0, 3 more in the stand's strip (x 5.99 8.05 5.12), latch set
+slot 11 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 12 start: pockets S1 0 S2 0 S3 0, 5 more in the stand's strip (x 5.12 5.91 6.89 7.02 8.50), latch set
+slot 13 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 14 start: pockets S1 1 S2 0 S3 0, 1 more in the stand's strip (x 7.09), latch set
+slot 15 start: pockets S1 0 S2 0 S3 0, 2 more in the stand's strip (x 8.06 8.85), latch set
+slot 16 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 17 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 18 start: pockets S1 1 S2 0 S3 0, 2 more in the stand's strip (x 5.12 8.86), latch set
+slot 19 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 20 start: pockets S1 1 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 21 start: pockets S1 1 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 22 start: pockets S1 0 S2 0 S3 0, 1 more in the stand's strip (x 5.12), latch set
+slot 23 start: pockets S1 0 S2 0 S3 0, 1 more in the stand's strip (x 5.12), latch set
+slot 24 start: pockets S1 0 S2 0 S3 1, 3 more in the stand's strip (x -1.98 -0.94 -2.33), latch set
+slot 25 start: pockets S1 0 S2 1 S3 0, 0 more in the stand's strip, latch set
+slot 26 start: pockets S1 1 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 27 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 28 start: pockets S1 0 S2 0 S3 0, 0 more in the stand's strip, latch set
+slot 29 start: pockets S1 0 S2 0 S3 0, 1 more in the stand's strip (x 7.90), latch set
+stand departures: 40 carts, gap min 3 max 23 gt (gaps under 60 gt), 2 in contact with the one before
+stand departures under 8 gt apart or touching: slot 9 78 gt touching, slot 9 3 gt, slot 12 7 gt, slot 15 82 gt touching, slot 15 7 gt, slot 18 7 gt, slot 24 6 gt
+back through a gate: 41 (slot 9 +13: cart 1 back through G0, slot 9 +49: cart 0 back through G0, slot 9 +55: cart 1 back through G0, slot 10 +21: cart 18 back through G1, slot 10 +26: cart 0 back through G1, slot 10 +33: cart 18 back through G2, slot 10 +39: cart 0 back through G2, slot 11 +58: cart 1 back through G0)
+carts off the rails: 0; riders not seated: 0
+latch set (T2 out after +55): +55..+87 over 31 slots
+stand bursts: 1x5 2x10 3x5 (size x count); the biggest: 3 carts (slot 0 +21..+44, gaps 13/10, top 1.05/1.01/1.12)
+  burst: 2 carts (slot 2 +21..+34, gaps 13, top 1.05/1.01)
+  burst: 2 carts (slot 4 +21..+44, gaps 23, top 1.05/1.12)
+  burst: 2 carts (slot 5 +21..+44, gaps 23, top 1.05/1.12)
+  burst: 2 carts (slot 7 +41..+50, gaps 9, top 1.31/0.92)
+  burst: 2 carts (slot 9 +22..+25, gaps 3, top -/-)
+  burst: 1 carts (slot 10 +17..+17, gaps -, top 1.07)
+  burst: 2 carts (slot 14 +21..+31, gaps 10, top 0.19/-)
+  burst: 2 carts (slot 15 +13..+20, gaps 7, top 0.96/0.94)
+  burst: 2 carts (slot 18 +14..+21, gaps 7, top 0.91/0.94)
+  burst: 1 carts (slot 20 +21..+21, gaps -, top 1.05)
+  burst: 1 carts (slot 21 +21..+21, gaps -, top 1.05)
+  burst: 2 carts (slot 24 +44..+50, gaps 6, top 1.12/1.04)
+  burst: 1 carts (slot 25 +34..+34, gaps -, top 1.01)
+  burst: 1 carts (slot 26 +21..+21, gaps -, top 1.05)
+  burst: 2 carts (slot 29 +15..+25, gaps 10, top 0.97/1.05)
+tail entry: 40 carts, gap min 4 gt within groups, 0 touching; groups 1x7 2x5 3x5 4x2; the biggest: 4 carts (slot 12 +77, gaps 4/6/17, speeds 1.99/1.67/0.69/0.05)
+problem slots: 2x2 3x2 4x2 5x3 6x3 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3 20x3 21x3 22x3 23x3 24x3 25x3 26x3 27x3 28x3 29x3
+407 problems:
+  slot 2: the release group holds 3 carts and the stand 2 at the slot's start
+  slot 2: order: the stand holds [28, 26], not the train [28, 26, 24]
+  slot 3: order: the stand holds [24, 22, 20], not the train [22, 20, 18]
+  slot 3: slot 2's returning train not in the queue's tail at the advance
+  slot 4: the release group holds 3 carts and the stand 2 at the slot's start
+  slot 4: order: queue slot 4 holds None, not Some(26); queue slot 5 holds None, not Some(28); the stand holds [18, 16], not the train [16, 14, 12]
+  slot 4: slot 2's returning train not in the queue's tail at the advance
+  slot 5: the release group holds 3 carts and the stand 2 at the slot's start
+  slot 5: order: queue slot 3 holds Some(22), not Some(20); queue slot 4 holds Some(26), not Some(22); queue slot 5 holds None, not Some(24); the stand holds [14, 12], not the train [10, 8, 6]
+  slot 5: slot 2's returning train not in the queue's tail at the advance
+  slot 5: slot 4's returning train not in the queue's tail at the advance
+  slot 6: the release group holds 3 carts and the stand 0 at the slot's start
+  slot 6: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(26), not Some(16); queue slot 5 holds None, not Some(20); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(26); queue slot 15 holds Some(38), not Some(40); queue slot 16 holds Some(2), not Some(38); queue slot 17 holds Some(4), not Some(36); the stand holds [], not the train [4, 2, 0]
+  slot 6: slot 2's returning train not in the queue's tail at the advance
+  slot 6: slot 4's returning train not in the queue's tail at the advance
+  slot 6: slot 5's returning train not in the queue's tail at the advance
+  slot 7: the release group holds 0 carts and the stand 0 at the slot's start
+  slot 7: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(26), not Some(12); queue slot 5 holds None, not Some(22); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(26); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(40), not None; queue slot 15 holds None, not Some(30); queue slot 16 holds None, not Some(32); queue slot 17 holds None, not Some(34); the stand holds [], not the train [4, 2, 38]
+  slot 7: slot 2's returning train not in the queue's tail at the advance
+  slot 7: slot 4's returning train not in the queue's tail at the advance
+  slot 7: slot 5's returning train not in the queue's tail at the advance
+  slot 7: slot 6's returning train not in the queue's tail at the advance
+  slot 8: the release group holds 0 carts and the stand 3 at the slot's start
+  slot 8: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(26); queue slot 12 holds Some(30), not None; queue slot 13 holds Some(32), not None; queue slot 14 holds Some(40), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds None, not Some(40); the stand holds [6, 4, 2], not the train []
+  slot 8: slot 2's returning train not in the queue's tail at the advance
+  slot 8: slot 4's returning train not in the queue's tail at the advance
+  slot 8: slot 5's returning train not in the queue's tail at the advance
+  slot 8: slot 6's returning train not in the queue's tail at the advance
+  slot 8: slot 7's returning train not in the queue's tail at the advance
+  slot 9: the release group holds 0 carts and the stand 1 at the slot's start
+  slot 9: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 15 holds None, not Some(30); queue slot 16 holds None, not Some(32); queue slot 17 holds None, not Some(40); the stand holds [0], not the train []
+  slot 9: slot 2's returning train not in the queue's tail at the advance
+  slot 9: slot 4's returning train not in the queue's tail at the advance
+  slot 9: slot 5's returning train not in the queue's tail at the advance
+  slot 9: slot 6's returning train not in the queue's tail at the advance
+  slot 9: slot 7's returning train not in the queue's tail at the advance
+  slot 9: slot 8's returning train not in the queue's tail at the advance
+  slot 10: the release group holds 0 carts and the stand 0 at the slot's start
+  slot 10: order: queue slot 3 holds Some(22), not Some(2); queue slot 4 holds Some(28), not Some(4); queue slot 5 holds None, not Some(16); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 12 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds None, not Some(34)
+  slot 10: slot 2's returning train not in the queue's tail at the advance
+  slot 10: slot 4's returning train not in the queue's tail at the advance
+  slot 10: slot 5's returning train not in the queue's tail at the advance
+  slot 10: slot 6's returning train not in the queue's tail at the advance
+  slot 10: slot 7's returning train not in the queue's tail at the advance
+  slot 10: slot 8's returning train not in the queue's tail at the advance
+  slot 10: slot 9's returning train not in the queue's tail at the advance
+  slot 11: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 11: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(16); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(32), not None; queue slot 14 holds Some(34), not None; queue slot 15 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34)
+  slot 11: slot 2's returning train not in the queue's tail at the advance
+  slot 11: slot 4's returning train not in the queue's tail at the advance
+  slot 11: slot 5's returning train not in the queue's tail at the advance
+  slot 11: slot 6's returning train not in the queue's tail at the advance
+  slot 11: slot 7's returning train not in the queue's tail at the advance
+  slot 11: slot 8's returning train not in the queue's tail at the advance
+  slot 11: slot 9's returning train not in the queue's tail at the advance
+  slot 11: slot 10's returning train not in the queue's tail at the advance
+  slot 12: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 12: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not Some(10); queue slot 5 holds None, not Some(16); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(32); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 12: slot 2's returning train not in the queue's tail at the advance
+  slot 12: slot 4's returning train not in the queue's tail at the advance
+  slot 12: slot 5's returning train not in the queue's tail at the advance
+  slot 12: slot 6's returning train not in the queue's tail at the advance
+  slot 12: slot 7's returning train not in the queue's tail at the advance
+  slot 12: slot 8's returning train not in the queue's tail at the advance
+  slot 12: slot 9's returning train not in the queue's tail at the advance
+  slot 12: slot 10's returning train not in the queue's tail at the advance
+  slot 12: slot 11's returning train not in the queue's tail at the advance
+  slot 13: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 13: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 13: slot 2's returning train not in the queue's tail at the advance
+  slot 13: slot 4's returning train not in the queue's tail at the advance
+  slot 13: slot 5's returning train not in the queue's tail at the advance
+  slot 13: slot 6's returning train not in the queue's tail at the advance
+  slot 13: slot 7's returning train not in the queue's tail at the advance
+  slot 13: slot 8's returning train not in the queue's tail at the advance
+  slot 13: slot 9's returning train not in the queue's tail at the advance
+  slot 13: slot 10's returning train not in the queue's tail at the advance
+  slot 13: slot 11's returning train not in the queue's tail at the advance
+  slot 13: slot 12's returning train not in the queue's tail at the advance
+  slot 14: the release group holds 1 carts and the stand 1 at the slot's start
+  slot 14: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [8], not the train [36]
+  slot 14: slot 2's returning train not in the queue's tail at the advance
+  slot 14: slot 4's returning train not in the queue's tail at the advance
+  slot 14: slot 5's returning train not in the queue's tail at the advance
+  slot 14: slot 6's returning train not in the queue's tail at the advance
+  slot 14: slot 7's returning train not in the queue's tail at the advance
+  slot 14: slot 8's returning train not in the queue's tail at the advance
+  slot 14: slot 9's returning train not in the queue's tail at the advance
+  slot 14: slot 10's returning train not in the queue's tail at the advance
+  slot 14: slot 11's returning train not in the queue's tail at the advance
+  slot 14: slot 12's returning train not in the queue's tail at the advance
+  slot 14: slot 13's returning train not in the queue's tail at the advance
+  slot 15: the release group holds 2 carts and the stand 0 at the slot's start
+  slot 15: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(16); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds Some(36), not Some(30); queue slot 17 holds Some(0), not Some(34); the stand holds [], not the train [36]
+  slot 15: slot 2's returning train not in the queue's tail at the advance
+  slot 15: slot 4's returning train not in the queue's tail at the advance
+  slot 15: slot 5's returning train not in the queue's tail at the advance
+  slot 15: slot 6's returning train not in the queue's tail at the advance
+  slot 15: slot 7's returning train not in the queue's tail at the advance
+  slot 15: slot 8's returning train not in the queue's tail at the advance
+  slot 15: slot 9's returning train not in the queue's tail at the advance
+  slot 15: slot 10's returning train not in the queue's tail at the advance
+  slot 15: slot 11's returning train not in the queue's tail at the advance
+  slot 15: slot 12's returning train not in the queue's tail at the advance
+  slot 15: slot 13's returning train not in the queue's tail at the advance
+  slot 15: slot 14's returning train not in the queue's tail at the advance
+  slot 16: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 16: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(16); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [0, 36]
+  slot 16: slot 2's returning train not in the queue's tail at the advance
+  slot 16: slot 4's returning train not in the queue's tail at the advance
+  slot 16: slot 5's returning train not in the queue's tail at the advance
+  slot 16: slot 6's returning train not in the queue's tail at the advance
+  slot 16: slot 7's returning train not in the queue's tail at the advance
+  slot 16: slot 8's returning train not in the queue's tail at the advance
+  slot 16: slot 9's returning train not in the queue's tail at the advance
+  slot 16: slot 10's returning train not in the queue's tail at the advance
+  slot 16: slot 11's returning train not in the queue's tail at the advance
+  slot 16: slot 12's returning train not in the queue's tail at the advance
+  slot 16: slot 13's returning train not in the queue's tail at the advance
+  slot 16: slot 14's returning train not in the queue's tail at the advance
+  slot 16: slot 15's returning train not in the queue's tail at the advance
+  slot 17: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 17: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(16); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 17: slot 2's returning train not in the queue's tail at the advance
+  slot 17: slot 4's returning train not in the queue's tail at the advance
+  slot 17: slot 5's returning train not in the queue's tail at the advance
+  slot 17: slot 6's returning train not in the queue's tail at the advance
+  slot 17: slot 7's returning train not in the queue's tail at the advance
+  slot 17: slot 8's returning train not in the queue's tail at the advance
+  slot 17: slot 9's returning train not in the queue's tail at the advance
+  slot 17: slot 10's returning train not in the queue's tail at the advance
+  slot 17: slot 11's returning train not in the queue's tail at the advance
+  slot 17: slot 12's returning train not in the queue's tail at the advance
+  slot 17: slot 13's returning train not in the queue's tail at the advance
+  slot 17: slot 14's returning train not in the queue's tail at the advance
+  slot 17: slot 15's returning train not in the queue's tail at the advance
+  slot 17: slot 16's returning train not in the queue's tail at the advance
+  slot 18: the release group holds 1 carts and the stand 1 at the slot's start
+  slot 18: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(16); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [8], not the train [36]
+  slot 18: slot 2's returning train not in the queue's tail at the advance
+  slot 18: slot 4's returning train not in the queue's tail at the advance
+  slot 18: slot 5's returning train not in the queue's tail at the advance
+  slot 18: slot 6's returning train not in the queue's tail at the advance
+  slot 18: slot 7's returning train not in the queue's tail at the advance
+  slot 18: slot 8's returning train not in the queue's tail at the advance
+  slot 18: slot 9's returning train not in the queue's tail at the advance
+  slot 18: slot 10's returning train not in the queue's tail at the advance
+  slot 18: slot 11's returning train not in the queue's tail at the advance
+  slot 18: slot 12's returning train not in the queue's tail at the advance
+  slot 18: slot 13's returning train not in the queue's tail at the advance
+  slot 18: slot 14's returning train not in the queue's tail at the advance
+  slot 18: slot 15's returning train not in the queue's tail at the advance
+  slot 18: slot 16's returning train not in the queue's tail at the advance
+  slot 18: slot 17's returning train not in the queue's tail at the advance
+  slot 19: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 19: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 19: slot 2's returning train not in the queue's tail at the advance
+  slot 19: slot 4's returning train not in the queue's tail at the advance
+  slot 19: slot 5's returning train not in the queue's tail at the advance
+  slot 19: slot 6's returning train not in the queue's tail at the advance
+  slot 19: slot 7's returning train not in the queue's tail at the advance
+  slot 19: slot 8's returning train not in the queue's tail at the advance
+  slot 19: slot 9's returning train not in the queue's tail at the advance
+  slot 19: slot 10's returning train not in the queue's tail at the advance
+  slot 19: slot 11's returning train not in the queue's tail at the advance
+  slot 19: slot 12's returning train not in the queue's tail at the advance
+  slot 19: slot 13's returning train not in the queue's tail at the advance
+  slot 19: slot 14's returning train not in the queue's tail at the advance
+  slot 19: slot 15's returning train not in the queue's tail at the advance
+  slot 19: slot 16's returning train not in the queue's tail at the advance
+  slot 19: slot 17's returning train not in the queue's tail at the advance
+  slot 19: slot 18's returning train not in the queue's tail at the advance
+  slot 20: the release group holds 1 carts and the stand 1 at the slot's start
+  slot 20: order: queue slot 3 holds Some(22), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(8); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [4], not the train [36]
+  slot 20: slot 2's returning train not in the queue's tail at the advance
+  slot 20: slot 4's returning train not in the queue's tail at the advance
+  slot 20: slot 5's returning train not in the queue's tail at the advance
+  slot 20: slot 6's returning train not in the queue's tail at the advance
+  slot 20: slot 7's returning train not in the queue's tail at the advance
+  slot 20: slot 8's returning train not in the queue's tail at the advance
+  slot 20: slot 9's returning train not in the queue's tail at the advance
+  slot 20: slot 10's returning train not in the queue's tail at the advance
+  slot 20: slot 11's returning train not in the queue's tail at the advance
+  slot 20: slot 12's returning train not in the queue's tail at the advance
+  slot 20: slot 13's returning train not in the queue's tail at the advance
+  slot 20: slot 14's returning train not in the queue's tail at the advance
+  slot 20: slot 15's returning train not in the queue's tail at the advance
+  slot 20: slot 16's returning train not in the queue's tail at the advance
+  slot 20: slot 17's returning train not in the queue's tail at the advance
+  slot 20: slot 18's returning train not in the queue's tail at the advance
+  slot 20: slot 19's returning train not in the queue's tail at the advance
+  slot 21: the release group holds 1 carts and the stand 1 at the slot's start
+  slot 21: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not Some(16); queue slot 6 holds None, not Some(22); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [2], not the train [36]
+  slot 21: slot 2's returning train not in the queue's tail at the advance
+  slot 21: slot 4's returning train not in the queue's tail at the advance
+  slot 21: slot 5's returning train not in the queue's tail at the advance
+  slot 21: slot 6's returning train not in the queue's tail at the advance
+  slot 21: slot 7's returning train not in the queue's tail at the advance
+  slot 21: slot 8's returning train not in the queue's tail at the advance
+  slot 21: slot 9's returning train not in the queue's tail at the advance
+  slot 21: slot 10's returning train not in the queue's tail at the advance
+  slot 21: slot 11's returning train not in the queue's tail at the advance
+  slot 21: slot 12's returning train not in the queue's tail at the advance
+  slot 21: slot 13's returning train not in the queue's tail at the advance
+  slot 21: slot 14's returning train not in the queue's tail at the advance
+  slot 21: slot 15's returning train not in the queue's tail at the advance
+  slot 21: slot 16's returning train not in the queue's tail at the advance
+  slot 21: slot 17's returning train not in the queue's tail at the advance
+  slot 21: slot 18's returning train not in the queue's tail at the advance
+  slot 21: slot 19's returning train not in the queue's tail at the advance
+  slot 21: slot 20's returning train not in the queue's tail at the advance
+  slot 22: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 22: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not Some(12); queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 22: slot 2's returning train not in the queue's tail at the advance
+  slot 22: slot 4's returning train not in the queue's tail at the advance
+  slot 22: slot 5's returning train not in the queue's tail at the advance
+  slot 22: slot 6's returning train not in the queue's tail at the advance
+  slot 22: slot 7's returning train not in the queue's tail at the advance
+  slot 22: slot 8's returning train not in the queue's tail at the advance
+  slot 22: slot 9's returning train not in the queue's tail at the advance
+  slot 22: slot 10's returning train not in the queue's tail at the advance
+  slot 22: slot 11's returning train not in the queue's tail at the advance
+  slot 22: slot 12's returning train not in the queue's tail at the advance
+  slot 22: slot 13's returning train not in the queue's tail at the advance
+  slot 22: slot 14's returning train not in the queue's tail at the advance
+  slot 22: slot 15's returning train not in the queue's tail at the advance
+  slot 22: slot 16's returning train not in the queue's tail at the advance
+  slot 22: slot 17's returning train not in the queue's tail at the advance
+  slot 22: slot 18's returning train not in the queue's tail at the advance
+  slot 22: slot 19's returning train not in the queue's tail at the advance
+  slot 22: slot 20's returning train not in the queue's tail at the advance
+  slot 22: slot 21's returning train not in the queue's tail at the advance
+  slot 23: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 23: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 23: slot 2's returning train not in the queue's tail at the advance
+  slot 23: slot 4's returning train not in the queue's tail at the advance
+  slot 23: slot 5's returning train not in the queue's tail at the advance
+  slot 23: slot 6's returning train not in the queue's tail at the advance
+  slot 23: slot 7's returning train not in the queue's tail at the advance
+  slot 23: slot 8's returning train not in the queue's tail at the advance
+  slot 23: slot 9's returning train not in the queue's tail at the advance
+  slot 23: slot 10's returning train not in the queue's tail at the advance
+  slot 23: slot 11's returning train not in the queue's tail at the advance
+  slot 23: slot 12's returning train not in the queue's tail at the advance
+  slot 23: slot 13's returning train not in the queue's tail at the advance
+  slot 23: slot 14's returning train not in the queue's tail at the advance
+  slot 23: slot 15's returning train not in the queue's tail at the advance
+  slot 23: slot 16's returning train not in the queue's tail at the advance
+  slot 23: slot 17's returning train not in the queue's tail at the advance
+  slot 23: slot 18's returning train not in the queue's tail at the advance
+  slot 23: slot 19's returning train not in the queue's tail at the advance
+  slot 23: slot 20's returning train not in the queue's tail at the advance
+  slot 23: slot 21's returning train not in the queue's tail at the advance
+  slot 23: slot 22's returning train not in the queue's tail at the advance
+  slot 24: the release group holds 1 carts and the stand 1 at the slot's start
+  slot 24: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [10], not the train [36]
+  slot 24: slot 2's returning train not in the queue's tail at the advance
+  slot 24: slot 4's returning train not in the queue's tail at the advance
+  slot 24: slot 5's returning train not in the queue's tail at the advance
+  slot 24: slot 6's returning train not in the queue's tail at the advance
+  slot 24: slot 7's returning train not in the queue's tail at the advance
+  slot 24: slot 8's returning train not in the queue's tail at the advance
+  slot 24: slot 9's returning train not in the queue's tail at the advance
+  slot 24: slot 10's returning train not in the queue's tail at the advance
+  slot 24: slot 11's returning train not in the queue's tail at the advance
+  slot 24: slot 12's returning train not in the queue's tail at the advance
+  slot 24: slot 13's returning train not in the queue's tail at the advance
+  slot 24: slot 14's returning train not in the queue's tail at the advance
+  slot 24: slot 15's returning train not in the queue's tail at the advance
+  slot 24: slot 16's returning train not in the queue's tail at the advance
+  slot 24: slot 17's returning train not in the queue's tail at the advance
+  slot 24: slot 18's returning train not in the queue's tail at the advance
+  slot 24: slot 19's returning train not in the queue's tail at the advance
+  slot 24: slot 20's returning train not in the queue's tail at the advance
+  slot 24: slot 21's returning train not in the queue's tail at the advance
+  slot 24: slot 22's returning train not in the queue's tail at the advance
+  slot 24: slot 23's returning train not in the queue's tail at the advance
+  slot 25: the release group holds 1 carts and the stand 1 at the slot's start
+  slot 25: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [4], not the train [36]
+  slot 25: slot 2's returning train not in the queue's tail at the advance
+  slot 25: slot 4's returning train not in the queue's tail at the advance
+  slot 25: slot 5's returning train not in the queue's tail at the advance
+  slot 25: slot 6's returning train not in the queue's tail at the advance
+  slot 25: slot 7's returning train not in the queue's tail at the advance
+  slot 25: slot 8's returning train not in the queue's tail at the advance
+  slot 25: slot 9's returning train not in the queue's tail at the advance
+  slot 25: slot 10's returning train not in the queue's tail at the advance
+  slot 25: slot 11's returning train not in the queue's tail at the advance
+  slot 25: slot 12's returning train not in the queue's tail at the advance
+  slot 25: slot 13's returning train not in the queue's tail at the advance
+  slot 25: slot 14's returning train not in the queue's tail at the advance
+  slot 25: slot 15's returning train not in the queue's tail at the advance
+  slot 25: slot 16's returning train not in the queue's tail at the advance
+  slot 25: slot 17's returning train not in the queue's tail at the advance
+  slot 25: slot 18's returning train not in the queue's tail at the advance
+  slot 25: slot 19's returning train not in the queue's tail at the advance
+  slot 25: slot 20's returning train not in the queue's tail at the advance
+  slot 25: slot 21's returning train not in the queue's tail at the advance
+  slot 25: slot 22's returning train not in the queue's tail at the advance
+  slot 25: slot 23's returning train not in the queue's tail at the advance
+  slot 25: slot 24's returning train not in the queue's tail at the advance
+  slot 26: the release group holds 1 carts and the stand 1 at the slot's start
+  slot 26: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [8], not the train [36]
+  slot 26: slot 2's returning train not in the queue's tail at the advance
+  slot 26: slot 4's returning train not in the queue's tail at the advance
+  slot 26: slot 5's returning train not in the queue's tail at the advance
+  slot 26: slot 6's returning train not in the queue's tail at the advance
+  slot 26: slot 7's returning train not in the queue's tail at the advance
+  slot 26: slot 8's returning train not in the queue's tail at the advance
+  slot 26: slot 9's returning train not in the queue's tail at the advance
+  slot 26: slot 10's returning train not in the queue's tail at the advance
+  slot 26: slot 11's returning train not in the queue's tail at the advance
+  slot 26: slot 12's returning train not in the queue's tail at the advance
+  slot 26: slot 13's returning train not in the queue's tail at the advance
+  slot 26: slot 14's returning train not in the queue's tail at the advance
+  slot 26: slot 15's returning train not in the queue's tail at the advance
+  slot 26: slot 16's returning train not in the queue's tail at the advance
+  slot 26: slot 17's returning train not in the queue's tail at the advance
+  slot 26: slot 18's returning train not in the queue's tail at the advance
+  slot 26: slot 19's returning train not in the queue's tail at the advance
+  slot 26: slot 20's returning train not in the queue's tail at the advance
+  slot 26: slot 21's returning train not in the queue's tail at the advance
+  slot 26: slot 22's returning train not in the queue's tail at the advance
+  slot 26: slot 23's returning train not in the queue's tail at the advance
+  slot 26: slot 24's returning train not in the queue's tail at the advance
+  slot 26: slot 25's returning train not in the queue's tail at the advance
+  slot 27: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 27: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 27: slot 2's returning train not in the queue's tail at the advance
+  slot 27: slot 4's returning train not in the queue's tail at the advance
+  slot 27: slot 5's returning train not in the queue's tail at the advance
+  slot 27: slot 6's returning train not in the queue's tail at the advance
+  slot 27: slot 7's returning train not in the queue's tail at the advance
+  slot 27: slot 8's returning train not in the queue's tail at the advance
+  slot 27: slot 9's returning train not in the queue's tail at the advance
+  slot 27: slot 10's returning train not in the queue's tail at the advance
+  slot 27: slot 11's returning train not in the queue's tail at the advance
+  slot 27: slot 12's returning train not in the queue's tail at the advance
+  slot 27: slot 13's returning train not in the queue's tail at the advance
+  slot 27: slot 14's returning train not in the queue's tail at the advance
+  slot 27: slot 15's returning train not in the queue's tail at the advance
+  slot 27: slot 16's returning train not in the queue's tail at the advance
+  slot 27: slot 17's returning train not in the queue's tail at the advance
+  slot 27: slot 18's returning train not in the queue's tail at the advance
+  slot 27: slot 19's returning train not in the queue's tail at the advance
+  slot 27: slot 20's returning train not in the queue's tail at the advance
+  slot 27: slot 21's returning train not in the queue's tail at the advance
+  slot 27: slot 22's returning train not in the queue's tail at the advance
+  slot 27: slot 23's returning train not in the queue's tail at the advance
+  slot 27: slot 24's returning train not in the queue's tail at the advance
+  slot 27: slot 25's returning train not in the queue's tail at the advance
+  slot 27: slot 26's returning train not in the queue's tail at the advance
+  slot 28: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 28: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 28: slot 2's returning train not in the queue's tail at the advance
+  slot 28: slot 4's returning train not in the queue's tail at the advance
+  slot 28: slot 5's returning train not in the queue's tail at the advance
+  slot 28: slot 6's returning train not in the queue's tail at the advance
+  slot 28: slot 7's returning train not in the queue's tail at the advance
+  slot 28: slot 8's returning train not in the queue's tail at the advance
+  slot 28: slot 9's returning train not in the queue's tail at the advance
+  slot 28: slot 10's returning train not in the queue's tail at the advance
+  slot 28: slot 11's returning train not in the queue's tail at the advance
+  slot 28: slot 12's returning train not in the queue's tail at the advance
+  slot 28: slot 13's returning train not in the queue's tail at the advance
+  slot 28: slot 14's returning train not in the queue's tail at the advance
+  slot 28: slot 15's returning train not in the queue's tail at the advance
+  slot 28: slot 16's returning train not in the queue's tail at the advance
+  slot 28: slot 17's returning train not in the queue's tail at the advance
+  slot 28: slot 18's returning train not in the queue's tail at the advance
+  slot 28: slot 19's returning train not in the queue's tail at the advance
+  slot 28: slot 20's returning train not in the queue's tail at the advance
+  slot 28: slot 21's returning train not in the queue's tail at the advance
+  slot 28: slot 22's returning train not in the queue's tail at the advance
+  slot 28: slot 23's returning train not in the queue's tail at the advance
+  slot 28: slot 24's returning train not in the queue's tail at the advance
+  slot 28: slot 25's returning train not in the queue's tail at the advance
+  slot 28: slot 26's returning train not in the queue's tail at the advance
+  slot 28: slot 27's returning train not in the queue's tail at the advance
+  slot 29: the release group holds 1 carts and the stand 0 at the slot's start
+  slot 29: order: queue slot 3 holds Some(24), not None; queue slot 4 holds Some(28), not None; queue slot 5 holds None, not Some(18); queue slot 6 holds None, not Some(24); queue slot 7 holds None, not Some(28); queue slot 13 holds Some(30), not None; queue slot 14 holds Some(34), not None; queue slot 16 holds None, not Some(30); queue slot 17 holds Some(36), not Some(34); the stand holds [], not the train [36]
+  slot 29: slot 2's returning train not in the queue's tail at the advance
+  slot 29: slot 4's returning train not in the queue's tail at the advance
+  slot 29: slot 5's returning train not in the queue's tail at the advance
+  slot 29: slot 6's returning train not in the queue's tail at the advance
+  slot 29: slot 7's returning train not in the queue's tail at the advance
+  slot 29: slot 8's returning train not in the queue's tail at the advance
+  slot 29: slot 9's returning train not in the queue's tail at the advance
+  slot 29: slot 10's returning train not in the queue's tail at the advance
+  slot 29: slot 11's returning train not in the queue's tail at the advance
+  slot 29: slot 12's returning train not in the queue's tail at the advance
+  slot 29: slot 13's returning train not in the queue's tail at the advance
+  slot 29: slot 14's returning train not in the queue's tail at the advance
+  slot 29: slot 15's returning train not in the queue's tail at the advance
+  slot 29: slot 16's returning train not in the queue's tail at the advance
+  slot 29: slot 17's returning train not in the queue's tail at the advance
+  slot 29: slot 18's returning train not in the queue's tail at the advance
+  slot 29: slot 19's returning train not in the queue's tail at the advance
+  slot 29: slot 20's returning train not in the queue's tail at the advance
+  slot 29: slot 21's returning train not in the queue's tail at the advance
+  slot 29: slot 22's returning train not in the queue's tail at the advance
+  slot 29: slot 23's returning train not in the queue's tail at the advance
+  slot 29: slot 24's returning train not in the queue's tail at the advance
+  slot 29: slot 25's returning train not in the queue's tail at the advance
+  slot 29: slot 26's returning train not in the queue's tail at the advance
+  slot 29: slot 27's returning train not in the queue's tail at the advance
+  slot 29: slot 28's returning train not in the queue's tail at the advance

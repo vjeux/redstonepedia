@@ -1,0 +1,56 @@
+ADDED (25): 3 glass, 9 powered_rail, 3 rail, 10 redstone_block
+  9,-2,9 glass
+  9,-2,10 redstone_block
+  9,-2,11 redstone_block
+  9,-2,12 redstone_block
+  9,-2,13 redstone_block
+  9,-2,14 redstone_block
+  9,-2,15 redstone_block
+  9,-1,8 glass
+  9,-1,9 rail[shape=ascending_north,waterlogged=false]
+  9,-1,10 powered_rail[powered=true,shape=north_south,waterlogged=false]
+  9,-1,11 powered_rail[powered=true,shape=north_south,waterlogged=false]
+  9,-1,12 powered_rail[powered=true,shape=north_south,waterlogged=false]
+  9,-1,13 powered_rail[powered=true,shape=north_south,waterlogged=false]
+  9,-1,14 powered_rail[powered=true,shape=north_south,waterlogged=false]
+  9,-1,15 powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  9,-1,16 redstone_block
+  9,0,7 glass
+  9,0,8 rail[shape=ascending_north,waterlogged=false]
+  9,0,16 powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  9,0,17 redstone_block
+  9,1,7 rail[shape=ascending_north,waterlogged=false]
+  9,1,17 powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  9,1,18 redstone_block
+  9,2,18 powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  9,2,19 redstone_block
+REMOVED (25): 10 glass, 2 powered_rail, 11 rail, 2 redstone_block
+  9,2,7 redstone_block
+  9,3,7 powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  9,3,8 redstone_block
+  9,3,9 glass
+  9,3,10 glass
+  9,3,11 glass
+  9,3,12 glass
+  9,3,13 glass
+  9,3,14 glass
+  9,3,15 glass
+  9,3,16 glass
+  9,3,17 glass
+  9,3,18 glass
+  9,4,8 powered_rail[powered=true,shape=north_south,waterlogged=false]
+  9,4,9 rail[shape=north_south,waterlogged=false]
+  9,4,10 rail[shape=north_south,waterlogged=false]
+  9,4,11 rail[shape=north_south,waterlogged=false]
+  9,4,12 rail[shape=north_south,waterlogged=false]
+  9,4,13 rail[shape=north_south,waterlogged=false]
+  9,4,14 rail[shape=north_south,waterlogged=false]
+  9,4,15 rail[shape=north_south,waterlogged=false]
+  9,4,16 rail[shape=north_south,waterlogged=false]
+  9,4,17 rail[shape=north_south,waterlogged=false]
+  9,4,18 rail[shape=north_south,waterlogged=false]
+  9,4,19 rail[shape=north_south,waterlogged=false]
+CHANGED (3)
+  9,1,6 redstone_block -> glass
+  9,2,6 powered_rail[powered=true,shape=ascending_south,waterlogged=false] -> rail[shape=north_south,waterlogged=false]
+  9,3,19 glass -> powered_rail[powered=true,shape=ascending_south,waterlogged=false]

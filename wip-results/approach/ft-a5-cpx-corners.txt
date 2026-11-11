@@ -1,0 +1,361 @@
+fault table: 360 cases x seeds [1, 2, 3], 12 slots, the fault at slot 5, the perfect tail (queue reset every slot from 6); per case over the seeds: clean 3 from slot (the latest seed; never = -), carts back through a gate, departures' min gap (contacts), tail entry min gap within groups (touching), its biggest group, problems
+REL 10..50 st 2: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: REL missed clean from  - | back 0 | dep min 4 (0) | tail min 9 (0) group 3 | problems 3/2/6 <--
+REL 10..50 st 2: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: D1 extra +66 clean from  - | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 5/3/5 <--
+REL 10..50 st 2: D1 extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: C extra +66 clean from  - | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 5/3/5 <--
+REL 10..50 st 2: C extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: REL extra 40 +66 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 2: REL extra 40 +79 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 2: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 2: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 2: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 2: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 2: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 2: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: REL missed clean from  - | back 0 | dep min 5 (0) | tail min 9 (0) group 3 | problems 3/1/3 <--
+REL 10..50 st 3: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: D1 extra +66 clean from  - | back 0 | dep min 8 (0) | tail min 9 (0) group 3 | problems 4/0/4 <--
+REL 10..50 st 3: D1 extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: C extra +66 clean from  - | back 0 | dep min 8 (0) | tail min 9 (0) group 3 | problems 4/0/4 <--
+REL 10..50 st 3: C extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: REL extra 40 +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 3: REL extra 40 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 3: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 3: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 3: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 3: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 3: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 3: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: REL missed clean from  8 | back 0 | dep min 5 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 4: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: D1 extra +66 clean from  8 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/0
+REL 10..50 st 4: D1 extra +72 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/0/0
+REL 10..50 st 4: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: C extra +66 clean from  8 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/0
+REL 10..50 st 4: C extra +72 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/0/0
+REL 10..50 st 4: REL extra 40 +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 4: REL extra 40 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 4: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 4: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 4: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 4: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 4: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 4: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: REL missed clean from  - | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 3/4/4 <--
+REL 10..50 st 6: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: D1 extra +66 clean from  9 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 6: D1 extra +72 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/0/1
+REL 10..50 st 6: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: C extra +66 clean from  9 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 6: C extra +72 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/0/1
+REL 10..50 st 6: REL extra 40 +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 6: REL extra 40 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 6: REL extra 40 +85 clean from  7 | back 0 | dep min 6 (0) | tail min 6 (0) group 3 | problems 1/1/1
+REL 10..50 st 6: REL extra 40 +92 clean from  7 | back 0 | dep min 4 (0) | tail min 4 (0) group 3 | problems 1/1/1 <--
+REL 10..50 st 6: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 6: REL glitch 2 +92 clean from  7 | back 0 | dep min 8 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 10..50 st 6: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 10..50 st 6: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: normal   clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: REL missed clean from  8 | back 2 | dep min 4 (0) | tail min 5 (0) group 3 | problems 2/0/1 <--
+REL 0..44 st 2: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: D1 extra +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 2: D1 extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: C extra +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 2: C extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: REL extra 40 +66 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 2: REL extra 40 +79 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 2: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 2: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 2: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 2: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 2: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 2: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: normal   clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: REL missed clean from  9 | back 0 | dep min 6 (0) | tail min 9 (0) group 3 | problems 1/3/1
+REL 0..44 st 3: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: D1 extra +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 3: D1 extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: C extra +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 3: C extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: REL extra 40 +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 3: REL extra 40 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 3: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 3: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 3: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 3: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 3: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 3: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: normal   clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: REL missed clean from  - | back 1 | dep min 5 (0) | tail min 9 (0) group 3 | problems 1/2/6 <--
+REL 0..44 st 4: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: D1 extra +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/0
+REL 0..44 st 4: D1 extra +72 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/0
+REL 0..44 st 4: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: C extra +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/0
+REL 0..44 st 4: C extra +72 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/0
+REL 0..44 st 4: REL extra 40 +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 4: REL extra 40 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 4: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 4: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 4: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 4: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 4: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 4: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: normal   clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: REL missed clean from  9 | back 4 | dep min 5 (0) | tail min 6 (0) group 3 | problems 2/1/1 <--
+REL 0..44 st 6: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: D1 extra +66 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: D1 extra +72 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: C extra +66 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: C extra +72 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: REL extra 40 +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: REL extra 40 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: REL extra 40 +85 clean from  7 | back 0 | dep min 6 (0) | tail min 6 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: REL extra 40 +92 clean from  7 | back 0 | dep min 4 (0) | tail min 4 (0) group 3 | problems 1/1/1 <--
+REL 0..44 st 6: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: REL glitch 2 +92 clean from  7 | back 0 | dep min 8 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 0..44 st 6: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 0..44 st 6: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: REL missed clean from  7 | back 0 | dep min 6 (0) | tail min 9 (0) group 3 | problems 0/1/0
+REL 16..76 st 2: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: D1 extra +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: D1 extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: C extra +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: C extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: REL extra 40 +66 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 2: REL extra 40 +79 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 2: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 2: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 2: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: REL glitch 2 +79 clean from  7 | back 0 | dep min 9 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 2: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 2: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 2: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: REL missed clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/1/0
+REL 16..76 st 3: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: D1 extra +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: D1 extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: C extra +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: C extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: REL extra 40 +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 3: REL extra 40 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 3: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 3: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 3: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 3: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 3: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 3: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: normal  clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: REL missed clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/1/1
+REL 16..76 st 4: D1 missed 45 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: D1 missed 65 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: D1 extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: D1 extra +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: D1 extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: C missed clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: C extra +50 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: C extra +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: C extra +72 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: REL extra 40 +66 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 4: REL extra 40 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 4: REL extra 40 +85 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 4: REL extra 40 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 4: REL glitch 2 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: REL glitch 2 +79 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 4: REL glitch 2 +92 clean from  7 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 1/1/1
+REL 16..76 st 4: unload all 40 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 40 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 40 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 40 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 40 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 40 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 240 +66 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 240 +79 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 240 +92 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 240 +12 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 240 +30 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 4: unload all 240 +48 clean from  0 | back 0 | dep min 10 (0) | tail min 9 (0) group 3 | problems 0/0/0
+REL 16..76 st 6: normal  clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: REL missed clean from  - | back 0 | dep min 5 (0) | tail min 4 (0) group 4 | problems 17/18/17 <--
+REL 16..76 st 6: D1 missed 45 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: D1 missed 65 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: D1 extra +50 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: D1 extra +66 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: D1 extra +72 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: C missed clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: C extra +50 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: C extra +66 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: C extra +72 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: REL extra 40 +66 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 18/18/18 <--
+REL 16..76 st 6: REL extra 40 +79 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 18/18/18 <--
+REL 16..76 st 6: REL extra 40 +85 clean from  - | back 0 | dep min 6 (0) | tail min 4 (0) group 4 | problems 18/18/18 <--
+REL 16..76 st 6: REL extra 40 +92 clean from  - | back 0 | dep min 4 (0) | tail min 4 (0) group 4 | problems 18/18/18 <--
+REL 16..76 st 6: REL glitch 2 +66 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: REL glitch 2 +79 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 18/18/18 <--
+REL 16..76 st 6: REL glitch 2 +92 clean from  - | back 0 | dep min 8 (0) | tail min 4 (0) group 4 | problems 18/18/18 <--
+REL 16..76 st 6: unload all 40 +66 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 40 +79 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 40 +92 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 40 +12 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 40 +30 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 40 +48 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 240 +66 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 240 +79 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 240 +92 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 240 +12 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 240 +30 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--
+REL 16..76 st 6: unload all 240 +48 clean from  - | back 0 | dep min 10 (0) | tail min 4 (0) group 4 | problems 17/17/17 <--

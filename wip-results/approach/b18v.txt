@@ -1,0 +1,51 @@
+1 settled snapshots, 0 clean 3-place moves
+slot-boundary order: 11 clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)
+stand margins: gap12 11 13 in 4 6 clear 0 2 arrive 5 7 slots 11
+stand braked at +82..+84 after its slot's start; tail slots 1-2 braked at +119..+119, slot 0 at +123..+123 after the train's departure
+returning trains at rest in the tail at +133..+133 after their departure (the next slot's first advance reaches the tail at +138)
+zombies alive at the end: 8
+slot 0: batch at rest at the stand +82
+slot 0: returning train braked into the tail +123
+slot 1: batch at rest at the stand +84
+slot 1: returning train braked into the tail +123
+slot 2: batch at rest at the stand +84
+slot 2: returning train braked into the tail +123
+slot 3: batch at rest at the stand +84
+slot 3: returning train braked into the tail +123
+slot 4: batch at rest at the stand +84
+slot 4: returning train braked into the tail +123
+slot 5: batch at rest at the stand +84
+slot 5: returning train braked into the tail +123
+slot 6: batch at rest at the stand +84
+slot 6: returning train braked into the tail +123
+slot 7: batch at rest at the stand +84
+slot 7: returning train braked into the tail +123
+slot 8: batch at rest at the stand +84
+slot 8: returning train braked into the tail +123
+slot 9: batch at rest at the stand +84
+slot 9: returning train braked into the tail +123
+slot 10: batch at rest at the stand +84
+slot 10: returning train braked into the tail +123
+slot 11: batch at rest at the stand +84
+slot 11: returning train braked into the tail +123
+  carts: -2.5,0.6,25.6 -2.5,0.5,22.5 -2.5,0.6,19.6 -0.1,0.2,0.5 3.9,-0.8,0.5 7.9,-1.8,0.5 0.5,3.1,24.9 0.5,2.0,29.0 0.5,0.9,33.2 0.5,0.5,36.6 0.5,0.8,39.2 0.5,0.7,42.3 0.5,0.7,45.3 -0.5,0.5,47.5 -2.5,0.6,46.5 -2.5,0.5,43.5 -2.5,0.7,40.6 -2.5,0.5,37.5 -2.5,0.7,28.7 -2.5,0.6,31.6 -2.5,0.7,34.7
+  stand rail [7, -2, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+  stand rail [3, -1, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+  stand rail [-1, 0, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+slot 0 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 1 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 2 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 3 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 4 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 5 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 6 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 7 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 8 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 9 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 10 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 11 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+stand departures: 36 carts, gap min 10 max 13 gt (gaps under 60 gt), 0 in contact with the one before
+back through a gate: 0
+stand bursts: 3x12 (size x count); the biggest: 3 carts (slot 0 +21..+44, gaps 13/10, top 1.05/1.01/1.12)
+tail entry: 36 carts, gap min 9 gt within groups, 0 touching; groups 3x12; the biggest: 3 carts (slot 11 +92, gaps 14/9, speeds 1.00/0.97/1.06)
+0 problems

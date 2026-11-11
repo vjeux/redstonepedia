@@ -1,0 +1,41 @@
+a5sc3+C'+60 arriving box 0,0,0,0 N40 | s1 merged 0 back 2 [strip 2: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail; cart 19 through G2 at slot 7 +41: reversed 16 gt before at strip x 2.02 on rail, cart 18 0.98 away)] 2 problems: | s2 merged 0 back 2 [strip 2: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail; cart 19 through G2 at slot 7 +41: reversed 16 gt before at strip x 2.02 on rail, cart 18 0.98 away)] 2 problems: | s3 merged 0 back 2 [strip 2: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail; cart 19 through G2 at slot 7 +41: reversed 16 gt before at strip x 2.02 on rail, cart 18 0.98 away)] 2 problems:
+a5sc3+C'+60 arriving box 0,0,0,0 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+a5sc3+C'+60 arriving box 0,0,0,1 N40 | s1 merged 0 back 1 [strip 1: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail)] 1 problems: | s2 merged 0 back 1 [strip 1: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail)] 1 problems: | s3 merged 0 back 2 [near the gate 1, strip 1: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail; cart 19 through G1 at slot 7 +63: reversed 14 gt before at strip x 5.29 on rail, cart 18 1.06 away)] 4 problems:
+a5sc3+C'+60 arriving box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 1 [strip 1: cart 19 through G1 at slot 9 +54: reversed 18 gt before at strip x 5.63 on rail)] 6 problems:
+a5sc3+C'+60 D1 box 0,0,0,0 N40 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+a5sc3+C'+60 D1 box 0,0,0,0 N240 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 3 problems:
+a5sc3+C'+60 D1 box 0,0,0,1 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 2 problems:
+a5sc3+C'+60 D1 box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+a5sc3+C'+60 rest box 0,0,0,0 N40 | s1 merged 0 back 0 0 problems | s2 merged 0 back 0 0 problems | s3 merged 0 back 0 0 problems
+a5sc3+C'+60 rest box 0,0,0,0 N240 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 1 back 0 2 problems:
+a5sc3+C'+60 rest box 0,0,0,1 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 2 problems:
+a5sc3+C'+60 rest box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+a5sc3+C'+60 RELstart box 0,0,0,0 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 3 problems:
+a5sc3+C'+60 RELstart box 0,0,0,0 N240 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 3 problems:
+a5sc3+C'+60 RELstart box 0,0,0,1 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 2 problems:
+a5sc3+C'+60 RELstart box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+a5sc3+C'+60 departure box 0,0,0,0 N40 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 3 problems:
+a5sc3+C'+60 departure box 0,0,0,0 N240 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 3 problems:
+a5sc3+C'+60 departure box 0,0,0,1 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+a5sc3+C'+60 departure box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+a5sc3+C'+60 RELend box 0,0,0,0 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+a5sc3+C'+60 RELend box 0,0,0,0 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 5 problems:
+a5sc3+C'+60 RELend box 0,0,0,1 N40 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 1 problems:
+a5sc3+C'+60 RELend box 0,0,0,1 N240 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 3 problems:
+a5s+C'+60 arriving box 0,0,0,0 N40 | s1 merged 0 back 2 [strip 2: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail; cart 19 through G2 at slot 7 +41: reversed 16 gt before at strip x 2.02 on rail, cart 18 0.98 away)] 2 problems: | s2 merged 0 back 2 [strip 2: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail; cart 19 through G2 at slot 7 +41: reversed 16 gt before at strip x 2.02 on rail, cart 18 0.98 away)] 2 problems: | s3 merged 0 back 1 [strip 1: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail)] 1 problems:
+a5s+C'+60 arriving box 0,0,0,0 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+a5s+C'+60 arriving box 0,0,0,1 N40 | s1 merged 0 back 1 [strip 1: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail)] 3 problems: | s2 merged 0 back 3 [near the gate 2, strip 1: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail; cart 19 through G1 at slot 7 +52: reversed 14 gt before at strip x 5.30 on rail, cart 18 1.21 away; cart 2 through G1 at slot 8 +48: reversed 1 gt before 3 problems: | s3 merged 0 back 1 [strip 1: cart 0 through G1 at slot 6 +68: reversed 18 gt before at strip x 5.67 on rail)] 1 problems:
+a5s+C'+60 arriving box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+a5s+C'+60 D1 box 0,0,0,0 N40 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+a5s+C'+60 D1 box 0,0,0,0 N240 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 4 problems:
+a5s+C'+60 D1 box 0,0,0,1 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 2 problems:
+a5s+C'+60 D1 box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 4 problems: | s3 merged 0 back 0 4 problems:
+a5s+C'+60 rest box 0,0,0,0 N40 | s1 merged 0 back 0 0 problems | s2 merged 0 back 0 0 problems | s3 merged 0 back 0 0 problems
+a5s+C'+60 rest box 0,0,0,0 N240 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 3 problems:
+a5s+C'+60 rest box 0,0,0,1 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 2 problems:
+a5s+C'+60 rest box 0,0,0,1 N240 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+a5s+C'+60 RELstart box 0,0,0,0 N40 | s1 merged 0 back 0 1 problems: | s2 merged 0 back 0 1 problems: | s3 merged 0 back 0 1 problems:
+a5s+C'+60 RELstart box 0,0,0,0 N240 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 3 problems:
+a5s+C'+60 RELstart box 0,0,0,1 N40 | s1 merged 0 back 0 2 problems: | s2 merged 0 back 0 2 problems: | s3 merged 0 back 0 2 problems:
+a5s+C'+60 RELstart box 0,0,0,1 N240 | s1 merged 0 back 0 4 problems: | s2 merged 0 back 0 5 problems: | s3 merged 0 back 0 4 problems:
+a5s+C'+60 departure box 0,0,0,0 N40 | s1 merged 0 back 0 3 problems: | s2 merged 0 back 0 3 problems: | s3 merged 0 back 0 3 problems:

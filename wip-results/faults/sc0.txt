@@ -1,0 +1,106 @@
+1 settled snapshots, 0 clean 3-place moves
+slot-boundary order: 29 clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)
+lap order: kept (90 departures; the last 21 are the first 21's cycle)
+stand margins: gap12 11 13 in 4 6 clear 0 2 arrive 5 7 slots 29
+stand braked at +82..+84 after its slot's start; tail slots 1-2 braked at +119..+119, slot 0 at +123..+123 after the train's departure
+returning trains at rest in the tail at +133..+133 after their departure (the next slot's first advance reaches the tail at +138)
+zombies alive at the end: 8
+PANIC at night (day time 13,670..22,330, 6279 rider-ticks): 96.07% of rider-ticks, the least-panicking rider 46.49%; calm most at 7 -2 0 (181), 9 -1 3 (12), 9 1 5 (10), 9 -3 1 (9), 9 0 4 (8), 8 -3 0 (7)
+slot 0: batch at rest at the stand +82
+slot 0: returning train braked into the tail +123
+slot 1: batch at rest at the stand +84
+slot 1: returning train braked into the tail +123
+slot 2: batch at rest at the stand +84
+slot 2: returning train braked into the tail +123
+slot 3: batch at rest at the stand +84
+slot 3: returning train braked into the tail +123
+slot 4: batch at rest at the stand +84
+slot 4: returning train braked into the tail +123
+slot 5: batch at rest at the stand +84
+slot 5: returning train braked into the tail +123
+slot 6: batch at rest at the stand +84
+slot 6: returning train braked into the tail +123
+slot 7: batch at rest at the stand +84
+slot 7: returning train braked into the tail +123
+slot 8: batch at rest at the stand +84
+slot 8: returning train braked into the tail +123
+slot 9: batch at rest at the stand +84
+slot 9: returning train braked into the tail +123
+slot 10: batch at rest at the stand +84
+slot 10: returning train braked into the tail +123
+slot 11: batch at rest at the stand +84
+slot 11: returning train braked into the tail +123
+slot 12: batch at rest at the stand +84
+slot 12: returning train braked into the tail +123
+slot 13: batch at rest at the stand +84
+slot 13: returning train braked into the tail +123
+slot 14: batch at rest at the stand +84
+slot 14: returning train braked into the tail +123
+slot 15: batch at rest at the stand +84
+slot 15: returning train braked into the tail +123
+slot 16: batch at rest at the stand +84
+slot 16: returning train braked into the tail +123
+slot 17: batch at rest at the stand +84
+slot 17: returning train braked into the tail +123
+slot 18: batch at rest at the stand +84
+slot 18: returning train braked into the tail +123
+slot 19: batch at rest at the stand +84
+slot 19: returning train braked into the tail +123
+slot 20: batch at rest at the stand +84
+slot 20: returning train braked into the tail +123
+slot 21: batch at rest at the stand +84
+slot 21: returning train braked into the tail +123
+slot 22: batch at rest at the stand +84
+slot 22: returning train braked into the tail +123
+slot 23: batch at rest at the stand +84
+slot 23: returning train braked into the tail +123
+slot 24: batch at rest at the stand +84
+slot 24: returning train braked into the tail +123
+slot 25: batch at rest at the stand +84
+slot 25: returning train braked into the tail +123
+slot 26: batch at rest at the stand +84
+slot 26: returning train braked into the tail +123
+slot 27: batch at rest at the stand +84
+slot 27: returning train braked into the tail +123
+slot 28: batch at rest at the stand +84
+slot 28: returning train braked into the tail +123
+slot 29: batch at rest at the stand +84
+slot 29: returning train braked into the tail +123
+  carts: 0.5,0.7,45.3 -0.5,0.5,47.5 -2.5,0.6,46.5 -2.5,0.5,43.5 -2.5,0.7,40.6 -2.5,0.5,37.5 -2.5,0.7,34.7 -2.5,0.6,31.6 -2.5,0.7,28.7 -2.5,0.6,25.6 -2.5,0.5,22.5 -2.5,0.6,19.6 -0.1,0.2,0.5 3.9,-0.8,0.5 7.9,-1.8,0.5 0.5,3.1,24.9 0.5,2.0,29.0 0.5,0.9,33.2 0.5,0.7,42.3 0.5,0.8,39.2 0.5,0.5,36.6
+  stand rail [7, -2, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+  stand rail [3, -1, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+  stand rail [-1, 0, 0]: PlainRail { shape: AscendingWest } on Simple(Glass)
+slot 0 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 1 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 2 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 3 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 4 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 5 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 6 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 7 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 8 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 9 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 10 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 11 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 12 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 13 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 14 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 15 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 16 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 17 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 18 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 19 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 20 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 21 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 22 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 23 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 24 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 25 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 26 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 27 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 28 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+slot 29 start: pockets S1 1 S2 1 S3 1, 0 more in the stand's strip, latch set
+stand departures: 90 carts, gap min 10 max 13 gt (gaps under 60 gt), 0 in contact with the one before
+back through a gate: 0
+stand bursts: 3x30 (size x count); the biggest: 3 carts (slot 0 +21..+44, gaps 13/10, top 1.05/1.01/1.12)
+0 problems

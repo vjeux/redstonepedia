@@ -1,0 +1,41 @@
+ADDED (17): 1 detector_rail, 8 glass, 8 rail
+  -4,2,0 glass
+  -3,2,0 rail[shape=ascending_west,waterlogged=false]
+  -3,2,1 glass
+  -3,2,7 glass
+  -3,2,8 rail[shape=ascending_north,waterlogged=false]
+  -3,3,1 rail[shape=ascending_south,waterlogged=false]
+  -3,3,2 glass
+  -3,3,6 glass
+  -3,3,7 detector_rail[powered=false,shape=ascending_north,waterlogged=false]
+  -3,4,2 rail[shape=ascending_south,waterlogged=false]
+  -3,4,3 glass
+  -3,4,5 glass
+  -3,4,6 rail[shape=ascending_north,waterlogged=false]
+  -3,5,3 rail[shape=ascending_south,waterlogged=false]
+  -3,5,4 glass
+  -3,5,5 rail[shape=ascending_north,waterlogged=false]
+  -3,6,4 rail[shape=north_south,waterlogged=false]
+REMOVED (16): 1 detector_rail, 9 glass, 6 rail
+  -3,0,0 glass
+  -3,0,1 glass
+  -3,0,2 glass
+  -3,0,3 glass
+  -3,0,4 glass
+  -3,0,5 glass
+  -3,0,6 glass
+  -3,0,7 glass
+  -3,0,8 glass
+  -3,1,1 rail[shape=north_south,waterlogged=false]
+  -3,1,2 rail[shape=north_south,waterlogged=false]
+  -3,1,3 rail[shape=north_south,waterlogged=false]
+  -3,1,4 detector_rail[powered=false,shape=north_south,waterlogged=false]
+  -3,1,5 rail[shape=north_south,waterlogged=false]
+  -3,1,6 rail[shape=north_south,waterlogged=false]
+  -3,1,7 rail[shape=north_south,waterlogged=false]
+CHANGED (5)
+  -3,0,9 redstone_block -> glass
+  -3,1,0 rail[shape=south_east,waterlogged=false] -> glass
+  -3,1,8 rail[shape=north_south,waterlogged=false] -> glass
+  -3,1,9 powered_rail[powered=true,shape=north_south,waterlogged=false] -> rail[shape=ascending_north,waterlogged=false]
+  -2,1,0 rail[shape=east_west,waterlogged=false] -> rail[shape=ascending_west,waterlogged=false]

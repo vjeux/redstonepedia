@@ -1,0 +1,7 @@
+the judge's placement, seed 1: 0 problems 
+the judge's placement, seed 2: 0 problems 
+the judge's placement, seed 3: 0 problems 
+the judge's placement, seed 4: 0 problems 
+the judge's placement: 4 of 4 seeds clean over 1440 slots each
+the judge's placement: nap visits over every seed: cart 0: 176 of 176 back, roll-off 0.29..0.29 b/t (median 0.29, 99th pct 0.29); cart 1: 176 of 176 back, roll-off 0.29..0.36 b/t (median 0.29, 99th pct 0.36); cart 2: 176 of 176 back, roll-off 0.29..0.29 b/t (median 0.29, 99th pct 0.29); nights with every rider asleep: 24 of 24
+the judge's placement: the pocket stand over 5756 slots: cart 1 to cart 2 at D2 9..13 gt apart; G2 shut 4..8 gt after cart 2's front was in it (0..4 after its tail left), 5..7 gt before cart 3 reached it

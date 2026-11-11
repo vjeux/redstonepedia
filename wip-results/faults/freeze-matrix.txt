@@ -1,0 +1,23 @@
+a5sc3+C'+60 arriving box 0,0,0,0 N40 | s1 merged 1 back 9 [climb 8, strip 1] 19 problems: | s2 merged 1 back 1 [strip 1] 21 problems: | s3 merged 1 back 14 [climb 7, near the gate 1, strip 6] 23 problems:
+a5sc3+C'+60 arriving box 0,0,0,0 N240 | s1 merged 0 back 1 [strip 1] 27 problems: | s2 merged 0 back 0 27 problems: | s3 merged 0 back 0 27 problems:
+a5sc3+C'+60 arriving box 0,0,0,1 N40 | s1 merged 4 back 14 [climb 7, near the gate 2, strip 5] 32 problems: | s2 merged 0 back 7 [climb 5, near the gate 1, strip 1] 32 problems: | s3 merged 2 back 6 [climb 2, near the gate 2, strip 2] 32 problems:
+a5sc3+C'+60 arriving box 0,0,0,1 N240 | s1 merged 0 back 1 [climb 1] 33 problems: | s2 merged 0 back 2 [climb 2] 33 problems: | s3 merged 0 back 1 [climb 1] 33 problems:
+a5sc3+C'+60 D1 box 0,0,0,0 N40 | s1 merged 1 back 0 15 problems: | s2 merged 0 back 0 12 problems: | s3 merged 1 back 4 [climb 2, near the gate 2] 23 problems:
+a5sc3+C'+60 D1 box 0,0,0,0 N240 | s1 merged 0 back 0 27 problems: | s2 merged 0 back 0 27 problems: | s3 merged 0 back 0 27 problems:
+a5sc3+C'+60 D1 box 0,0,0,1 N40 | s1 merged 1 back 9 [climb 5, near the gate 2, strip 2] 32 problems: | s2 merged 1 back 9 [climb 3, near the gate 2, strip 4] 30 problems: | s3 merged 1 back 2 [climb 1, strip 1] 28 problems:
+a5sc3+C'+60 D1 box 0,0,0,1 N240 | s1 merged 1 back 0 34 problems: | s2 merged 1 back 2 [climb 2] 34 problems: | s3 merged 2 back 0 34 problems:
+a5sc3+C'+60 rest box 0,0,0,0 N40 | s1 merged 0 back 7 [climb 4, near the gate 1, strip 2] 9 problems: | s2 merged 1 back 8 [climb 3, near the gate 1, strip 4] 10 problems: | s3 merged 0 back 1 [climb 1] 11 problems:
+a5sc3+C'+60 rest box 0,0,0,0 N240 | s1 merged 0 back 0 18 problems: | s2 merged 0 back 0 18 problems: | s3 merged 1 back 0 19 problems:
+a5sc3+C'+60 rest box 0,0,0,1 N40 | s1 merged 0 back 4 [climb 4] 30 problems: | s2 merged 1 back 1 [near the gate 1] 28 problems: | s3 merged 1 back 6 [climb 6] 34 problems:
+a5sc3+C'+60 rest box 0,0,0,1 N240 | s1 merged 1 back 5 [climb 5] 28 problems: | s2 merged 1 back 1 [climb 1] 28 problems: | s3 merged 1 back 1 [climb 1] 28 problems:
+a5sc3+C'+60 RELstart box 0,0,0,0 N40 | s1 merged 0 back 0 28 problems: | s2 merged 0 back 0 28 problems: | s3 merged 0 back 0 28 problems:
+a5sc3+C'+60 RELstart box 0,0,0,0 N240 | s1 merged 0 back 1 [climb 1] 30 problems: | s2 merged 0 back 0 30 problems: | s3 merged 0 back 0 30 problems:
+a5sc3+C'+60 RELstart box 0,0,0,1 N40 | s1 merged 0 back 8 [climb 8] 32 problems: | s2 merged 0 back 13 [climb 13] 33 problems: | s3 merged 0 back 12 [climb 10, strip 2] 33 problems:
+a5sc3+C'+60 RELstart box 0,0,0,1 N240 | s1 merged 0 back 11 [climb 11] 36 problems: | s2 merged 0 back 0 33 problems: | s3 merged 0 back 2 [climb 2] 33 problems:
+a5sc3+C'+60 departure box 0,0,0,0 N40 | s1 merged 0 back 0 28 problems: | s2 merged 0 back 0 28 problems: | s3 merged 0 back 0 28 problems:
+a5sc3+C'+60 departure box 0,0,0,0 N240 | s1 merged 0 back 0 30 problems: | s2 merged 0 back 0 30 problems: | s3 merged 0 back 0 30 problems:
+a5sc3+C'+60 departure box 0,0,0,1 N40 | s1 merged 0 back 2 [climb 2] 26 problems: | s2 merged 0 back 4 [climb 2, strip 2] 28 problems: | s3 merged 0 back 14 [climb 7, near the gate 2, strip 5] 28 problems:
+a5sc3+C'+60 departure box 0,0,0,1 N240 | s1 merged 0 back 2 [climb 2] 30 problems: | s2 merged 0 back 2 [climb 2] 30 problems: | s3 merged 0 back 0 30 problems:
+a5sc3+C'+60 RELend box 0,0,0,0 N40 | s1 merged 0 back 0 22 problems: | s2 merged 1 back 7 [climb 1, near the gate 3, strip 3] 22 problems: | s3 merged 1 back 1 [near the gate 1] 21 problems:
+a5sc3+C'+60 RELend box 0,0,0,0 N240 | s1 merged 0 back 1 [climb 1] 30 problems: | s2 merged 0 back 6 [climb 6] 30 problems: | s3 merged 0 back 5 [climb 5] 30 problems:
+a5sc3+C'+60 RELend box 0,0,0,1 N40 | s1 merged 0 back 9 [climb 9] 33 problems: | s2 merged 0 back 0 33 problems: | s3 merged 0 back 0 33 problems:

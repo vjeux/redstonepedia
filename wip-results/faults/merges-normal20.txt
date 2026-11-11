@@ -1,0 +1,22 @@
+the judge's placement, seed 1: 0 problems 
+the judge's placement, seed 2: 0 problems 
+the judge's placement, seed 3: 0 problems 
+the judge's placement, seed 4: 0 problems 
+the judge's placement, seed 5: 0 problems 
+the judge's placement, seed 6: 0 problems 
+the judge's placement, seed 7: 0 problems 
+the judge's placement, seed 8: 0 problems 
+the judge's placement, seed 9: 0 problems 
+the judge's placement, seed 10: 0 problems 
+the judge's placement, seed 11: 0 problems 
+the judge's placement, seed 12: 0 problems 
+the judge's placement, seed 13: 0 problems 
+the judge's placement, seed 14: 0 problems 
+the judge's placement, seed 15: 0 problems 
+the judge's placement, seed 16: 0 problems 
+the judge's placement, seed 17: 0 problems 
+the judge's placement, seed 18: 0 problems 
+the judge's placement, seed 19: 0 problems 
+the judge's placement, seed 20: 0 problems 
+the judge's placement: 20 of 20 seeds clean over 1440 slots each
+the judge's placement: the pocket stand over 28780 slots: cart 1 to cart 2 at D2 11..13 gt apart; G2 shut 4..6 gt after cart 2's front was in it (0..2 after its tail left), 5..7 gt before cart 3 reached it

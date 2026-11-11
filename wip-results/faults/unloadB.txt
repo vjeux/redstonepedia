@@ -1,0 +1,108 @@
+whole arriving N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole arriving N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole arriving N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole arriving N40 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole arriving N40 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole arriving N40 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole arriving N240 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole arriving N240 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole arriving N240 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N40 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N40 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N40 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N240 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N240 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole D1cart3 N240 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N40 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N40 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N40 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N240 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N240 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole rest N240 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N40 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N40 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N40 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N240 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N240 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELstart N240 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N40 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N40 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N40 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N240 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N240 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole departure N240 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N40 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N40 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N40 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N240 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N240 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+whole RELend N240 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg arriving N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg arriving N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg arriving N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg arriving N40 s1: s6 S1 1 S2 0 S3 0, 0 more;s7 S1 0 S2 0 S3 2, 0 more;s8 S1 1 S2 0 S3 2, 0 more;s9 S1 1 S2 0 S3 2, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x2 9x2;12 problems:
+xneg arriving N40 s2: s6 S1 1 S2 0 S3 0, 0 more;s7 S1 0 S2 0 S3 1, 1 more (x -1.27);s8 S1 0 S2 0 S3 2, 1 more (x -2.27);s9 S1 1 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg arriving N40 s3: s6 S1 1 S2 0 S3 0, 0 more;s7 S1 0 S2 0 S3 1, 1 more (x -1.27);s8 S1 0 S2 0 S3 2, 1 more (x -2.27);s9 S1 1 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg arriving N240 s1: s6 S1 1 S2 0 S3 0, 0 more;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 0 more, latch reset;s9 S1 1 S2 0 S3 0, 1 more (x 7.01);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg arriving N240 s2: s6 S1 1 S2 0 S3 0, 0 more;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 0 more, latch reset;s9 S1 1 S2 0 S3 0, 1 more (x 7.01);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg arriving N240 s3: s6 S1 1 S2 0 S3 0, 0 more;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 0 more, latch reset;s9 S1 1 S2 0 S3 0, 1 more (x 7.01);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg D1cart3 N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg D1cart3 N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg D1cart3 N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg D1cart3 N40 s1: s6 S1 1 S2 1 S3 0, 1 more (x -2.50);s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;problem slots: 6x2 7x1 8x1 9x2;8 problems:
+xneg D1cart3 N40 s2: s6 S1 1 S2 1 S3 0, 1 more (x -2.50);s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;problem slots: 6x2 7x1 8x2 9x2;10 problems:
+xneg D1cart3 N40 s3: s6 S1 1 S2 1 S3 0, 1 more (x -2.50);s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;problem slots: 6x2 7x1 8x2 9x2;10 problems:
+xneg D1cart3 N240 s1: s6 S1 1 S2 1 S3 0, 1 more (x -2.50);s7 S1 0 S2 0 S3 0, 1 more (x -2.50), latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -2.50), latch reset;s9 S1 0 S2 0 S3 1, 1 more (x -0.91);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg D1cart3 N240 s2: s6 S1 1 S2 1 S3 0, 1 more (x -2.50);s7 S1 0 S2 0 S3 0, 1 more (x -2.50), latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -2.50), latch reset;s9 S1 0 S2 0 S3 1, 1 more (x -0.91);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg D1cart3 N240 s3: s6 S1 1 S2 1 S3 0, 1 more (x -2.50);s7 S1 0 S2 0 S3 0, 1 more (x -2.50), latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -2.50), latch reset;s9 S1 0 S2 0 S3 1, 1 more (x -0.91);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg rest N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg rest N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg rest N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg rest N40 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 0 S3 1, 1 more (x -0.97);s8 S1 1 S2 0 S3 1, 0 more;s9 S1 0 S2 0 S3 2, 0 more;back 0;burst 3;problem slots: 7x2 8x3 9x3;9 problems:
+xneg rest N40 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 0 S3 1, 1 more (x -0.97);s8 S1 1 S2 0 S3 1, 0 more;s9 S1 0 S2 0 S3 2, 1 more (x -2.50);back 0;burst 3;problem slots: 7x2 8x3 9x3;9 problems:
+xneg rest N40 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 0 S3 1, 1 more (x -0.97);s8 S1 1 S2 0 S3 1, 0 more;s9 S1 0 S2 0 S3 2, 0 more;back 0;burst 3;problem slots: 7x2 8x3 9x3;9 problems:
+xneg rest N240 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 0 S2 0 S3 1, 0 more, latch reset;s8 S1 0 S2 0 S3 1, 0 more, latch reset;s9 S1 1 S2 0 S3 1, 1 more (x -0.95);back 0;burst 3;problem slots: 7x2 8x3 9x3;9 problems:
+xneg rest N240 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 0 S2 0 S3 1, 0 more, latch reset;s8 S1 0 S2 0 S3 1, 0 more, latch reset;s9 S1 1 S2 0 S3 1, 1 more (x -0.95);back 0;burst 3;problem slots: 7x2 8x3 9x3;9 problems:
+xneg rest N240 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 0 S2 0 S3 1, 0 more, latch reset;s8 S1 0 S2 0 S3 1, 0 more, latch reset;s9 S1 1 S2 0 S3 1, 1 more (x -0.95);back 0;burst 3;problem slots: 7x2 8x3 9x3;9 problems:
+xneg RELstart N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg RELstart N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg RELstart N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg RELstart N40 s1: s6 S1 1 S2 0 S3 1, 1 more (x -0.91);s7 S1 1 S2 0 S3 2, 0 more;s8 S1 1 S2 0 S3 2, 0 more;s9 S1 1 S2 0 S3 2, 0 more;back 0;burst 3;problem slots: 6x2 7x2 8x1 9x1;8 problems:
+xneg RELstart N40 s2: s6 S1 1 S2 0 S3 2, 0 more;s7 S1 1 S2 0 S3 1, 1 more (x -1.50);s8 S1 0 S2 0 S3 2, 0 more;s9 S1 1 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x1 7x2 8x3 9x3;10 problems:
+xneg RELstart N40 s3: s6 S1 1 S2 0 S3 1, 1 more (x -0.91);s7 S1 1 S2 0 S3 2, 0 more;s8 S1 1 S2 0 S3 2, 0 more;s9 S1 1 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x2 7x2 8x1 9x2;9 problems:
+xneg RELstart N240 s1: s6 S1 0 S2 0 S3 0, 1 more (x -0.10), latch reset;s7 S1 0 S2 0 S3 0, 1 more (x -0.10), latch reset;s8 S1 1 S2 0 S3 1, 1 more (x -0.91);s9 S1 1 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg RELstart N240 s2: s6 S1 0 S2 0 S3 0, 1 more (x -0.10), latch reset;s7 S1 0 S2 0 S3 0, 1 more (x -0.10), latch reset;s8 S1 1 S2 0 S3 1, 1 more (x -0.91);s9 S1 0 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg RELstart N240 s3: s6 S1 0 S2 0 S3 0, 1 more (x -0.10), latch reset;s7 S1 0 S2 0 S3 0, 1 more (x -0.10), latch reset;s8 S1 1 S2 0 S3 1, 1 more (x -0.91);s9 S1 1 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg departure N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg departure N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg departure N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg departure N40 s1: s6 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s7 S1 0 S2 0 S3 2, 0 more;s8 S1 1 S2 0 S3 2, 0 more;s9 S1 1 S2 0 S3 2, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x2 9x1;11 problems:
+xneg departure N40 s2: s6 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s7 S1 0 S2 0 S3 1, 1 more (x -1.27);s8 S1 0 S2 0 S3 2, 1 more (x -2.27);s9 S1 1 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg departure N40 s3: s6 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s7 S1 0 S2 0 S3 1, 1 more (x -1.27);s8 S1 0 S2 0 S3 2, 1 more (x -2.27);s9 S1 1 S2 0 S3 0, 0 more;back 1;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg departure N240 s1: s6 S1 0 S2 0 S3 0, 0 more, latch reset;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s9 S1 0 S2 0 S3 0, 0 more;back 1;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg departure N240 s2: s6 S1 0 S2 0 S3 0, 0 more, latch reset;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s9 S1 0 S2 0 S3 1, 1 more (x -0.99);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg departure N240 s3: s6 S1 0 S2 0 S3 0, 0 more, latch reset;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s9 S1 1 S2 1 S3 2, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg RELend N3 s1: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg RELend N3 s2: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg RELend N3 s3: s6 S1 1 S2 1 S3 1, 0 more;s7 S1 1 S2 1 S3 1, 0 more;s8 S1 1 S2 1 S3 1, 0 more;s9 S1 1 S2 1 S3 1, 0 more;back 0;burst 3;0 problems
+xneg RELend N40 s1: s6 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s7 S1 0 S2 0 S3 2, 0 more;s8 S1 1 S2 0 S3 2, 0 more;s9 S1 1 S2 0 S3 2, 0 more;back 1;burst 3;problem slots: 6x2 7x3 8x2 9x1;11 problems:
+xneg RELend N40 s2: s6 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s7 S1 0 S2 0 S3 1, 1 more (x -1.27);s8 S1 0 S2 0 S3 2, 1 more (x -2.27);s9 S1 1 S2 0 S3 0, 0 more;back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg RELend N40 s3: s6 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s7 S1 0 S2 0 S3 1, 1 more (x -1.27);s8 S1 0 S2 0 S3 1, 2 more (x -2.47 -1.11);s9 S1 0 S2 1 S3 2, 1 more (x -2.42);back 3;burst 3;problem slots: 6x2 7x3 8x3 9x2;13 problems:
+xneg RELend N240 s1: s6 S1 0 S2 0 S3 0, 0 more, latch reset;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s9 S1 1 S2 0 S3 0, 1 more (x 7.09);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg RELend N240 s2: s6 S1 0 S2 0 S3 0, 0 more, latch reset;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s9 S1 1 S2 0 S3 0, 1 more (x 7.09);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:
+xneg RELend N240 s3: s6 S1 0 S2 0 S3 0, 0 more, latch reset;s7 S1 0 S2 0 S3 0, 0 more, latch reset;s8 S1 0 S2 0 S3 0, 1 more (x -0.32), latch reset;s9 S1 1 S2 0 S3 0, 1 more (x 7.09);back 0;burst 3;problem slots: 6x2 7x3 8x3 9x3;14 problems:

@@ -1,0 +1,29 @@
+fault table: 28 cases x seeds [1, 2, 3], 12 slots, the fault at slot 5, the perfect tail (queue reset every slot from 6); per case over the seeds: clean 3 from slot (the latest seed; never = -), carts back through a gate, departures' min gap (contacts), tail entry min gap within groups (touching), its biggest group, problems
+normal                   clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+REL missed               clean from  - | back 4 | dep min 8 (0) | tail min - (0) group 0 | problems 5/2/6 <--
+D1 missed 45             clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+D1 missed 65             clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+D1 extra +50             clean from  - | back 1 | dep min 10 (0) | tail min - (0) group 0 | problems 3/5/5 <--
+D1 extra +66             clean from  - | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 4/5/2 <--
+C missed                 clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+C extra +50              clean from  - | back 1 | dep min 10 (0) | tail min - (0) group 0 | problems 3/5/5 <--
+C extra +66              clean from  - | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 4/5/2 <--
+REL extra 40 +66         clean from  7 | back 0 | dep min 9 (0) | tail min - (0) group 0 | problems 1/1/1
+REL extra 40 +79         clean from  7 | back 0 | dep min 9 (0) | tail min - (0) group 0 | problems 1/1/1
+REL extra 40 +85         clean from  7 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 1/1/1
+REL extra 40 +92         clean from  7 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 1/1/1
+REL glitch 2 +66         clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+REL glitch 2 +79         clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+REL glitch 2 +92         clean from  - | back 0 | dep min 7 (0) | tail min - (0) group 0 | problems 4/6/3 <--
+unload all 40 +66        clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 40 +79        clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 40 +92        clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 40 +12        clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 40 +30        clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 40 +48        clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 240 +66       clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 240 +79       clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 240 +92       clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 240 +12       clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 240 +30       clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0
+unload all 240 +48       clean from  0 | back 0 | dep min 10 (0) | tail min - (0) group 0 | problems 0/0/0

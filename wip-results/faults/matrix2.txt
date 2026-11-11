@@ -1,0 +1,44 @@
+F1_REL_missed [none] seed 1: 6x3 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 2: 6x3 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 3: lap order: CHANGED | 6x2 7x2 8x3 9x3 10x2 11x3 12x3 13x3 14x3 15x3 16x6 17x3 18x3 
+F1_REL_missed [queue] seed 1: 6x3 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 2: 6x3 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 3: 6x2 7x1 8x2 9x2 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3
+F1_REL_missed [every] seed 1: 6x3;seed 2: 6x3;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 1 S2 1 S3 2, 0 more;slot 7 start: pockets S1 0 S2 0 S3 1, 1 more (x -0.99)
+F2a_REL_extra40_rest92 [none] seed 1: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x2 14x3 15x3 16x3 17x3 18x3 ;seed 2: lap order: CHANGED | 6x2 7x1 8x2 9x1 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 3: lap order: CHANGED | 6x2 7x1 8x1 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 
+F2a_REL_extra40_rest92 [queue] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+F2a_REL_extra40_rest92 [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 0 S2 0 S3 0, 3 more (x 0.16 4.16 8.16);slot 7 start: pockets S1 1 S2 1 S3 1, 0 more
+F2b_REL_extra40_arriving66 [none] seed 1: lap order: CHANGED | 6x2 7x1 8x1 9x2 10x2 11x2 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 2: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 3: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 
+F2b_REL_extra40_arriving66 [queue] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+F2b_REL_extra40_arriving66 [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 0 S2 0 S3 0, 1 more (x 5.98);slot 7 start: pockets S1 1 S2 1 S3 1, 0 more
+F2c_REL_extra40_D1cart3_79 [none] seed 1: lap order: CHANGED | 6x2 7x1 8x1 9x2 10x2 11x2 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 2: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 3: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 
+F2c_REL_extra40_D1cart3_79 [queue] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+F2c_REL_extra40_D1cart3_79 [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 0 S2 0 S3 0, 1 more (x 5.98);slot 7 start: pockets S1 1 S2 1 S3 1, 0 more
+F2d_REL_extra40_after85 [none] seed 1: lap order: CHANGED | 6x2 7x1 8x1 9x2 10x1 11x2 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 2: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 3: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 
+F2d_REL_extra40_after85 [queue] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+F2d_REL_extra40_after85 [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 0 S2 0 S3 0, 2 more (x 2.27 6.27);slot 7 start: pockets S1 1 S2 1 S3 1, 0 more
+G1_REL_glitch2_arriving66 [none] seed 1: 0 problems ;seed 2: 0 problems ;seed 3: 0 problems 
+G1_REL_glitch2_arriving66 [queue] seed 1: 0 problems ;seed 2: 0 problems ;seed 3: 0 problems 
+G1_REL_glitch2_arriving66 [every] seed 1: 0 problems ;seed 2: 0 problems ;seed 3: 0 problems 
+  stand at slot 6/7 starts: slot 6 start: pockets S1 1 S2 1 S3 1, 0 more;slot 7 start: pockets S1 1 S2 1 S3 1, 0 more
+G2_REL_glitch2_rest92 [none] seed 1: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x1 11x2 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 2: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 3: lap order: CHANGED | 6x2 7x1 8x2 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 
+G2_REL_glitch2_rest92 [queue] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+G2_REL_glitch2_rest92 [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 0 S2 0 S3 0, 3 more (x 0.16 4.16 8.16);slot 7 start: pockets S1 1 S2 1 S3 1, 0 more
+G3_REL_glitch2_D1cart3_79 [none] seed 1: lap order: CHANGED | 6x2 7x1 8x1 9x2 10x2 11x2 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 2: 6x2 7x1 8x1 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 3: lap order: CHANGED | 6x2 7x1 8x1 9x2 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 
+G3_REL_glitch2_D1cart3_79 [queue] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+G3_REL_glitch2_D1cart3_79 [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 0 S2 1 S3 1, 0 more;slot 7 start: pockets S1 1 S2 1 S3 1, 0 more
+F3_D1_missed [none] seed 1: 6x2 7x3 8x3 9x3 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 2: lap order: CHANGED | 6x2 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 3: lap order: CHANGED | 6x2 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 
+F3_D1_missed [queue] seed 1: 6x2 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 2: lap order: CHANGED | 6x2 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 ;seed 3: 6x2 7x1 8x3 9x3 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3
+F3_D1_missed [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 1 S2 0 S3 0, 2 more (x 5.98 7.09);slot 7 start: pockets S1 1 S2 1 S3 0, 2 more (x 7.02 -0.63)
+F4a_D1_extra_before50 [none] seed 1: 6x2 7x3 8x2 9x1 10x2 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 2: 6x2 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 3: 6x2 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3
+F4a_D1_extra_before50 [queue] seed 1: 6x2 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 2: 6x2 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 3: 6x2 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3
+F4a_D1_extra_before50 [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 0 S2 0 S3 1, 1 more (x -1.95);slot 7 start: pockets S1 0 S2 0 S3 1, 1 more (x -0.97)
+F4b_D1_extra_mid66 [none] seed 1: 6x2 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 2: 6x2 7x3 8x3 9x3 10x3 11x3 12x2 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 3: 6x2 7x3 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3
+F4b_D1_extra_mid66 [queue] seed 1: 6x2 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 2: 6x2 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3;seed 3: 6x2 7x1 8x3 9x3 10x3 11x3 12x3 13x3 14x3 15x3 16x3 17x3 18x3 19x3
+F4b_D1_extra_mid66 [every] seed 1: 6x2;seed 2: 6x2;seed 3: 6x2
+  stand at slot 6/7 starts: slot 6 start: pockets S1 0 S2 1 S3 1, 1 more (x -0.99);slot 7 start: pockets S1 0 S2 0 S3 2, 0 more
