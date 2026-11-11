@@ -1172,7 +1172,33 @@ fn game_gate(c: &circuit::Circuit) -> Result<circuit::mobfarm_game::GateReport> 
     if let Some(sample) = circuit::mobfarm::terrain_sample(c).map_err(|e| anyhow::anyhow!(e))? {
         go.terrain = Some(sample.name.to_string());
     }
-    circuit::mobfarm_game::gate(c, &go)
+    // (ironspec 2026-11-10, vjeux's rule: what a pipeline cannot produce fails it, it never writes
+    // a card) a gate that cannot run its game is no result: without the kept world every build
+    // failed to start and the card was rewritten with 0 golems an hour, silently
+    if let Some(why) = missing_kept_world(c, &mctas::paths::home()) {
+        anyhow::bail!("{why}");
+    }
+    let g = circuit::mobfarm_game::gate(c, &go)?;
+    let unrun = unrun_builds(&g);
+    if let Some(first) = unrun.first() {
+        anyhow::bail!("{} of the gate's {} runs did not run (no card is written from it): {first}", unrun.len(), unrun.len() + g.builds.len());
+    }
+    Ok(g)
+}
+
+/// The kept world a terrain farm's game gate runs in (`circuit::mobfarm_game::run_terrain`'s
+/// default under `home`, `$MCTAS_HOME`), when it is missing; None for a void farm or a world in
+/// place.
+fn missing_kept_world(c: &circuit::Circuit, home: &Path) -> Option<String> {
+    let sample = circuit::mobfarm::terrain_sample(c).ok().flatten()?;
+    let world = home.join("terrain").join("worlds").join(sample.world);
+    (!world.join("level.dat").is_file()).then(|| format!("the kept world of {} ({}) is not at {}; restore it (designs/terrain/README.md, \"The banked kept world\")", sample.name, sample.world, world.display()))
+}
+
+/// The gate's runs that did not run (a harness failure: the game could not start or stopped, not a
+/// farm break): the gate measured nothing for them.
+fn unrun_builds(g: &circuit::mobfarm_game::GateReport) -> Vec<&str> {
+    g.failures.iter().filter(|f| f.contains(": the game run failed: ")).map(|f| f.as_str()).collect()
 }
 
 /// A build's break, in the player's words (one of the gate's checks, `circuit::mobfarm_game`), or
@@ -1489,6 +1515,32 @@ fn pick_value(a: &crate::VariationArgs) -> Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A gate that cannot run its game writes no card (ironspec 2026-11-10: a box without the kept
+    /// world zeroed bed-plate-lava-out-of-sight's card silently): a terrain farm's missing kept
+    /// world is named, a world in place is not, a void farm needs none; a run that did not run (a
+    /// harness failure) is told apart from a farm's break.
+    #[test]
+    fn a_gate_that_cannot_run_writes_no_card() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let load = |f: &str| circuit::Circuit::load(&repo.join(f)).unwrap();
+        let farm = load("designs/farms/iron/day-1/bed-plate-lava-out-of-sight.txt");
+        let home = std::env::temp_dir().join(format!("mctas-kept-world-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let why = missing_kept_world(&farm, &home).expect("no kept world under an empty home");
+        assert!(why.contains("2_-416_240_r192") && why.contains("village-edge"), "{why}");
+        let world = home.join("terrain/worlds/2_-416_240_r192");
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), b"").unwrap();
+        assert_eq!(missing_kept_world(&farm, &home), None, "the kept world in place");
+        let _ = std::fs::remove_dir_all(&home);
+        assert_eq!(missing_kept_world(&load("designs/farms/iron/day-1/d1-bed-plate.txt"), &home), None, "a void farm runs in no kept world");
+        let g = circuit::mobfarm_game::GateReport {
+            failures: vec!["build 1 (rotation 0, offset [0, 0, 0], seed 3): gt 900: a golem left the farm".into(), "build 2: the game run failed: the kept world of village-edge is not at /x".into()],
+            ..Default::default()
+        };
+        assert_eq!(unrun_builds(&g), vec!["build 2: the game run failed: the kept world of village-edge is not at /x"]);
+    }
 
     #[test]
     fn a_nether_part_gets_its_own_viewer() {
