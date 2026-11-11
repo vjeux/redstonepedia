@@ -36,7 +36,7 @@ A design may require a part to sit inside one chunk, stated in the design file a
 
 #### Reload order
 
-After an unload, the game brings entities back in an order the design doesn't control: chunks load asynchronously, and within a chunk entities return in save order, which depends on their history. A design must not depend on that order. Every unload/reload fault runs under several orders: the save order, the reverse chunk order, and at least 8 seeded orders (chunk order shuffled, rider histories seeded). A case that fails under any sampled order fails. The bridge validates the restore for a given order; the runners sample orders. Why: day-1's unload-mid-visit cases re-board in the bridged order but lose the napper in the runner's order, because a different rider history gives different entity ids; both are orders the real game can produce.
+After an unload, the game brings entities back in an order the design doesn't control: chunks load asynchronously, and within a chunk entities return in save order, which depends on their history. A design must not depend on that order. Every unload/reload fault runs under several orders: the save order, the reverse chunk order, and at least 8 seeded orders (chunk order shuffled, rider histories seeded). A case that fails under any sampled order fails. Each seeded order also re-rolls the brain state a reload resets, as the game can: sensor scan phases (drawn from a static Random), behavior timers (e.g., AcquirePoi's next scheduled start), and memories that aren't saved, which are dropped. The bridge validates the restore for a given order; the runners sample orders. Why: day-1's unload-mid-visit cases re-board in the bridged order but lose the napper in the runner's order, because a different rider history gives different entity ids; both are orders the real game can produce.
 
 #### Settled as placed, and built in order (every part)
 
@@ -107,7 +107,9 @@ lists. Every candidate meets all three rules; there is no first version without 
    giant loops: short return paths or a compact loop are allowed when they measure smallest; the
    volume objective decides. Volume decides: the assembled overworld box's volume is the measure,
    with dig depth priced in build minutes, and horizontal over vertical as the tie-breaker (vjeux's
-   rules, via the parent). A layout change prints box extents, volume, dug cells, build minutes and
+   rules, via the parent): at equal volume (with dig depth already priced in build minutes), the
+   lower box, the one with the smaller y extent, wins; stacking is allowed whenever it gives the
+   smaller volume, and the tie-breaker only decides ties. A layout change prints box extents, volume, dug cells, build minutes and
    blocks before and after. Villagers move in short hops: carts on short shuttles, water streams, pistons,
    whatever measures smallest. The lock box still holds (waiting groups more than 10.6 from every
    summoner on one horizontal axis, or 11.95 vertically, at every summon tick), and so does the
