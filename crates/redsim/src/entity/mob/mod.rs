@@ -145,6 +145,10 @@ pub enum Damage {
     /// owner is `MobWorld.ai.attacker` and its motion `MobWorld.ai.projectile_motion`, as an
     /// arrow's).
     Trident,
+    /// (mob-AI 2026-11-10) `LivingEntity.onBelowWorld`: 64 below the world's bottom
+    /// (`fell_out_of_world`'s `out_of_world`: armor and resistance bypassed, no knockback; the
+    /// hurt cooldown still holds, `#bypasses_cooldown` being empty).
+    OutOfWorld,
 }
 
 impl Damage {
@@ -168,7 +172,7 @@ impl Damage {
 
     /// Tag `bypasses_armor`.
     pub fn bypasses_armor(self) -> bool {
-        matches!(self, Damage::OnFire | Damage::InWall | Damage::Cramming | Damage::Fall | Damage::Drown)
+        matches!(self, Damage::OnFire | Damage::InWall | Damage::Cramming | Damage::Fall | Damage::Drown | Damage::OutOfWorld)
     }
 
     pub fn name(self) -> &'static str {
@@ -186,6 +190,7 @@ impl Damage {
             Damage::Arrow => "arrow",
             Damage::Spear => "spear",
             Damage::Trident => "trident",
+            Damage::OutOfWorld => "out_of_world",
         }
     }
 
@@ -205,6 +210,7 @@ impl Damage {
             Damage::Arrow => "arrow",
             Damage::Spear => "spear",
             Damage::Trident => "trident",
+            Damage::OutOfWorld => "outOfWorld",
         }
     }
 }
@@ -353,6 +359,10 @@ pub struct MobState {
     /// The helmet on its head (`EquipmentSlot.HEAD`): its max damage and damage (natural undead
     /// from `populateDefaultEquipmentSlots`); it takes the sun's burn.
     pub helmet: Option<(i32, i32)>,
+    /// (mob-AI 2026-11-10) The armor it wears (`populateDefaultEquipmentSlots`'s pieces, one
+    /// material, and their spawn enchantments): its ARMOR, ARMOR_TOUGHNESS and enchantment
+    /// protection. The helmet piece counts while [`Self::helmet`] holds.
+    pub armor: Armor,
     /// A sheep's `DyeColor` id (0 white; a natural one's from `SheepColorSpawnRules`): its wool.
     pub color: u8,
     /// Its dimensions' scale (`getDefaultDimensions(pose).scale(..)`): a salmon's variant's
@@ -417,6 +427,7 @@ impl MobState {
             can_pick_up_loot: false,
             mainhand: None,
             helmet: None,
+            armor: Armor::default(),
             color: 0,
             scale: 1.0,
             lava_height: 0.0,
@@ -854,7 +865,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             }
             let Some(id) = id else { return Some(Err(format!("entity {type_id}: a main-hand item needs an id: {eq}"))) };
             let id = if id.contains(':') { id } else { format!("minecraft:{id}") };
-            mainhand = Some(Held { item: id, count, guaranteed: false, enchanted: false });
+            mainhand = Some(Held { item: id, count, guaranteed: false, enchanted: false, ench: Vec::new() });
             t = format!("{}{}", &t[..s], &t[e + 1..]);
         }
         let inner = t.trim().strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(&t).trim().to_string();
@@ -1150,25 +1161,144 @@ pub fn set_helmet(w: &mut World, id: u32, armor: Option<u8>) {
     }
 }
 
+/// (mob-AI 2026-11-10) The armor `populateDefaultEquipmentSlots` dressed mob `id` in (none: no
+/// change).
+pub fn set_armor(w: &mut World, id: u32, armor: &Armor) {
+    if armor.pieces == 0 {
+        return;
+    }
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let crate::entity::EntityKind::Mob(m) = &mut e.kind
+    {
+        m.armor = armor.clone();
+    }
+}
+
+/// (mob-AI 2026-11-10) A mob's worn armor: `Mob.populateDefaultEquipmentSlots`'s pieces from the
+/// head down in one material (`getEquipmentForSlot`: 0 leather, 1 copper, 2 golden, 3 chainmail,
+/// 4 iron, 5 diamond), each piece's `populateDefaultEquipmentEnchantments` enchantments. Mob
+/// armor never wears from hits (`LivingEntity.hurtArmor` does nothing for them); only the sun
+/// wears the helmet (`MobState::helmet`).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Armor {
+    /// Pieces worn: 0 none, 1 a helmet, 2 and a chestplate, 3 and leggings, 4 and boots.
+    pub pieces: u8,
+    pub material: u8,
+    /// Each piece's enchantments (bare id, level), by slot: 0 head, 1 chest, 2 legs, 3 feet.
+    pub ench: [Vec<(&'static str, i32)>; 4],
+}
+
+impl Armor {
+    /// `ArmorMaterials`' defense of the piece in slot `s` (0 head, 1 chest, 2 legs, 3 feet).
+    fn defense(&self, s: usize) -> f32 {
+        // (head, chest, legs, feet) of leather, copper, golden, chainmail, iron, diamond
+        const D: [[f32; 4]; 6] = [[1.0, 3.0, 2.0, 1.0], [2.0, 4.0, 3.0, 1.0], [2.0, 5.0, 3.0, 1.0], [2.0, 5.0, 4.0, 1.0], [2.0, 6.0, 5.0, 2.0], [3.0, 8.0, 6.0, 3.0]];
+        D[(self.material as usize).min(5)][s]
+    }
+
+    /// The slots worn now: the helmet's while it holds (`helmet`: the sun's wear), the others'.
+    fn worn(&self, helmet: bool) -> impl Iterator<Item = usize> + '_ {
+        (0..self.pieces as usize).filter(move |&s| s != 0 || helmet)
+    }
+
+    /// The ARMOR the pieces add.
+    pub fn value(&self, helmet: bool) -> f32 {
+        self.worn(helmet).map(|s| self.defense(s)).sum()
+    }
+
+    /// The ARMOR_TOUGHNESS the pieces add (a diamond piece's 2).
+    pub fn toughness(&self, helmet: bool) -> f32 {
+        if self.material == 5 { self.worn(helmet).count() as f32 * 2.0 } else { 0.0 }
+    }
+
+    /// `EnchantmentHelper.getDamageProtection`: the worn pieces' `damage_protection` against
+    /// `src` (protection 1 a level, fire/blast/projectile protection 2, feather falling 3).
+    pub fn protection(&self, helmet: bool, src: Damage) -> f32 {
+        let mut p = 0.0f32;
+        for s in self.worn(helmet) {
+            for &(id, level) in &self.ench[s] {
+                let l = level as f32;
+                p += match id {
+                    "protection" => l,
+                    "fire_protection" if src.is_fire() => 2.0 * l,
+                    "projectile_protection" if src.by_projectile() => 2.0 * l,
+                    "feather_falling" if src == Damage::Fall => 3.0 * l,
+                    _ => 0.0,
+                };
+            }
+        }
+        p
+    }
+
+    /// Whether a worn piece carries enchantment `id`.
+    pub fn has(&self, helmet: bool, id: &str) -> bool {
+        self.worn(helmet).any(|s| self.ench[s].iter().any(|&(e, _)| e == id))
+    }
+
+    /// The `attributes` effect's modifier sum of enchantment `id` over the worn pieces, each
+    /// `LevelBasedValue.linear(base, base)` at its level (a float, as the modifier's amount).
+    fn linear_sum(&self, helmet: bool, id: &str, base: f32) -> f64 {
+        let mut sum = 0.0f64;
+        for s in self.worn(helmet) {
+            for &(e, level) in &self.ench[s] {
+                if e == id {
+                    sum += (base + base * (level - 1) as f32) as f64;
+                }
+            }
+        }
+        sum
+    }
+
+    /// WATER_MOVEMENT_EFFICIENCY: depth strider's 0.33333334F a level (ADD_VALUE on 0).
+    pub fn water_movement_efficiency(&self, helmet: bool) -> f64 {
+        self.linear_sum(helmet, "depth_strider", 0.33333334)
+    }
+
+    /// BURNING_TIME: fire protection's -0.15F a level (ADD_MULTIPLIED_BASE on 1).
+    pub fn burning_time(&self, helmet: bool) -> f64 {
+        1.0 + self.linear_sum(helmet, "fire_protection", -0.15)
+    }
+}
+
+/// `LivingEntity.igniteForTicks(ticks)`'s length: `Mth.ceil(ticks x BURNING_TIME)` (mob `i`'s
+/// fire protection shortens it).
+pub fn ignite_ticks(w: &World, i: usize, ticks: i32) -> i32 {
+    let m = mob(w, i);
+    let bt = m.armor.burning_time(m.helmet.is_some());
+    if bt == 1.0 { ticks } else { (ticks as f64 * bt).ceil() as i32 }
+}
+
+
 /// An item in a mob's main hand: its id and count, whether it drops for sure when the mob dies
 /// (`setGuaranteedDrop`: an item it picked up; a spawn weapon's 0.085 drops only on a player's
 /// kill), whether it is enchanted (a spawn weapon's `populateDefaultEquipmentEnchantments`).
+/// (mob-AI 2026-11-10) Its enchantments (bare id, level). A mob's hits never wear it
+/// (`Mob.doHurtTarget` calls only `ItemStack.hurtEnemy`; the wear is `postHurtEnemy`'s, a
+/// player's).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Held {
     pub item: String,
     pub count: u8,
     pub guaranteed: bool,
     pub enchanted: bool,
+    pub ench: Vec<(&'static str, i32)>,
+}
+
+impl Held {
+    /// The level of enchantment `id` on it (0: none).
+    pub fn level(&self, id: &str) -> i32 {
+        self.ench.iter().find(|&&(e, _)| e == id).map_or(0, |&(_, l)| l)
+    }
 }
 
 /// finalizeSpawn's hand of a natural mob: `setCanPickUpLoot`'s roll and the main-hand weapon
-/// `populateDefaultEquipmentSlots` gave it (and whether it got enchantments).
-pub fn set_hand(w: &mut World, id: u32, loot: bool, weapon: Option<(&'static str, bool)>) {
+/// `populateDefaultEquipmentSlots` gave it (and its enchantments).
+pub fn set_hand(w: &mut World, id: u32, loot: bool, weapon: Option<(&'static str, bool)>, ench: &[(&'static str, i32)]) {
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
         && let crate::entity::EntityKind::Mob(m) = &mut e.kind
     {
         m.can_pick_up_loot = loot;
-        m.mainhand = weapon.map(|(item, enchanted)| Held { item: item.to_string(), count: 1, guaranteed: false, enchanted });
+        m.mainhand = weapon.map(|(item, enchanted)| Held { item: item.to_string(), count: 1, guaranteed: false, enchanted, ench: ench.to_vec() });
     }
     // setItemSlot -> onEquipItem: a skeleton reassesses its weapon goal (its bow)
     if let Some(j) = crate::entity::index_of(w, id) {

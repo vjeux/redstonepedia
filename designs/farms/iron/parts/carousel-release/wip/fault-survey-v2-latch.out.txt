@@ -1,0 +1,12 @@
+scenario                        departs                  recovered   visits    kicks        F
+dusk-unlock-missed                +3638   after 0 cycles, shift +1       +0       +0       +0
+dawn-unlock-missed                +2138  after 16 cycles, shift -4       +1       +1       +1
+extra-unlock-after-dusk           +3638   after 4 cycles, shift +3       -1       +0       +1
+extra-unlock-after-dawn               -                  unchanged       +0       +0       +0
+extra-unlock-in-read-window       +3638   after 4 cycles, shift +3       -1       +0       +1
+reload-across-dusk                +3404   after 2 cycles, shift +1       +0       +0       +0
+reload-across-dawn                +1904   after 5 cycles, shift +0       +0       +0       +0
+reload-long-across-dusk           +2904  after 17 cycles, shift -3       -2       -2       -2
+reload-mid-release-pulse          +3516   after 2 cycles, shift +0       +0       +0       +0
+reload-mid-visit                  +3604   after 4 cycles, shift +0       +0       +0       +0
+reload-zero-mid-pulse             +3516   after 1 cycles, shift +0       +0       +0       +0

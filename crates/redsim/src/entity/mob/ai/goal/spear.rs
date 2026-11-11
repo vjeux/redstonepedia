@@ -340,6 +340,10 @@ pub fn damage_entities(w: &mut World, i: usize, remaining: i32) {
 /// `LivingEntity.stabAttack(MAINHAND, target, damage, dealsDamage, dealsKnockback, dismounts)`.
 fn stab_attack(w: &mut World, i: usize, j: usize, damage: f32, deals_damage: bool, deals_knockback: bool, dismounts: bool) -> bool {
     let living_target = matches!(w.entities.list[j].kind, EntityKind::Mob(_));
+    // (mob-AI 2026-11-10) EnchantmentHelper.modifyDamage on the stab (the spear's sharpness,
+    // smite, ...), its knockback enchantment's extra knockback, its post-attack effects
+    let ench: Vec<(&'static str, i32)> = mob(w, i).mainhand.as_ref().map(|h| h.ench.clone()).unwrap_or_default();
+    let damage = if living_target { crate::entity::mob::ai::attack::enchant_damage(&ench, mob(w, j).ty.def().id, false, damage) } else { damage };
     let mut affected = deals_knockback;
     let dealt = deals_damage && living_target && {
         let attacker = w.entities.list[i].id;
@@ -353,17 +357,32 @@ fn stab_attack(w: &mut World, i: usize, j: usize, damage: f32, deals_damage: boo
     }
     affected |= dealt;
     if deals_knockback && living_target && !w.entities.list[j].removed {
-        // causeExtraKnockback(0.4): along the attacker's yaw, the attacker slowed to 0.6; its
-        // ATTACK_KNOCKBACK / 2 (0 for the spear's mobs) adds none
+        // causeExtraKnockback(0.4), then causeExtraKnockback(getKnockback: (ATTACK_KNOCKBACK 0 +
+        // the knockback enchantment) / 2): each along the attacker's yaw, the attacker slowed to
+        // 0.6
         let yaw = w.entities.list[i].y_rot * (std::f64::consts::PI / 180.0) as f32;
         let (s, c) = (mth::sin(yaw as f64), mth::cos(yaw as f64));
-        crate::entity::mob::ai::attack::knockback(w, j, 0.4f32 as f64, s as f64, -c as f64);
-        let e = &mut w.entities.list[i];
-        e.delta_movement = e.delta_movement.multiply(0.6, 1.0, 0.6);
+        let kb = ench.iter().find(|&&(e, _)| e == "knockback").map_or(0.0f32, |&(_, l)| l as f32) / 2.0f32;
+        for power in [0.4f32, kb] {
+            if power > 0.0 {
+                crate::entity::mob::ai::attack::knockback(w, j, power as f64, s as f64, -c as f64);
+                let e = &mut w.entities.list[i];
+                e.delta_movement = e.delta_movement.multiply(0.6, 1.0, 0.6);
+            }
+        }
     }
     if dismounts && w.entities.list[j].vehicle.is_some() {
         affected = true;
         crate::entity::stop_riding(w, j);
+    }
+    // doPostAttackEffects after a hurt: fire aspect's ignite
+    let fire = ench.iter().find(|&&(e, _)| e == "fire_aspect").map_or(0, |&(_, l)| l);
+    if dealt && fire > 0 && !mob(w, j).ty.def().fire_immune {
+        let t = crate::entity::mob::ignite_ticks(w, j, ((4.0f32 + 4.0f32 * (fire - 1) as f32) * 20.0f32).floor() as i32);
+        let m = crate::entity::mob::mob_mut(w, j);
+        if m.fire_ticks < t {
+            m.fire_ticks = t;
+        }
     }
     if !affected {
         return false;

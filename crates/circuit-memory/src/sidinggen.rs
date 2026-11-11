@@ -1,0 +1,1114 @@
+//! The bed siding's two junctions on farmopt's pocket-stand loop (day-1 lane 2026-11-10; parent
+//! 12:11: the chosen napper's cart diverts once a night and rejoins its batch; agreed with ironfarm
+//! and farmopt 12:51-13:15).
+//!
+//! `release-gen --loop L --siding S` adds, to the loop file it writes:
+//! - farmopt's wired siding (S's box, local x -7..6, y -4..4, z -3..9, with its dorm zombie) pasted
+//!   unturned at (-20, 2, 10): its bed 17+ blocks from every rider (a calm villager within 16 took
+//!   the bed in farmopt's bench), its entry booster at (-27, 2, 10), its exit (-14, 1, 10);
+//! - the diverter: a branch rail north of the departure corner (9, -3, 0), which makes the corner a
+//!   T (west, south, north): unpowered it stays south_west (the loop), powered it turns north_west
+//!   (the branch);
+//! - the entry route: north to z -2, west along z -2 (y -3) to x -29, south along x -29 climbing to
+//!   y 2 on five boosters, east into the siding's booster;
+//! - the exit route: from the siding's exit east to x -13, a booster, south along x -13 (y 1) with
+//!   a loop west (z 20..23, x -22) for drag, into T1 (-13, 1, 28), its stem north: unpowered
+//!   north_east (east along z 28 to slot 14), powered north_west (west, round to T2 (-15, 1, 31),
+//!   its stem north: unpowered east along z 31 to slot 13, powered west, round x -17, east along
+//!   z 34 to slot 12);
+//! - each drop line ends as ironfarm's side drop: three plain rails at y 1 on glass west of the
+//!   slot's slope (x -6..-4), a stone stop east of it at (-2, 1, z); the cart rolls off the end into
+//!   the empty slot during the long rest.
+//!
+//! Four controls, bench cells for now (glass = off, a redstone block = on): the corner T's support
+//! (9, -4, 0), T1's (-8, 0, 28), T2's (-10, 0, 31), the siding's release input (-16, 0, 10).
+
+use crate::schedgen::{B, P3};
+use anyhow::{Result, bail};
+use mctas::design::{Design, EntitySpec};
+use std::path::Path;
+
+const STONE: &str = "minecraft:stone";
+const GLASS: &str = "minecraft:glass";
+const RBLOCK: &str = "minecraft:redstone_block";
+
+pub(crate) const SIDING_AT: P3 = [-20, 2, 10];
+pub(crate) const DIVERT: P3 = [9, -4, 0];
+pub(crate) const T1: P3 = [-15, 0, 28];
+pub(crate) const T2: P3 = [-16, 0, 31];
+/// The branch's boosters (x along z -2, y -3; B2).
+const BRANCH_BOOSTERS: [i32; 3] = [6, 0, -6];
+pub(crate) const RELEASE: P3 = [-16, 0, 10];
+pub(crate) const HOLDS: [P3; 3] = [[-12, 0, 28], [-11, 0, 31], [-12, 0, 34]];
+
+fn rail(shape: &str) -> String {
+    format!("minecraft:rail[shape={shape},waterlogged=false]")
+}
+
+fn booster(shape: &str) -> String {
+    format!("minecraft:powered_rail[powered=true,shape={shape},waterlogged=false]")
+}
+
+fn comp(facing: &str, mode: &str) -> String {
+    format!("minecraft:comparator[facing={facing},mode={mode},powered=false]")
+}
+
+/// A rail at `p` on a support (stone unless `glass`).
+fn lay(b: &mut B, p: P3, s: &str, glass: bool) -> Result<()> {
+    b.put(p, s)?;
+    b.put([p[0], p[1] - 1, p[2]], if glass { GLASS } else { STONE })
+}
+
+/// Pastes the siding and lays the routes and junctions into `d`; returns the cells it added.
+pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
+    let mut b = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+    let before: std::collections::BTreeSet<P3> = d.blocks.keys().copied().collect();
+    // ---- the siding
+    let s = Design::load(siding)?;
+    let inbox = |q: &P3| (-7..=6).contains(&q[0]) && (-4..=4).contains(&q[1]) && (-3..=9).contains(&q[2]);
+    let at = |q: &P3| [q[0] + SIDING_AT[0], q[1] + SIDING_AT[1], q[2] + SIDING_AT[2]];
+    // (measurement only, ironspec 2026-11-11: the integration gate's second night, every napper
+    // failing: the siding's bed occupied)
+    let occupied = std::env::var("MCTAS_BED_OCCUPIED").is_ok();
+    for (q, st) in s.blocks.iter().filter(|(q, _)| inbox(q)) {
+        if occupied && st.contains("_bed[") {
+            b.put(at(q), &st.replace("occupied=false", "occupied=true"))?;
+            continue;
+        }
+        b.put(at(q), st)?;
+    }
+    for (q, n) in s.block_entities.iter().filter(|(q, _)| inbox(q)) {
+        d.block_entities.insert(at(q), n.clone());
+    }
+    for e in &s.entities {
+        let q = [e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32];
+        if inbox(&q) {
+            let p = [e.pos[0] + SIDING_AT[0] as f64, e.pos[1] + SIDING_AT[1] as f64, e.pos[2] + SIDING_AT[2] as f64];
+            d.entities.push(EntitySpec { kind: e.kind.clone(), pos: p, nbt: e.nbt.clone() });
+        }
+    }
+    // (a siding by itself (main's 248e34c6f, `siding: v1 wired alone`: "no launcher, approach,
+    // run-out") carries no approach: the one the bench siding carried (local x -7 a booster on a
+    // redstone block, x -6..-1 rails on glass, into its entry (0, 0, 0)) is laid where the pasted
+    // siding has nothing)
+    for lx in -7..=-1 {
+        let (r, sup) = (at(&[lx, 0, 0]), at(&[lx, -1, 0]));
+        if !b.blocks.contains_key(&r) {
+            b.put(r, &if lx == -7 { booster("east_west") } else { rail("east_west") })?;
+            b.put(sup, if lx == -7 { RBLOCK } else { GLASS })?;
+        }
+    }
+    if b.blocks.get(&RELEASE).map(|s| s.as_str()) != Some(GLASS) {
+        bail!("the siding's release input {RELEASE:?} is {:?}, not glass: the siding file changed", b.blocks.get(&RELEASE));
+    }
+    // the siding releases each napper as soon as it is back in its cart (farmopt's release-held
+    // mode, benched by his child: every napper re-boards and leaves): its release input is a
+    // redstone block; the timed release is the hold near T1 (ironfarm 14:35)
+    b.blocks.insert(RELEASE, RBLOCK.into());
+    // the bed's port (R1's home: the runner gives the bed to each napper from it; ironfarm 14:00)
+    let home = s.ports.get("home").copied().ok_or_else(|| anyhow::anyhow!("the siding file has no `port home:`"))?;
+    d.ports.insert("home".into(), at(&home));
+    // the siding's force-re-board input (58f770cc's gated siding, `force=x,y,z` on its `siding:`
+    // line): it must be where the module's F line ends (FORCE)
+    if let Some(f) = s.meta.get("siding").and_then(|l| l.split_whitespace().find_map(|w| w.strip_prefix("force="))) {
+        let v: Vec<i32> = f.split(',').map(|n| n.parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("the siding's force={f}: {e}"))?;
+        if v.len() != 3 || at(&[v[0], v[1], v[2]]) != FORCE {
+            bail!("the siding's force input {f} (local) is not at the module's F line's end {FORCE:?} (world)");
+        }
+    }
+    // the siding's own build list (`build: last x,y,z ...`, its cells placed after all others;
+    // `fills-last` may stand anywhere in it), moved into the loop's frame; joined with the drop
+    // ends' below
+    let mut last: Vec<P3> = Vec::new();
+    let mut fills_last = false;
+    if let Some(bl) = s.meta.get("build") {
+        let toks: Vec<&str> = bl.split_whitespace().collect();
+        if !toks.contains(&"last") {
+            bail!("the siding's `build: {bl}` is not a `last` list");
+        }
+        fills_last |= toks.contains(&"fills-last");
+        for c in toks.into_iter().filter(|t| *t != "last" && *t != "fills-last") {
+            let v: Vec<i32> = c.split(',').map(|n| n.parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("the siding's build cell {c}: {e}"))?;
+            if v.len() != 3 {
+                bail!("the siding's build cell {c} is not x,y,z");
+            }
+            last.push(at(&[v[0], v[1], v[2]]));
+        }
+    }
+    // ---- the diverter: the branch north of the corner (the corner's support stays the glass
+    // control the bench switches)
+    match b.blocks.get(&[9, -3, 0]).map(|s| s.as_str()) {
+        Some(s) if s.contains("shape=south_west") => {}
+        other => bail!("the departure corner (9, -3, 0) is {other:?}, not a south_west rail: the loop file changed"),
+    }
+    lay(&mut b, [9, -3, -1], &rail("north_south"), false)?;
+    // ---- the entry route
+    lay(&mut b, [9, -3, -2], &rail("south_west"), false)?;
+    for x in -28..=8 {
+        lay(&mut b, [x, -3, -2], &rail("east_west"), false)?;
+    }
+    // (B2: boosters on the branch, held on by redstone blocks for supports: the stand's front cart
+    // (k0) leaves the corner slowest and reached the siding last, +204 against k1 +182 and k2 +192;
+    // boosted, all three arrive sooner and closer together, so the force-re-board F (one time for
+    // every k: the latest arrival + 112) can come earlier)
+    for &x in &BRANCH_BOOSTERS {
+        b.blocks.insert([x, -3, -2], booster("east_west"));
+        b.blocks.insert([x, -4, -2], RBLOCK.into());
+    }
+    lay(&mut b, [-29, -3, -2], &rail("south_east"), false)?;
+    lay(&mut b, [-29, -3, -1], &rail("north_south"), false)?;
+    // the climb: five boosters ascending south, the first one's support a redstone block (it powers
+    // all five through the rail line)
+    for k in 0..5 {
+        let p = [-29, -3 + k, k];
+        b.put(p, &booster("ascending_south"))?;
+        b.put([p[0], p[1] - 1, p[2]], if k == 0 { RBLOCK } else { STONE })?;
+    }
+    for z in 5..=9 {
+        lay(&mut b, [-29, 2, z], &rail("north_south"), false)?;
+    }
+    lay(&mut b, [-29, 2, 10], &rail("north_east"), false)?;
+    lay(&mut b, [-28, 2, 10], &rail("east_west"), false)?;
+    // ---- the exit route to T1: a booster on the first straight cell (the cart leaves the exit
+    // slot at 0.28-0.44 and would crawl: ironfarm 13:57), then ~46-58 rails of drag to the drop
+    // ends (a loop west of x -13, z 20..23) so it arrives at 0.32-0.35 b/t
+    lay(&mut b, [-13, 1, 10], &rail("south_west"), false)?;
+    b.put([-13, 1, 11], &booster("north_south"))?;
+    b.put([-13, 0, 11], RBLOCK)?;
+    // (no drag loop: ironfarm 14:30 measured this loop's side drop clean at 0.10-0.48 b/t; the
+    // booster's 0.49-0.53 decays to ~0.43-0.46 over the ~25 rails to the drop ends)
+    // ---- the exit route on to T1 (-15, 1, 28): x -13 south to z 25, west along z 26 to x -15,
+    // south into T1 (the tree sits west of the release controller's taps, so the cells under the
+    // T's and the holds are free for their drivers)
+    for z in 12..=25 {
+        lay(&mut b, [-13, 1, z], &rail("north_south"), false)?;
+    }
+    lay(&mut b, [-13, 1, 26], &rail("north_west"), false)?;
+    lay(&mut b, [-14, 1, 26], &rail("east_west"), false)?;
+    lay(&mut b, [-15, 1, 26], &rail("south_east"), false)?;
+    lay(&mut b, [-15, 1, 27], &rail("north_south"), false)?;
+    // T1: stem north, unpowered north_east (east: slot 14's line), powered north_west (T2)
+    b.put([-15, 1, 28], &rail("north_east"))?;
+    b.put(T1, GLASS)?;
+    // T1 west to T2 (-16, 1, 31), stem north: unpowered east (slot 13's line), powered west (the
+    // tight tree, B1: T1's west arm turns south at once, T2 one cell west of T1, slot 12's line
+    // round x -17: k1's path 2 cells and k2's 4 cells shorter than the first tree's)
+    lay(&mut b, [-16, 1, 28], &rail("south_east"), false)?;
+    lay(&mut b, [-16, 1, 29], &rail("north_south"), false)?;
+    lay(&mut b, [-16, 1, 30], &rail("north_south"), false)?;
+    b.put([T2[0], 1, T2[2]], &rail("north_east"))?;
+    b.put(T2, GLASS)?;
+    // T2 west round to z 34 (slot 12's line)
+    lay(&mut b, [-17, 1, 31], &rail("south_east"), false)?;
+    lay(&mut b, [-17, 1, 32], &rail("north_south"), false)?;
+    lay(&mut b, [-17, 1, 33], &rail("north_south"), false)?;
+    lay(&mut b, [-17, 1, 34], &rail("north_east"), false)?;
+    // ---- the three drop lines, each with its hold (ironfarm 14:42: one hold per line, a short
+    // leg from the hold to the drop): flat east, a climb ascending east (hx - 2, 1, z), flat
+    // (hx - 1, 2, z), the hold (hx, 1, z) (a braked powered rail ascending west: the cart rolls down
+    // onto it and stops; its support (hx, 0, z) is the kick control), flat east (hx + 1..-4, 1, z)
+    // (glass under the last three), the stone stop (-2, 1, z). Slot 13's line (k1) has its climb,
+    // flat and hold one cell east (hx -11): with the tight tree's T2 at x -16 that gives it the first
+    // tree's two flats before its climb, so it comes onto its hold at the first tree's speed and
+    // rests where it did (ironfarm 18:25: slot 13 fails from a 0.37 roll-off, and the tight tree
+    // with the hold at x -12 rolled k1 off at 0.36)
+    let lines: [(i32, i32); 3] = [(28, -14), (31, -15), (34, -16)];
+    for (i, (z, x0)) in lines.into_iter().enumerate() {
+        let hx = HOLDS[i][0];
+        for x in x0..=hx - 3 {
+            lay(&mut b, [x, 1, z], &rail("east_west"), false)?;
+        }
+        lay(&mut b, [hx - 2, 1, z], &rail("ascending_east"), false)?;
+        lay(&mut b, [hx - 1, 2, z], &rail("east_west"), false)?;
+        b.put([hx, 1, z], "minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
+        b.put([hx, 0, z], GLASS)?;
+        for x in hx + 1..=-4 {
+            lay(&mut b, [x, 1, z], &rail("east_west"), x >= -6)?;
+        }
+        // (the stop glass: a cart stop all the same, and no golem can spawn on it; ironfarm 16:30)
+        b.put([-2, 1, z], GLASS)?;
+    }
+    // (k1's entry tuning, measured: `MCTAS_K1_BOOST` = flat | climb | top, one of slot 13's
+    // line's cells before its hold an always-on booster)
+    if let Ok(v) = std::env::var("MCTAS_K1_BOOST") {
+        let (c, shape) = match v.as_str() {
+            "flat" => ([-15, 1, 31], "east_west"),
+            "climb" => ([-14, 1, 31], "ascending_east"),
+            "top" => ([-13, 2, 31], "east_west"),
+            _ => bail!("MCTAS_K1_BOOST: flat, climb or top"),
+        };
+        b.blocks.insert(c, booster(shape));
+        b.blocks.insert([c[0], c[1] - 1, c[2]], RBLOCK.into());
+    }
+    // the always-on redstone blocks (the climb's, the exit booster's) must touch nothing that
+    // carries a signal besides their own rail
+    for rb in [[-29, -4, 0], [-13, 0, 11]].into_iter().chain(BRANCH_BOOSTERS.iter().map(|&x| [x, -4, -2])) {
+        for dlt in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]] {
+            let q = [rb[0] + dlt[0], rb[1] + dlt[1], rb[2] + dlt[2]];
+            if let Some(s) = b.blocks.get(&q) {
+                if ["redstone_wire", "repeater", "comparator", "torch", "rail", "piston", "dropper", "hopper", "observer", "lamp", "bulb", "door", "trapdoor", "fence_gate"].iter().any(|k| s.contains(k)) {
+                    bail!("the always-on block {rb:?} touches {q:?} = {s}");
+                }
+            }
+        }
+    }
+    let added: Vec<P3> = b.blocks.keys().copied().filter(|p| !before.contains(p)).collect();
+    d.blocks = b.blocks;
+    // the drop ends go in after every other rail (ironfarm 15:13): placed by (y, x, z) they would
+    // come before the slots' peaks, and each slot's slope, with one link so far, would take its
+    // drop end (seen built in order: the slopes turned ascending_west)
+    let mut cells: Vec<String> = [[-4, 1, 28], [-4, 1, 31], [-4, 1, 34]].iter().chain(last.iter()).map(|q| format!("{},{},{}", q[0], q[1], q[2])).collect();
+    // (a build list the loop file already has comes first)
+    if let Some(prev) = d.meta.get("build") {
+        let toks: Vec<&str> = prev.split_whitespace().collect();
+        if !toks.contains(&"last") {
+            bail!("the loop's `build: {prev}` is not a `last` list");
+        }
+        fills_last |= toks.contains(&"fills-last");
+        cells.splice(0..0, toks.into_iter().filter(|t| *t != "last" && *t != "fills-last").map(|c| c.to_string()));
+    }
+    cells.dedup();
+    d.meta.insert("build".into(), format!("last {}{}", cells.join(" "), if fills_last { " fills-last" } else { "" }));
+    Ok(added)
+}
+
+/// `mctas circuit memory siding-ctl-gen --out F`: the siding's control module, in the nightly
+/// scheduler's own frame (the scheduler stamped at 0 0 0; additions east of it, x >= 2, and under
+/// it, y -2), driven by REL alone (WIP, part 1: the scheduler's REL and night inputs, the visit
+/// pulse VP out).
+/// - REL: `input.rel` (12, -1, -4), a bus west along z -4 at y -1 under the scheduler's input row,
+///   up into a dust (-5, 0, -4) and a repeater on the scheduler's input cell (-5, 0, -3).
+/// - Night: the scheduler's window cell (-2, 0, 1) powered from below by a torch (-2, -1, 1) on a
+///   block (-2, -2, 1) that the day line powers through a repeater (-1, -2, 1) from `input.day`
+///   (0, -2, 1) (in the loop: a normal daylight detector, > 0 by day).
+/// - VP, the visit pulse (the scheduler's gate output, high from the release's start while the
+///   release is a visit): two repeaters off V's stone (-5, 0, 4) east into a block (-2, 0, 4), a
+///   dust under it, down to y -2, south along x -1 and east along z 11 to `output.vp`.
+pub fn control_blocks(sched: &Path) -> Result<B> {
+    use crate::schedgen::{DUST, rep};
+    let mut b = B { blocks: Default::default(), ports: Default::default(), nbt: Default::default() };
+    b.stamp(sched, [0, 0, 0], 0, None)?;
+    // (night 1, ironspec 18:26: the D ring's token is built in the hopper h13 (1, 0, 0) that feeds
+    // d0, not in d0: the day line locks h13 (`wire_control`), so the token waits there all day and
+    // drops into d0 as the night window opens: the night's first release finds D = 0 and visits,
+    // every night from the first, and from a power-on at any time of day)
+    if let Some(tok) = b.nbt.remove(&[0, 0, 0]) {
+        b.nbt.insert([1, 0, 0], tok);
+    } else {
+        bail!("the scheduler's D ring has no token in d0 (0, 0, 0)");
+    }
+    // (the scheduler's slot-out stage does nothing in the farm: its visit latch C, the reset path
+    // into it from the 3rd stage's end, the step line along x -7, and the slot-out module with its
+    // connections (every cell at z >= 9); removed, ironspec 19:52: faults there changed nothing)
+    let slot_out: Vec<P3> = b
+        .blocks
+        .keys()
+        .copied()
+        .filter(|&[x, y, z]| {
+            (z >= 9 && x <= 0)
+                || ((-5..=-3).contains(&x) && (5..=8).contains(&z) && (-1..=0).contains(&y))
+                || (z == 6 && (-13..=-6).contains(&x) && (-1..=0).contains(&y))
+                || (x == -13 && z == 5 && (-1..=0).contains(&y))
+                || (x == -7 && (6..=17).contains(&z) && (0..=1).contains(&y))
+        })
+        .collect();
+    for p in &slot_out {
+        b.blocks.remove(p);
+        b.nbt.remove(p);
+    }
+    for k in ["output.s0", "output.s1", "output.s2", "output.v"] {
+        b.ports.remove(k);
+    }
+    // ---- REL into the scheduler (its input cell becomes a repeater); the input block (14, -2, -4)
+    // feeds the bus (up to y -1 at x 12) and REL2 south along x 14 for the siding logic
+    b.blocks.remove(&[-5, 0, -3]);
+    b.on([-5, 0, -3], &rep("north", 1))?;
+    b.on([-5, 0, -4], DUST)?;
+    b.put([14, -2, -4], STONE)?;
+    b.ports.insert("input.rel".into(), [14, -2, -4]);
+    b.on([13, -2, -4], DUST)?;
+    b.on([12, -1, -4], DUST)?;
+    let bus: Vec<P3> = (-4..=11).rev().map(|x| [x, -1, -4]).collect();
+    b.wire([12, -1, -4], &bus, 12)?;
+    // ---- night: the torch under the window cell, off while the day line powers its block
+    b.put([0, -2, 1], STONE)?;
+    b.ports.insert("input.day".into(), [0, -2, 1]);
+    b.on([-1, -2, 1], &rep("east", 1))?;
+    b.put([-2, -2, 1], STONE)?;
+    b.put([-2, -1, 1], "minecraft:redstone_torch[lit=true]")?;
+    // ---- NV = NOT (D = 0 and night), steady between releases: the gate's side dust (-4, 0, 1)
+    // read by a repeater south into a block (-4, 0, 3), a dust under it, down to y -2 and east along
+    // z 3 to `output.nv` (the visit gate itself, V's stone, comes ~13 gt after REL: too late for
+    // the diverter, so the release is known a visit from NV sampled at its start)
+    b.on([-4, 0, 2], &rep("north", 1))?;
+    b.put([-4, 0, 3], STONE)?;
+    b.on([-4, -1, 3], DUST)?;
+    let nv: Vec<P3> = (-3..=3).map(|x| [x, -2, 3]).collect();
+    b.wire([-4, -1, 3], &nv, 0)?;
+    b.ports.insert("output.nv".into(), [3, -2, 3]);
+    // (v itself is not used: the visit is G2 below, the windows hang off it)
+    // ---- G2 = REL and not NV (NV is still the release's own value while REL is high: the D ring
+    // steps ~19 gt after REL), a 12-gt pulse at the start of every visit release; the windows W0,
+    // W1 = W0 + 10, W2 = W0 + 20 down a repeater chain along x 14, each tapped by a block T_k
+    // (14, -2, z_k), z_k = 6, 10, 14
+    for z in -3..=2 {
+        b.on([14, -2, z], DUST)?;
+    }
+    b.on([4, -2, 3], &rep("west", 1))?;
+    for x in 5..=12 {
+        b.on([x, -2, 3], DUST)?;
+    }
+    b.on([13, -2, 3], &rep("west", 1))?;
+    b.on([14, -2, 3], &comp("north", "subtract"))?;
+    // the chain: four repeaters from G2 to T0 (the windows' offset, set by `w0`), then 10 gt between
+    // taps (repeaters 3 + 1 + 1: no dust in the chain, so nothing beside it leaks in)
+    let w0 = [1u8, 1, 1, 1];
+    for (i, d) in w0.iter().enumerate() {
+        b.on([14, -2, 4 + i as i32], &rep("north", *d))?;
+    }
+    // T0 (14, -2, 8): W0's tap, which fires the visit-delay register's INJ (below). (The module's
+    // own divert windows W1, W2 and their P_k gates, the OR column to `output.divert`, the visit
+    // counter R' with its taps and its step line, and the router lines `output.t1`/`output.t2`
+    // were removed, ironspec 19:52: the local divert unit (`divert_unit`) has its own windows,
+    // ring R'' and router, and fault-survey-v1 showed faults in R' changing nothing.)
+    b.put([14, -2, 8], STONE)?;
+    // ---- the visit-delay register: a ring of droppers D0 (INJ) .. D5 and hoppers, D0 (18, -2, -2)
+    // east along z -2 to H2 (23), back west along z -1 to H5 (18) into D0. The REL clock is a dust
+    // patch on the tops of D1..D5 and the hoppers between them (hoppers locked while it is high, so
+    // every item moves exactly one stage a release); INJ fires on W0 (a visit) through the line
+    // along x 16 from T0's east repeater. 3 items in INJ. D5 holds a visit's item during the 4th
+    // release after it: SREL = D5 and RELd.
+    let reg: [(P3, &str); 12] = [
+        ([18, -2, -2], "minecraft:dropper[facing=east,triggered=false]"),
+        ([19, -2, -2], "minecraft:hopper[enabled=true,facing=east]"),
+        ([20, -2, -2], "minecraft:dropper[facing=east,triggered=false]"),
+        ([21, -2, -2], "minecraft:hopper[enabled=true,facing=east]"),
+        ([22, -2, -2], "minecraft:dropper[facing=east,triggered=false]"),
+        ([23, -2, -2], "minecraft:hopper[enabled=true,facing=south]"),
+        ([23, -2, -1], "minecraft:dropper[facing=west,triggered=false]"),
+        ([22, -2, -1], "minecraft:hopper[enabled=true,facing=west]"),
+        ([21, -2, -1], "minecraft:dropper[facing=west,triggered=false]"),
+        ([20, -2, -1], "minecraft:hopper[enabled=true,facing=west]"),
+        ([19, -2, -1], "minecraft:dropper[facing=west,triggered=false]"),
+        ([18, -2, -1], "minecraft:hopper[enabled=true,facing=north]"),
+    ];
+    for (p, s) in reg {
+        b.put(p, s)?;
+    }
+    b.nbt.insert([18, -2, -2], "{Items:[{Slot:0b,id:\"minecraft:stone\",count:3}]}".into());
+    for p in [[20, -1, -2], [21, -1, -2], [22, -1, -2], [23, -1, -2], [23, -1, -1], [22, -1, -1], [21, -1, -1], [20, -1, -1], [19, -1, -1]] {
+        b.put(p, DUST)?;
+    }
+    b.on([24, -1, -1], &rep("east", 1))?;
+    // INJ's trigger: T0 -> a repeater east into a block (16, -2, 8), dust north along x 16, a
+    // repeater east into INJ
+    b.on([15, -2, 8], &rep("west", 1))?;
+    b.put([16, -2, 8], STONE)?;
+    let inj: Vec<P3> = (-2..=7).rev().map(|z| [16, -2, z]).collect();
+    b.wire([16, -2, 8], &inj, 0)?;
+    b.on([17, -2, -2], &rep("west", 1))?;
+    // the REL branch: east along z -6, the clock south along x 25 and up into the patch's repeater;
+    // RELd on along z -6 to x 27 and south along x 27 (its delay), west along z 2
+    // (the branch keeps off (15, -2, -5..-6): the loop's REL line feeds the input block from the
+    // north through (14, -2, -6) and a repeater, and must not touch it, or it latches)
+    b.on([15, -2, -4], DUST)?;
+    b.on([16, -2, -4], DUST)?;
+    b.on([16, -2, -5], DUST)?;
+    let relb: Vec<P3> = (16..=25).map(|x| [x, -2, -6]).collect();
+    b.wire([16, -2, -5], &relb, 8)?;
+    for z in -5..=-2 {
+        b.on([25, -2, z], DUST)?;
+    }
+    b.on([25, -1, -1], DUST)?;
+    // (RELd and SA moved out: the hold's kick unit near T1 takes REL from the core; the module
+    // only says which release is the drop's, steadily)
+    // ---- NS5 = NOT (a visit's item in D5): D5's comparator (south), a repeater into a block, a
+    // torch on it, south to z 5 and out east along z 5 (`output.ns5`); high except from the clock
+    // of the 4th release after a visit to the clock of the 5th
+    b.on([19, -2, 0], &comp("north", "compare"))?;
+    b.put([19, -2, 1], STONE)?;
+    b.put([19, -2, 2], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    for z in 3..=5 {
+        b.on([19, -2, z], DUST)?;
+    }
+    for x in 20..=27 {
+        b.on([x, -2, 5], DUST)?;
+    }
+    b.ports.insert("output.ns5".into(), [27, -2, 5]);
+    // ---- NS3 = NOT (a visit's item in D3): the same off D3 (23, -2, -1), out east along z 3
+    // (`output.ns3`): low from the clock of the 2nd release after a visit to the clock of the 3rd,
+    // which holds the 3rd release's +20 (the siding's force-re-board time, F)
+    b.on([23, -2, 0], &comp("north", "compare"))?;
+    b.put([23, -2, 1], STONE)?;
+    b.put([23, -2, 2], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    b.on([23, -2, 3], DUST)?;
+    for x in 24..=28 {
+        b.on([x, -2, 3], DUST)?;
+    }
+    b.ports.insert("output.ns3".into(), [28, -2, 3]);
+    // ---- NV out: a dust on NV's block (-4, 0, 3), up two stairs to y 3 (over the D ring), east
+    // along z 3 to `output.nv` (28, 4, 3): at y 4, two above the D ring's loop dust (y 1): a line
+    // at y 3 strongly powers its support stones at y 2, which sit right over the loop dust and so
+    // count for the ring's droppers' quasi-connectivity (they jammed the ring)
+    b.on([-4, 1, 3], DUST)?;
+    b.on([-3, 2, 3], DUST)?;
+    b.on([-2, 3, 3], DUST)?;
+    let nvo: Vec<P3> = (-1..=28).map(|x| [x, 4, 3]).collect();
+    b.wire([-2, 3, 3], &nvo, 10)?;
+    b.ports.insert("output.nv".into(), [28, 4, 3]);
+    Ok(b)
+}
+
+/// The module written alone (its ports driven by the bench: `door drive`).
+pub fn control_gen(out: &Path, sched: &Path) -> Result<()> {
+    let b = control_blocks(sched)?;
+    let mut d = Design::parse("name: carousel-siding-control\n")?;
+    d.blocks = b.blocks;
+    d.block_entities = b.nbt;
+    d.ports = b.ports;
+    d.save(out)?;
+    println!("{}: {} blocks", out.display(), d.blocks.len());
+    Ok(())
+}
+
+/// A wire through `cells` (each the next horizontally, or one up/down and one over: a stair), a
+/// repeater every `every` cells on straight flat runs pointing along it; refuses a cell whose
+/// neighbours (same level, or a stair's reach) hold dust that is not this wire's, and a stair
+/// whose upper landing has something solid over the lower cell.
+fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
+    route_d(b, from, cells, every, every, 1)
+}
+
+/// `route` with the dust count since the source's last repeater (`run0`: 0 right after a repeater,
+/// `every` for "take one on the first flat cell") and the repeaters' delay.
+fn route_d(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usize, delay: u8) -> Result<()> {
+    use crate::schedgen::{DUST, rep};
+    let mine: std::collections::BTreeSet<P3> = cells.iter().copied().chain(std::iter::once(from)).collect();
+    let mut prev = from;
+    // dust cells since the last repeater (starting full: the first flat cell takes one, whatever the
+    // source's strength): a repeater goes on the first flat cell (with a flat cell after it) once
+    // `every` dust cells have passed, stairs included
+    let mut run = run0;
+    for (i, &c) in cells.iter().enumerate() {
+        let (dx, dy, dz) = (c[0] - prev[0], c[1] - prev[1], c[2] - prev[2]);
+        if dx.abs() + dz.abs() != 1 || dy.abs() > 1 {
+            bail!("route: {prev:?} -> {c:?} is not a step");
+        }
+        if dy != 0 {
+            let lower = if dy > 0 { prev } else { c };
+            let over = [lower[0], lower[1] + 1, lower[2]];
+            if b.blocks.get(&over).is_some_and(|s| !s.contains("air")) && !mine.contains(&over) {
+                bail!("route: the stair {prev:?} -> {c:?} has {:?} over its lower cell", b.blocks.get(&over));
+            }
+        }
+        for n in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
+            let q = [c[0] + n[0], c[1] + n[1], c[2] + n[2]];
+            // (a diagonal is no connection when a stone cuts it: for a dust one lower, the cell
+            // beside this dust above it; for one higher, the cell over this dust)
+            let cut = match n[1] {
+                -1 => Some([c[0] + n[0], c[1], c[2] + n[2]]),
+                1 => Some([c[0], c[1] + 1, c[2]]),
+                _ => None,
+            };
+            if cut.is_some_and(|k| b.blocks.get(&k).is_some_and(|s| s == STONE)) {
+                continue;
+            }
+            if !mine.contains(&q) && b.blocks.get(&q).is_some_and(|s| s.contains("redstone_wire")) {
+                bail!("route: {c:?} would touch foreign dust at {q:?} ({})", b.blocks[&q]);
+            }
+        }
+        // (a repeater only on a straight flat cell: the next cell one more step the same way)
+        let next_straight = cells.get(i + 1).is_some_and(|n| n[1] == c[1] && n[0] - c[0] == dx && n[2] - c[2] == dz);
+        let prev_flat = dy == 0;
+        if every > 0 && run >= every && prev_flat && next_straight {
+            let facing = match (dx, dz) {
+                (1, 0) => "west",
+                (-1, 0) => "east",
+                (0, 1) => "north",
+                _ => "south",
+            };
+            b.on(c, &rep(facing, delay))?;
+            run = 0;
+        } else {
+            b.on(c, DUST)?;
+            run += 1;
+            if run > 14 {
+                bail!("route: dust {c:?} is {run} cells past its last repeater (dead)");
+            }
+        }
+        prev = c;
+    }
+    Ok(())
+}
+
+fn seg_to(cells: &mut Vec<P3>, to: P3) {
+    let mut c = *cells.last().expect("seg_to after a start");
+    while c != to {
+        let s = |a: i32, b: i32| (b - a).signum();
+        if c[1] != to[1] {
+            c = [c[0] + s(c[0], to[0]), c[1] + s(c[1], to[1]), c[2] + if c[0] == to[0] { s(c[2], to[2]) } else { 0 }];
+        } else if c[0] != to[0] {
+            c = [c[0] + s(c[0], to[0]), c[1], c[2]];
+        } else {
+            c = [c[0], c[1], c[2] + s(c[2], to[2])];
+        }
+        cells.push(c);
+    }
+}
+
+/// The wired pocket stand's REL (farmopt's gates, `queue-loop --stand-wired`: its input cell
+/// (8, -2, 2), on from the slot's +10 for 40 gt opens the three gates and resets the latch),
+/// driven from the release controller's REL (the core's dust (0, -1, 11), REL at golem +4..+16): a
+/// tap north (0, -1, 10) into block B0 (0, -1, 9), a delay line east along z 9 (B1 = B0 + 10 gt,
+/// B2 = + 20, B3 = + 28), each block tapped south into an OR line along z 7 (four 12-gt copies:
+/// golem +10..+50), down to (8, -2, 4) and a repeater north into the input cell (glass -> stone).
+pub(crate) fn stand_rel(d: &mut Design) -> Result<Vec<P3>> {
+    use crate::schedgen::{DUST, rep};
+    let cell: P3 = [8, -2, 2];
+    if d.blocks.get(&cell).map(|s| s.as_str()) != Some(GLASS) {
+        bail!("the pocket stand's REL cell {cell:?} is {:?}, not glass: the loop file changed", d.blocks.get(&cell));
+    }
+    let before: std::collections::BTreeSet<P3> = d.blocks.keys().copied().collect();
+    let mut b = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+    // (the tap 6 gt: REL at the cell golem +14..+54 in release-trace, about the bench's +13 in a
+    // run: the wired stand passes REL starts +10..+15 with the stagger, the bench's sweep)
+    let tap_delay: u8 = std::env::var("MCTAS_STAND_REL_TAP").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    b.on([0, -1, 10], &rep("south", tap_delay))?;
+    b.put([0, -1, 9], STONE)?;
+    b.on([1, -1, 9], &rep("west", 4))?;
+    b.on([2, -1, 9], &rep("west", 1))?;
+    b.put([3, -1, 9], STONE)?;
+    b.on([4, -1, 9], &rep("west", 4))?;
+    b.on([5, -1, 9], &rep("west", 1))?;
+    b.put([6, -1, 9], STONE)?;
+    b.on([7, -1, 9], &rep("west", 4))?;
+    b.put([8, -1, 9], STONE)?;
+    for x in [0, 3, 6, 8] {
+        b.on([x, -1, 8], &rep("south", 1))?;
+    }
+    for x in 0..=8 {
+        b.on([x, -1, 7], DUST)?;
+    }
+    b.on([8, -1, 6], DUST)?;
+    b.on([8, -1, 5], DUST)?;
+    b.on([8, -2, 4], DUST)?;
+    b.on([8, -2, 3], &rep("south", 1))?;
+    b.blocks.insert(cell, STONE.into());
+    // (a conductor over the gate's dust (8, -2, 1): the stone cell under the stand's own dust
+    // (8, -1, 2) would otherwise hand that dust's signal down to the gate's dust (a wire takes its
+    // upper diagonal neighbour's signal when the block between conducts and the one over it does
+    // not), and a build in order (the game's shapes) then ties the gate to the stand's latch line:
+    // the stand left 9 gt late and one visit's window took two carts. The file's settled shapes
+    // hid it.)
+    b.put([8, -1, 1], STONE)?;
+    let added: Vec<P3> = b.blocks.keys().copied().filter(|p| !before.contains(p)).collect();
+    d.blocks = b.blocks;
+    Ok(added)
+}
+
+/// The module REL route's repeater spacing (B3; `MCTAS_REL_EVERY` to measure others).
+fn rel_every() -> usize {
+    std::env::var("MCTAS_REL_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(13)
+}
+
+/// The station's portal pad (farmopt's carousel-station-pad.txt, a part in the loop's own frame)
+/// pasted at the loop's origin, its golem pulse wired into the release controller in place of the
+/// bench's block at the golem input (-7, -1, 5): a repeater reads the pad's last dust (9, 6, -2)
+/// from the south, a line west along z 0 at y 6 (over the stand: its riders' heads are below y 3;
+/// the pad's cells are at z <= -1), down a stair west to (-7, 3, 0) and south onto (-7, 0, 3); that
+/// dust powers its block (-7, -1, 3), which a repeater (-7, -1, 4) reads into a stone at the golem
+/// input: a powered block there feeds X (-7, -1, 6) and ARMED's set line (-8, -1, 5) as the
+/// bench's block does, one way (the set line is held on by the ARMED loop once armed, so no dust
+/// may join it to X or to the pad's line: the stone (-8, 0, 3) and the stair's support (-7, 0, 2)
+/// cut the stair's last dust off the set line's (-8, -1, 3) and (-7, -1, 2)). Refuses any cell
+/// both designs hold, as `mobfarm paste` does. Returns the cells added.
+pub(crate) fn wire_pad(d: &mut Design, pad: &Path) -> Result<Vec<P3>> {
+    use crate::schedgen::rep;
+    let p = Design::load(pad)?;
+    let before: std::collections::BTreeSet<P3> = d.blocks.keys().copied().collect();
+    let mut clashes = Vec::new();
+    for (c, s) in &p.blocks {
+        match d.blocks.get(c) {
+            Some(t) if t != s => clashes.push(format!("{c:?}: the loop's {t}, the pad's {s}")),
+            _ => {
+                d.blocks.insert(*c, s.clone());
+            }
+        }
+    }
+    if !clashes.is_empty() {
+        bail!("{} cells both the loop and the pad hold: {}", clashes.len(), clashes.iter().take(8).cloned().collect::<Vec<_>>().join("; "));
+    }
+    for (c, s) in &p.block_entities {
+        d.block_entities.insert(*c, s.clone());
+    }
+    d.entities.extend(p.entities.iter().cloned());
+    for (k, c) in &p.ports {
+        if d.ports.contains_key(k) {
+            bail!("the port {k} is in both the loop and the pad");
+        }
+        d.ports.insert(k.clone(), *c);
+    }
+    if !p.nether_blocks.is_empty() {
+        if !d.nether_blocks.is_empty() {
+            bail!("both the loop and the pad have a Nether part");
+        }
+        d.nether_blocks = p.nether_blocks.clone();
+        d.nether_block_entities = p.nether_block_entities.clone();
+        d.nether_ports = p.nether_ports.clone();
+    }
+    for k in ["station", "nether-origin"] {
+        if let Some(v) = p.meta.get(k) {
+            d.meta.insert(k.into(), v.clone());
+        }
+    }
+    // (the build steps: both designs' tokens, each once)
+    if let Some(bl) = p.meta.get("build") {
+        let mut toks: Vec<String> = d.meta.get("build").map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default();
+        for t in bl.split_whitespace() {
+            if !toks.iter().any(|x| x == t) {
+                toks.push(t.to_string());
+            }
+        }
+        d.meta.insert("build".into(), toks.join(" "));
+    }
+    // ---- the pulse into X
+    let pulse = *p.ports.get("output.pulse").ok_or_else(|| anyhow::anyhow!("the pad has no `port output.pulse`"))?;
+    if pulse != [9, 6, -2] {
+        bail!("the pad's pulse is at {pulse:?}, not (9, 6, -2): the route below assumes it");
+    }
+    let golem = [-7, -1, 5];
+    if d.blocks.get(&golem).is_some_and(|s| !s.ends_with(":air")) {
+        bail!("the golem input {golem:?} holds {:?}: it must be the bench's empty cell", d.blocks.get(&golem));
+    }
+    let mut b = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+    b.on([9, 6, -1], &rep("north", 1))?;
+    let mut pr = vec![[9, 6, 0]];
+    seg_to(&mut pr, [-4, 6, 0]);
+    for k in 1..=3 {
+        pr.push([-4 - k, 6 - k, 0]);
+    }
+    for k in 1..=3 {
+        pr.push([-7, 3 - k, k]);
+    }
+    b.put([-8, 0, 3], STONE)?;
+    route_d(&mut b, [9, 6, -1], &pr, 12, 0, 1)?;
+    b.on([-7, -1, 4], &rep("north", 1))?;
+    b.put(golem, STONE)?;
+    let added: Vec<P3> = b.blocks.keys().copied().filter(|q| !before.contains(q)).collect();
+    d.blocks = b.blocks;
+    Ok(added)
+}
+
+/// The R'' step line's repeater delay (the line has ~25 repeaters).
+fn step_delay() -> u8 {
+    3
+}
+
+/// The module's place in the loop (its frame's 0 0 0), under the ground west of the siding.
+pub(crate) const MODULE_AT: P3 = [-59, -4, 0];
+/// The night window's daylight detector, under the open sky north of the module.
+pub(crate) const DETECTOR: P3 = [-56, 1, -32];
+/// The siding's force-re-board input F (farmopt's child 58f770cc: (-5, -3, -4) in the siding's
+/// frame), a dust the siding's repeater reads from the south.
+pub(crate) const FORCE: P3 = [-25, -1, 6];
+
+/// The divert unit, next to the departure corner (REL from the core reaches it in ~6 gt; the far
+/// module's own visit pulse comes ~30 gt after REL, too late for the corner): G2' = REL and not
+/// (NV or REL 10 gt late) at (20, -6, 10), a 10-gt pulse on a visit release; T0 its block, the
+/// chain north along x 20 (T1 = T0 + 10 gt, T2 = T0 + 20 gt, 4 cells apart... 6 apart here), P_k
+/// east of each tap (comparators, rear the tap, side NOT l_k from R''); their outputs up two
+/// stairs east to an OR column along x 24 at y -4, west along z 0 into the corner's repeater.
+/// R'' is a copy of the module's k counter (2 items in 3 droppers), stepped ~120 gt after each
+/// visit pulse (in sync with the module's R'); the router (T1 = NOT l1, T2 = l0) hangs off it.
+fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
+    use crate::schedgen::{DUST, rep};
+    // REL: a second tap on the core's REL dust (0, -1, 11), east along z 11 at y -1 to x 8, south to
+    // z 13, down a stair east to y -6, east along z 13, north to (20, -6, 12), a repeater into G2''s
+    // rear (full strength for the windows' long OR path; one repeater mid-way)
+    b.on([1, -1, 11], &rep("west", 1))?;
+    let mut rel = vec![[2, -1, 11]];
+    seg_to(&mut rel, [8, -1, 11]);
+    seg_to(&mut rel, [8, -1, 13]);
+    seg_to(&mut rel, [13, -6, 13]);
+    seg_to(&mut rel, [20, -6, 13]);
+    rel.push([20, -6, 12]);
+    route_d(b, [1, -1, 11], &rel, 13, 0, 1)?;
+    b.on([20, -6, 11], &rep("south", 1))?;
+    // REL 10 gt late into G2''s west side with NV: a junction dust (18, -6, 10) fed by two
+    // repeaters, REL's from the south (18, -6, 11) off a branch (18, -6, 12), NV's from the west
+    // (17, -6, 10) (NV comes along z 10 into (16, -6, 10))
+    b.on([18, -6, 12], DUST)?;
+    b.on([18, -6, 11], &rep("south", 4))?;
+    b.on([18, -6, 10], DUST)?;
+    b.on([19, -6, 10], &rep("west", 2))?;
+    b.on([20, -6, 10], &comp("south", "subtract"))?;
+    b.on([17, -6, 10], &rep("west", 1))?;
+    // the chain north: T0 (20, -6, 9), five repeaters, T1 (20, -6, 3), five, T2 (20, -6, -3)
+    let tz = [9, 3, -3];
+    for (k, &z) in tz.iter().enumerate() {
+        b.put([20, -6, z], STONE)?;
+        if k < 2 {
+            for dz in 1..=5 {
+                b.on([20, -6, z - dz], &rep("south", 1))?;
+            }
+        }
+        // P_k east of the tap, its side from the north: a repeater fed by the row of NOT l_k
+        b.on([21, -6, z], &comp("west", "subtract"))?;
+        b.on([21, -6, z - 1], &rep("north", 1))?;
+        // (its feed dust (21, -6, z - 2) is the end of R'''s row)
+        // its output east, up two stairs to the OR column (24, -4, z)
+        b.on([22, -6, z], DUST)?;
+        b.on([23, -5, z], DUST)?;
+        b.on([24, -4, z], DUST)?;
+    }
+    for z in -2..=8 {
+        b.on([24, -4, z], DUST)?;
+    }
+    let mut out = vec![[23, -4, 0]];
+    seg_to(&mut out, [11, -4, 0]);
+    route(b, [24, -4, 0], &out, 12)?;
+    // (3 rt: the windows +4 gt (51b2aacd and ironspec 2026-11-10: the stand's guard brings carts 1
+    // and 2 to the corner 3 gt later): cart k's window +21 + 10k .. +30 + 10k after the golem,
+    // 3 gt open before cart k reaches the corner with either stand)
+    b.on([10, -4, 0], &rep("east", 3))?;
+    // R'': droppers a (26, -6, 4), b (28, -6, 4), c (27, -6, 5), hoppers h (27, -6, 4), H (28, -6, 5),
+    // j (26, -6, 5); a -> b -> c -> a; state 0 = c empty at power-on. Rows of NOT l_k west to the
+    // P sides (21, -6, z_k - 2): l0 (c, tap south) -> row 7; l1 (a, tap north) -> row 1; l2 (b, tap
+    // east) -> row -5.
+    let item = "{Items:[{Slot:0b,id:\"minecraft:stone\",count:1}]}";
+    let ring: [(P3, &str); 6] = [
+        ([26, -6, 4], "minecraft:dropper[facing=east,triggered=false]"),
+        ([27, -6, 4], "minecraft:hopper[enabled=true,facing=east]"),
+        ([28, -6, 4], "minecraft:dropper[facing=south,triggered=false]"),
+        ([28, -6, 5], "minecraft:hopper[enabled=true,facing=west]"),
+        ([27, -6, 5], "minecraft:dropper[facing=west,triggered=false]"),
+        ([26, -6, 5], "minecraft:hopper[enabled=true,facing=north]"),
+    ];
+    for (p, s) in ring {
+        b.put(p, s)?;
+        b.put([p[0], -5, p[2]], DUST)?;
+    }
+    b.nbt.insert([26, -6, 4], item.into());
+    b.nbt.insert([28, -6, 4], item.into());
+    // c's tap (state 0) south -> row 7
+    b.on([27, -6, 6], &comp("north", "compare"))?;
+    b.on([27, -6, 7], &rep("north", 1))?;
+    // (along z 8 only to x 25, then z 7: clear of P0's output stair at z 9)
+    let mut r0 = vec![[27, -6, 8], [26, -6, 8], [25, -6, 8], [25, -6, 7]];
+    seg_to(&mut r0, [21, -6, 7]);
+    route(b, [27, -6, 7], &r0, 0)?;
+    // a's tap (state 1) north -> row 1
+    b.on([26, -6, 3], &comp("south", "compare"))?;
+    b.on([26, -6, 2], &rep("south", 1))?;
+    let mut r1 = vec![[26, -6, 1]];
+    seg_to(&mut r1, [21, -6, 1]);
+    route(b, [26, -6, 2], &r1, 0)?;
+    // b's tap (state 2) east -> north along x 31 -> row -5
+    b.on([29, -6, 4], &comp("west", "compare"))?;
+    b.on([30, -6, 4], &rep("west", 1))?;
+    let mut r2 = vec![[31, -6, 4]];
+    seg_to(&mut r2, [31, -6, -5]);
+    seg_to(&mut r2, [21, -6, -5]);
+    route(b, [30, -6, 4], &r2, 8)?;
+    // R'''s step: off T0's top, a delay line east and back into j's top, ~140 gt after the visit
+    // pulse: after this visit's own windows (+0..+30), and after the cart of the visit 4 releases
+    // back has gone through T1/T2 (the router reads R'' as "the next visit's k" until then)
+    b.on([20, -5, 9], DUST)?;
+    let mut st = vec![[20, -4, 10]];
+    seg_to(&mut st, [20, -4, 14]);
+    seg_to(&mut st, [34, -4, 14]);
+    seg_to(&mut st, [34, -4, 6]);
+    seg_to(&mut st, [30, -4, 6]);
+    seg_to(&mut st, [29, -5, 6]);
+    route_d(b, [20, -5, 9], &st, 1, 1, step_delay())?;
+    b.on([28, -5, 6], DUST)?;
+    // (the router: T1 = NOT l1 = row 1's signal, T2 = l0 = NOT row 7's: returned as their cells)
+    Ok(([24, -6, 1], [25, -6, 8]))
+}
+
+/// Stamps the control module into the loop at `MODULE_AT` and wires it: REL from the release
+/// controller's REL stone (-2, -1, 13), a normal daylight detector for the night window, and the
+/// four controls (the corner T's support, T1's, T2's through repeaters, the siding's exit slot
+/// through a repeater into its rail). Returns the cells added.
+pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
+    use crate::schedgen::{DUST, rep};
+    let m = control_blocks(sched)?;
+    let at = |q: P3| [q[0] + MODULE_AT[0], q[1] + MODULE_AT[1], q[2] + MODULE_AT[2]];
+    let before: std::collections::BTreeSet<P3> = d.blocks.keys().copied().collect();
+    let mut b = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+    for (q, s) in &m.blocks {
+        b.put(at(*q), s)?;
+    }
+    for (q, n) in &m.nbt {
+        d.block_entities.insert(at(*q), n.clone());
+    }
+    // night: an INVERTED daylight detector under the open sky north of the module (DETECTOR, y 1:
+    // nothing of the farm over it; its output is 15 - (sky light - darkening): 11 exactly in the
+    // deep night 13,670..22,330 in clear weather, rain and thunder, less outside it: the scheduler's
+    // weather-proof window, ironspec's ruling), eleven dusts south (so the repeater after them is
+    // on only at 11), a repeater into a block, a torch on the block's south face: the line is ON
+    // by day and also while the detector is missing (a runner places detectors after its settle:
+    // the module must not start a visit then), down a stair south to y -7, south along x -56, up
+    // into the day line's dust (module (2, -2, 1)) and its repeater into the day block. (The 3+
+    // threshold of 1152b0e38 opened at about 12,500 and closed at 23,640: 27 visits a night, 6 of
+    // them second naps that did not come back; the window of 13,670..22,330 holds 21 or 22.)
+    b.put(DETECTOR, "minecraft:daylight_detector[inverted=true,power=0]")?;
+    for dz in 1..=11 {
+        b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + dz], DUST)?;
+    }
+    b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 12], &rep("north", 1))?;
+    b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 13], STONE)?;
+    b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 14], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    let mut dl = vec![[DETECTOR[0], DETECTOR[1], DETECTOR[2] + 15]];
+    for k in 1..=8 {
+        dl.push([DETECTOR[0], DETECTOR[1] - k, DETECTOR[2] + 15 + k]);
+    }
+    // (at y -7 under the module's REL bus (module y -1, z -4), then up a stair into (3, -2, 1))
+    seg_to(&mut dl, at([3, -3, -1]));
+    dl.push(at([3, -2, 0]));
+    dl.push(at([3, -2, 1]));
+    route_d(&mut b, [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 14], &dl, 6, 0, 1)?;
+    // (the night latch on thr comes after the module's REL route, below)
+    b.on(at([2, -2, 1]), DUST)?;
+    b.on(at([1, -2, 1]), &rep("east", 1))?;
+    // (night 1: the day line also locks the D ring's hopper h13 (module (1, 0, 0), the one that
+    // feeds d0), where the ring's token is built: by day the token waits in h13, and as the line
+    // goes off with the night window it drops into d0, so the night's first release visits. A
+    // branch up off the line's dust (3, -3, -2): dusts (2, -2, -2) and (1, -1, -2), a repeater
+    // (1, -1, -1) south into a block (1, -1, 0) under h13)
+    if !b.blocks.get(&at([3, -3, -2])).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("the day line has no dust at module (3, -3, -2) to lock h13 from: {:?}", b.blocks.get(&at([3, -3, -2])));
+    }
+    b.on(at([2, -2, -2]), DUST)?;
+    b.on(at([1, -1, -2]), DUST)?;
+    b.on(at([1, -1, -1]), &rep("north", 1))?;
+    b.put(at([1, -1, 0]), STONE)?;
+    // REL in: a dust beside the REL stone, down east to y -6, north along x 4, west along z -10,
+    // south along x -45 into the module's feed dust and a repeater into its input block
+    // (REL is on the core's dust line (-1..0, -1, 13) -> (0, -1, 11): a repeater reads it from
+    // the south side)
+    b.on([0, -1, 14], &rep("north", 1))?;
+    let mut rel = vec![[0, -1, 15]];
+    seg_to(&mut rel, [5, -6, 15]);
+    seg_to(&mut rel, [5, -6, -10]);
+    seg_to(&mut rel, [-45, -6, -10]);
+    seg_to(&mut rel, at([14, -2, -7]));
+    // (repeaters every 13 cells, not 6: REL reaches the module, and F's tap at x -25, ~12 gt
+    // sooner (B3: F at its floor, the latest napper's arrival + 112))
+    route_d(&mut b, [0, -1, 14], &rel, rel_every(), 0, 1)?;
+    // (the feed dust touches the module's REL branch on purpose: the same signal)
+    b.on(at([14, -2, -6]), DUST)?;
+    b.on(at([14, -2, -5]), &rep("north", 1))?;
+    // ---- the night latch: the threshold repeater (thr) locked except once a release, so NV (the
+    // scheduler's "the next release is a visit") changes only between the divert unit's read of
+    // it (golem +12..22, NV ~25 gt late there) and the module's (golem +32..44): a night edge
+    // between the two reads diverted a cart the module never registered, so no kick came (old
+    // 7d947146b file, seed 2, slot 459 at day time 22,369). The unlock: REL tapped off the
+    // module's REL route (z -10, y -6) at x -44, west along z -12, up a stair north along x -50 to
+    // y 1, west along z -20 into a repeater, a block, its wall torch (lit = locked) and the lock
+    // repeater pointing into thr's east side.
+    let thr = [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 12];
+    let tap = [-44, -6, -10];
+    if !b.blocks.get(&tap).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("the module's REL route at {tap:?} is {:?}, not a dust to branch from", b.blocks.get(&tap));
+    }
+    b.on([tap[0], -6, -11], &rep("south", 1))?;
+    let mut lk = vec![[tap[0], -6, -12]];
+    seg_to(&mut lk, [-50, -6, -12]);
+    seg_to(&mut lk, [-50, -6, -13]);
+    for k in 1..=7 {
+        lk.push([-50, -6 + k, -13 - k]);
+    }
+    lk.push([thr[0] + 5, thr[1], thr[2]]);
+    route_d(&mut b, [tap[0], -6, -11], &lk, 3, 0, 1)?;
+    // (both repeaters at 4 rt: the unlock at golem +~48..60, the night edge at the module's NV at
+    // ~+64, mid-way between its read (+32..44) and the divert unit's next (+112, ~25 gt behind))
+    b.on([thr[0] + 4, thr[1], thr[2]], &rep("east", 4))?;
+    b.put([thr[0] + 3, thr[1], thr[2]], STONE)?;
+    b.put([thr[0] + 2, thr[1], thr[2]], "minecraft:redstone_wall_torch[facing=west,lit=true]")?;
+    b.on([thr[0] + 1, thr[1], thr[2]], &rep("east", 4))?;
+    // ---- NV, the module's steady "the next release is a visit", to the divert unit: from its port
+    // (28, 4, 3) down a stair south to y -9, east along z 12, north to z 10, up a stair east into
+    // (16, -6, 10)
+    let nv_port = at([28, 4, 3]);
+    let mut nv = vec![[nv_port[0], nv_port[1], 4], [nv_port[0], nv_port[1], 5]];
+    for k in 1..=9 {
+        nv.push([nv_port[0], nv_port[1] - k, 5 + k]);
+    }
+    seg_to(&mut nv, [13, -9, 14]);
+    seg_to(&mut nv, [13, -9, 10]);
+    nv.push([14, -8, 10]);
+    nv.push([15, -7, 10]);
+    nv.push([16, -6, 10]);
+    route(&mut b, nv_port, &nv, 6)?;
+    let (t1_row, t2_row) = divert_unit(&mut b)?;
+    b.blocks.insert(DIVERT, STONE.into());
+    // ---- T1 and T2 from the unit's ring: each T's support driven from below by two torches (a
+    // block, a torch on it, a block, a torch under the support: the same sense as the line), the
+    // line into the lowest block through a repeater from the west
+    let tower = |b: &mut B, sup: P3| -> Result<()> {
+        b.put([sup[0], sup[1] - 4, sup[2]], STONE)?;
+        b.put([sup[0], sup[1] - 3, sup[2]], "minecraft:redstone_torch[lit=true]")?;
+        b.put([sup[0], sup[1] - 2, sup[2]], STONE)?;
+        b.put([sup[0], sup[1] - 1, sup[2]], "minecraft:redstone_torch[lit=false]")?;
+        b.blocks.insert(sup, STONE.into());
+        b.on([sup[0] - 1, sup[1] - 4, sup[2]], &rep("west", 1))
+    };
+    // T1 = NOT l1: off row 1 at (24, -6, 1), north, down a stair to y -11, west along z -5, south
+    // along x -17, up a stair south to (-17, -4, 27), into (-17, -4, 28)
+    let mut t1 = vec![[t1_row[0], -6, 0]];
+    for k in 1..=5 {
+        t1.push([t1_row[0], -6 - k, -k]);
+    }
+    seg_to(&mut t1, [-17, -11, -5]);
+    seg_to(&mut t1, [-17, -11, 20]);
+    for k in 1..=7 {
+        t1.push([-17, -11 + k, 20 + k]);
+    }
+    t1.push([-17, -4, 28]);
+    route(&mut b, t1_row, &t1, 6)?;
+    tower(&mut b, T1)?;
+    // T2 = l0 = NOT (row 7's NOT l0): off row 7 at (24, -6, 8), a repeater south into a block
+    // (24, -6, 10), a torch on it, down a stair south to y -13, west along z 19, south along x -19,
+    // up a stair south to (-19, -4, 30), into (-19, -4, 31)
+    b.on([t2_row[0], -6, 9], &rep("north", 1))?;
+    b.put([t2_row[0], -6, 10], STONE)?;
+    b.put([t2_row[0], -6, 11], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    let mut t2 = vec![[t2_row[0], -6, 12]];
+    for k in 1..=7 {
+        t2.push([t2_row[0], -6 - k, 12 + k]);
+    }
+    // (two cells west of T2, where the tower's input repeater reads it)
+    let x2 = T2[0] - 2;
+    seg_to(&mut t2, [x2, -13, 19]);
+    seg_to(&mut t2, [x2, -13, 21]);
+    for k in 1..=9 {
+        t2.push([x2, -13 + k, 21 + k]);
+    }
+    t2.push([x2, -4, 31]);
+    route(&mut b, [t2_row[0], -6, 11], &t2, 6)?;
+    tower(&mut b, T2)?;
+    // ---- the holds' kick: REL from the core's REL stone (-2, -1, 13) through (-2, -1, 14), down a
+    // stair south to y -4, west along z 18 to x -21, a delay (`kick_delay` repeaters of 4 gt)
+    // south along x -21, the gate KA (-21, -4, 30): REL late minus NS5 (the module's NOT "a
+    // visit's item in D5": high except from the 4th release after a visit to the 5th), its output
+    // south, east along z 37 up to y -1, into the bus along x -13 (y -1, z 30..36) that feeds the
+    // three holds' drivers: a dust up a stair onto (-12, 0, z + 2), a repeater north into the
+    // hold's support (-12, 0, z)
+    let mut kr = vec![[-2, -1, 14], [-2, -1, 15]];
+    for k in 1..=3 {
+        kr.push([-2, -1 - k, 15 + k]);
+    }
+    seg_to(&mut kr, [-21, -4, 18]);
+    route(&mut b, [-2, -1, 13], &kr, 6)?;
+    let kick_delay = 6;
+    for k in 0..kick_delay {
+        b.on([-21, -4, 19 + k], &rep("north", 4))?;
+    }
+    for z in 19 + kick_delay..=29 {
+        b.on([-21, -4, z], DUST)?;
+    }
+    b.on([-21, -4, 30], &comp("north", "subtract"))?;
+    // NS5 into KA's west side through a repeater (-22, -4, 30), from the module's port: east one,
+    // south along x -28 (y -6) to z 30, east to x -25, up a stair east to (-23, -4, 30)
+    let ns5_port = at([27, -2, 5]);
+    let mut ns = vec![[ns5_port[0] + 1, ns5_port[1], ns5_port[2]]];
+    seg_to(&mut ns, [-28, -6, 5]);
+    seg_to(&mut ns, [-28, -6, 30]);
+    seg_to(&mut ns, [-25, -6, 30]);
+    ns.push([-24, -5, 30]);
+    ns.push([-23, -4, 30]);
+    route(&mut b, ns5_port, &ns, 14)?;
+    b.on([-22, -4, 30], &rep("west", 1))?;
+    // ---- the siding's force-re-board F at the 3rd release after a visit, +20 (58f770cc: the cart
+    // then reaches the siding's slot ~95 gt later, its hold before the kick): F's gate FA, a
+    // comparator facing south at (-25, -1, 5), its output into F's dust; rear REL from the module's
+    // REL route (a repeater off it at x -25, south under the entry route along x -25 at y -6, up
+    // five stairs south to (-25, -1, 4)); side NS3 from the module (east along z 3 at y -6, up
+    // four stairs east to (-27, -2, 3), south to (-27, -2, 4), a stair up to (-27, -1, 5) and a
+    // repeater east into FA)
+    let fr_from = [FORCE[0], -6, -10];
+    if !b.blocks.get(&fr_from).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("the module's REL route at {fr_from:?} is {:?}, not a dust to branch from", b.blocks.get(&fr_from));
+    }
+    if std::env::var("MCTAS_F_FROM_X").is_ok() {
+        // B3b: F's rear off the release controller's X line (a golem's pulse, the REQ it left, or
+        // EXPIRE), not the module's REL route: the tap (-8, -1, 6) reads X's dust (-7, -1, 6),
+        // (-9, -1, 6) a dust, repeaters (-10, -1, 6) and (-11, -1, 6) (no dust there: the REQ line
+        // (-10..-11, -1, 7) is beside them; the second's delay, `MCTAS_F_X_DELAY`, sets F's time),
+        // then along x -12 to z 4 and west along z 4 into F's rear (-25, -1, 4)
+        let dl: u8 = std::env::var("MCTAS_F_X_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+        b.on([-8, -1, 6], &rep("east", 1))?;
+        b.on([-9, -1, 6], DUST)?;
+        b.on([-10, -1, 6], &rep("east", 1))?;
+        b.on([-11, -1, 6], &rep("east", dl))?;
+        let mut xr = vec![[-12, -1, 6]];
+        seg_to(&mut xr, [-12, -1, 4]);
+        seg_to(&mut xr, [FORCE[0], -1, 4]);
+        route_d(&mut b, [-11, -1, 6], &xr, 13, 0, 1)?;
+    } else {
+        // (measurement only, ironspec 2026-11-11: the integration gate's F +6 corner (the
+        // missed-golem +6): this repeater at 4 rt instead of 1)
+        let plus6 = std::env::var("MCTAS_F_PLUS6").is_ok();
+        b.on([FORCE[0], -6, -9], &rep("north", if plus6 { 4 } else { 1 }))?;
+        let mut fr = vec![[FORCE[0], -6, -8]];
+        seg_to(&mut fr, [FORCE[0], -6, -1]);
+        for k in 1..=5 {
+            fr.push([FORCE[0], -6 + k, -1 + k]);
+        }
+        route_d(&mut b, [FORCE[0], -6, -9], &fr, 6, 0, 1)?;
+    }
+    b.on([FORCE[0], -1, 5], &comp("north", "subtract"))?;
+    b.on(FORCE, DUST)?;
+    let ns3_port = at([28, -2, 3]);
+    let mut n3 = vec![[ns3_port[0] + 1, ns3_port[1], ns3_port[2]]];
+    for k in 1..=3 {
+        n3.push([ns3_port[0] + 1 + k, ns3_port[1] + k, ns3_port[2]]);
+    }
+    n3.push([FORCE[0] - 2, -2, 4]);
+    n3.push([FORCE[0] - 2, -1, 5]);
+    // (the port is the module's 6th dust from NS3's torch)
+    route_d(&mut b, ns3_port, &n3, 14, 6, 1)?;
+    b.on([FORCE[0] - 1, -1, 5], &rep("west", 1))?;
+    let mut ko = vec![[-21, -4, 31], [-21, -4, 32], [-21, -4, 33], [-21, -4, 34], [-21, -4, 35], [-21, -4, 36], [-21, -4, 37]];
+    seg_to(&mut ko, [-18, -4, 37]);
+    for k in 1..=3 {
+        ko.push([-18 + k, -4 + k, 37]);
+    }
+    seg_to(&mut ko, [-15, -1, 30]);
+    route(&mut b, [-21, -4, 30], &ko, 6)?;
+    // each hold's driver: the bus dust (-15, -1, z + 2) up a stair onto (-14, 0, z + 2), a repeater
+    // east into a block (-12, 0, z + 2), a repeater north into the hold's support (-12, 0, z) (a
+    // block, not a dust, next to the other holds' supports: their kicks stay apart)
+    for &h in &HOLDS {
+        if h[0] != -12 {
+            // slot 13's hold at x -11 sits over the controller's chain bus (-11, -1, 28..33): its
+            // support stays the line's glass (a powered block there would power that dust), and a
+            // repeater at the rail's level powers the hold rail itself: the bus stair's top
+            // (-14, 0, z + 2), (-13, 0, z + 2), up a stair onto (-12, 1, z + 2), (-11, 1, z + 2), a
+            // repeater (-11, 1, z + 1) north into the hold (-11, 1, z)
+            b.on([-14, 0, h[2] + 2], DUST)?;
+            b.on([-13, 0, h[2] + 2], DUST)?;
+            b.on([-12, 1, h[2] + 2], DUST)?;
+            b.on([-11, 1, h[2] + 2], DUST)?;
+            b.on([-11, 1, h[2] + 1], &rep("south", 1))?;
+            continue;
+        }
+        b.blocks.insert(h, STONE.into());
+        b.on([h[0], 0, h[2] + 1], &rep("south", 1))?;
+        b.put([h[0], 0, h[2] + 2], STONE)?;
+        // (slot 12's hold (k2, z 34) kicks 4 gt after the others: its repeater 3 rt, for no block
+        // (ironspec 21:04: the siding's last corner, a stuck napper with a missed golem at k2, missed
+        // its hold by 0.5-1.5 gt with the new fast kick; its cart lands 4 gt later, ~12 gt before
+        // the next release's first advance)
+        b.on([h[0] - 1, 0, h[2] + 2], &rep("west", if h[2] == 34 { 3 } else { 1 }))?;
+        b.on([h[0] - 2, 0, h[2] + 2], DUST)?;
+    }
+    // (the divert unit's ring items)
+    for (q, n) in &b.nbt {
+        d.block_entities.insert(*q, n.clone());
+    }
+    let added: Vec<P3> = b.blocks.keys().copied().filter(|p| !before.contains(p)).collect();
+    d.blocks = b.blocks;
+    Ok(added)
+}

@@ -33,6 +33,9 @@ use crate::world::World;
 pub enum Who {
     Line(usize),
     Rider(usize, usize),
+    /// (tickexact 2026-11-10) an entity by its id (`idN`: a bench's name for one a reload
+    /// brought back under a new number)
+    Id(u32),
 }
 
 /// One action of a bench.
@@ -74,7 +77,11 @@ pub struct Drive {
 }
 
 fn who(s: &str) -> Result<Who, String> {
-    let bad = || format!("{s:?}: expected eN or eN.pK");
+    let bad = || format!("{s:?}: expected eN, eN.pK or idN");
+    // (a bench's entity by its id: one a reload brought back under a new number)
+    if let Some(n) = s.strip_prefix("id") {
+        return Ok(Who::Id(n.parse().map_err(|_| bad())?));
+    }
     let r = s.strip_prefix('e').ok_or_else(bad)?;
     match r.split_once(".p") {
         Some((n, k)) => Ok(Who::Rider(n.parse().map_err(|_| bad())?, k.parse().map_err(|_| bad())?)),
@@ -230,6 +237,7 @@ pub fn index_of(w: &World, lines: &[u32], who: Who) -> Option<usize> {
             let v = alive(*lines.get(n)?)?;
             alive(*w.entities.list[v].passengers.get(k)?)
         }
+        Who::Id(id) => alive(id),
     }
 }
 

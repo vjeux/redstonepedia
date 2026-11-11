@@ -298,6 +298,20 @@ fn air_tick(w: &mut World, i: usize, ty: MobType) {
                 hurt(w, i, Damage::Drown, 2.0);
             }
         }
+        // (mob-AI 2026-11-10) a rider whose vehicle dismounts underwater
+        // (#dismounts_underwater: a chicken, a spider, a zombie horse...) gets off
+        // (`stopRiding`, then `dismountVehicle`); bed-plate-two-clusters village-edge build 1
+        // t66853, a baby drowned's chicken in deep water
+        let vehicle_dismounts = w.entities.list[i].vehicle.and_then(|v| entity::index_of(w, v)).is_some_and(|vi| match &w.entities.list[vi].kind {
+            EntityKind::Mob(vm) => {
+                let id = vm.ty.def().id;
+                matches!(id.strip_prefix("baby_").unwrap_or(id), "camel" | "chicken" | "donkey" | "happy_ghast" | "horse" | "llama" | "mule" | "pig" | "ravager" | "spider" | "strider" | "trader_llama" | "zombie_horse")
+            }
+            _ => false,
+        });
+        if vehicle_dismounts && !w.entities.list[i].removed {
+            entity::stop_riding(w, i);
+        }
     } else {
         let m = mob_mut(w, i);
         if m.air < 300 {
@@ -669,8 +683,21 @@ fn travel_in_water(w: &mut World, i: usize, input: Vec3, gravity: f64, falling: 
         e.delta_movement = e.delta_movement.scale(0.9);
         return;
     }
-    let slow = 0.8f32;
-    move_relative(w, i, 0.02, input);
+    // getWaterSlowDown (0.9 sprinting: a cat's chase), WATER_MOVEMENT_EFFICIENCY (depth strider
+    // boots: halved off the ground) toward 0.54600006 and the mob's speed
+    let (mut slow, mut speed) = (if super::ai::goal::cat::is_sprinting(w, i) { 0.9f32 } else { 0.8f32 }, 0.02f32);
+    {
+        let m = mob(w, i);
+        let mut walker = m.armor.water_movement_efficiency(m.helmet.is_some()) as f32;
+        if !w.entities.list[i].on_ground {
+            walker *= 0.5;
+        }
+        if walker > 0.0 {
+            slow += (0.54600006f32 - slow) * walker;
+            speed += (m.speed - speed) * walker;
+        }
+    }
+    move_relative(w, i, speed, input);
     let d = w.entities.list[i].delta_movement;
     entity::move_(w, i, MoverType::Self_, d);
     let mut m = w.entities.list[i].delta_movement;
@@ -728,13 +755,14 @@ fn apply_block_effects(w: &mut World, i: usize) {
         if step.fire && alive(w, i) {
             // mobinfra: FIRE_IGNITE (`BaseFireBlock.fireIgnite`: -1 counts up to 0, from 0 8 s of
             // fire) then its 1 `inFire` damage, before LAVA_IGNITE
+            let t160 = super::ignite_ticks(w, i, 160);
             let m = mob_mut(w, i);
             if !m.ty.def().fire_immune {
                 if m.fire_ticks < 0 {
                     m.fire_ticks += 1;
                 }
-                if m.fire_ticks >= 0 && m.fire_ticks < 160 {
-                    m.fire_ticks = 160;
+                if m.fire_ticks >= 0 && m.fire_ticks < t160 {
+                    m.fire_ticks = t160;
                 }
             }
             if alive(w, i) {
@@ -742,12 +770,14 @@ fn apply_block_effects(w: &mut World, i: usize) {
             }
         }
         if step.lava && alive(w, i) {
+            let t300 = super::ignite_ticks(w, i, 300);
             let m = mob_mut(w, i);
             if !m.ty.def().fire_immune {
-                // igniteForTicks(300) then lavaHurt: a hurt that lands plays GENERIC_BURN, its
-                // pitch from the entity's own random (`2.0F + random.nextFloat() * 0.4F`)
-                if m.fire_ticks < 300 {
-                    m.fire_ticks = 300;
+                // igniteForTicks(300) (x BURNING_TIME) then lavaHurt: a hurt that lands plays
+                // GENERIC_BURN, its pitch from the entity's own random (`2.0F + random.nextFloat()
+                // * 0.4F`)
+                if m.fire_ticks < t300 {
+                    m.fire_ticks = t300;
                 }
                 if alive(w, i)
                     && hurt(w, i, Damage::Lava, 4.0)
@@ -879,13 +909,22 @@ fn hurt_inner(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
 }
 
 /// `LivingEntity.actuallyHurt`: armor (`CombatRules.getDamageAfterAbsorb`, unless the source
-/// bypasses armor), then the health.
+/// bypasses armor: ARMOR and ARMOR_TOUGHNESS with the worn pieces'), the armor's enchantment
+/// protection (`getDamageAfterMagicAbsorb`: `CombatRules.getDamageAfterMagicAbsorb`), then the
+/// health.
 fn actually_hurt(w: &mut World, i: usize, src: Damage, mut dmg: f32) {
-    let armor = mob(w, i).ty.def().armor;
+    let (armor, toughness, protection) = {
+        let m = mob(w, i);
+        let helmet = m.helmet.is_some();
+        (m.ty.def().armor + m.armor.value(helmet), m.armor.toughness(helmet), m.armor.protection(helmet, src))
+    };
     if !src.bypasses_armor() && armor > 0.0 {
-        let toughness = 2.0f32;
+        let toughness = 2.0f32 + toughness / 4.0f32;
         let real = (armor - dmg / toughness).clamp(armor * 0.2f32, 20.0f32);
         dmg *= 1.0f32 - real / 25.0f32;
+    }
+    if dmg > 0.0 && protection > 0.0 {
+        dmg *= 1.0f32 - protection.clamp(0.0, 20.0) / 25.0f32;
     }
     if dmg != 0.0 {
         // setHealth: clamped to [0, getMaxHealth()] (a horse's drawn max, a leader zombie's bonus)
@@ -1156,8 +1195,10 @@ fn push_entities(w: &mut World, i: usize) {
     // vehicle (isPassengerOfSameVehicle: a zombie never pushes its own boat)
     let root = root_vehicle(w, me);
     let others = w.get_entities(bb, |e| e.id != me && pushable(e) && root_vehicle(w, e.id) != root);
-    // the AFK players its box meets (the mob AI's player bodies; a rider pushes none)
-    let players = if w.mob.ai.on && w.entities.list[i].vehicle.is_none() { super::ai::player_body::touching(w, bb) } else { Vec::new() };
+    // the AFK players its box meets (the mob AI's player bodies; (mob-AI 2026-11-10) a rider's
+    // too: LivingEntity.aiStep's pushEntities runs in its rideTick; bed-plate-dug12 plains build 2
+    // t60407, a zombie horseman's rider pushed the AFK player)
+    let players = if w.mob.ai.on { super::ai::player_body::touching(w, bb) } else { Vec::new() };
     if others.is_empty() && players.is_empty() {
         return;
     }

@@ -25,12 +25,29 @@ joined to the loop.**
   48,000 ticks).
 - **Missing:** ironfarm's two junctions (the entry off the departure run, the merge into the
   release run) and the zombies along the loop.
-- **The give-up (day-1's force input F), two open items** (ironspec 2026-11-10, recorded as open):
-  - **fails self-recovery:** F dropped while the napper cannot sleep jams in 6 of 32 seeds
-    (26 of 32 recover within one visit);
-  - **F's window not met:** the stuck cart's F to past the exit is 67-70 gt against ironspec's
-    56.5 (day-1's B3a F at +320, the +6 missed-golem corner, D at k2 382.5): the fast kick on F
-    (rebuilding the kick corner, path A) is the next step.
+- **The give-up (day-1's force input F):**
+  - **F's window: met, against the right deadline** (2026-11-11 00:22, reconciled with day-1 on
+    one trace). A stuck cart's binding deadline is its drop-line hold's 12-gt release pulse: on
+    day-1's fold (ca69490a8a) the holds release at k0 +471..482, k1 +469..480, k2 +473..484 (gt
+    from the visit slot's start, day-1's and the tool's frame; F rises at slot S+3 +19 = +319,
+    B3a's +320) and the route from the siding's exit to them takes 67/80/88 gt, so the cart must
+    pass the exit by +415/+400/+396 (close to the earlier queue-based +413/+398/+386.5). With F
+    at +320 (+326 at the missed-golem corner) and F to past the exit 55-58 gt it passes at
+    +375..378 (+381..384): margins k0 +37/+31, k1 +22/+16, k2 +18/+12; day-1, with main's siding
+    pasted into the integrated file and the bed occupied (+6 corner), measured every stuck cart
+    making its slot with 16-25 gt to spare. (A first reading, 00:00, said k1 and k2 missed: the
+    cart traces were timed from the "visit (observed)" line, slot S +27/37/47, with F put at +320
+    in that frame: 27-47 gt off. Retracted.)
+  - **The failure mode when a stuck cart misses its hold (a miss breaks the loop):** day-1's fold
+    with its older siding (a slower forced exit) and the bed occupied (no napper can sleep, F sends
+    every cart out): k0's stuck cart made slot 14 (at rest +524); k1's missed its hold and never
+    completed its visit; from the next slot the release group and stand counts went wrong, the
+    queue order broke ("queue slot 15 holds None") and the returning trains missed the tail; it
+    never recovered (305 problems in 60 slots). Closing it (a safe miss) is a must-have.
+  - **Open: self-recovery after F dropped** while the napper cannot sleep: 3 of 16 seeds jam (13
+    recover within one visit); the cause is traced (below), not yet fixed.
+  - **Open: unloads** (the loop's chunk lines through the siding, and the whole part; below): a
+    freeze of the bed's entities during a nap jams the siding.
 - **Also kept:** `carousel-siding-bench-driven.txt`, the same siding with the controls switched
   by the bench (set_block): the first bench, before the circuit.
 
@@ -47,7 +64,7 @@ box), `siding-bench F [--wired] [--launch] --from --to --nights --speed a,b --ga
 | entry | (0,0,0) | plain east_west rail; the cart arrives moving +x, 0.10 to 1.2 b/t stored all work (ironfarm's cap ~1.0) |
 | release input | (4,-2,0) | the slot slope's support; strongly power it for 10 gt (ironfarm) |
 | exit | (6,-1,0) | plain east_west rail; the cart leaves moving +x at 0.28-0.44 b/t stored (median 0.29) |
-| box | x -7..6, y -4..4, z -3..9 | 234 blocks (the mechanical part alone: 60) |
+| box | x -7..6, y -4..4, z -3..9 | 262 blocks (the mechanical part alone: 60) |
 
 Rules for the loop:
 - Arrivals at least ~270 gt after the previous visit's arrival; the ≥ 4-release spacing gives 400.
@@ -261,10 +278,65 @@ held: **the siding jams.**
   in behind the stuck villager and stopped against it on the booster at z 1.76, the villager
   wedged at z 2.59; the next F sets H and the kick sends the stuck cart north, but it stops dead
   at z 3.38 against the wedged villager (moving 0.21 b/t, its box touching the villager's) and
-  does not pick it up; nothing moves after. Not yet fixed. Tried and rejected (2026-11-10 19:20):
+  does not pick it up; nothing moves after. Not yet fixed. On the long-nap-path design 3 of 16
+  seeds jam (13 recover within one visit; `--drop-force 3`, 16 seeds). **Why no pickup** (traced
+  2026-11-10 22:14, seed 3; the villager's boarding cooldown is 0 and it rides nothing): the
+  kicked cart meets it at 0.203 b/t. A cart picks up a mob within 0.2 of its box while it moves
+  at least 0.1 b/t, but its own move stops at a pushable mob's box (a vehicle collides with
+  pushable entities). The wedged villager stands 0.09 nearer the park than a woken napper (z 2.59
+  against 2.50), so the cart's last step jumps the 0.2 band (gap 0.21, then blocked at contact):
+  its speed is zeroed by the clipped move and the pickup test finds it not moving. A woken napper
+  at 2.50 is met below 0.2 b/t and never skipped. A fix needs the empty cart under 0.2 b/t within
+  a block of the free cell (without costing F's exit time), or the wedge prevented. Tried and
+  rejected (2026-11-10 19:20):
   the slow run's two rails (1,0,4), (1,0,5) as boosters (so the kicked cart meets the villager
   fast): it breaks the normal path (0 of 16 seeds clean: arriving carts no longer settle on the
   park, riders lose HOME) and makes the jam worse (10 of 16 seeds never free the stuck cart).
+
+**The fast forced exit: the long nap path (2026-11-10 21:30; ironspec's decision after path A's
+cost; +8 blocks, 262):**
+- **The limit it lifts:** the kick chain is shared. A nap needs drop to H (the nap path) + H to the
+  kick + the kick to the free cell ≥ 60 gt (the boarding cooldown) plus margin; F needs F to H (8)
+  + H to the kick + the kick to the exit. Subtracted: F's exit ≥ the re-board time - 18 + 20, so
+  62-64 gt at least while the nap path is 26 gt, whatever the chain. Every shorter chain on that
+  path broke the normal path (0 of 16 seeds: chains [2,0,0,0,0] 53-56 gt, [2,1,0,0,0] 55-58,
+  [4,0,0,0,0] 57-60, dust 49-52); [4,1,1,1,1] 65-68 and [3,1,1,1,1] 63-66 pass (re-board min 63
+  and 61).
+- **What it is:** the S line from the observer four 4-tick repeaters long (south of the observer
+  (0,0,5), (0,0,6), dust (0,0,7), west (-1,0,7), (-2,0,7), dust down x -3 to the old stair): the
+  nap path 16 gt longer (H about 44 gt after the onset). R's reset later: its two repeaters
+  (3,0,-1), (3,0,-2) at 4 ticks and the R line's dust at (2,0,-3), (1,0,-3) 4-tick repeaters (0
+  blocks), so the wake's echo down the long S line reaches N1 while H is still set (with R as
+  before it set H again after the return). The chain **[2,1,0,0,0]** (a 2-tick and a 1-tick
+  repeater, three dust).
+- **The other limit:** the hatch shuts at H and the villager wakes up to ~23 gt after it, so the
+  kick must come at least ~10 gt after H for the napper to be up when the empty cart passes:
+  [2,0,0,0,0] and [1,1,0,0,0] fail (7 of 24 seeds), [2,1,0,0,0] passes.
+- **Results** (`siding-bench --wired`, F driven as day-1's scheduler at 118-150 gt after each
+  arrival; redsim; arrivals and the release bench-driven):
+  - F to the cart past the exit **55-58 gt** (median 56; 672 visits, every napper failing, 16 x 2;
+    the same with F at 134 gt, k2's +6 corner); ready 166-201 gt after the arrival.
+  - Margins against day-1's limits (with its +4 gt of D at k2): nominal F k0 25, k1 12.5, k2 8.5
+    gt; the +6 corner k0 19, k1 6.5, k2 **2.5** (closed). Pick rule (ironspec): the larger of
+    min(corner margin, re-board margin): [2,1,0,0,0] 2.5 against [4,0,0,0,0] 0.5.
+  - Drop to re-board **min 69** (9 gt over the cooldown; was 65).
+  - Normal visits 100 seeds x 6 nights, release held and pulsed: 100 of 100 clean each, 12,600
+    visits, all re-boarded their own cart, 0 naps cut by F, ironspec's check unchanged (all 21
+    holding HOME at all 1,400 checks, one nap per villager-night).
+  - The tail, 100 x 25 nights, release held: 52,500 visits, every napper back in its own cart and
+    released (0 stranded), 0 cut; onset p50 17, p99 39, p99.9 75, p99.99 111, max 121 gt (per-k
+    sleep margins unchanged: k0 25, k1 17, k2 7).
+  - HOME erased x 3 (16 x 2): 16 of 16 clean. Placements 24 x 2: the judge's, raw and built in
+    order (348 cells, 8,900 gt) all clean. siding-check 0 golem spots (bench and alone files). The
+    slot and exit cells unchanged (the rider rest cells too).
+  - Faults (`--fault KIND:K`, 16 seeds): ARR missed or extra, R missed or extra, F doubled: 0
+    visits lost each (R missed was 2 visits: H now resets after the echo).
+  - The siding's T back to entry-bed: 140-226 gt after a nap visit's arrival, 86-88 gt after F
+    on a visit sent out by F (visit +406..+414 with B3a's F), 44-54 gt after the cart came onto
+    the exit branch (the cart then past the exit): about 250 gt before the next slot's earliest
+    arrival (+174 a slot later).
+- **Path A (the "napped since arrival" memory N) not taken:** 15-25 blocks and uncertain against
+  this variant's 8.
 
 **Fault injection at the stateful elements** (`--fault KIND:K`, 8-16 seeds, release held, visit
 3; each pulse a redstone block for 4 gt beside the element): ARR missed (DB pulsed just after the
@@ -272,6 +344,116 @@ arrival), ARR extra (DA pulsed mid-visit), R extra (DB pulsed and the H latch re
 F doubled: 0 visits lost (the napper slept; V only gates F). R missed (DA pulsed and the H latch
 set again after the return): the next visit loses its nap (H set with no visit: it goes straight
 to the exit), then all clean: worst 2 visits to recover, 1 nap lost a seed.
+
+## Unloads (farmopt and ironspec 2026-11-10: the brief's chunk alignment, X & 15 = 6, Z & 15 = 6)
+
+- **The chunk lines the siding crosses** at day-1's paste offset (the siding's (-5,-3,-4) at the
+  loop's (-25,-1,6): loop = siding + (-20, 2, 10)): the loop's x -23|-22 and z 9|10, i.e. the
+  siding's **x -3|-2** and **z -1|0**. The others (x -7|-6 and 9|10; z -7|-6 and 25|26) miss its
+  box (x -7..6, z -3..9) and its junction tracks (the entry row z 0 west of the entry, the exit and
+  run-out east of x 6 on z 0). Four chunks:
+  - west-north (x ≤ -3, z ≤ -1): the latch's N2, W2 and D2's start; the R line's west end; F's
+    cell and the gate; the not-V line's west end;
+  - east-north (x ≥ -2, z ≤ -1): V's droppers and comparator; the R line's east part and its
+    repeaters; the slot's tripwire hook;
+  - west-south (x ≤ -3, z ≥ 0): N1, W1, D1; the kick chain's x -6 column; the S line's stair; the
+    approach west of x -2 (on the bench, the launcher);
+  - east-south (x ≥ -2, z ≥ 0): the entry, the T, the bed and cage, the hatch and zombie, the bed
+    line and park, K, the H line, the observer and the S line's start, the slot and the exit.
+- **The partial unload** (`siding-bench --unload matrix:3`; tick-exact's act, anchored on the 26.3
+  bridge at these lines, GO 244b9196d; the bench's world shifted 2 east so the lines fall as in
+  the loop). Visit 3, 6 seeds x 10 visits, each line, each side dropped, that side at level 32
+  (blocks tick, entities do not) or 33 (nothing ticks; the other side then at 32), at seven visit
+  phases (arrival, nap onset, waking, 10 gt before F, kick, re-board, exit), for N = 3, 40, 240 and
+  700 gt. Full table: `unload-partial.txt`.
+  - N = 3: every case clean.
+  - N = 40 and 240: clean except at the nap. Every case that freezes the bed's entities while
+    blocks still tick (x lo 33, x hi 32, z lo 33, z hi 32; x hi 33 at 240) **jams for good**: all
+    6 seeds, every later visit stuck (a hand reset). x lo 33 at 10 gt before F loses about 1 nap
+    a seed and recovers within 2 visits: R is frozen in the west chunk, so H stays set; the next
+    cart goes straight out and its R resets.
+  - The north side alone (z lo 32: R, V, F's gate) is clean at every phase and every N, 700
+    included.
+  - N = 700 (past every timer, and past the next visit, which the bench still sends into the
+    frozen part on schedule) jams in every other case. The loop's own tracks there would freeze
+    too, so these overstate it.
+- **Why the nap jams:** the napper is dropped about 17 gt after the arrival. Its 60-gt boarding
+  cooldown counts its own ticks, so frozen with its chunk it ends N gt late, while H, the hatch and
+  the kick keep the game's clock. The empty cart meets the woken napper on the free cell before
+  the cooldown ends, does not pick it up, stops against it (z 3.29) and stays; each next cart stops
+  behind. The re-board margin (9 gt) covers a freeze up to about 9 gt in that window.
+- **The whole part unloaded** (`--unload whole-matrix:3`: every entity saved and back as a new one,
+  `unload_all`/`load_all`; 6 seeds; the phases above plus the cart arriving, the napper dropped and
+  asleep; table `unload-whole.txt`):
+  - N = 3, 40 and 240: clean at every phase but the kick. Unloaded as the park rail powers (any
+    N, 3 included) the cart leaves without its napper in 3 of 6 seeds, and the siding jams. The
+    napper, asleep, comes back with a rebuilt brain (its sensors restart, tick-exact's load
+    model), wakes after the empty cart has passed the free cell, and stands on the bed line.
+  - N = 700: jams in 2-4 of 6 seeds at every phase. The visit after the reloaded one, sent as soon
+    as the part is back, has a napper whose brain is fresh from the load: it wakes late (+104 gt),
+    misses its cart, and the next carts stop behind it.
+- **What they share:** the siding cannot recover from a napper left standing on the free cell. No
+  later kick picks it up (blocked by the cart's last step or by the cooldown), and the next arrival
+  stops behind it: the same end state as the dropped-F jam. ironspec's possible requirement (a
+  reload-proof re-board: no cart leaves without its napper; a napper left out re-boards, or goes
+  back with its cart, within a stated number of visits; the loop stays in order) needs a design
+  change there. Not built. **On hold** (ironspec and farmopt 2026-11-10 22:58): tick-exact bridges
+  the three cases first (its own bridged whole-farm unloads mid-visit, +250/+280, 4,000 gt, matched
+  the game and every napper re-boarded). Their drives, in `faults/` (`siding-bench --launch
+  --unload ... --drive-out`, the unload acts as drive lines; `web drive-check` holds both
+  whole-part drives to the bench's run: 344 and 265 cart positions):
+  `whole-kick-3-seed4.drive.txt`, `whole-asleep-700-seed1.drive.txt`,
+  `partial-x-hi-32-nap-40-seed1.drive.txt` (the design's own coordinates, `--unload-shift 0,0`:
+  chunk x 0, z -1..0 dropped, forced box x -1..0, z -1..0 set at t0, written in its header).
+- **The bench as a fault runner** (farmopt's questions): it calls tick-exact's act itself
+  (`reload::unload_some` / `unload_all` between two ticks; the world ticks on), so the freeze takes
+  the bed's villager exactly as the act does (its chunk dropped). A whole-part unload pauses the
+  bench's arrivals while the part is away and sends the next as soon as it is back; a partial one
+  keeps them on schedule (none falls inside an absence of 240 gt or less: arrivals are 400-600 gt
+  apart and each waits for the last cart to leave the siding). Unlike the loop, in the partial
+  runs the bench's hold sits outside the forced box (its waiting riders frozen until sent).
+
+**The one-chunk placement** (ironspec and farmopt 2026-11-10 22:58: day-1 pastes the siding at ox
+in [-15,-13], oz in [13,16], inside one chunk; emulated with the bench's world shifted (8, 3), ox
+-14, oz 13; arrivals launched so they cross the approach's line). The only lines left are the
+junction tracks': `w` the approach's at the siding's x -9|-8, `e` the run-out's at 7|8.
+`--unload chunk-matrix:3`, 6 seeds x 10 visits, visit 3, every phase (sent, arrival, nap, waking,
+10 gt before F, kick, re-board, exit), N = 3, 40, 240; table `unload-chunk.txt`:
+- The junction chunks alone frozen (w lo 32: the approach; e hi 32: the run-out): clean at every
+  phase and N.
+- The siding's own chunk at 32 (the edge one chunk further in, from either side: w hi 32 = e hi
+  33, e lo 32 = w lo 33): clean at every phase except two. At the nap onset with N 40 or 240 it
+  jams for good (the frozen cooldown, above). At the arrival with N 240 it loses one nap and
+  recovers within a visit (F fires on time while the cart is frozen at the entry: the visit goes
+  out unnapped).
+- w hi 33 and e lo 33 would leave the far junction's chunk at 34 (its entities saved and
+  unloaded): not modeled, not run.
+
+## Design (b), the napper-aboard sensor (emulation; ironspec and farmopt 2026-11-10 23:25)
+
+The re-board mechanism must know a seated villager from one standing on the free cell or in the
+bed, and an empty cart (a detector rail sees any cart). Measured in redsim, behind
+`MCTAS_SIDING_SEAT` (not in the member file):
+- **A tripwire at head height fails** (`=1`, a string at (1,2,1) over the booster, hooks on glass):
+  a seated villager's feet sit at its cart's own y (0.0625 on a flat rail), so its box tops out at
+  2.0125; a standing one at 1.95: 1/16 apart, below the string's band (2.06-2.16). It never fired
+  (8 seeds x 1 night, the dropped-F and by-day runs).
+- **A stone pressure plate on the booster's glass ceiling** (`=2`, at (1,2,1); +1 block, 263, 0
+  golem spots): its touch box (y 2.0-2.25) meets the seated top 2.0125 and not the standing 1.95;
+  no villager can stand on the booster (the glass at (1,1,1) leaves no headroom), and an empty
+  cart's top is 0.76. Normal visits, 8 seeds x 1 night: on 336 times with a seated villager in its
+  band (every pass in and out, 8 x 21 x 2), never without one, each a tick after the box enters;
+  the dropped-F runs (a villager standing on the free cell for thousands of ticks), by day, the
+  whole unload at the kick (empty carts passing) and the nap-onset freeze: 0 false. Its margin is
+  the 1/16 of the seat height (a rider 1/16 lower would not press it); the 26.3 bridge's check
+  (a passenger presses it; a standing villager and an empty cart do not) is asked of tick-exact.
+  Its drives: `faults/plate-normal-seed1`, `faults/plate-day-seed1`,
+  `faults/plate-whole-kick-3-seed4` (`web drive-check` ok on all three), design
+  `faults/carousel-siding-wired-plate.txt`.
+- **The retry** (a cart that fails the pickup stops dead against the villager, z about 3.3, and
+  nothing moves it): a lead, not built: the activator cell tilted to rise toward the free cell so
+  a stalled empty cart rolls back to the park and is kicked again while K holds, with the
+  approach under 0.2 b/t so the retry cannot skip the band either.
 
 ## The give-up's first version, its own timer (2026-11-10; `--give-up timer`, superseded)
 

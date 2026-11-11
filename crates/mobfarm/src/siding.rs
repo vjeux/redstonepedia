@@ -73,7 +73,13 @@ pub const APPROACH_X: f64 = -4.5;
 pub const LAUNCH_X: f64 = -8.5;
 
 pub fn layout() -> Siding {
-    let p = BlockPos::new;
+    layout_at(0, 0)
+}
+
+/// [`layout`] moved `dx` east and `dz` south (the bench's world shifted so the loop's chunk lines
+/// fall on the siding as day-1 pastes it: `BenchOpts::shift_x`, `shift_z`).
+pub fn layout_at(dx: i32, dz: i32) -> Siding {
+    let p = |x: i32, y: i32, z: i32| BlockPos::new(x + dx, y, z + dz);
     Siding {
         entry: p(0, 0, 0),
         tee: p(1, 0, 0),
@@ -89,7 +95,7 @@ pub fn layout() -> Siding {
         bed_foot: p(0, 0, 3),
         hatch: p(2, 1, 2),
         hatch_ctrl: p(2, 0, 2),
-        zombie: [4.5, 1.0, 2.5],
+        zombie: [4.5 + dx as f64, 1.0, 2.5 + dz as f64],
         slot_rails: [p(4, -1, 0), p(5, -1, 0)],
         release: p(4, -2, 0),
         exit: p(6, -1, 0),
@@ -285,14 +291,30 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     // S: the observer south of the bed's foot (replacing the cage's glass), dust west along z 5,
     // down north to the 4-tick repeater into N1
     swap(b, [0, 0, 4], "observer[facing=north,powered=false]")?;
-    on(b, [0, 0, 5], dust)?;
     // (the forced give-up's speed, 2026-11-10: delay moved from the kick chain (H to the kick,
     // which the scheduler's F also waits through) to the nap path (S to H, which F skips); the
     // nap's onset to its kick stays the same. MCTAS_SIDING_MOVE = repeaters moved, 0..3; the
     // free cell a booster with MCTAS_SIDING_BOOST=1)
     let mv: usize = std::env::var("MCTAS_SIDING_MOVE").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
-    for (i, x) in [-1, -2, -3].into_iter().enumerate() {
-        on(b, [x, 0, 5], &if i < mv.min(2) { rep("east", 4) } else { dust.to_string() })?;
+    // (MCTAS_SIDING_SLONG=1: the S line longer, four 4-tick repeaters: south from the observer
+    // through (0,0,5), (0,0,6), west along z 7 through (-1,0,7), (-2,0,7), north up x -3 to the
+    // stair: 16 gt more on the nap path, so the kick chain can shrink to dust and F, which skips
+    // the nap path, kicks sooner)
+    let slong = !std::env::var("MCTAS_SIDING_SLONG").is_ok_and(|v| v == "0");
+    if slong {
+        on(b, [0, 0, 5], &rep("north", 4))?;
+        on(b, [0, 0, 6], &rep("north", 4))?;
+        on(b, [0, 0, 7], dust)?;
+        on(b, [-1, 0, 7], &rep("east", 4))?;
+        on(b, [-2, 0, 7], &rep("east", 4))?;
+        for z in [7, 6, 5] {
+            on(b, [-3, 0, z], dust)?;
+        }
+    } else {
+        on(b, [0, 0, 5], dust)?;
+        for (i, x) in [-1, -2, -3].into_iter().enumerate() {
+            on(b, [x, 0, 5], &if i < mv.min(2) { rep("east", 4) } else { dust.to_string() })?;
+        }
     }
     on(b, [-3, -1, 4], dust)?;
     on(b, [-3, -2, 3], dust)?;
@@ -301,10 +323,18 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     // R: the exit branch's detector rail (its second rail, two from the T), repeaters north, dust
     // west along z -3, down west into a repeater south into N2
     swap(b, [3, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
-    on(b, [3, 0, -1], &rep("south", 1))?;
-    on(b, [3, 0, -2], &rep("south", 1))?;
+    // (MCTAS_SIDING_RDELAY=d: the two R repeaters at delay d (default 1): R resets H later, so a
+    // wake pulse's echo down a longer S line reaches N1 before the reset, not after it)
+    let rd: u8 = std::env::var("MCTAS_SIDING_RDELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(if slong { 4 } else { 1 });
+    on(b, [3, 0, -1], &rep("south", rd))?;
+    on(b, [3, 0, -2], &rep("south", rd))?;
+    // (MCTAS_SIDING_REXTRA=n: n of the R line's dust at (2,0,-3), (1,0,-3) replaced by 4-tick
+    // repeaters: R resets H up to 16 gt later, so the wake's echo down a longer nap path reaches N1
+    // while H is still set)
+    let rx: usize = std::env::var("MCTAS_SIDING_REXTRA").ok().and_then(|v| v.parse().ok()).unwrap_or(if slong { 2 } else { 0 });
     for x in -4..=3 {
-        on(b, [x, 0, -3], dust)?;
+        let r = (x == 2 && rx >= 1) || (x == 1 && rx >= 2);
+        on(b, [x, 0, -3], &if r { rep("east", 4) } else { dust.to_string() })?;
     }
     on(b, [-5, -1, -3], dust)?;
     on(b, [-6, -2, -3], dust)?;
@@ -323,13 +353,22 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     b.set(1, -3, 6, "stone");
     // not H, delayed: off D1 south along x -6 through five 4-tick repeaters, east along z 9,
     // up north into BK
-    // (the default with the moved delay: [4,2,1,1,1], F's forced exit 67-70 gt, a nap's drop to
-    // re-board min 65 against the 60-gt boarding cooldown)
-    let chain_delays: Vec<u8> = std::env::var("MCTAS_SIDING_CHAIN").ok().map(|v| v.split(',').filter_map(|d| d.trim().parse().ok()).collect()).unwrap_or_else(|| if mv == 3 { vec![4, 2, 1, 1, 1] } else { Vec::new() });
+    // (the default: with the long S line (+16 gt on the nap path) the chain [2,1,0,0,0] (a 2-tick
+    // and a 1-tick repeater, three dust): F's forced exit 55-58 gt, a nap's drop to re-board min 69
+    // against the 60-gt boarding cooldown; the kick at least ~10 gt after H, since the villager
+    // wakes up to ~23 gt after the hatch shuts at H and must be up before the cart passes the free
+    // cell. Without it (MCTAS_SIDING_SLONG=0): [4,2,1,1,1], 67-70 gt, re-board min 65)
+    let chain_delays: Vec<u8> = std::env::var("MCTAS_SIDING_CHAIN").ok().map(|v| v.split(',').filter_map(|d| d.trim().parse().ok()).collect()).unwrap_or_else(|| if slong { vec![2, 1, 0, 0, 0] } else if mv == 3 { vec![4, 2, 1, 1, 1] } else { Vec::new() });
     for z in 4..=8 {
         // (the moved delay: the last `mv` chain repeaters at 1 tick; MCTAS_SIDING_CHAIN="a,b,c,d,e"
         // sets all five)
         let d = chain_delays.get((z - 4) as usize).copied().unwrap_or(if (z as usize) > 8 - mv.min(3) { 1 } else { 4 });
+        // (MCTAS_SIDING_CHAIN 0 = dust in place of the repeater: the chain's signal holds to BK
+        // through the one repeater at (-2,-3,9))
+        if d == 0 {
+            on(b, [-6, -3, z], dust)?;
+            continue;
+        }
         on(b, [-6, -3, z], &rep("north", d))?;
     }
     if !std::env::var("MCTAS_SIDING_BOOST").is_ok_and(|v| v == "0") {
@@ -352,6 +391,25 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     on(b, [6, -2, 8], dust)?;
     for x in 3..=5 {
         on(b, [x, -2, 8], dust)?;
+    }
+    // (design (b), the napper-aboard sensing, measured first (ironspec 2026-11-10 23:25):
+    // MCTAS_SIDING_SEAT=1 strings a tripwire at (1,2,1), over the booster north of the free cell,
+    // between hooks at (1,2,0) and (1,2,2) on glass at (1,2,-1) and (1,2,3). A seated villager's
+    // box (its feet on the cart's seat, about 0.25 up) tops out near 2.2 and crosses the string's
+    // band (2.06-2.16); a villager standing on a rail tops out at 1.95, no villager can stand on
+    // the booster (the glass at (1,1,1)), and an empty cart reaches 0.76)
+    if std::env::var("MCTAS_SIDING_SEAT").is_ok_and(|v| v == "1") {
+        put(b, [1, 2, -1], "glass")?;
+        put(b, [1, 2, 0], "tripwire_hook[attached=true,facing=south,powered=false]")?;
+        put(b, [1, 2, 1], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+        put(b, [1, 2, 2], "tripwire_hook[attached=true,facing=north,powered=false]")?;
+        put(b, [1, 2, 3], "glass")?;
+    }
+    // (MCTAS_SIDING_SEAT=2: a stone pressure plate at (1,2,1), on the booster's glass ceiling
+    // (1,1,1): its touch box, y 2.0-2.25, meets a seated villager's top (2.0125 on a flat rail)
+    // and not a standing one's (1.95); no villager can stand on the booster under the glass)
+    if std::env::var("MCTAS_SIDING_SEAT").is_ok_and(|v| v == "2") {
+        put(b, [1, 2, 1], "stone_pressure_plate[powered=false]")?;
     }
     // glass caps on the circuit's solid tops a golem could stand on (N1, N2, BK, the hook's stone)
     for c in [[-5, -2, 2], [-7, -2, -1], [2, -1, 6], [4, 1, -2]] {
@@ -807,6 +865,73 @@ pub struct BenchOpts {
     /// (F pulsed again 30 gt after the first). Each pulse a redstone block for 4 gt beside the
     /// element.
     pub fault: Option<(String, usize)>,
+    /// The world moved this many blocks east: at 2 the loop's chunk lines (ironspec 2026-11-10:
+    /// X & 15 = 6, Z & 15 = 6 at the loop's cell 0, 0) fall on the siding as day-1 pastes it (the
+    /// siding's (−5,−3,−4) at the loop's (−25,−1,6)): siding x −3|−2 and z −1|0.
+    pub shift_x: i32,
+    /// The world moved this many blocks south (with `shift_x`; the one-chunk placement's 3 puts
+    /// the siding's z -3..9 inside one chunk).
+    pub shift_z: i32,
+    /// A partial unload (tick-exact's `reload::unload_some` / `load_some`; farmopt and ironspec
+    /// 2026-11-10): the forced chunk box set at the start, the chunks dropped when visit K reaches
+    /// the state, back N gt later.
+    pub unload: Option<Unload>,
+}
+
+/// A partial unload of the bench's world ([`BenchOpts::unload`]): the forced chunk box (chunk
+/// coordinates, `[x0, z0, x1, z1]`), the chunks dropped, the state of visit `visit` it starts at
+/// (`arrival`, `nap`: the sleep onset, `fpending`: 10 gt before the earliest force pulse, `kick`:
+/// the park rail powered, `exit`: the cart onto the exit branch; `none`: only the forced box, the
+/// control) and for how long.
+#[derive(Clone, Debug)]
+pub struct Unload {
+    pub forced: [i32; 4],
+    pub drop: [i32; 4],
+    pub state: String,
+    pub n: i64,
+    pub visit: usize,
+    /// The whole part saved and unloaded (`reload::unload_all` / `load_all`: the entities back as
+    /// new objects with new ids) in place of the partial unload's dropped chunks.
+    pub whole: bool,
+}
+
+/// The forced box and the dropped chunks of a partial unload at one of the loop's chunk lines, in
+/// the bench's world shifted 2 east ([`BenchOpts::shift_x`]): the siding's chunks are x −1..0 and
+/// z −1..0, the x line between chunk x −1 and 0 (the siding's x −3|−2), the z line between chunk
+/// z −1 and 0 (its z −1|0). `side` is the side dropped (`lo`: west or north), `level` its level:
+/// 32 (the other side forced) or 33 (the other side at 32, the forced box one chunk beyond it).
+pub fn unload_boxes(line: &str, side: &str, level: u8) -> Result<([i32; 4], [i32; 4]), String> {
+    // (the one-chunk placement, ironspec and farmopt 2026-11-10 22:58: day-1 pastes the siding at
+    // ox in [-15,-13], oz in [13,16], inside one chunk; on the bench shifted (8, 3) the siding is
+    // chunk (0, 0) and the lines left are the junction tracks': `w` between chunk x -1 and 0 (the
+    // approach, the bench's launcher), `e` between 0 and 1 (the run-out); the forced row z 0)
+    if line == "w" || line == "e" {
+        let (forced, drop) = match (line, side, level) {
+            ("w", "lo", 32) => ((-1, 1), (-1, -1)),
+            ("w", "lo", 33) => ((-1, 1), (-1, 0)),
+            ("w", "hi", 32) => ((-1, 1), (0, 1)),
+            ("e", "lo", 32) => ((-1, 1), (-1, 0)),
+            ("e", "hi", 32) => ((-1, 1), (1, 1)),
+            ("e", "hi", 33) => ((-1, 1), (0, 1)),
+            // (w hi 33 and e lo 33 put the siding's chunk at 33 and the far junction's at 34: its
+            // entities saved and unloaded, which redsim does not model)
+            ("w", "hi", 33) | ("e", "lo", 33) => return Err(format!("{line} {side} 33 leaves the far junction's chunk at 34 (not modeled)")),
+            _ => return Err(format!("side lo or hi and level 32 or 33, not {side} {level}")),
+        };
+        return Ok(([forced.0, 0, forced.1, 0], [drop.0, 0, drop.1, 0]));
+    }
+    let (forced, drop) = match (side, level) {
+        ("lo", 32) => ((-1, 0), (-1, -1)),
+        ("lo", 33) => ((-1, 1), (-1, 0)),
+        ("hi", 32) => ((-1, 0), (0, 0)),
+        ("hi", 33) => ((-2, 0), (-1, 0)),
+        _ => return Err(format!("side lo or hi and level 32 or 33, not {side} {level}")),
+    };
+    match line {
+        "x" => Ok(([forced.0, -1, forced.1, 0], [drop.0, -1, drop.1, 0])),
+        "z" => Ok(([-1, forced.0, 0, forced.1], [-1, drop.0, 0, drop.1])),
+        _ => Err(format!("line x or z, not {line}")),
+    }
 }
 
 /// One visit's record.
@@ -854,6 +979,14 @@ pub struct VisitRec {
     pub v_before: Option<bool>,
     /// The fault injection: when its cart, left behind in the siding, came onto the exit branch.
     pub unstuck: Option<i64>,
+    /// When its cart came onto the exit branch (x past the T's east edge, moving east).
+    pub branch: Option<i64>,
+    /// When the bench sent its cart (onto the launcher or the approach).
+    pub sent: i64,
+    /// The siding's T rail: when it turned to bed-exit after the arrival, and back to entry-bed
+    /// after the cart left (and the cart's x then).
+    pub tee_out: Option<i64>,
+    pub tee_back: Option<(i64, f64)>,
 }
 
 /// What the bench measured.
@@ -877,6 +1010,31 @@ pub struct BenchReport {
     /// The run's forced failures (`BenchOpts::fail_no_home`, `day_visits`).
     pub fail_no_home: u32,
     pub day_visits: bool,
+    /// The partial unload: when the chunks were dropped and when they came back.
+    pub unload: Option<(i64, Option<i64>)>,
+    /// The napper-aboard sensor (`MCTAS_SIDING_SEAT=1`, the tripwire at (1,2,1)): its turns on
+    /// with a seated villager in its band, its turns on without one (and what was there), the
+    /// ticks a seated villager crossed the band with the string unpowered, the ticks it was on, a
+    /// few examples.
+    pub seat: Option<SeatLog>,
+    /// ironspec's hard line (2026-11-11, ironfarm's shared check `merge::MergeTally`): merged
+    /// carts, two carts the game's push pairs but never separates (under 0.01 apart horizontally).
+    pub merged: Vec<(u32, u32)>,
+    pub merged_first: Vec<String>,
+}
+
+/// The napper-aboard sensor's measurement ([`BenchReport::seat`]).
+#[derive(Clone, Debug, Default)]
+pub struct SeatLog {
+    pub on_seated: u32,
+    pub on_other: u32,
+    pub missed: u32,
+    pub on_ticks: u32,
+    pub seen_standing: u32,
+    /// Every seated villager's box top seen (min, max) and its feet above its cart's (min, max).
+    pub seated_top: Option<(f64, f64)>,
+    pub seated_feet: Option<(f64, f64)>,
+    pub examples: Vec<String>,
 }
 
 fn block(s: &str) -> Block {
@@ -904,12 +1062,63 @@ fn short_state(s: &str) -> String {
     format!("{name}{flags}")
 }
 
+/// A farm spec moved `dx` east (blocks, block entities, entities, its box and output; the
+/// villagers' loaded HOME memory, `pos:[I;x,y,z]` in their SNBT, too).
+fn shift_spec(spec: &FarmSpec, dx: i32, dz: i32) -> FarmSpec {
+    let mv = |p: BlockPos| BlockPos::new(p.x + dx, p.y, p.z + dz);
+    let mv_nbt = |s: &str| -> String {
+        let mut out = String::new();
+        let mut rest = s;
+        while let Some(i) = rest.find("pos:[I;") {
+            let (head, tail) = rest.split_at(i + "pos:[I;".len());
+            out.push_str(head);
+            let end = tail.find(']').unwrap_or(tail.len());
+            let v: Vec<i64> = tail[..end].split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            if v.len() == 3 {
+                out.push_str(&format!("{},{},{}", v[0] + dx as i64, v[1], v[2] + dz as i64));
+            } else {
+                out.push_str(&tail[..end]);
+            }
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    };
+    let mut o = spec.clone();
+    o.blocks = spec.blocks.iter().map(|(p, b)| (mv(*p), *b)).collect();
+    o.block_entities = spec.block_entities.iter().map(|(p, s)| (mv(*p), s.clone())).collect();
+    o.entities = spec.entities.iter().map(|(t, p, n)| (t.clone(), [p[0] + dx as f64, p[1], p[2] + dz as f64], n.as_deref().map(mv_nbt))).collect();
+    o.output = mv(spec.output);
+    o.lo = mv(spec.lo);
+    o.hi = mv(spec.hi);
+    o
+}
+
 /// The bench: visits through the nights (each night from day time 12000, `gap` apart, until
 /// 23000), each taking the villager napped longest ago from the far hold, its cart teleported to
 /// the approach moving +x at `speed`; the controls driven ideally (the module's doc); the release
 /// `release` after the arrival; the cart back to its hold cell once out past the exit.
 pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
-    let s = layout();
+    let (dx, dz) = (bo.shift_x, bo.shift_z);
+    let s = layout_at(dx, dz);
+    // (the world moved dx east and dz south: the loop's chunk lines on the siding as day-1 pastes
+    // it)
+    let moved;
+    let spec = if dx != 0 || dz != 0 {
+        if bo.drive {
+            return Err("a shifted bench writes no drive (its coordinates are not the design's)".into());
+        }
+        moved = shift_spec(spec, dx, dz);
+        &moved
+    } else {
+        spec
+    };
+    let hold_at = |h: i32| {
+        let c = hold_cell(h);
+        BlockPos::new(c.x + dx, c.y, c.z + dz)
+    };
+    let force_cell = BlockPos::new(FORCE_CELL[0] + dx, FORCE_CELL[1], FORCE_CELL[2] + dz);
+    let zf = dz as f64;
     let ro = RunOpts { ai: true, ..RunOpts::steady(bo.seed, bo.nights * 24000 + 24000, WalkMode::Random) };
     // (the judge's placement and the settle; the raw paste; or built in order)
     let (mut run, built) = crate::placing::start(spec, &ro, bo.placement, &bo.plan)?;
@@ -920,6 +1129,13 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         spawned.push(redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?);
     }
     run.own = (first..run.world.entities.next_id).collect();
+    // (the partial unload's forced chunk box, from the start: outside it the chunks sit at 31 plus
+    // their distance to it; a whole-part unload keeps the world's box)
+    if let Some(u) = &bo.unload
+        && !u.whole
+    {
+        run.world.entity_chunks = Some(u.forced);
+    }
     let t0 = run.world.time;
     if bo.trace {
         eprintln!("t0 {t0} (traces' gt are after it; the visits' arrival times are absolute)");
@@ -944,7 +1160,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             continue;
         }
         let cell = BlockPos::new(e.pos.x.floor() as i32, 0, e.pos.z.floor() as i32);
-        if let Some(h) = (0..21).find(|&h| hold_cell(h) == cell) {
+        if let Some(h) = (0..21).find(|&h| hold_at(h) == cell) {
             pairs.push((e.id, e.passengers[0], h));
         }
     }
@@ -988,13 +1204,36 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut park_off: Option<i64> = None;
     let mut release_off: Option<i64> = None;
     // (the force input driven as day-1's scheduler would, when the design has the gate)
-    let gate = BlockPos::new(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2] + 1);
+    let gate = BlockPos::new(force_cell.x, force_cell.y, force_cell.z + 1);
     let force = (bo.force.is_some() && matches!(run.world.get(gate), Block::Comparator { .. })).then(|| bo.force.unwrap_or((150, 170)));
     let mut force_off: Option<i64> = None;
     let mut reset_pending = false;
     let mut homes_seen: Vec<bool> = vec![true; pairs.len()];
     let mut home_now: Vec<bool> = pairs.iter().map(|(_, v, _)| index_of(&run.world, *v).is_some_and(|i| brain::brain(&run.world, i).home == Some(bed))).collect();
     let mut lost_at: Vec<Option<i64>> = vec![None; pairs.len()];
+    // (the siding's T rail's shape: its turns logged against the latest visit)
+    let tee_shape = |w: &World| -> String {
+        let st = w.get(s.tee).to_string();
+        st.split("shape=").nth(1).map(|x| x.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default()
+    };
+    let mut tee_prev = tee_shape(&run.world);
+    let mut kick_seen: Option<i64> = None;
+    // (the napper-aboard sensor, when the design has it: the string's band, or the plate's touch
+    // box, and its last state)
+    let seat_cell = BlockPos::new(1 + dx, 2, 1 + dz);
+    let plate = run.world.get(seat_cell).to_string().contains("pressure_plate");
+    let seat_band = if plate {
+        redsim::entity::Aabb { min_x: seat_cell.x as f64 + 1.0 / 16.0, min_y: 2.0, min_z: seat_cell.z as f64 + 1.0 / 16.0, max_x: seat_cell.x as f64 + 15.0 / 16.0, max_y: 2.25, max_z: seat_cell.z as f64 + 15.0 / 16.0 }
+    } else {
+        redsim::entity::Aabb { min_x: seat_cell.x as f64, min_y: 2.0 + 1.0 / 16.0, min_z: seat_cell.z as f64, max_x: seat_cell.x as f64 + 1.0, max_y: 2.0 + 2.5 / 16.0, max_z: seat_cell.z as f64 + 1.0 }
+    };
+    let mut seat_prev = false;
+    // (ironspec's merged-carts hard line: ironfarm's shared tally, fed every tick)
+    let mut merges = crate::merge::MergeTally::default();
+    let mut seat_seated_last: i64 = i64::MIN;
+    if plate || matches!(run.world.get(seat_cell), Block::Tripwire { .. }) {
+        rep.seat = Some(SeatLog::default());
+    }
     let mut probe_last: Vec<String> = Vec::new();
     while run.world.time < end {
         let now = run.world.time;
@@ -1004,7 +1243,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         let night_n = (run.world.day_time() - w0).div_euclid(24000);
         let in_window = (run.world.day_time() - w0).rem_euclid(24000) < 11000;
         // ironspec's check: every villager's HOME = the bed at every dawn and every midday
-        if day == 0 || day == 6000 {
+        if (day == 0 || day == 6000) && run.world.away.is_none() {
             let held = pairs.iter().filter(|(_, v, _)| index_of(&run.world, *v).is_some_and(|i| brain::brain(&run.world, i).home == Some(bed))).count();
             rep.home_checks.push((now, day, held as u32));
         }
@@ -1015,8 +1254,19 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         if let Some(tv) = next_visit
             && now >= tv
         {
-            if !in_window {
+            if run.world.away.is_some() {
+                // (the whole part unloaded: the loop's carts are away too; the next visit waits)
+                next_visit = Some(now + 1);
+            } else if !in_window {
                 next_visit = None;
+            } else if {
+                // (the bench never drops a cart onto another: a cart still on the launcher or the
+                // approach start holds the next arrival back, as the loop's own track would; else
+                // the bench itself makes merged carts)
+                let at = if bo.launch { LAUNCH_X } else { APPROACH_X } + dx as f64;
+                run.world.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (e.pos.x - at).abs() < 1.5 && (e.pos.z - (0.5 + zf)).abs() < 1.0 && (e.pos.y - 0.0625).abs() < 1.0)
+            } {
+                next_visit = Some(now + 20);
             } else if active.is_none_or(|a| rep.visits[a].force_dropped) && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
                 // (the fault injection: the dropped visit's cart left inside, the next sent as the
                 // loop would send it)
@@ -1032,11 +1282,11 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     if bo.launch {
                         // (at rest on the launcher's first booster, against its glass stop: the
                         // drive's `tp` moves a cart at rest)
-                        let p = Vec3::new(LAUNCH_X, 0.0625, 0.5);
+                        let p = Vec3::new(LAUNCH_X + dx as f64, 0.0625, 0.5 + zf);
                         teleport(&mut run.world, cart, p, Vec3::new(0.0, 0.0, 0.0));
                         drive.act(now, format!("tp {} {} {} {}", drive.name(cart), p.x, p.y, p.z));
                     } else {
-                        teleport(&mut run.world, cart, Vec3::new(APPROACH_X, 0.0625, 0.5), Vec3::new(v, 0.0, 0.0));
+                        teleport(&mut run.world, cart, Vec3::new(APPROACH_X + dx as f64, 0.0625, 0.5 + zf), Vec3::new(v, 0.0, 0.0));
                     }
                     let eta = if bo.launch { 30 } else { ((-APPROACH_X - 0.0) / v).round() as i64 };
                     // (a forced failure: the villager cannot sleep, its HOME erased)
@@ -1052,11 +1302,11 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     }
                     // (V before the arrival: the bulb lit, or the dropper latch's DA empty, its
                     // comparator at (-1,-1,-1) off)
-                    let v_before = force.is_some().then(|| match run.world.get(BlockPos::new(0, -1, -1)) {
+                    let v_before = force.is_some().then(|| match run.world.get(BlockPos::new(dx, -1, dz - 1)) {
                         Block::Bulb { lit, .. } => lit,
-                        _ => matches!(run.world.get(BlockPos::new(-1, -1, -1)), Block::Comparator { powered: false, .. }),
+                        _ => matches!(run.world.get(BlockPos::new(dx - 1, -1, dz - 1)), Block::Comparator { powered: false, .. }),
                     });
-                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, failed, force_dropped: dropped_f, v_before, ..Default::default() });
+                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, sent: now, night: night_n, failed, force_dropped: dropped_f, v_before, ..Default::default() });
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
                     night_of_visit[k] = night_n;
@@ -1129,7 +1379,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             && let Some(v) = rep.visits.get(*fk)
         {
             let rb = |w: &mut World, c: [i32; 3], on: bool| w.set_block(BlockPos::new(c[0], c[1], c[2]), block(if on { "redstone_block" } else { "air" }), redsim::world::flags::ALL);
-            let (da, db, n1, n2) = ([1, -1, -1], [1, -1, -2], [-6, -3, 2], [-8, -3, -1]);
+            let (da, db, n1, n2) = ([1 + dx, -1, dz - 1], [1 + dx, -1, dz - 2], [-6 + dx, -3, dz + 2], [-8 + dx, -3, dz - 1]);
             let mut pulse = |w: &mut World, cells: &[[i32; 3]], at: i64| {
                 if now == at {
                     for &c in cells {
@@ -1154,7 +1404,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 }
                 "f-double" => {
                     if let Some(f) = v.forced {
-                        let fc = BlockPos::new(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]);
+                        let fc = force_cell;
                         if now == f + 30 {
                             set(&mut run.world, fc, "redstone_block");
                         }
@@ -1167,7 +1417,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
         }
         if let Some((fa, fb)) = force {
-            let fc = BlockPos::new(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]);
+            let fc = force_cell;
             let n = rep.visits.len();
             for k in n.saturating_sub(2)..n {
                 let v = &rep.visits[k];
@@ -1187,8 +1437,143 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 force_off = None;
             }
         }
+        // (the partial unload: the chunks dropped when visit K reaches the state, back N gt later;
+        // or the whole part saved and unloaded, back as new entities whose ids the bench follows;
+        // both written to the drive as tick-exact's acts)
+        if let Some(u) = &bo.unload
+            && let Some(v) = rep.visits.get(u.visit)
+            && (!bo.launch || v.entered || u.state == "sent")
+        {
+            if kick_seen.is_none() && now > v.arrived && v.entered | !bo.launch && run.world.away.is_none() && run.world.get(s.park_rail).to_string().contains("powered=true") {
+                kick_seen = Some(now);
+            }
+            let bx = |b: [i32; 4]| format!("{},{},{},{}", b[0], b[1], b[2], b[3]);
+            match rep.unload {
+                None => {
+                    let at = match u.state.as_str() {
+                        "sent" => Some(v.sent + 10),
+                        "arrival" => Some(v.arrived),
+                        "arriving" => Some(v.arrived + 8),
+                        "drop" => v.dropped,
+                        "nap" => v.slept,
+                        "asleep" => v.slept.map(|x| x + 10),
+                        "waking" => v.woken,
+                        "fpending" => force.map(|(fa, _)| v.arrived + fa - 10),
+                        "kick" => kick_seen,
+                        "reboard" => kick_seen.map(|x| x + 9),
+                        "exit" => v.branch,
+                        _ => None,
+                    };
+                    if let Some(at) = at
+                        && now >= at
+                    {
+                        if u.whole {
+                            redsim::reload::unload_all(&mut run.world);
+                            drive.act(now, "unload".into());
+                        } else {
+                            redsim::reload::unload_some(&mut run.world, u.drop);
+                            drive.act(now, format!("unload {}", bx(u.drop)));
+                        }
+                        rep.unload = Some((now, None));
+                    }
+                }
+                Some((from, None)) if now >= from + u.n => {
+                    if u.whole {
+                        redsim::reload::load_all(&mut run.world);
+                        drive.act(now, "load".into());
+                        let w = &run.world;
+                        let re = |id: u32| w.renumbered.get(&id).copied().unwrap_or(id);
+                        for (&o, &n) in &w.renumbered {
+                            drive.renamed(o, n);
+                        }
+                        for p in pairs.iter_mut() {
+                            (p.0, p.1) = (re(p.0), re(p.1));
+                        }
+                        for v in rep.visits.iter_mut() {
+                            (v.cart, v.villager) = (re(v.cart), re(v.villager));
+                        }
+                        run.own = run.own.iter().map(|&i| re(i)).collect();
+                    } else {
+                        redsim::reload::load_some(&mut run.world, u.drop);
+                        drive.act(now, format!("load {}", bx(u.drop)));
+                    }
+                    rep.unload = Some((from, Some(now)));
+                }
+                _ => {}
+            }
+        }
         run.tick();
         let t = run.world.time;
+        merges.observe(&run.world, &format!("t0+{}", t - t0));
+        if let Some(sl) = rep.seat.as_mut() {
+            let w = &run.world;
+            let on = w.get(seat_cell).to_string().contains("powered=true");
+            // (who is in the band now: seated villagers, and any other entity)
+            let mut seated: Vec<String> = Vec::new();
+            let mut others: Vec<String> = Vec::new();
+            for e in w.entities.list.iter().filter(|e| !e.removed && e.bb.intersects(seat_band)) {
+                let villager = matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager);
+                let cart = e.vehicle.and_then(|v| w.entities.list.iter().find(|x| x.id == v && !x.removed)).map(|c| format!(" in a cart at {:.3} {:.4} {:.3}", c.pos.x - dx as f64, c.pos.y, c.pos.z - zf)).unwrap_or_default();
+                let what = format!("{} at {:.2} {:.4} {:.2} top {:.4}{}{cart}", if villager { "villager" } else { "entity" }, e.pos.x - dx as f64, e.pos.y, e.pos.z - zf, e.bb.max_y, if e.vehicle.is_some() { " seated" } else { "" });
+                if villager && e.vehicle.is_some() {
+                    seated.push(what);
+                } else {
+                    others.push(what);
+                }
+            }
+            // (a standing villager under the string's cell: near it but not in the band)
+            let near = w.entities.list.iter().any(|e| !e.removed && e.vehicle.is_none() && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) && e.bb.min_x < seat_band.max_x && e.bb.max_x > seat_band.min_x && e.bb.min_z < seat_band.max_z + 1.0 && e.bb.max_z > seat_band.min_z);
+            if near {
+                sl.seen_standing += 1;
+            }
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager)) {
+                if let Some(c) = e.vehicle.and_then(|v| w.entities.list.iter().find(|x| x.id == v && !x.removed)) {
+                    let (top, feet) = (e.bb.max_y, e.pos.y - c.pos.y);
+                    sl.seated_top = Some(sl.seated_top.map_or((top, top), |(a, b)| (a.min(top), b.max(top))));
+                    sl.seated_feet = Some(sl.seated_feet.map_or((feet, feet), |(a, b)| (a.min(feet), b.max(feet))));
+                }
+            }
+            if !seated.is_empty() {
+                seat_seated_last = t;
+            }
+            if on {
+                sl.on_ticks += 1;
+            }
+            if on && !seat_prev {
+                if !seated.is_empty() || t - seat_seated_last <= 2 {
+                    sl.on_seated += 1;
+                    if sl.examples.len() < 3 {
+                        sl.examples.push(format!("on at t0+{}: {}", t - t0, seated.join("; ")));
+                    }
+                } else {
+                    sl.on_other += 1;
+                    sl.examples.push(format!("ON WITHOUT A SEATED VILLAGER at t0+{}: {}", t - t0, if others.is_empty() { "nothing in the band".to_string() } else { others.join("; ") }));
+                }
+            }
+            // (a seated villager in the band two ticks running with the string off: missed)
+            if !seated.is_empty() && !on && !seat_prev && t - seat_seated_last == 0 {
+                sl.missed += 1;
+                if sl.examples.len() < 12 {
+                    sl.examples.push(format!("missed at t0+{}: {}", t - t0, seated.join("; ")));
+                }
+            }
+            seat_prev = on;
+        }
+        {
+            let sh = tee_shape(&run.world);
+            if sh != tee_prev {
+                if let Some(k) = rep.visits.len().checked_sub(1) {
+                    let v = &mut rep.visits[k];
+                    if sh == "south_east" && v.tee_out.is_none() {
+                        v.tee_out = Some(t);
+                    } else if sh == "south_west" && v.tee_out.is_some() && v.tee_back.is_none() {
+                        let x = run.world.entities.list.iter().find(|e| e.id == v.cart && !e.removed).map_or(f64::NAN, |c| c.pos.x - dx as f64);
+                        v.tee_back = Some((t, x));
+                    }
+                }
+                tee_prev = sh;
+            }
+        }
         // every villager's HOME every tick: each loss and each regain (ironspec's check reads the
         // dawn and midday counts; these say who, when, where and in which activity)
         for (n, (_, v, _)) in pairs.iter().enumerate() {
@@ -1263,14 +1648,15 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
             // the cart onto the exit branch: the reset, the visit now waiting
             if let Some(c) = w.entities.list.iter().find(|x| x.id == cart && !x.removed)
-                && c.pos.x >= 2.0
-                && c.pos.x < 3.0
-                && c.pos.z < 1.0
+                && c.pos.x >= s.tee.x as f64 + 1.0
+                && c.pos.x < s.tee.x as f64 + 2.0
+                && c.pos.z < 1.0 + zf
                 && c.delta_movement.x > 0.0
             {
                 reset_pending = true;
                 active = None;
                 waiting.push(k);
+                rep.visits[k].branch = Some(t);
             }
             if t - rep.visits[k].arrived > 2000 && active == Some(k) {
                 rep.visits[k].problem.get_or_insert("still inside 2000 gt after its arrival".into());
@@ -1282,9 +1668,9 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             for &k in &stuck {
                 let (cart, villager) = (rep.visits[k].cart, rep.visits[k].villager);
                 let c = w.entities.list.iter().find(|x| x.id == cart && !x.removed).map(|c| (c.pos, c.delta_movement, c.passengers.clone()));
-                let vp = index_of(w, villager).map(|i| w.entities.list[i].pos);
-                if let (Some((cp, cv, ps)), Some(vp)) = (c, vp) {
-                    eprintln!("stuck gt {}: cart {:.2} {:.2} {:.2} v {:.3} {:.3} riders {:?} | villager {:.2} {:.2} {:.2}", t - t0, cp.x, cp.y, cp.z, cv.x, cv.z, ps, vp.x, vp.y, vp.z);
+                let vp = index_of(w, villager).map(|i| (w.entities.list[i].pos, w.entities.list[i].boarding_cooldown, w.entities.list[i].vehicle));
+                if let (Some((cp, cv, ps)), Some((vp, cd, veh))) = (c, vp) {
+                    eprintln!("stuck gt {}: cart {:.2} {:.2} {:.2} v {:.3} {:.3} riders {:?} | villager {:.2} {:.2} {:.2} boarding cooldown {cd} vehicle {veh:?}", t - t0, cp.x, cp.y, cp.z, cv.x, cv.z, ps, vp.x, vp.y, vp.z);
                 }
             }
             if let Some(k) = active {
@@ -1298,9 +1684,9 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         let mut freed: Vec<usize> = Vec::new();
         for &k in &stuck {
             if let Some(c) = w.entities.list.iter().find(|x| x.id == rep.visits[k].cart && !x.removed)
-                && c.pos.x >= 2.0
-                && c.pos.x < 3.0
-                && c.pos.z < 1.0
+                && c.pos.x >= s.tee.x as f64 + 1.0
+                && c.pos.x < s.tee.x as f64 + 2.0
+                && c.pos.z < 1.0 + zf
                 && c.delta_movement.x > 0.0
             {
                 freed.push(k);
@@ -1352,7 +1738,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("gate", [-5, -3, -3]),
                 ("D2r", [-5, -3, -2]),
             ];
-            let now_s: Vec<String> = probes.iter().map(|(n, c)| format!("{n}={}", short_state(&w.get(BlockPos::new(c[0], c[1], c[2])).to_string()))).collect();
+            let now_s: Vec<String> = probes.iter().map(|(n, c)| format!("{n}={}", short_state(&w.get(BlockPos::new(c[0] + dx, c[1], c[2] + dz)).to_string()))).collect();
             if now_s != probe_last {
                 eprintln!("wire gt {}: {}", t - t0, now_s.join(" "));
                 probe_last = now_s;
@@ -1394,13 +1780,13 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let (villager, cart) = (rep.visits[k].villager, rep.visits[k].cart);
             let Some(ci) = w.entities.list.iter().position(|x| x.id == cart && !x.removed) else { continue };
             let c = &w.entities.list[ci];
-            let on_slot = c.pos.x >= s.slot_rails[0].x as f64 && c.pos.x < s.exit.x as f64 && c.pos.z < 1.0;
+            let on_slot = c.pos.x >= s.slot_rails[0].x as f64 && c.pos.x < s.exit.x as f64 && c.pos.z < 1.0 + zf;
             let rest = c.delta_movement.x.abs() < 1e-3 && c.delta_movement.z.abs() < 1e-3;
             let with = c.passengers.contains(&villager);
             // (the release held: the cart runs over the slot without stopping, ready and released
             // as it reaches the slot with its villager)
             if bo.release_held {
-                if c.pos.x >= s.slot_rails[0].x as f64 && c.pos.z < 1.0 {
+                if c.pos.x >= s.slot_rails[0].x as f64 && c.pos.z < 1.0 + zf {
                     if with {
                         rep.visits[k].ready = Some(t);
                         rep.visits[k].released = Some(t);
@@ -1476,7 +1862,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             out.retain(|(x, _)| *x != k);
             let cart = rep.visits[k].cart;
             let h = pairs.iter().find(|p| p.0 == cart).map(|p| p.2).unwrap_or(0);
-            let c = hold_cell(h);
+            let c = hold_at(h);
             let p = Vec3::new(c.x as f64 + 0.5, 0.0625, c.z as f64 + 0.5);
             teleport(&mut run.world, cart, p, Vec3::new(0.0, 0.0, 0.0));
             // (after the tick to t: applied before the next one, the drive's act at t)
@@ -1486,6 +1872,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     rep.errors = run.world.errors.iter().take(6).cloned().collect();
     rep.built_diff = built_diff;
     rep.build = built.as_ref().map(|b| (b.steps, b.cells, t0 - b.start));
+    rep.merged = merges.pairs.clone();
+    rep.merged_first = merges.first.clone();
     if bo.drive {
         drive.expect_end("golems 0".into());
         let flag = match bo.placement {
@@ -1512,6 +1900,17 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             format!("t0 {}", t0),
         ];
         header.extend(crate::placing::header(bo.placement, built.as_ref(), t0, &bo.plan));
+        // (an unload case: the bench's args and, for a partial one, the forced chunk box its world
+        // had from the start: chunks outside it sit at 31 plus their distance to it)
+        if let Some(u) = &bo.unload {
+            header.push(format!(
+                "unload case: {} on visit {} for {} gt{}",
+                if u.whole { format!("whole part, phase {}", u.state) } else { format!("chunks {:?} dropped, phase {}", u.drop, u.state) },
+                u.visit,
+                u.n,
+                if u.whole { String::new() } else { format!("; forced chunk box {:?} (World::entity_chunks) set at t0", u.forced) }
+            ));
+        }
         rep.drive = Some(drive.text(&header));
     }
     Ok(rep)

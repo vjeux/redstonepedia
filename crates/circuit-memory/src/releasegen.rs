@@ -64,7 +64,10 @@ fn core(b: &mut B, chain: &[It], group_to: i32) -> Result<(Vec<(i32, u8)>, i32)>
     b.on([3, y, 0], &comp("west", "subtract"))?; // B: rear S1
     b.on([3, y, -1], &comp("north", "compare"))?; // K: rear the hopper, out south into B
     b.put([3, y, -2], "minecraft:hopper[enabled=true,facing=down]")?;
-    b.nbt.insert([3, y, -2], "{Items:[{Slot:0b,id:\"minecraft:stone\",count:23}]}".into());
+    // (K = 2 with 23 items: BUSY to ~92 gt; `MCTAS_BUSY_ITEMS` measures others: 22 items read 1,
+    // BUSY ~98)
+    let busy_items: u32 = std::env::var("MCTAS_BUSY_ITEMS").ok().and_then(|v| v.parse().ok()).unwrap_or(23);
+    b.nbt.insert([3, y, -2], format!("{{Items:[{{Slot:0b,id:\"minecraft:stone\",count:{busy_items}}}]}}"));
     b.on([4, y, 0], &rep("west", 1))?; // B's output into GO's west side at full strength: GO
                                        // subtracts it from X, so BUSY must be 15 to block any X
     // ---- GO and X
@@ -288,21 +291,30 @@ fn turn2(s: &str) -> String {
 /// the module turned 180 degrees west of row B (frame: global = (-2 - x, y - 2, 10 - z)), its
 /// lines wired to the 18 queue controls head first, the tail windows (slots 1-2 ON at +88..+110,
 /// slot 0 +90..+116 from the departure) and the 21 control glass blocks replaced by stone.
-pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()> {
+pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Option<&Path>, siding_ctl: Option<&Path>, pad: Option<&Path>) -> Result<()> {
+    // (farmopt's wired pocket stand, `stand_wired=1` in the base's `queue:` line: the release
+    // staggered, see the release group below)
+    let base_meta = Design::load(loop_file)?.meta;
+    let stagger = base_meta.get("queue").is_some_and(|q| q.contains("stand_wired=1"));
     // the chain, stretched so the group line (x -5, z 15..25) and the advance line (z 27..) do not
     // touch; the advance taps 2 gt early for the feeder repeaters (+36/56/76 -> +38/58/78 at the
-    // controls); reset taps 8..44 keep the merge window to ~+58
-    let chain = [
+    // controls); reset taps 8..44 keep the merge window to ~+58. With the stagger a fourth group
+    // tap at +30 (global z 25) holds the release on to +44: the front slot's window must outlast
+    // the back cart's crossing of its slope (2 x stagger + 30 = 38 gt or more, farmopt 16:30)
+    let a1_run = if stagger { [R(1), D, R(2), S(G), D, S(A | RS)] } else { [R(1), D, R(2), D, D, S(A | RS)] };
+    let mut chain = vec![
         R(3), S(G | RS), // +8 (after the shortener C at z -5)
         R(4), S(G | RS), // +16
         R(4), S(G | RS), // +24
-        R(1), D, R(2), D, D, S(A | RS), // +30 (A1; zero skew pads every slot to row A's path)
+    ];
+    chain.extend(a1_run); // +30 (A1; zero skew pads every slot to row A's path)
+    chain.extend([
         R(4), S(RS), // +38
         R(4), S(RS), // +46
         R(1), S(RS), // +48 (10-gt copies: the merge window to + 58)
         R(1), S(A), // +50 (A2)
         R(4), R(4), R(2), S(A), // +70 (A3)
-    ];
+    ]);
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
     let at = |p: P3| -> P3 { [-2 - p[0], p[1] - 2, 10 - p[2]] };
@@ -313,17 +325,67 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     for (p, n) in &m.nbt {
         b.nbt.insert(at(*p), n.clone());
     }
+    if siding_ctl.is_some() {
+        // (a') the fallback armed at the first darkness (the parent 18:47: a farm with the bed
+        // siding gets no golem before a rider has slept, and no rider sleeps before the loop has
+        // moved): an inverted daylight detector under the open sky (glass over it: a golem's
+        // legacy spawn takes a daylight detector for a floor, never glass, and the sky light comes
+        // through) at (-23, -1, 4), its signal east along z 4 through 14 repeaters of 4 rt into
+        // ARMED's loop dust (-8, -1, 4): ARMED set 112 gt after the detector first reads darkness
+        // (dusk, rain by day, or the detector placed at night as the build's last step). The delay
+        // lets a golem that comes within ~100 gt of that moment release first, so a farm whose
+        // golems already flow locks on them with no fallback release just before (built in order
+        // with the detector going down at night, the fallback fired at once and the first golem
+        // waited out BUSY: ironspec 20:35); a fresh farm (no golem before a nap) starts 112 gt
+        // later. A golem still sets ARMED whenever one comes first. ARMED is a block-state latch:
+        // an unload and reload keeps it.
+        b.put([-23, -1, 4], "minecraft:daylight_detector[inverted=true,power=0]")?;
+        b.put([-23, 0, 4], "minecraft:glass")?;
+        for x in -22..=-9 {
+            b.on([x, -1, 4], &rep("west", 4))?;
+        }
+    }
     let golem = at(m.ports["input.golem"]);
     let a3 = at([5, 1, stones.iter().filter(|s| s.1 & A != 0).map(|s| s.0).min().unwrap_or(0)]);
     let yy = -1;
-    // ---- the release group (slots 15..17 at x -3, z 19/22/25): dust spurs east from the group line
-    for z in [19, 22, 25] {
-        b.on([-4, yy, z], DUST)?;
+    // ---- the release group (slots 15..17 at x -3, z 19/22/25): spurs east from the group line;
+    // with farmopt's wired pocket stand (`stand_wired=1`: it counts the train at D2 and needs its
+    // carts 11-13 gt apart, farmopt 16:15) the release is staggered: slot 16's spur a repeater 4
+    // gt, slot 15's 8 gt (both edges), the head's a dust; the group line then carries the release
+    // alone and the advance reaches the three controls from the east (a line along x -1, fed off
+    // the advance line at z 27 under the glass at (-3, -1, 27), each through a repeater of 8 gt:
+    // with the advance diode +8 gt for row A's zero skew)
+    if stagger {
+        b.on([-4, yy, 19], DUST)?;
+        b.on([-4, yy, 22], &rep("west", 2))?;
+        b.on([-4, yy, 25], &rep("west", 4))?;
+    } else {
+        for z in [19, 22, 25] {
+            b.on([-4, yy, z], DUST)?;
+        }
     }
     // (zero skew, ironfarm 10:16: every queue control's advance on one tick; the paths differ, so
     // each feeder's delay pads its path to the slowest (row A, release + 44): the group's advance
     // diode +6, row B's head feeders +6, slots 8-9 +4, the turn slot +2)
-    b.on([-5, yy, 26], &rep("south", 4))?; // the advance into the group net (a diode)
+    if stagger {
+        // the advance's own path to the group (see above): a repeater under the glass restores
+        // the pulses injected further down the advance line (2 gt: the feeders 6 gt, 8 in all); it
+        // climbs to y 0 along x -1 and each feeder powers the slot's rail (-3, 0, z) from the east
+        // (into the control block, a repeater would power the head's dust spur beside it: the
+        // advance back into the group line, through the stagger repeaters)
+        b.on([-4, yy - 1, 27], DUST)?;
+        b.on([-3, yy - 1, 27], &rep("west", 1))?;
+        b.on([-2, yy - 1, 27], DUST)?;
+        b.on([-1, yy, 27], DUST)?;
+        for z in (19..=26).rev() {
+            b.on([-1, yy + 1, z], DUST)?;
+        }
+        for z in [19, 22, 25] {
+            b.on([-2, yy + 1, z], &rep("east", 3))?;
+        }
+    } else {
+        b.on([-5, yy, 26], &rep("south", 4))?; // the advance into the group net (a diode)
+    }
     // ---- row B (slots 14..8 at x -3, z 28..46): the advance line on to z 46, feeders from the west
     for z in a3[2] + 1..=46 {
         if z == 41 {
@@ -459,6 +521,11 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     }
     b.on([2, -2, 30], DUST)?;
     b.on([2, -2, 31], &rep("north", 1))?;
+    // (the pocket stand (farmopt, `stand_stop=1` in the loop's `queue:` line) has its own gates: the
+    // S1/S2/S3 latches and line 4 below are dropped for it)
+    let base = Design::load(loop_file)?;
+    let pocket = base.meta.get("queue").is_some_and(|q| q.contains("stand_stop=1"));
+    let before_stand: std::collections::BTreeSet<P3> = b.blocks.keys().copied().collect();
     // ---- the stand (S1 S2 S3 at (5|2|-1,-1,0)): copper-bulb latches north of it, read by
     // comparators straight into the controls; set by REL (a tap off the REL route, 3 repeaters to a
     // common line along z -6: t0 + 4) through dust (S1: control at t0 + 6), 3 rt (S2: + 12) and
@@ -553,14 +620,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     }
     b.on([-2, 1, -3], DUST)?;
     b.on([-2, 1, -2], DUST)?;
+    if pocket {
+        b.blocks.retain(|p, _| before_stand.contains(p));
+        b.nbt.retain(|p, _| before_stand.contains(p));
+        b.ports.remove("input.stand_reset");
+    }
     // ---- merge into the loop file: the 21 controls become stone (the stand's stay unwired here)
-    let mut d = Design::load(loop_file)?;
-    let controls: [P3; 21] = [
+    let mut d = base;
+    let all_controls: [P3; 21] = [
         [0, 1, 25], [0, 0, 29], [0, -1, 33], [0, -1, 36], [0, -1, 39], [0, -1, 42], [0, -1, 45], [-1, -1, 47],
         [-3, -1, 46], [-3, -1, 43], [-3, -1, 40], [-3, -1, 37], [-3, -1, 34], [-3, -1, 31], [-3, -1, 28], [-3, -1, 25], [-3, -1, 22], [-3, -1, 19],
         [5, -1, 0], [2, -1, 0], [-1, -1, 0],
     ];
-    for c in controls {
+    let controls: &[P3] = if pocket { &all_controls[..18] } else { &all_controls[..] };
+    for &c in controls {
         match d.blocks.get(&c).map(|s| s.as_str()) {
             Some("minecraft:glass") => {
                 d.blocks.insert(c, STONE.into());
@@ -579,6 +652,61 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     for (p, n) in &b.nbt {
         d.block_entities.insert(*p, n.clone());
     }
+    // the bed siding and its junctions (pocket stand only)
+    let mut siding_cells: Vec<P3> = Vec::new();
+    // (farmopt's wired pocket stand: its REL from the controller's REL)
+    if d.meta.get("queue").is_some_and(|q| q.contains("stand_wired=1")) && std::env::var("MCTAS_NO_STAND_REL").is_err() {
+        let cells = crate::sidinggen::stand_rel(&mut d)?;
+        println!("the wired pocket stand's REL (8,-2,2): {} cells, golem +10..+50 off the controller's REL", cells.len());
+        siding_cells.extend(cells);
+    }
+    if let Some(sp) = siding {
+        if !pocket {
+            bail!("--siding needs farmopt's pocket-stand loop (stand_stop=1)");
+        }
+        let phys = crate::sidinggen::physical(&mut d, sp)?;
+        println!("siding pasted at {:?}: {} cells added; controls divert {:?}, T1 {:?}, T2 {:?}, holds {:?} (the siding's release {:?} held on)", crate::sidinggen::SIDING_AT, phys.len(), crate::sidinggen::DIVERT, crate::sidinggen::T1, crate::sidinggen::T2, crate::sidinggen::HOLDS, crate::sidinggen::RELEASE);
+        siding_cells.extend(phys);
+        if let Some(sched) = siding_ctl {
+            let more = crate::sidinggen::wire_control(&mut d, sched)?;
+            println!("siding control module at {:?}: {} cells (the scheduler, the night window, the windows, R', the visit-delay register, the routes to the 4 controls)", crate::sidinggen::MODULE_AT, more.len());
+            siding_cells.extend(more);
+        }
+    }
+    // (farmopt's portal pad, pasted at the origin, its golem pulse wired into the controller)
+    let mut pad_cells: std::collections::BTreeSet<P3> = Default::default();
+    if let Some(pp) = pad {
+        if siding_ctl.is_none() {
+            bail!("--pad needs --siding-ctl (the pad's farm is the wired farm)");
+        }
+        pad_cells = Design::load(pp)?.blocks.keys().copied().collect();
+        let cells = crate::sidinggen::wire_pad(&mut d, pp)?;
+        println!("the pad pasted at the origin ({} blocks) and its pulse (9,6,-2) wired into the controller's X: {} cells", pad_cells.len(), cells.len());
+        siding_cells.extend(cells);
+    }
+    // ---- golem spawn cells (the brief, part 1: none off the pad wherever villagers ride who may
+    // have slept): every block added here with a solid top and air over it gets a glass cover
+    // (no golem spawns on glass, nor on a block under one; glass carries no power)
+    {
+        let base_cells: std::collections::BTreeSet<P3> = Design::load(loop_file)?.blocks.keys().copied().collect();
+        // (the siding's own blocks are farmopt's: its floor is where the napper walks to the bed, a
+        // glass cover there would block it; it is left as pasted)
+        let s0 = crate::sidinggen::SIDING_AT;
+        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 4..=s0[1] + 4).contains(&p[1]) && (s0[2] - 3..=s0[2] + 9).contains(&p[2]);
+        let solid = |s: &str| ["minecraft:stone", "minecraft:redstone_block", "minecraft:dropper", "minecraft:observer", "minecraft:target", "minecraft:smooth_stone", "minecraft:waxed_copper_bulb", "minecraft:copper_bulb"].iter().any(|k| s == *k || s.starts_with(&format!("{k}[")));
+        let covers: Vec<P3> = d
+            .blocks
+            .iter()
+            .filter(|(p, s)| !base_cells.contains(*p) && !pad_cells.contains(*p) && !(siding.is_some() && in_siding(p)) && solid(s))
+            .map(|(p, _)| [p[0], p[1] + 1, p[2]])
+            .filter(|up| d.blocks.get(up).is_none_or(|s| s.ends_with(":air")))
+            .collect();
+        for c in &covers {
+            d.blocks.insert(*c, "minecraft:glass".into());
+        }
+        siding_cells.extend(covers.iter().copied());
+        println!("golem covers: {} glass blocks over the added blocks' open tops", covers.len());
+    }
     // (no ports: a mob-farm design runs by itself; the runner takes the cells as flags)
     let reset = b.ports.get("input.stand_reset").copied();
     // the probe file next to it: the controller's blocks and the 21 controls alone, the controls as
@@ -596,18 +724,89 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     // the controller's at-rest state, settled with the whole loop's blocks around it (a booster's
     // redstone block beside a wire counts), written into the loop file and the probe
     let mut sd = Design::parse("name: carousel-release-loop-settle\n")?;
-    sd.blocks = d.blocks.clone();
+    // (a pad's nether portal cells are left out: the plain redstone world does not model them, and
+    // no redstone of the loop's touches them; and the daylight detectors: the file starts as the
+    // runners settle it, with its detectors not yet placed (the night line reads day, ARMED unset))
+    sd.blocks = d.blocks.iter().filter(|(_, s)| !s.starts_with("minecraft:nether_portal") && !s.starts_with("minecraft:daylight_detector")).map(|(p, s)| (*p, s.clone())).collect();
     sd.block_entities = d.block_entities.clone();
     sd.ports.insert("input.golem".into(), golem);
     let settle_path = out.with_extension("settle.txt");
     sd.save(&settle_path)?;
-    let cells: Vec<P3> = b.blocks.keys().copied().collect();
+    let mut cells: Vec<P3> = b.blocks.keys().copied().filter(|p| sd.blocks.contains_key(p)).collect();
+    cells.extend(siding_cells.iter().copied().filter(|p| sd.blocks.contains_key(p)));
     let settled = settle(&settle_path, &cells);
     let _ = std::fs::remove_file(&settle_path);
     let (states, outs) = settled?;
+    {
+        let changed: Vec<String> = siding_cells.iter().filter_map(|p| states.get(p).filter(|s| d.blocks.get(p) != Some(*s)).map(|s| format!("{p:?} {} -> {s}", d.blocks.get(p).map(|x| x.as_str()).unwrap_or("air")))).collect();
+        if !changed.is_empty() {
+            println!("settling changed {} siding/junction cells:", changed.len());
+            for c in &changed {
+                println!("  {c}");
+            }
+        }
+    }
     apply_settled(&mut d, &states, &outs);
     apply_settled(&mut probe, &states, &outs);
+    // (with the siding's control module: a probe of the whole file for `release-trace`, its night
+    // forced (the daylight detector taken out), no entities, the controls and taps as ports)
+    if siding_ctl.is_some() {
+        let mut sp = Design::parse("name: carousel-siding-probe\n")?;
+        sp.blocks = d.blocks.iter().filter(|(_, s)| !s.starts_with("minecraft:nether_portal")).map(|(p, s)| (*p, s.clone())).collect();
+        sp.block_entities = d.block_entities.clone();
+        let det = crate::sidinggen::DETECTOR;
+        // (night forced: a redstone block for the inverted detector, 15 = night;
+        // `MCTAS_PROBE_KEEP_DETECTOR` keeps it, to check the day line: release-trace's frozen day
+        // time 0, sunrise, reads 0 under open sky: day, no visit)
+        if std::env::var("MCTAS_PROBE_KEEP_DETECTOR").is_err() {
+            sp.blocks.insert(det, "minecraft:redstone_block".into());
+        }
+        let m = |q: P3| [q[0] + crate::sidinggen::MODULE_AT[0], q[1] + crate::sidinggen::MODULE_AT[1], q[2] + crate::sidinggen::MODULE_AT[2]];
+        sp.ports.insert("input.golem".into(), golem);
+        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", [20, -6, 9]), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-16, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-11, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", [-27, -1, 5]), ("fa_rel", [-25, -1, 4]), ("thr", [-56, 1, -19]), ("lock", [-55, 1, -20]), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", [18, -6, 10]), ("g2_loc", [20, -6, 9])] {
+            sp.ports.insert(format!("output.{n}"), q);
+        }
+        if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {
+            for (n, q) in [("r15", [-3, 0, 25]), ("r16", [-3, 0, 22]), ("r17", [-3, 0, 19]), ("q14", [-3, -1, 28]), ("q15", [-3, -1, 25]), ("q16", [-3, -1, 22]), ("q17", [-3, -1, 19]), ("q00", [0, 1, 25]), ("q01", [0, 0, 29]), ("q02", [0, -1, 33]), ("q03", [0, -1, 36]), ("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", [23, -6, 7]), ("row1", [23, -6, 1]), ("row_5", [23, -6, -5]), ("step_in", [20, -4, 12]), ("step_end", [28, -5, 6]), ("ring_top", [27, -5, 4]), ("p0", [22, -6, 9]), ("p1", [22, -6, 3]), ("p2", [22, -6, -3]), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
+                sp.ports.insert(format!("output.{n}"), q);
+            }
+        }
+        sp.save(&out.with_extension("siding-probe.txt"))?;
+        // and the whole file with day forced (the inverted detector taken out: no night signal, no
+        // visit ever), for the daytime loop checks (`queue-loop-run` knows nothing of visits)
+        let mut dd = d.clone();
+        dd.blocks.remove(&det);
+        dd.save(&out.with_extension("day.txt"))?;
+    }
     probe.save(&out.with_extension("probe.txt"))?;
+    // (every daylight detector arms the controller: the inverted one its fallback (a'), the night
+    // latch's its visits. A listed place-last step, after every other cell (ironspec 20:35: a
+    // player placing one mid-build gets a controller running in a half-built farm for the build's
+    // ~2.75 days); the built-in-order check follows the list, and the page's build steps show it.
+    // Before them, R'' (its six containers with their two items, then the seven dusts on them):
+    // built in order with its stock filled as placed, a pulse of its half-built step line left an
+    // item in a locked hopper and the first visit opened two windows; its containers alone placed
+    // last left the dusts on them shaped without their supports (R'' never stepped). Containers,
+    // then dusts, onto quiet wiring: it comes up at rest)
+    let dets: Vec<[i32; 3]> = d.blocks.iter().filter(|(_, b)| b.starts_with("minecraft:daylight_detector")).map(|(p, _)| *p).collect();
+    {
+        let toks: Vec<String> = d.meta.get("build").map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default();
+        let fills = toks.iter().any(|t| t == "fills-last");
+        let mut cells: Vec<String> = toks.into_iter().filter(|t| t != "last" && t != "fills-last").collect();
+        let rpp: [[i32; 3]; 13] = [[27, -6, 4], [28, -6, 5], [26, -6, 5], [26, -6, 4], [28, -6, 4], [27, -6, 5], [26, -5, 4], [27, -5, 4], [28, -5, 4], [26, -5, 5], [27, -5, 5], [28, -5, 5], [28, -5, 6]];
+        let ring: Vec<[i32; 3]> = rpp.iter().copied().filter(|p| d.blocks.get(p).is_some_and(|b| b.starts_with("minecraft:dropper") || b.starts_with("minecraft:hopper") || b.starts_with("minecraft:redstone_wire"))).collect();
+        for p in ring.iter().chain(&dets) {
+            let c = format!("{},{},{}", p[0], p[1], p[2]);
+            if !cells.contains(&c) {
+                cells.push(c);
+            }
+        }
+        let mut line = format!("last {}", cells.join(" "));
+        if fills {
+            line.push_str(" fills-last");
+        }
+        d.meta.insert("build".into(), line);
+    }
     d.name = "carousel-release-loop-wired".into();
     d.save(out)?;
     println!("{}: {} blocks ({} the controller's), golem input at {:?}, stand reset at {:?}", out.display(), d.blocks.len(), b.blocks.len(), golem, reset);

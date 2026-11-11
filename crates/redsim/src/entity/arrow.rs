@@ -53,8 +53,9 @@ pub struct ArrowState {
     pub last_deflected_by: Option<u32>,
     /// A tipped arrow's effect (a stray's slowness, a bogged's poison).
     pub effect: Option<&'static str>,
-    /// Fired from an enchanted bow (its enchantments' damage, knockback and fire).
-    pub enchanted_weapon: bool,
+    /// (mob-AI 2026-11-10) The bow's enchantments it was fired from (`firedFromWeapon`): power's
+    /// damage, punch's knockback (flame set it on fire at its spawn); None: no weapon (a dispenser's).
+    pub weapon_ench: Option<Vec<(&'static str, i32)>>,
     /// This tick's fluid effects (`FlowingFluid.entityInside`): lava's LAVA_IGNITE, water's
     /// EXTINGUISH ([`with_block_effects`]).
     pub inside_lava: bool,
@@ -162,9 +163,11 @@ fn lerp_rotation(mut rot_o: f32, rot: f32) -> f32 {
 }
 
 /// `AbstractSkeleton.performRangedAttack(target, power)` from mob `i` at entity `t` (the arrow's
-/// part, then the shooter's sound): returns the arrow's id.
-pub fn shoot_from_mob(w: &mut World, i: usize, t: usize, power: f32, effect: Option<&'static str>, enchanted_weapon: bool) -> u32 {
-    let state = ArrowState { effect, enchanted_weapon, ..Default::default() };
+/// part, then the shooter's sound): returns the arrow's id. `bow`: the bow's enchantments (the
+/// arrow's constructor: flame's `projectile_spawned` ignites it, igniteForSeconds(100)).
+pub fn shoot_from_mob(w: &mut World, i: usize, t: usize, power: f32, effect: Option<&'static str>, bow: &[(&'static str, i32)]) -> u32 {
+    let fire = if bow.iter().any(|&(e, _)| e == "flame") { 2000 } else { 0 };
+    let state = ArrowState { effect, weapon_ench: Some(bow.to_vec()), fire, ..Default::default() };
     launch(w, i, t, state, Some(power))
 }
 
@@ -565,12 +568,18 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
         refuse(w, "an arrow hitting a boat, a minecart, an armor stand or primed TNT is not modeled");
         return;
     }
-    if st(w, i).enchanted_weapon {
-        w.mob.ai.legacy.insert("an arrow from an enchanted bow (its enchantments' damage, knockback and fire)");
-    }
     let motion = w.entities.list[i].delta_movement;
     let pow = motion.length() as f32;
-    let damage = jceil((pow as f64 * st(w, i).base_damage).clamp(0.0, 2.147483647e9));
+    // (mob-AI 2026-11-10) a fired-from weapon's EnchantmentHelper.modifyDamage on the base damage
+    // as a float (power's 1 + 0.5 a level), then ceil(pow x it)
+    let arrow_damage = match st(w, i).weapon_ench.clone() {
+        Some(ench) => {
+            let victim = crate::entity::mob::mob(w, j).ty.def().id;
+            crate::entity::mob::ai::attack::enchant_damage(&ench, victim, true, st(w, i).base_damage as f32) as f64
+        }
+        None => st(w, i).base_damage,
+    };
+    let damage = jceil((pow as f64 * arrow_damage).clamp(0.0, 2.147483647e9));
     let owner = st(w, i).owner.filter(|&o| crate::entity::index_of(w, o).is_some_and(|k| !w.entities.list[k].removed));
     // the owner's setLastHurtMob
     if let Some(o) = owner
@@ -583,12 +592,13 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
         EntityKind::Mob(m) => m.fire_ticks,
         _ => 0,
     };
-    // a burning arrow: `igniteForSeconds(5)` (100 ticks at least) before the hurt
+    // a burning arrow: `igniteForSeconds(5)` (100 ticks at least, x BURNING_TIME) before the hurt
+    let t100 = if matches!(w.entities.list[j].kind, EntityKind::Mob(_)) { crate::entity::mob::ignite_ticks(w, j, 100) } else { 100 };
     if st(w, i).fire > 0
         && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
-        && m.fire_ticks < 100
+        && m.fire_ticks < t100
     {
-        m.fire_ticks = 100;
+        m.fire_ticks = t100;
     }
     let enderman = matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.ty.def().id == "enderman");
     let hurt = if enderman && w.entities.list[j].vehicle.is_none() {
@@ -606,8 +616,33 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
         r
     };
     if hurt {
+        // (mob-AI 2026-11-10) doKnockback: punch's knockback along the arrow's sideways motion
+        // (x 0.6 x the knockback resistance's complement), `push(x, 0.1, z)`
+        let punch = st(w, i).weapon_ench.as_ref().map_or(0, |e| e.iter().find(|&&(id, _)| id == "punch").map_or(0, |&(_, l)| l));
+        if punch > 0 && matches!(w.entities.list[j].kind, EntityKind::Mob(_)) {
+            let res = (1.0 - crate::entity::mob::ai::attack::knockback_resistance(w, j)).max(0.0);
+            let flat = Vec3::new(motion.x, 0.0, motion.z);
+            let len = flat.length();
+            if len >= 1.0e-5f32 as f64 {
+                let s = (1.0f32 + 1.0f32 * (punch - 1) as f32) as f64 * 0.6 * res;
+                let (mx, mz) = (flat.x / len * s, flat.z / len * s);
+                if mx * mx + mz * mz > 0.0 {
+                    let e = &mut w.entities.list[j];
+                    e.delta_movement = e.delta_movement.add(mx, 0.1, mz);
+                }
+            }
+        }
         if let Some(e) = st(w, i).effect {
             w.mob.ai.legacy.insert(e);
+        }
+        // (mob-AI 2026-11-10) doPostHurtEnemy: thorns armor's post-attack effect on the shooter
+        if let EntityKind::Mob(m) = &w.entities.list[j].kind
+            && m.armor.has(m.helmet.is_some(), "thorns")
+        {
+            let why = "an arrow on thorns armor (its post-attack effect) is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
         }
         // the hit sound's pitch, then gone
         if let Some(r) = w.entities.list[i].random.as_mut() {

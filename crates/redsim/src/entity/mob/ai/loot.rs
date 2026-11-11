@@ -213,7 +213,7 @@ fn pick_up_item(w: &mut World, i: usize, j: usize, item: &str, count: u8) {
     }
     {
         let m = mob_mut(w, i);
-        m.mainhand = Some(Held { item: item.to_string(), count, guaranteed: true, enchanted: false });
+        m.mainhand = Some(Held { item: item.to_string(), count, guaranteed: true, enchanted: false, ench: Vec::new() });
         m.persistence_required = true;
     }
     // setItemSlot -> onEquipItem: a skeleton reassesses its weapon goal
