@@ -450,7 +450,7 @@ impl Picks<'_> {
 /// What a touched file under designs/ picks: the recorded pieces when a recording was made from
 /// it or it is one, the checks that read it (calibration and selftest files), the archive tables
 /// check for a table, and its own judge for a design (pushed to `designs`). Returns the plan line.
-fn pick_design_file(f: &str, p: &mut Picks, rec_deps: &BTreeMap<String, Vec<String>>, designs: &mut Vec<String>) -> String {
+fn pick_design_file(f: &str, p: &mut Picks, rec_deps: &BTreeMap<String, Vec<String>>, designs: &mut Vec<String>, lints: &mut Vec<String>) -> String {
     let mut what: Vec<String> = Vec::new();
     if let Some(recs) = rec_deps.get(f) {
         p.group(Group::Sim, &[], &format!("{f}: a recording was made from it"));
@@ -478,6 +478,12 @@ fn pick_design_file(f: &str, p: &mut Picks, rec_deps: &BTreeMap<String, Vec<Stri
         designs.push(f.to_string());
         what.push(format!("its own judge ({study})"));
     }
+    // (every changed layout with redstone wire: the capped-climb check, ironspec 2026-11-11 09:58:
+    // a router change must not cut a route unseen; `--no-stair-lint` opts out)
+    if !calibration && f.ends_with(".txt") && is_wired_layout(f) {
+        lints.push(f.to_string());
+        what.push("lint:stair-lint (capped climbs that cut a read net from its driver)".into());
+    }
     if what.is_empty() {
         let why = if !Path::new(f).exists() { "deleted; no piece reads it" } else if calibration { "a calibration, selftest or test-fixture file no piece reads" } else { "not a design a judge takes; no piece reads it" };
         format!("  {f} -> nothing ({why})")
@@ -487,8 +493,9 @@ fn pick_design_file(f: &str, p: &mut Picks, rec_deps: &BTreeMap<String, Vec<Stri
 }
 
 /// Pick the pieces of a change: `files` (None: git could not say, so everything), explicit
-/// `groups` and `designs`, or `everything` (`--all`). The plan's lines go to `out`.
-pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], everything: bool, out: &mut Vec<String>) -> Vec<Piece> {
+/// `groups` and `designs`, or `everything` (`--all`). The plan's lines go to `out`. `stair_lint`:
+/// the capped-climb check on every changed wired layout (on by default; `--no-stair-lint`).
+pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], everything: bool, stair_lint: bool, out: &mut Vec<String>) -> Vec<Piece> {
     let all = checks();
     let mut p = Picks { all: &all, why: BTreeMap::new() };
     if everything {
@@ -502,9 +509,10 @@ pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], ever
     }
     let rec_deps = recording_deps();
     let mut designs: Vec<String> = designs.to_vec();
+    let mut lints: Vec<String> = Vec::new();
     for f in files.unwrap_or(&[]) {
         if f.starts_with("designs/") {
-            let line = pick_design_file(f, &mut p, &rec_deps, &mut designs);
+            let line = pick_design_file(f, &mut p, &rec_deps, &mut designs, &mut lints);
             out.push(line);
             continue;
         }
@@ -554,7 +562,36 @@ pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], ever
             pieces.push(piece);
         }
     }
+    if stair_lint && !lints.is_empty() {
+        pieces.push(stair_lint_piece(&lints));
+    } else if !lints.is_empty() {
+        out.push(format!("  lint:stair-lint skipped (--no-stair-lint) on {} changed layout(s)", lints.len()));
+    }
     pieces
+}
+
+/// A design file with redstone wire in it (a layout a route can cut).
+fn is_wired_layout(path: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else { return false };
+    let is_design = text.lines().any(|l| l.trim_start().starts_with("palette:")) && text.lines().any(|l| l.trim_start().starts_with("layer "));
+    is_design && text.contains("minecraft:redstone_wire")
+}
+
+/// The capped-climb check on the changed wired layouts as one piece: `circuit memory stair-lint`,
+/// PASS iff its total line reports 0 broken routes.
+fn stair_lint_piece(files: &[String]) -> Piece {
+    let mut argv: Vec<String> = vec!["?circuit".into(), "memory".into(), "stair-lint".into()];
+    argv.extend(files.iter().cloned());
+    let pred: crate::selftest::Pred = Box::new(|o: &[String]| {
+        let total = o[0].lines().find(|l| l.starts_with("total: ")).map(|l| l.to_string());
+        match total {
+            Some(t) if t.ends_with(" 0 broken routes") => Ok(t),
+            Some(t) => Err(format!("{t}: {}", o[0].lines().filter(|l| l.contains("BROKEN ROUTE")).map(|l| l.trim()).collect::<Vec<_>>().join("; "))),
+            None => Err(format!("no total line: {}", crate::selftest::tail(&o[0]))),
+        }
+    });
+    let check = Check { name: "lint:stair-lint".into(), what: "the capped-climb check on the changed wired layouts (a read net cut from its driver by a capped climb)", quick: true, jvm: false, steps: vec![argv], timeout: 600, pred };
+    Piece { check, group: "lint".into(), workers: 0, cpu: 1, cost: 5, why: files.iter().map(|f| format!("{f}: a changed wired layout")).collect() }
 }
 
 /// A design's own judge as a piece.
