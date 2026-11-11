@@ -3358,6 +3358,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the brief's "No derails": the design's declared states and flights, checked by the
             // bench; a siding file without the lines declares nothing)
             let declared = crate::declared::parse(c.clock.design.meta.get("declared").map(|s| s.as_str()).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
+            let resync_meta: Option<[i32; 3]> = c.clock.design.meta.get("resync").and_then(|s| { let v: Vec<i32> = s.split_whitespace().filter_map(|x| x.parse().ok()).collect(); (v.len() == 3).then(|| [v[0], v[1], v[2]]) });
             let flights = crate::flight::parse(c.clock.design.meta.get("flights").map(|s| s.as_str()).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
             anyhow::ensure!(turn == 0 || unload.is_none(), "--unload on a turned design: its chunk boxes are the unturned frame's");
             let two_i = |s: &str| -> Result<(i64, i64)> {
@@ -3369,7 +3370,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let fault_opt: Option<(String, usize)> = match &fault {
                 Some(f) => {
                     let (k, n) = f.split_once(':').ok_or_else(|| anyhow::anyhow!("--fault KIND:K"))?;
-                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double", "no-drop", "bed-taken"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra, f-double, no-drop or bed-taken");
+                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double", "no-drop", "bed-taken", "b-sleep", "b-wake", "b-extra", "b-nap", "b-delay"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra, f-double, no-drop, bed-taken, or B's bulb flipped: b-sleep, b-wake (a missed pulse), b-extra, b-nap, b-delay (an extra pulse)");
                     Some((k.to_string(), n.parse()?))
                 }
                 None => None,
@@ -3381,14 +3382,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(u) if u.starts_with("whole,") => {
                     let p: Vec<&str> = u.split(',').map(|x| x.trim()).collect();
                     anyhow::ensure!(p.len() == 3 || p.len() == 4, "--unload whole,STATE,N[,K]");
-                    anyhow::ensure!(STATES.contains(&p[1]), "--unload STATE: one of {STATES:?}");
+                    anyhow::ensure!(STATES.contains(&p[1].split('+').next().unwrap_or("")), "--unload STATE[+D]: one of {STATES:?}");
                     Some(crate::siding::Unload { forced: [0, 0, -1, -1], drop: [0, 0, -1, -1], state: p[1].to_string(), n: p[2].parse()?, visit: p.get(3).map(|k| k.parse()).transpose()?.unwrap_or(3), whole: true, order: Default::default() })
                 }
                 Some(u) if !u.contains("matrix") => {
                     let p: Vec<&str> = u.split(',').map(|x| x.trim()).collect();
                     anyhow::ensure!(p.len() == 5 || p.len() == 6, "--unload LINE,SIDE,LEVEL,STATE,N[,K]");
                     let (forced, drop) = crate::siding::unload_boxes(p[0], p[1], p[2].parse()?).map_err(|e| anyhow::anyhow!(e))?;
-                    anyhow::ensure!(STATES.contains(&p[3]), "--unload STATE: one of {STATES:?}");
+                    anyhow::ensure!(STATES.contains(&p[3].split('+').next().unwrap_or("")), "--unload STATE[+D]: one of {STATES:?}");
                     Some(crate::siding::Unload { forced, drop, state: p[3].to_string(), n: p[4].parse()?, visit: p.get(5).map(|k| k.parse()).transpose()?.unwrap_or(3), whole: false, order: Default::default() })
                 }
                 _ => None,
@@ -3437,7 +3438,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone() });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -3517,7 +3518,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&(c, seed)) = work.get(j) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone() });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta });
                             out.lock().unwrap().push((c, seed, r));
                         });
                     }
@@ -3771,6 +3772,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("position audit: the napper awake and not riding inside the siding {aw} ticks, off the free cell {off}{}; carts leaving the bed line with their napper {kb}, without {ke}", if offs.is_empty() { String::new() } else { format!(" ({})", offs.join("; ")) });
                 let st = oks.iter().fold([0i64; 3], |a, r| [a[0].max(r.stamp_max[0]), a[1].max(r.stamp_max[1]), a[2].max(r.stamp_max[2])]);
                 println!("oldest CANT_REACH stamp (bar <= 1,000 gt): in the siding {} gt, on the bench's approach {} gt, in the bench's enclosed hold {} gt (its flee paths never reach: a bench artifact)", st[0], st[1], st[2]);
+                // (farmopt 06:08, a standard line: carts back to the loop without their napper)
+                let riderless: Vec<String> = oks
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(i, r)| r.visits.iter().enumerate().filter_map(move |(k, v)| v.riderless.map(|(t, p, asleep)| format!("run {} visit {k} at t0+{t}, the napper at {:.2} {:.2} {:.2} (local){}", i + 1, p[0], p[1], p[2], if asleep { " asleep" } else { "" }))))
+                    .collect();
+                println!("riderless carts returned to the loop: {}{}", riderless.len(), if riderless.is_empty() { String::new() } else { format!(" ({})", riderless.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) });
                 // (farmopt 03:55: per napped visit, the wake, the napper's first step off the free
                 // cell after it, the kicked cart's arrival at the free cell, and their margin)
                 let mut margins: Vec<i64> = Vec::new();

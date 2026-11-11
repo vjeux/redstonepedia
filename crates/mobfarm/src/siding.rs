@@ -618,6 +618,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
     let bulb = "waxed_copper_bulb[lit=false,powered=false]";
     let cmp = |f: &str| format!("comparator[facing={f},mode=compare,powered=false]");
+    let sub = |f: &str| format!("comparator[facing={f},mode=subtract,powered=false]");
     // (a block under, unless one is there; then the part, on an empty cell)
     let on = |b: &mut Builder, c: [i32; 3], part: &str| -> Result<()> {
         let below = [c[0], c[1] - 1, c[2]];
@@ -656,44 +657,87 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     for x in -5..=0 {
         swap(b, [x, -3, 9], &rep("west", if x <= -1 { 4 } else { 1 }))?;
     }
-    // B now, the second bulb under the S dust, into the chain's end through (1,-2,8)
-    swap(b, [0, -1, 5], bulb)?;
-    on(b, [0, -1, 6], &cmp("north"))?;
-    on(b, [0, -1, 7], &rep("north", 1))?;
+    // B now: B itself (one bulb, one resync), into the chain's end through (1,-2,8): B's line
+    // branches at its stair's foot (-4,-3,6) down to the N line (-4,-4,7), (-4,-5,8), which carries
+    // it both ways: down to N's repeater and up the N stair to (0,-1,8), whose block feeds the
+    // repeater (1,-2,8) into the chain's end. (A second bulb under the S dust had no free face for
+    // its resync gate.)
     on(b, [0, -1, 8], dust)?;
     on(b, [1, -2, 8], &rep("west", 1))?;
-    // step 2, the fast path (an F visit, no nap: the kick at once on H):
-    // - N, "a nap this visit": a locked repeater. Nr (-1,-6,8) takes B now (CB2's line, down a
-    //   stair (-1,-2,8), (-2,-3,8), (-3,-4,8), (-3,-5,9), (-2,-5,9), (-1,-6,9)), and H locks it
-    //   (the lock repeater (-2,-6,8) into its side, H down to it off FA's stair): H rises while
-    //   the napper sleeps (about 26 gt after the onset), so a napped visit locks N on and an F
-    //   visit locks it off; H falling at the return unlocks it, back to B (off). (Not a dropper
-    //   latch: droppers are conductors, so power into one also fires its neighbour.)
-    // - FA (-1,-6,7) = H - N (H down a stair off the H line at (-1,-3,5), into FA's back block
-    //   (-2,-6,7)); FAST into (0,-6,7), up a two-torch tower (0,-5,7), (0,-3,7) into (0,-2,7).
-    // - SC (2,-2,7), a subtract comparator before BK: back the chain's end (not-X delayed or B
-    //   now), side FAST through (1,-2,7): BK = SC or L, so K = (X delayed and not-B now, or FAST)
-    //   and not-L.
+    // (the two-torch tower's top block, under nothing now: FAST's block for SC's side repeater)
+    put(b, [0, -2, 7], "stone")?;
+    put(b, [0, -1, 7], "glass")?;
+    on(b, [-4, -4, 7], dust)?;
+    // the dawn/dusk resync (ironspec 05:47, day-1's pulse from its daylight stair, 05:53): a pulse
+    // into P (-4,1,4) turns off the wall torch (-4,1,3) on it (not-RS), whose repeater (-4,1,2)
+    // feeds the side of G (-4,1,1), a subtract comparator with B at its back (dust up from B's
+    // line at (-5,0,2) to (-5,1,1)): G = B and RS, east into dust (-3,1,1), (-2,1,1) and onto the
+    // bulb (-2,1,2): a lit bulb at a resync toggles off, an unlit one ignores it. CB's output
+    // block (-4,0,2) is stone (strongly powered: B's dust beside it), the repeater on it.
+    swap(b, [-4, 0, 2], "stone")?;
+    on(b, [-5, 1, 1], dust)?;
+    on(b, [-4, 1, 1], &sub("west"))?;
+    on(b, [-3, 1, 1], dust)?;
+    on(b, [-2, 1, 1], dust)?;
+    swap(b, [-2, 1, 2], dust)?;
+    put(b, [-4, 1, 2], &rep("south", 1))?;
+    put(b, [-4, 1, 4], "stone")?;
+    put(b, [-4, 1, 3], "redstone_wall_torch[facing=north,lit=true]")?;
+    put(b, [-4, 2, 4], "glass")?;
+    b.d.meta.insert("resync".into(), "-4 1 4".into());
+    // step 2's FAST unit is described above; the old comment block follows for the record
+    // (superseded: N fed B now from a second bulb, FA = H - N at (-1,-6,7))
     // - L into BK from the east (its dust no longer joins the chain's end).
-    let sub = |f: &str| format!("comparator[facing={f},mode=subtract,powered=false]");
+    // step 2, the fast path (an F visit, no nap: the kick on F itself), a unit at y -6:
+    // - FA (0,-6,6), a subtract comparator facing north: back F, side N, out south into the
+    //   two-torch tower's block (0,-6,7) -> (0,-5,7), (0,-3,7) -> (0,-2,7), SC's side repeater.
+    //   FAST = F - N (ironspec 05:47 item 2's B faults: with FAST = H - N, a missed sleep pulse
+    //   left N off and kicked at H's rise, inside the boarding cooldown: the cart stalled against
+    //   the standing napper for good). F comes 150-170 gt after the arrival, long past the
+    //   cooldown, and K still needs H (BK has not-H).
+    // - N, "a nap this visit": a repeater (1,-6,6) facing east into FA's side, fed B at its back
+    //   (2,-6,6) and locked by H through the repeater (1,-6,5) into its side: H rises while the
+    //   napper sleeps (about 26 gt after the onset), so a napped visit locks N on, an F visit off;
+    //   H falling at the return unlocks it. (Not a dropper latch: droppers are conductors.)
+    // - F: tapped beside its input cell by two repeaters (-4,-3,-4), (-3,-3,-4), down to y -5,
+    //   south down x -3 (a repeater at z 0), east along z 5 at y -6 into FA's back (0,-6,5).
+    // - H: off the H line at (-1,-3,1) down east (0,-4,1), (1,-5,1), (1,-6,2), south to the lock.
+    // - B: the B line's N branch (-4,-4,7), (-4,-5,8), (-4,-6,9), east along z 9 at y -6
+    //   (repeaters at x -3 and 1), north up x 2 to N's back (2,-6,6); up the stair from (-4,-5,8)
+    //   to (0,-1,8) it is B now at the chain's end.
+    // - SC (2,-2,7), a subtract comparator before BK: back the chain's end (not-X delayed or B
+    //   now), side FAST through (1,-2,7): BK = SC or L or not-H, so K = (X delayed and not-B now,
+    //   or FAST) and not-L and H.
     on(b, [-1, -2, 8], dust)?;
     on(b, [-2, -3, 8], dust)?;
     on(b, [-3, -4, 8], dust)?;
-    // (down under the chain's z 9 line: its supports at y -4 would cut a step there)
     on(b, [-4, -5, 8], dust)?;
     on(b, [-4, -6, 9], dust)?;
-    for x in -4..=-1 {
-        on(b, [x, -6, 10], dust)?;
+    for x in -3..=2 {
+        on(b, [x, -6, 9], &if x == -3 || x == 1 { rep("west", 1) } else { dust.to_string() })?;
     }
-    on(b, [-1, -6, 9], dust)?;
-    on(b, [-1, -6, 8], &rep("south", 1))?;
-    on(b, [-3, -6, 7], dust)?;
-    on(b, [-3, -6, 8], dust)?;
-    on(b, [-2, -6, 8], &rep("west", 1))?;
-    on(b, [-1, -6, 7], &sub("west"))?;
-    on(b, [-1, -4, 6], dust)?;
-    on(b, [-2, -5, 6], dust)?;
-    on(b, [-2, -5, 7], dust)?;
+    on(b, [2, -6, 8], dust)?;
+    on(b, [2, -6, 7], dust)?;
+    on(b, [2, -6, 6], dust)?;
+    on(b, [1, -6, 6], &rep("east", 1))?;
+    on(b, [0, -6, 6], &sub("north"))?;
+    on(b, [1, -6, 5], &rep("north", 1))?;
+    on(b, [0, -4, 1], dust)?;
+    on(b, [1, -5, 1], dust)?;
+    for z in 2..=4 {
+        on(b, [1, -6, z], dust)?;
+    }
+    on(b, [-4, -3, -4], &rep("west", 1))?;
+    on(b, [-3, -3, -4], &rep("west", 1))?;
+    on(b, [-2, -3, -4], dust)?;
+    on(b, [-2, -4, -5], dust)?;
+    on(b, [-3, -5, -5], dust)?;
+    for z in -4..=4 {
+        on(b, [-3, -5, z], &if z == 0 { rep("north", 1) } else { dust.to_string() })?;
+    }
+    for x in -3..=0 {
+        on(b, [x, -6, 5], dust)?;
+    }
     put(b, [0, -6, 7], "stone")?;
     put(b, [0, -5, 7], "redstone_torch[lit=true]")?;
     put(b, [0, -4, 7], "stone")?;
@@ -1315,6 +1359,9 @@ pub struct BenchOpts {
     /// design's own coordinates (the bench shifts them with the world).
     pub declared: Vec<crate::declared::Decl>,
     pub flights: Vec<crate::flight::Flight>,
+    /// The dawn/dusk resync's input block (the design's `resync:` line, local): the bench powers it
+    /// for 12 gt at day times 1,000 and 11,000 (day-1's daylight-stair pulse).
+    pub resync: Option<[i32; 3]>,
 }
 
 /// A partial unload of the bench's world ([`BenchOpts::unload`]): the forced chunk box (chunk
@@ -1435,6 +1482,9 @@ pub struct VisitRec {
     pub kick_at_fc: Option<i64>,
     /// The napper asleep again with its cart gone (out past the exit): a fail.
     pub asleep_cart_gone: bool,
+    /// (farmopt 06:08, a standard line) The cart reached the slot without its napper: the tick,
+    /// the napper's position (local) and whether it slept then.
+    pub riderless: Option<(i64, [f64; 3], bool)>,
 }
 
 /// What the bench measured.
@@ -1608,6 +1658,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     };
     let hold_at = |h: i32| fr.cell(hold_cell(h));
     let force_cell = fr.blk(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]);
+    let resync_cell = bo.resync.map(|c| fr.blk(c[0], c[1], c[2]));
     let ro = RunOpts { ai: true, ..RunOpts::steady(bo.seed, bo.nights * 24000 + 24000, WalkMode::Random) };
     // (the judge's placement and the settle; the raw paste; or built in order)
     let (mut run, built) = crate::placing::start(spec, &ro, bo.placement, &bo.plan)?;
@@ -1797,12 +1848,18 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 next_visit = Some(now + 20);
             } else if bo.divert_gate && {
                 // (the divert gate, emulated: V set, or B, the bed occupied (ideal: the bed's own
-                // state), holds the scheduled visit back; ironspec 2026-11-11: V or B)
+                // state), holds the scheduled visit back; ironspec 2026-11-11: V or B. With design
+                // (b) wired, B is its bulb (-2,0,2): day-1's gate reads the siding's B, wrong or
+                // right, ironspec 05:47 item 1(b))
                 let v = match run.world.get(fr.blk(0, -1, -1)) {
                     Block::Bulb { lit, .. } => lit,
                     _ => matches!(run.world.get(fr.blk(-1, -1, -1)), Block::Comparator { powered: false, .. }),
                 };
-                v || matches!(run.world.get(bed), Block::Bed { occupied: true, .. })
+                let b_wired = match (bo.resync.is_some(), run.world.get(fr.blk(-2, 0, 2))) {
+                    (true, Block::Bulb { lit, .. }) => Some(lit),
+                    _ => None,
+                };
+                v || b_wired.unwrap_or_else(|| matches!(run.world.get(bed), Block::Bed { occupied: true, .. }))
             } {
                 rep.held_back.push(now);
                 if let Some(at) = bo.v_reset {
@@ -1995,7 +2052,42 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         }
                     }
                 }
+                // (farmopt 05:47 / ironspec 05:47 item 2, B's bulb faults: the bench flips the bulb
+                // once (its lit state) at a phase: right after the sleep's or the wake's own toggle
+                // (a missed pulse), or as an extra pulse before the arrival, mid-nap or inside the
+                // after-wake delay; written to the drive)
+                "b-sleep" | "b-wake" | "b-extra" | "b-nap" | "b-delay" => {
+                    let at = match kind.as_str() {
+                        "b-sleep" => v.slept.map(|x| x + 3),
+                        "b-wake" => v.woken.map(|x| x + 3),
+                        "b-extra" => Some(v.sent + 5),
+                        "b-nap" => v.slept.map(|x| x + 10),
+                        _ => v.woken.map(|x| x + 30),
+                    };
+                    if at == Some(now) {
+                        let c = fr.blk(-2, 0, 2);
+                        let st = run.world.get(c).to_string().trim_start_matches("minecraft:").to_string();
+                        if st.starts_with("waxed_copper_bulb") {
+                            let flipped = if st.contains("lit=true") { st.replace("lit=true", "lit=false") } else { st.replace("lit=false", "lit=true") };
+                            set(&mut run.world, c, &flipped);
+                            drive.act(now, format!("set {} {} {} minecraft:{flipped}", c.x, c.y, c.z));
+                        }
+                    }
+                }
                 _ => {}
+            }
+        }
+        // (the dawn/dusk resync, bench-driven as day-1's daylight-stair pulse: P a redstone block
+        // for 12 gt at day times 1,000 and 11,000)
+        if let Some(p) = resync_cell {
+            let dt = run.world.day_time().rem_euclid(24000);
+            if dt == 1000 || dt == 11000 {
+                set(&mut run.world, p, "redstone_block");
+                drive.act(now, format!("set {} {} {} minecraft:redstone_block", p.x, p.y, p.z));
+            }
+            if dt == 1012 || dt == 11012 {
+                set(&mut run.world, p, "stone");
+                drive.act(now, format!("set {} {} {} minecraft:stone", p.x, p.y, p.z));
             }
         }
         if let Some((fa, fb)) = force {
@@ -2072,7 +2164,13 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let bx = |b: [i32; 4]| format!("{},{},{},{}", b[0], b[1], b[2], b[3]);
             match rep.unload {
                 None => {
-                    let at = match u.state.as_str() {
+                    // (a state may carry an offset, `kick+5`: that many gt after it, to sample a
+                    // window densely: farmopt 06:09, the kick-to-pickup window tick by tick)
+                    let (sname, soff) = match u.state.split_once('+') {
+                        Some((n, d)) => (n, d.parse::<i64>().unwrap_or(0)),
+                        None => (u.state.as_str(), 0),
+                    };
+                    let at = match sname {
                         "sent" => Some(v.sent + 10),
                         "arrival" => Some(v.arrived),
                         "arriving" => Some(v.arrived + 8),
@@ -2090,7 +2188,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         "reboard" => kick_seen.map(|x| x + 9),
                         "exit" => v.branch,
                         _ => None,
-                    };
+                    }
+                    .map(|a| a + soff);
                     if let Some(at) = at
                         && now >= at
                     {
@@ -2558,6 +2657,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("s0", [0, 0, 5]),
                 ("B1", [-2, 0, 2]),
                 ("D1", [-6, -3, 3]),
+                ("P", [-4, 1, 4]),
+                ("Gt", [-4, 1, 3]),
+                ("Gr", [-4, 1, 2]),
+                ("G1", [-4, 1, 1]),
+                ("g21", [-2, 1, 1]),
+                ("g22", [-2, 1, 2]),
                 ("CB1", [-3, 0, 2]),
                 ("b42", [-4, 0, 2]),
                 ("b51", [-5, -1, 2]),
@@ -2670,6 +2775,13 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         rep.visits[k].released = Some(t);
                     } else {
                         rep.visits[k].problem.get_or_insert("reached the slot without its villager".into());
+                        if rep.visits[k].riderless.is_none() {
+                            let at = index_of(w, villager).map(|i| {
+                                let p = fr.local(w.entities.list[i].pos);
+                                ([p.x, p.y, p.z], redsim::entity::mob::mob(w, i).sleeping_pos.is_some())
+                            });
+                            rep.visits[k].riderless = Some((t - t0, at.map(|a| a.0).unwrap_or([f64::NAN; 3]), at.is_some_and(|a| a.1)));
+                        }
                     }
                     held_out.push(k);
                 }
