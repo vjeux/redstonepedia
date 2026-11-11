@@ -108,10 +108,12 @@ ticket, every villager's `home` and `last-slept` set): a bench act the status ne
 bench touches no villager memory:
 - **The state is in the file.** `port home: 0 0 2` (the bed's head) gives every villager HOME = the
   bed as it spawns, the state R1's build steps leave (brief farm-iron-carousel rule 1: a villager
-  claims the bed, the bed is broken and placed again, the next claims the fresh record). redsim
-  counts the 21 claims as the bed's one ticket taken, as the real procedure leaves it (the last
-  claim takes it); a paste in the game leaves the ticket free, which only a homeless villager
-  could use.
+  claims the bed, the bed is broken and placed again, the next claims the fresh record). The bed's
+  ticket starts **free**, in redsim and in the game alike (tick-exact 2026-11-10: AiWorld starts
+  with explicit empty tickets since dd744b4378, and a load takes none; corrected here: this note
+  said redsim counted the claims as taken). R1's real end state has it taken by the last claim;
+  the difference matters only to a villager without HOME before the first nap (none in normal
+  visits: every napper's release-and-reclaim then takes and frees it as in the game).
 - **The steps are priced.** prices.tsv's `bed_reclaim` (5 s a step: break and place the bed again,
   bring the next villager within a path, wait for its scan), N - 1 = 20 steps for the 21 villagers:
   100 s in the bill at every stage (`mobfarm bill`: 103.7 build minutes middle, 33.3 late, the
@@ -129,14 +131,58 @@ bench touches no villager memory:
 - **(a) cage-only, measured and not taken.** Closing the bed's open north front (0,0,1) (`siding
   --cage-only`) leaves the bed reachable only from the cage, but the napper's reclaim from the
   approach then fails and backs off: drop to asleep up to 370 gt, ready up to 489 gt (8 seeds x 2
-  nights) against 114 and 287. R1's taken ticket already keeps every other villager off the bed.
+  nights) against 114 and 287. Every other villager already holds HOME = the bed (R1), so none
+  looks for one.
 - **(c) the give-up: built** (below).
 
-## The give-up: a napper that cannot sleep still leaves (2026-11-10, ironspec's missing piece)
+## The give-up, driven by day-1's scheduler (2026-11-10, the parent's direction): +19 blocks
 
-Without it a napper that cannot sleep parks its cart for good and the loop stalls. Now part of the
-wired siding (`mobfarm siding --wired`; `--no-give-up` leaves it out), all of it north of the R line
-(z -1 to -12, y -5 to -1), in redsim:
+A napper that cannot sleep must still leave in time, or one bad night stalls the queue. The parent
+chose to reuse day-1's scheduler timing over the siding's own timer (below, now `--give-up timer`):
+the siding takes one input, F, "force the re-board now" (`mobfarm siding --wired`, the default
+`--give-up scheduler`), agreed with day-1 (16:34, 16:47; wired on explore/day1-counter 7d947146b,
+17:01):
+- **F, the input:** the cell (-5,-3,-4), just north of the siding's box; day-1's line (its visit
+  register's D3, the 3rd release after the visit, gating REL+20) ends there in a dust and pulses
+  12 gt, on at visit +328..+340 (the same for every k), 118-150 gt after the arrival, on **every**
+  visit: its register cannot see the slot or the return.
+- **V, a visit under way:** a waxed copper bulb (0,-1,-1) toggled by the arrival (the entry rail
+  (0,0,0) a detector rail, the stone under it beside the bulb) and by the return (a repeater off the
+  R line's support stone (0,-1,-3) into the bulb): lit from the arrival to the return.
+- **The gate:** a comparator (-5,-3,-3) reading F at its back and subtracting not V at its side (a
+  torch on P (-3,-3,-2), P powered by V through the bulb's comparator and dust; a repeater from the
+  torch into the side), out through a repeater into the H latch's D2: F sets H only during a visit.
+  A napper asleep by then set H long ago (nothing changes); a cart already back has turned V off
+  (the pulse dies at the gate); a napper still awake is sent out (the T to the exit, the activator
+  off, the hatch shut, the kick 20 gt later; the kick picks it up on the free cell).
+- **Cost:** 19 blocks (the bulb, its comparator and the return's repeater, two dust, P and its
+  torch, the side repeater, the gate comparator and its repeater, their floors, a glass cap on the
+  bulb): the siding 234 -> 253 blocks, the box unchanged (14x9x13), 19.8 -> 22.1 build minutes at
+  middle prices.
+- **F to the cart on the slot with its villager:** 94-96 gt with the slot free (132 when the
+  bench's previous cart was still on the slot), so day-1 fires F 95 gt before its +420 deadline.
+
+Results, `siding-bench --wired` with F driven as day-1's scheduler will (a 12 gt pulse 118-150 gt
+after each arrival, every visit; redsim; arrivals and the release bench-driven):
+- normal visits, 100 seeds x 6 nights: 100 of 100 clean, 12,600 visits, ironspec's check unchanged
+  (all 21 holding HOME at all 1,400 dawn and midday checks, one nap per villager-night), ready
+  115-287 gt; every napper asleep before its pulse (none cut short; none either with the pulse at
+  110-135 or 114-144 gt);
+- every napper failing (`--day-visits`), 16 seeds x 2 days, 672 visits: 16 of 16 clean, every cart
+  on the slot with its villager 213-279 gt after its arrival (the pulse to ready 94-150, median 95)
+  and released, all 21 keeping HOME;
+- three villagers' HOME erased before each visit (`--fail-no-home 3`), 16 x 2, 672 visits: 16 of 16
+  clean: the 80 visits not asleep by the pulse all on the slot with their villager within 280 gt
+  of the arrival; the other 18 napped every night (the cascade above did not show in these seeds);
+- placement, 24 seeds x 2 nights: the judge's, settled as placed and built in order (338 cells,
+  8,600 gt) 1,008 visits each, all clean; siding-check 0 off-pad golem spots (the bench's and the
+  alone file); the drives recorded again with the force pulses as `set` acts (126 acts), web
+  drive-check ok.
+
+## The give-up's first version, its own timer (2026-11-10; `--give-up timer`, superseded)
+
+Without it a napper that cannot sleep parks its cart for good and the loop stalls. Built into the
+wired siding, all of it north of the R line (z -1 to -12, y -5 to -1), in redsim:
 - **ARR, the arrival:** the entry rail (0,0,0) is a detector rail (only arrivals pass it; its power
   also reaches the T rail beside it, which is powered at idle anyway). Its block below is a stone; a
   repeater north reads it, into a stone, dust under it, repeaters north at y -2 under the R line.
@@ -205,10 +251,10 @@ launcher, the release placed as a block by the bench; since 14:30 no bed act, ea
 night, ironspec's HOME and nap checks in every run):
 - the judge's placement: 24 of 24 seeds clean, 1,008 visits;
 - settled as placed (`--placed-raw`, pasted raw, no settle): 24 of 24 clean, 1,008 visits;
-- built in order (`--placed-in-order`, the priced gaps: 557 cells in 557 steps, 13,700 gt with the
-  give-up; 319 cells, 8,360 gt without): 24 of 24 clean, 1,008 visits; the build ends exactly as
-  the file (the night under way at the spawn is skipped: the bench's nights are the full ones after
-  it);
+- built in order (`--placed-in-order`, the priced gaps: 338 cells in 338 steps, 8,600 gt with the
+  scheduler give-up; 557 cells, 13,700 gt with the timer one; 319 cells, 8,360 gt without): 24 of
+  24 clean, 1,008 visits; the build ends exactly as the file (the night under way at the spawn is
+  skipped: the bench's nights are the full ones after it);
 - `--build-gap-sweep`: every gap from 1 to 40 gt passes (4 seeds x 1 night each, 84 visits a gap,
   every villager's HOME at every dawn and midday and one nap each).
 Clean: every visit dropped, napped, woken, back in its own cart, ready on the slot and released;
@@ -224,9 +270,11 @@ rail powered. Placed last, BK is powered already.
 
 Drives for tick-exact: `carousel-siding-wired-raw.drive.txt` (`--placed-raw`) and
 `carousel-siding-wired-built.drive.txt` (the build's `act t set` lines, then the bench's acts;
-`# spawn 13700`), both `siding-bench --wired --launch --from 1 --to 1 --nights 1`. Besides `set`, the
+`# spawn 8600`), both `siding-bench --wired --launch --from 1 --to 1 --nights 1`. Besides `set`, the
 bench's acts are `tp` (a cart onto the launcher, back to the hold), as in the viewer's drive (since
-14:30 no `home`, `last-slept` or `poi-take`: HOME comes from the file's `port home:`).
+14:30 no `home`, `last-slept` or `poi-take`: HOME comes from the file's `port home:`), and the force
+input's pulses as day-1's scheduler would send them (`set -5 -3 -4 redstone_block`, `air` 12 gt
+later).
 
 `mobfarm siding --wired --alone` writes the siding by itself for ironfarm's loop bench (no launcher,
 approach, run-out, hold or carts): 234 blocks in x -7..6, y -4..4, z -3..9, and the dorm zombie.
