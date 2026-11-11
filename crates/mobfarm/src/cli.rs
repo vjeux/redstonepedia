@@ -3393,13 +3393,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 _ => None,
             };
-            // (the whole load's orders: `--reload-order`)
-            let orders: Vec<redsim::reload::Order> = if reload_order == "all" {
-                let mut v = vec![redsim::reload::Order::Save, redsim::reload::Order::Reverse];
-                v.extend((1..=8).map(redsim::reload::Order::Seed));
-                v
-            } else {
-                reload_order.split(',').map(|o| redsim::reload::Order::parse(o.trim()).ok_or_else(|| anyhow::anyhow!("--reload-order {o}: save, reverse, seed:K or all"))).collect::<Result<_>>()?
+            // (the whole load's orders: `--reload-order`, main's rule as queue-loop-run's
+            // `--reload-orders`: `all` = 40 orders, `all:N`, seed ranges)
+            let orders: Vec<redsim::reload::Order> = {
+                let names: Vec<String> = reload_order.split(',').map(|o| o.trim().to_string()).collect();
+                crate::queue::parse_reload_orders(&names).map_err(|e| anyhow::anyhow!(e))?
             };
             let save_only = orders == [redsim::reload::Order::Save];
             let mut unload_one = unload_one;
