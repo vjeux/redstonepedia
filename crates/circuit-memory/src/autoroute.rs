@@ -94,6 +94,45 @@ fn los_world(blocks: &std::collections::BTreeMap<P3, String>, lo: P3, hi: P3) ->
     w
 }
 
+/// The cells that rider-to-zombie sight lines clear in `base` cross (the lines `sight_cuts` tests):
+/// a full block in one cuts a line, so a route keeps its supports out of them (a dust in one is
+/// fine: it has no collision shape).
+pub(crate) fn sight_corridor(base: &std::collections::BTreeMap<P3, String>, zombies: &[[f64; 3]]) -> BTreeSet<P3> {
+    use redsim::entity::Vec3;
+    let (lo, hi) = base.keys().fold(([i32::MAX; 3], [i32::MIN; 3]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])], [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])]));
+    let wb = los_world(base, lo, hi);
+    let mut out = BTreeSet::new();
+    for (r, s) in base {
+        if !(s.contains("rail[") || s.ends_with("rail")) {
+            continue;
+        }
+        for z in zombies {
+            let feet = [r[0] as f64 + 0.5, r[1] as f64 + 0.25, r[2] as f64 + 0.5];
+            let d2 = (feet[0] - z[0]).powi(2) + (feet[1] - z[1]).powi(2) + (feet[2] - z[2]).powi(2);
+            if d2 >= 64.0 {
+                continue;
+            }
+            for h in [1.4, 1.7, 2.0, 2.3] {
+                for zh in [1.5, 1.9] {
+                    let from = Vec3::new(feet[0], r[1] as f64 + h, feet[2]);
+                    let to = Vec3::new(z[0], z[1] + zh, z[2]);
+                    if !redsim::entity::mob::los::clear(&wb, from, to) {
+                        continue;
+                    }
+                    let len = ((to.x - from.x).powi(2) + (to.y - from.y).powi(2) + (to.z - from.z).powi(2)).sqrt();
+                    let steps = (len / 0.05).ceil() as usize;
+                    for i in 0..=steps {
+                        let t = i as f64 / steps as f64;
+                        let p = [from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, from.z + (to.z - from.z) * t];
+                        out.insert([p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32]);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Rider-to-zombie sight lines that `fin`'s extra blocks cut: every rider over a rail of `base`
 /// (its eye 1.6 or 1.9 over the rail's cell) against every zombie of `zombies` (its feet; its eye
 /// 1.7 over them) within 8 blocks, the villagers' hostile range (feet to feet), by redsim's line of

@@ -224,6 +224,199 @@ fn lay_link(b: &mut B, from: P3, cells: &[P3], reps: &[(usize, u8)]) -> Result<(
     Ok(())
 }
 
+/// One routed feed with an exact delay: from a free side of one of the line cells `srcs` (each with
+/// its dust run since the last refresh) to `end`, `total` rt laid along it (`near`: components it
+/// may touch). Returns the path's cells with their runs (later feeds may branch off them). No dust
+/// over a cell of `corridor` (its support would cut a rider's sight line to a zombie).
+fn feed(b: &mut B, srcs: &[(P3, usize)], end: P3, total: u8, near: &[P3], lo: P3, hi: P3, what: &str, corridor: &std::collections::BTreeSet<P3>) -> Result<Vec<(P3, usize)>> {
+    use crate::autoroute::{find, rider_space, Limits};
+    let mut avoid = rider_space(&b.blocks);
+    for c in corridor {
+        avoid.insert([c[0], c[1] + 1, c[2]]);
+    }
+    let mut why: Vec<String> = Vec::new();
+    for &(src, run0) in srcs {
+        if run0 >= 13 {
+            continue;
+        }
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1]] {
+            let s = [src[0] + d[0], src[1] + d[1], src[2] + d[2]];
+            if b.blocks.get(&s).is_some_and(|x| !x.ends_with(":air")) {
+                continue;
+            }
+            let mut n: Vec<P3> = near.to_vec();
+            n.push(src);
+            let lim = Limits { lo, hi, avoid: avoid.clone(), near_ok: n.into_iter().collect() };
+            let p = match find(b, s, end, &lim) {
+                Ok(p) => p,
+                Err(e) => {
+                    why.push(format!("from {s:?}: {e}"));
+                    continue;
+                }
+            };
+            let mut t = new_b();
+            t.blocks = b.blocks.clone();
+            t.ports = b.ports.clone();
+            t.nbt = b.nbt.clone();
+            match crate::sidinggen::lay_exact(&mut t, src, &p, run0, total) {
+                Ok(reps) => {
+                    eprintln!("escapement {what}: {} cells from {src:?} (run {run0}) to {end:?}, {total} rt ({reps:?})", p.len());
+                    *b = t;
+                    let mut run = run0;
+                    let mut out = Vec::new();
+                    for c in &p {
+                        run = if reps.contains(c) { 0 } else { run + 1 };
+                        out.push((*c, run));
+                    }
+                    return Ok(out);
+                }
+                Err(e) => why.push(format!("from {s:?} ({} cells): {e}", p.len())),
+            }
+        }
+    }
+    bail!("escapement {what}: no feed to {end:?} ({})", why.iter().take(6).cloned().collect::<Vec<_>>().join("; "))
+}
+
+/// MCTAS_R1 (ironfarm 07:15): R1's escapement driven from the register's advance (slot 0's, on the
+/// x 2 line 2 gt before its control: A_l) and A3 alone (the A3 tap's z 43 line, y -3). Times at the
+/// gates, golem-relative, slot 0's advance at its control A_c = A_l + 2:
+/// - G_P (0,2,32), 2 gt at A_c + 6 (each advance): CP, a subtract comparator at (1,2,32) facing
+///   east into the gate, its rear A_l + 6, its side A_l + 8 (each through a repeater).
+/// - G0 (0,3,31): C0 at (2,3,31) through its driver (1,3,31): its rear the advance at A_l + 8, so
+///   A_c + 10 for its 10 gt (ironfarm 07:01: a timed window of 2..14 gt admits the same); its side
+///   A3 alone, timed to end at A3_c + 12, so the third advance's window keeps only its tail from
+///   A3_c + 16 (ironfarm's K2: the third at G_P + 10).
+fn escapement(b: &mut B, yy: i32, zl: i32, ld: &Design) -> Result<()> {
+    // (routed among the loop's own blocks: its rails, their riders' space and the escapement's
+    // gates are in this corner; only the cells the escapement adds go back into the controller)
+    let lp = &ld.blocks;
+    let mut t = new_b();
+    t.blocks = b.blocks.clone();
+    t.ports = b.ports.clone();
+    t.nbt = b.nbt.clone();
+    for (p, s) in lp {
+        t.blocks.entry(*p).or_insert_with(|| s.clone());
+    }
+    // (the riders' sight lines to the zombie posts: no support of the escapement's in them)
+    let zombies: Vec<[f64; 3]> = ld.entities.iter().filter(|e| e.nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie"))).map(|e| e.pos).collect();
+    let corridor = crate::autoroute::sight_corridor(lp, &zombies);
+    escapement_in(&mut t, yy, zl, &corridor)?;
+    for (p, s) in &t.blocks {
+        if lp.get(p) != Some(s) || b.blocks.contains_key(p) {
+            b.blocks.insert(*p, s.clone());
+        }
+    }
+    for (p, n) in &t.nbt {
+        b.nbt.insert(*p, n.clone());
+    }
+    Ok(())
+}
+
+fn escapement_in(b: &mut B, yy: i32, zl: i32, corridor: &std::collections::BTreeSet<P3>) -> Result<()> {
+    let cmp = |f: &str| format!("minecraft:comparator[facing={f},mode=subtract,powered=false]");
+    let need_free = |b: &B, p: P3| -> Result<()> {
+        if b.blocks.get(&p).is_some_and(|s| !s.ends_with(":air") && s != STONE) {
+            bail!("escapement: {p:?} holds {:?}", b.blocks.get(&p));
+        }
+        Ok(())
+    };
+    let in_corridor = std::cell::RefCell::new(Vec::<String>::new());
+    let put = |b: &mut B, p: P3, s: String| -> Result<()> {
+        need_free(b, p)?;
+        need_free(b, [p[0], p[1] - 1, p[2]])?;
+        if corridor.contains(&[p[0], p[1] - 1, p[2]]) {
+            in_corridor.borrow_mut().push(format!("{:?} (under {p:?})", [p[0], p[1] - 1, p[2]]));
+        }
+        b.blocks.insert([p[0], p[1] - 1, p[2]], STONE.into());
+        b.blocks.insert(p, s);
+        Ok(())
+    };
+    // A off the x 2 line through a repeater (3, yy, 38) into (4, yy, 38); A3 alone off the z 43 line
+    // through (8, -3, 42) into (8, -3, 41). MCTAS_ESC_D4 = the A3 side chain's rt, set from the trace)
+    let d4: u8 = std::env::var("MCTAS_ESC_D4").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    // G_P: CP into the gate from its west side (the gate's east side is in the slot-0 riders' sight
+    // lines to the zombie posts at x 3.5: a support at (1,1,32) cut them). Its rear a dust (-2,2,32)
+    // (west of it is the lane's rider space) at A_l + 6: the hub's repeater and 2 rt on the feed; its
+    // side A_l + 8 through its repeater (-1,2,33), fed off the rear feed past its last repeater
+    put(b, [-1, 2, 32], cmp("west"))?;
+    put(b, [-1, 2, 33], rep("south", 1))?;
+    // G0: C0 through its driver into the gate; rear 4 rt from A_l (hub 1, chain 2, its repeater 1);
+    // its side A3 alone (the third advance's window cut to its tail, A3_c + 16 on)
+    put(b, [1, 3, 31], rep("east", 1))?; // the driver into G0
+    put(b, [2, 3, 31], cmp("east"))?;
+    put(b, [3, 3, 31], rep("east", 1))?;
+    put(b, [4, 3, 31], rep("east", 2))?;
+    put(b, [2, 3, 30], rep("north", 1))?;
+    put(b, [2, 3, 29], rep("north", d4))?;
+    // the hubs
+    let x2 = [2, yy, 38];
+    if !b.blocks.get(&x2).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("escapement: the x 2 line at {x2:?} is {:?}", b.blocks.get(&x2));
+    }
+    put(b, [3, yy, 38], rep("west", 1))?;
+    let ah = [4, yy, 38];
+    put(b, ah, DUST.into())?;
+    let a3l = [8, -3, zl];
+    if !b.blocks.get(&a3l).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("escapement: the z {zl} line's end {a3l:?} is {:?}", b.blocks.get(&a3l));
+    }
+    put(b, [8, -3, zl - 1], rep("north", 1))?;
+    let a3h = [8, -3, zl - 2];
+    put(b, a3h, DUST.into())?;
+    if !in_corridor.borrow().is_empty() {
+        eprintln!("escapement: supports in the riders' sight corridor: {}", in_corridor.borrow().join(", "));
+    }
+    if std::env::var("MCTAS_ESC_MAP").is_ok() {
+        // (C: a sight-corridor cell (no support there), # a block, . free; x -5..6 across, z down)
+        for y in -4..=4 {
+            eprintln!("y {y} (x -5..6 across, z 26..40 down)");
+            for z in 26..=40 {
+                let row: String = (-5..=6)
+                    .map(|x| {
+                        let p = [x, y, z];
+                        if b.blocks.get(&p).is_some_and(|s| !s.ends_with(":air")) {
+                            '#'
+                        } else if corridor.contains(&p) {
+                            'C'
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect();
+                eprintln!("  {z:3} {row}");
+            }
+        }
+    }
+    let lo = [-4, yy - 3, 24];
+    let hi = [10, 5, zl + 1];
+    let mut anet: Vec<(P3, usize)> = vec![(ah, 0)];
+    let p = feed(b, &anet, [5, 3, 31], 0, &[[4, 3, 31]], lo, hi, "G0 rear", corridor)?;
+    anet.extend(p);
+    // (the rear's dust end (-2,2,32) is CP's rear: the feed ends on it)
+    let p = feed(b, &anet, [-2, 2, 32], 2, &[[-1, 2, 32]], lo, hi, "G_P rear", corridor)?;
+    let last_rep = p.iter().rposition(|(_, run)| *run == 0).ok_or_else(|| anyhow::anyhow!("escapement: the G_P rear feed has no repeater"))?;
+    let past: Vec<(P3, usize)> = p[last_rep..].to_vec();
+    feed(b, &past, [-1, 2, 34], 0, &[[-1, 2, 33], [-2, 2, 32], [-1, 2, 32]], lo, hi, "G_P side", corridor)?;
+    let mut ok = false;
+    let mut errs = Vec::new();
+    for k in 0..=1u8 {
+        match feed(b, &[(a3h, 0)], [2, 3, 28], k, &[[2, 3, 29]], lo, hi, "G0 side (A3)", corridor) {
+            Ok(_) => {
+                if k > 0 {
+                    eprintln!("escapement: the A3 feed took {k} rt (MCTAS_ESC_D4 counts the chain's alone)");
+                }
+                ok = true;
+                break;
+            }
+            Err(e) => errs.push(e.to_string()),
+        }
+    }
+    if !ok {
+        bail!("{}", errs.join(" | "));
+    }
+    Ok(())
+}
+
 /// MCTAS_C24 (see its call): slot 15's window cut by A1: the line read at z 23 through a subtract
 /// comparator (-5, -1, 24) (its rear the line's own weak dust, so a cut at ~9 empties it), its
 /// output dust (-5, -1, 25) into the tap, now 3 rt (2 + 6: the 8-gt stagger kept); its east side
@@ -267,8 +460,18 @@ fn q15_cut(b: &mut B, yy: i32) -> Result<()> {
             if b.blocks.get(&s).is_some_and(|x| !x.ends_with(":air")) {
                 continue;
             }
-            // (x <= 0: the x 0 lane's feeders (x 1, y yy + 2, on stones at y yy + 1) are laid later)
-            let lim = Limits { lo: [-6, yy - 3, 17], hi: [0, yy + 1, 28], avoid: avoid.clone(), near_ok: [f, cmp, tap].into_iter().collect() };
+            // (x <= 0: the x 0 lane's feeders (x 1, y yy + 2, on stones at y yy + 1) are laid later;
+            // the cells round the portal pad's route end (it arrives on (-2, -3, 17) and steps down
+            // onto the golem stone's input block (-2, -4, 18)) left to it)
+            let mut avoid = avoid.clone();
+            for x in -3..=-1 {
+                for y in -4..=-2 {
+                    for z in 16..=18 {
+                        avoid.insert([x, y, z]);
+                    }
+                }
+            }
+            let lim = Limits { lo: [-6, yy - 3, 17], hi: [0, yy + 1, 28], avoid, near_ok: [f, cmp, tap].into_iter().collect() };
             let p = match find(b, s, side, &lim) {
                 Ok(p) => p,
                 Err(e) => {
@@ -1044,8 +1247,13 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         // q15 off at +42; A2 and A3 cut only when the window is off. Laid before the REL exit's
         // routes, which go round it)
     }
+    // (MCTAS_R1, ironfarm 07:15: R1's loop, 14 slots: row B (x -3) slots 10..5 at z 28..43, the
+    // turn slot 4 at (-1,-1,44), row A (x 0) slots 0..3 at z 33..42, the escapement's G0/G_P/P
+    // ahead of slot 0; the register zero-skew, slots 0-2 pulse-only (no tail windows))
+    let r1 = far && std::env::var("MCTAS_R1").is_ok();
+    let row_b_end = if r1 { 43 } else { 46 };
     let adv0 = if far { 27 } else { a3[2] + 1 };
-    for z in adv0..=46 {
+    for z in adv0..=row_b_end {
         if z == 41 {
             // restores the first advance pulse (A1 injects at z 27) for the slots past z 40
             b.on([-5, yy, z], &rep("north", 1))?;
@@ -1053,24 +1261,27 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             b.on([-5, yy, z], DUST)?;
         }
     }
-    for z in (28..=46).step_by(3) {
+    for z in (28..=row_b_end).step_by(3) {
         b.on([-4, yy, z], &rep("west", if z < 41 { 4 } else { 3 }))?;
     }
     // ---- around the north end: slot 7 (-1,-1,47) fed from z 48; row A (x 0, z 45..36) from x 2
-    b.on([-5, yy, 47], &rep("north", 1))?;
-    b.on([-5, yy, 48], DUST)?;
+    // (R1: all 3 cells nearer, slot 4 at (-1,-1,44), row A z 42..33)
+    let nz = if r1 { -3 } else { 0 };
+    b.on([-5, yy, 47 + nz], &rep("north", 1))?;
+    b.on([-5, yy, 48 + nz], DUST)?;
     for x in -5..=2 {
-        b.on([x, yy, 49], DUST)?;
+        b.on([x, yy, 49 + nz], DUST)?;
     }
-    b.on([-1, yy, 48], &rep("south", 2))?;
-    b.on([2, yy, 48], DUST)?;
-    b.on([2, yy, 47], &rep("south", 1))?;
-    for z in 36..=46 {
+    b.on([-1, yy, 48 + nz], &rep("south", 2))?;
+    b.on([2, yy, 48 + nz], DUST)?;
+    b.on([2, yy, 47 + nz], &rep("south", 1))?;
+    for z in 36 + nz..=46 + nz {
         b.on([2, yy, z], DUST)?;
     }
     for z in [45, 42, 39, 36] {
-        b.on([1, yy, z], &rep("east", 1))?;
+        b.on([1, yy, z + nz], &rep("east", 1))?;
     }
+    if !r1 {
     // ---- the descending tail slots (ironfarm 9bd8f2ff9 / a5f46f390): slot 2 at (0,-1,33), slot 1
     // at (0,0,29), slot 0 at (0,1,25), each fed by a repeater at x 1. Each slot has its own net
     // (ironfarm 10:58: slot 2 OFF t0 + 100, slot 1 + 118, slot 0 + 120). The advance reaches each
@@ -1105,6 +1316,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         b.on(c, DUST)?;
     }
     b.on([1, 1, 25], &rep("east", 1))?;
+    }
     // ---- the tail windows (at the controls, golem-relative; each merged with the tail's 3rd advance
     // at + 84..+ 96): the chain from A3 (REL + 70) runs under the loop at y -3 along z 43, climbs at
     // x 8 to y -1 and runs along x 8 toward -z, stones at golem + 86 (z 34), + 96 (z 31), + 104
@@ -1154,6 +1366,11 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         }
     }
     }
+    if r1 {
+        // (R1: no tail windows; the A3 tap's route (the z 43 line, y -3, x 1..8) carries A3 alone to
+        // the escapement's drive, which tells the third advance apart)
+        escapement(&mut b, yy, zl, &Design::load(loop_file)?)?;
+    } else {
     b.on([8, -2, zl - 1], DUST)?;
     b.on([8, -1, zl - 2], DUST)?;
     // the chain (x 8, y -1) from z zl - 3 toward -z
@@ -1204,6 +1421,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     }
     b.on([2, -2, 30], DUST)?;
     b.on([2, -2, 31], &rep("north", 1))?;
+    }
     // (the pocket stand (farmopt, `stand_stop=1` in the loop's `queue:` line) has its own gates: the
     // S1/S2/S3 latches and line 4 below are dropped for it)
     let base = Design::load(loop_file)?;
@@ -1315,7 +1533,19 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         [-3, -1, 46], [-3, -1, 43], [-3, -1, 40], [-3, -1, 37], [-3, -1, 34], [-3, -1, 31], [-3, -1, 28], [-3, -1, 25], [-3, -1, 22], [-3, -1, 19],
         [5, -1, 0], [2, -1, 0], [-1, -1, 0],
     ];
-    let controls: &[P3] = if pocket { &all_controls[..18] } else { &all_controls[..] };
+    // (R1's 14 queue controls, tail first: row A z 33..42, the turn slot 4, row B and the release
+    // group at the same cells as the 18-slot loop's slots 9..17)
+    let r1_controls: [P3; 14] = [[0, -1, 33], [0, -1, 36], [0, -1, 39], [0, -1, 42], [-1, -1, 44], [-3, -1, 43], [-3, -1, 40], [-3, -1, 37], [-3, -1, 34], [-3, -1, 31], [-3, -1, 28], [-3, -1, 25], [-3, -1, 22], [-3, -1, 19]];
+    let controls: &[P3] = if r1 { &r1_controls[..] } else if pocket { &all_controls[..18] } else { &all_controls[..] };
+    if r1 {
+        // (P (0,2,31) always on: its block a redstone block, the escapement's own)
+        match d.blocks.get(&[0, 1, 31]).map(|s| s.as_str()) {
+            Some("minecraft:glass") => {
+                d.blocks.insert([0, 1, 31], "minecraft:redstone_block".into());
+            }
+            other => bail!("R1: P's block (0,1,31) is {other:?}, not glass"),
+        }
+    }
     for &c in controls {
         match d.blocks.get(&c).map(|s| s.as_str()) {
             Some("minecraft:glass") => {
@@ -1460,7 +1690,15 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {
-            for (n, q) in [("r15", [-3, 0, 25]), ("r16", [-3, 0, 22]), ("r17", [-3, 0, 19]), ("q14", [-3, -1, 28]), ("q15", [-3, -1, 25]), ("q16", [-3, -1, 22]), ("q17", [-3, -1, 19]), ("q00", [0, 1, 25]), ("q01", [0, 0, 29]), ("q02", [0, -1, 33]), ("q03", [0, -1, 36]), ("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", u([23, -6, 7])), ("row1", u([23, -6, 1])), ("row_5", u([23, -6, -5])), ("step_in", u([20, -4, 12])), ("step_end", u([28, -5, 6])), ("ring_top", u([27, -5, 4])), ("p0", u([22, -6, 9])), ("p1", u([22, -6, 3])), ("p2", u([22, -6, -3])), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
+            // (R1: the cells that stayed keep their old names, so the trace-diff maps them: q14..q17
+            // and r15..r17 are R1's slots 10..13 at the same cells, q02/q03 R1's slots 0/1 at the
+            // same cells; R1's own: slots 2..4 and the escapement's gates. q00/q01's cells are gone)
+            let base_ports: Vec<(&str, P3)> = vec![("r15", [-3, 0, 25]), ("r16", [-3, 0, 22]), ("r17", [-3, 0, 19]), ("q14", [-3, -1, 28]), ("q15", [-3, -1, 25]), ("q16", [-3, -1, 22]), ("q17", [-3, -1, 19]), ("q02", [0, -1, 33]), ("q03", [0, -1, 36])];
+            let tail_ports: Vec<(&str, P3)> = if r1 { vec![("r1_q02", [0, -1, 39]), ("r1_q03", [0, -1, 42]), ("r1_q04", [-1, -1, 44]), ("g_p", [0, 2, 32]), ("g0", [0, 3, 31])] } else { vec![("q00", [0, 1, 25]), ("q01", [0, 0, 29])] };
+            for (n, q) in base_ports.into_iter().chain(tail_ports) {
+                sp.ports.insert(format!("output.{n}"), q);
+            }
+            for (n, q) in [("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", u([23, -6, 7])), ("row1", u([23, -6, 1])), ("row_5", u([23, -6, -5])), ("step_in", u([20, -4, 12])), ("step_end", u([28, -5, 6])), ("ring_top", u([27, -5, 4])), ("p0", u([22, -6, 9])), ("p1", u([22, -6, 3])), ("p2", u([22, -6, -3])), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
                 sp.ports.insert(format!("output.{n}"), q);
             }
         }
