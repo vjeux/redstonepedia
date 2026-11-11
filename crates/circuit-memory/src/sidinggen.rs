@@ -873,7 +873,7 @@ fn step_delay() -> u8 {
 pub(crate) const MOD_TURNS: u8 = 3;
 /// (column 3 (c): under the loop at x -6..7, below the divert unit (y -7..-4) and the release core
 /// (y -2..-1); the side-by-side fold: west of the loop at x -20..-7)
-pub(crate) const MODULE_AT: P3 = if FAR { [-1, -13, 42] } else { [-15, -13, 42] };
+pub(crate) const MODULE_AT: P3 = if FAR { [0, -14, 42] } else { [-15, -13, 42] };
 
 /// A module cell's place in the loop frame.
 pub(crate) fn module_at(q: P3) -> P3 {
@@ -889,7 +889,7 @@ fn mrot(s: &str) -> String {
 /// The night window's inverted daylight detector: west of the module at its depth, nothing of the
 /// farm over it (open sky), its 11-dust strength filter south along x -26 and the night latch at
 /// z 36.
-pub(crate) const DETECTOR: P3 = [-27, -9, 24];
+pub(crate) const DETECTOR: P3 = if FAR { [-5, -9, 56] } else { [-27, -9, 24] };
 /// The siding's force-re-board input F (farmopt's child 58f770cc: (-5, -3, -4) in the siding's
 /// frame), a dust the siding's repeater reads from the south.
 pub(crate) const FORCE: P3 = if SIDING_TURNS == 2 { [SIDING_AT[0] + 5, SIDING_AT[1] - 3, SIDING_AT[2] + 4] } else { [SIDING_AT[0] - 5, SIDING_AT[1] - 3, SIDING_AT[2] - 4] };
@@ -1113,6 +1113,35 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // (glass over it: a golem's legacy spawn takes a daylight detector for a floor; glass keeps
     // the sky light)
     b.put([DETECTOR[0], DETECTOR[1] + 1, DETECTOR[2]], "minecraft:glass")?;
+    // (column 3 (c): the detector at (-5, -9, 56) under an open column (nothing of the farm over
+    // x -5 at z 56); its eleven dusts west then down a stair north along x -6 (outside the module's
+    // cells: world z 46..56 is past its x -2 end) to y -17, thr (-6, -17, 45), the line on north
+    // into a block (-6, -17, 39) and a wall torch on its east face (lit = day), the day line east
+    // along z 39 through the module's corridor (its (3, -3, -5..-1)) into its day input)
+    let far_thr = [DETECTOR[0] - 1, -17, 45];
+    if FAR {
+        let x = DETECTOR[0] - 1;
+        let mut c = vec![[x, DETECTOR[1], DETECTOR[2]]];
+        for k in 1..=8 {
+            c.push([x, DETECTOR[1] - k, DETECTOR[2] - k]);
+        }
+        c.push([x, -17, 47]);
+        c.push([x, -17, 46]);
+        if c.len() != 11 {
+            bail!("the detector's filter has {} dusts, not 11", c.len());
+        }
+        for p in &c {
+            b.on(*p, DUST)?;
+        }
+        b.on(far_thr, &rep("south", 1))?;
+        for z in 40..=44 {
+            b.on([x, -17, z], DUST)?;
+        }
+        b.put([x, -17, 39], STONE)?;
+        b.put([x + 1, -17, 39], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
+        let dl = vec![[x + 2, -17, 39], [x + 3, -17, 39], [x + 4, -17, 39], at([3, -3, -1]), at([3, -2, 0]), at([3, -2, 1])];
+        route_d(&mut b, [x + 1, -17, 39], &dl, 6, 0, 1)?;
+    } else {
     for dz in 1..=11 {
         b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + dz], DUST)?;
     }
@@ -1125,6 +1154,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     dl.push(at([3, -2, 0]));
     dl.push(at([3, -2, 1]));
     route_d(&mut b, [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 14], &dl, 6, 0, 1)?;
+    }
     // (the night latch on thr comes after the module's REL route, below)
     b.on(at([2, -2, 1]), DUST)?;
     b.on(at([1, -2, 1]), &mrot(&rep("east", 1)))?;
@@ -1147,16 +1177,19 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     for k in 1..=3 {
         kr.push([-2, -1 - k, 15 + k]);
     }
-    seg_to(&mut kr, [-21, -4, 18]);
+    // (column 3 (c): the delay chain and KA at x -10, under the release core's west half (y -2..-1),
+    // inside x >= -11 with the core)
+    let kx = if FAR { -10 } else { -21 };
+    seg_to(&mut kr, [kx, -4, 18]);
     route(&mut b, [-2, -1, 13], &kr, 6)?;
     let kick_delay = 6;
     for k in 0..kick_delay {
-        b.on([-21, -4, 19 + k], &rep("north", 4))?;
+        b.on([kx, -4, 19 + k], &rep("north", 4))?;
     }
     for z in 19 + kick_delay..=29 {
-        b.on([-21, -4, z], DUST)?;
+        b.on([kx, -4, z], DUST)?;
     }
-    b.on([-21, -4, 30], &comp("north", "subtract"))?;
+    b.on([kx, -4, 30], &comp("north", "subtract"))?;
     // (a dust of the kick route along z 18 near x0, to branch from: a repeater there would not
     // feed a repeater beside it)
     let kick_dust_near = |b: &B, x0: i32| -> Result<i32> {
@@ -1171,14 +1204,26 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // REL into the module: a repeater on the kick route's dust near x -16 into (x, -4, 20), down a
     // stair west along z 20 to y -15, west to x -27, south along x -27 to z 28, east into the
     // module's feed dust and its repeater into the input block (module (14, -2, -4))
-    let tap_x = kick_dust_near(&b, -16)?;
+    let tap_x = kick_dust_near(&b, if FAR { -8 } else { -16 })?;
     // (2 rt: the module's REL at the time the old route brought it, so its outputs keep their times)
     b.on([tap_x, -4, 19], &rep("north", 2))?;
     let mut rel = vec![[tap_x, -4, 20]];
+    if FAR {
+        // (column 3 (c): on south one cell, down a stair south along the tap's x to y -16 (past
+        // the unit's REL-in row at z 20, y -6), east to x -6 (the module's west column, free
+        // there), north along it to z 29; the feed dust (-6, -16, 28) next)
+        rel.push([tap_x, -4, 21]);
+        for k in 1..=12 {
+            rel.push([tap_x, -4 - k, 21 + k]);
+        }
+        seg_to(&mut rel, [-6, -16, 33]);
+        seg_to(&mut rel, [-6, -16, 29]);
+    } else {
     seg_to(&mut rel, [tap_x - 11, -15, 20]);
     seg_to(&mut rel, [-27, -15, 20]);
     seg_to(&mut rel, [-27, -15, 28]);
     seg_to(&mut rel, at([14, -2, -7]));
+    }
     route_d(&mut b, [tap_x, -4, 19], &rel, rel_every(), 0, 1)?;
     // (the feed dust touches the module's REL branch on purpose: the same signal)
     b.on(at([14, -2, -6]), DUST)?;
@@ -1191,6 +1236,29 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // module's REL route (z -10, y -6) at x -44, west along z -12, up a stair north along x -50 to
     // y 1, west along z -20 into a repeater, a block, its wall torch (lit = locked) and the lock
     // repeater pointing into thr's east side.
+    if FAR {
+        // (column 3 (c): the unlock off the REL branch's east run at (-7, -16, 33): a repeater
+        // (-7, -16, 34) south of it, west along z 35 at y -16 to x -11, down a stair south, south
+        // along x -11 at y -17 to the lock's input (-11, -17, 45); the latch on thr's WEST side
+        // (east of thr, the module's REL bus stones at x -4 would take a torch's power): thr - 1 a
+        // repeater into thr, thr - 2 the wall torch (lit = locked), thr - 3 its block, thr - 4 the
+        // unlock's repeater into that block)
+        let thr = far_thr;
+        let tap = [-6, -16, 31];
+        if !b.blocks.get(&tap).is_some_and(|s| s.contains("redstone_wire")) {
+            bail!("the module's REL branch at {tap:?} is {:?}, not a dust to branch from", b.blocks.get(&tap));
+        }
+        b.on([tap[0] - 1, tap[1], tap[2]], &rep("east", 1))?;
+        let mut lk = vec![[tap[0] - 2, tap[1], tap[2]]];
+        seg_to(&mut lk, [thr[0] - 5, tap[1], tap[2]]);
+        seg_to(&mut lk, [thr[0] - 5, thr[1], tap[2] + 1]);
+        seg_to(&mut lk, [thr[0] - 5, thr[1], thr[2]]);
+        route_d(&mut b, [tap[0] - 1, tap[1], tap[2]], &lk, 3, 0, 1)?;
+        b.on([thr[0] - 4, thr[1], thr[2]], &rep("west", 4))?;
+        b.put([thr[0] - 3, thr[1], thr[2]], STONE)?;
+        b.put([thr[0] - 2, thr[1], thr[2]], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
+        b.on([thr[0] - 1, thr[1], thr[2]], &rep("west", 4))?;
+    } else {
     let thr = [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 12];
     // (the unlock: a repeater off the module's REL branch where its stair crosses x thr + 5, south
     // along that x into the lock)
@@ -1209,6 +1277,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     b.put([thr[0] + 3, thr[1], thr[2]], STONE)?;
     b.put([thr[0] + 2, thr[1], thr[2]], "minecraft:redstone_wall_torch[facing=west,lit=true]")?;
     b.on([thr[0] + 1, thr[1], thr[2]], &rep("east", 4))?;
+    }
     // ---- NV, the module's steady "the next release is a visit", to the divert unit: from its port
     // (28, 4, 3) down a stair south to y -9, east along z 12, north to z 10, up a stair east into
     // (16, -6, 10)
@@ -1221,9 +1290,10 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         // module's top layer, north of it) to z 9, west along z 9 to the feed's x, up a stair south
         // into the feed)
         let feed = unit_at([16, -6, 10]);
+        let rise = feed[1] - n0[1];
         let mut v = vec![n0];
-        seg_to(&mut v, [n0[0], n0[1], feed[2] - 3]);
-        seg_to(&mut v, [feed[0], n0[1], feed[2] - 3]);
+        seg_to(&mut v, [n0[0], n0[1], feed[2] - rise]);
+        seg_to(&mut v, [feed[0], n0[1], feed[2] - rise]);
         seg_to(&mut v, feed);
         v
     } else {
@@ -1248,6 +1318,9 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     };
     // T1 = NOT l1: off row 1 at (24, -6, 1), north, down a stair to y -11, west along z -5, south
     // along x -17, up a stair south to (-17, -4, 27), into (-17, -4, 28)
+    // (WIP, column 3 (c): `MCTAS_FAR_NO_T` leaves T1 and T2 unwired, to lay their routes out)
+    let skip_t = FAR && std::env::var("MCTAS_FAR_NO_T").is_ok();
+    if !skip_t {
     let mut t1 = vec![[t1_row[0], -6, t1_row[2] - 1]];
     for k in 1..=5 {
         t1.push([t1_row[0], -6 - k, t1_row[2] - 1 - k]);
@@ -1321,6 +1394,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     seg_to(&mut t2, [x2, -4, 31]);
     route(&mut b, [t2_row[0], -6, t2_row[2] + 3], &t2, 6)?;
     tower(&mut b, T2)?;
+    }
     }
     // ---- the holds' kick: REL from the core's REL stone (-2, -1, 13) through (-2, -1, 14), down a
     // stair south to y -4, west along z 18 to x -21, a delay (`kick_delay` repeaters of 4 gt)
