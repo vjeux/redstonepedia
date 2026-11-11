@@ -38,6 +38,11 @@ pub struct Summary {
     /// Summons onto the pad out of turn (with the pad pasted) and the pad's golems.
     pub summons_oot: usize,
     pub pad_golems: usize,
+    /// Carts at rest on the approach's flat top T (5 ticks or more), by cause (a, b, c, contact,
+    /// other), and the reversals on the climb.
+    pub t_rests: usize,
+    pub t_causes: [usize; 5],
+    pub climb_rev: usize,
 }
 
 fn num_after(l: &str, key: &str) -> Option<i64> {
@@ -85,6 +90,14 @@ pub fn summarize(out: &str) -> Summary {
             s.derails = r.split(|c: char| !c.is_ascii_digit()).next().and_then(|t| t.parse().ok()).unwrap_or(0);
         } else if l.starts_with("declared states") {
             s.declared_bad = l.split("): ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
+        } else if let Some(r) = l.strip_prefix("carts at rest on T: ") {
+            let v: Vec<usize> = r.split(|c: char| !c.is_ascii_digit()).filter(|t| !t.is_empty()).take(6).filter_map(|t| t.parse().ok()).collect();
+            s.t_rests = v.first().copied().unwrap_or(0);
+            for i in 0..5 {
+                s.t_causes[i] = v.get(i + 1).copied().unwrap_or(0);
+            }
+        } else if let Some(r) = l.strip_prefix("climb reversals: ") {
+            s.climb_rev = r.split(|c: char| !c.is_ascii_digit()).next().and_then(|t| t.parse().ok()).unwrap_or(0);
         } else if let Some(r) = l.strip_prefix("summons onto the pad out of turn") {
             // ("(...): N of M")
             if let Some(t) = r.split("): ").nth(1) {
@@ -290,6 +303,10 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let oot: usize = ss.iter().map(|s| s.summons_oot).sum();
         let pg: usize = ss.iter().map(|s| s.pad_golems).sum();
         let pad = if pg > 0 || oot > 0 { format!(" | pad summons out of turn {oot} of {pg}") } else { String::new() };
+        let tr: usize = ss.iter().map(|s| s.t_rests).sum();
+        let tc: Vec<usize> = (0..5).map(|i| ss.iter().map(|s| s.t_causes[i]).sum()).collect();
+        let rv: usize = ss.iter().map(|s| s.climb_rev).sum();
+        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv}", tc[0], tc[1], tc[2], tc[3], tc[4]) } else { pad };
         let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 || derails > 0 || dbad > 0 || oot > 0 { " <--" } else { "" };
         out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
     }
