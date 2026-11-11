@@ -1447,6 +1447,8 @@ struct VisitRun {
     seen: Option<(i64, [f64; 3], f32)>,
     on_rail: bool,
     rolled: Option<(i64, f64)>,
+    /// The first tick the cart is on T1's rail (visit-relative).
+    t1_pass: Option<i64>,
     back: Option<(i64, usize)>,
 }
 
@@ -2201,6 +2203,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut villager_cells: std::collections::BTreeSet<BlockPos> = std::collections::BTreeSet::new();
     let mut golem_log: Vec<String> = Vec::new();
     let mut bed_claims: Vec<String> = Vec::new();
+    // (with visits: T1's and T2's rails each time their shape changes: absolute time, which, shape)
+    let mut t_switches: Vec<(i64, &'static str, String)> = Vec::new();
+    let mut t_shapes: [String; 2] = [String::new(), String::new()];
     // (the stop stand's brake: armed with a batch's third cart, set `stop_brake_delay` gt after
     // that cart is on the braked slopes; the design's first batch arms it from the start)
     let mut stop_arm: Option<(u32, Option<i64>)> = None;
@@ -2790,6 +2795,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // single visit's divert rail and bed holders; the nightly checks at dawn and midday)
         if let Some(v) = tm.visit {
             let tod = run.world.day_time().rem_euclid(24000);
+            // (T1's and T2's rails: a shape change logged with its absolute time)
+            for (j, (cell, name)) in [(v.t1, "T1"), (v.t2, "T2")].into_iter().enumerate() {
+                let s = run.world.get(BlockPos::new(cell.x, cell.y + 1, cell.z)).to_string();
+                if s != t_shapes[j] {
+                    if !t_shapes[j].is_empty() {
+                        let shape = s.split("shape=").nth(1).and_then(|t| t.split([',', ']']).next()).unwrap_or("?").to_string();
+                        t_switches.push((c * 100 + dt, name, shape));
+                    }
+                    t_shapes[j] = s;
+                }
+            }
             let asleep_now: Vec<bool> = riders.iter().map(|r| redsim::entity::index_of(&run.world, *r).is_some_and(|i| matches!(&run.world.entities.list[i].kind, redsim::entity::EntityKind::Mob(_)) && redsim::entity::mob::mob(&run.world, i).sleeping_pos.is_some())).collect();
             for (k, a) in asleep_now.iter().enumerate() {
                 if *a {
@@ -2862,6 +2878,14 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         if asleep_now[r] {
                             vr.sleep.0.get_or_insert(now);
                             vr.sleep.1 = Some(now);
+                        }
+                    }
+                    // (the first tick on T1's rail: the coupling with the next visit's T switch)
+                    if vr.t1_pass.is_none() {
+                        if let Some(p) = pos_of(&run.world, id) {
+                            if p.x.floor() as i32 == v.t1.x && p.z.floor() as i32 == v.t1.z && (p.y - (v.t1.y as f64 + 1.0)).abs() < 0.9 {
+                                vr.t1_pass = Some(now);
+                            }
                         }
                     }
                     // (ready: at rest on the siding's exit slot, over its release control)
@@ -3295,13 +3319,30 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 continue;
             }
             done += 1;
-            out.push(format!("visit slot {} cart {}: rider asleep {}; ready at the siding's exit {}; rolled off its drop rail {}; back at rest {}", vr.slot, vr.k, match vr.sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, vr.ready.map_or("never".into(), |t| format!("+{t}")), vr.rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), vr.back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
+            out.push(format!("visit slot {} cart {}: rider asleep {}; ready at the siding's exit {}; passed T1 {}; rolled off its drop rail {}; back at rest {}", vr.slot, vr.k, match vr.sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, vr.ready.map_or("never".into(), |t| format!("+{t}")), vr.t1_pass.map_or("never".into(), |t| format!("at +{t}")), vr.rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), vr.back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
             if vr.sleep.0.is_none() {
                 problems.push(format!("visit (slot {}, cart {}): the napper never slept", vr.slot, vr.k));
             }
             if vr.back.is_none() {
                 problems.push(format!("visit (slot {}, cart {}): the cart never came back to rest in a slot", vr.slot, vr.k));
             }
+        }
+        // (the coupling "the previous visit's cart clears the T's before they switch for the next":
+        // for each visit, the first T switch after it passed T1 and the last one before it did,
+        // relative to its pass; the smallest gaps over the run)
+        let mut after: Vec<i64> = Vec::new();
+        let mut before: Vec<i64> = Vec::new();
+        for vr in &visits {
+            let Some(p) = vr.t1_pass.map(|t| vr.slot * 100 + t) else { continue };
+            if let Some((t, _, _)) = t_switches.iter().find(|(t, _, _)| *t > p) {
+                after.push(t - p);
+            }
+            if let Some((t, _, _)) = t_switches.iter().rev().find(|(t, _, _)| *t <= p) {
+                before.push(p - t);
+            }
+        }
+        if !after.is_empty() {
+            out.push(format!("visit: T1/T2 switches {} times; after a visiting cart passed T1 the next switch came {}..{} gt later; before it passed, the last switch was {}..{} gt earlier", t_switches.len(), after.iter().min().unwrap_or(&0), after.iter().max().unwrap_or(&0), before.iter().min().unwrap_or(&0), before.iter().max().unwrap_or(&0)));
         }
         if v.every > 0 || v.observe {
             out.push(format!("visits: {done} complete; {}", if night_reports.is_empty() { "no dawn reached".to_string() } else { night_reports.join("; ") }));
