@@ -26,6 +26,10 @@ Every carousel part with timed controls prints its tolerance: how many ticks eac
 
 Each part's tolerance line also includes two corner runs: every timed control at its measured early limit together, then every one at its late limit, each with the entry-speed extreme, so a part whose margins hold only one at a time shows up; the assembly repeats the corners across its couplings.
 
+#### Every stateful element recovers by itself (fault injection)
+
+Every stateful element in a part (latch, copper bulb, counter, register, ring) recovers by itself from one missed pulse and from one extra pulse. The farm returns to clean operation within a stated number of cycles, with no permanent phase inversion and no hand reset. It's checked by fault injection on the part's bench: at each stateful element, drop one input pulse, and separately add one extra input pulse, in each distinct state the element can be in when the pulse is due, over several seeds. The part's line reports, per element, the worst-case cycles to recover and what was lost in the meantime (slots, naps, golems). An element that never recovers fails the part. Why: the bed siding's give-up used a copper bulb, so one dropped F pulse inverted its phase and jammed the siding for good (6 of 6 seeds, recovery only by hand); a set/reset latch replaces it.
+
 #### Settled as placed, and built in order (every part)
 
 1. **Settled as placed.** The design file pasted raw, with no settle ticks and no shape or neighbour updates, passes the part's bench under the same criteria as the settled run. So every cell is written in its settled, self-consistent state (wire and rail shapes, repeater, comparator and powered states), and item stocks (a hopper's or dropper's stock, a sorter's fillers) are listed build steps, not pre-stocked file states. Why: the wired loop's release failed from slot 1 in the real game when its hopper's item stock was missing (the paste hadn't filled it); with the stock merged, the loop placed raw runs 60 slots at 0 differences against the 26.3 server. So item stocks are listed build steps, and a design must work from its file as placed.
