@@ -37,6 +37,8 @@ Every loop or wired part that carries villagers who may have slept passes the go
 - runs from every position a villager can occupy: the loop's rail cells, plus every position the sleep routine or a branch puts a villager on (the siding or branch to the bed, the dismount spot, the walk to the bed, the bed, the stand-up cell and the way back), taken from a recorded full bench night together with the design's listed positions;
 - runs the game's summon search from each position (redsim's golem_spawn_cells_from) with entities ignored: a cell blocked only by a cart, a rider or the zombie at the moment of the check still counts as a spot, because they move.
 
+Pad cells count as allowed only when seen from the stand cells; a pad cell reachable from any other villager position (the arriving or returning batch, the queue, the napper's path) is an out-of-turn summon onto the pad, and the report flags it (`queue-loop-spots --pad --stand`).
+
 Why: main's published wired v2 had 30 off-pad golem cells on its wiring, and on the day-1 lane's first wired night a golem spawned on one of them and jammed the tail. The loop benches missed it because their riders never sleep, so no golem was ever summoned away from the pad.
 
 #### Release stagger (measured)
