@@ -240,6 +240,9 @@ pub fn tick_chunks(w: &mut World) {
         return;
     };
     let sections = (w.min.y.div_euclid(16).max(MIN_SECTION), (w.min.y + w.size[1] - 1).div_euclid(16).min(MAX_SECTION));
+    // (tickexact 2026-11-10, a partial unload: forEachBlockTickingChunk is the entity-ticking
+    // chunks, simulation level 31; their order left as it was)
+    let order: Vec<[i32; 2]> = if w.unforced.is_empty() { order } else { order.into_iter().filter(|c| w.chunk_level(c[0], c[1]) <= 31).collect() };
     if w.random_ticks.is_some() && w.ticking_sections.is_none() {
         w.ticking_sections = Some(TickingSections::build(w));
     }

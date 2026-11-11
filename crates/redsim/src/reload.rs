@@ -334,6 +334,67 @@ pub fn load_all(w: &mut World) {
     }
 }
 
+/// (tickexact 2026-11-10, ironspec's fault rule: a partial unload, the edge of the loaded area
+/// through the part as the player leaves) The forced tickets of the chunks of box `b` [x0, z0, x1,
+/// z1] dropped (the bridge's `unload` of those chunks), between two ticks. Each chunk's simulation
+/// level rises to 31 plus its distance to the nearest chunk still forced (`World::chunk_level`):
+/// at 32 its blocks tick (scheduled ticks, block events, block entities) but no entity and no
+/// random tick, at 33 nothing ticks; its entities stay the same objects and its scheduled ticks
+/// their trigger times (the overdue ones run when it ticks again). Not modeled yet (a model
+/// error): a chunk past 33 (its entities saved and unloaded, its blocks inaccessible: the part
+/// wider than the loaded ring), every chunk dropped (the whole part: [`unload_all`]), natural
+/// spawning or a player.
+pub fn unload_some(w: &mut World, b: [i32; 4]) {
+    let Some([x0, z0, x1, z1]) = w.entity_chunks else {
+        return error(w, "a partial unload of a world without a forced chunk box".to_string());
+    };
+    if w.mob.natural.is_some() || !w.mob.ai.players.is_empty() {
+        return error(w, "a partial unload with natural spawning or a player is not modeled".to_string());
+    }
+    for x in b[0].max(x0)..=b[2].min(x1) {
+        for z in b[1].max(z0)..=b[3].min(z1) {
+            if !w.unforced.contains(&(x, z)) {
+                w.unforced.push((x, z));
+            }
+        }
+    }
+    if (x0..=x1).all(|x| (z0..=z1).all(|z| w.unforced.contains(&(x, z)))) {
+        w.unforced.clear();
+        return error(w, "a partial unload of every chunk: the whole part is `unload all`".to_string());
+    }
+    if (x0..=x1).any(|x| (z0..=z1).any(|z| w.chunk_level(x, z) > 33)) {
+        error(w, "a partial unload leaving a chunk of the part past the loaded levels (its entities saved and unloaded) is not modeled".to_string());
+    }
+}
+
+/// The forced tickets of the chunks of box `b` back ([`unload_some`]'s other half). A chunk whose
+/// entities tick again puts them back in the level's tick list at its end (`EntityTickList`:
+/// `stopTicking` took them out when it stopped, `startTicking` appends them), chunk by chunk in
+/// the box's order, each chunk's sections in key order and each section's entities in the order
+/// they entered it.
+pub fn load_some(w: &mut World, b: [i32; 4]) {
+    let was: Vec<(i32, i32)> = (b[0]..=b[2]).flat_map(|x| (b[1]..=b[3]).map(move |z| (x, z))).filter(|&(x, z)| w.chunk_level(x, z) > 31).collect();
+    w.unforced.retain(|&(x, z)| !(x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]));
+    let back: Vec<(i32, i32)> = was.into_iter().filter(|&(x, z)| w.chunk_level(x, z) <= 31).collect();
+    if back.is_empty() {
+        return;
+    }
+    let mut moved: Vec<crate::entity::Entity> = Vec::new();
+    for ch in back {
+        let mut here: Vec<usize> = (0..w.entities.list.len()).filter(|&i| !w.entities.list[i].removed && w.entities.list[i].block_position().chunk() == ch).collect();
+        here.sort_by_key(|&i| {
+            let e = &w.entities.list[i];
+            (crate::entity::section_order(e.section), e.section_seq)
+        });
+        for i in here {
+            moved.push(w.entities.list[i].clone());
+            w.entities.list[i].removed = true;
+        }
+    }
+    w.entities.list.retain(|e| !e.removed);
+    w.entities.list.extend(moved);
+}
+
 /// A loaded villager's brain (`Villager.readAdditionalSaveData` -> `refreshBrain`: `makeBrain` of
 /// its packed memories, then `registerBrainGoals`), as the bridge's seeding of a loaded entity
 /// leaves it: the live brain's 9 sensor delays drawn from its seeded random (after the UUID and

@@ -1674,6 +1674,113 @@ final class Sandbox {
     /** Each entity's number before {@link #unloadAll}, by UUID. */
     private final java.util.Map<UUID, Integer> numbersBefore = new java.util.HashMap<>();
 
+    /**
+     * (tickexact 2026-11-10, a partial unload) The chunks of the box whose forced tickets
+     * {@link #unloadSome} dropped: each chunk's simulation level is then 31 plus its distance to
+     * the nearest chunk still forced (32: blocks tick, entities do not; 33: loaded, nothing ticks).
+     */
+    final java.util.Set<Long> unforced = new java.util.LinkedHashSet<>();
+
+    /** Drop the forced tickets of the box's chunks in [x0, z0, x1, z1], the levels settled. */
+    void unloadSome(SimServer server, int x0, int z0, int x1, int z1) {
+        if (this.away) {
+            throw new IllegalStateException("sandbox " + this.id + " is unloaded");
+        }
+        for (int cx = Math.max(x0, this.minChunkX); cx <= Math.min(x1, this.maxChunkX); cx++) {
+            for (int cz = Math.max(z0, this.minChunkZ); cz <= Math.min(z1, this.maxChunkZ); cz++) {
+                if (this.unforced.add(ChunkPos.pack(cx, cz))) {
+                    this.level.setChunkForced(cx, cz, false);
+                }
+            }
+        }
+        if (this.unforced.size() == (this.maxChunkX - this.minChunkX + 1) * (this.maxChunkZ - this.minChunkZ + 1)) {
+            throw new IllegalArgumentException("a partial unload of every chunk: the whole sandbox is `unload` without chunks");
+        }
+        settleLevels(server);
+    }
+
+    /**
+     * The forced tickets of the box's chunks in [x0, z0, x1, z1] back, chunk by chunk in the box's
+     * order (x, then z), each settled before the next: a chunk whose entities tick again appends
+     * them to the level's tick list (startTicking), so its chunks' entities come back in that
+     * order (the chunk system would otherwise promote them in no fixed order).
+     */
+    void loadSome(SimServer server, int x0, int z0, int x1, int z1) {
+        PersistentEntitySectionManager<?> entityManager = (PersistentEntitySectionManager<?>) get(ENTITY_MANAGER, this.level);
+        for (int cx = Math.max(x0, this.minChunkX); cx <= Math.min(x1, this.maxChunkX); cx++) {
+            for (int cz = Math.max(z0, this.minChunkZ); cz <= Math.min(z1, this.maxChunkZ); cz++) {
+                if (this.unforced.remove(ChunkPos.pack(cx, cz))) {
+                    this.level.setChunkForced(cx, cz, true);
+                    settleLevels(server);
+                    ChunkPos pos = new ChunkPos(cx, cz);
+                    long deadline = System.nanoTime() + 60_000_000_000L;
+                    while (!entityManager.isTicking(pos)) {
+                        server.pumpTasks();
+                        this.level.getChunkSource().tick(() -> true, false);
+                        this.level.getChunkSource().pollTask();
+                        entityManager.tick();
+                        if (System.nanoTime() > deadline) {
+                            throw new IllegalStateException("chunk " + cx + " " + cz + " of sandbox " + this.id + " did not tick its entities again");
+                        }
+                        LockSupport.parkNanos(20_000L);
+                    }
+                }
+            }
+        }
+        settleLevels(server);
+    }
+
+    private static final Field ENTITY_TICK_LIST = field(ServerLevel.class, "entityTickList");
+
+    /** The level's entity tick list in its order: the entities' numbers and chunks (a probe). */
+    com.google.gson.JsonArray tickList() {
+        com.google.gson.JsonArray a = new com.google.gson.JsonArray();
+        ((net.minecraft.world.level.entity.EntityTickList) get(ENTITY_TICK_LIST, this.level)).forEach(e -> a.add((e.getId() - entityIdBase()) + "@" + e.chunkPosition().x() + "," + e.chunkPosition().z()));
+        return a;
+    }
+
+    /** A chunk's simulation level with the box's forced chunks less {@link #unforced} (33 and up as 33). */
+    private int expectedLevel(int cx, int cz) {
+        int best = 33;
+        for (int x = this.minChunkX; x <= this.maxChunkX; x++) {
+            for (int z = this.minChunkZ; z <= this.maxChunkZ; z++) {
+                if (!this.unforced.contains(ChunkPos.pack(x, z))) {
+                    best = Math.min(best, 31 + Math.max(Math.abs(x - cx), Math.abs(z - cz)));
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Pump the chunk system between two ticks until every chunk around the box has the simulation
+     * level its forced tickets give it (and stays so a few rounds: the holders and entity sections
+     * follow).
+     */
+    private void settleLevels(SimServer server) {
+        PersistentEntitySectionManager<?> entityManager = (PersistentEntitySectionManager<?>) get(ENTITY_MANAGER, this.level);
+        net.minecraft.server.level.DistanceManager dm = this.level.getChunkSource().chunkMap.getDistanceManager();
+        long deadline = System.nanoTime() + 60_000_000_000L;
+        int stable = 0;
+        while (stable < 4) {
+            server.pumpTasks();
+            this.level.getChunkSource().tick(() -> true, false);
+            this.level.getChunkSource().pollTask();
+            entityManager.tick();
+            boolean ok = true;
+            for (int cx = this.minChunkX - 2; cx <= this.maxChunkX + 2 && ok; cx++) {
+                for (int cz = this.minChunkZ - 2; cz <= this.maxChunkZ + 2 && ok; cz++) {
+                    ok = Math.min(dm.getChunkLevel(ChunkPos.pack(cx, cz), true), 33) == expectedLevel(cx, cz);
+                }
+            }
+            stable = ok ? stable + 1 : 0;
+            if (System.nanoTime() > deadline) {
+                throw new IllegalStateException("the chunk levels of sandbox " + this.id + " did not settle");
+            }
+            LockSupport.parkNanos(20_000L);
+        }
+    }
+
     /** The last {@link #loadAll}'s renumbering: [old number, new number] per entity back. */
     final List<int[]> lastRenumbered = new ArrayList<>();
 

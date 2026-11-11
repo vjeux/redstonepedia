@@ -294,6 +294,10 @@ pub struct World {
     /// (tickexact 2026-11-10) Entities a load brought back under new ids: old id -> its current
     /// id (`reload::load_all`; a drive's `eN` follows it).
     pub renumbered: HashMap<u32, u32>,
+    /// (tickexact 2026-11-10, ironspec's fault rule: a partial unload) The chunks of the forced
+    /// box whose forced tickets are dropped (`reload::unload_some`): each chunk's simulation level
+    /// is then 31 plus its distance to the nearest chunk still forced ([`World::chunk_level`]).
+    pub unforced: Vec<(i32, i32)>,
     /// This world is the Nether (`DimensionType.ultraWarm`): lava flows every 10 gt, drops off by
     /// 1, looks 4 blocks for a slope and pushes entities by 0.007; a portal's random tick spawns
     /// nothing; an entity through a portal goes to the overworld (`outgoing`).
@@ -415,6 +419,7 @@ impl World {
             nether: None,
             away: None,
             renumbered: HashMap::new(),
+            unforced: Vec::new(),
             ultrawarm: false,
             portal_tickets: Vec::new(),
             portal_since: None,
@@ -495,6 +500,11 @@ impl World {
     /// forced chunk has level 31, its neighbours 32+), so a TNT or an item flying out of them
     /// freezes there.
     pub fn entity_ticks_at(&self, x: f64, z: f64) -> bool {
+        // (a partial unload: entity ticking only at simulation level 31 or below)
+        if !self.unforced.is_empty() {
+            let (cx, cz) = ((x.floor() as i64).div_euclid(16) as i32, (z.floor() as i64).div_euclid(16) as i32);
+            return self.chunk_level(cx, cz) <= 31;
+        }
         match self.entity_chunks {
             None => true,
             Some([x0, z0, x1, z1]) => {
@@ -702,7 +712,55 @@ impl World {
     /// bridge's sandbox ticks (`LevelTicks` collects ticking chunks' only): the compare's
     /// entity-ticking list when known, else within the simulation distance, 6 chunks, of a natural
     /// player (the sandbox's 13 x 13); one that never runs is dropped (its chunk never ticks).
+    /// (tickexact 2026-11-10, a partial unload) Chunk (`cx`, `cz`)'s simulation level: 31 plus its
+    /// Chebyshev distance to the nearest chunk of the forced box still forced (`World::unforced`
+    /// dropped the others; 31 entity ticking, 32 block ticking: scheduled ticks, block events and
+    /// block entities, no entities and no random ticks; 33 loaded, nothing ticking; 34 for every
+    /// level past the loaded ones). Without a forced box: 31 everywhere.
+    pub fn chunk_level(&self, cx: i32, cz: i32) -> i32 {
+        let Some([x0, z0, x1, z1]) = self.entity_chunks else { return 31 };
+        let mut best = 34;
+        for x in x0..=x1 {
+            for z in z0..=z1 {
+                if self.unforced.contains(&(x, z)) {
+                    continue;
+                }
+                best = best.min(31 + (x - cx).abs().max((z - cz).abs()));
+                if best == 31 {
+                    return 31;
+                }
+            }
+        }
+        best
+    }
+
+    /// (tickexact 2026-11-10) Do block ticks, block events and block entities run at `p`? Every
+    /// one in a world without a partial unload; else only at simulation level 32 or below
+    /// (`ServerLevel.shouldTickBlocksAt`).
+    pub fn block_ticks_at(&self, p: BlockPos) -> bool {
+        self.unforced.is_empty() || self.chunk_level(p.x.div_euclid(16), p.z.div_euclid(16)) <= 32
+    }
+
+    /// The chunks at simulation level 32 or below (a partial unload: the forced box and the ring
+    /// around it).
+    fn block_ticking_chunks(&self) -> HashSet<(i32, i32)> {
+        let mut out = HashSet::new();
+        if let Some([x0, z0, x1, z1]) = self.entity_chunks {
+            for x in x0 - 1..=x1 + 1 {
+                for z in z0 - 1..=z1 + 1 {
+                    if self.chunk_level(x, z) <= 32 {
+                        out.insert((x, z));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn ticks_at(&self, p: BlockPos) -> bool {
+        if !self.unforced.is_empty() {
+            return self.block_ticks_at(p);
+        }
         if self.contains(p) {
             return true;
         }
@@ -1238,7 +1296,12 @@ impl World {
                 }
             }
         }
-        let due = self.ticks.collect(self.time);
+        // (a partial unload: only the block-ticking chunks' due ticks run, the others' wait)
+        let ticking: Option<HashSet<(i32, i32)>> = (!self.unforced.is_empty()).then(|| self.block_ticking_chunks());
+        let due = match &ticking {
+            None => self.ticks.collect(self.time),
+            Some(set) => self.ticks.collect_if(self.time, |ch| set.contains(&ch)),
+        };
         for t in due {
             if !self.ticks_at(t.pos) {
                 continue;
@@ -1252,7 +1315,10 @@ impl World {
         self.ticks.end_tick();
         // ServerLevel.tick: fluidTicks right after blockTicks (`tickFluid` checks the type)
         if self.fluid_ticks.count() > 0 {
-            let due = self.fluid_ticks.collect(self.time);
+            let due = match &ticking {
+                None => self.fluid_ticks.collect(self.time),
+                Some(set) => self.fluid_ticks.collect_if(self.time, |ch| set.contains(&ch)),
+            };
             for t in due {
                 if !self.ticks_at(t.pos) {
                     continue;
@@ -1279,11 +1345,21 @@ impl World {
         if self.mob.custom.is_some() {
             crate::entity::mob::custom::tick(self);
         }
+        // (a partial unload: an event whose chunk does not tick blocks waits, back at the end of
+        // the queue after the others ran: runBlockEvents' blockEventsToReschedule)
+        let mut waiting: Vec<BlockEvent> = Vec::new();
         while let Some(e) = self.events.pop() {
+            if !self.block_ticks_at(e.pos) {
+                waiting.push(e);
+                continue;
+            }
             let s = self.get(e.pos);
             if s.kind() == e.kind {
                 bh::trigger_event(self, s, e.pos, e.a, e.b);
             }
+        }
+        for e in waiting {
+            self.events.add(e);
         }
         self.handling_tick = false;
         // a rider moved off a removed vehicle and still alive (its free-position search is not

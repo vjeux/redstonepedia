@@ -48,6 +48,10 @@ pub enum Act {
     /// the bridge's `unload` / `load`).
     Unload,
     Load,
+    /// `unload <box>` / `load <box>` (the brief's partial form: the chunk box [x0, z0, x1, z1]'s
+    /// forced tickets dropped / back: `reload::unload_some` / `load_some`).
+    UnloadSome([i32; 4]),
+    LoadSome([i32; 4]),
 }
 
 /// A parsed drive.
@@ -84,6 +88,12 @@ fn int(s: Option<&&str>, line: &str) -> Result<i32, String> {
 
 fn num(s: Option<&&str>, line: &str) -> Result<f64, String> {
     s.and_then(|v| v.parse().ok()).ok_or_else(|| format!("{line:?}: expected a number"))
+}
+
+/// A chunk box `x0,z0,x1,z1` (chunk coordinates).
+pub fn chunk_box(s: &str) -> Option<[i32; 4]> {
+    let v: Vec<i32> = s.split(',').map(|x| x.trim().parse().ok()).collect::<Option<Vec<i32>>>()?;
+    (v.len() == 4).then(|| [v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])])
 }
 
 impl Drive {
@@ -153,7 +163,17 @@ impl Drive {
                         }
                         Some("unload") if w.len() == 3 => Act::Unload,
                         Some("load") if w.len() == 3 => Act::Load,
-                        Some("unload") => return Err(format!("{l:?}: unload all <N> (an unload of some chunks, a boundary through the part, is not modeled yet)")),
+                        // `unload x0,z0,x1,z1 <N>` (a chunk box), or its halves
+                        Some("unload") if w.len() == 5 => {
+                            let b = chunk_box(w[3]).ok_or_else(|| format!("{l:?}: unload x0,z0,x1,z1 <N>"))?;
+                            let n: i64 = w[4].parse().map_err(|_| format!("{l:?}: unload x0,z0,x1,z1 <N>"))?;
+                            d.acts.push((t, Act::UnloadSome(b)));
+                            d.acts.push((t + n, Act::LoadSome(b)));
+                            continue;
+                        }
+                        Some("unload") if w.len() == 4 => Act::UnloadSome(chunk_box(w[3]).ok_or_else(|| format!("{l:?}: unload x0,z0,x1,z1"))?),
+                        Some("load") if w.len() == 4 => Act::LoadSome(chunk_box(w[3]).ok_or_else(|| format!("{l:?}: load x0,z0,x1,z1"))?),
+                        Some("unload") => return Err(format!("{l:?}: unload all <N> or unload x0,z0,x1,z1 <N>")),
                         _ => return Err(format!("{l:?}: an act this replay does not know")),
                     };
                     d.acts.push((t, a));
@@ -244,6 +264,8 @@ pub fn apply(w: &mut World, lines: &[u32], t0: i64, a: &Act) {
         Act::PoiTake(p) => super::ai::poi::take(w, *p),
         Act::Unload => crate::reload::unload_all(w),
         Act::Load => crate::reload::load_all(w),
+        Act::UnloadSome(b) => crate::reload::unload_some(w, *b),
+        Act::LoadSome(b) => crate::reload::load_some(w, *b),
     }
 }
 
