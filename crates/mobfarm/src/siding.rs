@@ -328,9 +328,19 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
         walls.extend([[fx - 2, dy, fz + 1], [fx - 2, dy, fz], [fx - 1, dy, fz + 2], [fx + 1, dy, fz - 1], [fx + 1, dy, fz + 1], [fx + 1, dy, fz + 2]]);
     }
     walls.extend([[fx - 1, -1, fz - 1]]);
+    // (MCTAS_SIDING_FRONT=0: the bed head's north front closed, two high: the free cell the only
+    // place an awake napper can stand in the cage (the glass over the bed leaves its top 1.44
+    // high), so "the napper awake in the cage" is "the napper on the free cell")
+    if std::env::var("MCTAS_SIDING_FRONT").is_ok_and(|v| v == "0") {
+        walls.extend([[fx - 1, 0, fz - 1], [fx - 1, 1, fz - 1]]);
+    }
     walls.extend([[fx, 1, fz - 1], [fx, 1, fz + 1], [fx, 1, fz + 2], [fx, 1, fz + 3]]);
     walls.extend([[fx + 1, 2, fz - 1], [fx + 1, 2, fz + 1], [fx + 1, 2, fz], [fx + 1, 2, fz + 2]]);
-    walls.extend([[fx - 1, 2, fz + 1], [fx - 1, 2, fz]]);
+    // (the glass over the bed; MCTAS_SIDING_BEDTOP=1 lifts it one block (tick-exact 03:14, for
+    // ironspec's e5): the bed's top standable (1.95 under the glass), so a calm rider with a
+    // land path to the bed sets no CANT_REACH)
+    let bed_roof = if std::env::var("MCTAS_SIDING_BEDTOP").is_ok_and(|v| v == "1") { 3 } else { 2 };
+    walls.extend([[fx - 1, bed_roof, fz + 1], [fx - 1, bed_roof, fz]]);
     for c in walls {
         put(b, c, "glass")?;
     }
@@ -1295,6 +1305,12 @@ pub struct VisitRec {
     /// after the cart left (and the cart's x then).
     pub tee_out: Option<i64>,
     pub tee_back: Option<(i64, f64)>,
+    /// (farmopt 03:55, the open top) The first tick after the wake the napper, awake and not
+    /// riding, stood off the free cell; the first tick its kicked cart reached the free cell.
+    pub left_fc: Option<i64>,
+    pub kick_at_fc: Option<i64>,
+    /// The napper asleep again with its cart gone (out past the exit): a fail.
+    pub asleep_cart_gone: bool,
 }
 
 /// What the bench measured.
@@ -1350,6 +1366,22 @@ pub struct BenchReport {
     pub exposure: Vec<(String, i64)>,
     pub exposed_max: usize,
     pub exposed_two_ticks: u64,
+    /// ironspec 2026-11-11 02:59: while the bed is occupied, the closest any other villager came
+    /// to the bed's centre (ValidateNearbyPoi's 16), and where (the villager, its phase).
+    pub bed_min_dist: Option<(f64, String)>,
+    /// The position audit (ironspec 03:36): ticks the napper was awake and not riding inside the
+    /// siding, of those off the free cell, and the first few such positions.
+    pub audit_awake_ticks: u64,
+    pub audit_off_ticks: u64,
+    pub audit_off: Vec<String>,
+    /// Boards per kick: the visits' carts onto the exit branch with their napper aboard, and
+    /// without (a kick that left without its villager).
+    pub kick_boarded: u32,
+    pub kick_empty: u32,
+    /// The standard stamp line (ironspec via farmopt, 03:52): the oldest CANT_REACH stamp seen
+    /// (gt), by where the villager was: in the siding (entry to exit), on the bench's approach, in
+    /// the bench's enclosed hold (its riders' flee paths never reach: a bench artifact).
+    pub stamp_max: [i64; 3],
     /// The off-the-rails watch's derails and its report line.
     pub derails: Vec<String>,
     pub rail_line: String,
@@ -1592,6 +1624,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         kick: bool,
         h_prev: bool,
         cart_seen: Option<i64>,
+        aboard_set: Option<i64>,
+        act_off: bool,
     }
     let mut be = BEmul::default();
     if bo.b_emul.is_some() {
@@ -1880,10 +1914,15 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= 0.0 && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout().park_rail.z as f64 + 1.0))
             })
         };
-        if bo.b_fc && cart_inside() {
+        if bo.b_fc && (cart_inside() || run.world.get(s.entry).to_string().contains("powered=true")) {
+            // (the arrival detector ARR counts too: a VR landing on the arrival tick clears the
+            // V that ARR has just set, before the cart is past the entry cell)
             be.cart_seen = Some(now);
         }
         let vr_blocked = bo.b_emul.is_some() && (matches!(run.world.get(bed), Block::Bed { occupied: true, .. }) || (bo.b_fc && be.cart_seen.is_some_and(|c| now - c <= 20)));
+        if bo.trace && vr_at.contains(&now) {
+            eprintln!("VR gt {}: {} (DA {} | DB {})", now - t0, if vr_blocked { "held back" } else { "fires" }, run.world.get(fr.blk(0, -1, -1)), run.world.get(fr.blk(0, -1, -2)));
+        }
         if vr_at.contains(&now) && vr_blocked {
             rep.v_resets_blocked += 1;
         }
@@ -1989,14 +2028,53 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 let p = fr.local(e.pos);
                 !e.removed && e.vehicle.is_none() && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) && p.x >= fcell.x as f64 && p.x < fcell.x as f64 + 1.0 && p.z >= fcell.z as f64 && p.z < fcell.z as f64 + 1.0 && p.y > -0.5 && p.y < 1.0
             });
+            // (or the napper still aboard its parked cart: never dropped (an F before the drop
+            // turns the activator off), it leaves with its cart: the kick sends no cart off
+            // without its villager either way; a seat sensor over the park in the wiring)
+            let pz = layout().park_rail.z as f64;
+            let aboard = w.entities.list.iter().any(|e| {
+                let p = fr.local(e.pos);
+                !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && p.x >= 1.0 && p.x < 2.0 && p.z >= pz && p.z < pz + 1.0
+            });
             if h && !b {
                 be.since.get_or_insert(now);
             } else {
                 be.since = None;
             }
             let slow = be.since.is_some_and(|x| now - x >= d);
-            let kick = h && !l && !b && (fc || !bo.b_fc) && (slow || !be.n);
-            if bo.trace && (h != be.h_prev || kick != be.kick) {
+            // (the napper aboard its parked cart (never dropped): with `b_fc` it leaves at once,
+            // whatever the bed (B may be someone else's or a stale flag): H set for it through the
+            // latch's set input (the wiring: the seat sensor over the park into the S line))
+            let aboard_kick = bo.b_fc && aboard;
+            let nofast = std::env::var("MCTAS_BEMUL_NOFAST").is_ok_and(|v| v == "1");
+            let kick = h && !l && ((!b && (fc || !bo.b_fc) && (slow || (!be.n && !nofast))) || aboard_kick);
+            if bo.b_fc && aboard && !h && be.aboard_set.is_none() {
+                let n1 = fr.blk(-6, -3, 2);
+                set(&mut run.world, n1, "redstone_block");
+                drive.act(now, format!("set {} {} {} minecraft:redstone_block", n1.x, n1.y, n1.z));
+                be.aboard_set = Some(now);
+            }
+            if let Some(a) = be.aboard_set
+                && now == a + 4
+            {
+                let n1 = fr.blk(-6, -3, 2);
+                set(&mut run.world, n1, "air");
+                drive.act(now, format!("set {} {} {} minecraft:air", n1.x, n1.y, n1.z));
+            }
+            if be.aboard_set.is_some_and(|a| now > a + 4) && !aboard {
+                be.aboard_set = None;
+            }
+            // (the drop gated by B: the activator off while the bed is occupied, so a napper
+            // arriving at an occupied bed is not dropped beside it (the wiring: B into the
+            // activator torch's block, with H))
+            if bo.b_fc && b != be.act_off {
+                be.act_off = b;
+                let r = |st: &str| clock::canon::rotate_state(st, fr.turn.rem_euclid(4) as u8);
+                let st = if b { r("rail[shape=north_south,waterlogged=false]") } else { r("activator_rail[powered=false,shape=north_south,waterlogged=false]") };
+                set(&mut run.world, s.activator_rail, &st);
+                drive.act(now, format!("set {} {} {} minecraft:{st}", s.activator_rail.x, s.activator_rail.y, s.activator_rail.z));
+            }
+            if bo.trace && (h != be.h_prev || kick != be.kick || (now - t0 >= bo.trace_window.0 && now - t0 < bo.trace_window.1 && (now - t0) % 50 == 0)) {
                 eprintln!("b-emul gt {}: H {h} L {l} B {b} N {} FC {fc} since {:?} kick {kick}", now - t0, be.n, be.since.map(|x| now - x));
             }
             be.h_prev = h;
@@ -2036,19 +2114,51 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         for (k, p) in pairs.iter().enumerate() {
             rail_watch.observe(&run.world, k, p.0, Some(p.1), &format!("t0+{}", t - t0));
         }
-        // (the exposure: riding, calm in REST, at night)
+        // (the exposure, tick-exact's definition (2026-11-11 03:14), so the two lines agree: deep
+        // night (day time 13,670..22,330), REST active, CANT_REACH present, HOME held, riding or
+        // not, with or without a walk target)
         {
             let w = &run.world;
-            let night_now = w.day_time().rem_euclid(24000) >= 12000;
+            // (the bed's other villagers: while it is occupied, every villager but the sleeper,
+            // its distance to the bed's centre)
+            if matches!(w.get(bed), Block::Bed { occupied: true, .. }) {
+                let c = Vec3::new(bed.x as f64 + 0.5, bed.y as f64 + 0.5, bed.z as f64 + 0.5);
+                for p in pairs.iter() {
+                    if let Some(i) = index_of(w, p.1) {
+                        let e = &w.entities.list[i];
+                        if redsim::entity::mob::mob(w, i).sleeping_pos.is_some() {
+                            continue;
+                        }
+                        let d = ((e.pos.x - c.x).powi(2) + (e.pos.y - c.y).powi(2) + (e.pos.z - c.z).powi(2)).sqrt();
+                        if rep.bed_min_dist.as_ref().is_none_or(|(m, _)| d < *m) {
+                            let l = fr.local(e.pos);
+                            rep.bed_min_dist = Some((d, format!("villager {} at {:.2} {:.2} {:.2} (local), riding {}, t0+{}", p.1, l.x, l.y, l.z, e.vehicle.is_some(), t - t0)));
+                        }
+                    }
+                }
+            }
+            let dtn = w.day_time().rem_euclid(24000);
+            let night_now = (13670..=22330).contains(&dtn);
             let mut n_exp = 0usize;
             for (k, p) in pairs.iter().enumerate() {
+                // (the stamp line: each villager's CANT_REACH age, by where it is)
+                if let Some(i) = index_of(w, p.1)
+                    && brain::has_exact(w, i)
+                    && let Some(s0) = brain::ex(w, i).mem.cant_reach_since
+                {
+                    let l = fr.local(w.entities.list[i].pos);
+                    let region = if l.x >= -0.5 && l.x <= 7.0 && l.z >= -0.5 && l.z <= 8.0 { 0 } else if l.x < -0.5 && (l.z - 0.5).abs() < 1.0 { 1 } else { 2 };
+                    rep.stamp_max[region] = rep.stamp_max[region].max(t - s0);
+                }
                 let exposed = night_now
-                    && index_of(w, p.1).is_some_and(|i| w.entities.list[i].vehicle.is_some() && brain::has_exact(w, i) && brain::ex(w, i).active == Act::Rest);
+                    && index_of(w, p.1).is_some_and(|i| brain::has_exact(w, i) && brain::ex(w, i).active == Act::Rest && brain::ex(w, i).mem.cant_reach_since.is_some() && brain::brain(w, i).home.is_some());
                 match (exposed, exp_since[k]) {
                     (true, None) => {
                         // (the phase, from the villager's latest visit at the window's start)
                         let ph = match rep.visits.iter().rev().find(|v| v.villager == p.1) {
                             Some(v) if v.dropped.is_none() && v.exited.is_none() => "before the drop-off",
+                            Some(v) if v.slept.is_none() && v.reboarded.is_none() && v.exited.is_none() => "on foot in the cage before the nap",
+                            Some(v) if v.reboarded.is_none() && v.exited.is_none() => "on foot after the wake",
                             Some(v) if v.reboarded.is_some() && v.exited.is_none() && v.slept.is_some() => "after the nap (re-boarded to out)",
                             Some(v) if v.reboarded.is_some() && v.exited.is_none() => "the stuck path (no nap, sent out by F)",
                             Some(v) if v.exited.is_some() && t - v.exited.unwrap() < 400 => "out, on the bench's run-out and back in its hold (no loop zombies; not counted at once)",
@@ -2208,6 +2318,41 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     vr.reboarded = Some(t);
                     vr.own_cart = riding == Some(cart);
                 }
+                // (farmopt 03:55: the first tick after the wake off the free cell, and the first
+                // tick the kicked cart (moving north) is in the free cell)
+                {
+                    let fcell = layout().free_cell;
+                    let in_fc = |p: Vec3| p.x >= fcell.x as f64 && p.x < fcell.x as f64 + 1.0 && p.z >= fcell.z as f64 && p.z < fcell.z as f64 + 1.0;
+                    if vr.woken.is_some() && vr.left_fc.is_none() && vr.reboarded.is_none() && riding.is_none() && !asleep && !in_fc(fr.local(e.pos)) {
+                        vr.left_fc = Some(t);
+                    }
+                    if vr.kick_at_fc.is_none()
+                        && vr.dropped.is_some()
+                        && let Some(c) = w.entities.list.iter().find(|x| x.id == cart && !x.removed)
+                        && in_fc(fr.local(c.pos))
+                        && fr.lvel(c.delta_movement).z < 0.0
+                    {
+                        vr.kick_at_fc = Some(t);
+                    }
+                    if vr.exited.is_some() && asleep && riding.is_none() {
+                        vr.asleep_cart_gone = true;
+                        vr.problem.get_or_insert("asleep again with its cart gone".into());
+                    }
+                }
+                // (ironspec 03:36, the position audit: every tick the napper is awake and not
+                // riding inside the siding (dropped, not yet out), it stands on the free cell)
+                if vr.dropped.is_some() && vr.exited.is_none() && riding.is_none() && !asleep {
+                    let l = fr.local(e.pos);
+                    let fcell = layout().free_cell;
+                    let on_fc = l.x >= fcell.x as f64 && l.x < fcell.x as f64 + 1.0 && l.z >= fcell.z as f64 && l.z < fcell.z as f64 + 1.0;
+                    rep.audit_awake_ticks += 1;
+                    if !on_fc {
+                        rep.audit_off_ticks += 1;
+                        if rep.audit_off.len() < 4 {
+                            rep.audit_off.push(format!("visit {k} villager {villager} at {:.2} {:.2} {:.2} (local) t0+{}", l.x, l.y, l.z, t - t0));
+                        }
+                    }
+                }
                 // (traced: the first visit's cart and napper every 3 gt until the re-board)
                 if bo.trace && vr.reboarded.is_none() && t % 3 == 0 && t - vr.arrived < 400 && t - t0 >= bo.trace_window.0 && t - t0 < bo.trace_window.1 {
                     let c = w.entities.list.iter().find(|x| x.id == cart).map(|c| (c.pos, c.delta_movement));
@@ -2232,6 +2377,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 && fr.local(c.pos).z < 1.0
                 && fr.lvel(c.delta_movement).x > 0.0
             {
+                // (boards per kick: its napper aboard as it leaves the bed line)
+                if c.passengers.contains(&villager) {
+                    rep.kick_boarded += 1;
+                } else {
+                    rep.kick_empty += 1;
+                }
                 reset_pending = true;
                 active = None;
                 waiting.push(k);

@@ -3583,7 +3583,39 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 let emax = oks.iter().map(|r| r.exposed_max).max().unwrap_or(0);
                 let two: u64 = oks.iter().map(|r| r.exposed_two_ticks).sum();
-                println!("calm in REST with the bed out of reach (riding, not panicking, at night): at most {emax} at once; ticks with two or more: {two}");
+                // (ironspec 02:59: the closest any other villager came to the occupied bed)
+                let bmin = rows.iter().filter_map(|(s, r)| r.as_ref().ok().and_then(|r| r.bed_min_dist.clone().map(|(d, w)| (d, format!("seed {s}: {w}"))))).min_by(|a, b| a.0.total_cmp(&b.0));
+                if let Some((d, w)) = &bmin {
+                    println!("while the bed is occupied, the closest other villager to its centre: {d:.2} blocks ({w}); ValidateNearbyPoi forgets at under 16");
+                }
+                // (ironspec 03:36: the position audit and boards per kick)
+                let (aw, off): (u64, u64) = oks.iter().fold((0, 0), |a, r| (a.0 + r.audit_awake_ticks, a.1 + r.audit_off_ticks));
+                let offs: Vec<String> = rows.iter().filter_map(|(s, r)| r.as_ref().ok().and_then(|r| r.audit_off.first().map(|f| format!("seed {s}: {f}")))).take(3).collect();
+                let (kb, ke): (u32, u32) = oks.iter().fold((0, 0), |a, r| (a.0 + r.kick_boarded, a.1 + r.kick_empty));
+                println!("position audit: the napper awake and not riding inside the siding {aw} ticks, off the free cell {off}{}; carts leaving the bed line with their napper {kb}, without {ke}", if offs.is_empty() { String::new() } else { format!(" ({})", offs.join("; ")) });
+                let st = oks.iter().fold([0i64; 3], |a, r| [a[0].max(r.stamp_max[0]), a[1].max(r.stamp_max[1]), a[2].max(r.stamp_max[2])]);
+                println!("oldest CANT_REACH stamp (bar <= 1,000 gt): in the siding {} gt, on the bench's approach {} gt, in the bench's enclosed hold {} gt (its flee paths never reach: a bench artifact)", st[0], st[1], st[2]);
+                // (farmopt 03:55: per napped visit, the wake, the napper's first step off the free
+                // cell after it, the kicked cart's arrival at the free cell, and their margin)
+                let mut margins: Vec<i64> = Vec::new();
+                let (mut never_left, mut wake_to_kick): (u32, Vec<i64>) = (0, Vec::new());
+                for r in &oks {
+                    for v in r.visits.iter().filter(|v| v.woken.is_some()) {
+                        if let Some(kf) = v.kick_at_fc {
+                            wake_to_kick.push(kf - v.woken.unwrap());
+                            match v.left_fc {
+                                Some(lf) => margins.push(lf - kf),
+                                None => never_left += 1,
+                            }
+                        }
+                    }
+                }
+                margins.sort();
+                wake_to_kick.sort();
+                if !wake_to_kick.is_empty() {
+                    println!("after the wake: the kicked cart at the free cell {}..{} gt later (p50 {}); the napper off the free cell before its cart came: {} of {} visits (margins, the cart first if > 0: min {:?}, p1 {:?}); never off it before boarding: {never_left}", wake_to_kick[0], wake_to_kick[wake_to_kick.len() - 1], wake_to_kick[wake_to_kick.len() / 2], margins.iter().filter(|m| **m <= 0).count(), wake_to_kick.len(), margins.first(), margins.get(margins.len() / 100));
+                }
+                println!("exposed (tick-exact's definition: deep night 13,670..22,330, REST, CANT_REACH present, HOME held, riding or not): at most {emax} at once; ticks with two or more: {two}");
                 for (ph, mut ls) in by {
                     ls.sort();
                     let q = |p: f64| ls[((ls.len() as f64 - 1.0) * p).round() as usize];
