@@ -267,9 +267,9 @@ fn clears_with(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool
 /// water, lava, the pad's gates) that is not a full block itself (a cave's air, a plant, lichen)
 /// is filled with cobblestone, so no natural mob walks in from a cave, no water or lava flows
 /// out and no drop leaves; and every natural gravity block (sand, red sand, gravel) the build's
-/// writes set falling, found by simulating the dig with the gravity model, cascades included
-/// ([`falling_seals`]: gravel walls over a cave fall away when a pit is dug and drain it), is
-/// replaced with cobblestone; each with whether its natural cell held a block to dig first. A void
+/// writes set falling ([`falling_seals`]: a gravel wall over a cave falls away when a pit is dug
+/// and drains it; sealed, it starts no cascade) is replaced with cobblestone; each with whether
+/// its natural cell held a block to dig first. A void
 /// design (its box cleared to the sky) has none.
 pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool) -> Vec<(BlockPos, bool)> {
     if clear_box {
@@ -313,8 +313,8 @@ pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: boo
             out.push((up, true));
         }
     }
-    // (farmopt 2026-11-10, ironspec's ruling) every natural gravity block the dig sets falling,
-    // cascades included: bed-plate-lava-out-of-sight's pit at village-edge build 0 had natural
+    // (farmopt 2026-11-10, ironspec's ruling) every natural gravity block the dig sets falling, so
+    // no cascade starts: bed-plate-lava-out-of-sight's pit at village-edge build 0 had natural
     // gravel walls over cave air; digging the pit dropped them one after another, the pit's water
     // drained into the cave and the hopper's corner stayed dry (the bridge's compare: the same)
     let placed: crate::fxhash::FxHashMap<BlockPos, crate::block::Block> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
@@ -326,77 +326,44 @@ pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: boo
 }
 
 /// The natural gravity blocks (`Block::Falling`: sand, red sand, gravel) a build sets falling,
-/// each to seal (cobblestone, the block dug first): the dig simulated ([`first_movers`]), its
-/// first movers sealed, and again until nothing falls. Sealing the first movers keeps the blocks a
-/// falling one would have set moving where they are (a cascade starts at a first mover).
+/// each to seal (cobblestone, the block dug first): every one beside a cell the build writes (the
+/// farm's listed cells, the seals, these seals too: a seal is a write) whose cell below is free
+/// (`gravity::is_free`: air, fire, a liquid, a replaceable block) in the built world, the natural
+/// world with the listed cells and the cave seals written. Its write updates it
+/// (`FallingBlock.updateShape` schedules the tick), so it would fall; sealed, it starts no cascade:
+/// a gravity block over another stays put, and whether a cell's below is free never depends on
+/// these seals (a gravity block and the cobblestone in its place are both not free). A closure,
+/// so its result does not depend on any order (mobviewer 2026-11-10: the viewer runs this compiled
+/// to wasm32, whose hash iteration differs from native); a cell outside the world counts as solid.
 fn falling_seals(world: &World, placed: &crate::fxhash::FxHashMap<BlockPos, crate::block::Block>, seals: &[(BlockPos, bool)]) -> Vec<BlockPos> {
-    let mut sealed: crate::fxhash::FxHashSet<BlockPos> = seals.iter().map(|(p, _)| *p).collect();
-    let mut out: Vec<BlockPos> = Vec::new();
-    loop {
-        let movers = first_movers(world, placed, &sealed);
-        if movers.is_empty() {
-            return out;
+    use crate::block::Block;
+    use crate::gravity;
+    let caves: crate::fxhash::FxHashSet<BlockPos> = seals.iter().map(|(p, _)| *p).collect();
+    let built = |p: BlockPos| -> Block {
+        match placed.get(&p) {
+            Some(b) => *b,
+            None if caves.contains(&p) || !world.contains(p) => SEAL,
+            None => world.get(p),
         }
-        for p in movers {
-            if sealed.insert(p) {
-                out.push(p);
+    };
+    let mut sealed: crate::fxhash::FxHashSet<BlockPos> = Default::default();
+    let mut writes: Vec<BlockPos> = placed.keys().chain(caves.iter()).copied().collect();
+    let mut out: Vec<BlockPos> = Vec::new();
+    while let Some(w) = writes.pop() {
+        for d in crate::pos::Dir::ALL {
+            let q = w.rel(d);
+            if placed.contains_key(&q) || caves.contains(&q) || sealed.contains(&q) {
+                continue;
+            }
+            if matches!(built(q), Block::Falling { .. }) && q.y >= gravity::MIN_Y && gravity::is_free(built(q.below())) {
+                sealed.insert(q);
+                out.push(q);
+                writes.push(q);
             }
         }
     }
-}
-
-/// One simulation of a build's dig with the gravity model (`crate::gravity`): the cells it writes
-/// (the farm's listed cells and the seals) over the natural world, each one's six neighbours
-/// updated (`FallingBlock.updateShape` schedules the tick); a gravity block whose cell below is
-/// free (`gravity::is_free`: air, fire, a liquid, a replaceable block) falls to the cell its
-/// entity lands in (where the cell below is not free; it becomes the block there if that cell is
-/// replaceable, else it breaks), its departure and its landing updating their own neighbours,
-/// until nothing moves. Returns the gravity blocks the build's own writes set falling (the first
-/// movers), sorted; a cell outside the world counts as solid.
-fn first_movers(world: &World, placed: &crate::fxhash::FxHashMap<BlockPos, crate::block::Block>, sealed: &crate::fxhash::FxHashSet<BlockPos>) -> Vec<BlockPos> {
-    use crate::block::Block;
-    use crate::gravity;
-    let mut moved: crate::fxhash::FxHashMap<BlockPos, Block> = Default::default();
-    let get = |moved: &crate::fxhash::FxHashMap<BlockPos, Block>, p: BlockPos| -> Block {
-        if let Some(b) = moved.get(&p).or_else(|| placed.get(&p)) {
-            *b
-        } else if sealed.contains(&p) || !world.contains(p) {
-            SEAL
-        } else {
-            world.get(p)
-        }
-    };
-    // (cell, whether the build's own write updated it)
-    let mut queue: std::collections::VecDeque<(BlockPos, bool)> = placed.keys().chain(sealed.iter()).flat_map(|p| crate::pos::Dir::ALL.into_iter().map(move |d| (p.rel(d), true))).collect();
-    let mut first: Vec<BlockPos> = Vec::new();
-    while let Some((p, by_build)) = queue.pop_front() {
-        if placed.contains_key(&p) || sealed.contains(&p) {
-            continue;
-        }
-        let b = get(&moved, p);
-        if !matches!(b, Block::Falling { .. }) || p.y < gravity::MIN_Y || !gravity::is_free(get(&moved, p.below())) {
-            continue;
-        }
-        if by_build {
-            first.push(p);
-        }
-        let mut land = p.below();
-        while land.y > gravity::MIN_Y && gravity::is_free(get(&moved, land.below())) {
-            land = land.below();
-        }
-        moved.insert(p, Block::Air);
-        let there = get(&moved, land);
-        if there.is_air() || crate::behavior::can_be_replaced(&there) {
-            moved.insert(land, b);
-        }
-        for d in crate::pos::Dir::ALL {
-            queue.push_back((p.rel(d), false));
-            queue.push_back((land.rel(d), false));
-        }
-    }
-    first.sort_by_key(|p| (p.y, p.z, p.x));
-    first.dedup();
-    first
+    out.sort_by_key(|p| (p.y, p.z, p.x));
+    out
 }
 
 /// The block a seal is.
@@ -1022,10 +989,12 @@ mod tests {
 
     /// The dig's gravity (farmopt 2026-11-10, ironspec's ruling on bed-plate-lava-out-of-sight's
     /// pit): a gravel beside the farm's open cell over air falls when the cell is dug and is
-    /// sealed; a gravel on a gravel over air stays (nothing updates the lower one once the first
-    /// mover is sealed: the cascade it would have started); a gravel on stone stays; a gravel over
-    /// the open cell (it would drop in) is sealed, as `Block::Falling` (the natural row's rule no
-    /// longer sees it since natural gravel falls).
+    /// sealed; a gravel on a gravel over air that nothing the build writes touches stays (the
+    /// column the first one's fall would have shaken); a gravel on stone stays; a gravel over the
+    /// open cell (it would drop in) is sealed, as `Block::Falling` (the natural row's rule no
+    /// longer sees it since natural gravel falls); and mobviewer's order case: a gravel on a gravel
+    /// over air, both beside open cells, seals the lower one only, whatever the order the cells
+    /// are visited in (the closure: a cell's below is free in the built world or not).
     #[test]
     fn gravel_the_dig_sets_falling_is_sealed() {
         let mut w = World::new(BlockPos::new(-12, -4, -12), [25, 16, 25]);
@@ -1039,26 +1008,26 @@ mod tests {
         }
         let gravel = block("minecraft:gravel");
         assert!(matches!(gravel, Block::Falling { .. }));
-        // the first mover (0, 0, 1) over air; the cascade's column (1, 0, 1) on (1, -1, 1) over air,
-        // beside the first mover's landing (0, -1, 1); a gravel on stone; a gravel over the open cell
-        for (p, b) in [((0, 0, 1), gravel), ((0, -1, 1), Block::Air), ((1, 0, 1), gravel), ((1, -1, 1), gravel), ((1, -2, 1), Block::Air), ((-1, 0, 0), gravel), ((0, 1, 0), gravel)] {
+        // a gravel over air (0, 0, 1); the column (1, 0, 1) on (1, -1, 1) over air, its lower gravel
+        // beside no written cell; a gravel on stone; a gravel over the open cell; the column of
+        // mobviewer's case at x 3, beside an open column (3, 0, 0) and (3, -1, 0)
+        for (p, b) in [((0, 0, 1), gravel), ((0, -1, 1), Block::Air), ((1, 0, 1), gravel), ((1, -1, 1), gravel), ((1, -2, 1), Block::Air), ((-1, 0, 0), gravel), ((0, 1, 0), gravel), ((3, 0, 1), gravel), ((3, -1, 1), gravel), ((3, -2, 1), Block::Air)] {
             w.set_block(BlockPos::new(p.0, p.1, p.2), b, crate::world::flags::RAW);
         }
         let spec = FarmSpec {
-            blocks: vec![(BlockPos::new(0, 0, 0), Block::Air), (BlockPos::new(1, 0, 0), Block::Air)],
+            blocks: [(0, 0, 0), (1, 0, 0), (3, 0, 0), (3, -1, 0)].into_iter().map(|(x, y, z)| (BlockPos::new(x, y, z), Block::Air)).collect(),
             entities: Vec::new(),
             output: BlockPos::new(0, -3, 0),
             lo: BlockPos::new(-3, -3, -3),
-            hi: BlockPos::new(3, 3, 3),
+            hi: BlockPos::new(4, 3, 3),
             block_entities: Vec::new(),
             rock: false,
             nether: None,
         };
         let got: Vec<([i32; 3], bool)> = seals_at(&w, &spec, [0, 0, 0], false).iter().map(|(p, dig)| ([p.x, p.y, p.z], *dig)).collect();
-        assert_eq!(got, vec![([0, 0, 1], true), ([0, 1, 0], true)], "the first mover and the gravel over the open cell, dug first");
-        // without the seal, the dig drops the first mover and the cascade follows
-        let placed: crate::fxhash::FxHashMap<BlockPos, Block> = spec.blocks.iter().copied().collect();
-        let movers = first_movers(&w, &placed, &Default::default());
-        assert_eq!(movers, vec![BlockPos::new(0, 0, 1), BlockPos::new(0, 1, 0)], "the build's own updates set those two falling");
+        assert_eq!(got, vec![([3, -1, 1], true), ([0, 0, 1], true), ([0, 1, 0], true)], "the gravels over free cells beside the dig, dug first; the gravels on gravel stay");
+        // the same seals whatever the order the written cells come in
+        let reversed = FarmSpec { blocks: spec.blocks.iter().rev().copied().collect(), ..spec.clone() };
+        assert_eq!(seals_at(&w, &reversed, [0, 0, 0], false).iter().map(|(p, dig)| ([p.x, p.y, p.z], *dig)).collect::<Vec<_>>(), got);
     }
 }
