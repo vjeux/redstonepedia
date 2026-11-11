@@ -1390,6 +1390,9 @@ pub struct LoopTiming {
     pub pulse_at: Option<BlockPos>,
     /// The slots' phase: slot +K on the villagers' summon tick (gameTime % 100 == 0).
     pub summon_at: Option<i64>,
+    /// `--no-inject` (day-1's pad runs): with `wired`, no golem pulse from the bench at all, the
+    /// controls left to the design (its pad gives the pulse).
+    pub no_inject: bool,
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
     /// (an ideal-input lab for a wired trigger): G1, then G2, shut this many gt after the first
     /// cart's centre passes this x (a detector rail at cell x0 fires at x0 - 0.29).
@@ -1487,7 +1490,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, no_inject: false }
     }
 }
 
@@ -1973,9 +1976,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     // (the daylight detectors: `Run::start` holds them back for `Run::arrive`, which this runner
     // never calls (it spawns its own carts): placed here, after the settle, as `arrive` would;
-    // the build in order places them with the rest. day-1 found every run's detector missing)
-    if tm.build_gap.is_none() {
-        let dets: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).cloned().collect();
+    // the build in order places them with the rest. day-1 found every run's detector missing.
+    // With `wired`, placed at slot 0 +0 with the first golem pulse instead (day-1, 19:03): a seed
+    // starting at night would arm the controller's fallback before the bench's first pulse)
+    let dets_at_slot0 = tm.wired.is_some() && tm.build_gap.is_none();
+    let dets: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).cloned().collect();
+    if tm.build_gap.is_none() && !dets_at_slot0 {
         if !dets.is_empty() {
             run.world.place_raw(&dets);
             if !tm.placed_raw {
@@ -2365,6 +2371,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut tail_rest_at: Vec<i64> = Vec::new();
     for t in 0..cycles * 100 + 150 {
         let (c, dt) = (t / 100, t % 100);
+        // (`wired`: the daylight detectors placed now, at slot 0 +0, with the first golem pulse)
+        if t == 0 && dets_at_slot0 && !dets.is_empty() {
+            run.world.place_raw(&dets);
+            if !tm.placed_raw {
+                run.world.place_updates(&dets);
+            }
+        }
         if c < cycles && dt == 0 {
             // (who sits in a slot's slope cell, moving or not)
             let in_slot = |id: u32, cell: [i32; 3]| pos_of(&run.world, id).is_some_and(|p| p.x.floor() as i32 == cell[0] && p.z.floor() as i32 == cell[2] && p.y < 1.5);
@@ -2471,20 +2484,22 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             if let Some(p) = wired
                 && golem_jit(c) == 0
                 && !tm.golem_miss.contains(&c)
+                && !tm.no_inject
             {
                 // the golem pulse into the design's input cell (none at a `--golem-miss` slot: the
-                // design's own expiry must release it)
+                // design's own expiry must release it; none with `no_inject`: the design's pad
+                // gives it)
                 run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
             }
         }
         // (`golem_jitter`: the slot's golem pulse `golem_jit(c)` gt late, 0..=J from the seed:
         // the gaps between pulses vary over 100 - J ..= 100 + J)
-        if let (Some(p), true) = (wired, c < cycles && dt > 0 && dt == golem_jit(c) && !tm.golem_miss.contains(&c)) {
+        if let (Some(p), true) = (wired, c < cycles && dt > 0 && dt == golem_jit(c) && !tm.golem_miss.contains(&c) && !tm.no_inject) {
             run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
         }
-        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == golem_jit(c) + tm.golem_for && !tm.golem_miss.contains(&c)) {
+        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == golem_jit(c) + tm.golem_for && !tm.golem_miss.contains(&c) && !tm.no_inject) {
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
