@@ -471,8 +471,8 @@ fn permit_fixed(b: &mut B) -> Result<()> {
     place(b, [-10, -5, 25], DUST.into())?;
     place(b, [-11, -5, 25], rep("west", 1))?; // the stand-emptied latch's Q, from (-12,-5,25)
     place(b, [-10, -5, 24], rep("north", 1))?; // the train-arrived latch's Q, from (-10,-5,23)
-    place(b, [-10, -5, 26], rep("south", 1))?; // permit_hold, from its port (-10,-5,27)
-    b.ports.insert("input.permit_hold".into(), [-10, -5, 27]);
+    place(b, [-10, -5, 26], rep("south", 1))?; // the inverted input.permit, from (-10,-5,27)
+    // (input.permit's inverter: placed after the latches, below)
     // the two latches (origin o: Rl at o facing south, the loop o+(0..2, 0, -1..2), Cl at o+(2,0,0)
     // facing north, its clear repeater o+(3,0,0) from the port o+(4,0,0), the set chain o+(1,0,3)
     // (2 rt) and o+(1,0,4) (4 rt) from o+(1,0,5), Q's repeater o+(-1,0,-1) out to o+(-2,0,-1))
@@ -489,6 +489,28 @@ fn permit_fixed(b: &mut B) -> Result<()> {
         place(b, a([1, 0, 4]), rep("south", 4))?;
         place(b, a([-1, 0, -1]), rep("east", 1))?;
     }
+    // input.permit (ironspec 08:54: positive and fail-closed, the inverter at the head): powered =
+    // permit. INV (-10,-5,27), a subtract comparator, outputs 15 - permit straight into the OR
+    // node's south input (-10,-5,26): its rear a repeater (-10,-5,28) from a redstone block
+    // (-10,-5,29) (the constant enters through a diode: a block or dust on the stand-empty port
+    // (-11,-5,28) beside it can't lock or feed it), its side a repeater (-11,-5,27) reading a stone
+    // (-12,-5,27) that the port's landing dust (-12,-4,27) powers weakly (so the stone can't power
+    // the stand-emptied latch's loop dust (-13,-5,27) beside it; a stone over that dust cuts the
+    // landing dust's diagonal to it). The router lands on (-12,-4,27); a block over it (-12,-3,27)
+    // ties it high (today's stand) or is the bench's drive.
+    place(b, [-10, -5, 27], "minecraft:comparator[facing=south,mode=subtract,powered=false]".into())?;
+    place(b, [-10, -5, 28], rep("south", 1))?;
+    b.blocks.insert([-10, -5, 29], "minecraft:redstone_block".into());
+    place(b, [-11, -5, 27], rep("west", 1))?;
+    place(b, [-12, -4, 27], DUST.into())?; // on the stone (-12,-5,27) that `place` puts under it
+    b.blocks.insert([-12, -6, 27], STONE.into());
+    b.blocks.insert([-13, -4, 27], STONE.into());
+    b.ports.insert("input.permit".into(), [-12, -4, 27]);
+    let open = std::env::var("MCTAS_PERMIT_OPEN").is_ok();
+    if !open {
+        b.blocks.insert([-12, -3, 27], "minecraft:redstone_block".into());
+    }
+    eprintln!("permission: input.permit lands on (-12,-4,27) (INV (-10,-5,27) into the OR node, powered = permit){}", if open { ", open" } else { ", tied high by a block at (-12,-3,27) (today's stand)" });
     Ok(())
 }
 
@@ -498,8 +520,19 @@ fn permit_fixed(b: &mut B) -> Result<()> {
 fn permit_feeds(b: &mut B, rel: &[(P3, usize)], tail: &[(P3, usize)]) -> Result<()> {
     // (the feeds' fixed ends and their supports reserved from every other feed: through the
     // corridor rule, which keeps dust off the cell over each listed cell)
-    let ends: [P3; 4] = [[-12, -5, 25], [-10, -5, 23], [-14, -5, 33], [-14, -5, 24]];
-    let none: std::collections::BTreeSet<P3> = ends.iter().flat_map(|e| [[e[0], e[1] - 1, e[2]], [e[0], e[1] - 2, e[2]]]).collect();
+    let ends: [P3; 5] = [[-12, -5, 25], [-10, -5, 23], [-14, -5, 33], [-14, -5, 24], [-10, -5, 27]];
+    let mut none: std::collections::BTreeSet<P3> = ends.iter().flat_map(|e| [[e[0], e[1] - 1, e[2]], [e[0], e[1] - 2, e[2]]]).collect();
+    // (the evidence ports' cells and their side cells kept free of feed dust: a stand option may drive
+    // a port with a dust or a block, which would power any line beside it (seen: the inverted
+    // input's route past (-11,-5,28) took the stand-empty evidence as a hold))
+    for p in [[-11, -5, 28], [-11, -5, 19]] {
+        for d in [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]] {
+            let n = [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
+            if b.blocks.get(&n).is_none_or(|s| s.ends_with(":air")) {
+                none.insert([n[0], n[1] - 1, n[2]]);
+            }
+        }
+    }
     let lo = [-20, -8, 14];
     let hi = [-2, 0, 36];
     let qe = [-17, -5, 27];
@@ -531,6 +564,10 @@ fn permit_feeds(b: &mut B, rel: &[(P3, usize)], tail: &[(P3, usize)]) -> Result<
     // (the Q feeds after the set feeds: those end on fixed cells)
     feed(b, &[(qe, 0)], [-12, -5, 25], 0, &[[-11, -5, 25]], lo, hi, "permission Q stand-emptied", &none)?;
     feed(b, &[(qa, 0)], [-10, -5, 23], 0, &[[-10, -5, 24]], lo, hi, "permission Q train-arrived", &none)?;
+    // (input.permit's inverter output into the OR node's third input (-10,-5,26), read from the south)
+    if let Some(io) = b.ports.remove("x.permit_inv_out") {
+        feed(b, &[(io, 1)], [-10, -5, 27], 0, &[[-10, -5, 26]], lo, hi, "permission input.permit (inverted)", &none)?;
+    }
     Ok(())
 }
 
@@ -1976,6 +2013,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             bail!("the chunk pick {pick:?} is outside the stand area's range x {xr:?}, z {zr:?}");
         }
         d.meta.insert("chunk".into(), format!("0 0 0 {}-{} {}-{}", pick.0, pick.0, pick.1, pick.1));
+    }
+    // (the head's declared ports (ironspec 08:48: S3's router wires against them; day-1's port list
+    // 2026-11-11, times from input.golem's rise): head.golem (REQ in, any pulse >= 2 gt), head.hold
+    // (PERMIT in, powered = hold: GO blocked 14 gt after it rises, REL 20 gt after it falls), head.go
+    // (GO's output dust: REL +2..+14), head.stand_rel (the 1-rt tap off the refill dust: +4..+18, for
+    // a stand demux), head.expire (G_e's output: ~100 gt after a launch with no golem))
+    if crate::sidinggen::FAR {
+        d.ports.insert("head.golem".into(), golem);
+        d.ports.insert("head.go".into(), core_place([5, 1, -1]));
+        d.ports.insert("head.stand_rel".into(), core_place([-3, 1, -1]));
+        d.ports.insert("head.expire".into(), core_place([4, 1, 3]));
+        if let Some(p) = b.ports.get("input.permit") {
+            d.ports.insert("head.permit".into(), *p);
+        }
     }
     d.name = "carousel-release-loop-wired".into();
     d.save(out)?;
