@@ -955,11 +955,34 @@ pub(crate) fn wire_pad(d: &mut Design, pad: &Path) -> Result<Vec<P3>> {
     if pulse != [9, 6, -2] {
         bail!("the pad's pulse is at {pulse:?}, not (9, 6, -2): the route below assumes it");
     }
-    let golem = [-7, -1, 5];
+    let golem = crate::releasegen::core_place([5, 1, 5]);
     if d.blocks.get(&golem).is_some_and(|s| !s.ends_with(":air")) {
         bail!("the golem input {golem:?} holds {:?}: it must be the bench's empty cell", d.blocks.get(&golem));
     }
     let mut b = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+    if FAR {
+        // (column 3 (c), milestone B: the core under the lanes. As on main: the route's last dust
+        // sits on the final repeater's input block (core (5, 1, 7)), arriving down a stair from
+        // core (5, 3, 8) (its support cuts the diagonal onto the ARMED loop's dust core (5, 1, 8)),
+        // a stone over core (6, 1, 7) cuts the other. Main's 3 rt from the pad's pulse to the golem
+        // stone (tap, one route repeater, the final one) as two route repeaters and the final one:
+        // the longer route needs two, and the pad's pulse dust (9, 6, -2) is at full strength off
+        // its tripwire hook's block, so the line starts as dust without the tap)
+        let fin = crate::releasegen::core_place([5, 1, 6]);
+        let inb = crate::releasegen::core_place([5, 1, 7]);
+        let last = [inb[0], inb[1] + 1, inb[2]];
+        let pre = crate::releasegen::core_place([5, 3, 8]);
+        b.put(crate::releasegen::core_place([6, 2, 7]), STONE)?;
+        let lim = crate::autoroute::Limits { lo: [-6, -4, -6], hi: [11, 10, 60], avoid: [last, inb].into_iter().collect(), near_ok: [pulse].into_iter().collect() };
+        let mut pr = crate::autoroute::find(&b, [9, 6, -1], pre, &lim)?;
+        pr.push(last);
+        lay_exact(&mut b, pulse, &pr, 1, 2)?;
+        b.on(fin, &rep(facing_in([fin[0] - inb[0], 0, fin[2] - inb[2]]), 1))?;
+        b.put(golem, STONE)?;
+        let added: Vec<P3> = b.blocks.keys().copied().filter(|q| !before.contains(q)).collect();
+        d.blocks = b.blocks;
+        return Ok(added);
+    }
     b.on([9, 6, -1], &rep("north", 1))?;
     let mut pr = vec![[9, 6, 0]];
     seg_to(&mut pr, [-4, 6, 0]);
