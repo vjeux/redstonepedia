@@ -298,6 +298,20 @@ fn air_tick(w: &mut World, i: usize, ty: MobType) {
                 hurt(w, i, Damage::Drown, 2.0);
             }
         }
+        // (mob-AI 2026-11-10) a rider whose vehicle dismounts underwater
+        // (#dismounts_underwater: a chicken, a spider, a zombie horse...) gets off
+        // (`stopRiding`, then `dismountVehicle`); bed-plate-two-clusters village-edge build 1
+        // t66853, a baby drowned's chicken in deep water
+        let vehicle_dismounts = w.entities.list[i].vehicle.and_then(|v| entity::index_of(w, v)).is_some_and(|vi| match &w.entities.list[vi].kind {
+            EntityKind::Mob(vm) => {
+                let id = vm.ty.def().id;
+                matches!(id.strip_prefix("baby_").unwrap_or(id), "camel" | "chicken" | "donkey" | "happy_ghast" | "horse" | "llama" | "mule" | "pig" | "ravager" | "spider" | "strider" | "trader_llama" | "zombie_horse")
+            }
+            _ => false,
+        });
+        if vehicle_dismounts && !w.entities.list[i].removed {
+            entity::stop_riding(w, i);
+        }
     } else {
         let m = mob_mut(w, i);
         if m.air < 300 {
@@ -1181,8 +1195,10 @@ fn push_entities(w: &mut World, i: usize) {
     // vehicle (isPassengerOfSameVehicle: a zombie never pushes its own boat)
     let root = root_vehicle(w, me);
     let others = w.get_entities(bb, |e| e.id != me && pushable(e) && root_vehicle(w, e.id) != root);
-    // the AFK players its box meets (the mob AI's player bodies; a rider pushes none)
-    let players = if w.mob.ai.on && w.entities.list[i].vehicle.is_none() { super::ai::player_body::touching(w, bb) } else { Vec::new() };
+    // the AFK players its box meets (the mob AI's player bodies; (mob-AI 2026-11-10) a rider's
+    // too: LivingEntity.aiStep's pushEntities runs in its rideTick; bed-plate-dug12 plains build 2
+    // t60407, a zombie horseman's rider pushed the AFK player)
+    let players = if w.mob.ai.on { super::ai::player_body::touching(w, bb) } else { Vec::new() };
     if others.is_empty() && players.is_empty() {
         return;
     }

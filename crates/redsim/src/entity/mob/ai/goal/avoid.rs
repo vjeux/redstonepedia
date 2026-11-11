@@ -7,7 +7,7 @@
 
 use super::super::path::Path;
 use super::super::target::{self, Conditions, Who};
-use super::super::with_nav;
+use super::super::with_own_nav;
 use crate::entity::Vec3;
 use crate::world::World;
 
@@ -73,26 +73,28 @@ pub fn can_use(w: &mut World, i: usize, g: &mut AvoidEntity) -> bool {
     if tp.distance_to_sqr(pos) < tp.distance_to_sqr(w.entities.list[i].pos) {
         return false;
     }
-    // createPath(x, y, z, 0): the cell containing the spot
+    // createPath(x, y, z, 0): the cell containing the spot, on `pathNav` (the mob's own navigation:
+    // the constructor's getNavigation(), before any ride; a spider jockey's skeleton keeps using
+    // its own, whose tick then steers the spider's move control; forest build 3 t20081)
     let cell = crate::pos::BlockPos::new(pos.x.floor() as i32, pos.y.floor() as i32, pos.z.floor() as i32);
-    g.path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, cell, 0, arena));
+    g.path = with_own_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, cell, 0, arena));
     g.path.is_some()
 }
 
 pub fn can_continue(w: &mut World, i: usize, _g: &mut AvoidEntity) -> bool {
-    !super::super::nav_of(w, i).is_done()
+    !super::super::ai(w, i).nav.is_done()
 }
 
 pub fn start(w: &mut World, i: usize, g: &mut AvoidEntity) {
     let (path, speed) = (g.path.clone(), g.walk);
-    with_nav(w, i, |w, nm, nav, _| nav.move_to_path(w, nm, path, speed));
+    with_own_nav(w, i, |w, nm, nav, _| nav.move_to_path(w, nm, path, speed));
 }
 
 pub fn stop(_w: &mut World, _i: usize, g: &mut AvoidEntity) {
     g.to_avoid = None;
 }
 
-/// `tick()`: sprinting within 7 of what it avoids.
+/// `tick()`: sprinting within 7 of what it avoids (on getNavigation()'s: a rider's vehicle's).
 pub fn tick(w: &mut World, i: usize, g: &mut AvoidEntity) {
     let Some(t) = g.to_avoid.and_then(|id| target::who(w, id)) else { return };
     let near = w.entities.list[i].pos.distance_to_sqr(target::pos_of(w, t)) < 49.0;
