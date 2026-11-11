@@ -472,11 +472,13 @@ pub struct LoopOpts {
     /// return run's take-off, the curve north and one flat transition cell upstream of z 25|26,
     /// then the `tail_esc` slopes north into G0 and P (0: the column queue).
     pub adm_xq: u32,
+    /// The zombie post beside the escapement (loop z 29) moved to this x (default the strip's).
+    pub tail_post_x: Option<i32>,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0 }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, tail_post_x: None }
     }
 }
 
@@ -895,6 +897,84 @@ impl StandPanic {
             self.counts[0],
             if self.short.is_empty() { String::new() } else { format!(" (short: {})", self.short.iter().map(|(s, p)| format!("slot {s} {p}")).collect::<Vec<_>>().join(", ")) },
             if self.per.is_empty() { "-".to_string() } else { self.per.iter().map(|(id, (seen, p))| format!("e{id} {p}/{seen}")).collect::<Vec<_>>().join(" ") }
+        )
+    }
+}
+
+/// Cart conservation (ironspec Nov 11 06:18: every run prints carts in and out per release and
+/// flags an extra or missing one as a bench fault): each slot, the carts crossing three interfaces
+/// forward, the release group's head out into the release run, any cart onto the tail's first cell
+/// (the return's end: the landing, or the tail's entry), and any cart into slot 0. In normal flow
+/// each is the release size (3) every slot once the loop is running; a slot with another count is
+/// printed (a fault row's own lines decide whether it is the fault's).
+#[derive(Default)]
+pub struct CartCount {
+    /// The interfaces: (name, the cell carts leave, the cell they enter).
+    gates: Vec<(&'static str, [i32; 3], [i32; 3])>,
+    /// Per cart, the cell of each interface it was in last tick (0: neither, 1: before, 2: after).
+    last: std::collections::HashMap<(u32, usize), u8>,
+    /// Per interface, per slot, the crossings.
+    counts: Vec<std::collections::BTreeMap<i64, usize>>,
+}
+
+impl CartCount {
+    pub fn new(lay: &LoopLayout) -> CartCount {
+        let mut gates = Vec::new();
+        let at = |c: [i32; 3]| lay.path.iter().position(|(p, _)| *p == c);
+        let n = lay.path.len();
+        if let Some(h) = lay.slot_cells.last().and_then(|c| at(*c)) {
+            gates.push(("out of the release group's head", lay.path[h].0, lay.path[(h + 1) % n].0));
+        }
+        if let Some(fl) = lay.flights.first().and_then(|f| at(f.landing[0])) {
+            gates.push(("onto the tail's landing", lay.path[(fl + n - 1) % n].0, lay.path[fl].0));
+        }
+        if let Some(s0) = lay.slot_cells.first().and_then(|c| at(*c)) {
+            gates.push(("into slot 0", lay.path[(s0 + n - 1) % n].0, lay.path[s0].0));
+        }
+        let k = gates.len();
+        CartCount { gates, last: Default::default(), counts: vec![Default::default(); k] }
+    }
+
+    /// One tick.
+    pub fn observe(&mut self, w: &redsim::world::World, carts: &[u32], c: i64) {
+        let inside = |p: &redsim::entity::Vec3, cell: [i32; 3]| p.x.floor() as i32 == cell[0] && p.z.floor() as i32 == cell[2] && p.y - cell[1] as f64 > -0.6 && p.y - (cell[1] as f64) < 1.6;
+        for e in w.entities.list.iter().filter(|e| carts.contains(&e.id)) {
+            for (g, (_, from, to)) in self.gates.iter().enumerate() {
+                let now = if inside(&e.pos, *to) { 2 } else if inside(&e.pos, *from) { 1 } else { 0 };
+                let was = self.last.insert((e.id, g), now).unwrap_or(0);
+                if was == 1 && now == 2 {
+                    *self.counts[g].entry(c).or_default() += 1;
+                }
+            }
+        }
+    }
+
+    /// The line: per interface, the slots by count (from slot 2 on), and the slots off the release
+    /// size listed.
+    pub fn line(&self, cycles: i64, size: usize) -> String {
+        let mut parts = Vec::new();
+        let mut off_all = 0usize;
+        for (g, (name, _, _)) in self.gates.iter().enumerate() {
+            let mut hist: std::collections::BTreeMap<usize, usize> = Default::default();
+            let mut off: Vec<String> = Vec::new();
+            for c in 2..cycles {
+                let k = self.counts[g].get(&c).copied().unwrap_or(0);
+                *hist.entry(k).or_default() += 1;
+                if k != size {
+                    off.push(format!("slot {c}: {k}"));
+                }
+            }
+            off_all += off.len();
+            parts.push(format!(
+                "{name} {}{}",
+                hist.iter().map(|(k, n)| format!("{k}x{n}")).collect::<Vec<_>>().join(" "),
+                if off.is_empty() { String::new() } else { format!(" (off {size}: {})", off.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }
+            ));
+        }
+        format!(
+            "cart conservation (carts per slot across each interface from slot 2 on, count x slots; each should be {size}): {}; {off_all} slot-interfaces off {size}{}",
+            parts.join("; "),
+            if off_all > 0 { ", a bench fault unless the run's own fault explains it" } else { "" }
         )
     }
 }
@@ -2914,6 +2994,13 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
             // more post west of the head)
             posts.push((-6, 21));
         }
+        // (`tail_post_x`: the post beside the escapement (z 29) moved east, so the drivers of G0
+        // and G_P east of their gates stay out of its sight lines; day-1, Nov 11 07:55)
+        if let Some(x) = o.tail_post_x {
+            for p in posts.iter_mut().filter(|p| p.1 == 29) {
+                p.0 = x;
+            }
+        }
         // (no post within a zombie's reach of a rider: a zombie in a boat attacks over the boat's
         // box (1.375 wide) grown 0.83 sideways, so a rider (0.6 wide) is hit when its centre comes
         // within 1.82 of the post on both axes while their heights overlap, rails at y 1..4 with
@@ -2932,7 +3019,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() })));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() } + &o.tail_post_x.map(|x| format!(" tail_post_x={x}")).unwrap_or_default())));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
@@ -3020,6 +3107,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "adm_room_k" => o.adm_room_k = v.parse().unwrap_or(2),
             "adm_latch_reset" => o.adm_latch_reset = v == "1",
             "adm_xq" => o.adm_xq = v.parse().unwrap_or(0),
+            "tail_post_x" => o.tail_post_x = v.parse().ok(),
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -4504,6 +4592,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the tail's arrivals, impacts, backward crossings, the front's readiness at each G0 opening,
     // the jump's spacing and the landing's clearance, the queue's occupancy: escapement designs)
     let mut tail_watch = TailWatch::new(&lay);
+    let mut cart_count = CartCount::new(&lay);
     tail_watch.verbose = tm.arrival_log;
     let mut held_back: Option<(u32, redsim::entity::Vec3, i64)> = None;
     // (the release trace, MCTAS_RELEASE_TRACE: the release group's rails and the release run's
@@ -5938,6 +6027,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // the queue only fills)
             if c < cycles {
                 tail_watch.observe(&run.world, &carts, t, c as i64, dt as i64);
+                cart_count.observe(&run.world, &carts, c as i64);
             }
             // (MCTAS_RELEASE_TRACE=path, the bench-against-wired check: each tick the release
             // group's 3 rails' power and every cart within the release group and the 30 cells
@@ -7560,6 +7650,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         out.extend(arr_stream.iter().cloned());
         out.push(det_edges.line(fx as i32, fz as i32));
         out.extend(tail_watch.lines());
+        out.push(cart_count.line(cycles as i64, 3));
         if lay.esc_adm_a1.is_some() {
             out.push(format!("launches into a full slot 0 (G_P opening while a cart rests on slot 0's cell): {launch_into_full}{}", if launch_full_log.is_empty() { String::new() } else { format!(" ({})", launch_full_log.join(", ")) }));
         }
