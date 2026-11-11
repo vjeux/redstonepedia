@@ -2215,6 +2215,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut crossed_seen = run.world.crossings.len();
     let mut pad_golems: Vec<(u32, i64, u32, [i32; 3], i64, i64)> = Vec::new();
     let mut out_of_turn: Vec<String> = Vec::new();
+    // (per summon tick: how many stand riders were willing, panicking, at the stand (0..=3);
+    // the unwilling ones: never slept, slept 24,000 gt ago or more, a golem seen lately)
+    let (mut willing, mut panicking, mut stand_count) = ([0u32; 4], [0u32; 4], [0u32; 4]);
+    let mut unwilling = [0u32; 3];
     let mut nether_golems: Vec<(u32, i64, Option<i64>, u32)> = Vec::new();
     let (mut pulses, mut spurious_pulses, mut pulse_was) = (0u32, 0u32, false);
     let mut slept_night: Option<i64> = None;
@@ -2847,6 +2851,40 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     }
                 }
             }
+            // (the stand batch on the tick before the summon tick: each rider in a stand pocket
+            // willing (slept within 24,000 gt, no golem seen lately) and panicking, and why not)
+            if (run.world.time + 1).rem_euclid(100) == 0 {
+                let t_next = run.world.time + 1;
+                let (mut want, mut panic, mut at_stand) = (0usize, 0usize, 0usize);
+                for r in &riders {
+                    let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+                    let p = run.world.entities.list[i].pos;
+                    let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                    if !lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1) {
+                        continue;
+                    }
+                    at_stand += 1;
+                    if let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
+                        && let Some(b) = m.brain.as_deref()
+                    {
+                        if b.wants_golem(t_next) {
+                            want += 1;
+                        } else if b.last_slept.is_none() {
+                            unwilling[0] += 1;
+                        } else if b.last_slept.is_some_and(|s| t_next - s >= 24000) {
+                            unwilling[1] += 1;
+                        } else {
+                            unwilling[2] += 1;
+                        }
+                    }
+                    if redsim::entity::mob::ai::brain::has_exact(&run.world, i) && redsim::entity::mob::ai::brain::ex(&run.world, i).active == redsim::entity::mob::ai::brain::Act::Panic {
+                        panic += 1;
+                    }
+                }
+                willing[want.min(3)] += 1;
+                panicking[panic.min(3)] += 1;
+                stand_count[at_stand.min(3)] += 1;
+            }
             if let Some(p) = tm.pulse_at {
                 let on = matches!(run.world.get(p), Block::Wire { power, .. } if power > 0);
                 if on && !pulse_was {
@@ -3469,6 +3507,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         out.push(format!("summons onto the pad out of turn (the summoner not on a stand cell or its pocket): {} of {}{}", out_of_turn.len(), pad_golems.len(), if out_of_turn.is_empty() { String::new() } else { format!(": {}", out_of_turn.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }));
         out.push(format!("pad stats: golems {} with {} slots {cycles} crossed {} died {} alive {} pulses {pulses} spurious {spurious_pulses} iron {iron} out_of_turn {}", pad_golems.len(), with.len(), nether_golems.len(), died, nether_golems.len() - died, out_of_turn.len()));
+        out.push(format!("summon ticks: stand riders willing 0/1/2/3: {} {} {} {}; panicking 0/1/2/3: {} {} {} {}; riders at the stand 0/1/2/3: {} {} {} {}; unwilling: never slept {}, slept 24,000 gt ago or more {}, a golem seen lately {}", willing[0], willing[1], willing[2], willing[3], panicking[0], panicking[1], panicking[2], panicking[3], stand_count[0], stand_count[1], stand_count[2], stand_count[3], unwilling[0], unwilling[1], unwilling[2]));
+        out.push(format!("summon stats: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}", willing[0], willing[1], willing[2], willing[3], panicking[0], panicking[1], panicking[2], panicking[3], stand_count[0], stand_count[1], stand_count[2], stand_count[3], unwilling[0], unwilling[1], unwilling[2]));
         for s in out_of_turn.iter().take(3) {
             problems.push(format!("a summon onto the pad out of turn: {s}"));
         }

@@ -2086,6 +2086,26 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let hours = a[2] as f64 * 100.0 / 72000.0;
                         println!("{label}: the pad over {} slots ({hours:.1} h): {} golems ({:.0}/h), {} slots with a golem ({:.2}%); {} through the portal, {} killed in the Nether, {} alive at a run's end; pulses {} with a golem, {} without; iron into storage {} ingots ({:.0}/h, {:.2} a golem); summons out of turn {}", a[2], a[0], a[0] as f64 / hours, a[1], 100.0 * a[1] as f64 / a[2].max(1) as f64, a[3], a[4], a[5], a[6], a[7], a[8], a[8] as f64 / hours, a[8] as f64 / a[4].max(1) as f64, a[9]);
                     }
+                    // (the summon ticks over every seed: each run's `summon stats:` line, 15
+                    // counts: willing 0..3, panicking 0..3, at the stand 0..3, the unwilling's
+                    // reasons (never slept, slept 24,000 gt ago or more, a golem seen lately))
+                    let mut st: Option<[i64; 15]> = None;
+                    for (_, r) in &results {
+                        let Some(l) = r.lines().find(|l| l.starts_with("summon stats: ")) else { continue };
+                        let v: Vec<i64> = l.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+                        if v.len() != 15 {
+                            continue;
+                        }
+                        let mut a = st.unwrap_or([0; 15]);
+                        for i in 0..15 {
+                            a[i] += v[i];
+                        }
+                        st = Some(a);
+                    }
+                    if let Some(a) = st {
+                        let n = (a[0] + a[1] + a[2] + a[3]).max(1) as f64;
+                        println!("{label}: at the summon ticks ({} of them): stand riders willing 3: {:.2}%, 2: {:.2}%, 1: {:.2}%, 0: {:.2}%; panicking 3: {:.2}%; riders at the stand 3: {:.2}%; the unwilling: never slept {}, slept 24,000 gt ago or more {}, a golem seen lately {}", n as i64, 100.0 * a[3] as f64 / n, 100.0 * a[2] as f64 / n, 100.0 * a[1] as f64 / n, 100.0 * a[0] as f64 / n, 100.0 * a[7] as f64 / n, 100.0 * a[11] as f64 / n, a[12], a[13], a[14]);
+                    }
                     if build_gap_sweep && !bad.is_empty() {
                         println!("built in order: the first gap that fails is {} gt", gap.unwrap_or(0));
                         break;
