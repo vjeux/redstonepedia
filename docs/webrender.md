@@ -906,7 +906,14 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   of air under the lowest cell, or a TNT duper's own ground); the lightmap (`lightmap.fsh` at
   noon, the default brightness: level 14 is 0.908). Dark under overhangs like the real game
   (fidelity pass 2026-10-21, `web compare --still` over 67 picks, both sides through the pictures'
-  encoder: the mean difference over the build fell from 2.76 to 1.31).
+  encoder: the mean difference over the build fell from 2.76 to 1.31). Entities are lit by it
+  too, each by the light of the block at its eye (`EntityRenderer.getPackedLightCoords` at
+  `getLightProbePosition`: redsim's position and eye height, a sleeper's 0.2; a burning mob's
+  block light 15), a mob farm's as well: built apart from its blocks each frame, its entities
+  borrow the blocks' kept light (`scene::build_entities`; until 2026-11-11 they were lit as under
+  the open sky, a cave's spider as bright as the night outside); a hurt mob's red and a TNT's
+  white are mixed in before the lightmap (`entity.fsh`), and the eyes layers are never lit
+  (`mesh::EMISSIVE`). Test `a_mob_is_lit_at_its_eye`.
 * `mcview::render`: wgpu with WebGL2 in the browser (and Vulkan natively): MSAA, the tiles as a
   mipmapped texture array (no bleeding between tiles) beside the game texture, sky gradient, back
   faces culled in both passes like the game's chunk render types (a glass block shows its three

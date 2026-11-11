@@ -74,6 +74,12 @@ impl Delta {
 }
 
 impl Remesh {
+    /// Where its blocks' light is kept (lent to the entities' build each frame:
+    /// [`crate::scene::build_entities`]); None before its builder is kept.
+    pub fn light_slot(&mut self) -> Option<&mut Option<crate::light::Light>> {
+        self.parts.as_mut().map(|p| p.light_slot())
+    }
+
     /// From a whole build's blocks and builder (with its ranges, its light put back) and where
     /// its blocks' faces end.
     pub fn new(blocks: Vec<RBlock>, mut parts: BuilderParts, items_end: (usize, usize)) -> Option<Remesh> {

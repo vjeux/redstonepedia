@@ -1024,12 +1024,14 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
             v.color[3] = 178;
         }
     }
-    // its eyes layer over it, unshaded and without the red overlay
+    // its eyes layer over it, unshaded, never lit (`RenderTypes.eyes`: no lightmap) and without
+    // the red overlay
     if let Some(eyes) = mob_eyes(k).and_then(|e| rect(g, e)) {
         let n = out.len();
         emit(&mut out, &parts, &m, size, eyes, tw, th);
         for v in &mut out[n..] {
             v.color = [255; 4];
+            v.light = crate::mesh::EMISSIVE;
         }
     }
     Some(out)
@@ -1290,6 +1292,8 @@ mod tests {
             assert_eq!(tris.len(), 11 * 6 * 6 * 2, "{kind}");
             let (base, eyes) = tris.split_at(tris.len() / 2);
             assert!(eyes.iter().all(|v| v.color == [255; 4]) && base.iter().any(|v| v.color[0] < 255), "{kind}: the eyes unshaded over the shaded model");
+            // the model lit by its light, the eyes never (`Builder::entity` lights only `UNLIT`)
+            assert!(eyes.iter().all(|v| v.light == crate::mesh::EMISSIVE) && base.iter().all(|v| v.light == crate::mesh::UNLIT), "{kind}: the eyes emissive");
             assert!(base.iter().zip(eyes).all(|(a, b)| a.pos == b.pos), "{kind}: the eyes layer on the model's own faces");
             let (lo, hi) = bounds(base);
             eprintln!("{kind}: {lo:?} .. {hi:?}");

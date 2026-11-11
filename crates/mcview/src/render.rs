@@ -88,6 +88,9 @@ struct VOut {
     @location(1) @interpolate(perspective, centroid) color: vec4<f32>,
     @location(2) @interpolate(perspective, centroid) world: vec3<f32>,
     @location(3) @interpolate(flat) layer: u32,
+    // the vertex's lightmap (1 unlit): the game mixes a mob's red overlay (a TNT's white) into its
+    // colour before the lightmap (`entity.fsh`), so a hurt mob in the dark flashes dark red
+    @location(4) @interpolate(perspective, centroid) lm: vec3<f32>,
 };
 
 @vertex
@@ -101,9 +104,11 @@ fn vs(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) laye
     }
     o.uv = uv;
     o.color = color;
+    o.lm = vec3<f32>(1.0, 1.0, 1.0);
     // a lit vertex (`mesh::lit`: its sky and block light x 16): the frame's lightmap
     if (light.z > 0.0) {
-        o.color = vec4<f32>(color.rgb * lightmap(light.x * 255.0 / 16.0, light.y * 255.0 / 16.0), color.a);
+        o.lm = lightmap(light.x * 255.0 / 16.0, light.y * 255.0 / 16.0);
+        o.color = vec4<f32>(color.rgb * o.lm, color.a);
     }
     o.world = pos;
     o.layer = layer & 0x7fffffffu;
@@ -138,9 +143,10 @@ fn fs_solid(i: VOut) -> @location(0) vec4<f32> {
         }
     }
     // a white flash (a primed TNT) rides in the vertex alpha of solid faces: 1 = none; a hurt or
-    // dying mob's red overlay the same way (layer 65534: `OverlayTexture`'s red)
+    // dying mob's red overlay the same way (layer 65534: `OverlayTexture`'s red), lit like the
+    // texel it mixes into
     let flash = select(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 0.0), i.layer == 65534u);
-    let lit = mix(t.rgb * i.color.rgb, flash, 1.0 - i.color.a);
+    let lit = mix(t.rgb * i.color.rgb, flash * i.lm, 1.0 - i.color.a);
     return vec4<f32>(fogged(lit, i.world), 1.0);
 }
 

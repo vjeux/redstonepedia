@@ -1615,7 +1615,8 @@ impl Player {
             return false;
         }
         if self.mesh.is_none() || key != self.mesh_key {
-            self.mesh = Some(scene::build_part(atlas, &self.session, self.partial, &self.look, scene::Part::Entities));
+            // lit by the blocks' light (kept with their remesh)
+            self.mesh = Some(scene::build_entities(atlas, &self.session, self.partial, &self.look, self.remesh.as_mut().and_then(|r| r.light_slot())));
             self.mesh_key = key;
         }
         true
