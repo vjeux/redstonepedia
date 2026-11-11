@@ -257,7 +257,15 @@ T1/T2 switch between consecutive visits' lines, 2 seeds x 48 slots): divert -2..
 -22..+18 gt (from +470), T-set -17..+120 gt (the sweep's edge; from the divert +1). The early corner
 fails on {divert -2, T-set -17} together: the T's switched before the previous visit's cart had
 passed them (the coupling "the previous visit's cart clears the T's before the next T-set"); the
-late corner passes. Day-1's wired T-set is at the visit's +136, far inside.
+late corner passes. Joint margins (both shifted): divert -2..+6 with the T-set at -15..+120 (-17
+fails only with the divert at -2), kick -22..+18 with the divert at either limit (divert +6 with
+kick +18 and divert -2 with kick -22 and T-set -12 pass). Day-1's wired values sit inside: divert at
++2 (golem +18), T-set at the visit's +136 (+99..+119 after the bench's divert + 1), kick at +0
+(+470..482; +6 with a missed golem). The coupling "the previous visit's cart clears the T's before
+they switch for the next visit", measured by logging T1's and T2's rail shapes against each
+visiting cart's first tick on T1: on day-1's wired file the next switch comes 171..192 gt after a
+cart passes T1 and the last switch before it was 199..222 gt earlier (one night, seed 1, 56
+switches); with the bench's T-set at the divert + 1, 68..99 gt after.
 
 A T rail reshapes only on an update from a signal source, and a placed block updates its
 neighbours as the old block (vanilla's `blockUpdated(pos, oldState.getBlock())`, as redsim): a

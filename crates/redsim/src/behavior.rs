@@ -951,6 +951,8 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
         Block::Terrain(id) if matches!(crate::terrain::blocks::props(id).block_id(), "minecraft:pointed_dripstone" | "minecraft:sulfur_spike") => crate::terrain::ticks::speleothem_update_shape(w, s, p, d),
         // ---- natural plants (terrain lane): VegetationBlock, DoublePlantBlock, CarpetBlock... ----
         Block::Terrain(id) if crate::terrain::plants::plant(id).is_some() => crate::terrain::plants::update_shape(w, s, id, p, d, ns),
+        // ---- natural doors (terrain lane): DoorBlock.updateShape ----
+        Block::Terrain(id) if crate::terrain::plants::is_door(id) => crate::terrain::plants::door_update_shape(w, s, id, p, d, ns),
         // ---- natural fences, glass panes, iron bars (terrain lane): their connections ----
         Block::Terrain(id) if crate::terrain::plants::connects(id) => crate::terrain::plants::connection_update(w, s, id, p, d, np, ns),
         // ---- placed light sources (terrain lane) ----

@@ -77,6 +77,11 @@ pub fn speed_factor(w: &World, i: usize) -> f64 {
     }
 }
 
+/// `isSprinting()` of mob `i`: a cat's chase (no other modeled mob sprints).
+pub fn is_sprinting(w: &World, i: usize) -> bool {
+    mob(w, i).ai.as_deref().and_then(|a| a.cat).is_some_and(|c| c.sprinting)
+}
+
 /// `Entity.canSpawnSprintParticle()`: sprinting, not in water (last tick's), not crouching, not in
 /// lava, alive.
 pub fn sprint_particle(w: &World, i: usize) -> bool {

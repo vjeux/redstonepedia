@@ -295,6 +295,26 @@ pub fn follow_range(w: &World, i: usize) -> f64 {
     mob(w, i).follow_range
 }
 
+/// (mob-AI 2026-11-10) `Mob.onAttributeUpdated(FOLLOW_RANGE)`: `getNavigation()
+/// .updatePathfinderMaxVisitedNodes()`, its search budget `floor(max(FOLLOW_RANGE,
+/// requiredPathLength) x 16)` (the constructor's was the base value's: a natural mob's finalizeSpawn
+/// bonus changes it; forest build 2 t11684: a drowned's 540 against 560). `own`: the mob's own
+/// navigation (`Mob.finalizeSpawn`'s bonus comes before a jockey mounts); else `getNavigation()`'s:
+/// a mob riding one it steers updates that one's, by that one's follow range.
+pub fn refresh_path_budget(w: &mut World, id: u32, own: bool) {
+    let Some(i) = crate::entity::index_of(w, id) else { return };
+    if !has_ai(w, i) {
+        return;
+    }
+    let j = if own { i } else { controlled_vehicle(w, i).unwrap_or(i) };
+    if !has_ai(w, j) {
+        return;
+    }
+    let fr = mob(w, j).follow_range as f32;
+    let a = ai_mut(w, j);
+    a.nav.max_visited_nodes = crate::entity::mth::floor((fr.max(a.nav.required_path_length) * 16.0f32) as f64);
+}
+
 /// `Mob.getMaxFallDistance()` (the creeper's own rule: its health minus 1 with a target).
 pub fn max_fall_distance(w: &World, i: usize) -> i32 {
     let m = mob(w, i);

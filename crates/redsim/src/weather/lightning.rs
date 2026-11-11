@@ -614,10 +614,11 @@ fn mob_thunder_hit(w: &mut World, i: usize) {
         w.weather.events.push(WeatherEvent::Converted { t, entity: id });
         return;
     }
+    let t160 = mob::ignite_ticks(w, i, 160);
     let m = mob::mob_mut(w, i);
     m.fire_ticks += 1;
-    if m.fire_ticks == 0 && m.fire_ticks < 160 {
-        m.fire_ticks = 160;
+    if m.fire_ticks == 0 && m.fire_ticks < t160 {
+        m.fire_ticks = t160;
     }
     mob::living::hurt(w, i, Damage::Lightning, 5.0);
 }

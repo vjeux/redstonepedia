@@ -41,6 +41,16 @@ each build's page.
   <state>` lines (its reference farm's blocks of other parts inside its box: drop-shaft-11's
   chamber walls and fence gates) are placed as the farm has them and drawn see-through (the look's
   ghost cells), never natural ground where the farm has a block (ironspec 2026-11-10).
+  A chunk-aligned design (`chunk: <x> <y> <z> <X0>-<X1> <Z0>-<Z1>`, `mcview::design::ChunkAlign`;
+  ironspec 2026-11-10, the carousel brief's rule: its reference block at design cell (x, y, z)
+  goes at a world X with X mod 16 in X0..X1 and Z mod 16 in Z0..Z1, facing as the download does;
+  the generator derives the ranges from the aligned part's box; a malformed line or an empty
+  reference cell is refused) shows its chunk borders on the live view: the borders of every chunk
+  its footprint touches, the reference block at the middle of its ranges (`ChunkAlign::borders`),
+  as lines on its floor seen through the blocks (`Builder::chunk_grid`, drawn with the frame's
+  part like the spawn sheet: the blocks' kept mesh keeps no X-ray face), as the game's F3+G draws
+  them; no grid on its thumbnail. Its page's first "Build it" step says where the reference block
+  goes (`site::plain::chunk_step`).
 * `data-still` (thumbnails): the still frame found ahead, `mcview::tools::still_attr(text)` at
   build time (`mctas web still <designs>` prints it): `<tick>`, then ` out=x,y,z` (the clock
   judge's output it adds when the design declares none) and ` box=x0,y0,z0,x1,y1,z1` (the picture
