@@ -13,7 +13,9 @@ pub mod loopbench;
 pub mod loopgen;
 pub mod loopmodel;
 pub mod releasegen;
+pub mod sidinggen;
 pub mod releasebench;
+pub mod droptest;
 pub mod schedbench;
 pub mod schedgen;
 pub mod schedmodel;
@@ -128,6 +130,34 @@ enum Cmd {
         #[arg(long)]
         placed_raw: bool,
     },
+    /// The bed siding's control module (crates/circuit-memory/src/sidinggen.rs; WIP).
+    SidingCtlGen {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value = "designs/farms/iron/parts/carousel-scheduler/carousel-loop-scheduler-v0.txt")]
+        sched: PathBuf,
+    },
+    /// Print a design's non-air cells in a box, one per line (`x y z state`), z, then y, then x.
+    Cells {
+        file: PathBuf,
+        /// X0,Y0,Z0,X1,Y1,Z1 (inclusive)
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        r#box: Vec<i32>,
+    },
+    /// The bed siding's rejoin as a side drop into an empty queue slot (crates/circuit-memory/src/droptest.rs).
+    DropTest {
+        #[arg(long, default_value_t = 0.2)]
+        speed: f64,
+        #[arg(long)]
+        occupied: bool,
+        #[arg(long, default_value_t = 60)]
+        ticks: u32,
+        #[arg(long)]
+        no_stop: bool,
+        /// The cart waits at rest on a braked powered rail 1 cell from the end, released at this tick.
+        #[arg(long)]
+        staged: Option<u32>,
+    },
     /// Golem pulses at the given ticks into a release controller design; every output port's on
     /// intervals relative to the first pulse (the loop-wired probe file: each control).
     ReleaseTrace {
@@ -139,7 +169,32 @@ enum Cmd {
         det: Vec<u64>,
         #[arg(long, default_value_t = 600)]
         ticks: u32,
+        /// Fault injection (ironspec's self-recovery rule): `x,y,z@T+N=BLOCK`, that cell replaced by
+        /// BLOCK from tick T for N ticks, then put back as it was (repeatable). A redstone block on
+        /// a line is an extra pulse; glass in a line's cell, a missed one.
+        #[arg(long)]
+        fault: Vec<String>,
+        /// More cells to print like the output ports (their strongest neighbour signal's on/off
+        /// changes), `x,y,z` (repeatable): a ring's top dust, a latch.
+        #[arg(long, allow_hyphen_values = true)]
+        watch: Vec<String>,
     },
+    /// The self-recovery survey (ironspec): a fault-free run and each scenario of a spec file (a
+    /// fault per line, missed and extra pulses in each state element), with the cycles each takes
+    /// to run as the fault-free run again (shifted by whole releases), or NEVER, and the visits,
+    /// kicks and F pulses gained or lost (crates/circuit-memory/src/releasebench.rs).
+    FaultSurvey {
+        design: PathBuf,
+        #[arg(long)]
+        spec: PathBuf,
+        /// Golem pulses, every 100 gt from 100.
+        #[arg(long, default_value_t = 60)]
+        pulses: u64,
+    },
+    /// The night-1 lines from a `queue-loop-run --visits-observe` log (one seed): each villager's
+    /// first nap, each batch's first fully napped slot, and the startup's slot cost (stand slots
+    /// whose batch had a rider not yet napped) (crates/circuit-memory/src/releasebench.rs).
+    NapReport { log: PathBuf },
     /// The release controller driven alone (crates/circuit-memory/src/releasebench.rs): golems in
     /// time, early (held), missed (fallback) and doubled (merged), checked against an exact model.
     ReleaseBench {
@@ -177,6 +232,19 @@ enum Cmd {
         /// its 21 controls.
         #[arg(long = "loop")]
         loop_file: Option<PathBuf>,
+        /// (with `--loop` on farmopt's pocket-stand loop) Paste this bed siding (farmopt's
+        /// carousel-siding-wired.txt) and lay its junctions: the corner diverter, the entry and exit
+        /// routes, T1/T2 and the three side drops (sidinggen.rs; four bench controls for now).
+        #[arg(long)]
+        siding: Option<PathBuf>,
+        /// (with `--siding`) Wire the junctions' four controls from this scheduler design (the
+        /// siding control module: sidinggen.rs `wire_control`) instead of leaving them bench cells.
+        #[arg(long)]
+        siding_ctl: Option<PathBuf>,
+        /// (with `--siding-ctl`) Paste this portal pad (farmopt's carousel-station-pad.txt) at the
+        /// loop's origin and wire its golem pulse into the controller (no bench pulse).
+        #[arg(long)]
+        pad: Option<PathBuf>,
     },
     /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
     LoopGen {
@@ -407,9 +475,24 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::SchedGen { out, modules, offdelay } => schedgen::generate(&out, &modules, &offdelay)?,
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
-        Cmd::ReleaseTrace { design, at, det, ticks } => releasebench::trace(&design, &at, &det, ticks)?,
-        Cmd::ReleaseGen { out, offdelay, loop_file } => match loop_file {
-            Some(l) => releasegen::generate_loop(&out, &l, &offdelay)?,
+        Cmd::ReleaseTrace { design, at, det, ticks, fault, watch } => releasebench::trace(&design, &at, &det, ticks, &fault, &watch)?,
+        Cmd::FaultSurvey { design, spec, pulses } => releasebench::fault_survey(&design, &spec, pulses)?,
+        Cmd::NapReport { log } => releasebench::nap_report(&log)?,
+        Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,
+        Cmd::Cells { file, r#box } => {
+            let [x0, y0, z0, x1, y1, z1] = r#box[..] else { anyhow::bail!("--box takes X0,Y0,Z0,X1,Y1,Z1") };
+            let d = mctas::design::Design::load(&file)?;
+            let mut cells: Vec<(&[i32; 3], &String)> = d.blocks.iter().filter(|(p, s)| (x0..=x1).contains(&p[0]) && (y0..=y1).contains(&p[1]) && (z0..=z1).contains(&p[2]) && !s.ends_with(":air")).collect();
+            cells.sort_by_key(|(p, _)| (p[2], p[1], p[0]));
+            for (p, s) in cells {
+                println!("{} {} {} {}", p[0], p[1], p[2], s.trim_start_matches("minecraft:"));
+            }
+        }
+        Cmd::DropTest { speed, occupied, ticks, no_stop, staged } => {
+            droptest::run(speed, occupied, ticks, !no_stop, staged)?;
+        }
+        Cmd::ReleaseGen { out, offdelay, loop_file, siding, siding_ctl, pad } => match loop_file {
+            Some(l) => releasegen::generate_loop(&out, &l, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref())?,
             None => releasegen::generate(&out, &offdelay)?,
         },
         Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns, placed_raw } => {

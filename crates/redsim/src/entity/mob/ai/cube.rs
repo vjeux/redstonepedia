@@ -206,14 +206,16 @@ fn look_at(w: &mut World, i: usize, j: usize, y_max: f32, x_max: f32) {
     e.y_rot = control::rotlerp(e.y_rot, y_rot_d, y_max);
 }
 
-/// `SulfurCubeSearchForItemsGoal.canUse`: an adult with no pickup timer looks for the nearest
-/// swallowable item within 8 (a block item: chasing one is not modeled; the farms' drops are not).
+/// `SulfurCubeSearchForItemsGoal.canUse`: an adult with no pickup timer looks for the nearest item
+/// `ALLOWED_ITEMS` takes (no pickup delay, alive, `#sulfur_cube_swallowable`) within 8: chasing
+/// one is not modeled (a named model error); any other item (a rail, the farms' drops) it ignores,
+/// as the game does.
 fn search_can_use(w: &mut World, i: usize) -> bool {
     if mob(w, i).ty.def().id == "sulfur_cube" {
         return false; // a baby
     }
     let bb = w.entities.list[i].bb.inflate(8.0, 8.0, 8.0);
-    let items = w.get_entities(bb, |e| matches!(&e.kind, EntityKind::Item(s) if !swallow_safe(&s.item)));
+    let items = w.get_entities(bb, |e| matches!(&e.kind, EntityKind::Item(s) if s.pickup_delay <= 0 && swallowable(&s.item)));
     if !items.is_empty() {
         let why = "a sulfur cube near an item it may swallow (SulfurCubeSearchForItemsGoal) is not modeled".to_string();
         if !w.errors.contains(&why) {
@@ -223,10 +225,77 @@ fn search_can_use(w: &mut World, i: usize) -> bool {
     false
 }
 
-/// Items that are not in `#sulfur_cube_swallowable` (its archetypes' blocks): the farms' drops.
-fn swallow_safe(item: &str) -> bool {
+/// The 16 dye colors in the tags' order.
+const COLORS: [&str; 16] = ["white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"];
+
+/// (tickexact 2026-11-10) `#minecraft:sulfur_cube_swallowable` (26.3:
+/// `data/minecraft/tags/item/sulfur_cube_swallowable.json`: the 12
+/// `#sulfur_cube_archetype/*` tags, their nested item tags resolved: planks, logs (the logs that
+/// burn and the crimson and warped stems), bamboo blocks, moss blocks, wool, concrete powders,
+/// concrete, terracotta, glazed terracotta, the coal, lapis, redstone, diamond, emerald, gold, iron
+/// and copper ores, wart blocks).
+pub fn swallowable(item: &str) -> bool {
     let id = item.trim_start_matches("minecraft:");
-    matches!(id, "iron_ingot" | "poppy" | "rotten_flesh" | "string" | "spider_eye" | "bone" | "arrow" | "gunpowder" | "feather" | "egg" | "porkchop" | "beef" | "chicken" | "mutton" | "leather" | "carrot" | "potato" | "poisonous_potato" | "wheat" | "wheat_seeds" | "beetroot" | "beetroot_seeds" | "sugar_cane" | "copper_ingot" | "gold_ingot" | "emerald" | "bread" | "apple")
+    const DIRECT: &[&str] = &[
+        // bouncy
+        "bamboo_mosaic",
+        // explosive
+        "tnt",
+        // fast_flat
+        "tube_coral_block", "brain_coral_block", "bubble_coral_block", "fire_coral_block", "horn_coral_block", "dead_tube_coral_block", "dead_brain_coral_block", "dead_bubble_coral_block", "dead_fire_coral_block", "dead_horn_coral_block", "sponge", "wet_sponge", "dried_kelp_block", "resin_block", "resin_bricks", "chiseled_resin_bricks", "melon", "hay_block", "pumpkin", "carved_pumpkin", "jack_o_lantern", "ochre_froglight", "pearlescent_froglight", "verdant_froglight",
+        // fast_sliding
+        "blue_ice", "packed_ice", "snow_block",
+        // high_resistance
+        "soul_sand", "soul_soil",
+        // hot
+        "magma_block",
+        // regular
+        "mud", "muddy_mangrove_roots", "packed_mud", "coal_block", "dirt", "coarse_dirt", "rooted_dirt", "podzol", "grass_block", "clay", "bone_block",
+        // slow_bouncy
+        "amethyst_block", "andesite", "basalt", "blackstone", "bricks", "calcite", "chiseled_cinnabar", "chiseled_deepslate", "chiseled_nether_bricks", "chiseled_polished_blackstone", "chiseled_quartz_block", "chiseled_red_sandstone", "chiseled_sandstone", "chiseled_stone_bricks", "chiseled_sulfur", "chiseled_tuff", "chiseled_tuff_bricks", "cinnabar", "cinnabar_bricks", "cobbled_deepslate", "cobblestone", "cracked_deepslate_bricks", "cracked_deepslate_tiles", "cracked_nether_bricks", "cracked_polished_blackstone_bricks", "cracked_stone_bricks", "crimson_nylium", "crying_obsidian", "cut_red_sandstone", "cut_sandstone", "dark_prismarine", "deepslate", "deepslate_bricks", "deepslate_tiles", "diamond_block", "diorite", "dripstone_block", "emerald_block", "end_stone", "end_stone_bricks", "gilded_blackstone", "glowstone", "granite", "lapis_block", "mossy_cobblestone", "mossy_stone_bricks", "mud_bricks", "nether_bricks", "netherrack", "observer", "obsidian", "polished_andesite", "polished_basalt", "polished_blackstone", "polished_blackstone_bricks", "polished_cinnabar", "polished_deepslate", "polished_diorite", "polished_granite", "polished_sulfur", "polished_tuff", "prismarine", "prismarine_bricks", "purpur_block", "purpur_pillar", "quartz_block", "quartz_bricks", "nether_quartz_ore", "quartz_pillar", "red_nether_bricks", "red_sandstone", "redstone_lamp", "sandstone", "sea_lantern", "smooth_basalt", "smooth_quartz", "smooth_red_sandstone", "smooth_sandstone", "smooth_stone", "stone", "stone_bricks", "sulfur", "sulfur_bricks", "tuff", "tuff_bricks", "warped_nylium",
+        // slow_flat
+        "iron_block", "gold_block", "raw_copper_block", "raw_gold_block", "raw_iron_block", "netherite_block", "ancient_debris", "copper_block", "exposed_copper", "weathered_copper", "oxidized_copper", "waxed_copper_block", "waxed_exposed_copper", "waxed_weathered_copper", "waxed_oxidized_copper", "copper_bulb", "exposed_copper_bulb", "weathered_copper_bulb", "oxidized_copper_bulb", "waxed_copper_bulb", "waxed_exposed_copper_bulb", "waxed_weathered_copper_bulb", "waxed_oxidized_copper_bulb", "cut_copper", "exposed_cut_copper", "weathered_cut_copper", "oxidized_cut_copper", "waxed_cut_copper", "waxed_exposed_cut_copper", "waxed_weathered_cut_copper", "waxed_oxidized_cut_copper", "chiseled_copper", "exposed_chiseled_copper", "weathered_chiseled_copper", "oxidized_chiseled_copper", "waxed_chiseled_copper", "waxed_exposed_chiseled_copper", "waxed_weathered_chiseled_copper", "waxed_oxidized_chiseled_copper",
+        // slow_sliding
+        "brown_mushroom_block", "red_mushroom_block", "mushroom_stem", "mycelium", "shroomlight",
+        // sticky
+        "honeycomb_block",
+        // #bamboo_blocks, #moss_blocks, #wart_blocks
+        "bamboo_block", "stripped_bamboo_block", "moss_block", "pale_moss_block", "nether_wart_block", "warped_wart_block",
+        // #coal_ores, #lapis_ores, #redstone_ores, #diamond_ores, #emerald_ores, #gold_ores,
+        // #iron_ores, #copper_ores
+        "coal_ore", "deepslate_coal_ore", "lapis_ore", "deepslate_lapis_ore", "redstone_ore", "deepslate_redstone_ore", "diamond_ore", "deepslate_diamond_ore", "emerald_ore", "deepslate_emerald_ore", "gold_ore", "nether_gold_ore", "deepslate_gold_ore", "iron_ore", "deepslate_iron_ore", "copper_ore", "deepslate_copper_ore",
+        // #terracotta's plain one
+        "terracotta",
+        // #crimson_stems, #warped_stems
+        "crimson_stem", "stripped_crimson_stem", "crimson_hyphae", "stripped_crimson_hyphae", "warped_stem", "stripped_warped_stem", "warped_hyphae", "stripped_warped_hyphae",
+    ];
+    if DIRECT.contains(&id) {
+        return true;
+    }
+    // #planks
+    const PLANKS: [&str; 13] = ["oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "pale_oak", "crimson", "warped", "mangrove", "bamboo", "cherry", "poplar"];
+    if let Some(w) = id.strip_suffix("_planks")
+        && PLANKS.contains(&w)
+    {
+        return true;
+    }
+    // #logs_that_burn: each wood's log, wood, stripped log, stripped wood
+    const LOGS: [&str; 10] = ["dark_oak", "pale_oak", "oak", "acacia", "birch", "jungle", "spruce", "mangrove", "cherry", "poplar"];
+    let wood = id.strip_prefix("stripped_").unwrap_or(id);
+    if let Some(w) = wood.strip_suffix("_log").or_else(|| wood.strip_suffix("_wood"))
+        && LOGS.contains(&w)
+    {
+        return true;
+    }
+    // #wool, #concrete_powders, #concrete, #terracotta, #glazed_terracotta
+    for suffix in ["_wool", "_concrete_powder", "_concrete", "_terracotta", "_glazed_terracotta"] {
+        if let Some(c) = id.strip_suffix(suffix)
+            && COLORS.contains(&c)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn tick(w: &mut World, i: usize, g: &mut CubeGoal) {

@@ -1,0 +1,21 @@
+scenario                    departs                  recovered   visits    kicks        F
+golem-missed                  +3104   after 2 cycles, shift +0       +0       +0       +0
+golem-extra-in-busy           +3196   after 3 cycles, shift +0       +0       +0       +0
+REQ-bulb-flipped-lit              -                  unchanged       +0       +0       +0
+REQ-bulb-flipped-lit-idle          -                  unchanged       +0       +0       +0
+D-ring-missed-firing          +3338   after 2 cycles, shift +1       +0       +0       +0
+D-ring-extra-firing           +3338   after 1 cycles, shift +3       -1       +0       +0
+D-ring-missed-visit-step          -                  unchanged       +0       +0       +0
+register-missed-clock         +3220   after 3 cycles, shift +0       +0       +0       +0
+register-extra-clock          +3220   after 2 cycles, shift +0       +0       +0       -1
+Rpp-missed-step               +3034   after 1 cycles, shift +4       +0       +0       +0
+Rpp-extra-step                +3082   after 1 cycles, shift -4       +0       +0       +0
+Rp-missed-step                    -                  unchanged       +0       +0       +0
+Rp-extra-step                     -                  unchanged       +0       +0       +0
+slotout-missed-step               -                  unchanged       +0       +0       +0
+slotout-extra-step                -                  unchanged       +0       +0       +0
+kick-missed                   +3374   after 1 cycles, shift +0       +0       +0       +0
+kick-extra                    +3200   after 1 cycles, shift +0       +0       +1       +0
+F-missed                          -                  unchanged       +0       +0       +0
+F-extra                           -                  unchanged       +0       +0       +0
+divert-gate-extra                 -                  unchanged       +0       +0       +0

@@ -1,0 +1,27 @@
+# The siding farm's control faults (ironspec's self-recovery rule: one missed and one extra pulse
+# in each state element), for `mctas circuit memory fault-survey <siding-probe file> --spec this`.
+# Times absolute (golem pulses every 100 gt from t 100): the visit V at t 3000, the next plain
+# release R at t 3200. Step times measured (release-trace --watch): the D ring fires at each
+# release +24..38 (and a visit's 3 more at +40/+56/+70), the visit-delay register at +22..34, R''
+# at the visit +102, the slot-out ring at the visit +112, R' at the visit +188.
+# name | faults (x,y,z@T+N=BLOCK; ...) | golem edits (-T missed, +T extra)
+golem-missed | | -3200
+golem-extra-in-busy | | +3250
+REQ-bulb-flipped-lit | -9,-1,9@3250+0=minecraft:waxed_copper_bulb[lit=true,powered=false] |
+REQ-bulb-flipped-lit-idle | -9,-1,9@3330+0=minecraft:waxed_copper_bulb[lit=true,powered=false] |
+D-ring-missed-firing | -59,-3,-1@3218+26=minecraft:glass |
+D-ring-extra-firing | -59,-3,-1@3285+2=minecraft:redstone_block |
+D-ring-missed-visit-step | -59,-3,-2@3034+14=minecraft:glass |
+register-missed-clock | -35,-5,-1@3216+24=minecraft:glass |
+register-extra-clock | -37,-5,-2@3285+2=minecraft:redstone_block |
+Rpp-missed-step | 29,-5,6@3096+22=minecraft:glass |
+Rpp-extra-step | 27,-5,4@3150+2=minecraft:redstone_block |
+Rp-missed-step | -55,-5,9@3182+24=minecraft:glass |
+Rp-extra-step | -53,-5,8@3250+2=minecraft:redstone_block |
+slotout-missed-step | -66,-3,17@3106+20=minecraft:glass |
+slotout-extra-step | -63,-3,17@3150+2=minecraft:redstone_block |
+kick-missed | -21,-4,31@3456+26=minecraft:glass |
+kick-extra | -21,-4,31@3300+2=minecraft:redstone_block |
+F-missed | -25,-1,6@3414+24=minecraft:glass |
+F-extra | -25,-1,6@3300+2=minecraft:redstone_block |
+divert-gate-extra | 20,-6,10@3250+2=minecraft:redstone_block |

@@ -38,28 +38,30 @@ nbt: -1 -1 -1 {OutputSignal:1}
 nbt: 0 -1 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
 origin: -20 0 -23
 palette:
-  ! minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
-  $ minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
-  % minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  & minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
-  * minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  + minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  / minecraft:tripwire_hook[attached=true,facing=south,powered=false]
-  0 minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
-  1 minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=side]
-  2 minecraft:redstone_wire[east=side,north=none,power=8,south=none,west=side]
-  3 minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=side]
-  4 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
-  5 minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
-  6 minecraft:redstone_wire[east=side,north=side,power=11,south=side,west=none]
-  7 minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=none]
-  8 minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=none]
-  9 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
-  < minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
-  = minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
-  > minecraft:stone
-  ? minecraft:repeater[delay=2,facing=north,locked=false,powered=true]
-  @ minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
+  ! minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  $ minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=none]
+  % minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  & minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
+  * minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  + minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  , minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  / minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  0 minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
+  1 minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
+  2 minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
+  3 minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=side]
+  4 minecraft:redstone_wire[east=side,north=none,power=8,south=none,west=side]
+  5 minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=side]
+  6 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  7 minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+  8 minecraft:redstone_wire[east=side,north=side,power=11,south=side,west=none]
+  9 minecraft:redstone_wire[east=side,north=side,power=12,south=none,west=none]
+  ; minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  < minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  = minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
+  > minecraft:repeater[delay=2,facing=north,locked=false,powered=true]
+  ? minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  @ minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=none]
   A minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]
   B minecraft:comparator[facing=north,mode=subtract,powered=false]
   C minecraft:cobblestone
@@ -86,7 +88,8 @@ palette:
   X minecraft:redstone_wire[east=none,north=none,power=13,south=up,west=side]
   Y minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
   Z minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
-  ^ minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  \ minecraft:stone
+  ^ minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
   a minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
   b minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
   c minecraft:comparator[facing=east,mode=compare,powered=true]
@@ -96,24 +99,25 @@ palette:
   g minecraft:redstone_wire[east=none,north=side,power=11,south=side,west=none]
   h minecraft:redstone_wire[east=none,north=side,power=12,south=side,west=none]
   i minecraft:redstone_wire[east=none,north=side,power=13,south=side,west=none]
-  j minecraft:redstone_wire[east=none,north=side,power=14,south=up,west=none]
-  k minecraft:redstone_wire[east=none,north=side,power=2,south=side,west=none]
-  l minecraft:redstone_wire[east=none,north=side,power=3,south=side,west=none]
-  m minecraft:redstone_wire[east=none,north=side,power=4,south=side,west=none]
-  n minecraft:redstone_wire[east=none,north=side,power=5,south=side,west=none]
+  j minecraft:redstone_wire[east=none,north=side,power=14,south=side,west=none]
+  k minecraft:redstone_wire[east=none,north=side,power=14,south=up,west=none]
+  l minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=none]
+  m minecraft:redstone_wire[east=none,north=side,power=2,south=side,west=none]
+  n minecraft:redstone_wire[east=none,north=side,power=3,south=side,west=none]
   o minecraft:observer[facing=north,powered=false]
   p minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
-  q minecraft:redstone_wire[east=none,north=up,power=12,south=none,west=side]
+  q minecraft:redstone_wire[east=none,north=side,power=4,south=side,west=none]
   r minecraft:rail[shape=north_south,waterlogged=false]
-  s minecraft:redstone_wire[east=none,north=up,power=6,south=side,west=none]
-  t minecraft:redstone_wire[east=none,north=up,power=7,south=none,west=side]
-  u minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
-  v minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
-  w minecraft:redstone_wire[east=side,north=none,power=10,south=none,west=side]
-  x minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
-  y minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
-  z minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
-  ~ minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  s minecraft:redstone_wire[east=none,north=side,power=5,south=side,west=none]
+  t minecraft:redstone_wire[east=none,north=up,power=12,south=none,west=side]
+  u minecraft:redstone_wire[east=none,north=up,power=6,south=side,west=none]
+  v minecraft:redstone_wire[east=none,north=up,power=7,south=none,west=side]
+  w minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  x minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
+  y minecraft:redstone_wire[east=side,north=none,power=10,south=none,west=side]
+  z minecraft:redstone_wire[east=side,north=none,power=11,south=none,west=side]
+  | minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  ~ minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
 layer -4:
   .
   .
@@ -135,19 +139,19 @@ layer -4:
   .
   .
   .
-  .............>.>>>
-  .............>.>
-  .............>>>
-  .............>.>>>>>>
-  .............>.>...>
-  .............>.>>>.>
-  .............>>>...>>
-  ..............>....>
-  ..............>....>>>
-  ..............>
-  ..............>
-  ..............>
-  ..............>>>>>>>>>
+  .............\.\\\
+  .............\.\
+  .............\\\
+  .............\.\\\\\\
+  .............\.\...\
+  .............\.\\\.\
+  .............\\\...\\
+  ..............\....\
+  ..............\....\\\
+  ..............\
+  ..............\
+  ..............\
+  ..............\\\\\\\\\
 layer -3:
   .
   .
@@ -169,19 +173,19 @@ layer -3:
   .
   .
   .
-  .............@>B$X
-  .............%.%.>
-  .............>Sa
-  .............g.5+uuv+>
+  .............&\B*X
+  .............+.+.\
+  .............\Sa
+  .............g.7!wwx!\
   .............h.Z...Z
-  .............i.>!W.Z
-  .............71T.>.5+>>
-  ..............<....Z..>
-  ..............?....4u9>
-  ..............&......>>
-  ..............&.......>
-  ..............&.......>>>>>
-  ..............8zyx=0zyq
+  .............i.\^W.Z
+  .............@3T.\.7!\\
+  ..............>....Z..\
+  ..............=....6w%\
+  ..............l......\\
+  ..............j.......\
+  ..............i.......\\\\\
+  ..............9zy5<210t
 layer -2:
   .
   .
@@ -203,18 +207,18 @@ layer -2:
   .
   .
   .
-  ..............9>
-  .................j
-  .............G...>>>
+  ..............%\
+  .................k
+  .............G...\\\
   .....................Q..GGGGGGGG
   .
-  ...............G......>
-  .................b...Q*
-  .................>....Z
+  ...............G......\
+  .................b...Q?
+  .................\....Z
   ......................Y
-  .....................U>
-  ......................f...>
-  ......................6w32t
+  .....................U\
+  ......................f...\
+  ......................8y54v
   .
 layer -1:
   ..G.......G.......G.......G.......G.......G
@@ -237,17 +241,17 @@ layer -1:
   .
   .
   .
-  ...............9>>>>>>>>
-  ....................E..>
-  .................8$cd..>
-  ...........NNNGGGGGG>>GGPRRRRRRRG
-  ....................GN...>>
-  ....................GNQ...>
-  ....................G>....>
-  .................b...G....>
-  .................>>>>G....>
-  .....................>G...>
-  .....................G....s
+  ...............%\\\\\\\\
+  ....................E..\
+  .................$*cd..\
+  ...........NNNGGGGGG\\GGPRRRRRRRG
+  ....................GN...\\
+  ....................GNQ...\
+  ....................G\....\
+  .................b...G....\
+  .................\..\G....\
+  .................\..\\G...\
+  .................\\\\G....u
   .
   .
 layer 0:
@@ -271,17 +275,17 @@ layer 0:
   .
   .
   .
-  ................uuuuuuuV
-  ....................G..*>
-  ....................G..*/
-  ..........>HHHRRRRRRDKRD^
-  .....................JG.~+V
-  ...................GMJ>.G.e
-  ...................GLAG...k
-  ....................orG...l
-  .................4!!Yr....m
-  .....................F....n
-  .....................C
+  ................wwwww^^V
+  ....................G../\
+  ....................G../,
+  ..........\HHHRRRRRRDKRD|
+  .....................JG.;!V
+  ...................GMJ\.G.e
+  ...................GLAG...m
+  ....................orG...n
+  .................Z..~r....q
+  .................Z..~F....s
+  .................6^^YC
   .
   .
 layer 1:

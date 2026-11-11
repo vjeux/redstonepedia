@@ -268,12 +268,48 @@ fn run_circuit(c: &Circuit, design: &Path, o: &Opts, recorded: &mut Vec<(u32, cl
 }
 
 /// `release-trace`: golem pulses at the given ticks (10 gt each), then every `output.*` port's on
-/// intervals (the loop-wired probe file's controls), relative to the first pulse.
-pub fn trace(design: &Path, at: &[u64], det: &[u64], ticks: u32) -> Result<()> {
+/// intervals (the loop-wired probe file's controls), relative to the first pulse. `faults`:
+/// `x,y,z@T+N=BLOCK`, the cell replaced by BLOCK over ticks T..T+N, then put back.
+pub fn trace(design: &Path, at: &[u64], det: &[u64], ticks: u32, faults: &[String], watch: &[String]) -> Result<()> {
     let c = Circuit::load(design)?;
+    for (k, e) in trace_run(&c, at, det, ticks, faults, watch)? {
+        println!("{k:24} {}", e.join(" "));
+    }
+    Ok(())
+}
+
+/// One trace: each output (and watched) port's edges, as `trace` prints them.
+fn trace_run(c: &Circuit, at: &[u64], det: &[u64], ticks: u32, faults: &[String], watch: &[String]) -> Result<Vec<(String, Vec<String>)>> {
     let p = c.clock.design.ports.get("input.golem").ok_or_else(|| anyhow!("no input.golem"))?;
     let golem = redsim::pos::BlockPos::new(p[0], p[1], p[2]);
-    let outs: Vec<(String, redsim::pos::BlockPos)> = c.clock.design.ports.iter().filter(|(k, _)| k.starts_with("output.")).map(|(k, p)| (k.clone(), redsim::pos::BlockPos::new(p[0], p[1], p[2]))).collect();
+    let mut fs: Vec<(redsim::pos::BlockPos, u64, u64, redsim::Block, Option<redsim::Block>)> = Vec::new();
+    // (`reload@T+N`: every chunk unloaded at T and loaded again at T + N (tick-exact's act: a player
+    // leaving and coming back); no golem pulse and no other fault while away)
+    let mut reloads: Vec<(u64, u64)> = Vec::new();
+    for f in faults {
+        if let Some(r) = f.strip_prefix("reload@") {
+            let (t, n) = r.split_once('+').ok_or_else(|| anyhow!("--fault {f}: reload@T+N"))?;
+            reloads.push((t.parse()?, n.parse()?));
+            continue;
+        }
+        let (cell, rest) = f.split_once('@').ok_or_else(|| anyhow!("--fault {f}: x,y,z@T+N=BLOCK"))?;
+        let (tn, blk) = rest.split_once('=').ok_or_else(|| anyhow!("--fault {f}: x,y,z@T+N=BLOCK"))?;
+        let (t, n) = tn.split_once('+').ok_or_else(|| anyhow!("--fault {f}: x,y,z@T+N=BLOCK"))?;
+        let v: Vec<i32> = cell.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+        if v.len() != 3 {
+            bail!("--fault {f}: x,y,z@T+N=BLOCK");
+        }
+        let b = redsim::Block::parse(blk).map_err(|e| anyhow!("--fault {f}: {e}"))?;
+        fs.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), t.parse()?, n.parse()?, b, None));
+    }
+    let mut outs: Vec<(String, redsim::pos::BlockPos)> = c.clock.design.ports.iter().filter(|(k, _)| k.starts_with("output.")).map(|(k, p)| (k.clone(), redsim::pos::BlockPos::new(p[0], p[1], p[2]))).collect();
+    for wc in watch {
+        let v: Vec<i32> = wc.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+        if v.len() != 3 {
+            bail!("--watch {wc}: x,y,z");
+        }
+        outs.push((format!("watch.{wc}"), redsim::pos::BlockPos::new(v[0], v[1], v[2])));
+    }
     let cc = c.with_consumers().map_err(|e| anyhow!("{e:#}"))?;
     let (from, to) = circuit::run::watch_box(&c, 3);
     let on = redsim::Block::parse("minecraft:redstone_block").map_err(|e| anyhow!(e))?;
@@ -284,6 +320,32 @@ pub fn trace(design: &Path, at: &[u64], det: &[u64], ticks: u32) -> Result<()> {
     let base = at.first().copied().unwrap_or(0) as i64;
     let res = clock::sim::drive_live(&cc.clock, &[], ticks, from, to, |t, w| {
         let g = t as u64;
+        for &(rt, rn) in &reloads {
+            if g == rt {
+                redsim::reload::unload_all(w);
+            } else if g == rt + rn {
+                redsim::reload::load_all(w);
+            }
+        }
+        if reloads.iter().any(|&(rt, rn)| g >= rt && g < rt + rn) {
+            return true;
+        }
+        // (a fault's swap or put-back that fell while away happens now, at the load: the day window's
+        // detector stand-in is the sky, which changes while the player is away)
+        let back = reloads.iter().find(|&&(rt, rn)| g == rt + rn).copied();
+        if let Some((rt, _)) = back {
+            for f in fs.iter_mut() {
+                if f.1 >= rt && f.1 < g {
+                    f.4 = Some(w.get(f.0));
+                    w.set_block(f.0, f.3, redsim::world::flags::ALL);
+                }
+                if f.2 > 0 && f.1 + f.2 >= rt && f.1 + f.2 < g {
+                    if let Some(orig) = f.4.take() {
+                        w.set_block(f.0, orig, redsim::world::flags::ALL);
+                    }
+                }
+            }
+        }
         let high = at.iter().any(|&a| g >= a && g < a + 10);
         // the release run's detector rail (-3,1,4) stood in by a redstone block, 4 gt from each
         // `det` tick (the loop probe file has no rail)
@@ -296,6 +358,17 @@ pub fn trace(design: &Path, at: &[u64], det: &[u64], ticks: u32) -> Result<()> {
         }
         if matches!(w.get(golem), redsim::Block::RedstoneBlock) != high {
             w.set_block(golem, if high { on } else { off }, redsim::world::flags::ALL);
+        }
+        for f in fs.iter_mut() {
+            if g == f.1 {
+                f.4 = Some(w.get(f.0));
+                w.set_block(f.0, f.3, redsim::world::flags::ALL);
+            } else if f.2 > 0 && g == f.1 + f.2 {
+                // (N = 0: set and left, the circuit carrying on from it, as a toggled bulb)
+                if let Some(orig) = f.4.take() {
+                    w.set_block(f.0, orig, redsim::world::flags::ALL);
+                }
+            }
         }
         for (i, (_, q)) in outs.iter().enumerate() {
             // (`output.lvl_*` ports: the analog level itself, at each change)
@@ -318,8 +391,187 @@ pub fn trace(design: &Path, at: &[u64], det: &[u64], ticks: u32) -> Result<()> {
     if let Err((_, why)) = res {
         bail!("the run failed: {why}");
     }
-    for (i, (k, _)) in outs.iter().enumerate() {
-        println!("{k:24} {}", edges[i].join(" "));
+    Ok(outs.into_iter().map(|(k, _)| k).zip(edges).collect())
+}
+
+/// `fault-survey` (ironspec's self-recovery rule): golem pulses every 100 gt from 100 for `n`
+/// pulses, the fault-free trace first, then each scenario of `spec` (lines `name | fault; fault
+/// | golem edits`: faults as `--fault` takes them, golem edits `-T` a pulse missed, `+T` an extra
+/// one; `#` comments). For each: the first tick a control (visit divert, kick, F, T1, T2, REL)
+/// departs from the fault-free run, the cycles until every one of them runs again as the
+/// fault-free run shifted by a whole number of releases (and that shift), or never; and the
+/// visits, kicks and F pulses gained or lost (fault-free run's last 500 gt left out).
+pub fn fault_survey(design: &Path, spec: &Path, n: u64) -> Result<()> {
+    let c = Circuit::load(design)?;
+    let at0: Vec<u64> = (1..=n).map(|k| 100 * k).collect();
+    let ticks = (100 * n + 400) as u32;
+    let key = ["output.divert", "output.ka", "output.force", "output.t1", "output.t2", "output.rel"];
+    let parse = |r: &[(String, Vec<String>)]| -> Vec<Vec<(bool, i64)>> {
+        key.iter()
+            .map(|k| {
+                r.iter().find(|(n, _)| n == k).map(|(_, e)| e.iter().filter_map(|s| {
+                    let (on, t) = if let Some(t) = s.strip_prefix('+') { (true, t) } else { (false, s.strip_prefix('-')?) };
+                    t.parse::<i64>().ok().map(|t| (on, t))
+                }).collect()).unwrap_or_default()
+            })
+            .collect()
+    };
+    let mut base_faults: Vec<String> = Vec::new();
+    let mut base_edits: Vec<String> = Vec::new();
+    let text = std::fs::read_to_string(spec)?;
+    // (`base | faults | edits`: applied to the fault-free run and to every scenario: a day window
+    // for the night latch's edges, say)
+    for line in text.lines().map(|l| l.trim()).filter(|l| l.starts_with("base")) {
+        let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+        base_faults = parts.get(1).map(|s| s.split(';').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect()).unwrap_or_default();
+        base_edits = parts.get(2).map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default();
     }
+    let edit = |at: &mut Vec<u64>, eds: &[String]| -> Result<()> {
+        for ed in eds {
+            let t: u64 = ed[1..].parse()?;
+            if ed.starts_with('-') {
+                at.retain(|&a| a != t);
+            } else {
+                at.push(t);
+            }
+        }
+        at.sort_unstable();
+        Ok(())
+    };
+    let mut at0 = at0;
+    edit(&mut at0, &base_edits)?;
+    let base = parse(&trace_run(&c, &at0, &[], ticks, &base_faults, &[])?);
+    let end = (100 * n) as i64 - 500;
+    let count = |v: &[Vec<(bool, i64)>], i: usize| v[i].iter().filter(|(on, t)| *on && *t > 0 && *t < end).count() as i64;
+    println!("{:28} {:>10} {:>26} {:>8} {:>8} {:>8}", "scenario", "departs", "recovered", "visits", "kicks", "F");
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with("base") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+        let name = parts[0];
+        let mut faults: Vec<String> = base_faults.clone();
+        faults.extend(parts.get(1).map(|s| s.split(';').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect::<Vec<_>>()).unwrap_or_default());
+        let mut at = at0.clone();
+        edit(&mut at, &parts.get(2).map(|s| s.split_whitespace().map(String::from).collect::<Vec<_>>()).unwrap_or_default())?;
+        // (times stay relative to the first fault-free pulse, as `trace` prints them)
+        let mut at_shift = at.clone();
+        if at_shift.first() != Some(&100) {
+            at_shift.insert(0, 100);
+            at_shift.dedup();
+        }
+        let r = parse(&trace_run(&c, &at_shift, &[], ticks, &faults, &[])?);
+        let departs = (0..key.len()).filter_map(|i| {
+            let (a, b) = (&base[i], &r[i]);
+            (0..a.len().max(b.len())).find(|&j| a.get(j) != b.get(j)).map(|j| a.get(j).map(|e| e.1).unwrap_or(i64::MAX).min(b.get(j).map(|e| e.1).unwrap_or(i64::MAX)))
+        }).min();
+        let recovered = match departs {
+            None => "unchanged".to_string(),
+            Some(d) => {
+                // the first tick T (in 100s from the departure) from which every control's edges in
+                // [T, end) are the fault-free ones shifted by s releases
+                let mut found = None;
+                'outer: for k in 0..((end - d) / 100).max(0) {
+                    let t0 = d + 100 * k;
+                    for s in -4i64..=4 {
+                        let ok = (0..key.len()).all(|i| {
+                            let a: Vec<(bool, i64)> = base[i].iter().map(|&(o, t)| (o, t + 100 * s)).filter(|&(_, t)| t >= t0 && t < end).collect();
+                            let b: Vec<(bool, i64)> = r[i].iter().copied().filter(|&(_, t)| t >= t0 && t < end).collect();
+                            a == b
+                        });
+                        if ok {
+                            found = Some((k, s));
+                            break 'outer;
+                        }
+                    }
+                }
+                match found {
+                    Some((k, s)) => format!("after {k} cycles, shift {s:+}"),
+                    None => "NEVER".to_string(),
+                }
+            }
+        };
+        println!(
+            "{:28} {:>10} {:>26} {:>+8} {:>+8} {:>+8}",
+            name,
+            departs.map(|d| format!("+{d}")).unwrap_or_else(|| "-".into()),
+            recovered,
+            count(&r, 0) - count(&base, 0),
+            count(&r, 1) - count(&base, 1),
+            count(&r, 2) - count(&base, 2)
+        );
+    }
+    Ok(())
+}
+
+/// `nap-report` (ironspec 21:08, the night-1 lines): from one `queue-loop-run --visits-observe`
+/// log (one seed), each villager's first nap (its cart `eN`: a villager rides its own cart for
+/// life) and each batch's first fully napped slot (the batch at the stand during slot S is
+/// S mod 7: the one a visit in S takes its cart from), and the startup's slot cost: the slots from
+/// power-on (slot 0) whose stand batch had a rider not yet napped (no summon: it needs its three
+/// riders willing, and a rider that never slept is not).
+pub fn nap_report(log: &Path) -> Result<()> {
+    use std::collections::BTreeMap;
+    let text = std::fs::read_to_string(log)?;
+    let num = |s: &str| -> Option<i64> { s.trim_matches(|c: char| !c.is_ascii_digit() && c != '-').parse().ok() };
+    // (slot, stand cart) -> (cart entity, day time); (slot, stand cart) -> asleep
+    let mut who: BTreeMap<(i64, i64), (i64, i64)> = BTreeMap::new();
+    let mut asleep: BTreeMap<(i64, i64), bool> = BTreeMap::new();
+    let mut last_slot = 0i64;
+    for line in text.lines() {
+        if let Some(r) = line.strip_prefix("visit (observed): slot ") {
+            let w: Vec<&str> = r.split_whitespace().collect();
+            let slot = num(w[0]).unwrap_or(0);
+            let day = r.split("day time ").nth(1).and_then(|s| num(s.split(')').next().unwrap_or(""))).unwrap_or(0);
+            let cart = r.split("the stand's cart ").nth(1).and_then(|s| num(s.split_whitespace().next().unwrap_or(""))).unwrap_or(0);
+            let e = r.split("(e").nth(1).and_then(|s| num(s.split(')').next().unwrap_or(""))).unwrap_or(-1);
+            who.insert((slot, cart), (e, day));
+        } else if let Some(r) = line.strip_prefix("visit slot ") {
+            let w: Vec<&str> = r.split_whitespace().collect();
+            if w.len() >= 3 {
+                let slot = num(w[0]).unwrap_or(0);
+                let cart = num(w[2]).unwrap_or(0);
+                asleep.insert((slot, cart), r.contains("rider asleep"));
+            }
+        } else if let Some(r) = line.trim_start().strip_prefix("slot ") {
+            if let Some(s) = num(r.split(':').next().unwrap_or("")) {
+                last_slot = last_slot.max(s);
+            }
+        }
+    }
+    // each villager: its batch and its naps
+    let mut batch: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut first: BTreeMap<i64, (i64, i64)> = BTreeMap::new();
+    for (&(slot, cart), &(e, day)) in &who {
+        batch.entry(e).or_insert(slot.rem_euclid(7));
+        last_slot = last_slot.max(slot);
+        if asleep.get(&(slot, cart)) == Some(&true) {
+            first.entry(e).or_insert((slot, day));
+        }
+    }
+    println!("{} villagers visited, {} napped; first naps (cart: slot, day time, batch):", batch.len(), first.len());
+    for (e, b) in &batch {
+        match first.get(e) {
+            Some((s, d)) => println!("  e{e}: slot {s}, day time {d}, batch {b}"),
+            None => println!("  e{e}: no nap in the log, batch {b}"),
+        }
+    }
+    let mut lost = 0i64;
+    let mut done_all = 0i64;
+    for b in 0..7 {
+        let riders: Vec<i64> = batch.iter().filter(|(_, bb)| **bb == b).map(|(e, _)| *e).collect();
+        let full = riders.iter().map(|e| first.get(e).map(|f| f.0).unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
+        let upto = full.min(last_slot + 1);
+        let turns = (0..upto).filter(|s| s.rem_euclid(7) == b).count() as i64;
+        lost += turns;
+        done_all = done_all.max(full);
+        let shown = if full == i64::MAX { "never in the log".to_string() } else { format!("slot {full}") };
+        println!("  batch {b}: riders {:?}, fully napped from {shown}; stand turns before it: {turns}", riders.iter().map(|e| format!("e{e}")).collect::<Vec<_>>());
+    }
+    println!(
+        "startup slot cost: {lost} stand slots from power-on with a rider not yet napped (no summon); every batch fully napped from {}",
+        if done_all == i64::MAX { "never in the log".to_string() } else { format!("slot {done_all}") }
+    );
     Ok(())
 }
