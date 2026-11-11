@@ -1219,7 +1219,11 @@ pub fn base_tick(w: &mut World, i: usize) {
     }
     let e = &mut w.entities.list[i];
     e.first_tick = false;
-    leash::tick(w, i);
+    // Entity.baseTick ends with tickLeash; a mob's base tick (living.rs) runs its fire's damage
+    // first, then calls the leash itself (mob-AI 2026-11-11: a leashed llama dying of its fire)
+    if !matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
+        leash::tick(w, i);
+    }
 }
 
 /// `Entity.move(type, delta)` of entity `i` (index in the list): `collide::move_`.

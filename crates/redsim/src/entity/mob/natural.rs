@@ -465,8 +465,9 @@ pub struct Natural {
     /// Riders a `finalizeSpawn` put on a mob (rider, vehicle): passengers, so persistent.
     pub riders: Vec<(u32, u32)>,
     /// The follow range bonuses `Mob.finalizeSpawn` drew during the spawn being finalized, in
-    /// draw order (the mob's, a jockey's rider's or chicken's; scratch).
-    pub bonuses: Vec<f64>,
+    /// draw order (the mob's, a jockey's rider's or chicken's; scratch), each with its
+    /// left-handed roll (`nextFloat() < 0.05F`).
+    pub bonuses: Vec<(f64, bool)>,
     pub log: Vec<NaturalEvent>,
     /// Ticks the spawner has run (the spawning chunks' inhabited time: `incrementInhabitedTime`).
     pub ticks: u64,
@@ -1374,9 +1375,10 @@ fn mob_base(w: &mut World) {
     let r = rng(w);
     // triangle(0, 0.11485): the FOLLOW_RANGE's random spawn bonus (ADD_MULTIPLIED_BASE)
     let b = 0.11485000000000001 * (r.next_double() - r.next_double());
-    r.next_float();
+    // setLeftHanded(nextFloat() < 0.05F)
+    let left = r.next_float() < 0.05f32;
     if let Some(n) = w.mob.natural.as_mut() {
-        n.bonuses.push(b);
+        n.bonuses.push((b, left));
     }
 }
 
@@ -1506,6 +1508,41 @@ pub fn siege_zombie(w: &mut World, at: Vec3, special: f32) -> u32 {
         w.mob.natural = None;
     }
     id
+}
+
+/// (mob-AI 2026-11-11, for the viewer's models) The look a spawn picks from the biome at mob
+/// `id`'s block: a cow's, pig's or chicken's variant (`VariantUtils.selectVariantToSpawn`: warm
+/// or cold, priority 1, when the biome is in `#spawns_warm/cold_variant_farm_animals`; else
+/// temperate), a zombie villager's type (`VillagerType.byBiome`, default plains). No draw.
+fn set_biome_variant(w: &mut World, id: u32) {
+    let Some(j) = crate::entity::index_of(w, id) else { return };
+    let EntityKind::Mob(m) = &w.entities.list[j].kind else { return };
+    let gid = m.ty.def().game_id;
+    let at = w.entities.list[j].block_position();
+    let b = w.biome_at(at).and_then(biome::biome);
+    let tagged = |t: &str| b.is_some_and(|b| b.has_tag(t));
+    let v = match gid {
+        "minecraft:cow" | "minecraft:pig" | "minecraft:chicken" => Some(if tagged("minecraft:spawns_warm_variant_farm_animals") {
+            "warm"
+        } else if tagged("minecraft:spawns_cold_variant_farm_animals") {
+            "cold"
+        } else {
+            "temperate"
+        }),
+        "minecraft:zombie_villager" => Some(match w.biome_at(at).unwrap_or("").trim_start_matches("minecraft:") {
+            "badlands" | "desert" | "eroded_badlands" | "wooded_badlands" => "desert",
+            "bamboo_jungle" | "jungle" | "sparse_jungle" => "jungle",
+            "savanna_plateau" | "savanna" | "windswept_savanna" => "savanna",
+            "deep_frozen_ocean" | "frozen_ocean" | "frozen_river" | "ice_spikes" | "snowy_beach" | "snowy_taiga" | "snowy_plains" | "grove" | "snowy_slopes" | "frozen_peaks" | "jagged_peaks" => "snow",
+            "swamp" | "mangrove_swamp" => "swamp",
+            "old_growth_spruce_taiga" | "old_growth_pine_taiga" | "windswept_gravelly_hills" | "windswept_hills" | "taiga" | "windswept_forest" => "taiga",
+            _ => "plains",
+        }),
+        _ => None,
+    };
+    if let EntityKind::Mob(m) = &mut w.entities.list[j].kind {
+        m.variant = v;
+    }
 }
 
 /// (mob-AI 2026-11-10) `CatSpawner.spawnCat(spawnPos, level, persistent)`: `EntityTypes.CAT.create`
@@ -2695,12 +2732,13 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
     let bonuses = w.mob.natural.as_ref().map(|n| n.bonuses.clone()).unwrap_or_default();
     // with a zombie horse rider's new chicken: rider, chicken (inside the rider's), horse
     if f.rider_chicken == Jockey::NewChicken {
-        let set = |w: &mut World, who: Option<u32>, b: Option<&f64>| {
-            if let (Some(id), Some(b)) = (who, b)
+        let set = |w: &mut World, who: Option<u32>, b: Option<&(f64, bool)>| {
+            if let (Some(id), Some(&(b, left))) = (who, b)
                 && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
                 && let EntityKind::Mob(m) = &mut e.kind
             {
-                m.follow_range = m.ty.def().follow_range * (1.0 + *b);
+                m.follow_range = m.ty.def().follow_range * (1.0 + b);
+                m.left_handed = left;
             }
         };
         set(w, Some(id), bonuses.get(2));
@@ -2712,12 +2750,13 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
         Jockey::HorseZombie | Jockey::HorseBabyZombie => (bonuses.get(1), bonuses.first()),
         _ => (bonuses.first(), bonuses.get(1)),
     };
-    let set = |w: &mut World, who: Option<u32>, b: Option<&f64>| {
-        if let (Some(id), Some(b)) = (who, b)
+    let set = |w: &mut World, who: Option<u32>, b: Option<&(f64, bool)>| {
+        if let (Some(id), Some(&(b, left))) = (who, b)
             && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
             && let EntityKind::Mob(m) = &mut e.kind
         {
-            m.follow_range = m.ty.def().follow_range * (1.0 + *b);
+            m.follow_range = m.ty.def().follow_range * (1.0 + b);
+            m.left_handed = left;
         }
     };
     set(w, Some(id), mine);
@@ -2735,6 +2774,11 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
     // before any of them mounts)
     for who in [Some(id), rider, chicken].into_iter().flatten() {
         super::ai::refresh_path_budget(w, who, true);
+    }
+    // (mob-AI 2026-11-11, for the viewer) the biome-picked looks: a farm animal's variant, a
+    // zombie villager's type
+    for who in [Some(id), rider, chicken].into_iter().flatten() {
+        set_biome_variant(w, who);
     }
     // (mob-AI 2026-11-10) a zombie horseman's rider: Zombie.finalizeSpawn's handleAttributes
     // (NATURAL: the reinforcement chance, the knockback resistance bonus, the follow range bonus,

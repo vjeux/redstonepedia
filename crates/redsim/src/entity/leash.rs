@@ -143,6 +143,11 @@ fn angular_friction(w: &World, i: usize) -> f32 {
 
 fn drop_lead(w: &mut World, i: usize) {
     w.entities.list[i].leash = None;
+    // Mob.onLeashRemoved: clearHome (a PathfinderMob's home on its holder goes with the lead;
+    // mob-AI 2026-11-11, d1-bed-plate village-edge b9 t73933: a freed llama strolled off)
+    if matches!(w.entities.list[i].kind, EntityKind::Mob(_)) && crate::entity::mob::ai::has_ai(w, i) {
+        crate::entity::mob::ai::ai_mut(w, i).home = None;
+    }
     // (mob-AI 2026-11-11) a mob's lead in an exact world: `spawnAtLocation(level, LEAD)` at its
     // position, the item seeded as its entity number like any drop (a dying trader llama's, the
     // tick after its death: d1-bed-plate plains b9 t40080)

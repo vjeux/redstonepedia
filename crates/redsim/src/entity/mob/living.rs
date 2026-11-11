@@ -177,6 +177,12 @@ fn base_tick(w: &mut World, i: usize) {
         // Entity.baseTick: `if (this.isInLava()) this.fallDistance *= 0.5`
         w.entities.list[i].fall_distance *= 0.5;
     }
+    // Entity.baseTick's last step: tickLeash, after the fire's damage (mob-AI 2026-11-11: a
+    // leashed llama killed by its fire drops its lead at once and is not pulled, d1-bed-plate
+    // village-edge b6 t74796)
+    if !w.entities.list[i].removed {
+        crate::entity::leash::tick(w, i);
+    }
     let _ = was_in_lava;
     let ty = mob(w, i).ty;
     if !mob(w, i).dead {

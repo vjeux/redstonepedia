@@ -318,8 +318,26 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
     if w.entities.list[i].vehicle.is_some() {
         return false;
     }
+    let trace = std::env::var("MCTAS_TRACE_ENDERMAN").is_ok_and(|v| v.parse::<u32>().ok() == Some(w.entities.list[i].id));
     let mut p = BlockPos::new(crate::entity::mth::floor(xx), crate::entity::mth::floor(yy), crate::entity::mth::floor(zz));
+    if trace {
+        let full = w.mob.custom.as_ref().is_some_and(|c| c.full_chunks.contains(&[p.x >> 4, p.z >> 4]));
+        eprintln!("enderman t{} teleport to ({xx}, {yy}, {zz}): start {p} contains {} (box {} size {:?}; the game's chunk loaded {full})", w.time, w.contains(p), w.min, w.size);
+    }
     if !w.contains(p) {
+        // (mob-AI 2026-11-11) past the modeled box in one of the terrain sample's chunks (the
+        // chunks the box overlaps: the game writes their whole sections, redsim keeps the box):
+        // the game's column there is not redsim's (d1u-deep plains b5 t63833: the game landed at
+        // y 8 a block past the box's edge). Past them the sandbox's chunks are void on both sides.
+        let (cx, cz) = (p.x >> 4, p.z >> 4);
+        let (x0, z0) = (w.min.x >> 4, w.min.z >> 4);
+        let (x1, z1) = ((w.min.x + w.size[0] - 1) >> 4, (w.min.z + w.size[2] - 1) >> 4);
+        if w.land.is_some() && (x0..=x1).contains(&cx) && (z0..=z1).contains(&cz) {
+            let why = format!("gt {}: an enderman teleports to {p}, past the terrain box in one of the sample's chunks (the game has the whole chunk)", w.time);
+            if !w.errors.iter().any(|e| e.contains("past the terrain box")) {
+                w.errors.push(why);
+            }
+        }
         return false;
     }
     let mut y = yy;
@@ -327,7 +345,13 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
     while p.y > min_y {
         p = p.below();
         let tags = props_at(w, p);
+        if trace && tags.is_none() {
+            eprintln!("enderman teleport: {p} {} has no natural row", w.get(p));
+        }
         if tags.is_some_and(|t| t.has_tag("minecraft:entities_can_teleport_to")) {
+            if trace {
+                eprintln!("enderman teleport: lands on {p} {}", w.get(p));
+            }
             // checkPositionAndTeleport
             if tags.is_some_and(|t| t.has_tag("minecraft:enderman_does_not_teleport_to")) {
                 return false;

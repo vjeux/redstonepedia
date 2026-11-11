@@ -109,6 +109,8 @@ pub const MODULE_ITEMS: &[(&str, u8)] = &[
     ("baked_potato", 64),
     ("copper_ingot", 64),
     ("music_disc_lava_chicken", 1),
+    // (mob-AI 2026-11-11) a trader llama's dropped lead
+    ("lead", 64),
 ];
 
 use crate::entity::{EntityKind, Vec3};
@@ -347,6 +349,14 @@ pub struct MobState {
     /// (mob-AI 2026-11-10) A zombie's KNOCKBACK_RESISTANCE modifier (`RANDOM_SPAWN_BONUS`,
     /// ADD_VALUE: `nextDouble() * 0.05F`; 0: none), on top of its type's.
     pub knockback_bonus: f64,
+    /// (mob-AI 2026-11-11, for the viewer's models) `Mob.finalizeSpawn`'s
+    /// `setLeftHanded(nextFloat() < 0.05F)`: which arm holds a skeleton's bow.
+    pub left_handed: bool,
+    /// (mob-AI 2026-11-11, for the viewer's models) A cow's, pig's or chicken's variant
+    /// (`VariantUtils.selectVariantToSpawn`: "warm" or "cold" by the biome's
+    /// `#spawns_warm/cold_variant_farm_animals`, else "temperate"); a natural zombie villager's
+    /// type (`finalizeVillagerType`: `VillagerType.byBiome`, else "plains"). None: not drawn.
+    pub variant: Option<&'static str>,
     /// `xxa`, `zza`, `jumping`, `speed` (the walking input).
     pub xxa: f32,
     pub zza: f32,
@@ -433,6 +443,8 @@ impl MobState {
             reinforcement_chance: 0.0,
             max_health_bonus: 0.0,
             knockback_bonus: 0.0,
+            left_handed: false,
+            variant: None,
             xxa: 0.0,
             zza: 0.0,
             jumping: false,
