@@ -347,6 +347,14 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
         for t in 30..=80 {
             v.push((format!("stand freeze 240 +{t}"), vec![format!("5,{t},unload,0,0,0,0,240")]));
         }
+        // (the hump's chunk (loop z 10..25: the boosters, the hump, the dip's north cell) frozen
+        // 240 gt from every gt the train crosses the boosters, +3..=+30: a cart frozen on a booster
+        // (h4's flat one among them) and the train behind it at the thaw)
+        if o.hump > 0 {
+            for t in 3..=30 {
+                v.push((format!("hump freeze 240 +{t}"), vec![format!("5,{t},unload,0,1,0,1,240")]));
+            }
+        }
     }
     // (S3(ii)'s hold H emulated on the approach (cc767b78's cells): a closed fence gate over the snap
     // turn (xb, 3, 0) from slot 5 +30 to slot 6 +30, slot 5's whole train held against it (the
