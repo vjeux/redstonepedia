@@ -254,7 +254,8 @@ pub fn roles(d: &mctas::design::Design) -> Result<BTreeMap<P, &'static str>> {
         } else if in_cage(&p) {
             "cage"
         } else if in_pad(&p) {
-            "spawn-area"
+            // (its open cells are the golems' fall path, the drop shaft's: farmopt's split agrees)
+            if i == "air" { "transport" } else { "spawn-area" }
         } else if collection.contains(&p) {
             "collection"
         } else if i == "lava" || i.ends_with("_wall_sign") || i.ends_with("_button") || i.ends_with("_fence_gate") || in_kill(&p) {

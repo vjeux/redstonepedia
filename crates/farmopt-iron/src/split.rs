@@ -82,7 +82,10 @@ pub fn roles_of(c: &Cand, calm_parts: &[crate::calm::Part], actual: Option<&mcta
         } else if p[1] >= -1 && p[2] <= 1 {
             "cage"
         } else if (fl - 1..=fl + 2).contains(&p[1]) && (x0 - 1..=x0 + n).contains(&p[0]) && (1..=n + 2).contains(&p[2]) {
-            "pad"
+            // (the pad's open cells are the golems' fall path, the drop shaft's, from under the pad
+            // to the kill; the pad's blocks (its fence gates, walls, water) stay the pad's:
+            // ironspec 2026-11-10)
+            if i == "air" { "transport" } else { "pad" }
         } else if matches!(i.as_str(), "hopper" | "chest") {
             "collection"
         } else if matches!(i.as_str(), "lava" | "oak_wall_sign" | "oak_button" | "oak_fence_gate") {
@@ -361,15 +364,24 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
         let have: Vec<&str> = old.lines().skip(1).map(|l| l.split('\t').next().unwrap_or("")).collect();
         let members: Vec<_> = members.into_iter().filter(|m| !have.contains(&format!("{}.txt", m.0).as_str()) || part == "storage" || part == "access" || part == "transport").collect();
         let mut tsv = String::from("file\tname\tstage\tmetrics\tused_by\n");
+        // (a member written again keeps its row's place: the catalog is best first)
         for l in old.lines().skip(1) {
             let file = l.split('\t').next().unwrap_or("");
-            if !l.trim().is_empty() && !members.iter().any(|m| format!("{}.txt", m.0) == file) {
-                tsv.push_str(l);
-                tsv.push('\n');
+            if l.trim().is_empty() {
+                continue;
+            }
+            match members.iter().find(|m| format!("{}.txt", m.0) == file) {
+                Some((stem, name, stage, rest)) => tsv.push_str(&format!("{stem}.txt\t{name}\t{stage}\t{rest}\n")),
+                None => {
+                    tsv.push_str(l);
+                    tsv.push('\n');
+                }
             }
         }
         for (stem, name, stage, rest) in &members {
-            tsv.push_str(&format!("{stem}.txt\t{name}\t{stage}\t{rest}\n"));
+            if !have.contains(&format!("{stem}.txt").as_str()) {
+                tsv.push_str(&format!("{stem}.txt\t{name}\t{stage}\t{rest}\n"));
+            }
         }
         std::fs::write(&path, tsv)?;
         lines.push(format!("{part}: {} members ({})", members.len(), members.iter().map(|m| m.0.as_str()).collect::<Vec<_>>().join(", ")));

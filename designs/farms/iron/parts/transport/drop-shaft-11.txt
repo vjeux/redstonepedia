@@ -50,32 +50,32 @@ layer -9:
   .
 layer -8:
   .
-  .
-  .
-  .
-  .
+  .AAAA
+  .AAAA
+  .AAAA
+  .AAAA
   .
 layer -7:
   .
   .
-  .
-  .
+  ..AA
+  ..AA
   .
   .
 layer -6:
-  .
-  .
-  .
-  .
-  .
-  .
+  .AAAA
+  AAAAAA
+  AA..AA
+  AA..AA
+  AAAAAA
+  .AAAA
 layer -5:
-  .
-  .
-  .
-  .
-  .
-  .
+  AAAAAA
+  AAAAAA
+  AAAAAA
+  AAAAAA
+  AAAAAA
+  AAAAAA
 layer -4:
   A....A
   AAAAAA
