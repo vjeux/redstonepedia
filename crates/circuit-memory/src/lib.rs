@@ -169,6 +169,27 @@ enum Cmd {
         det: Vec<u64>,
         #[arg(long, default_value_t = 600)]
         ticks: u32,
+        /// Fault injection (ironspec's self-recovery rule): `x,y,z@T+N=BLOCK`, that cell replaced by
+        /// BLOCK from tick T for N ticks, then put back as it was (repeatable). A redstone block on
+        /// a line is an extra pulse; glass in a line's cell, a missed one.
+        #[arg(long)]
+        fault: Vec<String>,
+        /// More cells to print like the output ports (their strongest neighbour signal's on/off
+        /// changes), `x,y,z` (repeatable): a ring's top dust, a latch.
+        #[arg(long, allow_hyphen_values = true)]
+        watch: Vec<String>,
+    },
+    /// The self-recovery survey (ironspec): a fault-free run and each scenario of a spec file (a
+    /// fault per line, missed and extra pulses in each state element), with the cycles each takes
+    /// to run as the fault-free run again (shifted by whole releases), or NEVER, and the visits,
+    /// kicks and F pulses gained or lost (crates/circuit-memory/src/releasebench.rs).
+    FaultSurvey {
+        design: PathBuf,
+        #[arg(long)]
+        spec: PathBuf,
+        /// Golem pulses, every 100 gt from 100.
+        #[arg(long, default_value_t = 60)]
+        pulses: u64,
     },
     /// The release controller driven alone (crates/circuit-memory/src/releasebench.rs): golems in
     /// time, early (held), missed (fallback) and doubled (merged), checked against an exact model.
@@ -450,7 +471,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::SchedGen { out, modules, offdelay } => schedgen::generate(&out, &modules, &offdelay)?,
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
-        Cmd::ReleaseTrace { design, at, det, ticks } => releasebench::trace(&design, &at, &det, ticks)?,
+        Cmd::ReleaseTrace { design, at, det, ticks, fault, watch } => releasebench::trace(&design, &at, &det, ticks, &fault, &watch)?,
+        Cmd::FaultSurvey { design, spec, pulses } => releasebench::fault_survey(&design, &spec, pulses)?,
         Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,
         Cmd::Cells { file, r#box } => {
             let [x0, y0, z0, x1, y1, z1] = r#box[..] else { anyhow::bail!("--box takes X0,Y0,Z0,X1,Y1,Z1") };

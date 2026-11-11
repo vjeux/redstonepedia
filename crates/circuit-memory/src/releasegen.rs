@@ -64,7 +64,10 @@ fn core(b: &mut B, chain: &[It], group_to: i32) -> Result<(Vec<(i32, u8)>, i32)>
     b.on([3, y, 0], &comp("west", "subtract"))?; // B: rear S1
     b.on([3, y, -1], &comp("north", "compare"))?; // K: rear the hopper, out south into B
     b.put([3, y, -2], "minecraft:hopper[enabled=true,facing=down]")?;
-    b.nbt.insert([3, y, -2], "{Items:[{Slot:0b,id:\"minecraft:stone\",count:23}]}".into());
+    // (K = 2 with 23 items: BUSY to ~92 gt; `MCTAS_BUSY_ITEMS` measures others: 22 items read 1,
+    // BUSY ~98)
+    let busy_items: u32 = std::env::var("MCTAS_BUSY_ITEMS").ok().and_then(|v| v.parse().ok()).unwrap_or(23);
+    b.nbt.insert([3, y, -2], format!("{{Items:[{{Slot:0b,id:\"minecraft:stone\",count:{busy_items}}}]}}"));
     b.on([4, y, 0], &rep("west", 1))?; // B's output into GO's west side at full strength: GO
                                        // subtracts it from X, so BUSY must be 15 to block any X
     // ---- GO and X
