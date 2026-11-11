@@ -2614,6 +2614,47 @@ pub fn parse_rider(s: &str, t: &str) -> Result<RiderRef, String> {
     }
 }
 
+/// `--reload-orders` (ironspec's reload-order rule): `all` = save, reverse, seed:1 .. seed:30
+/// (tick-exact 2026-11-11: each order is one sample of the game's random reload, so a row samples
+/// at least 30), `all:N` = save, reverse, seed:1 .. seed:N, `seed:A-B` a range, or one order
+/// (`save`, `reverse`, `seed:K`; K < 1000).
+pub fn parse_reload_orders(names: &[String]) -> Result<Vec<redsim::reload::Order>, String> {
+    use redsim::reload::Order;
+    let mut orders = Vec::new();
+    let bad = |n: &str| format!("--reload-orders {n}: save, reverse, seed:K, seed:A-B (K < 1000), all or all:N");
+    for n in names {
+        if n == "all" || n.starts_with("all:") {
+            let k = match n.strip_prefix("all:") {
+                Some(k) => k.parse::<u32>().ok().filter(|k| *k < 1000).ok_or_else(|| bad(n))?,
+                None => 30,
+            };
+            orders.extend([Order::Save, Order::Reverse]);
+            orders.extend((1..=k).map(Order::Seed));
+        } else if let Some((a, b)) = n.strip_prefix("seed:").and_then(|r| r.split_once('-')) {
+            let (a, b) = (a.parse::<u32>().map_err(|_| bad(n))?, b.parse::<u32>().map_err(|_| bad(n))?);
+            if a > b || b >= 1000 {
+                return Err(bad(n));
+            }
+            orders.extend((a..=b).map(Order::Seed));
+        } else {
+            orders.push(Order::parse(n).ok_or_else(|| bad(n))?);
+        }
+    }
+    Ok(orders)
+}
+
+/// The Wilson score interval (95%) of `k` misses in `n` samples, as fractions.
+pub fn wilson95(k: usize, n: usize) -> (f64, f64) {
+    if n == 0 {
+        return (0.0, 1.0);
+    }
+    let (z, n, p) = (1.96f64, n as f64, k as f64 / n as f64);
+    let d = 1.0 + z * z / n;
+    let c = (p + z * z / (2.0 * n)) / d;
+    let h = z * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt() / d;
+    ((c - h).max(0.0), (c + h).min(1.0))
+}
+
 /// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets),
 /// `SLOT,DT,unload,N[,ORDER]` (the whole part away N gt, its load in ORDER: save, reverse or
 /// seed:K), `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box), `SLOT,DT,dismount,R` or
@@ -6342,6 +6383,24 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
 #[cfg(test)]
 mod paste_tests {
     use super::*;
+
+    /// `--reload-orders`' forms (tick-exact 2026-11-11: `all` samples 32 orders, save, reverse and
+    /// seed:1..30) and the row's Wilson interval (tick-exact's 6 of 32: 9-35%).
+    #[test]
+    fn reload_orders_and_their_rate() {
+        use redsim::reload::Order;
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let all = parse_reload_orders(&s(&["all"])).unwrap();
+        assert_eq!((all.len(), all[0], all[1], all[2], all[31]), (32, Order::Save, Order::Reverse, Order::Seed(1), Order::Seed(30)));
+        assert_eq!(parse_reload_orders(&s(&["all:8"])).unwrap().len(), 10);
+        assert_eq!(parse_reload_orders(&s(&["save", "seed:3-5"])).unwrap(), vec![Order::Save, Order::Seed(3), Order::Seed(4), Order::Seed(5)]);
+        assert!(parse_reload_orders(&s(&["seed:5-3"])).is_err() && parse_reload_orders(&s(&["all:x"])).is_err() && parse_reload_orders(&s(&["sideways"])).is_err());
+        // (tick-exact's row 300,50: 6 misses in 32 orders, Wilson 95% 9-35%)
+        let (lo, hi) = wilson95(6, 32);
+        assert_eq!(((lo * 100.0).round(), (hi * 100.0).round()), (9.0, 35.0));
+        let (lo, hi) = wilson95(0, 32);
+        assert!(lo == 0.0 && (hi * 100.0).round() == 11.0);
+    }
 
     /// The rider acts parse (farmopt 2026-11-11: day-1's positive control for the unload id-remap
     /// check): a visit's napper or an entity number, dismount or swap; the old forms unchanged.

@@ -1239,11 +1239,13 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 1)]
         jobs: usize,
         /// (ironspec's reload-order rule, farmopt 2026-11-11) The run again under each of these
-        /// load orders for every whole-part `--act ...,unload,N` (`all` = save, reverse, seed:1 ..
-        /// seed:8; or a list: `save,reverse,seed:3`), on `--jobs` threads: one line each (its
+        /// load orders for every whole-part `--act ...,unload,N`: `all` = save, reverse, seed:1 ..
+        /// seed:30 (tick-exact 2026-11-11: each order is one sample of the game's random reload,
+        /// so a row samples at least 30), `all:N` = save, reverse, seed:1 .. seed:N, or a list
+        /// (`save,reverse,seed:3`, ranges `seed:1-30`); on `--jobs` threads: one line each (its
         /// problems and first problem, the visits, night 1, the lap order, and the visits spanning
-        /// the unload: each one's rest slot and tick), then the row's verdict: a failure under any
-        /// order fails it.
+        /// the unload: each one's rest slot and tick), then the row's verdict (a failure under any
+        /// order fails it) with its miss rate and Wilson 95% interval.
         #[arg(long, value_delimiter = ',')]
         reload_orders: Vec<String>,
         #[arg(long)]
@@ -4537,15 +4539,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 fn reload_orders_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, names: &[String], cycles: i64, seed: i64, jobs: usize) -> Result<()> {
     use redsim::reload::Order;
-    let mut orders: Vec<Order> = Vec::new();
-    for n in names {
-        if n == "all" {
-            orders.extend([Order::Save, Order::Reverse]);
-            orders.extend((1..=8).map(Order::Seed));
-        } else {
-            orders.push(Order::parse(n).ok_or_else(|| anyhow::anyhow!("--reload-orders {n}: save, reverse, seed:K (K < 1000) or all"))?);
-        }
-    }
+    let orders: Vec<Order> = crate::queue::parse_reload_orders(names).map_err(|e| anyhow::anyhow!(e))?;
     let unloads: Vec<crate::queue::Act> = tm.acts.iter().flatten().filter(|a| a.unload == Some(None)).copied().collect();
     anyhow::ensure!(!unloads.is_empty(), "--reload-orders: no whole-part unload act (--act SLOT,DT,unload,N)");
     let spans = |l: &str| -> bool {
@@ -4592,7 +4586,11 @@ fn reload_orders_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queu
         }
     }
     let acts: Vec<String> = unloads.iter().map(|a| format!("{},{},unload,{}", a.slot, a.dt, a.hold.unwrap_or(1))).collect();
-    println!("row {} (seed {seed}, {cycles} slots): {}", acts.join(" + "), if failed.is_empty() { format!("PASS under all {} orders", orders.len()) } else { format!("FAIL under {}", failed.join(", ")) });
+    // (tick-exact 2026-11-11: each order is one sample of the game's random reload, so the row's
+    // miss rate with its Wilson 95% interval)
+    let (lo, hi) = crate::queue::wilson95(failed.len(), orders.len());
+    let rate = format!("{} of {} orders missed ({:.0}%, Wilson 95% {:.0}-{:.0}%)", failed.len(), orders.len(), 100.0 * failed.len() as f64 / orders.len().max(1) as f64, 100.0 * lo, 100.0 * hi);
+    println!("row {} (seed {seed}, {cycles} slots): {}; {rate}", acts.join(" + "), if failed.is_empty() { format!("PASS under all {} orders", orders.len()) } else { format!("FAIL under {}", failed.join(", ")) });
     Ok(())
 }
 
