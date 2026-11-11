@@ -2570,6 +2570,11 @@ pub struct LoopTiming {
     /// cell (the rearmost pocket's exit), or TIMEOUT gt after its rise
     /// (`--rel-end-rear X,Y,Z,D,TIMEOUT`).
     pub rel_end_rear: Option<([i32; 3], i64, i64)>,
+    /// With `rel_gate`: the unset-pass also needs the entry quiet (no cart in flight from the
+    /// downslope hold to pocket 3's entry) (`--unset-quiet`).
+    pub unset_quiet: bool,
+    /// The latch's set needs pocket-1 evidence independent of D1 and C′ (`--q-needs-p1`).
+    pub q_needs_p1: bool,
     /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
     /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
     pub arrivals: bool,
@@ -2789,7 +2794,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, start_random: false, calm: false }
     }
 }
 
@@ -3692,6 +3697,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut rear_edge_after: Vec<i64> = Vec::new();
     let mut rear_extra: i64 = 0;
     let mut rear_extra_log: Vec<String> = Vec::new();
+    let mut rel_end_log: Vec<String> = Vec::new();
+    let mut rel_end_rear_n: i64 = 0;
+    let mut gate_was_open: [Option<bool>; 3] = [None; 3];
+    let mut gate_move_frozen: Vec<String> = Vec::new();
+    let mut rel_cell_was: Option<bool> = None;
+    let mut q_y_orig: Option<Block> = None;
     let mut gate_skips: Vec<(i64, i64)> = Vec::new();
     // (`split`: done for this release, G2 held until, the cell's occupants, held last tick, the
     // releases split (slot, dt), the held ticks)
@@ -5134,6 +5145,18 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 gate_eff_until = None;
                 if let Some(er) = gate_eff_rise.take() {
                     gate_open_len.push((c, t - er));
+                    // (how REL_eff ended: the rear exit edge, or the timeout, with the stand's carts
+                    // then: frozen ones marked *)
+                    if tm.rel_end_rear.is_some() {
+                        let by = if rear_edge_at.is_some() { "rear" } else { "timeout" };
+                        if by == "timeout" {
+                            let fz = |p: redsim::entity::Vec3| !run.world.unforced.is_empty() && run.world.chunk_level(p.x.floor() as i32 >> 4, p.z.floor() as i32 >> 4) > 31;
+                            let near: Vec<String> = carts.iter().filter_map(|id| pos_of(&run.world, *id)).filter(|p| p.x - o.shift[0] as f64 > -4.0 && p.x - (o.shift[0] as f64) < 10.5 && p.z - (o.shift[1] as f64) > -0.5 && p.z - (o.shift[1] as f64) < 12.0).map(|p| format!("{:.1},{:.1},{:.1}{}", p.x - o.shift[0] as f64, p.y, p.z - o.shift[1] as f64, if fz(p) { "*" } else { "" })).collect();
+                            rel_end_log.push(format!("slot {c} +{dt} timeout [{}]", near.join(" ")));
+                        } else {
+                            rel_end_rear_n += 1;
+                        }
+                    }
                 }
             }
             // (`rel_end_rear` (cell, D, TIMEOUT): REL_eff ends D gt after the first cart since its rise
@@ -5206,7 +5229,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 let since = gate_raw_rise.map_or(0, |rr| t - rr);
                 // (the latch unset: no batch has settled to protect (an empty or still frozen
                 // stand): the release passes at once, as without the gate)
-                let by_q = (!q && since >= gate_wait_unset) || (q && gate_q_at.is_some_and(|qa| t - qa >= gs));
+                // (`unset_quiet`: the unset-pass also needs the entry quiet, no cart in flight from
+                // the downslope hold through the drop turn to pocket 3's entry: loop x -3.5..-1,
+                // z -0.5..4.5; pocket 3's resting cell excluded)
+                let quiet = !tm.unset_quiet || !carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| { let (lx, lz) = (p.x - o.shift[0] as f64, p.z - o.shift[1] as f64); lx >= -3.5 && lx < -1.0 && lz >= -0.5 && lz < 4.5 && p.y < 7.0 }));
+                let by_q = (!q && since >= gate_wait_unset && quiet) || (q && gate_q_at.is_some_and(|qa| t - qa >= gs));
                 if since > gt {
                     gate_armed = false;
                     gate_missed = true;
@@ -5242,6 +5269,24 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if s0 != rel_at_g0_was {
                 rel_at_g0.push(format!("{}{} +{}", if s0 { "↑" } else { "↓" }, c, dt));
                 rel_at_g0_was = s0;
+            }
+        }
+        // (a gate moving while carts near it are frozen (their chunk's entities not ticking): which
+        // gate, which way, and whether the stand's REL cell changed since the last tick (REL) or
+        // not (the design's own latch, B′, C′))
+        {
+            let rel_now = rel_bench.map(|r| run.world.get(r).to_string().contains("redstone_block"));
+            let rel_changed = rel_now.is_some() && rel_now != rel_cell_was;
+            rel_cell_was = rel_now;
+            for (k, (g, _)) in lay.pockets.iter().enumerate().take(3) {
+                let open = run.world.get(*g).to_string().contains("open=true");
+                if gate_was_open[k].is_some_and(|w| w != open) && !run.world.unforced.is_empty() {
+                    let frozen_near = carts.iter().filter_map(|id| pos_of(&run.world, *id)).any(|p| (p.x - (g.x as f64 + 0.5)).abs() < 2.5 && (p.z - (g.z as f64 + 0.5)).abs() < 2.5 && run.world.chunk_level(p.x.floor() as i32 >> 4, p.z.floor() as i32 >> 4) > 31);
+                    if frozen_near && gate_move_frozen.len() < 12 {
+                        gate_move_frozen.push(format!("slot {c} +{dt} G{k} {} ({})", if open { "opened" } else { "shut" }, if rel_changed { "REL" } else { "latch/B′/C′" }));
+                    }
+                }
+                gate_was_open[k] = Some(open);
             }
         }
         if let Some(hc) = tm.stand_hold {
@@ -5313,6 +5358,29 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         }
                     }
                 }
+            }
+        }
+        // (`q_needs_p1`, emulated fix B: the latch's set needs pocket-1 evidence independent of D1's
+        // line and C′: while pocket 1 holds no cart and the latch is not set, its set block Y
+        // (under T2) is glass, so neither D1's dust nor C's line can set it; restored otherwise)
+        if tm.q_needs_p1 {
+            let y = BlockPos::new(-o.row_gap + 9 + o.shift[0], -1, 2 + o.shift[1]);
+            let t2 = BlockPos::new(-o.row_gap + 9 + o.shift[0], 0, 2 + o.shift[1]);
+            if q_y_orig.is_none() {
+                q_y_orig = Some(run.world.get(y).clone());
+            }
+            let q_now = !run.world.get(t2).to_string().contains("lit=true");
+            let p1 = carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| { let (lx, lz) = (p.x - o.shift[0] as f64, p.z - o.shift[1] as f64); lx >= 4.5 && lx < 8.5 && (lz - 0.5).abs() < 0.6 && p.y < 1.5 }));
+            let want_glass = !p1 && !q_now;
+            let is_glass = run.world.get(y).to_string() == "minecraft:glass";
+            if want_glass && !is_glass {
+                if let Ok(g) = Block::parse("minecraft:glass") {
+                    run.world.set_block(y, g, redsim::world::flags::ALL);
+                }
+            } else if !want_glass && is_glass
+                && let Some(orig) = q_y_orig.clone()
+            {
+                run.world.set_block(y, orig, redsim::world::flags::ALL);
             }
         }
         // (`interlock`, emulated: ironspec's stand interlock. Each gate opens only when the design's
@@ -7115,7 +7183,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let ol: Vec<i64> = gate_open_len.iter().map(|(_, l)| *l).collect();
             if let Some((rc, rd, rto)) = tm.rel_end_rear {
                 out.push(format!("rear exit cell {},{},{} (REL_eff ends {rd} gt after its first entry, or {rto} gt after the rise): entered {} gt after REL_eff's rise; other carts entering it while REL_eff is open: {rear_extra}{}", rc[0], rc[1], rc[2], mm(&rear_edge_after), if rear_extra_log.is_empty() { String::new() } else { format!(" ({})", rear_extra_log.join("; ")) }));
+                out.push(format!("REL_eff ends: {rel_end_rear_n} on the rear edge, {} on the timeout{}", rel_end_log.len(), if rel_end_log.is_empty() { String::new() } else { format!(" ({})", rel_end_log.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
             }
+            out.push(format!("gates moved with frozen carts beside them: {}", if gate_move_frozen.is_empty() { "none".to_string() } else { gate_move_frozen.join("; ") }));
             out.push(format!("REL_eff open lengths: {} gt{}{}", mm(&ol), if let Some((nd, to)) = tm.rel_end_n { format!(" (ended on N + {nd} or a {to} gt timeout)") } else { String::new() }, if gate_open_len.is_empty() { String::new() } else { format!("; each: {}", gate_open_len.iter().take(16).map(|(c, l)| format!("{c}:{l}")).collect::<Vec<_>>().join(" ")) }));
         }
         if tm.late_hold.iter().any(|h| h.is_some()) {
