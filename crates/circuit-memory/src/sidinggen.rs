@@ -973,7 +973,22 @@ pub(crate) fn wire_pad(d: &mut Design, pad: &Path) -> Result<Vec<P3>> {
         let last = [inb[0], inb[1] + 1, inb[2]];
         let pre = crate::releasegen::core_place([5, 3, 8]);
         b.put(crate::releasegen::core_place([6, 2, 7]), STONE)?;
-        let lim = crate::autoroute::Limits { lo: [-6, -4, -6], hi: [11, 10, 60], avoid: [last, inb].into_iter().collect(), near_ok: [pulse].into_iter().collect() };
+        // (kept out of every rider's space (the two cells over each rail: the loop's y 4 return
+        // track runs under y 6 at x 9) and the golems' space over the pad (x -2..8, y 3..5,
+        // z -7..0: a golem is 3 tall over the pad's top; spawns seen at x -1..8; x 9 is the pad's
+        // own wiring column, its tripwire hook's block)
+        let mut avoid: std::collections::BTreeSet<P3> = crate::autoroute::rider_space(&b.blocks);
+        for x in -2..=8 {
+            for y in 3..=5 {
+                for z in -7..=0 {
+                    avoid.insert([x, y, z]);
+                }
+            }
+        }
+        avoid.remove(&pulse);
+        avoid.insert(last);
+        avoid.insert(inb);
+        let lim = crate::autoroute::Limits { lo: [-6, -4, -6], hi: [11, 10, 60], avoid, near_ok: [pulse].into_iter().collect() };
         let mut pr = crate::autoroute::find(&b, [9, 6, -1], pre, &lim)?;
         pr.push(last);
         lay_exact(&mut b, pulse, &pr, 1, 2)?;

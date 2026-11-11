@@ -1003,6 +1003,16 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         let (lo, hi) = mine.iter().fold(([i32::MAX; 3], [i32::MIN; 3]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])], [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])]));
         let show = |m: &BTreeMap<i32, usize>| m.iter().map(|(k, n)| format!("{}|{} ({n})", k - 1, k)).collect::<Vec<_>>().join(", ");
         println!("the added parts ({} blocks, box {:?}..{:?}) cross chunk lines (X & 15 = 6, Z & 15 = 6 at loop 0,0; touching pairs): x {}; z {}", mine.len(), lo, hi, show(&xs), show(&zs));
+        // (no added block in a rider's space, the two cells over any rail: a block there
+        // suffocates the passing rider and stops its cart. Found 2026-11-11: an auto-routed line
+        // over the loop's y 4 return track killed three riders in the judge's run)
+        if crate::sidinggen::FAR {
+            let rs = crate::autoroute::rider_space(&d.blocks);
+            let bad: Vec<String> = mine.iter().filter(|p| rs.contains(*p) && d.blocks.get(*p).is_some_and(|s| real(s)) && !siding_cells.contains(*p)).map(|p| format!("{p:?} {}", d.blocks[p])).collect();
+            if !bad.is_empty() {
+                bail!("{} added blocks in a rider's space (the two cells over a rail): {}", bad.len(), bad.iter().take(12).cloned().collect::<Vec<_>>().join("; "));
+            }
+        }
     }
     // (the chunk alignment header (the brief's chunk rule, 7b4d7caea): the stand area (stand,
     // approach, circuit, pad: loop x -3..9, z -6..7) inside one chunk allows loop cell 0,0 at world
