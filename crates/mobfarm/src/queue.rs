@@ -1389,6 +1389,9 @@ pub struct LoopTiming {
     /// Every villager's block position each tick, printed at the end (`--record-positions`: the
     /// golem-spots check's positions over a full bench night).
     pub record_positions: bool,
+    /// Slots whose golem pulse never comes (`--golem-miss`: a missed golem; the design's own
+    /// expiry must release that slot); -1 = unused.
+    pub golem_miss: [i64; 8],
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -1464,7 +1467,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8] }
     }
 }
 
@@ -2367,13 +2370,14 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 run.world.set_block(cell, b.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
             }
-            if let Some(p) = wired {
-                // the golem pulse into the design's input cell
+            if let (Some(p), false) = (wired, tm.golem_miss.contains(&c)) {
+                // the golem pulse into the design's input cell (none at a `--golem-miss` slot: the
+                // design's own expiry must release it)
                 run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
             }
         }
-        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == tm.golem_for) {
+        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == tm.golem_for && !tm.golem_miss.contains(&c)) {
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
@@ -2946,7 +2950,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let stand = if o.stand_stop { format!(" | gates {gates}{wired_cells}") } else { String::new() };
             // (`--watch-cells`: those cells' block states too, e.g. a wiring join's line)
             let cells: String = tm.watch_cells.iter().flatten().map(|c| format!(" | {},{},{} {}", c[0], c[1], c[2], run.world.get(BlockPos::new(c[0], c[1], c[2])))).collect();
-            println!("c{c} +{dt}: {}{stand}{cells}", ps.join(" | "));
+            // (and the design's daylight detectors, with the day time and the weather)
+            let dets: String = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).map(|(p, _)| format!(" | det {},{},{} {}", p.x, p.y, p.z, run.world.get(*p).to_string().replace("minecraft:daylight_detector", ""))).collect();
+            let wx = if dets.is_empty() { String::new() } else { format!(" | day {} rain {:.2} thunder {:.2} darken {}", run.world.day_time().rem_euclid(24000), run.world.rain_level(1.0), run.world.thunder_level(1.0), run.world.sky_darken()) };
+            println!("c{c} +{dt}: {}{stand}{cells}{dets}{wx}", ps.join(" | "));
         }
         // the stand fills front first: every slot braked at once (slopes down and up) as the
         // train's front cart reaches S2's peak; its second cart is then in S2 (the train runs 3
