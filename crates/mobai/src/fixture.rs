@@ -72,6 +72,21 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11) the gate admissions: C1's and C2's gates (z 9, 12) for the first
+        // tick only; G0 (z 3) and G_P (z 6) opened at t200 (3 and 2 gt) and at t600 (3 gt each);
+        // each input a redstone block north of its gate
+        "gate-admit" => {
+            let rb = "minecraft:redstone_block";
+            vec![
+                (0, vec![s([20, 65, 8], rb), s([20, 65, 11], rb)]),
+                (1, vec![s([20, 65, 8], "minecraft:air"), s([20, 65, 11], "minecraft:air")]),
+                (200, vec![s([20, 65, 2], rb), s([20, 65, 5], rb)]),
+                (202, vec![s([20, 65, 5], "minecraft:air")]),
+                (203, vec![s([20, 65, 2], "minecraft:air")]),
+                (600, vec![s([20, 65, 2], rb), s([20, 65, 5], rb)]),
+                (603, vec![s([20, 65, 2], "minecraft:air"), s([20, 65, 5], "minecraft:air")]),
+            ]
+        }
         // (tickexact 2026-11-10) the boarding cooldown across a reload: the whole part away 1 gt
         // right after the throw (t8)
         "board-cooldown-reload" => vec![(10, vec![s([0, 0, 0], "unload")]), (11, vec![s([0, 0, 0], "load")])],
@@ -408,6 +423,11 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("siding-fault-kick3", include_str!("../scenes/siding-fault.txt"), include_str!("../scenes/siding-fault-whole-kick-3-seed4.drive")),
     ("siding-fault-asleep700", include_str!("../scenes/siding-fault.txt"), include_str!("../scenes/siding-fault-whole-asleep-700-seed1.drive")),
     ("siding-fault-nap40", include_str!("../scenes/siding-fault.txt"), include_str!("../scenes/siding-fault-partial-x-hi-32-nap-40-seed1.drive")),
+    // (tickexact 2026-11-11, ironfarm's escG6L admissions: its tail-bench `--scene-out` (the
+    // design reduced to the bench's tail carts with their riders and the 8 zombie posts) and
+    // `--drive-out`, 2 cycles: per advance (+38/+58/+78) the slot controls 9 gt, G_P (0,2,32) set
+    // open at +6 for 2 gt, G0 (0,3,31) open 3 gt from G_P's +3, P's redstone block (0,1,31) once)
+    ("gate-escg6l", include_str!("../scenes/gate-escg6l.txt"), include_str!("../scenes/gate-escg6l.drive")),
 ];
 
 /// (tickexact 2026-11-10, ironspec's chunk alignment) Drive scenes moved in the sandbox, with
@@ -443,6 +463,9 @@ const MOVED_SCENES: &[(&str, &str, [i32; 3], &str)] = &[
     ("carousel-wired-pocket-u250l", "carousel-wired-pocket", [0, 0, 0], "act 4090 unload all 4000\ndrop 4090 8090\n"),
     ("carousel-wired-pocket-u280l", "carousel-wired-pocket", [0, 0, 0], "act 4120 unload all 4000\ndrop 4120 8120\n"),
     ("carousel-wired-pocket-u392l", "carousel-wired-pocket", [0, 0, 0], "act 4232 unload all 4000\ndrop 4232 8232\n"),
+    // (tickexact 2026-11-11, (a)'s rate in the game: `mobai unload-rate`) 58f770cc's kick drive
+    // without its own unload: the scene as it runs, the unload placed at each seed's kick
+    ("siding-fault-kick3-base", "siding-fault-kick3", [0, 0, 0], "nounload\n"),
 ];
 
 /// A moved scene's copy: (the drive scene, the shift, the extra drive lines).
@@ -491,6 +514,7 @@ fn shift_drive(text: &str, s: [i32; 3], extra: &str) -> String {
         }
         g.join(" ")
     };
+    let nounload = extra.lines().any(|l| l.trim() == "nounload");
     for line in text.lines() {
         if line.starts_with("expect ") {
             let f: Vec<&str> = line.split(' ').collect();
@@ -503,6 +527,10 @@ fn shift_drive(text: &str, s: [i32; 3], extra: &str) -> String {
         }
         let f: Vec<&str> = line.splitn(7, ' ').collect();
         let t: u32 = f[1].parse().unwrap_or_else(|_| panic!("a drive line's tick: {line:?}"));
+        // (`nounload`: the base's own unload acts left out: the scene as it runs without them)
+        if nounload && matches!(f.get(2).copied(), Some("unload") | Some("load")) {
+            continue;
+        }
         let l = match f.get(2).copied() {
             Some("set") | Some("nbt") if f.len() == 7 => moved_ints(&f, 3),
             Some("tp") if f.len() == 7 => moved_floats(&f, 4),
@@ -779,7 +807,7 @@ fn scene_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
 /// from the state its redstone settles in with no cart on its detector rails. Its actions count
 /// from the summon.
 fn scene_settle(name: &str) -> u32 {
-    if name == "carousel-wired" || scene_bench_start(name) { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
+    if name == "carousel-wired" || name == "gate-escg6l" || scene_bench_start(name) { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
 }
 
 /// The ticks before a scene's mobs are summoned: a built-in-order scene's build (its drive log's
@@ -823,7 +851,7 @@ fn scene_placement(name: &str) -> Placement {
         return scene_placement(base);
     }
     match name {
-        "carousel-wired" | "carousel-wired-pocket" | "siding-fault-kick3" | "siding-fault-asleep700" | "siding-fault-nap40" => Placement::Judge,
+        "carousel-wired" | "carousel-wired-pocket" | "siding-fault-kick3" | "siding-fault-asleep700" | "siding-fault-nap40" | "gate-escg6l" => Placement::Judge,
         "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" | "unload-v3-raw" | "unload-part-v3-raw" => Placement::Merged,
         "carousel-wired-built" | "carousel-wired-v3-built" | "siding-built" | "station-built" => Placement::Built,
         "siding-raw" | "station-raw" | "unload-siding-raw" => Placement::Merged,
@@ -2090,6 +2118,66 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [31, 68, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec: the gate admissions the tail relies on) the pocket stand's
+    // gate geometry (a closed fence gate facing east over a powered rail ascending west on a
+    // redstone block, the arrival slope west of it, the departure east: rails ascending east,
+    // then flat to a stone); each gate's input a redstone block placed north of it (z - 1):
+    // line A (z 3): a queue of four carts with villagers pressed down the slope against G0,
+    // panicking at a zombie in a boat; G0 opened 3 gt at t200, again at t600; line B (z 6): one
+    // cart with a villager pressed against G_P on the always-on booster under it, opened 2 gt at
+    // t200, 3 gt at t600; the band's edge: line C1 (z 9): an empty cart summoned at rest touching
+    // the gate's plane, line C2 (z 12): one summoned at rest 0.05 short of it, both gates opened
+    // for the first tick only (scene_actions: "gate-admit")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        for z in [3, 6, 9, 12] {
+            // the arrival slope: rails ascending west, one step up every block to x 14 (y 70)
+            for (k, x) in (14..=19).rev().enumerate() {
+                let y = 65 + k as i32;
+                for yy in 64..y {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, y, z], "minecraft:rail[shape=ascending_west,waterlogged=false]".to_string()));
+            }
+            b.push(([20, 63, z], "minecraft:redstone_block".to_string()));
+            b.push(([20, 64, z], "minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]".to_string()));
+            b.push(([20, 65, z], "minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]".to_string()));
+            b.push(([21, 63, z], "minecraft:redstone_block".to_string()));
+            b.push(([21, 64, z], "minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]".to_string()));
+            b.push(([22, 64, z], stone.to_string()));
+            for x in 22..=29 {
+                b.push(([x, 65, z], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            }
+            b.push(([30, 65, z], stone.to_string()));
+        }
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        // line A: four ridden carts on the slope, the front one touching G0 (the stand's -0.115)
+        for k in 0..4 {
+            let x = 19.885 - k as f64;
+            mobs.push(("minecraft:minecart".into(), [x, 65.1775 + k as f64, 3.5], Some(rider.into())));
+        }
+        // line B: P against G_P
+        mobs.push(("minecraft:minecart".into(), [19.885, 65.1775, 6.5], Some(rider.into())));
+        // C1 touching the gate's plane (x 20.375 - 0.49), C2 0.05 short (the slope's height there)
+        mobs.push(("minecraft:minecart".into(), [19.885, 65.1775, 9.5], None));
+        mobs.push(("minecraft:minecart".into(), [19.835, 65.2275, 12.5], None));
+        mobs.push(("minecraft:oak_boat".into(), [16.5, 64.0, 4.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        v.push(Scene {
+            name: "gate-admit".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 72, 15]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
@@ -3813,6 +3901,148 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
         eprintln!("recorded {}: {} frames in {:.1} s ({})", s.name, frames.len(), t0.elapsed().as_secs_f64(), path.display());
     }
     eprintln!("then: mctas recorded write {} --fresh", dir.display());
+    Ok(())
+}
+
+/// One game run of [`unload_rate`]: the event's tick and what the rider did.
+struct UnloadRun {
+    /// The event's game tick (the first frame after `after` with the cell's new state).
+    event: Option<i64>,
+    /// The rider's pose and vehicle at the event (its frame).
+    at_event: Option<(Option<String>, Option<String>)>,
+    /// The rider riding its own cart at event + check (None: the run did not reach it).
+    riding: Option<bool>,
+    /// The rider's position then.
+    pos: Option<[f64; 3]>,
+    /// The game time the run reached.
+    reached: i64,
+    /// The summon's game time.
+    g_summon: i64,
+    /// The entities a reload brought back under new numbers (0: no reload happened).
+    renumbered: usize,
+}
+
+/// The scene run in the game alone with `actions` (as [`record`] runs it), watched for the event
+/// and the rider; `until`: the last game time to trace (the event + check when known).
+#[allow(clippy::too_many_arguments)]
+fn unload_run(version: &str, s: &Scene, seed: i64, actions: &[(u32, Vec<([i32; 3], String)>)], cell: [i32; 3], state: &str, after: i64, cart_line: usize, check: i64, until: i64, known_event: Option<i64>) -> Result<UnloadRun> {
+    let mut game = GameScene::start(version, s, seed, false)?;
+    let from_start = scene_counts_from_start(&s.name);
+    anyhow::ensure!(!from_start, "unload-rate: a built-in-order scene is not supported");
+    let spawn = scene_spawn(&s.name) as i64;
+    let mut pre: i64 = 0;
+    while pre < spawn {
+        let n = (spawn - pre).min(100) as u32;
+        game.trace_raw(n, false)?;
+        pre += n as i64;
+    }
+    let g_summon = game.time_now()?;
+    let _ = game.summon(s)?;
+    let ctx = {
+        let mut scratch = redsim_world(s, seed)?;
+        let ids = redsim_summon(&mut scratch, s)?;
+        ActCtx::of(&scratch, &ids, g_summon)
+    };
+    let cart = *ctx.lines.get(cart_line).ok_or_else(|| anyhow!("unload-rate: no line e{cart_line}"))?;
+    let rider = *ctx.riders.get(cart_line).and_then(|r| r.first()).ok_or_else(|| anyhow!("unload-rate: e{cart_line} carries no rider"))?;
+    if let Some((_, b)) = actions.iter().find(|(t, _)| *t == 0) {
+        game.apply(b, &ctx)?;
+    }
+    let mut out = UnloadRun { event: known_event, at_event: None, riding: None, pos: None, reached: g_summon, g_summon, renumbered: 0 };
+    let mut done: i64 = 0;
+    while g_summon + done < until.max(after + 1) {
+        let mut n = (until - g_summon - done).clamp(1, 100) as u32;
+        if let Some((t, _)) = next_action(actions, done + 1) {
+            n = n.min((*t as i64 - done).max(1) as u32);
+        }
+        for v in game.trace_raw(n, false)? {
+            let f = mobfarm::exact::parse_frame(&v)?;
+            out.reached = f.t;
+            if out.event.is_none() && f.t > after && f.blocks.iter().any(|(p, st)| *p == cell && st.contains(state)) {
+                out.event = Some(f.t);
+            }
+            let (cart_now, rider_now) = (game.now(cart), game.now(rider));
+            if out.event == Some(f.t) {
+                out.at_event = f.entities.iter().find(|e| e.n == rider_now).map(|e| (e.pose.clone(), e.vehicle.clone()));
+            }
+            if let Some(g) = out.event
+                && f.t == g + check
+            {
+                let e = f.entities.iter().find(|e| e.n == rider_now);
+                out.riding = Some(e.and_then(|e| e.vehicle.clone()).is_some_and(|v| v == format!("#{cart_now}")));
+                out.pos = e.map(|e| e.pos);
+            }
+        }
+        done += n as i64;
+        if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
+            game.apply(b, &ctx)?;
+        }
+        if let Some(g) = out.event
+            && g_summon + done >= g + check
+        {
+            break;
+        }
+    }
+    out.renumbered = game.renumbered.len();
+    Ok(out)
+}
+
+/// The Wilson score interval (95%) of k successes in n.
+fn wilson(k: usize, n: usize) -> (f64, f64) {
+    if n == 0 {
+        return (0.0, 1.0);
+    }
+    let (z, nf, p) = (1.959964f64, n as f64, k as f64 / n as f64);
+    let d = 1.0 + z * z / nf;
+    let c = (p + z * z / (2.0 * nf)) / d;
+    let h = z * ((p * (1.0 - p) / nf + z * z / (4.0 * nf * nf)).sqrt()) / d;
+    ((c - h).max(0.0), (c + h).min(1.0))
+}
+
+/// `mctas mobai unload-rate` (see the command's help).
+#[allow(clippy::too_many_arguments)]
+pub fn unload_rate(version: &str, name: &str, seeds: std::ops::RangeInclusive<i64>, cell: [i32; 3], state: &str, after: i64, cart_line: usize, len: u32, check: i64) -> Result<()> {
+    let all = scenes();
+    let s = all.iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
+    let base = scene_actions(&s.name);
+    anyhow::ensure!(!base.iter().any(|(_, b)| b.iter().any(|(_, a)| a == "unload" || a == "load" || a.starts_with("unload:") || a.starts_with("load:"))), "unload-rate: the scene's drive already unloads (use one without)");
+    let horizon = after + 4000;
+    let (mut asleep, mut fail_a, mut fail_b) = (0usize, 0usize, 0usize);
+    for seed in seeds {
+        let a = unload_run(version, s, seed, &base, cell, state, after, cart_line, check, horizon, None)?;
+        let Some(g) = a.event else {
+            println!("seed {seed}: no event after game t {after} (reached {})", a.reached);
+            continue;
+        };
+        let t = (g - a.g_summon) as u32;
+        let mut acts = base.clone();
+        let mut add = |at: u32, what: &str| match acts.iter_mut().find(|(x, _)| *x == at) {
+            Some((_, v)) => v.push(([0, 0, 0], what.to_string())),
+            None => acts.push((at, vec![([0, 0, 0], what.to_string())])),
+        };
+        add(t, "unload");
+        add(t + len, "load");
+        acts.sort_by_key(|(x, _)| *x);
+        let b = unload_run(version, s, seed, &acts, cell, state, after, cart_line, check, g + check, Some(g))?;
+        let (pose, veh) = a.at_event.clone().unwrap_or((None, None));
+        let is_asleep = pose.as_deref() == Some("sleeping");
+        let fmt = |r: &UnloadRun| match (r.riding, r.pos) {
+            (Some(true), _) => "aboard".to_string(),
+            (Some(false), Some(p)) => format!("NOT aboard (at {:.2} {:.2} {:.2})", p[0], p[1], p[2]),
+            (Some(false), None) => "NOT aboard (gone)".to_string(),
+            (None, _) => format!("not reached (game t {})", r.reached),
+        };
+        println!("seed {seed}: event at game t {g} (drive t {t}); the rider then pose {pose:?} vehicle {veh:?}; at +{check}: as it is {}, with the unload {} ({} entities back under new numbers)", fmt(&a), fmt(&b), b.renumbered);
+        anyhow::ensure!(b.renumbered > 0, "unload-rate: seed {seed}'s second run did not reload (nothing renumbered)");
+        if is_asleep && a.riding.is_some() && b.riding.is_some() {
+            asleep += 1;
+            fail_a += (a.riding == Some(false)) as usize;
+            fail_b += (b.riding == Some(false)) as usize;
+        }
+    }
+    let (la, ha) = wilson(fail_a, asleep);
+    let (lb, hb) = wilson(fail_b, asleep);
+    println!("over the {asleep} seeds whose rider was asleep at the event: left behind as it is {fail_a}/{asleep} (95% {:.0}%..{:.0}%), with the unload {fail_b}/{asleep} (95% {:.0}%..{:.0}%)", la * 100.0, ha * 100.0, lb * 100.0, hb * 100.0);
     Ok(())
 }
 
