@@ -395,11 +395,17 @@ pub struct LoopOpts {
     /// and resets Q (the reset dominating while REL is on). G0 open = REL; G1, G2 open = REL or
     /// not Q.
     pub stand_wired: bool,
+    /// With `stand_wired`: the stand's fault guard (farmopt's A+B, 2026-11-10): the two booster-ups
+    /// plain rails, and each gate slope powered from its own gate's driver dust (a stone under the
+    /// dust) instead of a redstone block, so it boosts only while its gate is open: a cart that
+    /// drifts back from a crowded pocket is braked and held on a shut gate's slope, then launched
+    /// forward when the gate opens; none is boosted back through G1/G2.
+    pub stand_guard: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false }
     }
 }
 
@@ -800,10 +806,14 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             // (wired: pocket 1's flat a detector rail D1, the first cart past G1 sets the latch)
             path.push(([b, l, 0], if o.stand_wired && k == 2 { Cell::Detector } else { Cell::Plain }));
             path.push(([b + 1, l - 1, 0], Cell::Plain));
-            path.push(([b + 2, l - 2, 0], Cell::Boost));
+            // (the guard: the gate slope a powered rail on glass, powered from its gate's driver
+            // dust through a stone under the dust (`stand_circuit`); else a booster on a redstone
+            // block)
+            path.push(([b + 2, l - 2, 0], if o.stand_guard { Cell::Linked } else { Cell::Boost }));
             pockets.insert(0, (BlockPos::new(b + 2, l - 1, 0), [b + 2, l - 2, 0]));
             if k < 2 {
-                path.push(([b + 3, l - 2, 0], Cell::Boost));
+                // (the guard: the booster-up a plain rail: nothing boosts a cart drifting back)
+                path.push(([b + 3, l - 2, 0], if o.stand_guard { Cell::Plain } else { Cell::Boost }));
             }
         }
         // (S1, S2, S3: the rest cells, front first; no rail control)
@@ -820,8 +830,11 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             path.push(([xd, y, z], Cell::Boost));
             z += 1;
         }
+        let run_start = z;
         while z < zr {
-            path.push(([xd, top, z], Cell::Plain));
+            // (the guard: the run's first cell a booster, so the stand's departures, slower out of
+            // the guard's braked gate slopes, reach the tail as fast as before)
+            path.push(([xd, top, z], if o.stand_guard && z == run_start { Cell::Boost } else { Cell::Plain }));
             z += 1;
         }
         path.push(([xd, top, zr], Cell::Plain));
@@ -1033,19 +1046,48 @@ fn loop_layout_straight(o: &LoopOpts) -> LoopLayout {
 ///   one pulse); then RX off, T1 on: Y held after D1 falls. REL on: O on (G0, G1, G2 open
 ///   together), RX on, T1 off, Y off once D1 is off, T2 on: reset; while REL is on, O stays on
 ///   whatever D1 does, and REL must outlast D1's last departing cart (`rel-for`'s early end).
-pub fn stand_circuit(ox: i32) -> Vec<([i32; 3], String)> {
+pub fn stand_circuit(ox: i32, guard: bool) -> Vec<([i32; 3], String)> {
     let mut v: Vec<([i32; 3], String)> = Vec::new();
     let mut put = |x: i32, y: i32, z: i32, s: &str| v.push(([ox + x, y, z], s.to_string()));
     let wire = |n: &str, e: &str, s: &str, w: &str, p: i32| format!("redstone_wire[east={e},north={n},power={p},south={s},west={w}]");
     let rep = "repeater[delay=1,facing=south,locked=false,powered=false]";
     // the gate drivers: a dust north into each gate from z 1 (each on glass; dust, not a
     // repeater: the gates shut 2 gt sooner, and all three still open in the same tick), and REL
-    // (glass: off) right behind G0's
+    // (glass: off) right behind G0's; with the guard G0's dust on a stone instead, which the dust
+    // powers, and the stone G0's gate slope beside it (a powered rail on glass): G0's slope boosts
+    // exactly while G0 is open (G1's and G2's slopes: below)
     put(0, 0, 1, &wire("side", "none", "side", "none", 0));
     put(4, -1, 1, &wire("side", "none", "side", "none", 0));
     put(8, -2, 1, &wire("side", "side", "side", "side", 0));
     for (x, y) in [(0, 0), (4, -1), (8, -2)] {
-        put(x, y - 1, 1, "glass");
+        put(x, y - 1, 1, if guard && x == 8 { "stone" } else { "glass" });
+    }
+    if guard {
+        // the guard's G1 and G2 slopes: powered 8 gt after their gates open (O through RX, 2 gt,
+        // into X; R1 reads X), each through its support (a stone the loop's layout gives it, set
+        // in `loop_design`): a cart held against a gate's downstream side rolls onto a braking
+        // slope when the gate opens, stops, and is launched forward when the slope powers
+        let r = |d: i32, f: &str| format!("repeater[delay={d},facing={f},locked=false,powered=false]");
+        put(5, -2, 3, &r(1, "east"));
+        put(5, -3, 3, "glass");
+        put(4, -2, 3, &wire("none", "side", "none", "side", 0));
+        put(4, -3, 3, "stone");
+        // (G1's: two repeaters north into its slope's support)
+        put(4, -3, 2, &r(1, "south"));
+        put(4, -4, 2, "glass");
+        put(4, -3, 1, &r(1, "south"));
+        put(4, -4, 1, "glass");
+        // (G2's: a dust line west under the bus, a dust north, a repeater into its slope's support)
+        for x in 1..=3 {
+            put(x, -2, 3, &wire("none", "side", "none", "side", 0));
+            put(x, -3, 3, "glass");
+        }
+        put(0, -2, 3, &wire("side", "side", "none", "none", 0));
+        put(0, -3, 3, "glass");
+        put(0, -2, 2, &wire("side", "none", "side", "none", 0));
+        put(0, -3, 2, "glass");
+        put(0, -2, 1, &r(2, "south"));
+        put(0, -3, 1, "glass");
     }
     put(8, -2, 2, "glass");
     // REL's dust, up a glass step into O
@@ -1172,11 +1214,20 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     // the wired pocket stand's circuit (G2 at x xb + 3), nothing in its cells yet
     if o.stand_stop && o.stand_wired {
         let ox = -o.row_gap + 3;
-        for (c, s) in stand_circuit(ox) {
+        for (c, s) in stand_circuit(ox, o.stand_guard) {
             if b.d.blocks.contains_key(&c) {
                 bail!("the stand's circuit meets the loop at {c:?}");
             }
             b.set(c[0], c[1], c[2], &s);
+        }
+        // (the guard: G1's and G2's slope supports stone, powered by the circuit's repeaters)
+        if o.stand_guard {
+            for c in [[ox + 4, -3, 0], [ox, -2, 0]] {
+                if b.d.blocks.get(&c).map(|s| s.as_str()) != Some("minecraft:glass") {
+                    bail!("the guard expects a glass support at {c:?}");
+                }
+                b.set(c[0], c[1], c[2], "stone");
+            }
         }
     }
     // the zombie posts (PANIC for every rider): a zombie in a boat on glass (no golem spawns on
@@ -1214,7 +1265,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -1248,6 +1299,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "short_depart" => o.short_depart = v != "0",
             "stand_stop" => o.stand_stop = v != "0",
             "stand_wired" => o.stand_wired = v != "0",
+            "stand_guard" => o.stand_guard = v != "0",
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
