@@ -1370,6 +1370,42 @@ fn write_verdicts(dir: &Path, rows: &[circuit::archive::Row]) -> Result<()> {
     Ok(())
 }
 
+/// `mctas site variation --restore <REF>`: each named variation's row and design file put back as
+/// they are at REF, every other row of the stage left as it is (a re-gate that measured less than
+/// the card's own evidence: d1u-deep's card came from 120 game builds, a re-gate of the default 8
+/// is a weaker test; farmopt 2026-11-10). Nothing is judged or gated.
+fn restore(repo: &Path, farm: &str, stage: &str, designs: &[PathBuf], r: &str) -> Result<()> {
+    let dir = repo.join("designs/farms").join(farm).join(stage);
+    let rel = |name: &str| format!("designs/farms/{farm}/{stage}/{name}");
+    let show = |path: &str| -> Result<Vec<u8>> {
+        let o = std::process::Command::new("git").arg("-C").arg(repo).args(["show", &format!("{r}:{path}")]).output()?;
+        if !o.status.success() {
+            bail!("git show {r}:{path}: {}", String::from_utf8_lossy(&o.stderr).trim());
+        }
+        Ok(o.stdout)
+    };
+    // (the ref's rows read by the archive's own reader, from a scratch folder)
+    let tmp = std::env::temp_dir().join(format!("mctas-restore-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp)?;
+    std::fs::write(tmp.join(circuit::archive::VERDICTS), show(&rel(circuit::archive::VERDICTS))?)?;
+    let theirs = circuit::archive::read_rows(&tmp);
+    let _ = std::fs::remove_dir_all(&tmp);
+    let theirs = theirs?;
+    let mut rows = circuit::archive::read_rows(&dir)?;
+    for p in designs {
+        let file = format!("{}.txt", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
+        let row = theirs.iter().find(|x| x.file == file).ok_or_else(|| anyhow::anyhow!("{file}: no row in {r}'s {}", rel(circuit::archive::VERDICTS)))?;
+        let text = show(&rel(&file))?;
+        std::fs::write(dir.join(&file), text)?;
+        match rows.iter_mut().find(|x| x.file == file) {
+            Some(x) => *x = row.clone(),
+            None => rows.push(row.clone()),
+        }
+        println!("{}: its row (archived {}) and its design as at {r}", dir.join(&file).display(), row.archived);
+    }
+    write_verdicts(&dir, &rows)
+}
+
 /// `mctas site variation --regate [design...]`: every listed variation of the farm (or only the ones
 /// named) judged and gated again, its row rewritten with what the game measured: a pass adds the
 /// `real game` line; a failure stays listed, its card showing the game's numbers where they fall
@@ -1432,6 +1468,9 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     }
     if !STAGES.iter().any(|s| s.0 == a.stage) {
         bail!("--stage {}: one of {}", a.stage, STAGES.iter().map(|s| s.0).collect::<Vec<_>>().join(", "));
+    }
+    if let Some(r) = &a.restore {
+        return restore(&repo, &a.farm, &a.stage, &a.designs, r);
     }
     let study = "mobfarm";
     let dir = repo.join("designs/farms").join(&a.farm).join(&a.stage);

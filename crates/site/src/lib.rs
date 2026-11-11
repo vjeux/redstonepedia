@@ -365,6 +365,12 @@ pub struct VariationArgs {
     /// 2026-11-08 16:49: "Seriously, just upload them").
     #[arg(long)]
     pub no_gate: bool,
+    /// Put the named variations' rows and design files back as they are at this git ref, the
+    /// stage's other rows untouched: a re-gate that measured less than the card's own evidence
+    /// (fewer game runs than the card's: d1u-deep's 120-build card, farmopt 2026-11-10) is not
+    /// kept. Nothing is judged or gated.
+    #[arg(long, value_name = "REF", conflicts_with_all = ["regate", "no_gate", "pick", "pick_for", "name"])]
+    pub restore: Option<String>,
 }
 
 #[derive(Args)]
