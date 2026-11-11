@@ -506,6 +506,15 @@ pub enum MobfarmCmd {
         /// The ledge's landing as a booster slope then a plain slope (not two flats).
         #[arg(long)]
         ledge_slope: bool,
+        /// The escapement's B door: an iron door at B's exit, opened with B's pulse.
+        #[arg(long)]
+        esc_door: bool,
+        /// The flat escapement: B a flat plain rail held by a fence gate, X an always-on booster.
+        #[arg(long)]
+        esc_flat: bool,
+        /// The ledge's landing: both landing flats boosters.
+        #[arg(long)]
+        landing_boost2: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -634,6 +643,16 @@ pub enum MobfarmCmd {
         /// Every cart's position each tick in the log.
         #[arg(long)]
         trace: bool,
+        /// The design placed shifted by DX,DZ (its chunk alignment: `chunk: 0 0 0 6-6 6-6` is 6,6).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        shift: Vec<i32>,
+        /// Carts spawned at the departure curve (they ride the climb and the return run).
+        #[arg(long)]
+        from_climb: bool,
+        /// A partial unload: cycle C, tick DT, the chunk box X0,Z0,X1,Z1 (shifted world), back N
+        /// ticks later (repeatable).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, num_args = 7)]
+        unload: Vec<i64>,
     },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
@@ -1942,10 +1961,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2 };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2035,10 +2054,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let _ = std::fs::remove_file(&path);
             }
         }
-        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, trace } => {
+        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, trace, shift, from_climb, unload } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let pat = crate::tail_bench::parse_pattern(&pattern).map_err(|e| anyhow::anyhow!(e))?;
+            anyhow::ensure!(unload.len() % 7 == 0, "--unload takes C,DT,X0,Z0,X1,Z1,N");
+            let bo = crate::tail_bench::BenchOpts {
+                shift: match shift.as_slice() { [x, z] => (*x, *z), [] => (0, 0), _ => anyhow::bail!("--shift takes DX,DZ") },
+                from_climb,
+                unloads: unload.chunks(7).map(|u| (u[0], u[1], [u[2] as i32, u[3] as i32, u[4] as i32, u[5] as i32], u[6])).collect(),
+            };
             let tm = crate::queue::LoopTiming {
                 advance_at,
                 advance_every,
@@ -2048,11 +2073,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 ..Default::default()
             };
             match seeds {
-                None => print!("{}", crate::tail_bench::run_tail_bench(&spec, &o, &tm, &pat, extra, seed, trace).map_err(|e| anyhow::anyhow!(e))?),
+                None => print!("{}", crate::tail_bench::run_tail_bench(&spec, &o, &tm, &pat, extra, seed, trace, &bo).map_err(|e| anyhow::anyhow!(e))?),
                 Some(n) => {
                     // (the seeds in parallel, each its summary: every contract line on one row)
                     let out: Vec<(i64, Result<String, String>)> = std::thread::scope(|sc| {
-                        let hs: Vec<_> = (1..=n).map(|s| { let (spec, o, tm, pat) = (&spec, &o, &tm, &pat); (s, sc.spawn(move || crate::tail_bench::run_tail_bench(spec, o, tm, pat, extra, s, false))) }).collect();
+                        let hs: Vec<_> = (1..=n).map(|s| { let (spec, o, tm, pat, bo) = (&spec, &o, &tm, &pat, &bo); (s, sc.spawn(move || crate::tail_bench::run_tail_bench(spec, o, tm, pat, extra, s, false, bo))) }).collect();
                         hs.into_iter().map(|(s, h)| (s, h.join().unwrap_or_else(|_| Err("panicked".into())))).collect()
                     });
                     let mut bad = Vec::new();
