@@ -508,8 +508,14 @@ station needs no drop and no overworld kill.
   during its overworld dwell (T to T+2), the arriving batch included.
 - **Every way to summon, at every position a villager occupies** (the loop, the queue, the
   approach, the bed stop), judged along the loop: either the path cannot fire, or every spawn
-  search from there lands only on unspawnable cells (the pad counts only for the stand cells: a
-  willing, panicking villager anywhere else summons out of turn). The panic path cannot fire when the
+  search from there lands only on unspawnable cells or the pad. Off-pad golem spots are a hard 0.
+  Pad cells reachable from a non-stand villager position are a measured line, not a hard fail: the
+  full assembly bench prints the out-of-turn summon rate onto the pad and its slot cost, including
+  the lock spill (an out-of-turn summoner locks every villager in its 10.6 box for 600 gt,
+  neighbouring batches included, so one summon can cost several turns). The out-of-turn rate and
+  its cost are measured both on the healthy bench and under the fault-injection runs, since a
+  timing fault is what would put an approach or departure rider in view at a summon tick. The
+  pad's geometry changes only if that cost is non-zero. The panic path cannot fire when the
   villager is more than 8 from the farm's zombie or out of its sight except at the station, and no
   natural hostile can stand in its sight on a dark surface (the parent brief's every-villager
   rule); the gossip path (`InteractWith`, `TradeWithVillager`, `Villager.gossip`,
