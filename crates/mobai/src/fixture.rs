@@ -4387,6 +4387,59 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, 58f770cc's sleeper walking off its bed in redsim, second bridge: the
+    // siding (b) FC's own drop) 16 copies of the siding's geometry (siding_geometry, a 4 x 4 grid 20
+    // apart: design (x, y, z) at (x + 8 + 20 cx, y + 68, z + 5 + 20 cz)) with its boosters (1,0,1),
+    // (1,0,2) and the activator slope (1,-1,3) powered by redstone blocks under them, a ridden cart on
+    // the entry detector rail (0,0,0) moving +x at 0.20 + 0.02 k (the T turns it south down the bed
+    // line, the activator drops its rider beside the bed's head (0,0,2), the park's brake (1,-1,5)
+    // holds the cart), the rider remembering the bed as HOME; no dorm zombie; night (REST)
+    {
+        let d = mctas::design::Design::parse(SIDING_B_FC).expect("the frozen siding parses");
+        let mut b: Vec<([i32; 3], String)> = Vec::new();
+        floor(&mut b, 0, 80, 0, 80, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for k in 0..16 {
+            let (cx, cz) = (k % 4, k / 4);
+            let at = |p: [i32; 3]| [p[0] + 8 + 20 * cx, p[1] + 68, p[2] + 5 + 20 * cz];
+            for (p, st) in &d.blocks {
+                if p[1] < -4 {
+                    continue;
+                }
+                if let Some(s) = siding_geometry(st) {
+                    b.push((at([p[0], p[1], p[2]]), s));
+                }
+            }
+            for (p, st) in [
+                ([1, -1, 1], "minecraft:redstone_block"),
+                ([1, -1, 2], "minecraft:redstone_block"),
+                ([1, -2, 3], "minecraft:redstone_block"),
+                ([1, 0, 1], "minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]"),
+                ([1, 0, 2], "minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]"),
+                ([1, -1, 3], "minecraft:activator_rail[powered=true,shape=ascending_north,waterlogged=false]"),
+            ] {
+                b.push((at(p), st.to_string()));
+            }
+            let bed = at([0, 0, 2]);
+            let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", bed[0], bed[1], bed[2]);
+            let start = at([0, 0, 0]);
+            let v = 0.20 + 0.02 * k as f64;
+            mobs.push(("minecraft:minecart".into(), [start[0] as f64 + 0.5, start[1] as f64 + 0.0625, start[2] as f64 + 0.5], Some(format!("{{Motion:[{v:.2}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,{home}}}]}}"))));
+        }
+        v.push(Scene {
+            name: "sleep-siding".into(),
+            chunks: [0, 0, 4, 4],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [79, 78, 79]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
