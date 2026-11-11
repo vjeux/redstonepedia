@@ -779,6 +779,13 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     for c in [[3, 0, 2], [3, 0, 3], [3, 0, 4], [4, 0, 4], [5, 0, 4]] {
         on(b, c, dust)?;
     }
+    // (the declared z >= -4 rule's positive control, ironspec 08:13: MCTAS_SIDING_EXTRA_STONE=x,y,z
+    // adds one stone at that local cell; at z -5 the bench's HOME rows fail)
+    if let Ok(v) = std::env::var("MCTAS_SIDING_EXTRA_STONE") {
+        let c: Vec<i32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        ensure!(c.len() == 3, "MCTAS_SIDING_EXTRA_STONE wants x,y,z");
+        b.set(c[0], c[1], c[2], "stone");
+    }
     Ok(())
 }
 
@@ -1580,6 +1587,11 @@ pub struct BenchReport {
     /// 20 gt running (lit with the bed free, or unlit with it occupied), how many such runs, and
     /// the first run's start (t - t0) and kind.
     pub b_wrong: (u32, i64, Option<(i64, bool)>),
+    /// (ironspec 08:13, the z -5 HOME finding) The riders' walk state, ticks by where they are (the
+    /// siding, the bench's approach, its hold) and by kind (reaching, partial, a walk target with no
+    /// path, no walk target), and a few approach samples (walk target and path end, local).
+    pub walk_kinds: [[u64; 4]; 3],
+    pub walk_samples: Vec<String>,
     /// The off-the-rails watch's derails and its report line.
     pub derails: Vec<String>,
     pub rail_line: String,
@@ -2421,6 +2433,25 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let night_now = (13670..=22330).contains(&dtn);
             let mut n_exp = 0usize;
             for (k, p) in pairs.iter().enumerate() {
+                // (ironspec 08:13: the riders' walk state by region, and approach samples)
+                if let Some(i) = index_of(w, p.1) {
+                    let l = fr.local(w.entities.list[i].pos);
+                    let region = if l.x >= -0.5 && l.x <= 7.0 && l.z >= -0.5 && l.z <= 8.0 { 0 } else if l.x < -0.5 && (l.z - 0.5).abs() < 1.0 { 1 } else { 2 };
+                    let kind = crate::queue::rider_walk_kind(w, p.1).map_or(3, |x| x as usize);
+                    rep.walk_kinds[region][kind] += 1;
+                    if region >= 1 && kind < 3 && rep.walk_samples.len() < 16 && brain::has_exact(w, i) {
+                        let ex = brain::ex(w, i);
+                        let bl = |b: BlockPos| {
+                            let q = fr.local(Vec3::new(b.x as f64 + 0.5, b.y as f64, b.z as f64 + 0.5));
+                            format!("{:.0},{:.0},{:.0}", q.x - 0.5, q.y, q.z - 0.5)
+                        };
+                        let path = ex.mem.path.as_ref().map(|pa| format!("path to {} ending {} ({} nodes, {})", bl(pa.target), pa.nodes.last().map(|n| bl(BlockPos::new(n.x, n.y, n.z))).unwrap_or_default(), pa.nodes.len(), if pa.can_reach() { "reaching" } else { "partial" })).unwrap_or("no path".into());
+                        let s = format!("{} villager {} at {:.2},{:.2},{:.2}: {path}", if region == 1 { "approach" } else { "hold" }, p.1, l.x, l.y, l.z);
+                        if !rep.walk_samples.iter().any(|x| x.split(':').nth(1) == s.split(':').nth(1)) {
+                            rep.walk_samples.push(s);
+                        }
+                    }
+                }
                 // (the stamp line: each villager's CANT_REACH age, by where it is)
                 if let Some(i) = index_of(w, p.1)
                     && brain::has_exact(w, i)

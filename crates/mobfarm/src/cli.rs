@@ -3530,6 +3530,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (mut worst, mut lost, mut jams, mut later, mut missed, mut left_without) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
                     let mut merged = 0usize;
                     let (mut riderless_n, mut bwrong, mut dbt, mut probs) = (0usize, 0u32, 0u32, 0usize);
+                    let (mut stamp_s, mut stamp_a, mut home_ch) = (0i64, 0i64, 0usize);
                     let mut first_prob: Option<String> = None;
                     let mut hit: Vec<i64> = Vec::new();
                     let mut errs: Vec<String> = Vec::new();
@@ -3556,6 +3557,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 riderless_n += r.visits.iter().filter(|v| v.riderless.is_some()).count();
                                 bwrong += r.b_wrong.0;
                                 dbt += r.dropped_bed_taken;
+                                stamp_s = stamp_s.max(r.stamp_max[0]);
+                                stamp_a = stamp_a.max(r.stamp_max[1]);
+                                home_ch += r.home_events.len();
                                 for (vk, v) in r.visits.iter().enumerate() {
                                     if let Some(p) = &v.problem {
                                         probs += 1;
@@ -3567,7 +3571,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     hit.sort();
                     let hit_s = if hit.is_empty() { "never".to_string() } else { format!("{}..{}", hit[0], hit[hit.len() - 1]) };
-                    println!("  {name}: until clean {worst}; naps lost {lost}; out without the napper {left_without}; riderless {riderless_n}; jams {jams}; merged carts {merged}; unclean after {later}; B wrong {bwrong}; dropped with the bed taken {dbt}; problems {probs}{}; hit +{hit_s}{}{}", first_prob.map(|p| format!(" (first: {p})")).unwrap_or_default(), if missed > 0 { format!(" (not hit on {missed} seeds)") } else { String::new() }, if errs.is_empty() { String::new() } else { format!("; errors: {}", errs[0]) });
+                    println!("  {name}: until clean {worst}; naps lost {lost}; out without the napper {left_without}; riderless {riderless_n}; jams {jams}; merged carts {merged}; unclean after {later}; B wrong {bwrong}; dropped with the bed taken {dbt}; oldest stamp {stamp_s} in the siding, {stamp_a} on the approach; HOME changes {home_ch}; problems {probs}{}; hit +{hit_s}{}{}", first_prob.map(|p| format!(" (first: {p})")).unwrap_or_default(), if missed > 0 { format!(" (not hit on {missed} seeds)") } else { String::new() }, if errs.is_empty() { String::new() } else { format!("; errors: {}", errs[0]) });
                 }
                 return Ok(());
             }
@@ -3794,6 +3798,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let dbt: u32 = oks.iter().map(|r| r.dropped_bed_taken).sum();
                 let ed = oks.iter().fold([0u32; 4], |a, r| [a[0] + r.edges[0], a[1] + r.edges[1], a[2] + r.carts_in_out[0], a[3] + r.carts_in_out[1]]);
                 println!("villagers dropped while the bed was taken: {dbt}");
+                {
+                    let mut wk = [[0u64; 4]; 3];
+                    for r in &oks {
+                        for g in 0..3 {
+                            for k in 0..4 {
+                                wk[g][k] += r.walk_kinds[g][k];
+                            }
+                        }
+                    }
+                    let f = |a: [u64; 4]| format!("reaching {} / partial {} / no path {} / no walk {}", a[0], a[1], a[2], a[3]);
+                    println!("riders' walk state, villager-ticks (ironspec 08:13): in the siding {}; on the bench's approach {}; in the hold {}", f(wk[0]), f(wk[1]), f(wk[2]));
+                    for s in oks.iter().flat_map(|r| r.walk_samples.iter()).filter(|s| s.starts_with("hold")).take(8).chain(oks.iter().flat_map(|r| r.walk_samples.iter()).filter(|s| s.starts_with("approach")).take(4)) {
+                        println!("  walk sample: {s}");
+                    }
+                }
                 {
                     let runs: u32 = oks.iter().map(|r| r.b_wrong.0).sum();
                     let ticks: i64 = oks.iter().map(|r| r.b_wrong.1).sum();
