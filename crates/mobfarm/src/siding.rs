@@ -643,8 +643,11 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     for z in 4..=8 {
         swap(b, [-6, -3, z], &rep("north", 4))?;
     }
+    // (repeater delays count redstone ticks: 4 = 8 gt. The chain: five 8-gt repeaters down x -6,
+    // two on z 9, then four 2-gt ones: about 64 gt, design (b)'s D = 60 as emulated. Longer, the
+    // previous visit's tail still in the chain could kick a quick follow-up's napper at its wake)
     for x in -5..=0 {
-        swap(b, [x, -3, 9], &rep("west", 4))?;
+        swap(b, [x, -3, 9], &rep("west", if x <= -4 { 4 } else { 1 }))?;
     }
     // B now, the second bulb under the S dust, into the chain's end through (1,-2,8)
     swap(b, [0, -1, 5], bulb)?;
