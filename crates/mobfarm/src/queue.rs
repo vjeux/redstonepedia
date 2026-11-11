@@ -5175,6 +5175,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut over_t = [false; 21];
     let mut vt_n = 0usize;
     let mut vt_max: (f64, f64, String) = (0.0, 0.0, String::new());
+    let mut hump_back: (f64, String) = (0.0, String::new());
+    let (mut hump_over, mut hump_over_n) = ([false; 21], 0usize);
     // (contacts at a waiting cart on the approach's column (tick-exact's merge bar; cc767b78's
     // definition, aa931d88b): a moving cart's centre within 1.0 horizontally of a cart at rest
     // (under 0.01 b/t, or frozen), by the waiting cart's place: the mover's stored speed the tick
@@ -7801,6 +7803,22 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     }
                 };
                 let places = ["flat", "climb", "T", "descent", "hump-down", "hump-up", "run"];
+                // (the hump's bound from the rows: the highest a backward-moving cart gets on the
+                // hump's falling face above the dip, and backward carts on its top or beyond)
+                if o.hump > 0 {
+                    for &(k, lz, y, vz, _) in &col {
+                        if vz > 0.001 && lz >= ap_dip_hi && lz < ap_top_z && y - o.dip_y as f64 > hump_back.0 {
+                            hump_back = (y - o.dip_y as f64, format!("cart {k} at z {lz:.2} y {y:.2}, slot {c} +{dt}"));
+                        }
+                        if vz > 0.001 && lz >= ap_top_z && lz < boost_lo && !hump_over[k] {
+                            hump_over[k] = true;
+                            hump_over_n += 1;
+                        }
+                        if vz < -0.001 {
+                            hump_over[k] = false;
+                        }
+                    }
+                }
                 let mut pairs: Vec<(usize, usize)> = Vec::new();
                 for a in 0..col.len() {
                     for b in a + 1..col.len() {
@@ -9940,6 +9958,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             ));
             out.push(format!("carts on the release run upstream of the line z 9|10 at once: at most {upstream_max}"));
             out.push(format!("pushed back over T (backward crossings onto the climb): {vt_n}; fastest: stored {:.3}, visible {:.3}{}", vt_max.0, vt_max.1, if vt_max.2.is_empty() { String::new() } else { format!(" ({})", vt_max.2) }));
+            if o.hump > 0 {
+                out.push(format!("hump: highest backward climb on its falling face {:.2} above the dip (the top {} above){}; backward onto its top or beyond: {hump_over_n}", hump_back.0, o.hump, if hump_back.1.is_empty() { String::new() } else { format!(" ({})", hump_back.1) }));
+            }
             // (the forward profile per plane: crossings, +gt after the slot's start, stored and
             // visible speeds (ridden and riderless apart), the gaps between consecutive crossings
             // under 60 gt)

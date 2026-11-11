@@ -82,6 +82,9 @@ pub struct Summary {
     /// The approach's profile by plane and train place: (plane code, place 1..3, stored min, max,
     /// +gt min, max from the train's launch slot).
     pub prof: Vec<(String, usize, f64, f64, i64, i64)>,
+    /// C''''s hump: the highest backward climb on its falling face above the dip, and backward carts
+    /// onto its top or beyond.
+    pub hump_back: (f64, usize),
 }
 
 /// "name a/b/c/d/e/f when x/y/z; ..." (the runner's cause lines), the first N parts.
@@ -159,6 +162,8 @@ pub fn summarize(out: &str) -> Summary {
             s.back_vmax = r.split_once("fastest backward: stored ").and_then(|(_, v)| v.split(',').next()).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
         } else if let Some(r) = l.strip_prefix("carts on the release run upstream of the line z 9|10 at once: at most ") {
             s.upstream = r.trim().parse().unwrap_or(0);
+        } else if let Some(r) = l.strip_prefix("hump: highest backward climb on its falling face ") {
+            s.hump_back = (r.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0.0), r.rsplit_once(": ").and_then(|(_, v)| v.trim().parse().ok()).unwrap_or(0));
         } else if let Some(r) = l.strip_prefix("approach profile summary (") {
             if let Some((_, r)) = r.split_once("): ") {
                 for e in r.split_whitespace() {
@@ -528,6 +533,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         } else {
             pad
         };
+        let pad = if o.hump > 0 { format!("{pad} | hump back climb {:.2} over top {}", ss.iter().map(|s| s.hump_back.0).fold(0.0, f64::max), ss.iter().map(|s| s.hump_back.1).sum::<usize>()) } else { pad };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
             let dr: usize = ss.iter().map(|s| s.d_rev).sum();
@@ -574,7 +580,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
             let c06: Vec<String> = (0..7).map(|i| ss.iter().map(|s| s.bc[i].2).sum::<usize>().to_string()).collect();
             let vmax: Vec<String> = (0..7).map(|i| format!("{:.2}", ss.iter().map(|s| s.bc[i].1).fold(0.0, f64::max))).collect();
             out.push(format!(
-                "  {f}: met climb {met} in {rows}/{} rows, by cause {}, when {} | by place climb {} | hump-up {} | waiting-cart contacts at 0.6+ flat/climb/T/descent/hump-down/hump-up/run {} (stored max {}) | merged {} | pushed back over T {} (v_T max {:.3})",
+                "  {f}: met climb {met} in {rows}/{} rows, by cause {}, when {} | by place climb {} | hump-up {} | waiting-cart contacts at 0.6+ flat/climb/T/descent/hump-down/hump-up/run {} (stored max {}) | merged {} | pushed back over T {} (v_T max {:.3}) | hump back climb max {:.2}, over its top {}",
                 ids.len(),
                 sum6(&|s| s.n_causes[0]),
                 sum3(&|s| s.n_whens[0]),
@@ -584,7 +590,9 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
                 vmax.join("/"),
                 ss.iter().map(|s| s.bc.iter().map(|b| b.6).sum::<usize>()).sum::<usize>(),
                 ss.iter().map(|s| s.vt.0).sum::<usize>(),
-                ss.iter().map(|s| s.vt.1).fold(0.0, f64::max)
+                ss.iter().map(|s| s.vt.1).fold(0.0, f64::max),
+                ss.iter().map(|s| s.hump_back.0).fold(0.0, f64::max),
+                ss.iter().map(|s| s.hump_back.1).sum::<usize>()
             ));
         }
     }
