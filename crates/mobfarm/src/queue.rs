@@ -3710,6 +3710,10 @@ pub struct LoopTiming {
     pub rel_on: i64,
     /// With `--watch`: these cells' block states printed too (up to 8).
     pub watch_cells: [Option<[i32; 3]>; 8],
+    /// `--cross-list` (ironspec Nov 11, a passage's spacing; W's brake entry speeds): every cart
+    /// entering each of these cells printed (`cross X,Y,Z cS +T: cart K vV gap G`, G the gt since
+    /// the cell's last entry), up to 8.
+    pub cross_cells: [Option<[i32; 3]>; 8],
     /// (`--watch-mob`, farmopt 2026-11-11) mobs printed every gt over slots
     /// `watch_mob_slots.0 ..= watch_mob_slots.1`: place, pose, vehicle, activities, behaviours,
     /// memories, target, and the hostiles within 16 blocks.
@@ -4161,7 +4165,7 @@ impl LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, no_blind_check: false, blind_all: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, release_from: 0, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], cross_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, calm_list: false, no_blind_check: false, blind_all: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -5215,6 +5219,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the tail's arrivals, impacts, backward crossings, the front's readiness at each G0 opening,
     // the jump's spacing and the landing's clearance, the queue's occupancy: escapement designs)
     let mut tail_watch = TailWatch::new(&lay);
+    // (`--cross-list`: per listed cell, the carts inside it last tick and its last entry's time)
+    let mut cross_in: Vec<Vec<usize>> = vec![Vec::new(); 8];
+    let mut cross_last: [Option<i64>; 8] = [None; 8];
     tail_watch.list_takeoffs = tm.takeoff_list;
     tail_watch.sched = Some((tm.advance_at, tm.advance_every));
     tail_watch.rel_at = o.stand_stop.then_some(tm.pocket_release);
@@ -7871,6 +7878,29 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let dets: String = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).map(|(p, _)| format!(" | det {},{},{} {}", p.x, p.y, p.z, run.world.get(*p).to_string().replace("minecraft:daylight_detector", ""))).collect();
             let wx = if dets.is_empty() { String::new() } else { format!(" | day {} rain {:.2} thunder {:.2} darken {}", run.world.day_time().rem_euclid(24000), run.world.rain_level(1.0), run.world.thunder_level(1.0), run.world.sky_darken()) };
             println!("c{c} +{dt}: {}{stand}{cells}{dets}{wx}", ps.join(" | "));
+        }
+        // (`--cross-list`: every cart entering each listed cell, its speed and the gap since the
+        // cell's last entry: a passage's spacing, a brake's entry speeds)
+        if tm.cross_cells.iter().any(|c| c.is_some()) {
+            for (k, id) in carts.iter().enumerate() {
+                let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id) else { continue };
+                let cell = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
+                for (i, cc) in tm.cross_cells.iter().enumerate() {
+                    let Some(cc) = cc else { continue };
+                    let inside = cell == *cc;
+                    let was = cross_in[i].contains(&k);
+                    if inside && !was {
+                        let t = run.world.time as i64;
+                        let gap = cross_last[i].map(|t0| format!("{}", t - t0)).unwrap_or_else(|| "-".into());
+                        let rider = if e.passengers.is_empty() { "empty" } else { "ridden" };
+                        println!("cross {},{},{} c{c} +{dt}: cart {k} {rider} v{:.3} gap {gap}", cc[0], cc[1], cc[2], e.delta_movement.horizontal_distance());
+                        cross_last[i] = Some(t);
+                        cross_in[i].push(k);
+                    } else if !inside && was {
+                        cross_in[i].retain(|x| *x != k);
+                    }
+                }
+            }
         }
         // the stand fills front first: every slot braked at once (slopes down and up) as the
         // train's front cart reaches S2's peak; its second cart is then in S2 (the train runs 3
