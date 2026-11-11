@@ -77,6 +77,49 @@ fn gate_hold_lanes() -> Vec<(usize, bool, u32)> {
     v
 }
 
+/// (tickexact 2026-11-11, ironspec's junction-settle) scene junction-settle's lanes: (J, the missing
+/// arm (0 N, 1 E, 2 S, 3 W), the settle (0 unpowered; 1 placed, then powered by a repeater (its
+/// input a redstone block at t3: the repeater's own update re-settles it, as router S's does); 2
+/// placed onto power (a redstone block under it from t0); 3 placed, then a redstone block put under
+/// it at t3 (Level.setBlock updates the neighbours with the OLD block, stone, not a signal source:
+/// RailBlock.updateState does not re-settle)), the carts: (entry arm, stored speed, ridden, the
+/// follower's gap in gt or 0), router S's arms (its west arm turning south as built)). The generic
+/// lanes: each missing arm, each settle, one empty cart at 0.4 from each arm; router S (missing E,
+/// entered from the south): unpowered and repeater-powered after placement, stored 0.3, 0.6, 1.0,
+/// ridden and empty, a follower 11 or 12 gt behind.
+fn junction_lanes() -> Vec<([i32; 3], u8, u8, (u8, f64, bool, u32), bool)> {
+    let mut v = Vec::new();
+    let mut i = 0;
+    let at = |i: i32| [6 + 12 * (i % 10), 64, 6 + 16 * (i / 10)];
+    for missing in 0..4u8 {
+        for settle in 0..4u8 {
+            for entry in (0..4u8).filter(|a| *a != missing) {
+                v.push((at(i), missing, settle, (entry, 0.4, false, 0), false));
+                i += 1;
+            }
+        }
+    }
+    for settle in [0u8, 1] {
+        for sp in [0.3, 0.6, 1.0] {
+            for ridden in [true, false] {
+                for gap in [11u32, 12] {
+                    // (router S's lanes below the generic ones, 28 apart in z: its exits 12 long, so
+                    // no leader comes back off a stop while its follower passes)
+                    let k = v.len() as i32 - 48;
+                    v.push(([6 + 12 * (k % 10), 64, 110 + 28 * (k / 10)], 1, settle, (2, sp, ridden, gap), true));
+                    i += 1;
+                }
+            }
+        }
+    }
+    v
+}
+
+/// The unit step of arm `a` (0 N, 1 E, 2 S, 3 W).
+fn arm_step(a: u8) -> [i32; 2] {
+    [[0, -1], [1, 0], [0, 1], [-1, 0]][a as usize]
+}
+
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
 /// during the freeze, and whether the cart is ridden.
@@ -96,6 +139,30 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, ironspec's junction-settle) every lane's junction placed at t1 (like a
+        // player: onPlace settles it), the placed-then-powered lanes' floor under it a redstone
+        // block at t3 (the first power update after placement)
+        "junction-settle" => {
+            let lanes = junction_lanes();
+            vec![
+                (1, lanes.iter().map(|(j, ..)| (*j, "minecraft:rail[shape=north_south,waterlogged=false]".to_string())).collect()),
+                (
+                    3,
+                    lanes
+                        .iter()
+                        .filter(|(_, _, s, ..)| *s == 1 || *s == 3)
+                        .map(|(j, m, s, ..)| {
+                            if *s == 3 {
+                                ([j[0], j[1] - 1, j[2]], "minecraft:redstone_block".to_string())
+                            } else {
+                                let d = arm_step(*m);
+                                ([j[0] + 2 * d[0], j[1] - 1, j[2] + 2 * d[1]], "minecraft:redstone_block".to_string())
+                            }
+                        })
+                        .collect(),
+                ),
+            ]
+        }
         // (tickexact 2026-11-11, ironspec's curve spacing) the from-rest pairs' powered rails powered
         // at t5 (redstone blocks for the floor under them: lanes x0 49 and 61 of row B)
         "curve-pair" => vec![(1, [49, 61].iter().flat_map(|x| [([*x, 63, 32], "minecraft:redstone_block".to_string()), ([*x, 63, 33], "minecraft:redstone_block".to_string())]).collect())],
@@ -4252,6 +4319,74 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's junction-settle: day-1's W siding, half-turned, routed every
+    // cart to the exit; router S as built) three-arm junctions (junction_lanes): the junction cell
+    // empty at t0 and placed at t1 (scene_actions), each arm 4 rails and a stone, the
+    // placed-onto-power lanes' floor under it a redstone block from t0; router S's lanes with its
+    // west arm turning south (a south_east curve 2 west, then south) and a longer south arm (8 rails)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 128, 0, 192, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let ns = "minecraft:rail[shape=north_south,waterlogged=false]";
+        let ew = "minecraft:rail[shape=east_west,waterlogged=false]";
+        for (j, missing, settle, (entry, sp, ridden, gap), router) in junction_lanes() {
+            if settle == 2 {
+                b.push(([j[0], 63, j[2]], "minecraft:redstone_block".to_string()));
+            }
+            if settle == 1 {
+                // the repeater under the missing arm's first cell, its output into the stone under
+                // the junction (a repeater's facing is its input side), on stone
+                let d = arm_step(missing);
+                let facing = ["north", "east", "south", "west"][missing as usize];
+                b.push(([j[0] + d[0], 62, j[2] + d[1]], stone.to_string()));
+                b.push(([j[0] + d[0], 63, j[2] + d[1]], format!("minecraft:repeater[delay=1,facing={facing},locked=false,powered=false]")));
+            }
+            for a in (0..4u8).filter(|a| *a != missing) {
+                let d = arm_step(a);
+                let len = if router && a == 2 { 8 } else if router && a == 3 { 1 } else if router { 12 } else { 4 };
+                for k in 1..=len {
+                    b.push(([j[0] + d[0] * k, 64, j[2] + d[1] * k], if d[0] == 0 { ns } else { ew }.to_string()));
+                }
+                if router && a == 3 {
+                    // the west arm's curve 2 west (south_east), then south 12 and a stone
+                    b.push(([j[0] - 2, 64, j[2]], "minecraft:rail[shape=south_east,waterlogged=false]".to_string()));
+                    for k in 1..=12 {
+                        b.push(([j[0] - 2, 64, j[2] + k], ns.to_string()));
+                    }
+                    b.push(([j[0] - 2, 64, j[2] + 13], stone.to_string()));
+                } else {
+                    b.push(([j[0] + d[0] * (len + 1), 64, j[2] + d[1] * (len + 1)], stone.to_string()));
+                }
+            }
+            let d = arm_step(entry);
+            let cart = |k: f64, ridden: bool| {
+                let motion = format!("Motion:[{:.3}d,0.0d,{:.3}d]", -d[0] as f64 * sp, -d[1] as f64 * sp);
+                let nbt = if ridden { format!("{{{motion},Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}") } else { format!("{{{motion}}}") };
+                ("minecraft:minecart".to_string(), [j[0] as f64 + 0.5 + d[0] as f64 * k, 64.0625, j[2] as f64 + 0.5 + d[1] as f64 * k], Some(nbt))
+            };
+            if router {
+                mobs.push(cart(3.0, ridden));
+                let visible = (if ridden { 0.75 } else { 1.0 } * sp).min(0.4);
+                mobs.push(cart(3.0 + visible * gap as f64, ridden));
+            } else {
+                mobs.push(cart(4.0, ridden));
+            }
+        }
+        v.push(Scene {
+            name: "junction-settle".into(),
+            chunks: [0, 0, 7, 11],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [127, 68, 191]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
@@ -7203,6 +7338,73 @@ pub fn hatch_sweep(path: &std::path::Path) -> Result<()> {
         println!("  sleeper: {}", probe("(0.50,0.6875,2.50)", [0.5, 0.6875, 2.5], 0.2));
         let t: Vec<String> = [[1.5, 0.0625, 0.5], [1.25, 0.0625, 0.75], [1.5, 0.0625, 1.0], [1.0, 0.0625, 0.5], [0.5, 0.0625, 0.5]].iter().map(|p| probe(&format!("({:.2},{:.2})", p[0], p[2]), *p, 1.62)).collect();
         println!("  T rider: {}", t.join("; "));
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's junction-settle) `mctas mobai rec-junction <rec>`: per lane of scene
+/// junction-settle its junction's settled shape (its last state in the recording) and each cart's
+/// route: the arm it ends on (N, E, S, W from the junction, or beyond the west arm's curve: "W→S")
+/// and its distance out, with its yaw.
+pub fn rec_junction(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let lanes = junction_lanes();
+    let arm = ["N", "E", "S", "W"];
+    let settle = ["unpowered", "placed, then powered by a repeater", "placed onto power", "placed, then a redstone block put under it"];
+    let carts = |f: &serde_json::Value| -> Vec<(u64, [f64; 3], f64)> {
+        f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] == "minecart").map(|e| (e["n"].as_u64().unwrap_or(0), [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)], e["yaw"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0))).collect()
+    };
+    let (first, last) = (carts(&frames[0]), carts(frames.last().ok_or_else(|| anyhow!("no frames"))?));
+    for (k, (j, missing, s, (entry, sp, ridden, gap), router)) in lanes.iter().enumerate() {
+        // the junction's last state
+        let mut shape = "(never placed)".to_string();
+        for f in &frames {
+            for c in f["blocks"].as_array().into_iter().flatten() {
+                if c[0].as_i64() == Some(j[0] as i64) && c[1].as_i64() == Some(j[1] as i64) && c[2].as_i64() == Some(j[2] as i64) {
+                    shape = c[3].as_str().unwrap_or("?").trim_start_matches("minecraft:").to_string();
+                }
+            }
+        }
+        let inside = |p: &[f64; 3]| (p[0] - j[0] as f64 - 0.5).abs() <= 5.6 && p[2] - j[2] as f64 - 0.5 >= -5.6 && p[2] - j[2] as f64 - 0.5 <= 9.6;
+        let mine: Vec<u64> = first.iter().filter(|(_, p, _)| inside(p)).map(|(n, ..)| *n).collect();
+        let mut ends = Vec::new();
+        let place = |p: &[f64; 3]| -> (String, f64) {
+            let (dx, dz) = (p[0] - j[0] as f64 - 0.5, p[2] - j[2] as f64 - 0.5);
+            if *router && dx < -1.5 && dz > 0.5 {
+                ("W→S".to_string(), dz)
+            } else if dx.abs() > dz.abs() {
+                ((if dx > 0.0 { "E" } else { "W" }).to_string(), dx.abs())
+            } else {
+                ((if dz > 0.0 { "S" } else { "N" }).to_string(), dz.abs())
+            }
+        };
+        for n in &mine {
+            // (the route: the first arm the cart reaches 1.5 out on that is not its entry arm; a
+            // leader coming back off a stop later does not count)
+            let entry_arm = arm[*entry as usize];
+            let route = frames.iter().enumerate().find_map(|(t, f)| {
+                carts(f).into_iter().find(|(m, ..)| m == n).and_then(|(_, p, yaw)| {
+                    let (a, d) = place(&p);
+                    (a != entry_arm && d >= 1.5).then(|| format!("{a} by t{t} (yaw {yaw:.0})"))
+                })
+            });
+            let Some((_, p, _)) = last.iter().find(|(m, ..)| m == n) else { continue };
+            let (a, d) = place(p);
+            ends.push(format!("#{n} {}; ends {a} {d:.2}", route.map_or("never left its arm".to_string(), |r| format!("out {r}"))));
+        }
+        println!(
+            "lane {k}{}: missing {}, {}, from {} at {sp}{}{}; junction {shape}; {}",
+            if *router { " (router S)" } else { "" },
+            arm[*missing as usize],
+            settle[*s as usize],
+            arm[*entry as usize],
+            if *ridden { " ridden" } else { " empty" },
+            if *gap > 0 { format!(", a follower {gap} gt behind") } else { String::new() },
+            ends.join("; ")
+        );
     }
     Ok(())
 }

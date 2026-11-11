@@ -204,6 +204,11 @@ pub enum MobaiCmd {
         #[arg(long)]
         xz: bool,
     },
+    /// (tickexact 2026-11-11, ironspec's junction-settle) Scene junction-settle's recording: each lane's
+    /// settled junction shape and each cart's route through it
+    RecJunction {
+        path: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-11, ironspec's hatch sight lines) redsim's line of sight from the siding's
     /// napper (stand-up cell, sleeper, T rider) to the dorm zombie, the hatch closed and open
     HatchSweep {
@@ -367,6 +372,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
+        MobaiCmd::RecJunction { path } => crate::fixture::rec_junction(&path),
         MobaiCmd::HatchSweep { path } => crate::fixture::hatch_sweep(&path),
         MobaiCmd::RecSide { path, pairs } => {
             let p: Vec<(i64, i64)> = pairs.iter().filter_map(|s| s.split_once(':').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?)))).collect();
