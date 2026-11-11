@@ -1639,6 +1639,13 @@ pub enum MobfarmCmd {
         /// + this many gt.
         #[arg(long)]
         v_reset: Option<i64>,
+        /// Design (b) emulated (ironspec 2026-11-11, emulation before the wiring): the bench drives
+        /// the park support by (b)'s rule on the wired siding's real latch, T, hatch, F gate and
+        /// slot detector, its kick torch taken out: the after-wake kick this many gt after the
+        /// last wake (a re-sleep restarts it), or at once on a visit with no nap (F); B and N ideal.
+        /// With --v-reset, VR gated by B. Use on a short-nap-path file (MCTAS_SIDING_SLONG=0).
+        #[arg(long)]
+        b_emul: Option<i64>,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -2987,7 +2994,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset, b_emul } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             // (a turned design (its `turn:` line, `siding --turn 2`): the bench's frame turns with
@@ -3058,7 +3065,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -3116,7 +3123,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&(c, seed)) = work.get(j) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul });
                             out.lock().unwrap().push((c, seed, r));
                         });
                     }
@@ -3359,6 +3366,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         best
                     }).max().unwrap_or(0);
                     println!("the divert gate (V or the bed occupied, emulated): {held} scheduled visits held back over the seeds, the longest run {longest} in a row; reset pulses VR fired: {vr}");
+                }
+                if let Some(d) = b_emul {
+                    let (sl, fa, ib): (u32, u32, u32) = oks.iter().fold((0, 0, 0), |a, r| (a.0 + r.b_slow, a.1 + r.b_fast, a.2 + r.b_kick_in_bed));
+                    println!("design (b) emulated (the after-wake kick {d} gt after the last wake, or at once with no nap this visit): {sl} slow kicks, {fa} fast kicks; ticks kicking with the bed occupied: {ib}");
                 }
             }
             // (the force input: when the bench pulsed it, and for the visits whose villager had

@@ -1120,6 +1120,14 @@ pub struct BenchOpts {
     /// visit slot, sent or held back, pulses the R line (DB and the H latch's reset, as R does) at
     /// its arrival time + this many gt.
     pub v_reset: Option<i64>,
+    /// Design (b) emulated on the wired siding (ironspec's emulation-first rule): the bench drives
+    /// the park support itself (the design's kick torch K taken out) by (b)'s rule, on the
+    /// siding's real latch H, T, hatch, F gate and slot detector L: the kick while H, the slot
+    /// free and the bed empty, and either the bed empty for this many gt since the last wake (the
+    /// after-wake kick; a re-sleep restarts it) or no nap since this visit's arrival (the fast
+    /// path, an F visit). B (the bed occupied) and N (a nap since the arrival) ideal. With
+    /// `v_reset`, the reset pulse is gated by B (VR and not-B: a napper asleep keeps H).
+    pub b_emul: Option<i64>,
 }
 
 /// A partial unload of the bench's world ([`BenchOpts::unload`]): the forced chunk box (chunk
@@ -1269,6 +1277,12 @@ pub struct BenchReport {
     /// carts, two carts the game's push pairs but never separates (under 0.01 apart horizontally).
     pub merged: Vec<(u32, u32)>,
     pub merged_first: Vec<String>,
+    /// Design (b) emulated (`BenchOpts::b_emul`): the kicks it gave by the slow path (the bed
+    /// empty D gt after the last wake) and the fast path (no nap this visit), and the kicks it
+    /// would have given with the bed occupied (none by construction: a check of the rule).
+    pub b_slow: u32,
+    pub b_fast: u32,
+    pub b_kick_in_bed: u32,
 }
 
 /// The napper-aboard sensor's measurement ([`BenchReport::seat`]).
@@ -1480,6 +1494,20 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut seat_prev = false;
     // (ironspec's merged-carts hard line: ironfarm's shared tally, fed every tick)
     let mut merges = crate::merge::MergeTally::default();
+    // (design (b) emulated: its state; the design's kick torch K taken out, the bench drives the
+    // park support)
+    #[derive(Default)]
+    struct BEmul {
+        since: Option<i64>,
+        n: bool,
+        arr_prev: bool,
+        kick: bool,
+        h_prev: bool,
+    }
+    let mut be = BEmul::default();
+    if bo.b_emul.is_some() {
+        set(&mut run.world, fr.blk(1, -2, layout().park.z), "air");
+    }
     let mut seat_seated_last: i64 = i64::MIN;
     if plate || matches!(run.world.get(seat_cell), Block::Tripwire { .. }) {
         rep.seat = Some(SeatLog::default());
@@ -1710,13 +1738,14 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 force_off = None;
             }
         }
-        // (the divert gate's reset pulse VR: a redstone block at both ends of the R line for 4 gt)
-        if vr_at.contains(&now) {
+        // (the divert gate's reset pulse VR: a redstone block at both ends of the R line for 4 gt;
+        // under design (b)'s emulation gated by B: not fired while the bed is occupied)
+        if vr_at.contains(&now) && !(bo.b_emul.is_some() && matches!(run.world.get(bed), Block::Bed { occupied: true, .. })) {
             set(&mut run.world, vr_db, "redstone_block");
             set(&mut run.world, vr_n2, "redstone_block");
             rep.v_resets.push(now);
         }
-        if vr_at.contains(&(now - 4)) {
+        if rep.v_resets.last() == Some(&(now - 4)) {
             set(&mut run.world, vr_db, "air");
             set(&mut run.world, vr_n2, "air");
         }
@@ -1783,6 +1812,50 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     rep.unload = Some((from, Some(now)));
                 }
                 _ => {}
+            }
+        }
+        // (design (b) emulated: the park support driven by (b)'s rule, `BenchOpts::b_emul`)
+        if let Some(d) = bo.b_emul
+            && run.world.away.is_none()
+        {
+            let w = &run.world;
+            let wire_on = |c: BlockPos| matches!(w.get(c), Block::Wire { power, .. } if power > 0);
+            let h = wire_on(fr.blk(-1, -3, 2));
+            // (L: the slot's south tripwire hook itself; its line merges into the chain's)
+            let l = w.get(fr.blk(4, 0, 1)).to_string().contains("powered=true");
+            let b = matches!(w.get(bed), Block::Bed { occupied: true, .. });
+            let arr = w.get(s.entry).to_string().contains("powered=true");
+            if arr && !be.arr_prev {
+                be.n = false;
+            }
+            be.arr_prev = arr;
+            be.n |= b;
+            if h && !b {
+                be.since.get_or_insert(now);
+            } else {
+                be.since = None;
+            }
+            let slow = be.since.is_some_and(|x| now - x >= d);
+            let kick = h && !l && !b && (slow || !be.n);
+            if bo.trace && (h != be.h_prev || kick != be.kick) {
+                eprintln!("b-emul gt {}: H {h} L {l} B {b} N {} since {:?} kick {kick}", now - t0, be.n, be.since.map(|x| now - x));
+            }
+            be.h_prev = h;
+            if kick && !be.kick {
+                if slow {
+                    rep.b_slow += 1;
+                } else {
+                    rep.b_fast += 1;
+                }
+            }
+            if kick != be.kick {
+                be.kick = kick;
+                let st = if kick { "redstone_block" } else { "stone" };
+                set(&mut run.world, s.park, st);
+                drive.act(now, format!("set {} {} {} minecraft:{st}", s.park.x, s.park.y, s.park.z));
+            }
+            if be.kick && matches!(run.world.get(bed), Block::Bed { occupied: true, .. }) {
+                rep.b_kick_in_bed += 1;
             }
         }
         run.tick();
