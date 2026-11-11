@@ -1888,6 +1888,11 @@ fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -
 /// in the overworld or still there 20 gt after its spawn), a golem touching no portal, a pulse
 /// without a golem, a golem not 2 gt in the overworld or not pulsed at +1 gt for 10 gt, more
 /// golems alive in the Nether at the end than the last 300 gt's slots make.
+/// A design's `declared:` line, parsed (none: nothing declared).
+fn mctas_decl(v: Option<&String>) -> anyhow::Result<Vec<crate::declared::Decl>> {
+    crate::declared::parse(v.map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))
+}
+
 fn linear_problem(r: &std::result::Result<crate::linear::BenchReport, String>) -> Option<String> {
     let r = match r {
         Err(e) => return Some(format!("ERROR {e}")),
@@ -2171,6 +2176,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             if let Some(s) = p.meta.get("station") {
                 d.meta.insert("station".into(), s.clone());
+            }
+            // (the declared states and flights, `crate::declared` / `crate::flight`: both designs'
+            // lines, the part's moved by --at; a cell both declare differently is refused, and a
+            // loop base's states derived from its `queue:` options are the runner's own, not here)
+            let mut decl = mctas_decl(d.meta.get("declared"))?;
+            for x in mctas_decl(p.meta.get("declared"))? {
+                let moved = crate::declared::Decl { cell: mv(&x.cell), ..x };
+                match decl.iter().find(|e| e.cell == moved.cell) {
+                    Some(e) if *e != moved => anyhow::bail!("the cell {:?} is declared by both designs differently: the base's {}, the part's {}", moved.cell, crate::declared::format(std::slice::from_ref(e)), crate::declared::format(std::slice::from_ref(&moved))),
+                    Some(_) => {}
+                    None => decl.push(moved),
+                }
+            }
+            let mut fl = crate::flight::parse(d.meta.get("flights").map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
+            for f in crate::flight::parse(p.meta.get("flights").map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))? {
+                let moved = crate::flight::Flight { take_off: mv(&f.take_off), landing: f.landing.iter().map(|c| mv(c)).collect(), max_air: f.max_air };
+                if !fl.contains(&moved) {
+                    fl.push(moved);
+                }
+            }
+            if d.meta.contains_key("declared") || p.meta.contains_key("declared") {
+                d.meta.insert("declared".into(), crate::declared::format(&decl));
+            }
+            if d.meta.contains_key("flights") || p.meta.contains_key("flights") {
+                d.meta.insert("flights".into(), crate::flight::format(&fl));
             }
             let head: String = std::fs::read_to_string(&base)?.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
@@ -2956,6 +2986,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
             let o = crate::linear::LinearOpts::of(&c.clock.design.meta)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
+            // (its declared states and flights, `crate::declared` / `crate::flight`: the brief's
+            // "No derails"; a design without the lines declares nothing)
+            let declared = crate::declared::parse(c.clock.design.meta.get("declared").map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
+            let flights = crate::flight::parse(c.clock.design.meta.get("flights").map(String::as_str).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
+            println!("declared: {} states, {} flights{}", declared.len(), flights.len(), if c.clock.design.meta.contains_key("declared") { "" } else { " (the design has no `declared:` line)" });
             let st = crate::linear::check(&spec, &pad, &o).map_err(|e| anyhow::anyhow!(e))?;
             let seeds: Vec<i64> = (from..=to).collect();
             let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
@@ -2968,7 +3003,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::linear::bench(&spec, &pad, &o, &crate::linear::BenchOpts { seed, days, lead, drive: drive && seed == from, placement, plan: plan.clone() });
+                            let r = crate::linear::bench(&spec, &pad, &o, &crate::linear::BenchOpts { seed, days, lead, drive: drive && seed == from, placement, plan: plan.clone(), declared: declared.clone(), flights: flights.clone() });
                             out.lock().unwrap().push((seed, r));
                         });
                     }

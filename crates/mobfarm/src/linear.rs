@@ -178,6 +178,21 @@ pub fn design(pad: &PadOpts, o: &LinearOpts) -> Result<String> {
     // end of the build (one iron block in the double chest); filled after the redstone, each lock
     // hopper is locked when its stock goes in, and the lock before its filter (bottom up).
     b.d.meta.insert("build".into(), crate::placing::BuildPlan { last: Vec::new(), fills_last: true }.meta());
+    // (the declared states, `crate::declared`: the stand's 3 rails and the far hold's 18 are
+    // unpowered powered rails, brakes that keep the stub's carts parked, never to be powered (`!`:
+    // checked after the warm-up too); no flights: the bench moves the carts, none leaves a rail)
+    let mut decl: Vec<crate::declared::Decl> = (0..RIDERS).map(|i| {
+        let c = o.cell(i);
+        crate::declared::Decl::new([c.x, c.y, c.z], "powered_rail", &[("powered", "false")], true)
+    }).collect();
+    for g in 0..BATCHES - 1 {
+        let base = -6 + g * (RIDERS + 2);
+        for dx in 0..RIDERS {
+            decl.push(crate::declared::Decl::new([base + dx, o.y, o.hold_z], "powered_rail", &[("powered", "false")], true));
+        }
+    }
+    b.d.meta.insert("declared".into(), crate::declared::format(&decl));
+    b.d.meta.insert("flights".into(), String::new());
     b.d.ports.insert("output".into(), [bed.x + 2, bed.y, bed.z]);
     let text = b.text(&[
         &format!("The carousel's station + portal pad on the linear stand (bench): the release's front {RIDERS} carts back to back on one track {} at y {}, the pad's {} planes at z {:?},", if o.along_x { format!("along x from x {} at z {}", o.x0, o.z) } else { format!("along z from z {} at x {}", o.z, o.x0) }, o.y, pad.planes.len(), pad.planes),
@@ -224,6 +239,10 @@ pub fn alone(text: &str, pad: &PadOpts) -> Result<String> {
     for k in ["home", "output"] {
         d.ports.remove(k);
     }
+    // (the pad alone has no rail, gate, booster or detector, and no flight: both lines empty; the
+    // stand bench's brakes stay out of it)
+    d.meta.insert("declared".into(), String::new());
+    d.meta.insert("flights".into(), String::new());
     let pulse = pad.pulse();
     let mut s = String::new();
     s.push_str(&format!("# The carousel station's portal pad and its Nether part, alone: {} planes at z {:?} (frames x {}..{}, bottom row y {}, portals {} tall), a trench row on each side, a tripwire line on each frame's top row;\n", pad.planes.len(), pad.planes, pad.x0, pad.x1, pad.by, pad.h));
@@ -312,6 +331,13 @@ pub struct BenchOpts {
     pub placement: crate::placing::Placement,
     /// The design's listed build steps (its `build:` line), for a build in order.
     pub plan: crate::placing::BuildPlan,
+    /// The design's declared states (its `declared:` line, `crate::declared`): checked once the
+    /// design is in the world and the always-on (`!`) ones again 20 gt later; a mismatch is a
+    /// violation.
+    pub declared: Vec<crate::declared::Decl>,
+    /// The design's declared flights (its `flights:` line, `crate::flight`): every cart is watched
+    /// every tick, and an off-rail stretch that is no declared flight is a violation.
+    pub flights: Vec<crate::flight::Flight>,
 }
 
 /// What the linear bench measured.
@@ -338,6 +364,11 @@ pub struct BenchReport {
     pub violations: Vec<String>,
     pub violation_count: u32,
     pub errors: Vec<String>,
+    /// The declared states the world didn't match (at the start, or after the warm-up).
+    pub declared_bad: Vec<String>,
+    /// Off-rail stretches that were no declared flight, and the declared flights that landed.
+    pub derails: Vec<String>,
+    pub flights_landed: usize,
 }
 
 /// Move a cart (and its rider) to a stand or hold cell, at rest.
@@ -425,6 +456,15 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
             rep.violations.push(format!("gt {t}: {what}"));
         }
     };
+    // (the declared states, once the design is in the world (as placed, settled or built), the
+    // always-on ones again at t0 + 20; every cart watched for off-rail stretches against the
+    // declared flights)
+    for b in crate::declared::check(&run.world, &bo.declared, false) {
+        rep.declared_bad.push(b.clone());
+        violate(&mut rep, t0, format!("declared state: {b}"));
+    }
+    let mut rail_watch = crate::flight::RailWatch::new(bo.flights.clone());
+    let carts_watched: Vec<(u32, u32)> = batches.iter().flatten().copied().collect();
     let end = t0 + bo.days as i64 * 24000;
     // (the first slot after the spawn: batch 0 starts at the stand, so it needs no lead; the slots
     // after it move their batch in `lead` gt before. A start no settle or build rounds to 200 can
@@ -519,6 +559,15 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
         }
         run.tick();
         let t = run.world.time;
+        if t == t0 + 20 {
+            for b in crate::declared::check(&run.world, &bo.declared, true) {
+                rep.declared_bad.push(b.clone());
+                violate(&mut rep, t, format!("declared state after the warm-up: {b}"));
+            }
+        }
+        for (k, (cart, rider)) in carts_watched.iter().enumerate() {
+            rail_watch.observe(&run.world, k, *cart, Some(*rider), &format!("gt {t}"));
+        }
         let evs: Vec<MobEvent> = run.world.mob.events[ev_seen.min(run.world.mob.events.len())..].to_vec();
         ev_seen = run.world.mob.events.len();
         for ev in evs {
@@ -619,6 +668,12 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
     rep.nether_deaths = nether.iter().filter(|g| g.1.is_some()).count() as u32;
     rep.nether_alive = nether.iter().filter(|g| g.1.is_none()).count() as u32;
     rep.returned = returned.len() as u32;
+    // (off-rail stretches that are no declared flight: each a violation)
+    for d in &rail_watch.derails {
+        violate(&mut rep, end, format!("derail: {d}"));
+    }
+    rep.derails = rail_watch.derails.clone();
+    rep.flights_landed = rail_watch.landed;
     rep.errors = run.world.errors.iter().filter(|e| !e.contains("zombified piglin")).take(6).cloned().collect();
     if bo.drive {
         // the iron the Nether part's containers hold beyond the design's own stock, and loose
