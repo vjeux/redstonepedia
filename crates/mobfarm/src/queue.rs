@@ -2094,6 +2094,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut rider_gone: Vec<bool> = vec![false; riders.len()];
     let mut rider_last: Vec<([f64; 3], f32, i64)> = vec![([0.0; 3], 20.0, 0); riders.len()];
     let mut rider_hurt: Vec<String> = Vec::new();
+    let mut golems_seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut golem_log: Vec<String> = Vec::new();
     let mut bed_claims: Vec<String> = Vec::new();
     // (the stop stand's brake: armed with a batch's third cart, set `stop_brake_delay` gt after
     // that cart is on the braked slopes; the design's first batch arms it from the start)
@@ -2627,6 +2629,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         stop_brake(&mut run.world, &mut stop_arm);
         // (every rider's damage and loss from the world, every tick; with a visit also each
         // rider's bed claim, when it starts and ends, and where it rode then)
+        for e in run.world.entities.list.iter() {
+            if let redsim::entity::EntityKind::Mob(m) = &e.kind {
+                if m.ty == redsim::entity::mob::types::MobType::IronGolem && golems_seen.insert(e.id) {
+                    golem_log.push(format!("e#{} at slot {c} +{dt} (day time {}) at {:.2},{:.2},{:.2}", e.id, run.world.day_time().rem_euclid(24000), e.pos.x, e.pos.y, e.pos.z));
+                    // (the loop has no pad: a golem here spawned off the pad, a spawn cell
+                    // `queue-loop-spots` lists; a villager that has slept (a napper back from its
+                    // visit) summons one when it panics with two more such villagers near)
+                    problems.push(format!("slot {c} +{dt}: an iron golem spawned at {:.2},{:.2},{:.2}, off the pad (see queue-loop-spots)", e.pos.x, e.pos.y, e.pos.z));
+                }
+            }
+        }
         {
             for (k, r) in riders.iter().enumerate() {
                 let Some(i) = redsim::entity::index_of(&run.world, *r) else {
@@ -2802,7 +2815,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let ps: Vec<String> = w.iter().filter_map(|k| carts.get(*k)).map(|id| run.world.entities.list.iter().find(|e| e.id == *id).map(|e| {
                 // (and its rider: where, its box's x span)
                 let r = e.passengers.first().and_then(|p| run.world.entities.list.iter().find(|x| x.id == *p)).map(|x| format!(" r{:.2},{:.2} [{:.2}..{:.2} y {:.2}..{:.2}]{}", x.pos.x, x.pos.y, x.bb.min_x, x.bb.max_x, x.bb.min_y, x.bb.max_y, if redsim::entity::minecart::is_pushable(x) { "" } else { " unpushable" })).unwrap_or_default();
-                format!("{:.2},{:.2},{:.2} v{:.3}{r}", e.pos.x, e.pos.y, e.pos.z, e.delta_movement.horizontal_distance())
+                // (and the rail it is on: its cell's block, shape and power only)
+                let cell = BlockPos::new(e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32);
+                let rail = run.world.get(cell).to_string().replace("minecraft:", "").replace(",waterlogged=false", "");
+                // (and any other entity within 1.5 of it, its own rider aside: what could push it)
+                let near: Vec<String> = run.world.entities.list.iter().filter(|x| x.id != e.id && !e.passengers.contains(&x.id) && (x.pos.x - e.pos.x).abs() < 1.5 && (x.pos.y - e.pos.y).abs() < 2.5 && (x.pos.z - e.pos.z).abs() < 1.5).map(|x| format!("e#{} {} {:.2},{:.2},{:.2}", x.id, match &x.kind { redsim::entity::EntityKind::Mob(m) => format!("{:?}", m.ty), k => format!("{:?}", std::mem::discriminant(k)) }, x.pos.x, x.pos.y, x.pos.z)).collect();
+                let near = if near.is_empty() { String::new() } else { format!(" near [{}]", near.join("; ")) };
+                format!("{:.2},{:.2},{:.2} v{:.3} on {rail}{r}{near}", e.pos.x, e.pos.y, e.pos.z, e.delta_movement.horizontal_distance())
             }).unwrap_or_default()).collect();
             // (the pocket stand: each gate open or shut, G2 G1 G0, and the wired stand's REL and
             // detector D1)
@@ -3131,6 +3150,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(d);
     }
     out.extend(visit_lines_pre.iter().cloned());
+    if !golem_log.is_empty() {
+        out.push(format!("iron golems: {} first seen: {}", golem_log.len(), golem_log.iter().take(12).cloned().collect::<Vec<_>>().join("; ")));
+    }
     if !rider_hurt.is_empty() {
         out.push(format!("riders hurt: {}", rider_hurt.join("; ")));
     }
