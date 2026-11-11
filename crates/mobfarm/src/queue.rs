@@ -1042,6 +1042,9 @@ pub struct TailWatch {
     arr_contact_max: (f64, String),
     admit_contact_max: (f64, String),
     contacts: usize,
+    /// Per waiting place (the cell of the arriving cart): contacts, those above a stored 0.2,
+    /// the highest stored speed at contact and the closest approach of the two centres.
+    contact_by_cell: std::collections::BTreeMap<[i32; 3], (usize, usize, f64, f64)>,
     closest: Option<(f64, String)>,
     arrival_log: Vec<String>,
     impacts: usize,
@@ -1323,6 +1326,15 @@ impl TailWatch {
                                 self.admit_contact_max = (pvs, format!("slot {c} +{dt}: cart {k} at P into cart {}", b.1));
                             }
                             self.contacts += 1;
+                            // (the arrivals bullet, ironspec Nov 11 14:47: per waiting place, the
+                            // stored speed at contact (bar 0.2) and the closest approach)
+                            let ent = self.contact_by_cell.entry(self.cells[i]).or_insert((0usize, 0usize, 0.0f64, f64::INFINITY));
+                            ent.0 += 1;
+                            if pvs > 0.2 {
+                                ent.1 += 1;
+                            }
+                            ent.2 = ent.2.max(pvs);
+                            ent.3 = ent.3.min(d);
                             if closing > self.closing_max.0 {
                                 self.closing_max = (closing, format!("slot {c} +{dt}: cart {k} into cart {} at {:?}", b.1, self.cells[i]));
                             }
@@ -1446,6 +1458,19 @@ impl TailWatch {
                 if self.admit_contact_max.1.is_empty() { String::new() } else { format!(" ({})", self.admit_contact_max.1) },
                 self.closest.as_ref().map_or("-".to_string(), |x| format!("{:.3} ({})", x.0, x.1))
             ),
+            {
+                // (the arrivals bullet (ironspec Nov 11 14:47): every arrival meets the cart ahead
+                // at a stored 0.2 or less; per waiting place the highest and the closest approach)
+                let above: usize = self.contact_by_cell.values().map(|v| v.1).sum();
+                let mut by: Vec<(&[i32; 3], &(usize, usize, f64, f64))> = self.contact_by_cell.iter().collect();
+                by.sort_by(|a, b| b.1.2.total_cmp(&a.1.2));
+                format!(
+                    "arrivals into a waiting queue (the brief's bar: a stored speed of 0.2 or less at every contact): {} contacts, {above} above 0.2{}; per waiting place, the highest stored speed at contact and the closest centres: {}",
+                    self.contacts,
+                    if above > 0 { " -- FAILS the bar" } else { "" },
+                    if by.is_empty() { "-".to_string() } else { by.iter().take(8).map(|(c, (n, a, m, d))| format!("{},{},{} {m:.3} ({a} of {n} above), {d:.3}", c[0], c[1], c[2])).collect::<Vec<_>>().join("; ") }
+                )
+            },
             {
                 // (the gaps at the take-off plane, fractional gt; tick-exact's quarter-tick bridge
                 // aec62262a: 3.75 or less lands clean (a pushed pair), 4 to 6.75 sticks or merges,
