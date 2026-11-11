@@ -66,6 +66,7 @@ level32.rec	0ee4f1cd919d8aad		26.3	2026-11-11T03:34Z on 2a49ff7aa	mctas mobai re
 level33-set.rec	564e605c5463249e		26.3	2026-11-11T12:25Z on f6d0a622a	mctas mobai record level33-set --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 loot-pickup.rec	399481169aa92c26		26.3	2026-11-10T15:13Z on 15717973b	mctas mobai record loot-pickup --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
+merge-threshold.rec	ded8d58396e39485		26.3	2026-11-11T17:48Z on b6dbc4de63	mctas mobai record merge-threshold --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 pane-connect.rec	8106ec4b73502113		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record pane-connect --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
@@ -85,6 +86,7 @@ siding-sleepfail-nodrop3.rec	b47ddf17af593783		26.3	2026-11-11T11:13Z on a7485ad
 skeleton-golem.rec	201cbec2967abec0		26.3	2026-11-10T16:07Z on 4b8e206c1	mctas mobai record skeleton-golem --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 skeleton-night.rec	0c0593037b2d3fb3		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-night --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 skeleton-sun.rec	2c1222b87fbd3641		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-sun --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+slope-merge-ridden.rec	c9b719c2a65c5612		26.3	2026-11-11T17:48Z on b6dbc4de63	mctas mobai record slope-merge-ridden --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 slope-merge.rec	3424208fa9672800		26.3	2026-11-11T17:41Z on a6c966a89a	mctas mobai record slope-merge --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 spider-effects.rec	bc7bcd4b52713a4f		26.3	2026-11-10T23:51Z on 4e39780ede	mctas mobai record spider-effects --seed 1 --ticks 2400 --dir designs/redsim/recorded/mobai
 spider-golem.rec	68e63d0d953653ad		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-golem --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

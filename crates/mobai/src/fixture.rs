@@ -3278,6 +3278,111 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's merge bridges (b): cc767b78's redsim run stops a follower dead
+    // 0.79 short of a RIDDEN cart pressed on the gate, against its rider's box) slope-merge's lanes
+    // with the front cart ridden: 20 lanes, followers at stored 0, 0.04, 0.2, 0.5, 0.6, 0.8, 1.0, 1.2,
+    // 1.5 and 2.0, ridden (lanes 0..9) then empty (lanes 10..19)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 47, 0, 15, 63, stone);
+        let rail = |shape: &str| format!("minecraft:rail[shape={shape},waterlogged=false]");
+        for i in 0..20 {
+            let x = 1 + 2 * i;
+            b.push(([x, 64, 3], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+            b.push(([x, 64, 4], rail("ascending_south")));
+            b.push(([x, 64, 5], stone.to_string()));
+            b.push(([x, 65, 5], rail("ascending_south")));
+            for y in 64..=65 {
+                b.push(([x, y, 6], stone.to_string()));
+            }
+            b.push(([x, 66, 6], rail("ascending_south")));
+            for z in 7..=12 {
+                for y in 64..=66 {
+                    b.push(([x, y, z], stone.to_string()));
+                }
+                b.push(([x, 67, z], rail("north_south")));
+            }
+        }
+        let cart = |x: i32, y: f64, z: f64, v: f64, ridden: bool| {
+            let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+            ("minecraft:minecart".to_string(), [x as f64 + 0.5, y, z], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", -v)))
+        };
+        let mut mobs = Vec::new();
+        for (k, sp) in [0.0, 0.04, 0.2, 0.5, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0].iter().enumerate() {
+            for (lane, ridden) in [(k, true), (k + 10, false)] {
+                let x = 1 + 2 * lane as i32;
+                mobs.push(cart(x, 64.0, 4.5, 0.0, true));
+                mobs.push(cart(x, 66.0, 6.5, *sp, ridden));
+            }
+        }
+        v.push(Scene {
+            name: "slope-merge-ridden".into(),
+            chunks: [0, 0, 2, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [47, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's merge bridges (3): the threshold's sensitivity) an empty cart
+    // held at a closed gate at (x,64,3) and an empty follower set off from z 7.5 at stored 0.6, 0.7,
+    // 0.8, 0.9, 1.0 and 1.2, in five geometries of six lanes each (x = 1 + 2i): flat track (the front
+    // at rest touching the gate); one ascending rail before the gate (the flat at y 65); two (y 66);
+    // three (y 67, slope-merge's slope, the follower from the flat); and three with the front cart
+    // moving, let go from (x,65,5.5) at stored 0.2 toward the gate as the follower sets off
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 63, 0, 15, 63, stone);
+        let rail = |shape: &str| format!("minecraft:rail[shape={shape},waterlogged=false]");
+        let cart = |x: i32, y: f64, z: f64, v: f64| ("minecraft:minecart".to_string(), [x as f64 + 0.5, y, z], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]}}", -v)));
+        let mut mobs = Vec::new();
+        let speeds = [0.6, 0.7, 0.8, 0.9, 1.0, 1.2];
+        // (geometry g: the slopes before the gate, and whether the front moves)
+        for (g, (slopes, moving)) in [(0, false), (1, false), (2, false), (3, false), (3, true)].into_iter().enumerate() {
+            for (k, sp) in speeds.iter().enumerate() {
+                let x = 1 + 2 * (g * 6 + k) as i32;
+                b.push(([x, 64, 3], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+                for s in 0..slopes {
+                    let y = 64 + s;
+                    for yy in 64..y {
+                        b.push(([x, yy, 4 + s], stone.to_string()));
+                    }
+                    b.push(([x, y, 4 + s], rail("ascending_south")));
+                }
+                let top = 64 + slopes;
+                for z in (4 + slopes)..=12 {
+                    for yy in 64..top {
+                        b.push(([x, yy, z], stone.to_string()));
+                    }
+                    b.push(([x, top, z], rail("north_south")));
+                }
+                if moving {
+                    mobs.push(cart(x, 65.0, 5.5, 0.2));
+                } else {
+                    mobs.push(cart(x, 64.0, 4.5, 0.0));
+                }
+                mobs.push(cart(x, top as f64, 7.5, *sp));
+            }
+        }
+        v.push(Scene {
+            name: "merge-threshold".into(),
+            chunks: [0, 0, 3, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
     // reloaded sleeper's wake) a villager asleep in its bed, a zombie walled in stone 4 blocks east;
     // the whole sandbox unloaded at t200, loaded at t240 and the zombie's west wall taken away at
@@ -5535,7 +5640,23 @@ pub fn rec_carts(path: &std::path::Path, every: u32) -> Result<()> {
         println!("lane x {x}:");
         let mut closest: Option<(f64, usize, u64, u64)> = None;
         let mut was_merged = false;
+        // (the first contact: neighbours whose boxes, inflated 0.2 sideways as pushAndPickupEntities
+        // reads them, overlap: horizontal centres under 1.18 and heights under 0.7 apart; the
+        // follower's stored speed the tick before)
+        let mut contact: Option<(usize, f64, f64)> = None;
+        let mut prev: Option<&Vec<Cart>> = None;
         for (t, cs) in ticks {
+            if contact.is_none() {
+                for w in cs.windows(2) {
+                    let h = ((w[0].1[0] - w[1].1[0]).powi(2) + (w[0].1[2] - w[1].1[2]).powi(2)).sqrt();
+                    if h < 1.18 && (w[0].1[1] - w[1].1[1]).abs() < 0.7 {
+                        let before = prev.and_then(|p| p.iter().find(|c| c.0 == w[1].0)).map_or(f64::NAN, |c| c.2[0].hypot(c.2[2]));
+                        contact = Some((*t, before, h));
+                        break;
+                    }
+                }
+            }
+            prev = Some(cs);
             let gaps: Vec<f64> = cs.windows(2).map(|w| gap(&w[0], &w[1])).collect();
             for (k, g) in gaps.iter().enumerate() {
                 if closest.is_none_or(|c| *g < c.0) {
@@ -5552,7 +5673,8 @@ pub fn rec_carts(path: &std::path::Path, every: u32) -> Result<()> {
             was_merged = merged;
         }
         if let Some((g, t, a, b)) = closest {
-            println!("  closest pair: #{a} #{b} {g:.4} apart at t{t}{}", if g < 0.01 { " (MERGED)" } else { "" });
+            let first = contact.map_or(String::new(), |(t, s, h)| format!("; first contact t{t} (horizontal centres {h:.4}), the follower's stored speed the tick before {s:.4}"));
+            println!("  closest pair: #{a} #{b} {g:.4} apart at t{t}{}{first}", if g < 0.01 { " (MERGED)" } else { "" });
         }
     }
     Ok(())
