@@ -2255,6 +2255,14 @@ pub struct LoopTiming {
     /// at rest) or, the timeout path, when the raw REL has been on T gt; the stand's REL cell
     /// carries REL_eff (the latch resets on it).
     pub rel_gate: Option<(i64, i64, i64)>,
+    /// With `rel_gate`: a raw pulse that finds the latch unset (no batch settled: an empty or
+    /// frozen stand) passes after this many gt, unless the latch sets meanwhile (`--rel-gate
+    /// S,D,L,U`; 0: at once).
+    pub rel_gate_unset: i64,
+    /// Option (a)'s two-part release, emulated (`--split X,Y,Z,W`): while the stand's REL cell is
+    /// on, the first cart entering that loop-frame cell (after G2) shuts G2 behind it until the
+    /// REL cell goes off or W gt have passed.
+    pub split: Option<([i32; 3], i64)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -2406,7 +2414,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, start_random: false, calm: false }
     }
 }
 
@@ -3280,6 +3288,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut gate_log: Vec<(i64, i64, i64, bool, Option<i64>)> = Vec::new();
     let mut gate_rest_after_q: Vec<i64> = Vec::new();
     let mut gate_age_at_rise: Vec<i64> = Vec::new();
+    let mut gate_missed = false;
+    let mut gate_trig_this_pulse = false;
+    let mut gate_skips: Vec<(i64, i64)> = Vec::new();
+    // (`split`: done for this release, G2 held until, the cell's occupants, held last tick, the
+    // releases split (slot, dt), the held ticks)
+    let mut split_done = false;
+    let mut split_until: Option<i64> = None;
+    let mut split_in: Vec<bool> = vec![false; 64];
+    let mut split_was = false;
+    let mut split_log: Vec<(i64, i64)> = Vec::new();
+    let mut split_ticks: i64 = 0;
     // (`acts`' restores due: (gt, cell, the block the act replaced)); the bench's own REL state
     let mut act_restores: Vec<(i64, BlockPos, Block)> = Vec::new();
     let mut pending_loads: Vec<(i64, Option<[i32; 4]>)> = Vec::new();
@@ -4353,6 +4372,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // L-gt pulse per raw pulse, triggered when the latch (T2 out) has been set S gt or the raw
         // REL has been on T gt; the stand's REL cell carries REL_eff)
         if let (Some((gs, gt, gl)), Some(r)) = (tm.rel_gate, rel_bench) {
+            let gate_wait_unset = tm.rel_gate_unset;
             if gate_act.is_some_and(|(_, until)| until.is_some_and(|u| t >= u)) {
                 gate_act = None;
             }
@@ -4379,23 +4399,84 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 gate_armed = false;
             }
             gate_raw_was = raw;
-            if gate_eff_until.is_some_and(|u| t >= u) {
+            // (REL_eff: on from its trigger while the raw REL lasts and at least L gt; the trigger,
+            // once per raw pulse within D gt of its rise: the latch set S gt, or a release missed
+            // in an earlier pulse (the memory: a pulse that passed its deadline untriggered); past
+            // the deadline the pulse is skipped and remembered, so a held release waits at most
+            // one REL period)
+            if gate_eff_until.is_some_and(|u| t >= u) && !(raw && gate_trig_this_pulse) {
                 gate_eff_until = None;
             }
             if gate_armed && gate_eff_until.is_none() {
-                let by_q = q && gate_q_at.is_some_and(|qa| t - qa >= gs);
-                let by_t = gate_raw_rise.is_some_and(|rr| t - rr >= gt);
-                if by_q || by_t {
+                let since = gate_raw_rise.map_or(0, |rr| t - rr);
+                // (the latch unset: no batch has settled to protect (an empty or still frozen
+                // stand): the release passes at once, as without the gate)
+                let by_q = (!q && since >= gate_wait_unset) || (q && gate_q_at.is_some_and(|qa| t - qa >= gs));
+                if since > gt {
+                    gate_armed = false;
+                    gate_missed = true;
+                    gate_skips.push((c, dt));
+                } else if by_q || gate_missed {
                     gate_eff_until = Some(t + gl);
                     gate_armed = false;
-                    gate_log.push((c, dt, t - gate_raw_rise.unwrap_or(t), by_q, if q { gate_q_at.map(|qa| t - qa) } else { None }));
+                    gate_trig_this_pulse = true;
+                    gate_log.push((c, dt, since, by_q, if q { gate_q_at.map(|qa| t - qa) } else { None }));
+                    gate_missed = false;
                 }
+            }
+            if !raw {
+                gate_trig_this_pulse = false;
             }
             let want = gate_eff_until.is_some();
             if want != run.world.get(r).to_string().contains("redstone_block") {
                 run.world.set_block(r, if want { on.clone() } else { off.clone() }, redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, r.x, r.y, r.z, if want { "minecraft:redstone_block" } else { "minecraft:glass" }));
             }
+        }
+        // (`split`, emulated: option (a)'s two-part release. While the stand's REL cell is on, the
+        // first cart entering the cell after G2 (pocket 3's departing cart) shuts G2 behind it
+        // until the REL cell goes off or W gt have passed: a doubled train's second half stays
+        // behind G2, settles in the pockets after the release and leaves on the next one)
+        if let (Some((cell, w)), Some(r), Some(g)) = (tm.split, rel_bench, lay.pockets.get(2).map(|p| p.0)) {
+            let rel_on = run.world.get(r).to_string().contains("redstone_block");
+            if !rel_on {
+                split_done = false;
+            }
+            let (cx, cy, cz) = (cell[0] + o.shift[0], cell[1], cell[2] + o.shift[1]);
+            let ps: Vec<Option<redsim::entity::Vec3>> = carts.iter().map(|id| pos_of(&run.world, *id)).collect();
+            let mut edge = false;
+            for (k, p) in ps.iter().enumerate().take(64) {
+                let inside = p.is_some_and(|p| p.x.floor() as i32 == cx && p.y.floor() as i32 == cy && p.z.floor() as i32 == cz);
+                if inside && !split_in[k] {
+                    edge = true;
+                }
+                split_in[k] = inside;
+            }
+            if rel_on && edge && !split_done {
+                split_done = true;
+                split_until = Some(t + w);
+                split_log.push((c, dt));
+            }
+            let hold = split_until.is_some_and(|u| t < u) && rel_on;
+            let in_gate = ps.iter().flatten().any(|p| (p.x - (g.x as f64 + 0.5)).abs() < 0.6 && (p.z - (g.z as f64 + 0.5)).abs() < 0.99 && p.y > g.y as f64 - 1.7 && p.y < g.y as f64 + 1.0);
+            let cur = run.world.get(g).to_string();
+            let sig = run.world.has_neighbor_signal(g);
+            let want_open = if hold { if cur.contains("open=true") && in_gate { Some(true) } else { Some(false) } } else if split_was { Some(sig) } else { None };
+            if let Some(open) = want_open {
+                let s = cur.replace("open=true", &format!("open={open}")).replace("open=false", &format!("open={open}")).replace("powered=true", &format!("powered={sig}")).replace("powered=false", &format!("powered={sig}"));
+                if s != cur
+                    && let Ok(b) = Block::parse(&s)
+                {
+                    run.world.set_block(g, b, redsim::world::flags::ALL);
+                }
+                if hold && !open {
+                    split_ticks += 1;
+                }
+            }
+            if !hold {
+                split_until = None;
+            }
+            split_was = hold;
         }
         // (`late_hold`, emulated: per held gate Gk, a cart entering its arrival cell within the
         // last N gt, within W gt of the controller's REL rising (the pocket carts still starting
@@ -5631,14 +5712,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         if !back_causes.is_empty() {
             out.push(format!("back-crossing causes: {} ({})", back_kinds.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "), back_causes.iter().take(8).cloned().collect::<Vec<_>>().join("; ")));
         }
+        if let Some((cell, w)) = tm.split {
+            out.push(format!("split (G2 shut behind the first cart into {},{},{} while the stand's REL is on, up to {w} gt): {} releases split, G2 held {split_ticks} gt{}", cell[0], cell[1], cell[2], split_log.len(), if split_log.is_empty() { String::new() } else { format!(" (first: {})", split_log.iter().take(4).map(|(c, d)| format!("slot {c} +{d}")).collect::<Vec<_>>().join(", ")) }));
+        }
         if let Some((gs, gt, gl)) = tm.rel_gate {
             let delays: Vec<i64> = gate_log.iter().map(|g| g.2).collect();
             let byq: Vec<i64> = gate_log.iter().filter(|g| g.3).map(|g| g.2).collect();
             let byt = gate_log.iter().filter(|g| !g.3).count();
             let ages: Vec<i64> = gate_log.iter().filter_map(|g| g.4).collect();
             let late = gate_log.iter().max_by_key(|g| g.1).map(|g| format!("slot {} +{}", g.0, g.1)).unwrap_or_default();
-            let delayed: Vec<String> = gate_log.iter().filter(|g| g.2 > 0).map(|g| format!("slot {} +{} (+{} after REL{})", g.0, g.1, g.2, if g.3 { "" } else { ", timeout" })).collect();
-            out.push(format!("rel gate (S {gs}, T {gt}, L {gl}): {} releases, {} by the latch (delay after REL's rise {}), {byt} by the timeout; the latch's age at a release {}; latest release {late}; delayed: {}", gate_log.len(), byq.len(), if byq.is_empty() { "-".to_string() } else { format!("{}..{} gt", byq.iter().min().unwrap(), byq.iter().max().unwrap()) }, if ages.is_empty() { "-".to_string() } else { format!("{}..{} gt", ages.iter().min().unwrap(), ages.iter().max().unwrap()) }, if delayed.is_empty() { "none".to_string() } else { delayed.iter().take(8).cloned().collect::<Vec<_>>().join(", ") }));
+            let delayed: Vec<String> = gate_log.iter().filter(|g| g.2 > 0).map(|g| format!("slot {} +{} (+{} after REL{})", g.0, g.1, g.2, if g.3 { "" } else { ", missed earlier" })).collect();
+            out.push(format!("rel gate (S {gs}, D {gt}, L {gl}): {} releases, {} by the latch (delay after REL's rise {}), {byt} by a missed earlier release (at the next REL); {} pulses skipped past the deadline ({}); the latch's age at a release {}; latest release {late}; delayed: {}", gate_log.len(), byq.len(), if byq.is_empty() { "-".to_string() } else { format!("{}..{} gt", byq.iter().min().unwrap(), byq.iter().max().unwrap()) }, gate_skips.len(), gate_skips.iter().take(6).map(|(c, d)| format!("slot {c} +{d}")).collect::<Vec<_>>().join(", "), if ages.is_empty() { "-".to_string() } else { format!("{}..{} gt", ages.iter().min().unwrap(), ages.iter().max().unwrap()) }, if delayed.is_empty() { "none".to_string() } else { delayed.iter().take(8).cloned().collect::<Vec<_>>().join(", ") }));
             let _ = delays;
             let mm = |v: &Vec<i64>| if v.is_empty() { "-".to_string() } else { format!("{}..{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
             out.push(format!("rel gate band: the batch at rest {} gt after the latch sets (S at least the top); the latch's age at REL's rise {} gt (S at most the bottom keeps a release undelayed)", mm(&gate_rest_after_q), mm(&gate_age_at_rise)));
