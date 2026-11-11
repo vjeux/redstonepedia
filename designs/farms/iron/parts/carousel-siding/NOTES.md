@@ -266,6 +266,16 @@ held: **the siding jams.**
   fast): it breaks the normal path (0 of 16 seeds clean: arriving carts no longer settle on the
   park, riders lose HOME) and makes the jam worse (10 of 16 seeds never free the stuck cart).
 
+**Path A, the fast kick on F (ironspec 2026-11-10 19:26; design, not yet built):**
+- **What it must do:** fire the kick on F at once, but never on a villager that has slept this visit, whether it is still asleep or has already woken.
+- **Why H can't be the guard:** H sets about 26 gt after the sleep onset, because of the moved nap-path delay. The onset tail reaches 121 gt after the arrival, against F at 128 at k2.
+- **The guard:** a "napped since arrival" memory N, set by the observer's raw pulse at (0,0,5) before any delay, and cleared by K.
+- **The kick itself:** F and V and not N, driven by a repeater from (0,-1,6), which is air today, into the park rail's support (1,-1,6). It works as an OR beside K, and it must also respect L (slot taken).
+- **Cost:** routing from F (-5,-3,-4) to (0,-1,6) crosses the latch area; about 20-25 blocks (estimate).
+- **The jam (6/32) has its own cause:** the next cart wedges the stuck villager on the free cell.
+  - Sending a second arrival to the exit would need the T flipped within about 3 gt of the entry, and no latch path is that fast.
+  - A T driven by V, with a delayed arrival set, re-arms V forever after an R-missed fault. Rejected on paper.
+
 **Fault injection at the stateful elements** (`--fault KIND:K`, 8-16 seeds, release held, visit
 3; each pulse a redstone block for 4 gt beside the element): ARR missed (DB pulsed just after the
 arrival), ARR extra (DA pulsed mid-visit), R extra (DB pulsed and the H latch reset mid-visit),
