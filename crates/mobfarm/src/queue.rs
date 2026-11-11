@@ -3748,6 +3748,8 @@ pub struct MeterHold {
 /// The metered stand's state and measurements (`meter_tick`).
 #[derive(Default)]
 pub struct MeterState {
+    /// (9fc3155f) Each Dh 3 edge's gt before the next slot tick.
+    dh3_before_tick: Vec<i64>,
     init: bool,
     rel_was: bool,
     rel_open: bool,
@@ -4150,6 +4152,10 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             s.open_at = Some(t + m.d12);
         }
         log(s, format!("{c}+{dt} Dh{}", if first { " 1" } else if s.p3 { " 3" } else { "" }));
+        // (the stand's 3rd cart in (Dh 3): gt before the next slot tick, the timing bar's 2 gt)
+        if !first && s.p3 {
+            s.dh3_before_tick.push(100 - dt);
+        }
         if s.phase % 2 == 1 {
             s.phase += 1;
         }
@@ -4497,6 +4503,7 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
     out.push(format!("meter (S3(ii)'s hold, emulated): {} releases, {} trains metered in; events: {}", s.rel_count, s.done_at.len(), s.events.iter().take(40).cloned().collect::<Vec<_>>().join(", ")));
+    out.push(format!("meter Dh 3 (the stand's 3rd cart in): gt before the next slot tick {}", span(&s.dh3_before_tick)));
     out.push(format!("meter margins: H closes, gt until a cart touches its face {}; Dh edges, gt since Dh was last off {}; G0 shut after the last departing cart cleared it {}; the first cart at G0's face after G0 shut {}, at G1's after G1 shut {}, at G2's after G2 shut {}", span(&s.h_touch), span(&s.dh_off_margin), span(&s.g0_dep), span(&s.face[0]), span(&s.face[1]), span(&s.face[2])));
     let fspan = |v: &[f64]| if v.is_empty() { "-".to_string() } else { format!("{:.2}..{:.2} (n {})", v.iter().cloned().fold(f64::MAX, f64::min), v.iter().cloned().fold(f64::MIN, f64::max), v.len()) };
     out.push(format!("meter H per opening: the released cart's Dh edge after the opening {} gt; the follower short of H's plane when H shut {} blocks (ironfarm's escapement: >= 0.66); carts through H per opening {}", span(&s.open_to_dh), fspan(&s.short_at_shut), { let mut v: Vec<usize> = s.per_opening.clone(); v.push(s.through); let n = |k: usize| v.iter().filter(|x| **x == k).count(); format!("0: {}, 1: {}, 2+: {}", n(0), n(1), v.iter().filter(|x| **x >= 2).count()) }));

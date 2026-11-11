@@ -85,6 +85,10 @@ pub struct Summary {
     /// C''''s hump: the highest backward climb on its falling face above the dip, and backward carts
     /// onto its top or beyond.
     pub hump_back: (f64, usize),
+    /// S3's meter: releases and trains metered in, the least gt from a Dh 3 edge to the next slot
+    /// tick, openings passing 2 or more carts, the follower's least distance short of H's plane at
+    /// H's shut.
+    pub meter: Option<(usize, usize, Option<i64>, usize, Option<f64>)>,
 }
 
 /// "name a/b/c/d/e/f when x/y/z; ..." (the runner's cause lines), the first N parts.
@@ -162,6 +166,18 @@ pub fn summarize(out: &str) -> Summary {
             s.back_vmax = r.split_once("fastest backward: stored ").and_then(|(_, v)| v.split(',').next()).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
         } else if let Some(r) = l.strip_prefix("carts on the release run upstream of the line z 9|10 at once: at most ") {
             s.upstream = r.trim().parse().unwrap_or(0);
+        } else if let Some(r) = l.strip_prefix("meter (S3(ii)'s hold, emulated): ") {
+            let rel = r.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            let tin = r.split_once("releases, ").and_then(|(_, v)| v.split_whitespace().next()).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let m = s.meter.get_or_insert((0, 0, None, 0, None));
+            (m.0, m.1) = (rel, tin);
+        } else if let Some(r) = l.strip_prefix("meter Dh 3 (the stand's 3rd cart in): gt before the next slot tick ") {
+            let m = s.meter.get_or_insert((0, 0, None, 0, None));
+            m.2 = r.split("..").next().and_then(|v| v.trim().parse().ok());
+        } else if let Some(r) = l.strip_prefix("meter H per opening: ") {
+            let m = s.meter.get_or_insert((0, 0, None, 0, None));
+            m.3 = r.rsplit_once("2+: ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
+            m.4 = r.split_once("short of H's plane when H shut ").and_then(|(_, v)| v.split("..").next()).and_then(|v| v.trim().parse().ok());
         } else if let Some(r) = l.strip_prefix("hump: highest backward climb on its falling face ") {
             s.hump_back = (r.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0.0), r.rsplit_once(": ").and_then(|(_, v)| v.trim().parse().ok()).unwrap_or(0));
         } else if let Some(r) = l.strip_prefix("approach profile summary (") {
@@ -332,6 +348,26 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
             v.push((format!("H hold, empty {k}"), vec![gate.clone(), strip.clone()]));
             v.push((format!("riderless {k}"), vec![strip]));
         }
+        if o.hump > 0 {
+            // (C'''/C''+hump: a cart left in the dip (its flat cells, at rest or crawling on) at
+            // slot 5 +35, before the train reaches the dip: the train pushes it up the climb, no cart
+            // rolling back; and a cart forced back over T (set on T's climb edge moving back at 0.1
+            // or 0.3) at every 5 gt of the slot: where it ends (the dip, the hump's top, beyond))
+            let fx = xb as f64 + 0.5;
+            let dy = o.dip_y as f64 + 0.0625;
+            let foot = 2 * o.approach as i32 - o.dip_y as i32;
+            for z in (foot + 1)..(foot + 1 + o.dip_flat as i32) {
+                for (what, v0) in [("at rest", 0.0), ("crawling", -0.02)] {
+                    v.push((format!("dip push-in z {}.5 {what}", z), vec![format!("5,35,place,head,{fx},{dy},{z}.5,{v0}")]));
+                }
+            }
+            let ty = o.approach as f64 + 1.0625;
+            for t in (0..100).step_by(5) {
+                for v0 in [0.1, 0.3] {
+                    v.push((format!("back over T {v0} +{t}"), vec![format!("5,{t},place,head,{fx},{ty},{},{v0}", o.approach as f64 - 0.1)]));
+                }
+            }
+        }
     }
     if o.depart_crest > 0 && o.crest_plain_dip {
         let d = o.depart_crest as i32;
@@ -399,7 +435,7 @@ fn opt(v: Option<i64>) -> String {
 /// seed, `tm`'s own acts kept (C' emulated with T3 removed, say); `perfect`: the queue reset at
 /// every slot from 6.
 #[allow(clippy::too_many_arguments)]
-pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool, rel_sweep: Option<(i64, i64)>) -> Result<String, String> {
+pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool, rel_sweep: Option<(i64, i64)>, fault_slot: i64) -> Result<String, String> {
     let partial = o.shift != [0, 0];
     let cases0: Vec<(String, Vec<String>)> = fault_cases(o, partial).into_iter().filter(|(n, _)| filter.is_none_or(|f| f.split('|').any(|p| n.contains(p)))).collect();
     // (`all_corners`: every case at REL nominal, early and late x staggers 2, 3, 4, 6; `rel_sweep`
@@ -446,10 +482,16 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
                 if n.len() != 6 {
                     return Err(format!("{s}: strip takes X,Y,Z,S0,S1,K"));
                 }
-                t.strip_riders = Some(([n[0] as i32, n[1] as i32, n[2] as i32], n[3], n[4], n[5] as usize));
+                // (`fault_slot`: the case's slot 5 moved there, its slot-relative timing kept)
+                let (s0, s1) = if n[3] == 5 && n[4] == 5 { (fault_slot, fault_slot) } else { (n[3], n[4]) };
+                t.strip_riders = Some(([n[0] as i32, n[1] as i32, n[2] as i32], s0, s1, n[5] as usize));
                 continue;
             }
-            a[base.len() + k] = Some(crate::queue::parse_act(s)?);
+            let s = match s.strip_prefix("5,") {
+                Some(rest) if fault_slot != 5 => format!("{fault_slot},{rest}"),
+                _ => s.clone(),
+            };
+            a[base.len() + k] = Some(crate::queue::parse_act(&s)?);
         }
         t.acts = a;
         if perfect {
@@ -461,7 +503,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         }
     }
     let got = runs(spec, o, jobs, cycles, threads)?;
-    let mut out = vec![format!("fault table: {} cases x seeds {:?}, {cycles} slots, the fault at slot 5{}; per case over the seeds: clean 3 from slot (the latest seed; never = -), carts back through a gate, departures' min gap (contacts), tail entry min gap within groups (touching), its biggest group, problems", cases.len(), seeds, if perfect { ", the perfect tail (queue reset every slot from 6)".to_string() } else if let (Some(r), true) = (tm.reset_queue_at, tm.reset_queue_every) { format!(", the perfect tail (queue reset every slot from {r})") } else { ", the bench's own tail".to_string() })];
+    let mut out = vec![format!("fault table: {} cases x seeds {:?}, {cycles} slots, the fault at slot {fault_slot}{}; per case over the seeds: clean 3 from slot (the latest seed; never = -), carts back through a gate, departures' min gap (contacts), tail entry min gap within groups (touching), its biggest group, problems", cases.len(), seeds, if perfect { ", the perfect tail (queue reset every slot from 6)".to_string() } else if let (Some(r), true) = (tm.reset_queue_at, tm.reset_queue_every) { format!(", the perfect tail (queue reset every slot from {r})") } else { ", the bench's own tail".to_string() })];
     for (i, (name, _, _)) in cases.iter().enumerate() {
         let ss: Vec<&Summary> = got.iter().filter(|(k, _)| *k == i).map(|(_, s)| s).collect();
         let clean = if ss.iter().any(|s| s.clean_from.is_none()) { None } else { ss.iter().filter_map(|s| s.clean_from).max() };
@@ -534,6 +576,21 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
             pad
         };
         let pad = if o.hump > 0 { format!("{pad} | hump back climb {:.2} over top {}", ss.iter().map(|s| s.hump_back.0).fold(0.0, f64::max), ss.iter().map(|s| s.hump_back.1).sum::<usize>()) } else { pad };
+        // (S3's meter: trains metered in over releases, the least Dh 3 margin to the next tick,
+        // openings passing 2+ carts, the follower's least distance short of H's plane at the shut)
+        let ms: Vec<(usize, usize, Option<i64>, usize, Option<f64>)> = ss.iter().filter_map(|s| s.meter).collect();
+        let pad = if ms.is_empty() {
+            pad
+        } else {
+            format!(
+                "{pad} | meter in {}/{} rel, Dh3 before tick min {}, 2+ per opening {}, follower short min {}",
+                ms.iter().map(|m| m.1).sum::<usize>(),
+                ms.iter().map(|m| m.0).sum::<usize>(),
+                ms.iter().filter_map(|m| m.2).min().map_or("-".into(), |v| v.to_string()),
+                ms.iter().map(|m| m.3).sum::<usize>(),
+                ms.iter().filter_map(|m| m.4).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.min(v)))).map_or("-".into(), |v| format!("{v:.2}"))
+            )
+        };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
             let dr: usize = ss.iter().map(|s| s.d_rev).sum();
