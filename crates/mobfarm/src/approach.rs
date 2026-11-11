@@ -25,6 +25,10 @@ pub struct Summary {
     /// gap12, G2 in (after cart 2's front), G2 before cart 3: each (min, max).
     pub margins: Option<[i64; 6]>,
     pub latch: Option<(i64, i64)>,
+    pub merges: usize,
+    /// Latch sets before +55 (out of turn) and slots with more than one set.
+    pub latch_early: usize,
+    pub latch_doubles: usize,
 }
 
 fn num_after(l: &str, key: &str) -> Option<i64> {
@@ -63,6 +67,11 @@ pub fn summarize(out: &str) -> Summary {
             s.latch = a.zip(b);
         } else if let Some(n) = l.strip_suffix(" problems").or_else(|| l.strip_suffix(" problems:")) {
             s.problems = n.parse().unwrap_or(0);
+        } else if l.starts_with("merged carts") {
+            s.merges = l.split("): ").nth(1).and_then(|t| t.split_whitespace().next()).and_then(|t| t.parse().ok()).unwrap_or(0);
+        } else if l.starts_with("latch sets: ") {
+            s.latch_early = num_after(l, "out of turn (REL off, before +55) ").unwrap_or(0) as usize;
+            s.latch_doubles = num_after(l, "more than one with REL off in a slot ").unwrap_or(0) as usize;
         }
     }
     // (the first slot from which every later start is clean)
@@ -106,6 +115,25 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
     for n in [40, 240] {
         for t in [66, 79, 92, 12, 30, 48] {
             v.push((format!("unload all {n} +{t}"), vec![format!("5,{t},unload,{n}")]));
+        }
+    }
+    // (C' wired: its detector D missed for the slot (a plain rail in its place), an extra edge (D
+    // powered 4 gt with no cart) before, inside and after the train's passage, and D's edge during a
+    // freeze of its chunk, the stand's (stage 32 alone; stage 33 inside a 3 x 3 box))
+    if o.cprime.is_some() {
+        let d = c(ox - 3, 3, 7);
+        v.push(("C' D missed".into(), vec![format!("5,0,{d},rail[shape=ascending_north],100")]));
+        for t in [0, 20, 50, 66, 90] {
+            v.push((format!("C' D extra +{t}"), vec![format!("5,{t},{d},detector_rail[powered=true,shape=ascending_north],4")]));
+        }
+        if partial {
+            for (b, stage) in [("0,0,0,0", 32), ("-1,-1,1,1", 33)] {
+                for n in [40, 240] {
+                    for t in [30, 36, 40] {
+                        v.push((format!("C' D edge, chunk stage {stage} {n} +{t}"), vec![format!("5,{t},unload,{b},{n}")]));
+                    }
+                }
+            }
         }
     }
     if partial {
@@ -197,8 +225,10 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let touch: usize = ss.iter().map(|s| s.tail_touch).sum();
         let group = ss.iter().map(|s| s.tail_group_max).max().unwrap_or(0);
         let probs: Vec<String> = ss.iter().map(|s| s.problems.to_string()).collect();
-        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 { " <--" } else { "" };
-        out.push(format!("{name:24} clean from {:>2} | back {back} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
+        let merges: usize = ss.iter().map(|s| s.merges).sum();
+        let early: usize = ss.iter().map(|s| s.latch_early).sum();
+        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 { " <--" } else { "" };
+        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
     }
     Ok(out.join("\n"))
 }
@@ -232,25 +262,34 @@ pub fn corner_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64
         let m = |j: usize, lo: bool| { let v = ss.iter().filter_map(|s| s.margins.map(|m| m[j])); if lo { v.min() } else { v.max() } };
         let la = ss.iter().filter_map(|s| s.latch.map(|l| l.0)).min();
         let lb = ss.iter().filter_map(|s| s.latch.map(|l| l.1)).max();
-        out.push(format!("{n:22} clean {clean}/{} | D2 {}..{} | G2 in {}..{} | before cart 3 {}..{} | latch +{}..+{} | dep min {} | tail min {}", ss.len(), opt(m(0, true)), opt(m(1, false)), opt(m(2, true)), opt(m(3, false)), opt(m(4, true)), opt(m(5, false)), opt(la), opt(lb), opt(ss.iter().filter_map(|s| s.dep_min).min()), opt(ss.iter().filter_map(|s| s.tail_min).min())));
+        let merges: usize = ss.iter().map(|s| s.merges).sum();
+        let early: usize = ss.iter().map(|s| s.latch_early).sum();
+        let doubles: usize = ss.iter().map(|s| s.latch_doubles).sum();
+        out.push(format!("{n:22} clean {clean}/{} | D2 {}..{} | G2 in {}..{} | before cart 3 {}..{} | latch +{}..+{} (early {early}, doubled {doubles}) | merges {merges} | dep min {} | tail min {}", ss.len(), opt(m(0, true)), opt(m(1, false)), opt(m(2, true)), opt(m(3, false)), opt(m(4, true)), opt(m(5, false)), opt(la), opt(lb), opt(ss.iter().filter_map(|s| s.dep_min).min()), opt(ss.iter().filter_map(|s| s.tail_min).min())));
     }
     Ok(out.join("\n"))
 }
 
 /// C', the train-synchronous D1 fallback, wired (`queue-loop --cprime`, with `--approach 5` and
 /// `--stand-guard`; the loop frame with G2 at x `ox`): the approach climb's detector rail D
-/// (ox - 3, 3, 7) strongly powers its support S0 (made stone); a dust staircase (a zig-zag down
-/// between x ox - 2 and ox - 1 at z 6) brings D down to y -4; R_in into the stone N; the comparator
-/// K (subtract) reads N at its rear and N delayed 14 gt at its side (RS1 4 rt, RS3 3 rt): one pulse
-/// per rise of N; K's pulse east along z 7 (repeaters R1..R4) into K_n (C's stone (7,-4,5)), whose
-/// wall torch T_n (C's Xd cell (6,-4,5)) is not P; T_n drives C's Rq (5,-4,4) into B3, so T3 is P
-/// (lit for the pulse) and sets the latch through F as C did. C's timer (REL's tap TP, S, the chains
-/// K1..K5, Dr, Xd, its supports) goes. Returns (cells removed, cells added), loop frame.
+/// (ox - 3, 3, 7) strongly powers its support S0 (made stone); three repeaters R1..R3 east along z 7
+/// at y 2 read S0; a dust staircase down east along z 7 to (8,-5,7) (every step's support stone but
+/// the last: a dust reads the one a step above it only through a conductor under that one; glass
+/// passes a signal up a staircase, never down); back west along z 8 at y -5 through R4 into R_in,
+/// which feeds the stone N (5,-5,6); the comparator K (5,-5,5, subtract) reads N at its rear and N
+/// delayed by RS1 and RS3 (3 rt) at its east side: one pulse per rise of N, into K_n (5,-5,4,
+/// stone, C's glass), under the torch T_n (5,-4,4, C's Rq cell), which lights the dust (5,-4,3)
+/// into B3 except during the pulse: T3 is P (lit for the pulse) and sets the latch through F as C
+/// did. C's timer (REL's tap TP, S, the chains K1..K5, Dr, Xd, its supports), Rq's dust (5,-4,5)
+/// and C's K_n (7,-4,5) go. `delays`: [R1, R2, R3, R4, R_in, RS1] in redstone ticks. Returns (cells
+/// removed, cells added), loop frame; a cell in both is replaced.
 pub fn cprime_cells(ox: i32, delays: [i32; 6]) -> (Vec<[i32; 3]>, Vec<([i32; 3], String)>) {
     let at = |x: i32, y: i32, z: i32| [ox + x, y, z];
     let removed: Vec<[i32; 3]> = [
         (7, -3, 1), (7, -4, 1), (6, -3, 1), (6, -4, 1), (6, -5, 1), (6, -4, 2), (6, -5, 2), (7, -4, 2), (7, -5, 2), (7, -4, 3), (7, -5, 3), (7, -4, 4), (7, -5, 4),
         (7, -5, 1), (7, -6, 1), (8, -5, 1), (8, -5, 2), (8, -5, 3), (8, -5, 4), (8, -6, 2), (8, -6, 3), (8, -6, 4), (8, -5, 5), (8, -6, 5), (7, -5, 5), (7, -6, 5), (6, -5, 5), (6, -4, 5),
+        // (C's K_n and its cap, Rq's input dust; replaced: S0, Rq, its support, the dust's support)
+        (7, -4, 5), (7, -3, 5), (5, -4, 5), (-3, 2, 7), (5, -4, 4), (5, -5, 4), (5, -5, 5),
     ]
     .iter()
     .map(|&(x, y, z)| at(x, y, z))
@@ -259,57 +298,47 @@ pub fn cprime_cells(ox: i32, delays: [i32; 6]) -> (Vec<[i32; 3]>, Vec<([i32; 3],
     let rep = |d: i32, f: &str| format!("repeater[delay={d},facing={f},locked=false,powered=false]");
     let mut add: Vec<([i32; 3], String)> = Vec::new();
     let mut put = |x: i32, y: i32, z: i32, s: String| add.push((at(x, y, z), s));
-    // S0 under D: stone (D strongly powers it)
+    // S0 under D: stone (D strongly powers it); R1..R3 at y 2 on glass
     put(-3, 2, 7, "stone".into());
-    // the top run: d0 east of S0, d1, d2 (y 2), then a straight staircase down east along z 5 to
-    // (3,-3,5) and one step north to (3,-4,4): every step's support a conductor (stone) but the
-    // last (a dust reads the one a step above it only through a conductor under that one; glass
-    // passes a signal up a staircase, never down; a zig-zag fails: a step's support sits over the
-    // step two below and cuts it)
-    put(-2, 2, 7, wire("side", "none", "none", "side"));
-    put(-2, 1, 7, "glass".into());
-    put(-2, 2, 6, wire("side", "none", "side", "none"));
-    put(-2, 1, 6, "glass".into());
-    put(-2, 2, 5, wire("none", "side", "side", "none"));
-    put(-2, 1, 5, "stone".into());
-    for (x, y) in [(-1, 1), (0, 0), (1, -1), (2, -2)] {
-        put(x, y, 5, wire("none", "side", "none", "up"));
-        put(x, y - 1, 5, "stone".into());
+    for (i, x) in (-2..=0).enumerate() {
+        put(x, 2, 7, rep(delays[i], "west"));
+        put(x, 1, 7, "glass".into());
     }
-    put(3, -3, 5, wire("side", "none", "none", "up"));
-    put(3, -4, 5, "stone".into());
-    put(3, -4, 4, wire("side", "none", "up", "none"));
-    put(3, -5, 4, "glass".into());
-    // R_in (north) into the stone N; K (subtract) north of N, its rear N; RS1 west of N (west),
-    // the side dusts, RS3 east into K's west side; K's pulse north into a dust
-    put(3, -4, 3, rep(delays[0], "south"));
-    put(3, -5, 3, "glass".into());
-    put(3, -4, 2, "stone".into());
-    put(3, -4, 1, "comparator[facing=south,mode=subtract,powered=false]".into());
-    put(3, -5, 1, "glass".into());
-    put(2, -4, 2, rep(4, "east"));
-    put(2, -5, 2, "glass".into());
-    put(1, -4, 2, wire("none", "side", "side", "none"));
-    put(1, -5, 2, "glass".into());
-    put(1, -4, 1, wire("side", "side", "none", "none"));
-    put(1, -5, 1, "glass".into());
-    put(2, -4, 1, rep(3, "west"));
-    put(2, -5, 1, "glass".into());
-    put(3, -4, 0, wire("none", "side", "side", "none"));
-    put(3, -5, 0, "glass".into());
-    // east along z 0 (repeaters: G1's slope support (4,-3,0) is strongly powered and would light
-    // a dust under it), a dust line north along x 7, a repeater south into K_n
-    for (i, x) in (4..=6).enumerate() {
-        put(x, -4, 0, rep(delays[1 + i], "west"));
-        put(x, -5, 0, "glass".into());
+    // the staircase: (1,2,7) .. (8,-5,7), each step's support stone, the last glass
+    for k in 0..8 {
+        let (x, y) = (1 + k, 2 - k);
+        put(x, y, 7, if k == 0 { wire("none", "side", "none", "side") } else if k < 7 { wire("none", "side", "none", "up") } else { wire("none", "none", "side", "up") });
+        put(x, y - 1, 7, if k < 7 { "stone".into() } else { "glass".into() });
     }
-    for z in 0..=3 {
-        put(7, -4, z, wire(if z > 0 { "side" } else { "none" }, "none", "side", if z == 0 { "side" } else { "none" }));
-        put(7, -5, z, "glass".into());
-    }
-    put(7, -4, 4, rep(delays[4], "north"));
-    put(7, -5, 4, "glass".into());
-    // T_n on K_n (C's stone (7,-4,5), kept)
-    put(6, -4, 5, "redstone_wall_torch[facing=west,lit=true]".into());
+    // back west along z 8: a dust, R4, two dusts into R_in (facing south) and N
+    put(8, -5, 8, wire("side", "none", "none", "side"));
+    put(8, -6, 8, "glass".into());
+    put(7, -5, 8, rep(delays[3], "east"));
+    put(7, -6, 8, "glass".into());
+    put(6, -5, 8, wire("none", "side", "none", "side"));
+    put(6, -6, 8, "glass".into());
+    put(5, -5, 8, wire("side", "side", "none", "none"));
+    put(5, -6, 8, "glass".into());
+    put(5, -5, 7, rep(delays[4], "south"));
+    put(5, -6, 7, "glass".into());
+    // (N a dust on glass, not a stone: a stone there is a golem spawn cell)
+    put(5, -5, 6, wire("side", "none", "side", "side"));
+    put(5, -6, 6, "glass".into());
+    // K (subtract, rear N south of it) into K_n; RS1 west of N, two dusts, RS3 into K's west side
+    // (the west: a dust east of K would sit one step below the staircase's (7,-4,7) and the two
+    // would link)
+    put(5, -5, 5, "comparator[facing=south,mode=subtract,powered=false]".into());
+    put(5, -6, 5, "glass".into());
+    put(4, -5, 6, rep(delays[5], "east"));
+    put(4, -6, 6, "glass".into());
+    put(3, -5, 6, wire("side", "side", "none", "none"));
+    put(3, -6, 6, "glass".into());
+    put(3, -5, 5, wire("none", "side", "side", "none"));
+    put(3, -6, 5, "glass".into());
+    put(4, -5, 5, rep(3, "west"));
+    put(4, -6, 5, "glass".into());
+    // K_n and T_n (lit: the dust (5,-4,3) into B3 powered, T3 off)
+    put(5, -5, 4, "stone".into());
+    put(5, -4, 4, "redstone_torch[lit=true]".into());
     (removed, add)
 }

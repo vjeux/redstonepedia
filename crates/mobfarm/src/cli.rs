@@ -1195,6 +1195,17 @@ pub enum MobfarmCmd {
         /// With --fault-table: every case at REL nominal, early and late x staggers 2, 3, 4, 6.
         #[arg(long)]
         all_corners: bool,
+        /// Admission control (an `--esc-adm` design, escG6L): G0 opened DELAY gt after G_P opens
+        /// (`--fifo-intake`), a plain pulse MAX gt long.
+        #[arg(long = "adm", value_delimiter = ',', allow_hyphen_values = true)]
+        adm: Vec<i64>,
+        /// Admission control: P powered from the first G_P window on (a booster held by G_P alone).
+        #[arg(long)]
+        adm_p_always: bool,
+        /// With --fault-table (a --cprime design): the table for each set of C''s delays
+        /// "R1,R2,R3,R4,RIN,RS1;..." (redstone ticks), the design generated again with each.
+        #[arg(long, default_value = "")]
+        cprime_variants: String,
         /// The tolerance corners instead of a run: REL nominal, early and late x staggers 2, 3, 4, 6.
         #[arg(long)]
         corner_table: bool,
@@ -2427,7 +2438,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, start_random, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, fault_table, perfect_tail, all_corners, corner_table } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, start_random, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, fault_table, perfect_tail, all_corners, adm, adm_p_always, cprime_variants, corner_table } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             if let Some(sf) = &siding {
@@ -2490,7 +2501,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: match late_hold.as_slice() { [x, y, z, n] => Some(([*x as i32, *y as i32, *z as i32], *n)), [] => None, _ => anyhow::bail!("--late-hold takes X,Y,Z,N") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: match late_hold.as_slice() { [x, y, z, n] => Some(([*x as i32, *y as i32, *z as i32], *n)), [] => None, _ => anyhow::bail!("--late-hold takes X,Y,Z,N") }, esc_adm: match adm.as_slice() { [a, b] => (*a, *b), [] => (8, 3), _ => anyhow::bail!("--adm takes DELAY,MAX") }, p_always: adm_p_always, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
             // (`--place-rest`: the approach's rest check instead of a run)
             if let Some(pr) = &place_rest {
                 let cells: Vec<[i32; 3]> = if pr == "approach" {
@@ -2513,7 +2524,34 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (n, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--shift takes name=gt"))?;
                     t = crate::queue::loop_shifted(&t, n, v.parse()?).map_err(|e| anyhow::anyhow!(e))?;
                 }
-                println!("{}", crate::approach::fault_table(&spec, &o, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners).map_err(|e| anyhow::anyhow!(e))?);
+                // (`--cprime-variants`: the table for each set of C''s delays, the design generated
+                // again from its queue: line with that set)
+                let variants: Vec<Option<[i32; 6]>> = if cprime_variants.is_empty() {
+                    vec![None]
+                } else {
+                    cprime_variants.split(';').map(|v| {
+                        let d: Vec<i32> = v.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(d.len() == 6, "--cprime-variants takes R1,R2,R3,R4,RIN,RS1;...");
+                        Ok(Some([d[0], d[1], d[2], d[3], d[4], d[5]]))
+                    }).collect::<Result<_>>()?
+                };
+                for v in variants {
+                    let (o2, spec2) = match v {
+                        None => (o, spec.clone()),
+                        Some(d) => {
+                            let o2 = crate::queue::LoopOpts { cprime: Some(d), ..o };
+                            let p = std::env::temp_dir().join(format!("cprime-variant-{}-{}.txt", std::process::id(), d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_")));
+                            std::fs::write(&p, crate::queue::loop_design(&o2)?)?;
+                            let (_, s2) = load(version, &p)?;
+                            let _ = std::fs::remove_file(&p);
+                            // (C''s delay from D's rise to T3 lit: 2 gt a repeater tick, and K, T_n
+                            // and T3 one tick each)
+                            println!("== C' delays {:?}: D's rise to T3 lit {} gt", d, 2 * (d[0] + d[1] + d[2] + d[3] + d[4]) + 6);
+                            (o2, s2)
+                        }
+                    };
+                    println!("{}", crate::approach::fault_table(&spec2, &o2, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners).map_err(|e| anyhow::anyhow!(e))?);
+                }
                 return Ok(());
             }
             if corner_table {

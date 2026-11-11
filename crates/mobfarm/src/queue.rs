@@ -1841,9 +1841,8 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
                 }
             }
             for (c, s) in added {
-                let ok = b.d.blocks.get(&c).is_none_or(|old| c == [ox - 3, 2, 7] && old == "minecraft:glass");
-                if !ok {
-                    bail!("C''s {s} at {c:?} meets {}", b.d.blocks.get(&c).cloned().unwrap_or_default());
+                if let Some(old) = b.d.blocks.get(&c) {
+                    bail!("C''s {s} at {c:?} meets {old}");
                 }
                 b.set(c[0], c[1], c[2], &s);
             }
@@ -3212,6 +3211,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut g0_opens: Vec<i64> = Vec::new();
     let mut g0_was_open = false;
     let mut t2_was_lit: Option<bool> = None;
+    let mut adm_p_once = false;
+    let mut latch_all: Vec<(i64, i64, bool)> = Vec::new();
+    let mut t3_was_lit = false;
+    let mut t3_rises: Vec<(i64, i64)> = Vec::new();
     let mut ret_x: Vec<Option<f64>> = vec![None; 21];
     // (the slot-boundary order check: the last slot's queue, train and stand batch; clean slots)
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
@@ -4111,6 +4114,30 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             }
             // (the escapement: B powered `esc_b` K gt after the gate opens (`fifo_intake` D gt after
             // each advance's start), for its W gt; the flat escapement's G_B open in that window)
+            if lay.esc_adm_a1.is_some() {
+                // (admission control, escG6L, as tail-bench drives it: P powered with G_P's window,
+                // or from the first window on with `p_always` (a booster held by G_P alone); G0
+                // opened `esc_adm` DELAY gt after G_P opens, a plain pulse MAX gt long)
+                let (d, w) = tm.fifo_intake;
+                let (da, mx) = tm.esc_adm;
+                let win = |from: i64, len: i64| c < cycles && (0..3).any(|k| {
+                    let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                    dt >= a + from && dt < a + from + len
+                });
+                if let Some(pc) = lay.esc_p {
+                    let in_win = win(d, w);
+                    adm_p_once |= in_win;
+                    let want = in_win || (tm.p_always && adm_p_once);
+                    let b = if want { on.clone() } else { off.clone() };
+                    if run.world.get(pc) != b {
+                        run.world.set_block(pc, b, redsim::world::flags::ALL);
+                        drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", run.world.time - t_origin, pc.x, pc.y, pc.z, if want { "redstone_block" } else { "glass" }));
+                    }
+                }
+                if let Some(g0) = lay.esc_g0 {
+                    set_gate(&mut run.world, g0, "south", win(d + da, mx));
+                }
+            }
             if lay.esc.is_some() || lay.esc_gb.is_some() {
                 let (d, _) = tm.fifo_intake;
                 let (kb, wb) = tm.esc_b;
@@ -4307,7 +4334,22 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 if t2_was_lit == Some(true) && !lit && dt >= 55 && c < cycles {
                     latch_sets.push(dt);
                 }
+                // (every set, whenever it comes, and whether G0 (= REL) was open then: a set while
+                // REL is on is overridden by it; one with REL off before +55 is out of turn)
+                if t2_was_lit == Some(true) && !lit && c < cycles {
+                    let rel_on = lay.pockets.first().is_some_and(|g| run.world.get(g.0).to_string().contains("open=true"));
+                    latch_all.push((c, dt, rel_on));
+                }
                 t2_was_lit = Some(lit);
+            }
+            // (the guard's set path: T3 lit (C's timer or C''s pulse), each rise)
+            if o.stand_guard {
+                let t3 = BlockPos::new(-o.row_gap + 8 + o.shift[0], -3, 2 + o.shift[1]);
+                let lit3 = run.world.get(t3).to_string().contains("lit=true");
+                if lit3 && !t3_was_lit && c < cycles {
+                    t3_rises.push((c, dt));
+                }
+                t3_was_lit = lit3;
             }
             if lay.pockets.len() == 3 {
                 let g0_open = run.world.get(lay.pockets[0].0).to_string().contains("open=true");
@@ -4388,7 +4430,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 strip_x[k] = now;
             }
             // (the tail's entry: the return run along z 20 at the run's level, crossing x 1 west)
-            let ry = if o.tail_esc > 0 { o.tail_esc as f64 + 6.0 } else if o.tail_fifo > 0 { 2.0 + o.tail_fifo as f64 } else if o.tail_desc { 4.0 } else { 1.0 };
+            let ry = if o.tail_esc > 0 { esc_ye(o) as f64 } else if o.tail_fifo > 0 { 2.0 + o.tail_fifo as f64 } else if o.tail_desc { 4.0 } else { 1.0 };
             for (k, id) in carts.iter().enumerate() {
                 let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id) else { continue };
                 let now = ((e.pos.z - fz - 20.5).abs() < 0.6 && (e.pos.y - ry).abs() < 0.9).then_some(e.pos.x - fx);
@@ -5354,6 +5396,30 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(format!("carts off the rails: {}{}; riders not seated: {}{}", derails.len(), if derails.is_empty() { String::new() } else { format!(" ({})", derails.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }, unseat_log.len(), if unseat_log.is_empty() { String::new() } else { format!(" ({})", unseat_log.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }));
         if o.stand_wired && !latch_sets.is_empty() {
             out.push(format!("latch set (T2 out after +55): +{}..+{} over {} slots", latch_sets.iter().min().unwrap(), latch_sets.iter().max().unwrap(), latch_sets.len()));
+        }
+        if o.stand_wired {
+            // (every set: out of turn is one with REL off before +55, or a second one with REL off
+            // in a slot; a set while REL is on (a departing cart over D1, C''s late pulse) is held
+            // off by REL's reset and only flickers T2)
+            let early: Vec<String> = latch_all.iter().filter(|(_, d, r)| *d < 55 && !*r).map(|(c, d, _)| format!("slot {c} +{d}")).collect();
+            let under_rel = latch_all.iter().filter(|(_, _, r)| *r).count();
+            let mut per: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+            for (c, _, r) in &latch_all {
+                if !*r {
+                    *per.entry(*c).or_default() += 1;
+                }
+            }
+            let doubles: Vec<String> = per.iter().filter(|(_, n)| **n > 1).map(|(c, n)| format!("slot {c} x{n}")).collect();
+            out.push(format!("latch sets: {} with REL off in {} slots ({under_rel} more under REL, overridden); out of turn (REL off, before +55) {}{}; more than one with REL off in a slot {}{}", latch_all.len() - under_rel, per.len(), early.len(), if early.is_empty() { String::new() } else { format!(" ({})", early.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }, doubles.len(), if doubles.is_empty() { String::new() } else { format!(" ({})", doubles.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }));
+        }
+        if o.stand_guard && !t3_rises.is_empty() {
+            let offs: Vec<i64> = t3_rises.iter().map(|(_, d)| *d).collect();
+            let mut per: std::collections::BTreeMap<i64, Vec<i64>> = std::collections::BTreeMap::new();
+            for (c, d) in &t3_rises {
+                per.entry(*c).or_default().push(*d);
+            }
+            let multi: Vec<String> = per.iter().filter(|(_, v)| v.len() > 1).map(|(c, v)| format!("slot {c} +{}", v.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("/+"))).collect();
+            out.push(format!("T3 (the guard's set: C's timer or C') lit {} times at +{}..+{}; slots with more than one {}{}", t3_rises.len(), offs.iter().min().unwrap(), offs.iter().max().unwrap(), multi.len(), if multi.is_empty() { String::new() } else { format!(" ({})", multi.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }));
         }
         // (the departure corner, day-1's divert T: each departure of 3 (passes under 30 gt apart),
         // cart k's centre in and out of the corner cell, from the slot's start and from G0's last
