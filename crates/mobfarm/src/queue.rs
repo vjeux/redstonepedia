@@ -4888,6 +4888,8 @@ struct CurveSpacing {
     cells: Vec<BlockPos>,
     open: std::collections::HashMap<(usize, u32), (i64, f64)>,
     passes: Vec<Vec<(i64, i64, u32, f64)>>,
+    /// (cc767b78) the passages whose cart was empty at its entry: (curve, cart, entry tick)
+    empty_at: std::collections::HashSet<(usize, u32, i64)>,
 }
 
 impl CurveSpacing {
@@ -4922,6 +4924,9 @@ impl CurveSpacing {
                 match self.open.get(&key).copied() {
                     None if d < 0.5 => {
                         self.open.insert(key, (t, v));
+                        if e.passengers.is_empty() {
+                            self.empty_at.insert((i, e.id, t));
+                        }
                     }
                     Some((t0, v0)) if d > 0.98 => {
                         self.passes[i].push((t0, t, e.id, v0));
@@ -4947,6 +4952,26 @@ impl CurveSpacing {
             if let Some((m, at, vl, vf)) = worst {
                 rows.push((m, format!("({},{},{}) {} passes, least margin {m} gt at t {at} (leader {vl:.2}, follower {vf:.2} b/gt)", p.x - 6, p.y, p.z - 6, ps.len())));
             }
+        }
+        rows.sort_by_key(|r| r.0);
+        rows.into_iter().map(|r| r.1).collect()
+    }
+    /// (cc767b78) per curve with an empty cart in a pair: the least margin with an empty leader
+    /// and with an empty follower (the riderless rows), least first.
+    fn report_empty(&self) -> Vec<String> {
+        let mut rows: Vec<(i64, String)> = Vec::new();
+        for (i, p) in self.cells.iter().enumerate() {
+            let mut ps = self.passes[i].clone();
+            ps.sort_by_key(|x| x.0);
+            let empty = |x: &(i64, i64, u32, f64)| self.empty_at.contains(&(i, x.2, x.0));
+            let least = |lead_empty: bool| ps.windows(2).filter(|w| if lead_empty { empty(&w[0]) } else { empty(&w[1]) }).map(|w| (w[1].0 - w[0].1, w[0].1, w[0].3, w[1].3)).min_by_key(|x| x.0);
+            let (le, fe) = (least(true), least(false));
+            if le.is_none() && fe.is_none() {
+                continue;
+            }
+            let txt = |x: Option<(i64, i64, f64, f64)>| x.map_or("-".to_string(), |(m, at, vl, vf)| format!("{m} gt at t {at} (leader {vl:.2}, follower {vf:.2} b/gt)"));
+            let m = le.map(|x| x.0).into_iter().chain(fe.map(|x| x.0)).min().unwrap_or(0);
+            rows.push((m, format!("({},{},{}) empty leader: {}; empty follower: {}", p.x - 6, p.y, p.z - 6, txt(le), txt(fe))));
         }
         rows.sort_by_key(|r| r.0);
         rows.into_iter().map(|r| r.1).collect()
@@ -11507,6 +11532,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         {
             let cr = curves.report();
             out.push(format!("curve spacing (each curve's passages: the follower's entry, its centre within 0.5 of the curve's centre, minus the leader's clear, 0.98 past it; tick-exact's curve-pair rule, least first): {}", if cr.is_empty() { "no curve passed twice".to_string() } else { cr.join("; ") }));
+            let ce = curves.report_empty();
+            if !ce.is_empty() {
+                out.push(format!("curve spacing with an empty cart (the least margin with an empty leader, and with an empty follower; least first): {}", ce.join("; ")));
+            }
         }
         if lay.esc_adm_a1.is_some() {
             out.push(format!("riders in the pressed queue (landing to P) with a walk target, rider-ticks by path: reaching {}, partial {}, no path {}{}; riders whose box touches another cart's, walking or not (contact alone pushes: LivingEntity.pushEntities, bridged in gate-escg6l-v3; must be 0): {walk_touch} (not walking {touch_idle}){}", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }, if walk_touch_log.is_empty() { String::new() } else { format!(" ({})", walk_touch_log.join("; ")) }));

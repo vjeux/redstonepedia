@@ -3709,8 +3709,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let t_cross = r.lines().find_map(|l| l.split("backward crossings into T's cell: ").nth(1)).map(|x| x.split(' ').next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
                         // (7b90c3f1's curve-spacing line: each curve's least margin, tick-exact's
                         // curve-pair rule; the first three curves listed (least first))
-                        let curves = r.lines().find_map(|l| l.split("least first): ").nth(1).filter(|_| l.starts_with("curve spacing"))).map(|x| x.split("); ").take(3).collect::<Vec<_>>().join("); ")).unwrap_or("-".to_string());
-                        println!("stagger {st} K {k}: stalls {stalls}) | backward entries {back} | merged {merged} | T crossings {t_cross} | curves: {curves}) | by place: {places} | {probs} | {}", cells_txt.join(" | "));
+                        let curves = r.lines().find_map(|l| l.split("least first): ").nth(1).filter(|_| l.starts_with("curve spacing ("))).map(|x| x.split("); ").take(3).collect::<Vec<_>>().join("); ")).unwrap_or("-".to_string());
+                        let curves_e = r.lines().find_map(|l| l.strip_prefix("curve spacing with an empty cart (the least margin with an empty leader, and with an empty follower; least first): ")).map(|x| x.split("); (").take(3).collect::<Vec<_>>().join("); (")).unwrap_or("-".to_string());
+                        // (each stopped empty: where and how long, or never moved again)
+                        let stall_list = r.lines().find_map(|l| l.strip_prefix("empty carts at rest >= 10 gt in the stall boxes: ")).and_then(|x| x.split_once("): ").map(|(_, rest)| rest.to_string())).map(|rest| {
+                            rest.split(" | ")
+                                .map(|s| {
+                                    let at = s.split("at loop ").nth(1).map(|x| x.split(' ').next().unwrap_or(x)).unwrap_or("?");
+                                    let wait = if s.contains("never moved again") { "never moved again".to_string() } else { s.split(" gt)").next().and_then(|x| x.rsplit('(').next()).map(|x| format!("{x} gt")).unwrap_or_default() };
+                                    let how = if s.contains("by a cart-cart push") { ", pushed on" } else if s.contains("by itself") { ", by itself" } else { "" };
+                                    format!("{at} {wait}{how}")
+                                })
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        }).unwrap_or_default();
+                        println!("stagger {st} K {k}: stalls {stalls}){} | backward entries {back} | merged {merged} | T crossings {t_cross} | curves: {curves}) | empty-cart curves: {curves_e} | by place: {places} | {probs} | {}", if stall_list.is_empty() { String::new() } else { format!(" [{stall_list}]") }, cells_txt.join(" | "));
                     }
                 }
                 for (name, a) in &agg {
