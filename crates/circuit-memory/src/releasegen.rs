@@ -246,6 +246,13 @@ fn feed(b: &mut B, srcs: &[(P3, usize)], end: P3, total: u8, near: &[P3], lo: P3
     // (the end is the fixed part's input cell: its support is that part's, declared with them)
     avoid.remove(&end);
     avoid.remove(&[end[0], end[1] - 1, end[2]]);
+    // (a route may start up a stair from a source dust: the cell over the source must stay
+    // transparent, so no route dust two over it (its support would cap the stair; found 09:34: the
+    // RETRY BLOCK_e route's second dust (-14,-3,27) capped its own first step (-14,-5,27) ->
+    // (-14,-4,28)))
+    for &(src, _) in srcs {
+        avoid.insert([src[0], src[1] + 2, src[2]]);
+    }
     let mut why: Vec<String> = Vec::new();
     for &(src, run0) in srcs {
         if run0 >= 13 {
@@ -527,6 +534,145 @@ fn retry_entries(b: &mut B) -> Result<()> {
     Ok(())
 }
 
+/// RETRY's source for today's stand (ironspec (b) 08:52 + 09:00: RETRY = EXPIRE AND the
+/// stand-emptied BLOCK): one gadget in GO's chunk under the core, placed where none of its cells
+/// touches a foreign line, routed to its inputs (EXPIRE tapped off the torch (1,-5,22) by two
+/// repeaters (2,-5,22) (3,-5,22): a dust at (3,-5,22) would join the ring's dust (3,-5,23);
+/// BLOCK_e from the stand-emptied latch's Q cell (-17,-5,27)) and from its output to both RETRY
+/// entries' landings. Gadget (offsets from v, y the row, supports one below):
+/// - I (0,0,0) comparator facing south (subtract): 15 - BLOCK_e; rear the repeater (0,0,1) from a
+///   redstone block (0,0,2); side the repeater (-1,0,0) facing west from BLOCK_e's end (-2,0,0);
+/// - C (0,0,-1) comparator facing west (subtract): EXPIRE (rear, its end (-1,0,-1)) minus I (side,
+///   from the south): RETRY_raw, out east into the dust D1 (1,0,-1);
+/// - the edge E (2,0,-1) facing west: D1 minus D1 4 gt late (repeaters (1,0,-2) facing south and
+///   (2,0,-2) facing north, dusts (1,0,-3) (2,0,-3)): a pulse on RETRY_raw's rise only;
+/// - the extender: R4 (3,0,-1) facing west, 4 rt (any pulse -> 8 gt), into D2 (4,0,-1); copies by
+///   (5,0,-1) facing west 1 rt and by (4,0,-2) facing south 3 rt -> (4,0,-3) (5,0,-3) (6,0,-3) ->
+///   (6,0,-2) facing north 1 rt, ORed in N (6,0,-1): 14 gt from any rise, whatever comes after.
+fn retry_source(b: &mut B) -> Result<Vec<(P3, usize)>> {
+    let y = -9;
+    let mut gad: Vec<([i32; 3], String)> = vec![
+        ([0, 0, 0], "minecraft:comparator[facing=south,mode=subtract,powered=false]".into()),
+        ([0, 0, 1], rep("south", 1)),
+        ([0, 0, 2], "minecraft:redstone_block".into()),
+        ([-1, 0, 0], rep("west", 1)),
+        ([0, 0, -1], "minecraft:comparator[facing=west,mode=subtract,powered=false]".into()),
+        ([1, 0, -1], DUST.into()),
+        ([2, 0, -1], "minecraft:comparator[facing=west,mode=subtract,powered=false]".into()),
+        ([1, 0, -2], rep("south", 1)),
+        ([2, 0, -2], rep("north", 1)),
+        ([1, 0, -3], DUST.into()),
+        ([2, 0, -3], DUST.into()),
+        ([3, 0, -1], rep("west", 4)),
+        ([4, 0, -1], DUST.into()),
+        ([5, 0, -1], rep("west", 1)),
+        ([4, 0, -2], rep("south", 3)),
+        ([4, 0, -3], DUST.into()),
+        ([5, 0, -3], DUST.into()),
+        ([6, 0, -3], DUST.into()),
+        ([6, 0, -2], rep("north", 1)),
+        ([6, 0, -1], DUST.into()),
+    ];
+    let inputs = [[-2, 0, 0], [-1, 0, -1]];
+    let own: std::collections::BTreeSet<[i32; 3]> = gad.iter().map(|(d, _)| *d).chain(inputs).collect();
+    let free = |b: &B, q: P3| b.blocks.get(&q).is_none_or(|s| s.ends_with(":air"));
+    let mut found = None;
+    'v: for vz in (11..=18).rev() {
+        for vx in -4..=-2 {
+            let v = [vx, y, vz];
+            let at = |d: [i32; 3]| [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
+            for d in &own {
+                let c = at(*d);
+                if !free(b, c) || !free(b, [c[0], c[1] - 1, c[2]]).then_some(()).is_some() && b.blocks.get(&[c[0], c[1] - 1, c[2]]).map(|s| s.as_str()) != Some(STONE) {
+                    continue 'v;
+                }
+                // (no foreign conductor beside a gadget cell, at its level, above or on the
+                // diagonals a dust could join)
+                for n in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
+                    let q = [c[0] + n[0], c[1] + n[1], c[2] + n[2]];
+                    let rel = [q[0] - v[0], q[1] - v[1], q[2] - v[2]];
+                    if own.contains(&rel) {
+                        continue;
+                    }
+                    if !free(b, q) && b.blocks.get(&q).map(|s| s.as_str()) != Some(STONE) {
+                        continue 'v;
+                    }
+                }
+            }
+            found = Some(v);
+            break 'v;
+        }
+    }
+    let Some(v) = found else { bail!("RETRY source: no free place under the core in GO's chunk") };
+    let at = |d: [i32; 3]| [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
+    for (d, s) in gad.drain(..) {
+        let c = at(d);
+        if s != "minecraft:redstone_block" {
+            b.blocks.insert([c[0], c[1] - 1, c[2]], STONE.into());
+        }
+        b.blocks.insert(c, s);
+    }
+    // EXPIRE's tap: two repeaters east of the torch, the second's output the route's source
+    for c in [[2, -5, 22], [3, -5, 22]] {
+        b.blocks.insert([c[0], c[1] - 1, c[2]], STONE.into());
+        b.blocks.insert(c, rep("west", 1));
+    }
+    // (the stand REL line, laid later on the merged file, starts at (7,-5,26) and runs north along x
+    // 7: its cells kept free of these routes, through the corridor rule (dust kept off the cell over
+    // each listed cell))
+    let mut none = std::collections::BTreeSet::new();
+    for x in 6..=8 {
+        for y in -7..=-2 {
+            for z in 18..=27 {
+                none.insert([x, y - 1, z]);
+            }
+        }
+    }
+    let lo = [-20, -12, 8];
+    let hi = [10, 0, 36];
+    // (the EXPIRE line starts as a dust (4,-5,22) the tap powers, 15)
+    b.blocks.insert([4, -6, 22], STONE.into());
+    b.blocks.insert([4, -5, 22], DUST.into());
+    let e_in = at([-1, 0, -1]);
+    let b_in = at([-2, 0, 0]);
+    // (each input's route keeps off the other input's end and its support)
+    let mut none_e = none.clone();
+    none_e.insert([b_in[0], b_in[1] - 1, b_in[2]]);
+    none_e.insert([b_in[0], b_in[1] - 2, b_in[2]]);
+    let mut none_b = none.clone();
+    none_b.insert([e_in[0], e_in[1] - 1, e_in[2]]);
+    none_b.insert([e_in[0], e_in[1] - 2, e_in[2]]);
+    // (BLOCK_e first: its starts round the latch are few; the EXPIRE route then keeps off its dust by
+    // the router's own join check)
+    let qsrc = [([-17, -5, 27], 1), ([-15, -5, 27], 1), ([-14, -5, 27], 2), ([-13, -5, 27], 3), ([-13, -5, 29], 3), ([-13, -5, 30], 4), ([-14, -5, 30], 5), ([-15, -5, 30], 6), ([-15, -5, 29], 7)];
+    feed(b, &qsrc, b_in, 4, &[at([-1, 0, 0])], lo, hi, "RETRY source: BLOCK_e", &none_b)?;
+    feed(b, &[([4, -5, 22], 1)], e_in, 4, &[at([0, 0, -1]), at([-1, 0, 0])], lo, hi, "RETRY source: EXPIRE", &none_e)?;
+    // (BLOCK_e's sources: the stand-emptied latch's Q cell or any of its loop's dusts (15 at
+    // (-15,-5,27) after its repeater, one less per dust round the loop); a branch dust draws nothing)
+    let n = at([6, 0, -1]);
+    // (the entries' landing dusts are laid by these routes: their ends)
+    b.blocks.remove(&[5, -4, 25]);
+    let p = feed(b, &[(n, 1)], [5, -4, 25], 4, &[[5, -5, 25]], lo, hi, "RETRY source: to the ring entry", &none)?;
+    let mut net = vec![(n, 1)];
+    net.extend(p);
+    eprintln!("RETRY source: gadget at {v:?} (I, C = EXPIRE - (15 - BLOCK_e), edge, 14-gt extender)");
+    Ok(net)
+}
+
+/// RETRY's route to the stand entry, on the merged file (the entry is laid after the stand REL line).
+fn retry_source_stand(d: &mut Design, net: &[(P3, usize)]) -> Result<()> {
+    let mut tb = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+    tb.blocks.remove(&[9, -4, 26]);
+    let none = std::collections::BTreeSet::new();
+    feed(&mut tb, net, [9, -4, 26], 4, &[[9, -5, 26]], [-20, -12, 8], [10, 0, 36], "RETRY source: to the stand entry", &none)?;
+    for (k, v) in tb.blocks {
+        if d.blocks.get(&k) != Some(&v) {
+            d.blocks.insert(k, v);
+        }
+    }
+    Ok(())
+}
+
 /// The stand entry, laid on the merged file once the stand REL line exists: R_s (8,-5,26) into the
 /// line's first dust (7,-5,26), the tap's output (the line's route beyond it is the router's).
 fn retry_stand_entry(d: &mut Design) -> Result<()> {
@@ -635,17 +781,32 @@ fn permit_feeds(b: &mut B, rel: &[(P3, usize)], tail: &[(P3, usize)]) -> Result<
     // detector (-3,1,4) or any single-cart cell past the release group; wired with the stand
     // option), feeds both set chains. MCTAS_PERMIT_SET=tail keeps the REL-derived set (the reset
     // tail) for the comparison)
-    let port_set = std::env::var("MCTAS_PERMIT_SET").map(|v| v != "tail").unwrap_or(true);
-    let srcs: Vec<(P3, usize)> = if port_set {
-        let pd = [-19, -5, 28];
-        b.ports.insert("input.train_departed".into(), pd);
-        vec![(pd, 0)]
-    } else {
-        srcs
+    // (MCTAS_PERMIT_SET: "port" (default) both sets from input.train_departed; "tail" both from the
+    // REL-derived reset tail; "split" (ironspec's v2 for today's stand): the stand-emptied latch
+    // re-armed by the launch (the reset tail, REL-derived: always before that cycle's stand REL),
+    // the train-arrived latch by the train's own cart evidence (an empty launch re-arms nothing))
+    let mode = std::env::var("MCTAS_PERMIT_SET").unwrap_or_else(|_| "port".into());
+    let pd = [-19, -5, 28];
+    let (srcs_e, srcs_a): (Vec<(P3, usize)>, Option<Vec<(P3, usize)>>) = match mode.as_str() {
+        "tail" => (srcs.clone(), None),
+        "split" => {
+            b.ports.insert("input.train_departed".into(), pd);
+            (srcs.clone(), Some(vec![(pd, 0)]))
+        }
+        _ => {
+            b.ports.insert("input.train_departed".into(), pd);
+            (vec![(pd, 0)], None)
+        }
     };
-    let p = feed(b, &srcs, [-14, -5, 33], 0, &[[-14, -5, 32]], lo, hi, "permission set (stand-emptied)", &none)?;
-    let mut net: Vec<(P3, usize)> = srcs.clone();
-    net.extend(p);
+    let p = feed(b, &srcs_e, [-14, -5, 33], 0, &[[-14, -5, 32]], lo, hi, "permission set (stand-emptied)", &none)?;
+    let net: Vec<(P3, usize)> = match &srcs_a {
+        Some(a) => a.clone(),
+        None => {
+            let mut n = srcs_e.clone();
+            n.extend(p);
+            n
+        }
+    };
     let near: Vec<P3> = std::iter::once([-14, -5, 23]).chain(net.iter().map(|(c, _)| *c)).collect();
     feed(b, &net, [-14, -5, 24], 0, &near, lo, hi, "permission set (train-arrived)", &none)?;
     // (the Q feeds after the set feeds: those end on fixed cells)
@@ -1877,6 +2038,23 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         let cells = crate::sidinggen::wire_pad(&mut d, pp)?;
         println!("the pad pasted at the origin ({} blocks) and its pulse (9,6,-2) wired into the controller's X: {} cells", pad_cells.len(), cells.len());
         siding_cells.extend(cells);
+    }
+    // ---- RETRY's source (MCTAS_RETRY_SRC): laid last on the merged file, after the siding's, the
+    // module's and the pad's wiring, so its routes see every line
+    if !std::env::var("MCTAS_RETRY_SRC").is_err() && std::env::var("MCTAS_RETRY").is_ok() {
+        let mut tb = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+        let net = retry_source(&mut tb)?;
+        tb.blocks.remove(&[9, -4, 26]);
+        let none = std::collections::BTreeSet::new();
+        feed(&mut tb, &net, [9, -4, 26], 4, &[[9, -5, 26]], [-20, -12, 8], [10, 0, 36], "RETRY source: to the stand entry", &none)?;
+        let mut added = Vec::new();
+        for (k, v) in tb.blocks {
+            if d.blocks.get(&k) != Some(&v) {
+                d.blocks.insert(k, v);
+                added.push(k);
+            }
+        }
+        siding_cells.extend(added);
     }
     // ---- golem spawn cells (the brief, part 1: none off the pad wherever villagers ride who may
     // have slept): every block added here with a solid top and air over it gets a glass cover
