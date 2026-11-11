@@ -787,6 +787,10 @@ pub enum MobfarmCmd {
         /// 0*N` for N cycles).
         #[arg(long)]
         arrivals: Option<PathBuf>,
+        /// With `--scene-out`/`--drive-out`: the scene holds the tail's carts as at cycle C's
+        /// start (position, motion, facing, a villager riding) and the drive starts there.
+        #[arg(long)]
+        scene_at: Option<i64>,
         /// Write the design reduced to what the bench keeps (the tail's carts and the other
         /// entities) as a scene file for the bridge.
         #[arg(long)]
@@ -1159,6 +1163,14 @@ pub enum MobfarmCmd {
         /// Admission control: P always on from the first gate opening.
         #[arg(long)]
         p_always: bool,
+        /// Admission faults, SLOT,ADV,KIND[,OFF] (up to 8): KIND skip (G_P and G0 skipped: the
+        /// divert's hole), miss-g0, miss-gp, extra-g0 or extra-gp (a pulse OFF gt after G_P opens).
+        #[arg(long)]
+        adm_fault: Vec<String>,
+        /// Admission control's skip requests, SLOT,DT (up to 8): each sets the latch; the next
+        /// G0 opening after it is skipped.
+        #[arg(long)]
+        adm_skip_req: Vec<String>,
         /// The queue's first slots' carts at each slot's start (a re-packing tail diagnostic).
         #[arg(long)]
         verbose_tail: bool,
@@ -2343,7 +2355,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, adm_k2, trace, shift, from_climb, unload, drive_out, scene_out, flights, arrivals } => {
+        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, adm_k2, trace, shift, from_climb, unload, drive_out, scene_out, flights, arrivals, scene_at } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let pat = crate::tail_bench::parse_pattern(&pattern).map_err(|e| anyhow::anyhow!(e))?;
@@ -2370,6 +2382,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         .collect::<Result<Vec<_>>>()?,
                     None => Vec::new(),
                 },
+                scene_at,
             };
             let tm = crate::queue::LoopTiming {
                 advance_at,
@@ -2407,11 +2420,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     out.push('\n');
                 }
                 anyhow::ensure!(bo.shift == (0, 0), "--scene-out writes the unshifted design; drop --shift");
-                std::fs::write(sp, out)?;
-                println!("scene: {} ({kept} tail carts kept)", sp.display());
+                if bo.scene_at.is_none() {
+                    std::fs::write(sp, out)?;
+                    println!("scene: {} ({kept} tail carts kept)", sp.display());
+                }
             }
             match seeds {
-                None => print!("{}", crate::tail_bench::run_tail_bench(&spec, &o, &tm, &pat, extra, seed, trace, &bo).map_err(|e| anyhow::anyhow!(e))?),
+                None => {
+                    let r = crate::tail_bench::run_tail_bench(&spec, &o, &tm, &pat, extra, seed, trace, &bo).map_err(|e| anyhow::anyhow!(e))?;
+                    // (`--scene-at C`: the scene holds every entity line of the design but its
+                    // minecarts, and the tail's carts as the bench had them at cycle C's start)
+                    if let (Some(sp), Some(c0)) = (&scene_out, bo.scene_at) {
+                        let text = std::fs::read_to_string(&design)?;
+                        let mut out: String = text.lines().filter(|l| !l.starts_with("entity: minecraft:minecart ")).map(|l| format!("{l}\n")).collect();
+                        let lines: Vec<&str> = r.lines().filter_map(|l| l.strip_prefix("scene line: ")).collect();
+                        for l in &lines {
+                            out.push_str(l);
+                            out.push('\n');
+                        }
+                        std::fs::write(sp, out)?;
+                        println!("scene: {} ({} tail carts as at cycle {c0}'s start)", sp.display(), lines.len());
+                    }
+                    print!("{}", r.lines().filter(|l| !l.starts_with("scene line: ")).map(|l| format!("{l}\n")).collect::<String>());
+                }
                 Some(n) => {
                     // (the seeds in parallel, each its summary: every contract line on one row)
                     let out: Vec<(i64, Result<String, String>)> = std::thread::scope(|sc| {
@@ -2466,7 +2497,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, p_always, arrivals_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, p_always, adm_fault, adm_skip_req, arrivals_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -2546,7 +2577,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, p_always, arrivals: arrivals_out.is_some(), verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, p_always, adm_faults: {
+                anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
+                let mut a = [None; 8];
+                for (i, s) in adm_fault.iter().enumerate() {
+                    let f: Vec<&str> = s.split(',').collect();
+                    let (slot, adv) = match (f.first().and_then(|v| v.parse::<i64>().ok()), f.get(1).and_then(|v| v.parse::<i64>().ok())) { (Some(s), Some(k)) if (0..3).contains(&k) => (s, k), _ => anyhow::bail!("--adm-fault {s}: SLOT,ADV(0..2),KIND[,OFF]") };
+                    let kind = match f.get(2).copied() { Some("skip") => 0u8, Some("miss-g0") => 1, Some("miss-gp") => 2, Some("extra-g0") => 3, Some("extra-gp") => 4, _ => anyhow::bail!("--adm-fault {s}: KIND is skip, miss-g0, miss-gp, extra-g0 or extra-gp") };
+                    let off = f.get(3).map(|v| v.parse::<i64>()).transpose()?.unwrap_or(10);
+                    a[i] = Some((slot, adv, kind, off));
+                }
+                a
+            }, adm_skip_req: {
+                anyhow::ensure!(adm_skip_req.len() <= 8, "--adm-skip-req: at most 8");
+                let mut a = [None; 8];
+                for (i, s) in adm_skip_req.iter().enumerate() {
+                    a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
+                }
+                a
+            }, arrivals: arrivals_out.is_some(), verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
             // (`--shift name=gt,...`: controls shifted as the sweep shifts them, e.g. to rerun a
             // corner without one of its controls)
             let mut tm = tm;
