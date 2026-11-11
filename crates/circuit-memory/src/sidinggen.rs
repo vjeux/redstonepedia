@@ -32,13 +32,19 @@ const STONE: &str = "minecraft:stone";
 const GLASS: &str = "minecraft:glass";
 const RBLOCK: &str = "minecraft:redstone_block";
 
-pub(crate) const SIDING_AT: P3 = [-20, 2, 10];
+/// The siding's paste offset (siding cell = loop cell - offset): ironspec and farmopt 22:56, the
+/// fold: its box (siding x -7..6, z -3..9) inside one chunk (loop x -22..-9, z 10..22) with no
+/// chunk line through it (was [-20, 2, 10]); 2 higher than before, so its east side's redstone
+/// (siding y -3..-2) keeps a clear layer over the release controller's lines (y -2..-1 along
+/// x -11..-9).
+pub(crate) const SIDING_AT: P3 = [-15, 4, 13];
 pub(crate) const DIVERT: P3 = [9, -4, 0];
 pub(crate) const T1: P3 = [-15, 0, 28];
 pub(crate) const T2: P3 = [-16, 0, 31];
 /// The branch's boosters (x along z -2, y -3; B2).
 const BRANCH_BOOSTERS: [i32; 3] = [6, 0, -6];
-pub(crate) const RELEASE: P3 = [-16, 0, 10];
+/// The siding's release input (its local (4, -2, 0)).
+pub(crate) const RELEASE: P3 = [SIDING_AT[0] + 4, SIDING_AT[1] - 2, SIDING_AT[2]];
 pub(crate) const HOLDS: [P3; 3] = [[-12, 0, 28], [-11, 0, 31], [-12, 0, 34]];
 
 fn rail(shape: &str) -> String {
@@ -118,9 +124,11 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
         other => bail!("the departure corner (9, -3, 0) is {other:?}, not a south_west rail: the loop file changed"),
     }
     lay(&mut b, [9, -3, -1], &rail("north_south"), false)?;
-    // ---- the entry route
+    // ---- the entry route (west along z -2 to the climb's column ex, two cells west of the siding's
+    // box, the climb south up to y 2, south along ex to the siding's z, east into its entry)
+    let (ex, ez) = (SIDING_AT[0] - 9, SIDING_AT[2]);
     lay(&mut b, [9, -3, -2], &rail("south_west"), false)?;
-    for x in -28..=8 {
+    for x in ex + 1..=8 {
         lay(&mut b, [x, -3, -2], &rail("east_west"), false)?;
     }
     // (B2: boosters on the branch, held on by redstone blocks for supports: the stand's front cart
@@ -131,36 +139,44 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
         b.blocks.insert([x, -3, -2], booster("east_west"));
         b.blocks.insert([x, -4, -2], RBLOCK.into());
     }
-    lay(&mut b, [-29, -3, -2], &rail("south_east"), false)?;
-    lay(&mut b, [-29, -3, -1], &rail("north_south"), false)?;
-    // the climb: five boosters ascending south, the first one's support a redstone block (it powers
-    // all five through the rail line)
-    for k in 0..5 {
-        let p = [-29, -3 + k, k];
+    lay(&mut b, [ex, -3, -2], &rail("south_east"), false)?;
+    lay(&mut b, [ex, -3, -1], &rail("north_south"), false)?;
+    // the climb: boosters ascending south from the branch (y -3) to the siding's entry level, the
+    // first one's support a redstone block (it powers them all through the rail line, up to 8)
+    let climb = SIDING_AT[1] + 3;
+    for k in 0..climb {
+        let p = [ex, -3 + k, k];
         b.put(p, &booster("ascending_south"))?;
         b.put([p[0], p[1] - 1, p[2]], if k == 0 { RBLOCK } else { STONE })?;
     }
-    for z in 5..=9 {
-        lay(&mut b, [-29, 2, z], &rail("north_south"), false)?;
+    for z in climb..ez {
+        lay(&mut b, [ex, SIDING_AT[1], z], &rail("north_south"), false)?;
     }
-    lay(&mut b, [-29, 2, 10], &rail("north_east"), false)?;
-    lay(&mut b, [-28, 2, 10], &rail("east_west"), false)?;
-    // ---- the exit route to T1: a booster on the first straight cell (the cart leaves the exit
-    // slot at 0.28-0.44 and would crawl: ironfarm 13:57), then ~46-58 rails of drag to the drop
-    // ends (a loop west of x -13, z 20..23) so it arrives at 0.32-0.35 b/t
-    lay(&mut b, [-13, 1, 10], &rail("south_west"), false)?;
-    b.put([-13, 1, 11], &booster("north_south"))?;
-    b.put([-13, 0, 11], RBLOCK)?;
-    // (no drag loop: ironfarm 14:30 measured this loop's side drop clean at 0.10-0.48 b/t; the
-    // booster's 0.49-0.53 decays to ~0.43-0.46 over the ~25 rails to the drop ends)
-    // ---- the exit route on to T1 (-15, 1, 28): x -13 south to z 25, west along z 26 to x -15,
-    // south into T1 (the tree sits west of the release controller's taps, so the cells under the
-    // T's and the holds are free for their drivers)
-    for z in 12..=25 {
-        lay(&mut b, [-13, 1, z], &rail("north_south"), false)?;
+    lay(&mut b, [ex, SIDING_AT[1], ez], &rail("north_east"), false)?;
+    lay(&mut b, [ex + 1, SIDING_AT[1], ez], &rail("east_west"), false)?;
+    // ---- the exit route to T1: the exit's corner, slopes down south to y 1 (the cart leaves the
+    // exit slot at 0.28-0.44 and would crawl on the flat: ironfarm 13:57; the slopes replace the old
+    // booster on a redstone block), south along the exit's column (over the release controller's
+    // chain: its cells there are y -2..-1, the rails' supports at y 0 touch none of its dust) to
+    // z 25, west along z 26 to x -15, south into T1 (the tree sits west of the release
+    // controller's taps, so the cells under the T's and the holds are free for their drivers)
+    let (xx, xz) = (SIDING_AT[0] + 7, SIDING_AT[2]);
+    let xy = SIDING_AT[1] - 1;
+    lay(&mut b, [xx, xy, xz], &rail("south_west"), false)?;
+    // (slopes down to y 1, then flat rails to the tree. A booster on its redstone block after the
+    // slopes, or before them, left k0 slower at its drop end (0.06 b/t at +555, 600 problems in 70
+    // slots), so none; k0's margin to the escapement's first advance is being restored (ironspec
+    // 23:34))
+    for k in 1..xy {
+        lay(&mut b, [xx, xy - k, xz + k], &rail("ascending_north"), false)?;
     }
-    lay(&mut b, [-13, 1, 26], &rail("north_west"), false)?;
-    lay(&mut b, [-14, 1, 26], &rail("east_west"), false)?;
+    for z in xz + xy..=25 {
+        lay(&mut b, [xx, 1, z], &rail("north_south"), false)?;
+    }
+    lay(&mut b, [xx, 1, 26], &rail("north_west"), false)?;
+    for x in -14..xx {
+        lay(&mut b, [x, 1, 26], &rail("east_west"), false)?;
+    }
     lay(&mut b, [-15, 1, 26], &rail("south_east"), false)?;
     lay(&mut b, [-15, 1, 27], &rail("north_south"), false)?;
     // T1: stem north, unpowered north_east (east: slot 14's line), powered north_west (T2)
@@ -677,12 +693,31 @@ fn step_delay() -> u8 {
 }
 
 /// The module's place in the loop (its frame's 0 0 0), under the ground west of the siding.
-pub(crate) const MODULE_AT: P3 = [-59, -4, 0];
-/// The night window's daylight detector, under the open sky north of the module.
-pub(crate) const DETECTOR: P3 = [-56, 1, -32];
+/// The control module's placement (the fold, the parent and ironspec 22:33: vjeux's compact rule):
+/// module cell q at `rotate_pos(q, MOD_TURNS) + MODULE_AT` ((x, z) -> (z, -x)): its long axis along
+/// z under the strip between the siding and the queue (x -20..-7, z 14..55), below every other
+/// part (y -17..-9), its REL input on the west side.
+pub(crate) const MOD_TURNS: u8 = 3;
+pub(crate) const MODULE_AT: P3 = [-15, -13, 42];
+
+/// A module cell's place in the loop frame.
+pub(crate) fn module_at(q: P3) -> P3 {
+    let r = clock::rotate_pos(q, MOD_TURNS);
+    [r[0] + MODULE_AT[0], r[1] + MODULE_AT[1], r[2] + MODULE_AT[2]]
+}
+
+/// A module block's state turned with it.
+fn mrot(s: &str) -> String {
+    clock::canon::rotate_state(s, MOD_TURNS)
+}
+
+/// The night window's inverted daylight detector: west of the module at its depth, nothing of the
+/// farm over it (open sky), its 11-dust strength filter south along x -26 and the night latch at
+/// z 36.
+pub(crate) const DETECTOR: P3 = [-27, -9, 24];
 /// The siding's force-re-board input F (farmopt's child 58f770cc: (-5, -3, -4) in the siding's
 /// frame), a dust the siding's repeater reads from the south.
-pub(crate) const FORCE: P3 = [-25, -1, 6];
+pub(crate) const FORCE: P3 = [SIDING_AT[0] - 5, SIDING_AT[1] - 3, SIDING_AT[2] - 4];
 
 /// The divert unit, next to the departure corner (REL from the core reaches it in ~6 gt; the far
 /// module's own visit pulse comes ~30 gt after REL, too late for the corner): G2' = REL and not
@@ -694,17 +729,12 @@ pub(crate) const FORCE: P3 = [-25, -1, 6];
 /// visit pulse (in sync with the module's R'); the router (T1 = NOT l1, T2 = l0) hangs off it.
 fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     use crate::schedgen::{DUST, rep};
-    // REL: a second tap on the core's REL dust (0, -1, 11), east along z 11 at y -1 to x 8, south to
-    // z 13, down a stair east to y -6, east along z 13, north to (20, -6, 12), a repeater into G2''s
-    // rear (full strength for the windows' long OR path; one repeater mid-way)
-    b.on([1, -1, 11], &rep("west", 1))?;
-    let mut rel = vec![[2, -1, 11]];
-    seg_to(&mut rel, [8, -1, 11]);
-    seg_to(&mut rel, [8, -1, 13]);
-    seg_to(&mut rel, [13, -6, 13]);
-    seg_to(&mut rel, [20, -6, 13]);
-    rel.push([20, -6, 12]);
-    route_d(b, [1, -1, 11], &rel, 13, 0, 1)?;
+    // (the fold: the unit is laid out in its first frame (x 16..34, east of the loop) in a builder of
+    // its own, then shifted in by UNIT_SHIFT, under the loop; its outer routes (REL in, the corner
+    // output) are laid in the loop's frame after it)
+    let mut t = B { blocks: Default::default(), ports: Default::default(), nbt: Default::default() };
+    {
+    let b = &mut t;
     b.on([20, -6, 11], &rep("south", 1))?;
     // REL 10 gt late into G2''s west side with NV: a junction dust (18, -6, 10) fed by two
     // repeaters, REL's from the south (18, -6, 11) off a branch (18, -6, 12), NV's from the west
@@ -736,10 +766,6 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     for z in -2..=8 {
         b.on([24, -4, z], DUST)?;
     }
-    let mut out = vec![[23, -4, 0]];
-    seg_to(&mut out, [11, -4, 0]);
-    route(b, [24, -4, 0], &out, 12)?;
-    b.on([10, -4, 0], &rep("east", 1))?;
     // R'': droppers a (26, -6, 4), b (28, -6, 4), c (27, -6, 5), hoppers h (27, -6, 4), H (28, -6, 5),
     // j (26, -6, 5); a -> b -> c -> a; state 0 = c empty at power-on. Rows of NOT l_k west to the
     // P sides (21, -6, z_k - 2): l0 (c, tap south) -> row 7; l1 (a, tap north) -> row 1; l2 (b, tap
@@ -791,8 +817,86 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     seg_to(&mut st, [29, -5, 6]);
     route_d(b, [20, -5, 9], &st, 1, 1, step_delay())?;
     b.on([28, -5, 6], DUST)?;
+    }
+    // ---- shift the unit in, every cell checked: no clash, and no dust of it touching another
+    // part's dust (the routes' rule)
+    let u = unit_at;
+    let mine: std::collections::BTreeSet<P3> = t.blocks.keys().map(|p| u(*p)).collect();
+    for (p, s) in &t.blocks {
+        b.put(u(*p), s)?;
+    }
+    for (p, n) in &t.nbt {
+        b.nbt.insert(u(*p), n.clone());
+    }
+    for (p, s) in &t.blocks {
+        if !s.contains("redstone_wire") {
+            continue;
+        }
+        let c = u(*p);
+        for n in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
+            let q = [c[0] + n[0], c[1] + n[1], c[2] + n[2]];
+            let cut = match n[1] {
+                -1 => Some([c[0] + n[0], c[1], c[2] + n[2]]),
+                1 => Some([c[0], c[1] + 1, c[2]]),
+                _ => None,
+            };
+            if cut.is_some_and(|k| b.blocks.get(&k).is_some_and(|s| s == STONE)) {
+                continue;
+            }
+            if !mine.contains(&q) && b.blocks.get(&q).is_some_and(|s| s.contains("redstone_wire")) {
+                bail!("the divert unit's dust {c:?} would touch foreign dust at {q:?}");
+            }
+        }
+    }
+    // ---- REL in: a repeater off the core's REL dust (0, -1, 13) south into (0, -1, 15) (the old
+    // tap's time: one repeater, then one on the route), down a stair south along x 0 to y -6 at
+    // z 20, west along z 20 to x -10, north to the feed's row + 1, east along it past the REL-late
+    // branch's source (unit (18, -6, 13)) to G2''s feed column, north into its feed (unit
+    // (20, -6, 12))
+    b.on([0, -1, 14], &rep("north", 1))?;
+    let feed = u([20, -6, 12]);
+    let mut rel = vec![[0, -1, 15]];
+    seg_to(&mut rel, [0, -6, 20]);
+    seg_to(&mut rel, [-10, -6, 20]);
+    seg_to(&mut rel, [-10, -6, feed[2] + 1]);
+    seg_to(&mut rel, [feed[0], -6, feed[2] + 1]);
+    rel.push(feed);
+    // (the REL-late branch's dust (unit (18, -6, 12)) touches the route on purpose: it reads REL
+    // from it; out of the way while the route checks its neighbours)
+    let lifted: Vec<(P3, String)> = [u([18, -6, 12])].iter().filter_map(|p| b.blocks.remove(p).map(|s| (*p, s))).collect();
+    route_d(b, [0, -1, 14], &rel, 14, 0, 1)?;
+    for (p, s) in lifted {
+        b.blocks.insert(p, s);
+    }
+    // ---- the corner: a repeater east off the OR column (unit (24, -4, 0)), down four stairs east
+    // to y -8 (under the unit and the stand's guard circuit, x 0..8 y -6..1 z 0..5), south to the
+    // unit's row 2, east along it to x 11, up four stairs north into (11, -4, 0), the repeater
+    // (10, -4, 0) west into the corner's support
+    let r0 = u([25, -4, 0]);
+    b.on(r0, &rep("west", 1))?;
+    let mut out = vec![[r0[0] + 1, -4, r0[2]]];
+    for k in 1..=4 {
+        out.push([r0[0] + 1 + k, -4 - k, r0[2]]);
+    }
+    let d = *out.last().unwrap();
+    seg_to(&mut out, [d[0], -8, 4]);
+    seg_to(&mut out, [11, -8, 4]);
+    for k in 1..=4 {
+        out.push([11, -8 + k, 4 - k]);
+    }
+    route_d(b, r0, &out, 8, 0, 1)?;
+    b.on([10, -4, 0], &rep("east", 1))?;
     // (the router: T1 = NOT l1 = row 1's signal, T2 = l0 = NOT row 7's: returned as their cells)
-    Ok(([24, -6, 1], [25, -6, 8]))
+    Ok((u([24, -6, 1]), u([25, -6, 8])))
+}
+
+/// The divert unit's shift from its first frame (x 16..34 east of the loop) to under the loop
+/// (x -9..9, z -3..16, y -7..-4): the fold.
+pub(crate) const UNIT_SHIFT: P3 = [-25, 0, 2];
+
+/// A divert-unit cell (first frame) in the loop frame.
+pub(crate) fn unit_at(p: P3) -> P3 {
+    [p[0] + UNIT_SHIFT[0], p[1] + UNIT_SHIFT[1], p[2] + UNIT_SHIFT[2]]
 }
 
 /// Stamps the control module into the loop at `MODULE_AT` and wires it: REL from the release
@@ -802,11 +906,11 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
 pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     use crate::schedgen::{DUST, rep};
     let m = control_blocks(sched)?;
-    let at = |q: P3| [q[0] + MODULE_AT[0], q[1] + MODULE_AT[1], q[2] + MODULE_AT[2]];
+    let at = module_at;
     let before: std::collections::BTreeSet<P3> = d.blocks.keys().copied().collect();
     let mut b = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
     for (q, s) in &m.blocks {
-        b.put(at(*q), s)?;
+        b.put(at(*q), &mrot(s))?;
     }
     for (q, n) in &m.nbt {
         d.block_entities.insert(at(*q), n.clone());
@@ -822,6 +926,9 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // threshold of 1152b0e38 opened at about 12,500 and closed at 23,640: 27 visits a night, 6 of
     // them second naps that did not come back; the window of 13,670..22,330 holds 21 or 22.)
     b.put(DETECTOR, "minecraft:daylight_detector[inverted=true,power=0]")?;
+    // (glass over it: a golem's legacy spawn takes a daylight detector for a floor; glass keeps
+    // the sky light)
+    b.put([DETECTOR[0], DETECTOR[1] + 1, DETECTOR[2]], "minecraft:glass")?;
     for dz in 1..=11 {
         b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + dz], DUST)?;
     }
@@ -829,17 +936,14 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 13], STONE)?;
     b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 14], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
     let mut dl = vec![[DETECTOR[0], DETECTOR[1], DETECTOR[2] + 15]];
-    for k in 1..=8 {
-        dl.push([DETECTOR[0], DETECTOR[1] - k, DETECTOR[2] + 15 + k]);
-    }
-    // (at y -7 under the module's REL bus (module y -1, z -4), then up a stair into (3, -2, 1))
+    // (down a stair east along z 39 into the module's day line, its last two cells the module's)
     seg_to(&mut dl, at([3, -3, -1]));
     dl.push(at([3, -2, 0]));
     dl.push(at([3, -2, 1]));
     route_d(&mut b, [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 14], &dl, 6, 0, 1)?;
     // (the night latch on thr comes after the module's REL route, below)
     b.on(at([2, -2, 1]), DUST)?;
-    b.on(at([1, -2, 1]), &rep("east", 1))?;
+    b.on(at([1, -2, 1]), &mrot(&rep("east", 1)))?;
     // (night 1: the day line also locks the D ring's hopper h13 (module (1, 0, 0), the one that
     // feeds d0), where the ring's token is built: by day the token waits in h13, and as the line
     // goes off with the night window it drops into d0, so the night's first release visits. A
@@ -850,24 +954,51 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     }
     b.on(at([2, -2, -2]), DUST)?;
     b.on(at([1, -1, -2]), DUST)?;
-    b.on(at([1, -1, -1]), &rep("north", 1))?;
+    b.on(at([1, -1, -1]), &mrot(&rep("north", 1)))?;
     b.put(at([1, -1, 0]), STONE)?;
-    // REL in: a dust beside the REL stone, down east to y -6, north along x 4, west along z -10,
-    // south along x -45 into the module's feed dust and a repeater into its input block
-    // (REL is on the core's dust line (-1..0, -1, 13) -> (0, -1, 11): a repeater reads it from
-    // the south side)
-    b.on([0, -1, 14], &rep("north", 1))?;
-    let mut rel = vec![[0, -1, 15]];
-    seg_to(&mut rel, [5, -6, 15]);
-    seg_to(&mut rel, [5, -6, -10]);
-    seg_to(&mut rel, [-45, -6, -10]);
+    // ---- the holds' kick route first (REL from the core's REL stone (-2, -1, 13) through
+    // (-2, -1, 14), down a stair south to y -4, west along z 18 to x -21, the delay south along
+    // x -21 into the gate KA (-21, -4, 30)): the module's REL and F's rear branch off it (the fold)
+    let mut kr = vec![[-2, -1, 14], [-2, -1, 15]];
+    for k in 1..=3 {
+        kr.push([-2, -1 - k, 15 + k]);
+    }
+    seg_to(&mut kr, [-21, -4, 18]);
+    route(&mut b, [-2, -1, 13], &kr, 6)?;
+    let kick_delay = 6;
+    for k in 0..kick_delay {
+        b.on([-21, -4, 19 + k], &rep("north", 4))?;
+    }
+    for z in 19 + kick_delay..=29 {
+        b.on([-21, -4, z], DUST)?;
+    }
+    b.on([-21, -4, 30], &comp("north", "subtract"))?;
+    // (a dust of the kick route along z 18 near x0, to branch from: a repeater there would not
+    // feed a repeater beside it)
+    let kick_dust_near = |b: &B, x0: i32| -> Result<i32> {
+        for dx in [0, 1, -1, 2, -2] {
+            let x = x0 + dx;
+            if (-20..=-3).contains(&x) && b.blocks.get(&[x, -4, 18]).is_some_and(|s| s.contains("redstone_wire")) {
+                return Ok(x);
+            }
+        }
+        bail!("the kick route has no dust near x {x0} on z 18")
+    };
+    // REL into the module: a repeater on the kick route's dust near x -16 into (x, -4, 20), down a
+    // stair west along z 20 to y -15, west to x -27, south along x -27 to z 28, east into the
+    // module's feed dust and its repeater into the input block (module (14, -2, -4))
+    let tap_x = kick_dust_near(&b, -16)?;
+    // (2 rt: the module's REL at the time the old route brought it, so its outputs keep their times)
+    b.on([tap_x, -4, 19], &rep("north", 2))?;
+    let mut rel = vec![[tap_x, -4, 20]];
+    seg_to(&mut rel, [tap_x - 11, -15, 20]);
+    seg_to(&mut rel, [-27, -15, 20]);
+    seg_to(&mut rel, [-27, -15, 28]);
     seg_to(&mut rel, at([14, -2, -7]));
-    // (repeaters every 13 cells, not 6: REL reaches the module, and F's tap at x -25, ~12 gt
-    // sooner (B3: F at its floor, the latest napper's arrival + 112))
-    route_d(&mut b, [0, -1, 14], &rel, rel_every(), 0, 1)?;
+    route_d(&mut b, [tap_x, -4, 19], &rel, rel_every(), 0, 1)?;
     // (the feed dust touches the module's REL branch on purpose: the same signal)
     b.on(at([14, -2, -6]), DUST)?;
-    b.on(at([14, -2, -5]), &rep("north", 1))?;
+    b.on(at([14, -2, -5]), &mrot(&rep("north", 1)))?;
     // ---- the night latch: the threshold repeater (thr) locked except once a release, so NV (the
     // scheduler's "the next release is a visit") changes only between the divert unit's read of
     // it (golem +12..22, NV ~25 gt late there) and the module's (golem +32..44): a night edge
@@ -877,19 +1008,17 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // y 1, west along z -20 into a repeater, a block, its wall torch (lit = locked) and the lock
     // repeater pointing into thr's east side.
     let thr = [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 12];
-    let tap = [-44, -6, -10];
+    // (the unlock: a repeater off the module's REL branch where its stair crosses x thr + 5, south
+    // along that x into the lock)
+    let lx = thr[0] + 5;
+    let tap = [lx, -4 - (tap_x - lx), 20];
     if !b.blocks.get(&tap).is_some_and(|s| s.contains("redstone_wire")) {
-        bail!("the module's REL route at {tap:?} is {:?}, not a dust to branch from", b.blocks.get(&tap));
+        bail!("the module's REL branch at {tap:?} is {:?}, not a dust to branch from", b.blocks.get(&tap));
     }
-    b.on([tap[0], -6, -11], &rep("south", 1))?;
-    let mut lk = vec![[tap[0], -6, -12]];
-    seg_to(&mut lk, [-50, -6, -12]);
-    seg_to(&mut lk, [-50, -6, -13]);
-    for k in 1..=7 {
-        lk.push([-50, -6 + k, -13 - k]);
-    }
-    lk.push([thr[0] + 5, thr[1], thr[2]]);
-    route_d(&mut b, [tap[0], -6, -11], &lk, 3, 0, 1)?;
+    b.on([tap[0], tap[1], 21], &rep("north", 1))?;
+    let mut lk = vec![[tap[0], tap[1], 22]];
+    seg_to(&mut lk, [lx, thr[1], thr[2]]);
+    route_d(&mut b, [tap[0], tap[1], 21], &lk, 3, 0, 1)?;
     // (both repeaters at 4 rt: the unlock at golem +~48..60, the night edge at the module's NV at
     // ~+64, mid-way between its read (+32..44) and the divert unit's next (+112, ~25 gt behind))
     b.on([thr[0] + 4, thr[1], thr[2]], &rep("east", 4))?;
@@ -900,15 +1029,11 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // (28, 4, 3) down a stair south to y -9, east along z 12, north to z 10, up a stair east into
     // (16, -6, 10)
     let nv_port = at([28, 4, 3]);
-    let mut nv = vec![[nv_port[0], nv_port[1], 4], [nv_port[0], nv_port[1], 5]];
-    for k in 1..=9 {
-        nv.push([nv_port[0], nv_port[1] - k, 5 + k]);
-    }
-    seg_to(&mut nv, [13, -9, 14]);
-    seg_to(&mut nv, [13, -9, 10]);
-    nv.push([14, -8, 10]);
-    nv.push([15, -7, 10]);
-    nv.push([16, -6, 10]);
+    // (from the port's next cell up two stairs north, a stair up east, east into the divert unit's
+    // NV feed (unit (16, -6, 10)))
+    let n0 = at([28, 4, 4]);
+    let mut nv = vec![n0, [n0[0], n0[1] + 1, n0[2] - 1], [n0[0], n0[1] + 2, n0[2] - 2], [n0[0] + 1, n0[1] + 3, n0[2] - 2]];
+    seg_to(&mut nv, unit_at([16, -6, 10]));
     route(&mut b, nv_port, &nv, 6)?;
     let (t1_row, t2_row) = divert_unit(&mut b)?;
     b.blocks.insert(DIVERT, STONE.into());
@@ -925,37 +1050,41 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     };
     // T1 = NOT l1: off row 1 at (24, -6, 1), north, down a stair to y -11, west along z -5, south
     // along x -17, up a stair south to (-17, -4, 27), into (-17, -4, 28)
-    let mut t1 = vec![[t1_row[0], -6, 0]];
+    let mut t1 = vec![[t1_row[0], -6, t1_row[2] - 1]];
     for k in 1..=5 {
-        t1.push([t1_row[0], -6 - k, -k]);
+        t1.push([t1_row[0], -6 - k, t1_row[2] - 1 - k]);
     }
-    seg_to(&mut t1, [-17, -11, -5]);
-    seg_to(&mut t1, [-17, -11, 20]);
-    for k in 1..=7 {
-        t1.push([-17, -11 + k, 20 + k]);
-    }
-    t1.push([-17, -4, 28]);
+    seg_to(&mut t1, [-5, -11, t1_row[2] - 6]);
+    // (south along x -5, east of the module, up a stair south to y -4 at z 26, west along z 26 (a
+    // row clear of T1's tower stone, which its own repeater powers), south into (-17, -4, 28))
+    seg_to(&mut t1, [-5, -11, 19]);
+    seg_to(&mut t1, [-5, -4, 26]);
+    seg_to(&mut t1, [-17, -4, 26]);
+    seg_to(&mut t1, [-17, -4, 28]);
     route(&mut b, t1_row, &t1, 6)?;
     tower(&mut b, T1)?;
     // T2 = l0 = NOT (row 7's NOT l0): off row 7 at (24, -6, 8), a repeater south into a block
     // (24, -6, 10), a torch on it, down a stair south to y -13, west along z 19, south along x -19,
     // up a stair south to (-19, -4, 30), into (-19, -4, 31)
-    b.on([t2_row[0], -6, 9], &rep("north", 1))?;
-    b.put([t2_row[0], -6, 10], STONE)?;
-    b.put([t2_row[0], -6, 11], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
-    let mut t2 = vec![[t2_row[0], -6, 12]];
+    b.on([t2_row[0], -6, t2_row[2] + 1], &rep("north", 1))?;
+    b.put([t2_row[0], -6, t2_row[2] + 2], STONE)?;
+    b.put([t2_row[0], -6, t2_row[2] + 3], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    let mut t2 = vec![[t2_row[0], -6, t2_row[2] + 4]];
     for k in 1..=7 {
-        t2.push([t2_row[0], -6 - k, 12 + k]);
+        t2.push([t2_row[0], -6 - k, t2_row[2] + 4 + k]);
     }
-    // (two cells west of T2, where the tower's input repeater reads it)
+    // (two cells west of T2, where the tower's input repeater reads it: west to x -3, up a stair
+    // south along x -3 to y -4 at z 31, south to z 33 (clear of T2's tower stone), west along
+    // z 33, north into it)
     let x2 = T2[0] - 2;
-    seg_to(&mut t2, [x2, -13, 19]);
-    seg_to(&mut t2, [x2, -13, 21]);
-    for k in 1..=9 {
-        t2.push([x2, -13 + k, 21 + k]);
-    }
-    t2.push([x2, -4, 31]);
-    route(&mut b, [t2_row[0], -6, 11], &t2, 6)?;
+    let z2 = t2_row[2] + 11;
+    seg_to(&mut t2, [-3, -13, z2]);
+    seg_to(&mut t2, [-3, -13, z2 + 1]);
+    seg_to(&mut t2, [-3, -4, 31]);
+    seg_to(&mut t2, [-3, -4, 33]);
+    seg_to(&mut t2, [x2, -4, 33]);
+    seg_to(&mut t2, [x2, -4, 31]);
+    route(&mut b, [t2_row[0], -6, t2_row[2] + 3], &t2, 6)?;
     tower(&mut b, T2)?;
     // ---- the holds' kick: REL from the core's REL stone (-2, -1, 13) through (-2, -1, 14), down a
     // stair south to y -4, west along z 18 to x -21, a delay (`kick_delay` repeaters of 4 gt)
@@ -964,29 +1093,18 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // south, east along z 37 up to y -1, into the bus along x -13 (y -1, z 30..36) that feeds the
     // three holds' drivers: a dust up a stair onto (-12, 0, z + 2), a repeater north into the
     // hold's support (-12, 0, z)
-    let mut kr = vec![[-2, -1, 14], [-2, -1, 15]];
-    for k in 1..=3 {
-        kr.push([-2, -1 - k, 15 + k]);
-    }
-    seg_to(&mut kr, [-21, -4, 18]);
-    route(&mut b, [-2, -1, 13], &kr, 6)?;
-    let kick_delay = 6;
-    for k in 0..kick_delay {
-        b.on([-21, -4, 19 + k], &rep("north", 4))?;
-    }
-    for z in 19 + kick_delay..=29 {
-        b.on([-21, -4, z], DUST)?;
-    }
-    b.on([-21, -4, 30], &comp("north", "subtract"))?;
-    // NS5 into KA's west side through a repeater (-22, -4, 30), from the module's port: east one,
-    // south along x -28 (y -6) to z 30, east to x -25, up a stair east to (-23, -4, 30)
+    // (the route and its delay chain are built above, before the module's REL branch)
+    // NS5 into KA's west side through a repeater (-22, -4, 30), from the module's port: up a stair
+    // north to y -11 at z 9, west along z 9 (over NS3's run along x -12), up a stair south along
+    // x -24 to y -4 at z 16, south along x -24 to z 30, east into (-23, -4, 30)
     let ns5_port = at([27, -2, 5]);
-    let mut ns = vec![[ns5_port[0] + 1, ns5_port[1], ns5_port[2]]];
-    seg_to(&mut ns, [-28, -6, 5]);
-    seg_to(&mut ns, [-28, -6, 30]);
-    seg_to(&mut ns, [-25, -6, 30]);
-    ns.push([-24, -5, 30]);
-    ns.push([-23, -4, 30]);
+    let s5 = at([28, -2, 5]);
+    let mut ns = vec![s5, [s5[0], s5[1], s5[2] - 1]];
+    seg_to(&mut ns, [s5[0], s5[1] + 4, s5[2] - 5]);
+    seg_to(&mut ns, [-24, s5[1] + 4, s5[2] - 5]);
+    seg_to(&mut ns, [-24, -4, s5[2] - 5 + 7]);
+    seg_to(&mut ns, [-24, -4, 30]);
+    seg_to(&mut ns, [-23, -4, 30]);
     route(&mut b, ns5_port, &ns, 14)?;
     b.on([-22, -4, 30], &rep("west", 1))?;
     // ---- the siding's force-re-board F at the 3rd release after a visit, +20 (58f770cc: the cart
@@ -996,11 +1114,11 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // five stairs south to (-25, -1, 4)); side NS3 from the module (east along z 3 at y -6, up
     // four stairs east to (-27, -2, 3), south to (-27, -2, 4), a stair up to (-27, -1, 5) and a
     // repeater east into FA)
-    let fr_from = [FORCE[0], -6, -10];
-    if !b.blocks.get(&fr_from).is_some_and(|s| s.contains("redstone_wire")) {
-        bail!("the module's REL route at {fr_from:?} is {:?}, not a dust to branch from", b.blocks.get(&fr_from));
-    }
     if std::env::var("MCTAS_F_FROM_X").is_ok() {
+        // (B3b was dropped (ironspec 18:47) and is not laid out for the folded siding)
+        if FORCE != [-25, -1, 6] {
+            bail!("MCTAS_F_FROM_X (B3b, dropped) is laid out for the siding at [-20, 2, 10] only");
+        }
         // B3b: F's rear off the release controller's X line (a golem's pulse, the REQ it left, or
         // EXPIRE), not the module's REL route: the tap (-8, -1, 6) reads X's dust (-7, -1, 6),
         // (-9, -1, 6) a dust, repeaters (-10, -1, 6) and (-11, -1, 6) (no dust there: the REQ line
@@ -1016,26 +1134,39 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         seg_to(&mut xr, [FORCE[0], -1, 4]);
         route_d(&mut b, [-11, -1, 6], &xr, 13, 0, 1)?;
     } else {
-        b.on([FORCE[0], -6, -9], &rep("north", 1))?;
-        let mut fr = vec![[FORCE[0], -6, -8]];
-        seg_to(&mut fr, [FORCE[0], -6, -1]);
-        for k in 1..=5 {
-            fr.push([FORCE[0], -6 + k, -1 + k]);
-        }
-        route_d(&mut b, [FORCE[0], -6, -9], &fr, 6, 0, 1)?;
+        // (F's rear: a repeater off the kick route's dust near x -19 into (x, -4, 16), along z 16 to
+        // F's column + 1, north under the siding to F's row + 2, up a stair north to F's row - 2 one
+        // below F, a stair up west into the rear dust (FORCE - (0, 0, 2)))
+        let fx = kick_dust_near(&b, -19)?;
+        // (4 rt: F at the time the old route set it, +320 after the visit: ironspec's B3a)
+        b.on([fx, -4, 17], &rep("south", 4))?;
+        let mut fr = vec![[fx, -4, 16]];
+        seg_to(&mut fr, [FORCE[0] + 1, -4, 16]);
+        seg_to(&mut fr, [FORCE[0] + 1, -4, FORCE[2] + 2]);
+        seg_to(&mut fr, [FORCE[0] + 1, FORCE[1] - 1, FORCE[2] - 2]);
+        fr.push([FORCE[0], FORCE[1], FORCE[2] - 2]);
+        route_d(&mut b, [fx, -4, 17], &fr, 6, 0, 1)?;
     }
-    b.on([FORCE[0], -1, 5], &comp("north", "subtract"))?;
+    b.on([FORCE[0], FORCE[1], FORCE[2] - 1], &comp("north", "subtract"))?;
     b.on(FORCE, DUST)?;
     let ns3_port = at([28, -2, 3]);
-    let mut n3 = vec![[ns3_port[0] + 1, ns3_port[1], ns3_port[2]]];
-    for k in 1..=3 {
-        n3.push([ns3_port[0] + 1 + k, ns3_port[1] + k, ns3_port[2]]);
-    }
-    n3.push([FORCE[0] - 2, -2, 4]);
-    n3.push([FORCE[0] - 2, -1, 5]);
-    // (the port is the module's 6th dust from NS3's torch)
-    route_d(&mut b, ns3_port, &n3, 14, 6, 1)?;
-    b.on([FORCE[0] - 1, -1, 5], &rep("west", 1))?;
+    // (north along x -12 at y -15 to z 8 (under NS5's crossing at z 9), up a stair north to y -9 at
+    // z 2, north to z -7, west, up a stair west along z -7 to y -2, west to x -25 (clear of the
+    // siding's entry climb on x -24 and the arming detector), south along x -25 to F's row - 1,
+    // east, a stair up east onto (FORCE - (2, 0, 1)))
+    let s3 = at([29, -2, 3]);
+    let mut n3 = vec![s3];
+    seg_to(&mut n3, [s3[0], s3[1], s3[2] - 5]);
+    seg_to(&mut n3, [s3[0], s3[1] + 6, s3[2] - 11]);
+    seg_to(&mut n3, [s3[0], s3[1] + 6, -7]);
+    seg_to(&mut n3, [s3[0] - 2, s3[1] + 6, -7]);
+    seg_to(&mut n3, [s3[0] - 2 - (-2 - (s3[1] + 6)), -2, -7]);
+    seg_to(&mut n3, [FORCE[0] - 5, -2, -7]);
+    seg_to(&mut n3, [FORCE[0] - 5, -2, FORCE[2] - 1]);
+    seg_to(&mut n3, [FORCE[0] - 2, FORCE[1], FORCE[2] - 1]);
+    // (the port is the module's 6th dust from NS3's torch; repeaters every 6: the climbs)
+    route_d(&mut b, ns3_port, &n3, 6, 6, 1)?;
+    b.on([FORCE[0] - 1, FORCE[1], FORCE[2] - 1], &rep("west", 1))?;
     let mut ko = vec![[-21, -4, 31], [-21, -4, 32], [-21, -4, 33], [-21, -4, 34], [-21, -4, 35], [-21, -4, 36], [-21, -4, 37]];
     seg_to(&mut ko, [-18, -4, 37]);
     for k in 1..=3 {
@@ -1061,13 +1192,16 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
             continue;
         }
         b.blocks.insert(h, STONE.into());
-        b.on([h[0], 0, h[2] + 1], &rep("south", 1))?;
-        b.put([h[0], 0, h[2] + 2], STONE)?;
         // (slot 12's hold (k2, z 34) kicks 4 gt after the others: its repeater 3 rt, for no block
         // (ironspec 21:04: the siding's last corner, a stuck napper with a missed golem at k2, missed
         // its hold by 0.5-1.5 gt with the new fast kick; its cart lands 4 gt later, ~12 gt before
-        // the next release's first advance)
-        b.on([h[0] - 1, 0, h[2] + 2], &rep("west", if h[2] == 34 { 3 } else { 1 }))?;
+        // the next release's first advance). `MCTAS_K2_KICK=A,B` (the two repeaters' rt, default
+        // 3,1) measures its margins only.
+        let k2 = std::env::var("MCTAS_K2_KICK").ok().and_then(|v| v.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<u8>().ok()?, b.trim().parse::<u8>().ok()?)))).unwrap_or((3, 1));
+        let (ra, rb) = if h[2] == 34 { k2 } else { (1, 1) };
+        b.on([h[0], 0, h[2] + 1], &rep("south", rb))?;
+        b.put([h[0], 0, h[2] + 2], STONE)?;
+        b.on([h[0] - 1, 0, h[2] + 2], &rep("west", ra))?;
         b.on([h[0] - 2, 0, h[2] + 2], DUST)?;
     }
     // (the divert unit's ring items)

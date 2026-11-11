@@ -761,13 +761,14 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         if std::env::var("MCTAS_PROBE_KEEP_DETECTOR").is_err() {
             sp.blocks.insert(det, "minecraft:redstone_block".into());
         }
-        let m = |q: P3| [q[0] + crate::sidinggen::MODULE_AT[0], q[1] + crate::sidinggen::MODULE_AT[1], q[2] + crate::sidinggen::MODULE_AT[2]];
+        let m = crate::sidinggen::module_at;
+        let u = crate::sidinggen::unit_at;
         sp.ports.insert("input.golem".into(), golem);
-        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", [20, -6, 9]), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-16, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-11, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", [-27, -1, 5]), ("fa_rel", [-25, -1, 4]), ("thr", [-56, 1, -19]), ("lock", [-55, 1, -20]), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", [18, -6, 10]), ("g2_loc", [20, -6, 9])] {
+        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", u([20, -6, 9])), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-16, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-11, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", { let f = crate::sidinggen::FORCE; [f[0] - 2, f[1], f[2] - 1] }), ("fa_rel", { let f = crate::sidinggen::FORCE; [f[0], f[1], f[2] - 2] }), ("thr", { let d = crate::sidinggen::DETECTOR; [d[0], d[1], d[2] + 13] }), ("lock", { let d = crate::sidinggen::DETECTOR; [d[0] + 1, d[1], d[2] + 12] }), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", u([18, -6, 10])), ("g2_loc", u([20, -6, 9]))] {
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {
-            for (n, q) in [("r15", [-3, 0, 25]), ("r16", [-3, 0, 22]), ("r17", [-3, 0, 19]), ("q14", [-3, -1, 28]), ("q15", [-3, -1, 25]), ("q16", [-3, -1, 22]), ("q17", [-3, -1, 19]), ("q00", [0, 1, 25]), ("q01", [0, 0, 29]), ("q02", [0, -1, 33]), ("q03", [0, -1, 36]), ("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", [23, -6, 7]), ("row1", [23, -6, 1]), ("row_5", [23, -6, -5]), ("step_in", [20, -4, 12]), ("step_end", [28, -5, 6]), ("ring_top", [27, -5, 4]), ("p0", [22, -6, 9]), ("p1", [22, -6, 3]), ("p2", [22, -6, -3]), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
+            for (n, q) in [("r15", [-3, 0, 25]), ("r16", [-3, 0, 22]), ("r17", [-3, 0, 19]), ("q14", [-3, -1, 28]), ("q15", [-3, -1, 25]), ("q16", [-3, -1, 22]), ("q17", [-3, -1, 19]), ("q00", [0, 1, 25]), ("q01", [0, 0, 29]), ("q02", [0, -1, 33]), ("q03", [0, -1, 36]), ("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", u([23, -6, 7])), ("row1", u([23, -6, 1])), ("row_5", u([23, -6, -5])), ("step_in", u([20, -4, 12])), ("step_end", u([28, -5, 6])), ("ring_top", u([27, -5, 4])), ("p0", u([22, -6, 9])), ("p1", u([22, -6, 3])), ("p2", u([22, -6, -3])), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
                 sp.ports.insert(format!("output.{n}"), q);
             }
         }
@@ -806,6 +807,46 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             line.push_str(" fills-last");
         }
         d.meta.insert("build".into(), line);
+    }
+    // (the chunk lines the added parts cross (ironspec 21:24/21:25: the carousel at X & 15 = 6,
+    // Z & 15 = 6 for loop cell 0, 0, so the lines fall just before x and z = 10 mod 16): each line
+    // with the pairs of touching blocks across it, one of them added here (glass covers aside), for
+    // the partial-unload faults at each line)
+    {
+        let base_cells: std::collections::BTreeSet<P3> = Design::load(loop_file)?.blocks.keys().copied().collect();
+        let s0 = crate::sidinggen::SIDING_AT;
+        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 4..=s0[1] + 4).contains(&p[1]) && (s0[2] - 3..=s0[2] + 9).contains(&p[2]);
+        let real = |s: &String| !s.starts_with("minecraft:glass") && !s.ends_with(":air");
+        let mine: std::collections::BTreeSet<P3> = d.blocks.iter().filter(|(p, s)| !base_cells.contains(*p) && !pad_cells.contains(*p) && !(siding.is_some() && in_siding(p)) && real(s)).map(|(p, _)| *p).collect();
+        let solid_at = |p: &P3| d.blocks.get(p).is_some_and(real);
+        let mut xs: BTreeMap<i32, usize> = BTreeMap::new();
+        let mut zs: BTreeMap<i32, usize> = BTreeMap::new();
+        for (p, _) in d.blocks.iter().filter(|(_, s)| real(s)) {
+            let w = [p[0] - 1, p[1], p[2]];
+            if p[0].rem_euclid(16) == 10 && solid_at(&w) && (mine.contains(p) || mine.contains(&w)) {
+                *xs.entry(p[0]).or_default() += 1;
+            }
+            let n = [p[0], p[1], p[2] - 1];
+            if p[2].rem_euclid(16) == 10 && solid_at(&n) && (mine.contains(p) || mine.contains(&n)) {
+                *zs.entry(p[2]).or_default() += 1;
+            }
+        }
+        let (lo, hi) = mine.iter().fold(([i32::MAX; 3], [i32::MIN; 3]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])], [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])]));
+        let show = |m: &BTreeMap<i32, usize>| m.iter().map(|(k, n)| format!("{}|{} ({n})", k - 1, k)).collect::<Vec<_>>().join(", ");
+        println!("the added parts ({} blocks, box {:?}..{:?}) cross chunk lines (X & 15 = 6, Z & 15 = 6 at loop 0,0; touching pairs): x {}; z {}", mine.len(), lo, hi, show(&xs), show(&zs));
+    }
+    // (the chunk alignment header (the brief's chunk rule, 7b4d7caea): the stand area (stand,
+    // approach, circuit, pad: loop x -3..9, z -6..7) inside one chunk allows loop cell 0,0 at world
+    // X & 15 in 3..6 and Z & 15 in 6..8; the carousel's pick is 6, 6 (ironspec 21:24/21:25,
+    // ironfarm's pick), checked against that range here; runners place the design shifted to it)
+    {
+        let (sx, sz) = ((-3, 9), (-6, 7));
+        let (xr, zr) = ((-sx.0, 15 - sx.1), (-sz.0, 15 - sz.1));
+        let pick = (6, 6);
+        if !(xr.0..=xr.1).contains(&pick.0) || !(zr.0..=zr.1).contains(&pick.1) {
+            bail!("the chunk pick {pick:?} is outside the stand area's range x {xr:?}, z {zr:?}");
+        }
+        d.meta.insert("chunk".into(), format!("0 0 0 {}-{} {}-{}", pick.0, pick.0, pick.1, pick.1));
     }
     d.name = "carousel-release-loop-wired".into();
     d.save(out)?;

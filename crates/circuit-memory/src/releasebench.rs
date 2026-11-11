@@ -505,6 +505,109 @@ pub fn fault_survey(design: &Path, spec: &Path, n: u64) -> Result<()> {
     Ok(())
 }
 
+/// `release-sweep` (the parent 22:23: sweeps and surveys from one Rust command, never a shell
+/// loop): the wired farm generated once, or once per value when `knob` names one of the
+/// generator's environment knobs (e.g. `MCTAS_K2_KICK`), then `run` (a command line, split on
+/// spaces, no shell; `{design}` stands for the generated file, `{value}` for the value) once per
+/// value, one after the other; per value it prints the runner's problems and visits lines and every
+/// line holding one of `show`'s strings.
+#[allow(clippy::too_many_arguments)]
+pub fn release_sweep(loop_file: &Path, offdelay: &Path, siding: Option<&Path>, siding_ctl: Option<&Path>, pad: Option<&Path>, knob: Option<&str>, values: &str, run: &str, show: &[String]) -> Result<()> {
+    let vals: Vec<&str> = values.split('|').map(|v| v.trim()).filter(|v| !v.is_empty()).collect();
+    if vals.is_empty() {
+        bail!("--values: give v1|v2|...");
+    }
+    let dir = std::env::temp_dir().join(format!("release-sweep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let make = |out: &Path| -> Result<()> { crate::releasegen::generate_loop(out, loop_file, offdelay, siding, siding_ctl, pad) };
+    let once = dir.join("design.txt");
+    if knob.is_none() {
+        make(&once)?;
+    }
+    let mut rows: Vec<String> = Vec::new();
+    for (i, v) in vals.iter().enumerate() {
+        let design = match knob {
+            Some(k) => {
+                // (the generator reads its knobs from the environment, as `release-gen` does)
+                unsafe { std::env::set_var(k, v) };
+                let out = dir.join(format!("design-{i}.txt"));
+                make(&out)?;
+                out
+            }
+            None => once.clone(),
+        };
+        let args: Vec<String> = run.split_whitespace().map(|t| t.replace("{design}", &design.display().to_string()).replace("{value}", v)).collect();
+        let Some((prog, rest)) = args.split_first() else { bail!("--run is empty") };
+        let o = std::process::Command::new(prog).args(rest).output()?;
+        let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+        let mut row = format!("== {v}");
+        for l in text.lines() {
+            let t = l.trim_start();
+            let key = t.ends_with(" problems:") || t.ends_with(" problems") || t.starts_with("visits:") || t.contains("seeds clean") || t.contains("riders hurt");
+            if key || show.iter().any(|s| l.contains(s.as_str())) {
+                row.push_str("\n   ");
+                row.push_str(&l.chars().take(240).collect::<String>());
+            }
+        }
+        println!("{row}");
+        rows.push(row);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+/// `trace-diff` (the fold's check: which control lines moved, and by how much): two `release-trace`
+/// outputs, per port: identical, every edge shifted by the same gt (and that shift), or the first
+/// edge that differs.
+pub fn trace_diff(a: &Path, b: &Path) -> Result<()> {
+    let read = |p: &Path| -> Result<Vec<(String, Vec<String>)>> {
+        Ok(std::fs::read_to_string(p)?
+            .lines()
+            .filter_map(|l| {
+                let mut w = l.split_whitespace();
+                let k = w.next()?.to_string();
+                Some((k, w.map(String::from).collect()))
+            })
+            .collect())
+    };
+    let (ra, rb) = (read(a)?, read(b)?);
+    let num = |s: &str| -> Option<i64> { s.trim_start_matches(['+', '-']).split('@').last()?.parse().ok() };
+    let (mut same, mut moved) = (0, 0);
+    for (k, ea) in &ra {
+        let Some((_, eb)) = rb.iter().find(|(n, _)| n == k) else {
+            println!("{k:24} only in {}", a.display());
+            continue;
+        };
+        if ea == eb {
+            same += 1;
+            continue;
+        }
+        moved += 1;
+        let shifts: Vec<i64> = ea.iter().zip(eb).filter_map(|(x, y)| Some(num(y)? - num(x)?)).collect();
+        let kinds_match = ea.len() == eb.len() && ea.iter().zip(eb).all(|(x, y)| x.chars().next() == y.chars().next());
+        if kinds_match && !shifts.is_empty() && shifts.iter().all(|&s| s == shifts[0]) {
+            println!("{k:24} every edge {:+} gt ({} edges)", shifts[0], ea.len());
+        } else {
+            let i = ea.iter().zip(eb).position(|(x, y)| x != y).unwrap_or(ea.len().min(eb.len()));
+            let (lo, hi) = (shifts.iter().min().copied().unwrap_or(0), shifts.iter().max().copied().unwrap_or(0));
+            println!(
+                "{k:24} differs from edge {i} ({} vs {}); edges {} vs {}; shifts {lo:+}..{hi:+}",
+                ea.get(i).map(|s| s.as_str()).unwrap_or("-"),
+                eb.get(i).map(|s| s.as_str()).unwrap_or("-"),
+                ea.len(),
+                eb.len()
+            );
+        }
+    }
+    for (k, _) in &rb {
+        if !ra.iter().any(|(n, _)| n == k) {
+            println!("{k:24} only in {}", b.display());
+        }
+    }
+    println!("{same} lines identical, {moved} moved");
+    Ok(())
+}
+
 /// `nap-report` (ironspec 21:08, the night-1 lines): from one `queue-loop-run --visits-observe`
 /// log (one seed), each villager's first nap (its cart `eN`: a villager rides its own cart for
 /// life) and each batch's first fully napped slot (the batch at the stand during slot S is
