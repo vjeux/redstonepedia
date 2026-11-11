@@ -188,6 +188,36 @@ fn new_b() -> B {
     B { blocks: BTreeMap::new(), ports: BTreeMap::new(), nbt: BTreeMap::new() }
 }
 
+/// A dust path from `from` with a 1-rt repeater at each index in `reps` (facing along the path),
+/// each dust run laid by `sidinggen::route_d` (its foreign-dust and stair checks), so the path's
+/// delay is exactly 2 gt per listed repeater.
+fn lay_link(b: &mut B, from: P3, cells: &[P3], reps: &[(usize, u8)]) -> Result<()> {
+    let mut start = 0;
+    let mut src = from;
+    for &(r, d) in reps.iter().chain(std::iter::once(&(cells.len(), 1))) {
+        if r > start {
+            crate::sidinggen::route_d(b, src, &cells[start..r], 0, 0, 1)?;
+        }
+        if r < cells.len() {
+            let p = if r == 0 { from } else { cells[r - 1] };
+            let c = cells[r];
+            let facing = match (c[0] - p[0], c[2] - p[2]) {
+                (1, 0) => "west",
+                (-1, 0) => "east",
+                (0, 1) => "north",
+                _ => "south",
+            };
+            if c[1] != p[1] || cells.get(r + 1).is_some_and(|n| n[1] != c[1] || [n[0] - c[0], n[2] - c[2]] != [c[0] - p[0], c[2] - p[2]]) {
+                bail!("link: the repeater at {c:?} is not on a straight flat run");
+            }
+            b.on(c, &rep(facing, d))?;
+            src = c;
+            start = r + 1;
+        }
+    }
+    Ok(())
+}
+
 /// The module alone (designs/farms/iron/parts/carousel-release/carousel-release-v0.txt): stones
 /// at REL + 8, 16, 24 (group), 32, 38 (A1), 46, 54, 58 (A2), 66, 74, 78 (A3).
 pub fn generate(out: &Path, _offdelay: &Path) -> Result<()> {
@@ -287,6 +317,23 @@ fn turn2(s: &str) -> String {
     o
 }
 
+/// Column 3 (c)'s controller shift: the links from the core under the lanes to row B's lines
+/// carry two 1-rt repeaters, so every controller output is 2 rt (4 gt) later than on main, and the
+/// REL taps outside the core add the same (`core_place`).
+pub(crate) const FAR_SHIFT_RT: u8 = 2;
+
+/// Where a cell of the controller's own frame lands in the loop: turned 180 degrees west of row B
+/// (global = (-2 - x, y - 2, 10 - z)); column 3 (c) (`sidinggen::FAR`): under the lanes instead,
+/// global = (3 - x, y - 6, 25 - z) (x -6..5, cells at y -5 on supports at y -6, z 17..54: clear of
+/// the divert unit (z <= 16) and the module (y <= -10)), its lines linked up to row B's feeders.
+pub(crate) fn core_place(p: P3) -> P3 {
+    if crate::sidinggen::FAR {
+        [3 - p[0], p[1] - 6, 25 - p[2]]
+    } else {
+        [-2 - p[0], p[1] - 2, 10 - p[2]]
+    }
+}
+
 /// The controller built into ironfarm's loop file (explore/ironfarm 99d3566d7 cells, 08:36):
 /// the module turned 180 degrees west of row B (frame: global = (-2 - x, y - 2, 10 - z)), its
 /// lines wired to the 18 queue controls head first, the tail windows (slots 1-2 ON at +88..+110,
@@ -315,9 +362,10 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         R(1), S(A), // +50 (A2)
         R(4), R(4), R(2), S(A), // +70 (A3)
     ]);
+    let far = crate::sidinggen::FAR;
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
-    let at = |p: P3| -> P3 { [-2 - p[0], p[1] - 2, 10 - p[2]] };
+    let at = core_place;
     let mut b = new_b();
     for (p, s) in &m.blocks {
         b.put(at(*p), &turn2(s))?;
@@ -339,10 +387,44 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         // waited out BUSY: ironspec 20:35); a fresh farm (no golem before a nap) starts 112 gt
         // later. A golem still sets ARMED whenever one comes first. ARMED is a block-state latch:
         // an unload and reload keeps it.
+        if far {
+            // (column 3 (c): the detector at the far end's open strip (5, -8, 55) (x 5 at z 55: no
+            // part of the farm over it, inside the loop's z <= 55), 13 repeaters north along x 5 at
+            // y -8 (eleven of 4 rt, two of 3 rt), dust on north under the core with a 1-rt restore,
+            // west along z 22 (a second restore), up a stair north, the last repeater (4 rt) east
+            // into ARMED's loop dust (core (6, 1, 6)): 56 rt, the same 112 gt)
+            let det = [5, -8, 55];
+            b.put(det, "minecraft:daylight_detector[inverted=true,power=0]")?;
+            b.put([det[0], det[1] + 1, det[2]], "minecraft:glass")?;
+            let armed = at([6, 1, 6]);
+            let mut cells: Vec<P3> = (22..det[2]).rev().map(|z| [det[0], det[1], z]).collect();
+            for x in (armed[0] - 2..det[0]).rev() {
+                cells.push([x, det[1], 22]);
+            }
+            cells.push([armed[0] - 2, det[1] + 1, 21]);
+            cells.push([armed[0] - 2, det[1] + 2, 20]);
+            cells.push([armed[0] - 2, det[1] + 3, 19]);
+            cells.push([armed[0] - 1, armed[1], armed[2]]);
+            if cells[cells.len() - 2] != [armed[0] - 2, armed[1], armed[2]] {
+                bail!("the arming line ends at {:?}, not beside ARMED's loop dust {armed:?}", cells[cells.len() - 1]);
+            }
+            let mut reps: Vec<(usize, u8)> = (0..13).map(|i| (i, if i == 6 || i == 12 { 3 } else { 4 })).collect();
+            for c in [[det[0], det[1], 27], [-1, det[1], 22]] {
+                reps.push((cells.iter().position(|q| *q == c).ok_or_else(|| anyhow::anyhow!("the arming line has no cell {c:?}"))?, 1));
+            }
+            reps.push((cells.len() - 1, 4));
+            reps.sort();
+            let total: u32 = reps.iter().map(|r| r.1 as u32).sum();
+            if total != 56 {
+                bail!("the arming line has {total} rt, not 56 (112 gt)");
+            }
+            lay_link(&mut b, det, &cells, &reps)?;
+        } else {
         b.put([-23, -1, 4], "minecraft:daylight_detector[inverted=true,power=0]")?;
         b.put([-23, 0, 4], "minecraft:glass")?;
         for x in -22..=-9 {
             b.on([x, -1, 4], &rep("west", 4))?;
+        }
         }
     }
     let golem = at(m.ports["input.golem"]);
@@ -387,7 +469,51 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         b.on([-5, yy, 26], &rep("south", 4))?; // the advance into the group net (a diode)
     }
     // ---- row B (slots 14..8 at x -3, z 28..46): the advance line on to z 46, feeders from the west
-    for z in a3[2] + 1..=46 {
+    if far {
+        // (column 3 (c): the core under the lanes; its group line (0, -5, 30..40) and advance line
+        // (0, -5, 42..54) reach row B's lines at x -5 through links, laid before those lines (their
+        // last cells touch them): off the line one cell east, up a stair north to y -3, west over
+        // the core to x -6, north along x -6, up a stair north into the cell beside the line; two
+        // 1-rt repeaters each. Every output of the controller is then FAR_SHIFT (4 gt) later than
+        // on main, the release group's start (REL through R_g) included; the REL taps (the stand's,
+        // the divert unit's, the kick) and the tail windows take the same 4 gt, so the farm's
+        // timing is main's shifted by 4 gt after the golem pulse; the core's own (refill, BUSY,
+        // the merge window) is unchanged. The advance link leaves the line at own z -23, where all
+        // three advance taps' pulses are still 9 or more)
+        let g0 = at([3, 1, -6]);
+        let a0 = at([3, 1, -23]);
+        for (src, name) in [(g0, "group"), (a0, "advance")] {
+            if !b.blocks.get(&src).is_some_and(|s| s.contains("redstone_wire")) {
+                bail!("the core's {name} line at {src:?} is {:?}, not a dust", b.blocks.get(&src));
+            }
+        }
+        let link = |src: P3, zrun: i32, zin: i32| -> Vec<P3> {
+            let mut c = vec![[src[0] + 1, src[1], src[2]], [src[0] + 1, src[1] + 1, src[2] - 1], [src[0] + 1, src[1] + 2, src[2] - 2]];
+            for x in (-6..=src[0]).rev() {
+                c.push([x, src[1] + 2, zrun]);
+            }
+            for z in (zin + 2..zrun).rev() {
+                c.push([-6, src[1] + 2, z]);
+            }
+            c.push([-6, src[1] + 3, zin + 1]);
+            c.push([-6, src[1] + 4, zin]);
+            c
+        };
+        let gl = link(g0, g0[2] - 2, 22);
+        let al = link(a0, a0[2] - 2, 33);
+        // (a stone over the line's next cell cuts the climb's diagonal back onto the line)
+        for s in [g0, a0] {
+            b.put([s[0], s[1] + 1, s[2] - 1], STONE)?;
+        }
+        // (repeaters: the first right after the climb, the second 4 cells before the line)
+        lay_link(&mut b, g0, &gl, &[(3, 1), (gl.len() - 5, 1)])?;
+        lay_link(&mut b, a0, &al, &[(3, 1), (al.len() - 5, 1)])?;
+        for z in 19..=25 {
+            b.on([-5, yy, z], DUST)?;
+        }
+    }
+    let adv0 = if far { 27 } else { a3[2] + 1 };
+    for z in adv0..=46 {
         if z == 41 {
             // restores the first advance pulse (A1 injects at z 27) for the slots past z 40
             b.on([-5, yy, z], &rep("north", 1))?;
@@ -459,17 +585,42 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     //   (2,-2,30), a repeater (2,-2,31) into N2's support (2,-2,32), which powers N2's dust above:
     //   control ON + 92..+ 104 (t0 + 100)
     let (ax, az) = (a3[0], a3[2]);
+    let zl = if far { 43 } else { az + 4 };
+    if far {
+        // (column 3 (c): A3 at (-2, -5, 54) under the lanes: its 4-rt tap on its free west side
+        // (A3 has no reset tap), out west, up a stair south to y -4, east along z 55 round the
+        // core's south end, north along x 4 (over the core's empty east half) into the z 43 line's
+        // x 4 cell from below; one 3-rt repeater on the way: 4 + 3 rt to the line against main's
+        // 4 + 1 (the x -1 repeater, gone here), the controller's FAR_SHIFT of 4 gt)
+        let tap = [ax - 1, a3[1], az];
+        b.on(tap, &rep("east", 4))?;
+        let x4 = 4;
+        let mut tl = vec![[ax - 2, a3[1], az], [ax - 2, a3[1] + 1, az + 1]];
+        for x in ax - 1..=x4 {
+            tl.push([x, a3[1] + 1, az + 1]);
+        }
+        for z in (zl + 1..=az).rev() {
+            tl.push([x4, a3[1] + 1, z]);
+        }
+        // (a stone over the advance line's end cuts the z 55 run's diagonal onto it)
+        b.put([0, a3[1] + 1, az], "minecraft:stone")?;
+        let restore = tl.iter().position(|c| c[0] == x4 && c[2] == zl + 7).ok_or_else(|| anyhow::anyhow!("the tail route has no cell at z {}", zl + 7))?;
+        lay_link(&mut b, tap, &tl, &[(restore, 3)])?;
+        for x in 1..=8 {
+            b.on([x, -3, zl], DUST)?;
+        }
+    } else {
     b.on([ax, yy, az + 1], &rep("north", 4))?; // golem + 80
     b.on([ax, yy, az + 2], DUST)?;
     b.on([ax, -2, az + 3], DUST)?;
     b.on([ax, -3, az + 4], DUST)?;
-    let zl = az + 4;
     for x in ax + 1..=8 {
         if x == -1 {
             b.on([x, -3, zl], &rep("west", 1))?; // golem + 82
         } else {
             b.on([x, -3, zl], DUST)?;
         }
+    }
     }
     b.on([8, -2, zl - 1], DUST)?;
     b.on([8, -1, zl - 2], DUST)?;

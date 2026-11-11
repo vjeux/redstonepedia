@@ -14,6 +14,7 @@ pub mod loopgen;
 pub mod loopmodel;
 pub mod releasegen;
 pub mod sidinggen;
+pub mod autoroute;
 pub mod releasebench;
 pub mod droptest;
 pub mod schedbench;

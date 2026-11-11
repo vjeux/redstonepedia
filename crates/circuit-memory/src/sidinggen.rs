@@ -636,13 +636,13 @@ pub fn control_gen(out: &Path, sched: &Path) -> Result<()> {
 /// repeater every `every` cells on straight flat runs pointing along it; refuses a cell whose
 /// neighbours (same level, or a stair's reach) hold dust that is not this wire's, and a stair
 /// whose upper landing has something solid over the lower cell.
-fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
+pub(crate) fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
     route_d(b, from, cells, every, every, 1)
 }
 
 /// `route` with the dust count since the source's last repeater (`run0`: 0 right after a repeater,
 /// `every` for "take one on the first flat cell") and the repeaters' delay.
-fn route_d(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usize, delay: u8) -> Result<()> {
+pub(crate) fn route_d(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usize, delay: u8) -> Result<()> {
     use crate::schedgen::{DUST, rep};
     let mine: std::collections::BTreeSet<P3> = cells.iter().copied().chain(std::iter::once(from)).collect();
     let mut prev = from;
@@ -702,7 +702,17 @@ fn route_d(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usize, delay: 
     Ok(())
 }
 
-fn seg_to(cells: &mut Vec<P3>, to: P3) {
+/// A repeater's `rep` side for a signal stepping by `d` into it (route_d's convention).
+pub(crate) fn facing_in(d: P3) -> &'static str {
+    match (d[0], d[2]) {
+        (1, 0) => "west",
+        (-1, 0) => "east",
+        (0, 1) => "north",
+        _ => "south",
+    }
+}
+
+pub(crate) fn seg_to(cells: &mut Vec<P3>, to: P3) {
     let mut c = *cells.last().expect("seg_to after a start");
     while c != to {
         let s = |a: i32, b: i32| (b - a).signum();
@@ -734,6 +744,27 @@ pub(crate) fn stand_rel(d: &mut Design) -> Result<Vec<P3>> {
     // (the tap 6 gt: REL at the cell golem +14..+54 in release-trace, about the bench's +13 in a
     // run: the wired stand passes REL starts +10..+15 with the stagger, the bench's sweep)
     let tap_delay: u8 = std::env::var("MCTAS_STAND_REL_TAP").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    // (column 3 (c): the core under the lanes; REL from its refill dust (core (-2, 1, -1)) through
+    // a 1-rt tap beside it and an auto-routed line to the old tap's input (0, -1, 11); the old
+    // tap's delay less those repeaters, so the network sees REL at the same time)
+    let tap_delay = if FAR {
+        let src = crate::releasegen::core_place([-2, 1, -1]);
+        let tap = crate::releasegen::core_place([-3, 1, -1]);
+        let d = [tap[0] - src[0], tap[1] - src[1], tap[2] - src[2]];
+        b.on(tap, &rep(facing_in(d), 1))?;
+        let start = [tap[0] + d[0], tap[1] + d[1], tap[2] + d[2]];
+        let lim = crate::autoroute::Limits { lo: [-6, -9, -6], hi: [11, -1, 60], avoid: Default::default(), near_ok: [tap, src].into_iter().collect() };
+        let path = crate::autoroute::find(&b, start, [0, -1, 11], &lim)?;
+        route_d(&mut b, tap, &path, 14, 0, 1)?;
+        let n = path.iter().filter(|p| b.blocks.get(*p).is_some_and(|s| s.contains("repeater"))).count() as u8;
+        let total = tap_delay + crate::releasegen::FAR_SHIFT_RT;
+        if 1 + n >= total || total - 1 - n > 4 {
+            bail!("the stand's REL line has {n} repeaters: the old tap cannot make up {total} rt");
+        }
+        total - 1 - n
+    } else {
+        tap_delay
+    };
     b.on([0, -1, 10], &rep("south", tap_delay))?;
     b.put([0, -1, 9], STONE)?;
     b.on([1, -1, 9], &rep("west", 4))?;
@@ -889,7 +920,7 @@ fn mrot(s: &str) -> String {
 /// The night window's inverted daylight detector: west of the module at its depth, nothing of the
 /// farm over it (open sky), its 11-dust strength filter south along x -26 and the night latch at
 /// z 36.
-pub(crate) const DETECTOR: P3 = if FAR { [-5, -9, 56] } else { [-27, -9, 24] };
+pub(crate) const DETECTOR: P3 = if FAR { [-5, -9, 55] } else { [-27, -9, 24] };
 /// The siding's force-re-board input F (farmopt's child 58f770cc: (-5, -3, -4) in the siding's
 /// frame), a dust the siding's repeater reads from the south.
 pub(crate) const FORCE: P3 = if SIDING_TURNS == 2 { [SIDING_AT[0] + 5, SIDING_AT[1] - 3, SIDING_AT[2] + 4] } else { [SIDING_AT[0] - 5, SIDING_AT[1] - 3, SIDING_AT[2] - 4] };
@@ -1113,34 +1144,36 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // (glass over it: a golem's legacy spawn takes a daylight detector for a floor; glass keeps
     // the sky light)
     b.put([DETECTOR[0], DETECTOR[1] + 1, DETECTOR[2]], "minecraft:glass")?;
-    // (column 3 (c): the detector at (-5, -9, 56) under an open column (nothing of the farm over
-    // x -5 at z 56); its eleven dusts west then down a stair north along x -6 (outside the module's
-    // cells: world z 46..56 is past its x -2 end) to y -17, thr (-6, -17, 45), the line on north
-    // into a block (-6, -17, 39) and a wall torch on its east face (lit = day), the day line east
-    // along z 39 through the module's corridor (its (3, -3, -5..-1)) into its day input)
-    let far_thr = [DETECTOR[0] - 1, -17, 45];
+    // (column 3 (c): the detector at (-5, -9, 55) under an open column (nothing of the farm over
+    // x -5 at z 55, inside the loop's z <= 55); its eleven dusts west, down a stair north along
+    // x -6 to y -17, east two cells; thr (-5, -17, 45) south of the module's last row (world z 44),
+    // so the latch fits on thr's east side with nothing over its torch; the line on north into a
+    // block (-5, -17, 39) and a wall torch on its east face (lit = day), the day line east along
+    // z 39 through the module's corridor (its (3, -3, -5..-1)) into its day input)
+    let far_thr = [DETECTOR[0], -17, DETECTOR[2] - 10];
     if FAR {
         let x = DETECTOR[0] - 1;
         let mut c = vec![[x, DETECTOR[1], DETECTOR[2]]];
         for k in 1..=8 {
             c.push([x, DETECTOR[1] - k, DETECTOR[2] - k]);
         }
-        c.push([x, -17, 47]);
-        c.push([x, -17, 46]);
-        if c.len() != 11 {
-            bail!("the detector's filter has {} dusts, not 11", c.len());
+        c.push([x + 1, -17, DETECTOR[2] - 8]);
+        c.push([x + 1, -17, DETECTOR[2] - 9]);
+        if c.len() != 11 || c[10] != [far_thr[0], far_thr[1], far_thr[2] + 1] {
+            bail!("the detector's filter has {} dusts ending at {:?}, not 11 into thr {far_thr:?}", c.len(), c.last());
         }
         for p in &c {
             b.on(*p, DUST)?;
         }
         b.on(far_thr, &rep("south", 1))?;
-        for z in 40..=44 {
-            b.on([x, -17, z], DUST)?;
+        for z in 40..far_thr[2] {
+            b.on([far_thr[0], -17, z], DUST)?;
         }
-        b.put([x, -17, 39], STONE)?;
-        b.put([x + 1, -17, 39], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
-        let dl = vec![[x + 2, -17, 39], [x + 3, -17, 39], [x + 4, -17, 39], at([3, -3, -1]), at([3, -2, 0]), at([3, -2, 1])];
-        route_d(&mut b, [x + 1, -17, 39], &dl, 6, 0, 1)?;
+        let blk = [far_thr[0], -17, 39];
+        b.put(blk, STONE)?;
+        b.put([blk[0] + 1, -17, 39], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
+        let dl: Vec<P3> = (blk[0] + 2..=-2).map(|xx| [xx, -17, 39]).chain([at([3, -3, -1]), at([3, -2, 0]), at([3, -2, 1])]).collect();
+        route_d(&mut b, [blk[0] + 1, -17, 39], &dl, 6, 0, 1)?;
     } else {
     for dz in 1..=11 {
         b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + dz], DUST)?;
@@ -1237,27 +1270,26 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // y 1, west along z -20 into a repeater, a block, its wall torch (lit = locked) and the lock
     // repeater pointing into thr's east side.
     if FAR {
-        // (column 3 (c): the unlock off the REL branch's east run at (-7, -16, 33): a repeater
-        // (-7, -16, 34) south of it, west along z 35 at y -16 to x -11, down a stair south, south
-        // along x -11 at y -17 to the lock's input (-11, -17, 45); the latch on thr's WEST side
-        // (east of thr, the module's REL bus stones at x -4 would take a torch's power): thr - 1 a
-        // repeater into thr, thr - 2 the wall torch (lit = locked), thr - 3 its block, thr - 4 the
-        // unlock's repeater into that block)
+        // (column 3 (c): the latch on thr's east side at z 45, south of the module's last row
+        // (world z 44): thr + 1 a repeater into thr, thr + 2 the wall torch (lit = locked), thr + 3
+        // its block, thr + 4 the unlock's repeater into that block, fed from (0, -17, 45) by a line
+        // auto-routed off the REL branch's last flat run)
         let thr = far_thr;
-        let tap = [-6, -16, 31];
-        if !b.blocks.get(&tap).is_some_and(|s| s.contains("redstone_wire")) {
-            bail!("the module's REL branch at {tap:?} is {:?}, not a dust to branch from", b.blocks.get(&tap));
-        }
-        b.on([tap[0] - 1, tap[1], tap[2]], &rep("east", 1))?;
-        let mut lk = vec![[tap[0] - 2, tap[1], tap[2]]];
-        seg_to(&mut lk, [thr[0] - 5, tap[1], tap[2]]);
-        seg_to(&mut lk, [thr[0] - 5, thr[1], tap[2] + 1]);
-        seg_to(&mut lk, [thr[0] - 5, thr[1], thr[2]]);
-        route_d(&mut b, [tap[0] - 1, tap[1], tap[2]], &lk, 3, 0, 1)?;
-        b.on([thr[0] - 4, thr[1], thr[2]], &rep("west", 4))?;
-        b.put([thr[0] - 3, thr[1], thr[2]], STONE)?;
-        b.put([thr[0] - 2, thr[1], thr[2]], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
-        b.on([thr[0] - 1, thr[1], thr[2]], &rep("west", 4))?;
+        b.on([thr[0] + 4, thr[1], thr[2]], &rep("east", 4))?;
+        b.put([thr[0] + 3, thr[1], thr[2]], STONE)?;
+        b.put([thr[0] + 2, thr[1], thr[2]], "minecraft:redstone_wall_torch[facing=west,lit=true]")?;
+        b.on([thr[0] + 1, thr[1], thr[2]], &rep("east", 4))?;
+        let sink = [thr[0] + 5, thr[1], thr[2]];
+        let tap = rel.iter().rev().copied().find(|c| b.blocks.get(c).is_some_and(|s| s.contains("redstone_wire")) && c[1] == -16).ok_or_else(|| anyhow::anyhow!("the REL branch has no dust at y -16 to tap"))?;
+        let (tr, start) = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
+            .iter()
+            .map(|d| ([tap[0] + d[0], tap[1], tap[2] + d[2]], [tap[0] + 2 * d[0], tap[1], tap[2] + 2 * d[2]]))
+            .find(|(r, s)| b.blocks.get(r).is_none() && b.blocks.get(s).is_none() && !rel.contains(r) && !rel.contains(s))
+            .ok_or_else(|| anyhow::anyhow!("no free side of the REL branch's {tap:?} for the unlock's tap"))?;
+        b.on(tr, &rep(facing_in([tr[0] - tap[0], 0, tr[2] - tap[2]]), 1))?;
+        let lim = crate::autoroute::Limits { lo: [-6, -18, 14], hi: [11, -10, 55], avoid: Default::default(), near_ok: [tr, [thr[0] + 4, thr[1], thr[2]]].into_iter().collect() };
+        let lk = crate::autoroute::find(&b, start, sink, &lim)?;
+        route_d(&mut b, tr, &lk, 3, 0, 1)?;
     } else {
     let thr = [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 12];
     // (the unlock: a repeater off the module's REL branch where its stair crosses x thr + 5, south
