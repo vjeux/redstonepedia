@@ -7860,7 +7860,10 @@ pub fn flee_control(name: &str) -> Result<()> {
     }
     let bbad = bc.iter().filter(|b| !b.2).count();
     println!("blind-control: {} of {} as expected{}", bc.len() - bbad, bc.len(), if bbad == 0 { " (PASS)" } else { "" });
-    let bad = bad + rbad + (!eye_fails) as usize + bbad;
+    // (the pickup gate's positive control: a boated zombie 0.1 beside a cart's box must fail it)
+    let (_, pk) = mobfarm::fleecheck::pickup_check(&spec, true);
+    println!("pickup-control (a boated zombie 0.1 beside the first rail cell's cart): the pickup gate {}", if pk { "FAILS, as it must (PASS)" } else { "passes  DIFFERS" });
+    let bad = bad + rbad + (!eye_fails) as usize + bbad + (!pk) as usize;
     if bad > 0 {
         bail!("flee-control: {bad} lanes differ");
     }

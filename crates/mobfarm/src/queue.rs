@@ -4432,6 +4432,57 @@ pub fn esc_bands(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, range: i64, see
     Ok(out.join("\n"))
 }
 
+/// The freeze rows (ironspec Nov 11 13:32: freezes at every phase of a cart's transit under each
+/// gate): the chunk box `bx` (chunk coordinates, as `--act ...,unload,X0,Z0,X1,Z1,N`) away N gt
+/// from slot `slot` + dt for every dt in `dt0..=dt1` and every N in `durs`, each run to `after`
+/// slots past the thaw; per row its problems and its blind rider-ticks (all and at night), and a
+/// summary. A row fails on any problem or any blind rider-tick (the freeze's own ticks aside: a
+/// rider in a frozen chunk is not ticking).
+#[allow(clippy::too_many_arguments)]
+pub fn freeze_rows(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, slot: i64, dt0: i64, dt1: i64, bx: [i32; 4], durs: &[i64], after: i64, seed: i64, jobs: usize) -> Result<String, String> {
+    let mut cases: Vec<(i64, i64)> = Vec::new();
+    for n in durs {
+        for dt in dt0..=dt1 {
+            cases.push((dt, *n));
+        }
+    }
+    let run = |(dt, n): (i64, i64)| -> Result<(i64, i64, usize, u64, u64, String), String> {
+        let mut t = LoopTiming { blind_all: true, ..tm.clone() };
+        let a = parse_act(&format!("{slot},{dt},unload,{},{},{},{},{n}", bx[0], bx[1], bx[2], bx[3]))?;
+        let free = t.acts.iter().position(|x| x.is_none()).ok_or("--freeze-rows: all 8 act slots taken")?;
+        t.acts[free] = Some(a);
+        let cycles = slot + (dt + n) / 100 + 1 + after;
+        let r = run_loop(spec, o, &t, cycles, seed, false, None, None)?;
+        let problems = r.lines().find_map(|l| l.split_once(" problems").and_then(|(n, _)| n.trim().parse::<usize>().ok())).unwrap_or(usize::MAX);
+        let blind = r.lines().find(|l| l.starts_with("blind rider-ticks")).unwrap_or("");
+        let num = |key: &str| blind.split(key).nth(1).and_then(|s| s.trim_start().split(|c: char| !c.is_ascii_digit()).next()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        let (all, night) = (num("sees no hostile):"), num("at night"));
+        let first = r.lines().skip_while(|l| !l.contains(" problems:")).nth(1).unwrap_or("").trim().to_string();
+        Ok((dt, n, problems, all, night, first))
+    };
+    let mut rows = Vec::new();
+    for chunk in cases.chunks(jobs.max(1)) {
+        let got: Vec<Result<_, String>> = std::thread::scope(|sc| {
+            let hs: Vec<_> = chunk.iter().map(|c| sc.spawn(move || run(*c))).collect();
+            hs.into_iter().map(|h| h.join().map_err(|_| "a freeze-row thread panicked".to_string()).and_then(|x| x)).collect()
+        });
+        for g in got {
+            rows.push(g?);
+        }
+    }
+    let bad = rows.iter().filter(|r| r.2 != 0 || r.3 != 0).count();
+    let mut out = vec![format!(
+        "freeze rows: chunks {},{}..{},{} away N gt from slot {slot} +{dt0}..+{dt1}, N in {:?}, {after} slots after each thaw: {} rows, {bad} failing (any problem or blind rider-tick)",
+        bx[0], bx[1], bx[2], bx[3], durs, rows.len()
+    )];
+    for (dt, n, p, all, night, first) in &rows {
+        if *p != 0 || *all != 0 {
+            out.push(format!("  FAIL +{dt} for {n} gt: {p} problems, blind {all} (night {night}){}", if first.is_empty() { String::new() } else { format!("; first: {first}") }));
+        }
+    }
+    Ok(out.join("\n"))
+}
+
 /// The corner runs (the reviewer's note on the tolerance rule): every swept control at its
 /// measured early limit together, then every one at its late limit, each with the entry speed
 /// kick at its slow and its fast extreme (0 when `speed` was not swept).
@@ -7684,6 +7735,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 continue;
             }
             let (ex, ey, ez) = (e.pos.x, e.pos.y + 1.62, e.pos.z);
+            // (a rider in a chunk that isn't entity-ticking (level 32 or more) doesn't sense: its
+            // frozen ticks aren't blind ticks)
+            if run.world.chunk_level(ex.floor() as i32 >> 4, ez.floor() as i32 >> 4) >= 32 {
+                continue;
+            }
             let mut blind = false;
             let mut clear = f64::INFINITY;
             for y in ey.floor() as i32 - 1..=ey.floor() as i32 + 1 {

@@ -160,6 +160,81 @@ pub fn blind_control() -> Result<Vec<(&'static str, bool, bool)>, String> {
     Ok(out)
 }
 
+/// The pickup-reach check (ironspec Nov 11 14:32: the brief keeps zombies and boats out of empty
+/// carts' pickup reach): every zombie post's boat box and seated zombie's box against an empty
+/// cart's pickup box (its 0.98 x 0.7 box inflated 0.2 sideways, `OldMinecartBehavior.
+/// pushAndPickupEntities`) at every point along every rail cell (along each shape's segment, 21
+/// points); the least gap per post and a failing line on any overlap. With `control`, a boated
+/// zombie set 0.1 beside the first rail cell's cart box (inside its pickup reach) must fail it.
+pub fn pickup_check(spec: &FarmSpec, control: bool) -> (Vec<String>, bool) {
+    type Bx = ([f64; 3], [f64; 3]);
+    let off = redsim::entity::mob::types::MobType::Zombie.def().riding_offset as f64;
+    let mut posts: Vec<([f64; 3], Vec<(&'static str, Bx)>)> = Vec::new();
+    let mut add_post = |p: [f64; 3], boat: bool| {
+        let mut b = Vec::new();
+        let feet = if boat {
+            b.push(("boat", ([p[0] - 0.6875, p[1], p[2] - 0.6875], [p[0] + 0.6875, p[1] + 0.5625, p[2] + 0.6875])));
+            (p[1] + (0.5625f32 / 3.0f32) as f64) + off
+        } else {
+            p[1]
+        };
+        b.push(("zombie", ([p[0] - 0.3, feet, p[2] - 0.3], [p[0] + 0.3, feet + 1.95, p[2] + 0.3])));
+        posts.push((p, b));
+    };
+    for (ty, p, nbt) in &spec.entities {
+        let rides = nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie\""));
+        if ty.ends_with("boat") && rides {
+            add_post(*p, true);
+        } else if ty.ends_with("zombie") {
+            add_post(*p, false);
+        }
+    }
+    let rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
+    let samples = |c: BlockPos, st: &str| -> Vec<Vec3> {
+        match rail_segment(c, st) {
+            Some((a, b)) => (0..=20).map(|i| { let t = i as f64 / 20.0; Vec3::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t) }).collect(),
+            None => (0..=20).map(|i| along_rail(c, st, i as f64 / 20.0)).collect(),
+        }
+    };
+    if control && let Some((c, st)) = rails.first() {
+        let m = along_rail(*c, st, 0.5);
+        add_post([m.x + 0.49 + 0.1 + 0.6875, m.y, m.z], true);
+    }
+    let gap = |a: &Bx, b: &Bx| -> f64 {
+        let d: Vec<f64> = (0..3).map(|k| (a.0[k] - b.1[k]).max(b.0[k] - a.1[k])).collect();
+        if d.iter().all(|v| *v < 0.0) { d.iter().cloned().fold(f64::NEG_INFINITY, f64::max) } else { d.iter().map(|v| v.max(0.0).powi(2)).sum::<f64>().sqrt() }
+    };
+    let mut worst: Vec<(f64, [f64; 3], &'static str, BlockPos)> = Vec::new();
+    for (p, boxes) in &posts {
+        let mut best = (f64::INFINITY, "-", BlockPos::new(0, 0, 0));
+        for (c, st) in &rails {
+            for m in samples(*c, st) {
+                let pick: Bx = ([m.x - 0.69, m.y, m.z - 0.69], [m.x + 0.69, m.y + 0.7, m.z + 0.69]);
+                for (what, b) in boxes {
+                    let g = gap(b, &pick);
+                    if g < best.0 {
+                        best = (g, what, *c);
+                    }
+                }
+            }
+        }
+        worst.push((best.0, *p, best.1, best.2));
+    }
+    let bad: Vec<&(f64, [f64; 3], &str, BlockPos)> = worst.iter().filter(|w| w.0 < 0.0).collect();
+    let least = worst.iter().cloned().min_by(|a, b| a.0.total_cmp(&b.0));
+    let mut lines = vec![format!(
+        "pickup reach (each post's boat and zombie boxes against an empty cart's pickup box, its box inflated 0.2 sideways, along every rail cell): {} posts{}{}{}",
+        posts.len(),
+        least.map_or(String::new(), |l| format!(", the least gap {:.3} ({} of the post at {:.2},{:.2},{:.2}, at rail {},{},{})", l.0, l.2, l.1[0], l.1[1], l.1[2], l.3.x, l.3.y, l.3.z)),
+        if bad.is_empty() { String::new() } else { format!("; {} overlap -- the static gate FAILS", bad.len()) },
+        if control { " [control: a boated zombie 0.1 beside the first rail cell's cart]" } else { "" }
+    )];
+    for w in &worst {
+        lines.push(format!("  post {:.2},{:.2},{:.2}: least {:.3} ({} to rail {},{},{}){}", w.1[0], w.1[1], w.1[2], w.0, w.2, w.3.x, w.3.y, w.3.z, if w.0 < 0.0 { "  OVERLAP" } else { "" }));
+    }
+    (lines, !bad.is_empty())
+}
+
 /// The reachability controls (ironspec Nov 11 11:48: flee-check's paths are the villager's own
 /// navigation, required length 48, the search stopping after 767 nodes): a villager at (1,1,1) in
 /// a serpentine corridor one block wide (an open floor beside a wall measured unreachable at a

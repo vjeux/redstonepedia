@@ -383,6 +383,10 @@ pub enum MobfarmCmd {
         /// suffocation gate must fail).
         #[arg(long)]
         eye_control: bool,
+        /// The pickup gate's positive control: a boated zombie 0.1 beside the first rail cell's
+        /// cart box, inside its pickup reach (the pickup gate must fail).
+        #[arg(long)]
+        pickup_control: bool,
         /// Each place's least zombie distance at the three sampled points only (default: also
         /// the exact least over the cart's whole path through the cell).
         #[arg(long)]
@@ -1330,6 +1334,15 @@ pub enum MobfarmCmd {
         /// tick recurs every slot).
         #[arg(long)]
         blind_all: bool,
+        /// The freeze rows: SLOT,DT0,DT1,CX0,CZ0,CX1,CZ1: that chunk box (chunk coordinates) away
+        /// for each `--freeze-for` N from slot SLOT + every dt in DT0..DT1, each run
+        /// `--freeze-after` slots past its thaw; a row fails on any problem or blind rider-tick.
+        #[arg(long, allow_hyphen_values = true)]
+        freeze_rows: Option<String>,
+        #[arg(long, value_delimiter = ',', default_values_t = [40, 200, 1500, 5000])]
+        freeze_for: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        freeze_after: i64,
         /// A speed kick on the release group's carts at the release, b/t along their slopes.
         #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
         entry_speed: f64,
@@ -3187,7 +3200,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_computed, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check, esc_bands, no_blind_check, blind_all } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_computed, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check, esc_bands, no_blind_check, blind_all, freeze_rows, freeze_for, freeze_after } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3335,6 +3348,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 hdr.static_checks.push(g);
             }
+            // (the pickup reach, a default gate (ironspec Nov 11 14:32): a zombie's or boat's box
+            // inside an empty cart's pickup box anywhere along the track fails the run)
+            if !no_eye_check {
+                let (plines, pfails) = crate::fleecheck::pickup_check(&spec, false);
+                let g = (plines.first().cloned().unwrap_or_default(), pfails);
+                if !sweep.is_empty() || phase_sweep.is_some() {
+                    println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
+                }
+                hdr.static_checks.push(g);
+            }
             // (the rail-junction check, a default gate (ironspec Nov 11 12:50): a stored junction
             // shape the game would not keep fails the run; the opt-out says so)
             if !no_junction_check {
@@ -3348,6 +3371,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             if esc_bands {
                 println!("{}", crate::queue::esc_bands(&spec, &o, &tm, sweep_range, seed, seeds, cycles, jobs).map_err(|e| anyhow::anyhow!(e))?);
+                return Ok(());
+            }
+            if let Some(f) = &freeze_rows {
+                let v: Vec<i64> = f.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--freeze-rows: {e}"))?;
+                let [slot, dt0, dt1, x0, z0, x1, z1] = v[..] else { anyhow::bail!("--freeze-rows takes SLOT,DT0,DT1,CX0,CZ0,CX1,CZ1") };
+                println!("{}", crate::queue::freeze_rows(&spec, &o, &tm, slot, dt0, dt1, [x0 as i32, z0 as i32, x1 as i32, z1 as i32], &freeze_for, freeze_after, seed, jobs).map_err(|e| anyhow::anyhow!(e))?);
                 return Ok(());
             }
             if !sweep.is_empty() {
@@ -3957,7 +3986,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, sampled } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled } => {
             let (_c, spec) = load(version, &design)?;
             // (the bed: --home, else the design's `port home:` line)
             let text = std::fs::read_to_string(&design)?;
@@ -3982,6 +4011,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             println!("the suffocation gate{}: {}", if eye_control { " (with the positive control's stone)" } else { "" }, if fails { "FAIL" } else { "PASS" });
+            // (the pickup reach, ironspec Nov 11 14:32: zombies and boats out of empty carts'
+            // pickup boxes; a default gate)
+            let (plines, pfails) = crate::fleecheck::pickup_check(&spec, pickup_control);
+            for l in plines.iter().take(1 + if show > 0 { plines.len() } else { 0 }) {
+                println!("{l}");
+            }
+            println!("the pickup gate{}: {}", if pickup_control { " (with the positive control's post)" } else { "" }, if pfails { "FAIL" } else { "PASS" });
         }
         MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset } => {
             let (c, spec) = load(version, &design)?;
