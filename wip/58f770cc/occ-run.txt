@@ -1,0 +1,73 @@
+1 settled snapshots, 0 clean 3-place moves
+slot-boundary order: 35 clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)
+stand margins: gap12 11 13 in 4 6 clear 0 2 arrive 5 7 slots 36
+stand braked at - after its slot's start; tail slots 1-2 braked at -, slot 0 at - after the train's departure
+zombies alive at the end: 9
+PANIC at night (day time 13,670..22,330, 66069 rider-ticks): 99.54% of rider-ticks, the least-panicking rider 98.79%; calm most at 9 0 4 (39), 9 2 6 (38), 9 -2 2 (36), 9 -1 3 (36), 9 1 5 (36), 9 3 7 (32)
+the stand's REL cell 8 -2 2 is the file's own (minecraft:stone): the bench leaves it
+visit (observed): slot 30 +27 (day time 13845), the stand's cart 0 (e14) on the divert's branch, its drop slot 14
+visit slot 30 cart 0: not asleep by +300: the rider at -13.50,4.00,15.50, riding None, activity Rest, home None, day time 14119
+visit (observed): slot 34 +37 (day time 14255), the stand's cart 1 (e1) on the divert's branch, its drop slot 13
+visit slot 34 cart 1: not asleep by +300: the rider at -13.50,4.00,15.50, riding None, activity Rest, home None, day time 14519
+visit: bed claims: e0 took the bed (-15,4,15) at slot 0 +0 riding at 0.5,2.7,25.3; e1 took the bed (-15,4,15) at slot 0 +0 riding at 0.5,1.7,29.3; e2 took the bed (-15,4,15) at slot 0 +0 riding at 0.5,0.7,33.3; e3 took the bed (-15,4,15) at slot 0 +0 riding at 0.5,0.7,36.3; e4 took the bed (-15,4,15) at slot 0 +0 riding at 0.5,0.7,39.3; e5 took the bed (-15,4,15) at slot 0 +0 riding at 0.5,0.7,42.3; e6 took the bed (-15,4,15) at slot 0 +0 riding at 0.5,0.7,45.3; e7 took the bed (-15,4,15) at slot 0 +0 riding at -0.3,0.7,47.5; e8 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,46.7; e9 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,43.7; e10 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,40.7; e11 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,37.7; e12 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,34.7; e13 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,31.7; e14 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,28.7; e15 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,25.7; e16 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,22.7; e17 took the bed (-15,4,15) at slot 0 +0 riding at -2.5,0.7,19.7; e18 took the bed (-15,4,15) at slot 0 +0 riding at 7.9,-1.8,0.5; e19 took the bed (-15,4,15) at slot 0 +0 riding at 3.9,-0.8,0.5; e20 took the bed (-15,4,15) at slot 0 +0 riding at -0.1,0.2,0.5; e14 let its bed go at slot 31 +25 riding at -23.5,0.7,3.6; e1 let its bed go at slot 35 +32 riding at -23.5,0.5,3.5
+visit slot 30 cart 0: rider asleep never; ready at the siding's exit never; passed T1 at +484; rolled off its drop rail at +496 at 0.75 b/t; back at rest in slot 14 at +524
+visit slot 34 cart 1: rider asleep never; ready at the siding's exit +494; passed T1 never; rolled off its drop rail never; back at rest never
+visits: 2 complete; no dawn reached
+slot 0: returning train at rest in the tail +133
+slot 1: returning train at rest in the tail +133
+slot 2: returning train at rest in the tail +133
+slot 3: returning train at rest in the tail +133
+slot 4: returning train at rest in the tail +133
+slot 5: returning train at rest in the tail +133
+slot 6: returning train at rest in the tail +133
+slot 7: returning train at rest in the tail +133
+slot 8: returning train at rest in the tail +133
+slot 9: returning train at rest in the tail +133
+slot 10: returning train at rest in the tail +133
+slot 11: returning train at rest in the tail +133
+slot 12: returning train at rest in the tail +133
+slot 13: returning train at rest in the tail +133
+slot 14: returning train at rest in the tail +133
+slot 15: returning train at rest in the tail +133
+slot 16: returning train at rest in the tail +133
+slot 17: returning train at rest in the tail +133
+slot 18: returning train at rest in the tail +133
+slot 19: returning train at rest in the tail +133
+slot 20: returning train at rest in the tail +133
+slot 21: returning train at rest in the tail +133
+slot 22: returning train at rest in the tail +133
+slot 23: returning train at rest in the tail +133
+slot 24: returning train at rest in the tail +133
+slot 25: returning train at rest in the tail +133
+slot 26: returning train at rest in the tail +133
+slot 27: returning train at rest in the tail +133
+slot 28: returning train at rest in the tail +133
+slot 29: returning train at rest in the tail +133
+slot 30: returning train at rest in the tail +133
+slot 31: returning train at rest in the tail +133
+slot 32: returning train at rest in the tail +133
+slot 33: returning train at rest in the tail +133
+slot 34: returning train at rest in the tail +133
+slot 35: returning train at rest in the tail +133
+slot 36: returning train at rest in the tail +133
+305 problems:
+  slot 36: the release group holds 1 carts and the stand 3 at the slot's start
+  slot 36: order: queue slot 15 holds None, not Some(24); queue slot 16 holds Some(28), not Some(26)
+  slot 37: the release group holds 0 carts and the stand 1 at the slot's start
+  slot 37: order: queue slot 12 holds Some(14), not Some(12); queue slot 13 holds Some(20), not Some(14); queue slot 14 holds Some(24), not Some(16); queue slot 15 holds None, not Some(18); queue slot 16 holds None, not Some(20); queue slot 17 holds None, not Some(22)
+  slot 38: the release group holds 0 carts and the stand 0 at the slot's start
+  slot 38: order: queue slot 9 holds Some(4), not Some(0); queue slot 11 holds Some(10), not Some(4); queue slot 12 holds Some(14), not Some(6); queue slot 13 holds Some(20), not Some(8); queue slot 14 holds Some(24), not Some(10); queue slot 15 holds None, not Some(14); queue slot 16 holds None, not Some(20); queue slot 17 holds None, not Some(24)
+  slot 38: slot 37's returning train not in the queue's tail at the advance
+  slot 39: the release group holds 0 carts and the stand 0 at the slot's start
+  slot 39: order: queue slot 7 holds Some(34), not Some(32); queue slot 8 holds Some(36), not Some(34); queue slot 9 holds Some(4), not Some(40); queue slot 10 holds Some(6), not Some(38); queue slot 11 holds Some(10), not Some(36); queue slot 12 holds Some(14), not Some(4); queue slot 13 holds Some(20), not None; queue slot 14 holds Some(24), not Some(10); queue slot 15 holds None, not Some(14); queue slot 16 holds None, not Some(20); queue slot 17 holds None, not Some(24)
+  visit (slot 34, cart 1): the batch at slots [Some(9), None, None] at slot 39's +37, not [Some(14), Some(13), Some(12)]
+  slot 39: slot 37's returning train not in the queue's tail at the advance
+  slot 39: slot 38's returning train not in the queue's tail at the advance
+  slot 40: the release group holds 0 carts and the stand 0 at the slot's start
+  slot 40: order: queue slot 6 holds Some(30), not None; queue slot 7 holds Some(34), not None; queue slot 8 holds Some(36), not Some(28); queue slot 9 holds None, not Some(30); queue slot 10 holds None, not Some(34); queue slot 11 holds Some(10), not Some(36); queue slot 12 holds Some(14), not Some(4); queue slot 13 holds Some(20), not Some(6); queue slot 14 holds Some(24), not Some(10); queue slot 15 holds None, not Some(14); queue slot 16 holds None, not Some(20); queue slot 17 holds None, not Some(24)
+  slot 40: slot 37's returning train not in the queue's tail at the advance
+  slot 40: slot 38's returning train not in the queue's tail at the advance
+  slot 40: slot 39's returning train not in the queue's tail at the advance
+  slot 41: the release group holds 0 carts and the stand 0 at the slot's start
+  slot 41: order: queue slot 5 holds Some(28), not None; queue slot 6 holds Some(30), not None; queue slot 7 holds Some(34), not None; queue slot 8 holds Some(36), not None; queue slot 9 holds Some(6), not Some(30); queue slot 10 holds Some(8), not Some(34); queue slot 11 holds Some(10), not Some(36); queue slot 12 holds Some(14), not None; queue slot 13 holds Some(20), not None; queue slot 14 holds Some(24), not Some(10); queue slot 15 holds None, not Some(14); queue slot 16 holds None, not Some(20); queue slot 17 holds None, not Some(24)
+  slot 41: slot 37's returning train not in the queue's tail at the advance
