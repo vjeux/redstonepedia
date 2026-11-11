@@ -233,6 +233,19 @@ enum Cmd {
     /// Two `release-trace` outputs compared port by port: identical, every edge shifted by one
     /// amount, or the first differing edge (crates/circuit-memory/src/releasebench.rs).
     TraceDiff { a: PathBuf, b: PathBuf },
+    /// Each design's pricing line for the fold (the parent and ironspec 2026-11-10: "compact:
+    /// volume decides", dig depth priced in build minutes): blocks, box, volume, the box's depth
+    /// under the ground layer and its dug cells (footprint x depth, as the judge's site footprint
+    /// reads it), the dig's minutes, the void bill's build minutes and its mid-air share
+    /// (crates/circuit-memory/src/releasebench.rs).
+    Price {
+        designs: Vec<PathBuf>,
+        /// The ground layer (design y): the box's cells under it are dug.
+        #[arg(long, default_value_t = -1, allow_hyphen_values = true)]
+        ground: i32,
+        #[arg(long, default_value = "middle")]
+        stage: String,
+    },
     /// The night-1 lines from a `queue-loop-run --visits-observe` log (one seed): each villager's
     /// first nap, each batch's first fully napped slot, and the startup's slot cost (stand slots
     /// whose batch had a rider not yet napped) (crates/circuit-memory/src/releasebench.rs).
@@ -521,6 +534,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::FaultSurvey { design, spec, pulses } => releasebench::fault_survey(&design, &spec, pulses)?,
         Cmd::NapReport { log } => releasebench::nap_report(&log)?,
         Cmd::TraceDiff { a, b } => releasebench::trace_diff(&a, &b)?,
+        Cmd::Price { designs, ground, stage } => releasebench::price(&designs, ground, &stage)?,
         Cmd::ReleaseSweep { loop_file, offdelay, siding, siding_ctl, pad, knob, values, run, show } => releasebench::release_sweep(&loop_file, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref(), knob.as_deref(), &values, &run, &show)?,
         Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,
         Cmd::Slice { file, r#box } => {

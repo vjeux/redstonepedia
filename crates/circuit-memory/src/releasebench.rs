@@ -556,6 +556,44 @@ pub fn release_sweep(loop_file: &Path, offdelay: &Path, siding: Option<&Path>, s
     Ok(())
 }
 
+/// `price` (the fold's pricing, the parent and ironspec 2026-11-10 23:50: "compact: volume
+/// decides", dig depth priced in build minutes, horizontal over vertical the tie-breaker): per
+/// design, its blocks, box and volume; the box's depth under the ground layer and its dug cells
+/// (footprint x depth: the judge's site footprint, `redsim::entity::mob::site::footprint`); the
+/// dig's minutes at the stage's price; the void bill's build minutes (the judge's `build minutes`,
+/// `circuit::mobfarm::site_bill` with no site) and its `place:edge` share (blocks placed in the
+/// air, which a dug build places from its dug floor instead).
+pub fn price(designs: &[std::path::PathBuf], ground: i32, stage: &str) -> Result<()> {
+    let st = redsim::entity::mob::prices::stage_ix(stage);
+    let dig = redsim::entity::mob::prices::Prices::get().map_err(|e| anyhow!(e))?.price("dig", st).map_err(|e| anyhow!(e))?;
+    println!("design\tblocks\tbox\tsize\tvolume\tbelow\tdug (box)\tdug (own cells)\tdig min (box)\tbuild min\tof it mid-air\tbuild + dig (box)");
+    for d in designs {
+        let c = Circuit::load(d)?;
+        let (lo, hi) = c.clock.design.bounds().unwrap_or(([0; 3], [0; 3]));
+        let size = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+        let volume = size.iter().map(|s| *s as i64).product::<i64>();
+        let below = (ground - lo[1]).max(0);
+        let dug = size[0] as i64 * size[2] as i64 * below as i64;
+        // (the lower bound: only the design's own cells under the ground layer, as a farm dug
+        // into rock is priced (`site::spots_for_spec`); its air under the ground stays natural
+        // there, which a redstone build cannot always keep)
+        let own = c.clock.design.block_list().iter().filter(|(p, _)| p[1] < ground).count();
+        let bill = circuit::mobfarm::site_bill(&c, None, st).map_err(|e| anyhow!(e))?;
+        let edge = bill.items.get("place:edge").map_or(0.0, |x| x.1);
+        let (bm, dm) = (bill.seconds / 60.0, dug as f64 * dig / 60.0);
+        println!(
+            "{}\t{}\t[{},{},{}]..[{},{},{}]\t{}x{}x{}\t{volume}\t{below}\t{dug}\t{own}\t{dm:.1}\t{bm:.1}\t{:.1}\t{:.1}",
+            d.file_name().map_or_else(|| d.display().to_string(), |f| f.to_string_lossy().into_owned()),
+            c.clock.design.blocks.len(),
+            lo[0], lo[1], lo[2], hi[0], hi[1], hi[2],
+            size[0], size[1], size[2],
+            edge / 60.0,
+            bm + dm
+        );
+    }
+    Ok(())
+}
+
 /// `trace-diff` (the fold's check: which control lines moved, and by how much): two `release-trace`
 /// outputs, per port: identical, every edge shifted by the same gt (and that shift), or the first
 /// edge that differs.

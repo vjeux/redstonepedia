@@ -37,7 +37,7 @@ const RBLOCK: &str = "minecraft:redstone_block";
 /// chunk line through it (was [-20, 2, 10]); 2 higher than before, so its east side's redstone
 /// (siding y -3..-2) keeps a clear layer over the release controller's lines (y -2..-1 along
 /// x -11..-9).
-pub(crate) const SIDING_AT: P3 = [-15, 4, 13];
+pub(crate) const SIDING_AT: P3 = [-15, 3, 13];
 pub(crate) const DIVERT: P3 = [9, -4, 0];
 pub(crate) const T1: P3 = [-15, 0, 28];
 pub(crate) const T2: P3 = [-16, 0, 31];
@@ -885,7 +885,11 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
         out.push([11, -8 + k, 4 - k]);
     }
     route_d(b, r0, &out, 8, 0, 1)?;
-    b.on([10, -4, 0], &rep("east", 1))?;
+    // (2 rt: the windows +4 gt in all (this route's own repeater +2, this +2), for the stand's
+    // guard, which brings carts 1 and 2 to the corner 3 gt later (51b2aacd 23:46): cart k's window
+    // +21 + 10k .. +30 + 10k after the golem, 3 gt open before cart k and 4..7 after with either
+    // stand)
+    b.on([10, -4, 0], &rep("east", 2))?;
     // (the router: T1 = NOT l1 = row 1's signal, T2 = l0 = NOT row 7's: returned as their cells)
     Ok((u([24, -6, 1]), u([25, -6, 8])))
 }
