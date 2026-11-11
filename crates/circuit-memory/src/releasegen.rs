@@ -245,6 +245,7 @@ fn feed(b: &mut B, srcs: &[(P3, usize)], end: P3, total: u8, near: &[P3], lo: P3
     }
     // (the end is the fixed part's input cell: its support is that part's, declared with them)
     avoid.remove(&end);
+    avoid.remove(&[end[0], end[1] - 1, end[2]]);
     let mut why: Vec<String> = Vec::new();
     for &(src, run0) in srcs {
         if run0 >= 13 {
@@ -285,7 +286,7 @@ fn feed(b: &mut B, srcs: &[(P3, usize)], end: P3, total: u8, near: &[P3], lo: P3
             }
         }
     }
-    bail!("escapement {what}: no feed to {end:?} ({})", why.iter().take(6).cloned().collect::<Vec<_>>().join("; "))
+    bail!("escapement {what}: no feed to {end:?} ({})", why.iter().take(40).cloned().collect::<Vec<_>>().join("; "))
 }
 
 /// MCTAS_R1 (ironfarm 07:15): R1's escapement driven from the register's advance (slot 0's, on the
@@ -435,6 +436,101 @@ fn escapement_in(b: &mut B, yy: i32, zl: i32, corridor: &std::collections::BTree
     if !ok {
         bail!("{}", errs.join(" | "));
     }
+    Ok(())
+}
+
+/// The permission (ironspec 06:54 / 07:53, MCTAS_PERMIT): NOT-PERMIT into GO's free west side
+/// (world (-3,-5,25)) through a lane of 7 repeaters along z 25 from (-9,-5,25) (dust in those cells
+/// would join REL's line, the readback or the reset tail; every other approach powers the REQ
+/// bulb), from an OR node (-10,-5,25) of three inputs: the stand-emptied latch, the train-arrived
+/// latch and the declared `permit_hold` input (a level: departure blocked or no tail room). Each latch
+/// stores BLOCK in a loop (a repeater refreshing it, a subtract comparator the clear input breaks):
+/// set by REL delayed past REL's end (the launch), cleared by its evidence input; power-on (all off)
+/// permits, a reload keeps the loop's state. A golem during NOT-PERMIT stays in REQ; EXPIRE is a
+/// level: one launch when the permission returns.
+fn permit_fixed(b: &mut B) -> Result<()> {
+    let cmp = |f: &str| format!("minecraft:comparator[facing={f},mode=subtract,powered=false]");
+    let place = |b: &mut B, p: P3, s: String| -> Result<()> {
+        if b.blocks.get(&p).is_some_and(|t| t.contains("glass")) {
+            b.blocks.remove(&p);
+        }
+        for q in [p, [p[0], p[1] - 1, p[2]]] {
+            if b.blocks.get(&q).is_some_and(|t| !t.ends_with(":air") && t != STONE) {
+                bail!("permission: {q:?} holds {:?}", b.blocks.get(&q));
+            }
+        }
+        b.blocks.insert([p[0], p[1] - 1, p[2]], STONE.into());
+        b.blocks.insert(p, s);
+        Ok(())
+    };
+    // the lane (facing = the input side: west)
+    for x in -9..=-3 {
+        place(b, [x, -5, 25], rep("west", 1))?;
+    }
+    // the OR node and its three inputs
+    place(b, [-10, -5, 25], DUST.into())?;
+    place(b, [-11, -5, 25], rep("west", 1))?; // the stand-emptied latch's Q, from (-12,-5,25)
+    place(b, [-10, -5, 24], rep("north", 1))?; // the train-arrived latch's Q, from (-10,-5,23)
+    place(b, [-10, -5, 26], rep("south", 1))?; // permit_hold, from its port (-10,-5,27)
+    b.ports.insert("input.permit_hold".into(), [-10, -5, 27]);
+    // the two latches (origin o: Rl at o facing south, the loop o+(0..2, 0, -1..2), Cl at o+(2,0,0)
+    // facing north, its clear repeater o+(3,0,0) from the port o+(4,0,0), the set chain o+(1,0,3)
+    // (2 rt) and o+(1,0,4) (4 rt) from o+(1,0,5), Q's repeater o+(-1,0,-1) out to o+(-2,0,-1))
+    for (o, clear) in [([-15, -5, 28], "input.stand_empty"), ([-15, -5, 19], "input.train_arrived")] {
+        let a = |d: [i32; 3]| [o[0] + d[0], o[1] + d[1], o[2] + d[2]];
+        place(b, a([0, 0, 0]), rep("south", 1))?;
+        for d in [[0, 0, -1], [1, 0, -1], [2, 0, -1], [2, 0, 1], [2, 0, 2], [1, 0, 2], [0, 0, 2], [0, 0, 1]] {
+            place(b, a(d), DUST.into())?;
+        }
+        place(b, a([2, 0, 0]), cmp("north"))?;
+        place(b, a([3, 0, 0]), rep("east", 1))?;
+        b.ports.insert(clear.into(), a([4, 0, 0]));
+        place(b, a([1, 0, 3]), rep("south", 2))?;
+        place(b, a([1, 0, 4]), rep("south", 4))?;
+        place(b, a([-1, 0, -1]), rep("east", 1))?;
+    }
+    Ok(())
+}
+
+/// The permission's feeds once the REL line is laid: each latch's Q to its OR input, the set off the
+/// reset tail (REL-derived, one pulse per launch, beside the free west side; the REL line itself is
+/// boxed in by the x -8 lines) or the REL line, into each latch's set chain (12 gt of chain).
+fn permit_feeds(b: &mut B, rel: &[(P3, usize)], tail: &[(P3, usize)]) -> Result<()> {
+    // (the feeds' fixed ends and their supports reserved from every other feed: through the
+    // corridor rule, which keeps dust off the cell over each listed cell)
+    let ends: [P3; 4] = [[-12, -5, 25], [-10, -5, 23], [-14, -5, 33], [-14, -5, 24]];
+    let none: std::collections::BTreeSet<P3> = ends.iter().flat_map(|e| [[e[0], e[1] - 1, e[2]], [e[0], e[1] - 2, e[2]]]).collect();
+    let lo = [-20, -8, 14];
+    let hi = [-2, 0, 36];
+    let qe = [-17, -5, 27];
+    let qa = [-17, -5, 18];
+    b.blocks.insert([qe[0], qe[1] - 1, qe[2]], STONE.into());
+    b.blocks.insert(qe, DUST.into());
+    b.blocks.insert([qa[0], qa[1] - 1, qa[2]], STONE.into());
+    b.blocks.insert(qa, DUST.into());
+    let srcs: Vec<(P3, usize)> = tail.iter().chain(rel.iter()).copied().collect();
+    // (ironspec 08:27: the latches reset (BLOCK set) by the launched train's own cart evidence, not
+    // by REL: an empty launch (no carts) then resets nothing and the advances still refill the
+    // group, no deadlock. A declared port, `input.train_departed` (the release run's transit
+    // detector (-3,1,4) or any single-cart cell past the release group; wired with the stand
+    // option), feeds both set chains. MCTAS_PERMIT_SET=tail keeps the REL-derived set (the reset
+    // tail) for the comparison)
+    let port_set = std::env::var("MCTAS_PERMIT_SET").map(|v| v != "tail").unwrap_or(true);
+    let srcs: Vec<(P3, usize)> = if port_set {
+        let pd = [-19, -5, 28];
+        b.ports.insert("input.train_departed".into(), pd);
+        vec![(pd, 0)]
+    } else {
+        srcs
+    };
+    let p = feed(b, &srcs, [-14, -5, 33], 0, &[[-14, -5, 32]], lo, hi, "permission set (stand-emptied)", &none)?;
+    let mut net: Vec<(P3, usize)> = srcs.clone();
+    net.extend(p);
+    let near: Vec<P3> = std::iter::once([-14, -5, 23]).chain(net.iter().map(|(c, _)| *c)).collect();
+    feed(b, &net, [-14, -5, 24], 0, &near, lo, hi, "permission set (train-arrived)", &none)?;
+    // (the Q feeds after the set feeds: those end on fixed cells)
+    feed(b, &[(qe, 0)], [-12, -5, 25], 0, &[[-11, -5, 25]], lo, hi, "permission Q stand-emptied", &none)?;
+    feed(b, &[(qa, 0)], [-10, -5, 23], 0, &[[-10, -5, 24]], lo, hi, "permission Q train-arrived", &none)?;
     Ok(())
 }
 
@@ -592,7 +688,7 @@ fn a1_path(b: &mut B, at: fn(P3) -> P3, a1z: i32, al: &[P3]) -> Result<()> {
 /// MCTAS_REL_EXIT (see its call in `release_gen_loop`): R_g moved beside GO with REL's own dust
 /// line into the release group's line, the reset tail over the bulb's top, the group taps' link
 /// into the REL line. `at` places the core's own cells; `g0` is the core's group line take-off.
-fn rel_exit(b: &mut B, at: fn(P3) -> P3, g0: P3) -> Result<()> {
+fn rel_exit(b: &mut B, at: fn(P3) -> P3, g0: P3) -> Result<(Vec<(P3, usize)>, Vec<(P3, usize)>)> {
     use crate::autoroute::{find, rider_space, Limits};
     let clone = |b: &B| {
         let mut t = new_b();
@@ -621,7 +717,11 @@ fn rel_exit(b: &mut B, at: fn(P3) -> P3, g0: P3) -> Result<()> {
         (0, 1) => "south",
         _ => "north",
     };
-    b.put(rg, &rep(facing, 1))?;
+    // (MCTAS_RG_RT: R_g's delay, default 1; ironspec 08:13's early corner (b) delays every REL
+    // consumer but the stand's by 2 gt: the launch through R_g + 1 rt with the chain's head and
+    // the module's REL)
+    let rg_rt: u8 = std::env::var("MCTAS_RG_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    b.put(rg, &rep(facing, rg_rt))?;
     let rg_sup = [rg[0], rg[1] - 1, rg[2]];
     if b.blocks.get(&rg_sup).is_some_and(|s| !s.ends_with(":air")) && !b.blocks.get(&rg_sup).is_some_and(|s| s == STONE) {
         bail!("REL exit: R_g's support {rg_sup:?} holds {:?}", b.blocks.get(&rg_sup));
@@ -631,6 +731,11 @@ fn rel_exit(b: &mut B, at: fn(P3) -> P3, g0: P3) -> Result<()> {
     let top = [bulb[0], bulb[1] + 1, bulb[2]];
     if b.blocks.get(&top).is_some_and(|s| s.contains("glass")) {
         b.blocks.remove(&top);
+    }
+    // (MCTAS_PERMIT: the permission's lane into GO's free west side and its fixed parts, laid before
+    // the routes below so they go round them)
+    if std::env::var("MCTAS_PERMIT").is_ok() {
+        permit_fixed(b)?;
     }
     // (the reset now starts at its restore: own (9, 1, -5), facing on toward own -z... its output
     // cell is own (9, 1, -4); the bulb takes it through a stone at its own +z... side: the reset's
@@ -659,8 +764,11 @@ fn rel_exit(b: &mut B, at: fn(P3) -> P3, g0: P3) -> Result<()> {
     let mut ends: Vec<(P3, P3, usize)> = (15..=last).map(|z| ([-6, -1, z], [-5, -1, z], ((z - 19).max(last - z) + 1) as usize)).collect();
     ends.sort_by_key(|e| e.2);
     let avoid = rider_space(&b.blocks);
-    let lim = |near: &[P3]| Limits { lo: [-9, -6, 17], hi: [3, 0, 34], avoid: avoid.union(&avoid_rel).copied().collect(), near_ok: near.iter().copied().collect() };
-    let lim_rs = |near: &[P3]| Limits { lo: [-10, -8, 17], hi: [3, 0, 36], avoid: avoid.clone(), near_ok: near.iter().copied().collect() };
+    // (the permission's lane repeaters: a route's dust beside a repeater's side neither powers it nor
+    // takes from it, and the lane's axis cells are its own OR node and GO)
+    let lane: Vec<P3> = if std::env::var("MCTAS_PERMIT").is_ok() { (-9..=-3).map(|x| [x, -5, 25]).collect() } else { Vec::new() };
+    let lim = |near: &[P3]| Limits { lo: [-9, -6, 17], hi: [3, 0, 34], avoid: avoid.union(&avoid_rel).copied().collect(), near_ok: near.iter().chain(lane.iter()).copied().collect() };
+    let lim_rs = |near: &[P3]| Limits { lo: [-10, -8, 17], hi: [3, 0, 36], avoid: avoid.clone(), near_ok: near.iter().chain(lane.iter()).copied().collect() };
     let mut why: Vec<String> = Vec::new();
     for (end, entry, spread) in ends {
         let path = match find(b, out0, end, &lim(&[rg, entry])) {
@@ -793,7 +901,16 @@ fn rel_exit(b: &mut B, at: fn(P3) -> P3, g0: P3) -> Result<()> {
         let _ = top;
         *b = v;
         let _ = u;
-        return Ok(());
+        // (the REL line's cells with their runs off R_g: no repeater on it; the reset tail's off its
+        // restore, a repeater on it resetting the run)
+        let rel_cells: Vec<(P3, usize)> = path.iter().enumerate().map(|(i, c)| (*c, i + 1)).collect();
+        let mut tail_cells: Vec<(P3, usize)> = Vec::new();
+        let mut run = 0usize;
+        for c in &rp {
+            run = if b.blocks.get(c).is_some_and(|s| s.contains("repeater")) { 0 } else { run + 1 };
+            tail_cells.push((*c, run));
+        }
+        return Ok((rel_cells, tail_cells));
     }
     bail!("REL exit: no layout ({})", why.join("; "))
 }
@@ -1174,8 +1291,10 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         if c24 && stagger {
             q15_cut(&mut b, yy)?;
         }
+        let mut rel_line: Vec<(P3, usize)> = Vec::new();
+        let mut reset_tail: Vec<(P3, usize)> = Vec::new();
         if std::env::var("MCTAS_REL_EXIT").is_ok() {
-            rel_exit(&mut b, core_place, g0)?;
+            (rel_line, reset_tail) = rel_exit(&mut b, core_place, g0)?;
         }
         // (MCTAS_C24: A1 off its stone's top by its own route into the advance link between the
         // link's two repeaters, through a 2-rt diode (the tap and the link's first repeater it
@@ -1183,6 +1302,13 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         if c24 {
             let a1z = stones.iter().find(|s| s.1 == 0).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("C24: no A1 stone in the chain"))?;
             a1_path(&mut b, core_place, a1z, &al)?;
+        }
+        // (MCTAS_PERMIT: the permission's feeds, after the accepted routes)
+        if std::env::var("MCTAS_PERMIT").is_ok() {
+            if rel_line.is_empty() {
+                bail!("MCTAS_PERMIT needs MCTAS_REL_EXIT (its set taps the REL line)");
+            }
+            permit_feeds(&mut b, &rel_line, &reset_tail)?;
         }
         // (MCTAS_REL_FEED, ironspec 06:02 item 1: R_g moved: REL by its own path from its dust
         // beside GO, one 1-rt repeater as both the diode and the refresh, into the release group's

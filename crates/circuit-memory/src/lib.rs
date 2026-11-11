@@ -189,6 +189,18 @@ enum Cmd {
         /// changes), `x,y,z` (repeatable): a ring's top dust, a latch.
         #[arg(long, allow_hyphen_values = true)]
         watch: Vec<String>,
+        /// A fault repeated at each golem pulse: `x,y,z@+OFF+N=BLOCK` (that cell replaced from the
+        /// pulse + OFF for N ticks), the stand's evidence in normal flow (ironspec's permission
+        /// rows; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        per_golem: Vec<String>,
+        /// `T0..T1`: pulses at ticks T0..=T1 get no --per-golem faults (a freeze withholds the
+        /// evidence; the golems keep coming).
+        #[arg(long)]
+        per_golem_skip: Option<String>,
+        /// `N,K`: K golem pulses N ticks apart from the first --at tick, in place of a long --at.
+        #[arg(long)]
+        every: Option<String>,
     },
     /// The self-recovery survey (ironspec): a fault-free run and each scenario of a spec file (a
     /// fault per line, missed and extra pulses in each state element), with the cycles each takes
@@ -555,7 +567,35 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::SchedGen { out, modules, offdelay } => schedgen::generate(&out, &modules, &offdelay)?,
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
-        Cmd::ReleaseTrace { design, at, det, ticks, fault, watch } => releasebench::trace(&design, &at, &det, ticks, &fault, &watch)?,
+        Cmd::ReleaseTrace { design, at, det, ticks, fault, watch, per_golem, per_golem_skip, every } => {
+            let mut at = at;
+            if let Some(e) = every {
+                let (n, k) = e.split_once(',').ok_or_else(|| anyhow::anyhow!("--every N,K"))?;
+                let (n, k): (u64, u64) = (n.trim().parse()?, k.trim().parse()?);
+                let first = at.first().copied().unwrap_or(200);
+                at = (0..k).map(|i| first + i * n).collect();
+            }
+            let skip: Option<(u64, u64)> = match per_golem_skip {
+                Some(s) => {
+                    let (a, b) = s.split_once("..").ok_or_else(|| anyhow::anyhow!("--per-golem-skip T0..T1"))?;
+                    Some((a.trim().parse()?, b.trim().parse()?))
+                }
+                None => None,
+            };
+            let mut fault = fault;
+            for g in &at {
+                if skip.is_some_and(|(a, b)| (a..=b).contains(g)) {
+                    continue;
+                }
+                for spec in &per_golem {
+                    let (cell, rest) = spec.split_once("@+").ok_or_else(|| anyhow::anyhow!("--per-golem {spec:?}: x,y,z@+OFF+N=BLOCK"))?;
+                    let (off, tail) = rest.split_once('+').ok_or_else(|| anyhow::anyhow!("--per-golem {spec:?}: x,y,z@+OFF+N=BLOCK"))?;
+                    let off: u64 = off.trim().parse()?;
+                    fault.push(format!("{cell}@{}+{tail}", g + off));
+                }
+            }
+            releasebench::trace(&design, &at, &det, ticks, &fault, &watch)?
+        }
         Cmd::FaultSurvey { design, spec, pulses } => releasebench::fault_survey(&design, &spec, pulses)?,
         Cmd::NapReport { log } => releasebench::nap_report(&log)?,
         Cmd::TraceDiff { a, b } => releasebench::trace_diff(&a, &b)?,
