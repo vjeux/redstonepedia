@@ -539,12 +539,30 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     }
     // R: the exit branch's detector rail (its second rail, two from the T), repeaters north, dust
     // west along z -3, down west into a repeater south into N2
-    swap(b, [3, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
-    // (MCTAS_SIDING_RDELAY=d: the two R repeaters at delay d (default 1): R resets H later, so a
-    // wake pulse's echo down a longer S line reaches N1 before the reset, not after it)
+    // (the free-cell sensor FC, ironspec 09:37/09:39: R needs a rider seen leaving. A seat string
+    // over the exit branch at (3,2,0), hooks (3,2,-1) and (3,2,1) on glass, in the band 2.06-2.16 a
+    // seated rider's head crosses and the empty cart (0.76) does not; the north hook powers dust
+    // (3,1,-1) on a stone (3,0,-1) read by the R line's second repeater. A cart leaving empty resets
+    // neither H nor V: the divert holds)
     let rd: u8 = std::env::var("MCTAS_SIDING_RDELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(if slong { 4 } else { 1 });
-    on(b, [3, 0, -1], &rep("south", rd))?;
-    on(b, [3, 0, -2], &rep("south", rd))?;
+    if fc() {
+        // (a stone pressure plate (3,2,0) on glass (3,1,0) over the exit branch: its touch box, 2.0-2.25,
+        // meets a seated rider's top (2.0125 on a flat rail) and not a standing villager's (1.95) or
+        // an empty cart; mobs only, no items. Its dust east (4,2,0), (5,2,0), down north (5,1,-1),
+        // (5,0,-2), north (5,0,-3) into a repeater (4,0,-3) into the R line's east end (3,0,-3))
+        put(b, [3, 1, 0], "glass")?;
+        put(b, [3, 2, 0], "stone_pressure_plate[powered=false]")?;
+        on(b, [4, 2, 0], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        on(b, [5, 2, 0], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        on(b, [5, 1, -1], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        on(b, [5, 0, -2], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        on(b, [5, 0, -3], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        on(b, [4, 0, -3], &rep("east", rd))?;
+    } else {
+        swap(b, [3, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+        on(b, [3, 0, -1], &rep("south", rd))?;
+        on(b, [3, 0, -2], &rep("south", rd))?;
+    }
     // (MCTAS_SIDING_REXTRA=n: n of the R line's dust at (2,0,-3), (1,0,-3) replaced by 4-tick
     // repeaters: R resets H up to 16 gt later, so the wake's echo down a longer nap path reaches N1
     // while H is still set)
@@ -3054,6 +3072,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("AaR", if retry() { [0, -4, 3] } else { [0, -3, 3] }),
                 ("Hs3", [-1, -4, 3]),
                 ("FCh", [1, 1, 5]),
+                ("R1", [5, 0, -3]),
+
+                ("Rs", [3, 2, 0]),
+                ("Rd", [4, 2, 0]),
+                ("R2", [3, 0, -2]),
+                ("Hl0", [-1, -3, 0]),
                 ("FCs", [1, 1, 2]),
                 // (the give-up's, when it has one)
                 ("ARR", [0, 0, 0]),
