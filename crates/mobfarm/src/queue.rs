@@ -1272,10 +1272,13 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         for k in (1..=n - 2).rev() {
             path.push(([xb, 2 + k, k], Cell::Plain));
         }
-        // (the landing: an ascending_west rail, its high side's sturdy block west of it)
+        // (the landing: an ascending_west rail, its high side's sturdy block west of it, two high:
+        // a cart pushed back west by a jam in pocket 3 meets a wall instead of climbing onto the
+        // block's top, off the rails)
         path.push(([xb, 2, 0], Cell::Plain));
         shape_over.push(([xb, 2, 0], "ascending_west"));
         extra.push(([xb - 1, 2, 0], "glass"));
+        extra.push(([xb - 1, 3, 0], "glass"));
     } else {
         while z >= 1 {
             let k = if i < o.boost_first { Cell::Boost } else if o.detector && z == 4 { Cell::Detector } else { Cell::Plain };
@@ -2389,6 +2392,8 @@ pub struct LoopTiming {
     /// at rest) or, the timeout path, when the raw REL has been on T gt; the stand's REL cell
     /// carries REL_eff (the latch resets on it).
     pub rel_gate: Option<(i64, i64, i64)>,
+    /// The shared bed's head block (loop frame): the riders' closest approach to it is printed.
+    pub bed_at: Option<[i32; 3]>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -2547,7 +2552,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, bed_at: None, start_random: false, calm: false }
     }
 }
 
@@ -3470,6 +3475,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut g0_opens: Vec<i64> = Vec::new();
     let mut g0_was_open = false;
     let mut t2_was_lit: Option<bool> = None;
+    let mut bed_min: Option<(f64, String)> = None;
+    let mut bed_min_app: Option<(f64, String)> = None;
     let mut latch_all: Vec<(i64, i64, bool)> = Vec::new();
     let mut t3_was_lit = false;
     let mut t3_rises: Vec<(i64, i64)> = Vec::new();
@@ -4730,6 +4737,20 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     unseat_log.push(format!("slot {c} +{dt}: cart {k}'s rider not seated (cart at {:.2},{:.2},{:.2})", e.pos.x - fx, e.pos.y, e.pos.z - fz));
                 }
                 unseated[k] = !seated;
+                // (`bed_at`: each rider's distance to the bed's head block, loop frame: the closest
+                // over the run, and the closest on the approach (x xb's column, z 0..=10))
+                if let (Some(b), Some(ri)) = (tm.bed_at, redsim::entity::index_of(&run.world, riders[k])) {
+                    let p = run.world.entities.list[ri].pos;
+                    let (lx, ly, lz) = (p.x - fx, p.y, p.z - fz);
+                    let d = ((lx - (b[0] as f64 + 0.5)).powi(2) + (ly - (b[1] as f64 + 0.5)).powi(2) + (lz - (b[2] as f64 + 0.5)).powi(2)).sqrt();
+                    if bed_min.as_ref().is_none_or(|(m, _)| d < *m) {
+                        bed_min = Some((d, format!("{lx:.1},{ly:.1},{lz:.1} slot {c} +{dt}")));
+                    }
+                    let on_approach = o.approach > 0 && (lx - (-o.row_gap as f64 + 0.5)).abs() < 0.8 && lz < 11.0 && lz > -0.5;
+                    if on_approach && bed_min_app.as_ref().is_none_or(|(m, _)| d < *m) {
+                        bed_min_app = Some((d, format!("{lx:.1},{ly:.1},{lz:.1} slot {c} +{dt}")));
+                    }
+                }
             }
             if o.stand_wired {
                 let lit = run.world.get(BlockPos::new(-o.row_gap + 9 + o.shift[0], 0, 2 + o.shift[1])).to_string().contains("lit=true");
@@ -5857,6 +5878,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             out.push(format!("late hold windows (each REL rise): {}", tm.late_hold.iter().flatten().map(|h| { let g = h.3.min(2); format!("G{}'s cell {},{},{}: latest crossing before a rise >= {} gt before it, first crossing after a rise >= {} gt after it", h.3, h.0[0], h.0[1], h.0[2], late_win_before[g].map_or("-".to_string(), |v| v.to_string()), late_win_after[g].map_or("-".to_string(), |v| v.to_string())) }).collect::<Vec<_>>().join("; ")));
         }
         out.push(format!("{}; riders not seated: {}{}", rail_watch.line(), unseat_log.len(), if unseat_log.is_empty() { String::new() } else { format!(" ({})", unseat_log.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }));
+        if let Some(b) = tm.bed_at {
+            let f = |m: &Option<(f64, String)>| m.as_ref().map_or("-".to_string(), |(d, at)| format!("{d:.2} (rider at {at})"));
+            out.push(format!("riders' distance to the bed at {},{},{} (its head block's centre): closest {}; on the approach {}", b[0], b[1], b[2], f(&bed_min), f(&bed_min_app)));
+        }
         if o.stand_wired && !latch_sets.is_empty() {
             out.push(format!("latch set (T2 out after +55): +{}..+{} over {} slots", latch_sets.iter().min().unwrap(), latch_sets.iter().max().unwrap(), latch_sets.len()));
         }

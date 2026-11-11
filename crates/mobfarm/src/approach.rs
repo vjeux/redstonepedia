@@ -32,6 +32,12 @@ pub struct Summary {
     /// Carts off the rails (the flight watch's derails) and declared-state mismatches.
     pub derails: usize,
     pub declared_bad: usize,
+    /// The departure corner (9,-3,0), carts 0..2 of each slot, from G0's opening: front in
+    /// (min, max), tail out (min, max).
+    pub divert: Option<[[i64; 4]; 3]>,
+    /// Summons onto the pad out of turn (with the pad pasted) and the pad's golems.
+    pub summons_oot: usize,
+    pub pad_golems: usize,
 }
 
 fn num_after(l: &str, key: &str) -> Option<i64> {
@@ -79,6 +85,35 @@ pub fn summarize(out: &str) -> Summary {
             s.derails = r.split(|c: char| !c.is_ascii_digit()).next().and_then(|t| t.parse().ok()).unwrap_or(0);
         } else if l.starts_with("declared states") {
             s.declared_bad = l.split("): ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
+        } else if let Some(r) = l.strip_prefix("summons onto the pad out of turn") {
+            // ("(...): N of M")
+            if let Some(t) = r.split("): ").nth(1) {
+                let mut w = t.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty());
+                s.summons_oot = w.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+                s.pad_golems = w.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+            }
+        } else if l.starts_with("divert corner (departures of 3") {
+            // ("cart k in +A out +B (from G0's opening: in E out F)", each a value or a..b)
+            let rng = |t: &str| -> Option<(i64, i64)> {
+                let t = t.trim();
+                match t.split_once("..") {
+                    Some((a, b)) => Some((a.parse().ok()?, b.parse().ok()?)),
+                    None => t.parse().ok().map(|v| (v, v)),
+                }
+            };
+            let mut d = [[0i64; 4]; 3];
+            let mut ok = 0;
+            for (k, part) in l.split("(from G0's opening: in ").skip(1).enumerate().take(3) {
+                let (a, rest) = part.split_once(" out ").unwrap_or((part, ""));
+                let b = rest.split(')').next().unwrap_or("");
+                if let (Some(i), Some(o)) = (rng(a), rng(b)) {
+                    d[k] = [i.0, i.1, o.0, o.1];
+                    ok += 1;
+                }
+            }
+            if ok == 3 {
+                s.divert = Some(d);
+            }
         }
     }
     // (the first slot from which every later start is clean)
@@ -252,8 +287,11 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let early: usize = ss.iter().map(|s| s.latch_early).sum();
         let derails: usize = ss.iter().map(|s| s.derails).sum();
         let dbad: usize = ss.iter().map(|s| s.declared_bad).sum();
-        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 || derails > 0 || dbad > 0 { " <--" } else { "" };
-        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | derails {derails} | declared {dbad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
+        let oot: usize = ss.iter().map(|s| s.summons_oot).sum();
+        let pg: usize = ss.iter().map(|s| s.pad_golems).sum();
+        let pad = if pg > 0 || oot > 0 { format!(" | pad summons out of turn {oot} of {pg}") } else { String::new() };
+        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 || derails > 0 || dbad > 0 || oot > 0 { " <--" } else { "" };
+        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
     }
     Ok(out.join("\n"))
 }
@@ -290,7 +328,27 @@ pub fn corner_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64
         let merges: usize = ss.iter().map(|s| s.merges).sum();
         let early: usize = ss.iter().map(|s| s.latch_early).sum();
         let doubles: usize = ss.iter().map(|s| s.latch_doubles).sum();
-        out.push(format!("{n:22} clean {clean}/{} | D2 {}..{} | G2 in {}..{} | before cart 3 {}..{} | latch +{}..+{} (early {early}, doubled {doubles}) | merges {merges} | dep min {} | tail min {}", ss.len(), opt(m(0, true)), opt(m(1, false)), opt(m(2, true)), opt(m(3, false)), opt(m(4, true)), opt(m(5, false)), opt(la), opt(lb), opt(ss.iter().filter_map(|s| s.dep_min).min()), opt(ss.iter().filter_map(|s| s.tail_min).min())));
+        // (the divert corner against day-1's +4-shifted windows, golem +21+10k ..= +30+10k with G0
+        // opening at golem +13: from G0's opening +8+10k ..= +17+10k; each cart's earliest front and
+        // latest tail, and the margins)
+        let dv: Vec<[[i64; 4]; 3]> = ss.iter().filter_map(|s| s.divert).collect();
+        let divert = if dv.is_empty() {
+            "divert -".to_string()
+        } else {
+            let mut parts = Vec::new();
+            let mut worst = i64::MAX;
+            for k in 0..3 {
+                let fi = dv.iter().map(|d| d[k][0]).min().unwrap();
+                let fa = dv.iter().map(|d| d[k][1]).max().unwrap();
+                let ti = dv.iter().map(|d| d[k][2]).min().unwrap();
+                let ta = dv.iter().map(|d| d[k][3]).max().unwrap();
+                let (m1, m2) = (fi - (8 + 10 * k as i64), (17 + 10 * k as i64) - ta);
+                worst = worst.min(m1).min(m2);
+                parts.push(format!("c{k} in {fi}..{fa} out {ti}..{ta} ({m1}/{m2})"));
+            }
+            format!("divert {} min {worst}", parts.join(" "))
+        };
+        out.push(format!("{n:22} clean {clean}/{} | D2 {}..{} | G2 in {}..{} | before cart 3 {}..{} | latch +{}..+{} (early {early}, doubled {doubles}) | merges {merges} | dep min {} | tail min {} | {divert}", ss.len(), opt(m(0, true)), opt(m(1, false)), opt(m(2, true)), opt(m(3, false)), opt(m(4, true)), opt(m(5, false)), opt(la), opt(lb), opt(ss.iter().filter_map(|s| s.dep_min).min()), opt(ss.iter().filter_map(|s| s.tail_min).min())));
     }
     Ok(out.join("\n"))
 }
