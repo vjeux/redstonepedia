@@ -674,20 +674,31 @@ pub struct DetectorEdges {
     entries: Vec<usize>,
     /// Per detector, the carts inside its search box last tick.
     inside: Vec<std::collections::HashSet<u32>>,
+    /// Per detector, the game time it last turned off.
+    last_off: Vec<Option<i64>>,
+    /// Per detector, the shortest time from its turning off to the next cart's entry (the edge
+    /// margin: the next cart's own on-edge needs the detector off before it enters).
+    min_gap: Vec<Option<i64>>,
+    /// Per detector, the carts that entered while it was still on from the one before (merged).
+    merged: Vec<usize>,
 }
 
 impl DetectorEdges {
     pub fn new(cells: Vec<BlockPos>) -> DetectorEdges {
         let n = cells.len();
-        DetectorEdges { cells, on: vec![false; n], edges: vec![0; n], entries: vec![0; n], inside: vec![Default::default(); n] }
+        DetectorEdges { cells, on: vec![false; n], edges: vec![0; n], entries: vec![0; n], inside: vec![Default::default(); n], last_off: vec![None; n], min_gap: vec![None; n], merged: vec![0; n] }
     }
 
     /// One tick: each detector's power and the carts in its search box.
     pub fn observe(&mut self, w: &redsim::world::World, carts: &[u32]) {
         for (i, p) in self.cells.iter().enumerate() {
             let on = w.get(*p).to_string().contains("powered=true");
-            if on && !self.on[i] {
+            let was_on = self.on[i];
+            if on && !was_on {
                 self.edges[i] += 1;
+            }
+            if !on && was_on {
+                self.last_off[i] = Some(w.time);
             }
             self.on[i] = on;
             let mut now = std::collections::HashSet::new();
@@ -698,11 +709,27 @@ impl DetectorEdges {
                     now.insert(e.id);
                     if !self.inside[i].contains(&e.id) {
                         self.entries[i] += 1;
+                        if was_on && self.inside[i].is_empty() {
+                            self.merged[i] += 1;
+                        } else if let Some(off) = self.last_off[i].filter(|_| !was_on) {
+                            let g = w.time - off;
+                            self.min_gap[i] = Some(self.min_gap[i].map_or(g, |m| m.min(g)));
+                        }
                     }
                 }
             }
             self.inside[i] = now;
         }
+    }
+
+    /// The timing line (the advance-spacing measurement, ironspec 2026-11-11 04:15): each
+    /// detector's shortest gap from turning off to the next cart's entry, and the carts that entered
+    /// while it was still on from the one before.
+    pub fn timing_line(&self, dx: i32, dz: i32) -> String {
+        format!(
+            "detector timing (off -> next cart's entry, the edge margin; merged = entered while still on): {}",
+            self.cells.iter().enumerate().map(|(i, p)| format!("{},{},{} min gap {} merged {}", p.x - dx, p.y, p.z - dz, self.min_gap[i].map_or("-".to_string(), |g| format!("{g} gt")), self.merged[i])).collect::<Vec<_>>().join(", ")
+        )
     }
 
     /// The line: each detector's on-edges against cart entries, unequal ones flagged.
@@ -712,6 +739,149 @@ impl DetectorEdges {
             "detector edges against carts entering (equal in normal flow for every edge-latched detector): {} detectors, {short} short{}",
             self.cells.len(),
             if self.cells.is_empty() { String::new() } else { format!(": {}", self.cells.iter().enumerate().map(|(i, p)| format!("{},{},{} {}:{}{}", p.x - dx, p.y, p.z - dz, self.edges[i], self.entries[i], if self.edges[i] < self.entries[i] { " SHORT" } else { "" })).collect::<Vec<_>>().join(", ")) }
+        )
+    }
+}
+
+/// Train gaps at a plane (the stand's reference cell, 51b2aacd 2026-11-11 05:28: each cart's centre
+/// crossing loop x 0.5 eastward on the strip, z 0.5, y about 0; ironspec 05:28: in the shared
+/// runner, min/max per cart pair over the run, a pair a gt off its normal flagged with its slot). A
+/// crossing's tick is interpolated from the cart's positions on either side of the plane; crossings
+/// within 50 gt of the one before are one train.
+pub struct PlaneGaps {
+    x: f64,
+    y: f64,
+    z: f64,
+    last: std::collections::HashMap<u32, f64>,
+    /// (game time of the crossing, slot, cart)
+    crossings: Vec<(f64, i64, u32)>,
+}
+
+impl PlaneGaps {
+    pub fn new(x: f64, y: f64, z: f64) -> PlaneGaps {
+        PlaneGaps { x, y, z, last: Default::default(), crossings: Vec::new() }
+    }
+
+    /// One tick (after it): every cart's centre against the plane.
+    pub fn observe(&mut self, w: &redsim::world::World, carts: &[u32], slot: i64) {
+        for e in w.entities.list.iter().filter(|e| carts.contains(&e.id) && !e.removed) {
+            let px = e.pos.x;
+            if let Some(&lx) = self.last.get(&e.id) {
+                if lx < self.x && px >= self.x && (e.pos.z - self.z).abs() < 0.5 && (e.pos.y - self.y).abs() < 1.0 {
+                    let f = (self.x - lx) / (px - lx);
+                    self.crossings.push((w.time as f64 - 1.0 + f, slot, e.id));
+                }
+            }
+            self.last.insert(e.id, px);
+        }
+    }
+
+    /// The line: per pair (1->2, 2->3, .., the last of a train to the first of the next), min..max
+    /// over the run and its normal (the median), every gap 1 gt or more off it flagged with its slot.
+    pub fn line(&self, dx: i32, dz: i32) -> String {
+        let mut trains: Vec<Vec<(f64, i64)>> = Vec::new();
+        for &(t, s, _) in &self.crossings {
+            match trains.last_mut() {
+                Some(tr) if t - tr.last().unwrap().0 < 30.0 => tr.push((t, s)),
+                _ => trains.push(vec![(t, s)]),
+            }
+        }
+        // pairs: index i (0 = 1->2, ..) inside trains; "train" between trains
+        let mut pairs: std::collections::BTreeMap<String, Vec<(f64, i64)>> = Default::default();
+        for (k, tr) in trains.iter().enumerate() {
+            for (i, w) in tr.windows(2).enumerate() {
+                pairs.entry(format!("{}->{}", i + 1, i + 2)).or_default().push((w[1].0 - w[0].0, w[1].1));
+            }
+            if let Some(next) = trains.get(k + 1) {
+                pairs.entry("train->train".into()).or_default().push((next[0].0 - tr.last().unwrap().0, next[0].1));
+            }
+        }
+        let mut sizes: std::collections::BTreeMap<usize, usize> = Default::default();
+        for tr in &trains {
+            *sizes.entry(tr.len()).or_default() += 1;
+        }
+        let body: Vec<String> = pairs
+            .iter()
+            .map(|(name, v)| {
+                let mut g: Vec<f64> = v.iter().map(|x| x.0).collect();
+                g.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let med = g[g.len() / 2];
+                let off: Vec<String> = v.iter().filter(|x| (x.0 - med).abs() >= 1.0).map(|x| format!("slot {} {:.1}", x.1, x.0)).collect();
+                format!(
+                    "{name} {:.1}..{:.1} (normal {:.1}, {} of {}{}{})",
+                    g[0],
+                    g[g.len() - 1],
+                    med,
+                    off.len(),
+                    g.len(),
+                    if off.is_empty() { " within 1 gt" } else { " a gt or more off: " },
+                    off.iter().take(6).cloned().collect::<Vec<_>>().join(", ")
+                )
+            })
+            .collect();
+        format!(
+            "train gaps at the plane x {:.1} (z {:.1}, y {:.1}; crossings eastward, gt): {} trains ({}){}",
+            self.x - dx as f64,
+            self.z - dz as f64,
+            self.y,
+            trains.len(),
+            sizes.iter().map(|(n, c)| format!("{n}x{c}")).collect::<Vec<_>>().join(" "),
+            if body.is_empty() { String::new() } else { format!("; {}", body.join("; ")) }
+        )
+    }
+}
+
+/// The stand batch's panic on the slot ticks (ironspec 2026-11-11 05:49: the measure for any change
+/// to approach timing): on each gameTime % 100 == 0 tick, the riders at rest in the stand's pocket
+/// row (loop z 0.5, y below 1, x -1..9) and how many of them panic; counted with 3 there.
+pub struct StandPanic {
+    fx: f64,
+    fz: f64,
+    /// Slots with 0, 1, 2, 3 of the 3 panicking.
+    counts: [usize; 4],
+    /// The slots with fewer than 3 (slot, panicking), the first few.
+    short: Vec<(i64, usize)>,
+}
+
+impl StandPanic {
+    pub fn new(fx: i32, fz: i32) -> StandPanic {
+        StandPanic { fx: fx as f64, fz: fz as f64, counts: [0; 4], short: Vec::new() }
+    }
+
+    pub fn observe(&mut self, w: &redsim::world::World, riders: &[u32], slot: i64, dt: i64) {
+        // (the runner's slot start: where it fires the golem input, the farm's %100 tick)
+        if dt != 0 {
+            return;
+        }
+        let mut at = Vec::new();
+        for (i, e) in w.entities.list.iter().enumerate() {
+            if e.removed || !riders.contains(&e.id) {
+                continue;
+            }
+            let (x, y, z) = (e.pos.x - self.fx, e.pos.y, e.pos.z - self.fz);
+            let still = e.delta_movement.x.abs() + e.delta_movement.z.abs() < 0.01;
+            if still && (z - 0.5).abs() < 0.3 && y < 1.0 && x > -1.0 && x < 9.0 {
+                at.push(crate::timeline::panicking(w, i).unwrap_or(false));
+            }
+        }
+        if at.len() == 3 {
+            let p = at.iter().filter(|b| **b).count();
+            self.counts[p] += 1;
+            if p < 3 && self.short.len() < 8 {
+                self.short.push((slot, p));
+            }
+        }
+    }
+
+    pub fn line(&self) -> String {
+        let n: usize = self.counts.iter().sum();
+        format!(
+            "stand batch panicking on the slot tick (3 at rest): 3 in {}, 2 in {}, 1 in {}, 0 in {} of {n} slots{}",
+            self.counts[3],
+            self.counts[2],
+            self.counts[1],
+            self.counts[0],
+            if self.short.is_empty() { String::new() } else { format!(" (short: {})", self.short.iter().map(|(s, p)| format!("slot {s} {p}")).collect::<Vec<_>>().join(", ")) }
         )
     }
 }
@@ -3657,8 +3827,23 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut touch_idle = 0usize;
     let mut walk_touch_log: Vec<String> = Vec::new();
     let mut walking_log: Vec<String> = Vec::new();
-    // (every detector rail of the loop: its on-edges against the carts entering it)
-    let mut det_edges = DetectorEdges::new(lay.path.iter().filter(|(_, k)| matches!(k, Cell::Detector)).map(|(c, _)| BlockPos::new(c[0] + fx as i32, c[1], c[2] + fz as i32)).collect());
+    // (every detector rail of the loop: its on-edges against the carts entering it; with
+    // MCTAS_WATCH_DETECTORS "x,y,z;...", more cells watched the same way (design coordinates), the
+    // advance-spacing measurement's transit detectors)
+    let mut det_cells: Vec<BlockPos> = lay.path.iter().filter(|(_, k)| matches!(k, Cell::Detector)).map(|(c, _)| BlockPos::new(c[0] + fx as i32, c[1], c[2] + fz as i32)).collect();
+    for item in std::env::var("MCTAS_WATCH_DETECTORS").unwrap_or_default().split(';').filter(|s| !s.trim().is_empty()) {
+        let p: Vec<i32> = item.split(',').map(|t| t.trim().parse()).collect::<std::result::Result<_, _>>().map_err(|e| format!("MCTAS_WATCH_DETECTORS {item}: {e}"))?;
+        if p.len() != 3 {
+            return Err(format!("MCTAS_WATCH_DETECTORS: x,y,z;... not {item}"));
+        }
+        det_cells.push(BlockPos::new(p[0] + fx as i32, p[1], p[2] + fz as i32));
+    }
+    let mut det_edges = DetectorEdges::new(det_cells);
+    // (the stand's reference plane for train gaps: G2's plane, loop x 0.5 on the strip z 0.5,
+    // y 0 (51b2aacd 05:28); MCTAS_GAP_PLANE=x,y,z for another (the crossing is still eastward in x))
+    let gp: Vec<f64> = std::env::var("MCTAS_GAP_PLANE").ok().map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect()).filter(|v: &Vec<f64>| v.len() == 3).unwrap_or(vec![0.5, 0.0, 0.5]);
+    let mut plane_gaps = PlaneGaps::new(gp[0] + fx as f64, gp[1], gp[2] + fz as f64);
+    let mut stand_panic = StandPanic::new(fx as i32, fz as i32);
     let mut unseated: Vec<bool> = vec![false; 21];
     let mut unseat_log: Vec<String> = Vec::new();
     let mut latch_sets: Vec<i64> = Vec::new();
@@ -5011,6 +5196,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // (every detector rail: on-edges against carts entering)
         if build_start.is_none() {
             det_edges.observe(&run.world, &carts);
+            plane_gaps.observe(&run.world, &carts, c as i64);
+            stand_panic.observe(&run.world, &riders, c as i64, dt as i64);
         }
         stop_brake(&mut run.world, &mut stop_arm);
         hold_day(&mut run.world);
@@ -6500,6 +6687,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if tm.reg_interlock {
             out.push(format!("register interlock (ideal sensors, bench-driven, advances {} gt apart): carts held at advances {reg_stuck_total} (cart-advances), launches held {il_skips}; launch slack (G_P's timed opening minus slot 0 read empty) at least {} gt ({}){}", tm.advance_every, if il_slack_min.0 == i64::MAX { "-".to_string() } else { il_slack_min.0.to_string() }, il_slack_min.1, if reg_held.is_empty() { String::new() } else { format!(" ({})", reg_held.join("; ")) }));
         }
+        out.push(det_edges.timing_line(fx as i32, fz as i32));
+        out.push(plane_gaps.line(fx as i32, fz as i32));
+        out.push(stand_panic.line());
         out.push(format!("declared states (rails, gates, boosters as the options declare them; tick 0 and boosters at t 20): {} mismatches{}", declared_bad.len(), if declared_bad.is_empty() { String::new() } else { format!(" ({})", declared_bad.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
         if !declared_bad.is_empty() {
             problems.push(format!("declared states: {} mismatches ({})", declared_bad.len(), declared_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")));
