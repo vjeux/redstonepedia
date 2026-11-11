@@ -261,11 +261,13 @@ pub struct HurtByTarget {
     pub base: TargetBase,
     pub alert_same_type: bool,
     pub timestamp: i32,
+    /// (mob-AI 2026-11-11) `Llama.LlamaHurtByTargetGoal` (a llama that just spat lets go).
+    pub llama: bool,
 }
 
 impl HurtByTarget {
     pub fn new(alert: bool) -> HurtByTarget {
-        HurtByTarget { base: TargetBase::new(true, false), alert_same_type: alert, timestamp: 0 }
+        HurtByTarget { base: TargetBase::new(true, false), alert_same_type: alert, timestamp: 0, llama: false }
     }
 }
 

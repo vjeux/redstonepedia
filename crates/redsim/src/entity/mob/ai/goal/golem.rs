@@ -261,13 +261,17 @@ pub fn update_anger(w: &mut World, i: usize) {
     }
 }
 
-/// `NeutralMob.stopBeingAngry()`.
+/// `NeutralMob.stopBeingAngry()` (`setTarget(null)`: an enderman's override clears its target
+/// change time: mob-AI 2026-11-11, d1-bed-plate plains b9 t46908, its daylight teleport check
+/// came a tick late).
 fn stop_being_angry(w: &mut World, i: usize) {
     let tc = w.entities.list[i].tick_count;
-    let a = crate::entity::mob::ai::ai_mut(w, i);
-    a.last_hurt_by_mob = None;
-    a.last_hurt_by_mob_timestamp = tc;
-    a.anger_target = None;
-    a.target = None;
-    a.anger_end = -1;
+    {
+        let a = crate::entity::mob::ai::ai_mut(w, i);
+        a.last_hurt_by_mob = None;
+        a.last_hurt_by_mob_timestamp = tc;
+        a.anger_target = None;
+    }
+    target::set_target(w, i, None);
+    crate::entity::mob::ai::ai_mut(w, i).anger_end = -1;
 }

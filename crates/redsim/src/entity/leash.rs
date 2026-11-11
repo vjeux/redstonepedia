@@ -132,7 +132,9 @@ fn angular_friction(w: &World, i: usize) -> f32 {
     if e.on_ground {
         let p = collide::get_on_pos(w, e, 0.500001f32);
         boat::block_friction(&w.get(p)) * 0.91f32
-    } else if e.fluid.in_water() {
+    } else if e.fluid.in_water() || e.fluid.lava_height() > 0.0 {
+        // isInLiquid: water or lava (mob-AI 2026-11-11: a trader llama pulled out of a lava pool,
+        // d1-bed-plate plains b9 t40061)
         0.8f32
     } else {
         0.91f32
@@ -141,6 +143,14 @@ fn angular_friction(w: &World, i: usize) -> f32 {
 
 fn drop_lead(w: &mut World, i: usize) {
     w.entities.list[i].leash = None;
+    // (mob-AI 2026-11-11) a mob's lead in an exact world: `spawnAtLocation(level, LEAD)` at its
+    // position, the item seeded as its entity number like any drop (a dying trader llama's, the
+    // tick after its death: d1-bed-plate plains b9 t40080)
+    if matches!(w.entities.list[i].kind, EntityKind::Mob(_)) && w.exact_seed.is_some() {
+        let p = w.entities.list[i].pos;
+        crate::entity::mob::living::spawn_item_exact(w, p, "minecraft:lead", 1);
+        return;
+    }
     // Entity.spawnAtLocation uses a new, nanoTime-seeded ItemEntity. Never invent its kick
     // or omit the side effect and claim a fully modeled continuation after a snap.
     w.errors.push("leash: dropped lead has unseeded ItemEntity motion (post-drop continuation is not modeled)".into());
@@ -231,6 +241,9 @@ pub fn tick(w: &mut World, i: usize) {
     }
     let friction = angular_friction(w, i);
     let e = &mut w.entities.list[i];
+    if std::env::var("MCTAS_TRACE_LEASH").is_ok_and(|v| v.parse::<u32>().ok() == Some(e.id)) {
+        eprintln!("leash t{} #{}: distance {distance} pulled {pulled} yaw {} momentum {} friction {friction} on_ground {} in_water {}", w.time, e.id, e.y_rot, data.angular_momentum, e.on_ground, e.fluid.in_water());
+    }
     e.y_rot = (e.y_rot as f64 - data.angular_momentum) as f32;
     data.angular_momentum *= friction as f64;
     if e.leash.is_some() {

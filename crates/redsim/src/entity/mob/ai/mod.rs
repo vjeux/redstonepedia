@@ -176,6 +176,12 @@ impl MobAi {
             nav.required_path_length = 48.0;
             nav.max_visited_nodes = mth::floor(((d.follow_range as f32).max(48.0) * 16.0f32) as f64);
         }
+        // (mob-AI 2026-11-11) Llama's constructor: setRequiredPathLength(40) (a trader llama's path
+        // to its spit target reaches past its 16 follow range: d1-bed-plate plains b9 t38307)
+        if d.id == "trader_llama" {
+            nav.required_path_length = 40.0;
+            nav.max_visited_nodes = mth::floor(((d.follow_range as f32).max(40.0) * 16.0f32) as f64);
+        }
         let mut ai = MobAi {
             nav,
             move_ctl: MoveControl::default(),
@@ -340,7 +346,10 @@ pub fn max_fall_distance(w: &World, i: usize) -> i32 {
     if m.ty.def().id == "creeper" {
         return mth::floor((m.health - 1.0 + 3.0f32) as f64);
     }
-    let max = m.ty.def().max_health;
+    // getMaxHealth(): a horse's (a trader llama's) drawn max, a leader zombie's bonus (mob-AI
+    // 2026-11-11: a llama's 53 base made its path to a spit target 11 below partial, d1-bed-plate
+    // plains b9 t39150)
+    let max = crate::entity::mob::living::max_health(m);
     let _ = a;
     let mut sacrifice = (m.health - max * 0.33f32) as i32;
     sacrifice -= (3 - difficulty_id(w)) * 4;

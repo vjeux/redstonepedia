@@ -75,8 +75,8 @@ pub enum TraderGoal {
     MoveTowardsRestriction { speed: f64, wanted: Vec3 },
     /// `LlamaFollowCaravanGoal` (never while leashed).
     LlamaFollowCaravan,
-    /// `RangedAttackGoal(1.25, 40, 20)`: the llama's spit (with a target: not modeled).
-    LlamaSpit,
+    /// `RangedAttackGoal(1.25, 40, 20)`: the llama's spit (`Llama.performRangedAttack`).
+    LlamaSpit(super::drowned::TridentAttack),
     /// `TraderLlamaDefendWanderingTraderGoal`: the trader's last attacker (its timestamp).
     DefendTrader { timestamp: i32, attacker: Option<u32>, base: super::targets::TargetBase },
 }
@@ -88,7 +88,7 @@ impl TraderGoal {
             TraderGoal::WanderToPosition => "WanderToPositionGoal",
             TraderGoal::MoveTowardsRestriction { .. } => "MoveTowardsRestrictionGoal",
             TraderGoal::LlamaFollowCaravan => "LlamaFollowCaravanGoal",
-            TraderGoal::LlamaSpit => "RangedAttackGoal",
+            TraderGoal::LlamaSpit(_) => "RangedAttackGoal",
             TraderGoal::DefendTrader { .. } => "TraderLlamaDefendWanderingTraderGoal",
         }
     }
@@ -97,14 +97,14 @@ impl TraderGoal {
         match self {
             TraderGoal::UseItem { .. } => 0,
             TraderGoal::WanderToPosition | TraderGoal::MoveTowardsRestriction { .. } | TraderGoal::LlamaFollowCaravan => MOVE,
-            TraderGoal::LlamaSpit => MOVE | super::LOOK,
+            TraderGoal::LlamaSpit(_) => MOVE | super::LOOK,
             TraderGoal::DefendTrader { .. } => super::TARGET,
         }
     }
 
     /// `requiresUpdateEveryTick()`: the ranged attack's.
     pub fn every_tick(&self) -> bool {
-        matches!(self, TraderGoal::LlamaSpit)
+        matches!(self, TraderGoal::LlamaSpit(_))
     }
 }
 
@@ -169,7 +169,7 @@ pub fn register_llama(a: &mut super::super::MobAi) {
     g.add(0, Goal::Float);
     g.add(1, an(AnimalGoal::RunAround));
     g.add(2, Goal::Trader(TraderGoal::LlamaFollowCaravan));
-    g.add(3, Goal::Trader(TraderGoal::LlamaSpit));
+    g.add(3, Goal::Trader(TraderGoal::LlamaSpit(super::drowned::TridentAttack::default())));
     g.add(3, an(AnimalGoal::Panic { speed: 1.2, pos: Vec3::ZERO, mount: false, env: false }));
     g.add(4, an(AnimalGoal::Breed));
     g.add(5, an(AnimalGoal::Tempt));
@@ -179,7 +179,7 @@ pub fn register_llama(a: &mut super::super::MobAi) {
     g.add(9, Goal::RandomLookAround(RandomLookAround::default()));
     g.add(1, an(AnimalGoal::Panic { speed: 2.0, pos: Vec3::ZERO, mount: false, env: false }));
     let t = &mut a.targets;
-    t.add(1, Goal::HurtByTarget(HurtByTarget::new(false)));
+    t.add(1, Goal::HurtByTarget(HurtByTarget { llama: true, ..HurtByTarget::new(false) }));
     t.add(2, Goal::NearestAttackableTarget(NearestAttackableTarget::new(TargetType::LlamaWolf, 16, false, true)));
     t.add(1, Goal::Trader(TraderGoal::DefendTrader { timestamp: 0, attacker: None, base: super::targets::TargetBase::new(false, false) }));
     t.add(2, Goal::NearestAttackableTarget(NearestAttackableTarget::new(TargetType::ZombieNotPiglin, 10, true, false)));
@@ -270,7 +270,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut TraderGoal) -> bool {
             }
             false
         }
-        TraderGoal::LlamaSpit => target::get_target(w, i).and_then(|t| target::who(w, t)).is_some_and(|t| target::is_alive(w, t)),
+        TraderGoal::LlamaSpit(r) => spit_can_use(w, i, r),
         TraderGoal::DefendTrader { timestamp, attacker, base } => {
             let Some(holder) = w.entities.list[i].leash.map(|l| l.holder) else { return false };
             let Some(h) = crate::entity::index_of(w, holder) else { return false };
@@ -296,9 +296,75 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut TraderGoal) -> bool {
         TraderGoal::WanderToPosition => can_use(w, i, g),
         TraderGoal::MoveTowardsRestriction { .. } => !ai(w, i).nav.is_done(),
         TraderGoal::LlamaFollowCaravan => false,
-        TraderGoal::LlamaSpit => target::get_target(w, i).and_then(|t| target::who(w, t)).is_some_and(|t| target::is_alive(w, t)),
+        TraderGoal::LlamaSpit(r) => spit_can_use(w, i, r) || (r.target.and_then(|t| target::who(w, t)).is_some_and(|t| target::is_alive(w, t)) && !ai(w, i).nav.is_done()),
         TraderGoal::DefendTrader { base, .. } => super::targets::target_can_continue(w, i, base),
     }
+}
+
+/// `RangedAttackGoal.canUse()`: a live target, which it keeps.
+fn spit_can_use(w: &mut World, i: usize, r: &mut super::drowned::TridentAttack) -> bool {
+    let Some(t) = target::get_target(w, i) else { return false };
+    if !target::who(w, t).is_some_and(|who| target::is_alive(w, who)) {
+        return false;
+    }
+    r.target = Some(t);
+    true
+}
+
+/// `RangedAttackGoal.tick()` (1.25, 40, 20): the sight time; within 20 and seen for 5 ticks the
+/// navigation stops, else it walks to the target (1.25); it looks at the target (30, 30); when
+/// the attack time runs out with the target in sight it spits ([`crate::entity::arrow::spit_from_llama`])
+/// and waits `floor(dist / 20 x 0 + 40)`; a first wait of `floor(lerp(dist / 20, 40, 40))`.
+fn spit_tick(w: &mut World, i: usize, g: &mut super::drowned::TridentAttack) {
+    const RADIUS: f32 = 20.0;
+    const INTERVAL: i32 = 40;
+    let Some(t) = g.target.and_then(|id| target::who(w, id)) else { return };
+    let tp = target::pos_of(w, t);
+    let target_dist_sqr = w.entities.list[i].pos.distance_to_sqr(tp);
+    let has_los = target::has_line_of_sight(w, i, t);
+    if has_los {
+        g.see_time += 1;
+    } else {
+        g.see_time = 0;
+    }
+    if !(target_dist_sqr > (RADIUS * RADIUS) as f64) && g.see_time >= 5 {
+        with_nav(w, i, |_, _, nav, _| nav.stop());
+    } else {
+        let tb = super::melee::target_block(w, t);
+        with_nav(w, i, |w, nm, nav, arena| nav.move_to_entity_default(w, nm, tb, 1.25, arena));
+    }
+    let te = target::eye_of(w, t);
+    ai_mut(w, i).look.set_look_at(te.x, te.y, te.z, 30.0, 30.0);
+    g.attack_time -= 1;
+    if g.attack_time == 0 {
+        if !has_los {
+            return;
+        }
+        let dist = (target_dist_sqr.sqrt() as f32) / RADIUS;
+        let target::Who::Entity(j) = t else {
+            refuse(w, "a trader llama spitting at a player is not modeled");
+            return;
+        };
+        crate::entity::arrow::spit_from_llama(w, i, j);
+        st_mut(w, i).did_spit = true;
+        g.attack_time = crate::entity::mth::floor((dist * (INTERVAL - INTERVAL) as f32 + INTERVAL as f32) as f64);
+    } else if g.attack_time < 0 {
+        let d = target_dist_sqr.sqrt() / RADIUS as f64;
+        g.attack_time = crate::entity::mth::floor(crate::entity::mth::lerp(d, INTERVAL as f64, INTERVAL as f64));
+    }
+}
+
+/// `LlamaHurtByTargetGoal.canContinueToUse()`: a llama that just spat lets go of its revenge
+/// target (and forgets the spit); else HurtByTargetGoal's.
+pub fn llama_hurt_by_can_continue(w: &mut World, i: usize) -> Option<bool> {
+    if !is_llama(w, i) {
+        return None;
+    }
+    if st(w, i).did_spit {
+        st_mut(w, i).did_spit = false;
+        return Some(false);
+    }
+    None
 }
 
 pub fn start(w: &mut World, i: usize, g: &mut TraderGoal) {
@@ -317,7 +383,6 @@ pub fn start(w: &mut World, i: usize, g: &mut TraderGoal) {
                 nav.move_to_xyz(w, nm, p.x, p.y, p.z, 1, s, arena);
             });
         }
-        TraderGoal::LlamaSpit => refuse(w, "a trader llama spitting at its target (RangedAttackGoal, LlamaSpit) is not modeled"),
         TraderGoal::DefendTrader { timestamp, attacker, base } => {
             target::set_target(w, i, *attacker);
             if let Some(h) = w.entities.list[i].leash.map(|l| l.holder).and_then(|h| crate::entity::index_of(w, h))
@@ -343,11 +408,17 @@ pub fn stop(w: &mut World, i: usize, g: &mut TraderGoal) {
             ai_mut(w, i).nav.stop();
         }
         TraderGoal::DefendTrader { base, .. } => super::targets::target_stop(w, i, base),
+        // RangedAttackGoal.stop: the target, sight and attack times reset
+        TraderGoal::LlamaSpit(r) => *r = super::drowned::TridentAttack::default(),
         _ => {}
     }
 }
 
 pub fn tick(w: &mut World, i: usize, g: &mut TraderGoal) {
+    if let TraderGoal::LlamaSpit(r) = g {
+        spit_tick(w, i, r);
+        return;
+    }
     if let TraderGoal::WanderToPosition = g {
         let Some(wp) = st(w, i).wander_target else { return };
         if !ai(w, i).nav.is_done() {

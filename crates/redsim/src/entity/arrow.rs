@@ -66,7 +66,14 @@ pub struct ArrowState {
     pub trident: bool,
     /// `ThrownTrident.dealtDamage`: it hit an entity, or lay in the ground over 4 ticks.
     pub dealt_damage: bool,
+    /// (mob-AI 2026-11-11) A llama's spit (`LlamaSpit`: 0.25 x 0.25, [`tick_spit`]).
+    pub spit: bool,
 }
+
+/// `EntityTypes.LLAMA_SPIT.sized(0.25F, 0.25F)` (eye height 0.85 of it).
+pub const SPIT_WIDTH: f32 = 0.25;
+pub const SPIT_HEIGHT: f32 = 0.25;
+pub const SPIT_EYE_HEIGHT: f32 = 0.25 * 0.85;
 
 /// `FluidState.entityInside` on an arrow (its sweep met the fluid's box): collected for
 /// [`with_block_effects`].
@@ -227,8 +234,181 @@ fn launch(w: &mut World, i: usize, t: usize, mut state: ArrowState, mob_power: O
     id
 }
 
+/// `Llama.spit(target)` from llama `i` at mob `t` (`performRangedAttack`): `new LlamaSpit(level,
+/// llama)` (its constructor's UUID; owned by it, at (width + 1) / 2 in front of its body's yaw, its
+/// eye y less 0.1F), `spawnProjectileUsingShoot(xd, yd + the horizontal distance x 0.2F, zd,
+/// 1.5F, 10)` (the shot's three triangles, then added), the LLAMA_SPIT sound's pitch (two of the
+/// llama's own floats). Returns the spit's id.
+pub fn spit_from_llama(w: &mut World, i: usize, t: usize) -> u32 {
+    let lp = w.entities.list[i].pos;
+    let width = w.entities.list[i].kind.dims().0;
+    let body = crate::entity::mob::ai::ai(w, i).y_body_rot;
+    let eye_y = crate::entity::mob::ai::eye_pos(w, i).y;
+    let r = (width + 1.0f32) as f64 * 0.5;
+    let a = body * (std::f64::consts::PI / 180.0) as f32;
+    let start = Vec3::new(lp.x - r * crate::entity::mth::sin(a as f64) as f64, eye_y - 0.1f32 as f64, lp.z + r * crate::entity::mth::cos(a as f64) as f64);
+    let at = w.entities.next_id;
+    let mut own = w.entering_random(at);
+    crate::rng::replay_uuid(&mut own);
+    let tp = w.entities.list[t].pos;
+    let th = w.entities.list[t].kind.dims().1;
+    let xd = tp.x - lp.x;
+    let yd = tp.y + th as f64 * 0.3333333333333333 - start.y;
+    let zd = tp.z - lp.z;
+    let dist = (xd * xd + zd * zd).sqrt() * 0.2f32 as f64;
+    let n = Vec3::new(xd, yd + dist, zd).normalize();
+    let u = 0.0172275 * 10.0f32 as f64;
+    let ex = triangle(&mut own, 0.0, u);
+    let ey = triangle(&mut own, 0.0, u);
+    let ez = triangle(&mut own, 0.0, u);
+    let m = n.add(ex, ey, ez).scale(1.5f32 as f64);
+    let y_rot = control::atan2_degrees(m.x, m.z);
+    let x_rot = control::atan2_degrees(m.y, m.horizontal_distance());
+    let state = ArrowState { spit: true, owner: Some(w.entities.list[i].id), ..Default::default() };
+    let id = w.entities.add(EntityKind::Arrow(state), start, y_rot);
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+        e.delta_movement = m;
+        e.x_rot = x_rot;
+        e.y_rot_o = y_rot;
+        e.x_rot_o = x_rot;
+        e.random = Some(own);
+    }
+    if let Some(r) = w.entities.list[i].random.as_mut() {
+        r.next_float();
+        r.next_float();
+    }
+    id
+}
+
+/// `LlamaSpit.tick()` of spit `i`: `Projectile.tick` (the shoot game event once, checkLeftOwner,
+/// `baseTick`); `ProjectileUtil.getHitResultOnMoveVector` (its motion clipped at the first block's
+/// collider, then the nearest entity it can hit whose box grown by the margin the segment
+/// crosses) and its hit; its rotations eased toward its motion; gone when no cell its box touches
+/// is air, or in water; else 0.99 drag, gravity 0.06 and the move by last tick's motion (no
+/// collision).
+fn tick_spit(w: &mut World, i: usize) {
+    if !st(w, i).has_been_shot {
+        let p = w.entities.list[i].pos;
+        w.game_event_at("projectile_shoot", [p.x, p.y, p.z], None, false);
+        st_mut(w, i).has_been_shot = true;
+    }
+    check_left_owner(w, i);
+    base_tick(w, i);
+    if w.entities.list[i].removed {
+        return;
+    }
+    st_mut(w, i).left_owner_checked = false;
+    let movement = w.entities.list[i].delta_movement;
+    let from = w.entities.list[i].pos;
+    let to = from.add_v(movement);
+    let bh = los::clip_collider(w, from, to);
+    let end = if bh.miss { to } else { bh.location };
+    let entity_hit = find_hit_entity_spit(w, i, from, end);
+    if let Some((j, at)) = entity_hit {
+        hit_entity_spit(w, i, j, at);
+    } else if !bh.miss {
+        let state = w.get(bh.pos);
+        if !state.is_air() {
+            if reacts_to_projectiles(&state) {
+                refuse(w, "a llama's spit hitting a block that reacts to projectiles is not modeled");
+            }
+            w.entities.list[i].removed = true;
+            let at = [bh.pos.x as f64 + 0.5, bh.pos.y as f64 + 0.5, bh.pos.z as f64 + 0.5];
+            w.game_event_at("projectile_land", at, Some(state), false);
+        }
+    }
+    let (x, y, z) = (from.x + movement.x, from.y + movement.y, from.z + movement.z);
+    {
+        let e = &mut w.entities.list[i];
+        let m = e.delta_movement;
+        let y_rot = control::atan2_degrees(m.x, m.z);
+        let x_rot = control::atan2_degrees(m.y, m.horizontal_distance());
+        e.x_rot = lerp_rotation(e.x_rot, x_rot);
+        e.y_rot = lerp_rotation(e.y_rot, y_rot);
+    }
+    // findBlocksIn(box): the cells from the box's min corner's to its max corner's; none air
+    let bb = w.entities.list[i].bb;
+    let (x0, y0, z0) = (bb.min_x.floor() as i32, bb.min_y.floor() as i32, bb.min_z.floor() as i32);
+    let (x1, y1, z1) = (bb.max_x.floor() as i32, bb.max_y.floor() as i32, bb.max_z.floor() as i32);
+    let mut any_air = false;
+    'cells: for cx in x0..=x1 {
+        for cy in y0..=y1 {
+            for cz in z0..=z1 {
+                if w.get(crate::pos::BlockPos::new(cx, cy, cz)).is_air() {
+                    any_air = true;
+                    break 'cells;
+                }
+            }
+        }
+    }
+    if !any_air || w.entities.list[i].was_touching_water {
+        w.entities.list[i].removed = true;
+        return;
+    }
+    let e = &mut w.entities.list[i];
+    e.delta_movement = movement.scale(0.99f32 as f64).add(0.0, -0.06, 0.0);
+    w.entities.set_pos(i, Vec3::new(x, y, z));
+}
+
+/// `ProjectileUtil.getEntityHitResult` for a spit: over its box swept by its motion and grown by
+/// 1 (the level's section order), each entity it can hit whose box grown by the margin the
+/// segment crosses, the nearest clip point from `from` (the first of a tie).
+fn find_hit_entity_spit(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Option<(usize, Vec3)> {
+    let e = &w.entities.list[i];
+    let d = e.delta_movement;
+    let area = e.bb.expand_towards(d.x, d.y, d.z).inflate(1.0, 1.0, 1.0);
+    let m = margin(e.tick_count) as f64;
+    let id = e.id;
+    let candidates = w.get_entities(area, |x| x.id != id);
+    let mut best: Option<(usize, Vec3, f64)> = None;
+    for j in candidates {
+        if !can_hit(w, i, j) {
+            continue;
+        }
+        if let Some(p) = collide::clip(w.entities.list[j].bb.inflate(m, m, m), from, to) {
+            let dd = from.distance_to_sqr(p);
+            if best.as_ref().is_none_or(|b| dd < b.2) {
+                best = Some((j, p, dd));
+            }
+        }
+    }
+    refuse_players_in_the_way(w, from, to, m);
+    best.map(|(j, p, _)| (j, p))
+}
+
+/// `LlamaSpit.onHitEntity` (no entity here deflects it), then the land game event: 1 `spit`
+/// damage from its owner (the knockback along the spit's motion); it flies on.
+fn hit_entity_spit(w: &mut World, i: usize, j: usize, at: Vec3) {
+    if !matches!(w.entities.list[j].kind, EntityKind::Mob(_)) {
+        refuse(w, "a llama's spit hitting a boat, a minecart, an armor stand or primed TNT is not modeled");
+        return;
+    }
+    let owner = st(w, i).owner.filter(|&o| crate::entity::index_of(w, o).is_some_and(|k| !w.entities.list[k].removed && matches!(w.entities.list[k].kind, EntityKind::Mob(_))));
+    if owner.is_some() {
+        let motion = w.entities.list[i].delta_movement;
+        let prev = w.mob.ai.attacker;
+        w.mob.ai.attacker = owner;
+        w.mob.ai.projectile_motion = Some(motion);
+        let hurt = crate::entity::mob::living::hurt(w, j, crate::entity::mob::Damage::Spit, 1.0);
+        w.mob.ai.projectile_motion = None;
+        w.mob.ai.attacker = prev;
+        // EnchantmentHelper.doPostAttackEffects: thorns armor's effect on the llama
+        if hurt
+            && let EntityKind::Mob(m) = &w.entities.list[j].kind
+            && m.armor.has(m.helmet.is_some(), "thorns")
+        {
+            refuse(w, "a llama's spit on thorns armor (its post-attack effect) is not modeled");
+        }
+    }
+    w.game_event_at("projectile_land", [at.x, at.y, at.z], None, false);
+}
+
 /// `AbstractArrow.tick()` of arrow `i`.
 pub fn tick(w: &mut World, i: usize) {
+    if st(w, i).spit {
+        tick_spit(w, i);
+        return;
+    }
     // ThrownTrident.tick before AbstractArrow's: over 4 ticks in the ground it has dealt damage
     // (no loyalty: nothing returns it)
     if st(w, i).trident && st(w, i).in_ground_time > 4 {

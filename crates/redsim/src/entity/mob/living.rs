@@ -434,9 +434,17 @@ fn ai_step(w: &mut World, i: usize) {
         m.zza *= 0.98;
     }
     // isImmobile: dead or dying (AbstractHorse: only when also ridden and saddled, so a dying horse
-    // keeps its AI step); a horse eating or standing
+    // keeps its AI step); a horse eating or standing; a llama (`Llama.isImmobile`): dead or dying,
+    // or eating (mob-AI 2026-11-11: a dying trader llama ran its goals, b9 t40080)
     let horse = super::ai::has_ai(w, i) && super::ai::ai(w, i).horse.is_some();
-    let immobile = if horse { super::ai::goal::animal::horse_immobile(w, i) } else { mob(w, i).dead };
+    let llama = horse && super::ai::goal::trader::is_llama(w, i);
+    let immobile = if llama {
+        mob(w, i).dead || super::ai::ai(w, i).horse.is_some_and(|h| h.eating)
+    } else if horse {
+        super::ai::goal::animal::horse_immobile(w, i)
+    } else {
+        mob(w, i).dead
+    };
     if immobile {
         // isImmobile: no AI
         let m = mob_mut(w, i);
@@ -1194,22 +1202,30 @@ fn drop_loot_exact(w: &mut World, i: usize, src: Damage) {
         if n <= 0 {
             continue;
         }
-        let at = w.entities.next_id;
-        let mut own = w.entering_random(at);
-        crate::rng::replay_uuid(&mut own);
-        own.next_float();
-        let y_rot = own.next_float() * 360.0;
-        let mx = own.next_double() * 0.2 - 0.1;
-        let mz = own.next_double() * 0.2 - 0.1;
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5, ..Default::default() };
-        let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
-        if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
-            e.delta_movement = Vec3::new(mx, 0.2, mz);
-            e.random = Some(own);
-        }
+        let id = spawn_item_exact(w, pos, item, n as u8);
         let t = w.time;
         w.mob.events.push(MobEvent::Drop { t, from: src_id, item: id, what: item, count: n as u32 });
     }
+}
+
+/// `Entity.spawnAtLocation(level, stack)` in an exact world: `new ItemEntity(level, x, y, z,
+/// stack)` entering with its own random seeded as its entity number (the constructor's UUID,
+/// bobOffs, yaw and drift replayed; the drift kept: x and z, 0.2 up), pickup delay 10. Its id.
+pub fn spawn_item_exact(w: &mut World, pos: Vec3, item: &'static str, count: u8) -> u32 {
+    let at = w.entities.next_id;
+    let mut own = w.entering_random(at);
+    crate::rng::replay_uuid(&mut own);
+    own.next_float();
+    let y_rot = own.next_float() * 360.0;
+    let mx = own.next_double() * 0.2 - 0.1;
+    let mz = own.next_double() * 0.2 - 0.1;
+    let state = crate::entity::item::ItemState { item: item.to_string(), count, pickup_delay: 10, age: 0, payload: 0, health: 5, ..Default::default() };
+    let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+        e.delta_movement = Vec3::new(mx, 0.2, mz);
+        e.random = Some(own);
+    }
+    id
 }
 
 /// `LivingEntity.pushEntities`: the pushable entities whose box meets this one's (alive mobs;

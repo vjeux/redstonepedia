@@ -255,6 +255,10 @@ fn props_at_name(name: &str) -> Option<&'static crate::terrain::blocks::Props> {
 /// drops its target and teleports.
 pub fn custom_server_ai_step(w: &mut World, i: usize) {
     let tick_count = w.entities.list[i].tick_count;
+    if std::env::var("MCTAS_TRACE_ENDERMAN").is_ok_and(|v| v.parse::<u32>().ok() == Some(w.entities.list[i].id)) {
+        let day = w.day_time();
+        eprintln!("enderman t{} sky: day {day} rain {} thunder {} level {} darken {} target {:?} tct {} tick {tick_count}", w.time, w.weather.rain(1.0), w.weather.thunder(1.0), crate::daylight::sky_light_level(day), w.sky_darken(), crate::entity::mob::ai::ai(w, i).target, state(w, i).target_change_time);
+    }
     if !super::zombie::is_bright_outside(w) || tick_count < state(w, i).target_change_time + 600 {
         return;
     }
@@ -263,6 +267,10 @@ pub fn custom_server_ai_step(w: &mut World, i: usize) {
     let cell = BlockPos::new(crate::entity::mth::floor(e.pos.x), crate::entity::mth::floor(e.pos.y + eye), crate::entity::mth::floor(e.pos.z));
     let feet = e.block_position();
     let br = super::stroll::light_magic(w, cell);
+    let eid = w.entities.list[i].id;
+    if std::env::var("MCTAS_TRACE_ENDERMAN").is_ok_and(|v| v.parse::<u32>().ok() == Some(eid)) {
+        eprintln!("enderman t{} #{eid}: eye cell {cell} br {br} feet {feet} sky light {:?} block light {:?} tick {tick_count} target change {}", w.time, w.sky_light(feet), w.block_light(cell), state(w, i).target_change_time);
+    }
     if br > 0.5 && w.can_see_sky(feet).unwrap_or(false) && rnd(w, i).next_float() * 30.0 < (br - 0.4) * 2.0 {
         set_target(w, i, None);
         teleport(w, i);

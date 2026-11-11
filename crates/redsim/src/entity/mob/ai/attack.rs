@@ -243,7 +243,7 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
         s.last_hurt_by_mob_timestamp = tc;
     }
     if took_full
-        && src.by_projectile()
+        && src.knockback_along_projectile()
         && let Some(m) = w.mob.ai.projectile_motion
     {
         // Projectile.calculateHorizontalHurtKnockbackDirection: along the projectile's motion

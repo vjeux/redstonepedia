@@ -149,18 +149,29 @@ pub enum Damage {
     /// (`fell_out_of_world`'s `out_of_world`: armor and resistance bypassed, no knockback; the
     /// hurt cooldown still holds, `#bypasses_cooldown` being empty).
     OutOfWorld,
+    /// (mob-AI 2026-11-11) A llama's spit (`spit`, message "mob": not `#is_projectile`, no panic
+    /// cause; armor counts; its owner is `MobWorld.ai.attacker` and the spit's motion
+    /// `MobWorld.ai.projectile_motion`: the knockback goes along it, `Projectile`'s
+    /// `calculateHorizontalHurtKnockbackDirection`).
+    Spit,
 }
 
 impl Damage {
     /// Caused by a living attacker (`MobWorld.ai.attacker` during the call): a melee hit, an
-    /// arrow's or a trident's owner, a spear's holder.
+    /// arrow's or a trident's owner, a spear's holder, a spitting llama.
     pub fn by_attacker(self) -> bool {
-        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident)
+        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident | Damage::Spit)
     }
 
     /// A projectile's (`#is_projectile` among the modeled): the knockback goes along its motion.
     pub fn by_projectile(self) -> bool {
         matches!(self, Damage::Arrow | Damage::Trident)
+    }
+
+    /// The direct entity is a `Projectile` (an arrow, a trident, a llama's spit): the knockback
+    /// goes along its motion.
+    pub fn knockback_along_projectile(self) -> bool {
+        matches!(self, Damage::Arrow | Damage::Trident | Damage::Spit)
     }
 }
 
@@ -191,6 +202,7 @@ impl Damage {
             Damage::Spear => "spear",
             Damage::Trident => "trident",
             Damage::OutOfWorld => "out_of_world",
+            Damage::Spit => "spit",
         }
     }
 
@@ -211,6 +223,7 @@ impl Damage {
             Damage::Spear => "spear",
             Damage::Trident => "trident",
             Damage::OutOfWorld => "outOfWorld",
+            Damage::Spit => "mob",
         }
     }
 }

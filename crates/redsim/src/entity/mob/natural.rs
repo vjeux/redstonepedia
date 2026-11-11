@@ -120,7 +120,9 @@ pub static DEFS: &[TypeDef] = &[
     row(45, "baby_squid", "minecraft:squid", 0.5, 0.5, 0.37, 10.0, 0.7, false, false, 0.6),
     // a lightning trap's skeleton horse (CREATURE: it counts toward the cap; never spawned
     // naturally)
-    row(46, "skeleton_horse", "minecraft:skeleton_horse", 1.3964844, 1.6, 1.52, 15.0, 0.2f32 as f64, false, false, 1.0),
+    // (mob-AI 2026-11-11) entities/skeleton_horse: 0..2 bones (d1u-deep plains b5 t62862: a trap
+    // horse fallen out of the world)
+    TypeDef { loot: &[("minecraft:bone", 0, 2)], ..row(46, "skeleton_horse", "minecraft:skeleton_horse", 1.3964844, 1.6, 1.52, 15.0, 0.2f32 as f64, false, false, 1.0) },
     // a nether portal's zombified piglin (MONSTER, fire immune; Zombie's FOLLOW_RANGE 35 and ARMOR
     // 2; its baby's BABY_DIMENSIONS 0.49 x 0.98, eye 0.78)
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(47, "zombified_piglin", "minecraft:zombified_piglin", 0.6, 1.95, 1.79, 20.0, 0.23f32 as f64, true, false, 0.6) },
@@ -135,7 +137,8 @@ pub static DEFS: &[TypeDef] = &[
     // MAX_HEALTH 20) and its trader llamas (createBaseChestedHorseAttributes: MOVEMENT_SPEED
     // 0.175F, STEP_HEIGHT 1, MAX_HEALTH 53 until finalizeSpawn's 15 + nextInt(8) + nextInt(9))
     row(51, "wandering_trader", "minecraft:wandering_trader", 0.6, 1.95, 1.62, 20.0, 0.7, false, false, 0.6),
-    row(52, "trader_llama", "minecraft:trader_llama", 0.9, 1.87, 1.7765, 53.0, 0.175f32 as f64, false, false, 1.0),
+    // (entities/trader_llama: 0..2 leather; entities/wandering_trader: no pool)
+    TypeDef { loot: &[("minecraft:leather", 0, 2)], ..row(52, "trader_llama", "minecraft:trader_llama", 0.9, 1.87, 1.7765, 53.0, 0.175f32 as f64, false, false, 1.0) },
 ];
 
 // ------------------------------------------------------------------------- the categories

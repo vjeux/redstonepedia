@@ -120,6 +120,21 @@ final class Exact {
     private static final Field GOAL_SELECTOR = field(Mob.class, "goalSelector");
     private static final Field TARGET_SELECTOR = field(Mob.class, "targetSelector");
     private static final Field VISIBLE_NEARBY = field(NearestVisibleLivingEntities.class, "nearbyEntities");
+    private static final Field RANGED_ATTACK_TARGET = field(net.minecraft.world.entity.ai.goal.RangedAttackGoal.class, "target");
+
+    /**
+     * (mob-AI 2026-11-11) The target a mob's running {@code RangedAttackGoal} aims at (its own
+     * field: a llama's revenge goal may have cleared {@code getTarget()} while the ranged goal
+     * keeps going to its target), or null.
+     */
+    static net.minecraft.world.entity.LivingEntity rangedAttackTarget(Mob mob) {
+        for (WrappedGoal g : ((net.minecraft.world.entity.ai.goal.GoalSelector) get(GOAL_SELECTOR, mob)).getAvailableGoals()) {
+            if (g.isRunning() && g.getGoal() instanceof net.minecraft.world.entity.ai.goal.RangedAttackGoal ranged) {
+                return (net.minecraft.world.entity.LivingEntity) get(RANGED_ATTACK_TARGET, ranged);
+            }
+        }
+        return null;
+    }
 
     static Field field(Class<?> owner, String name) {
         try {

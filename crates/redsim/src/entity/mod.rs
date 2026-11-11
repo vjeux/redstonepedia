@@ -73,7 +73,7 @@ impl EntityKind {
             EntityKind::ArmorStand(_) => (armor_stand::WIDTH, armor_stand::HEIGHT),
             EntityKind::PrimedTnt(_) => (primed_tnt::WIDTH, primed_tnt::HEIGHT),
             EntityKind::Mob(m) => m.dims(),
-            EntityKind::Arrow(_) => (arrow::WIDTH, arrow::HEIGHT),
+            EntityKind::Arrow(a) => if a.spit { (arrow::SPIT_WIDTH, arrow::SPIT_HEIGHT) } else { (arrow::WIDTH, arrow::HEIGHT) },
         }
     }
 
@@ -86,7 +86,7 @@ impl EntityKind {
             EntityKind::ArmorStand(_) => 1.7775,
             EntityKind::PrimedTnt(_) => primed_tnt::EYE_HEIGHT,
             EntityKind::Mob(m) => m.eye(),
-            EntityKind::Arrow(_) => arrow::EYE_HEIGHT,
+            EntityKind::Arrow(a) => if a.spit { arrow::SPIT_EYE_HEIGHT } else { arrow::EYE_HEIGHT },
         }
     }
 }

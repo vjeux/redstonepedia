@@ -207,7 +207,7 @@ impl Goal {
             Goal::Enderman(g) => g.name(),
             Goal::Drowned(g) => g.name(),
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
-            Goal::HurtByTarget(_) => "HurtByTargetGoal",
+            Goal::HurtByTarget(h) => if h.llama { "LlamaHurtByTargetGoal" } else { "HurtByTargetGoal" },
             Goal::NearestAttackableTarget(n) => match n.target_type {
                 _ if n.non_tame => "NonTameRandomTargetGoal",
                 targets::TargetType::SpiderPlayer | targets::TargetType::SpiderIronGolem => "SpiderTargetGoal",
@@ -417,7 +417,10 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         // Goal.canContinueToUse: canUse()
         Goal::Enderman(g) => enderman::can_use(w, i, g),
         Goal::Drowned(g) => drowned::can_continue(w, i, g),
-        Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
+        Goal::HurtByTarget(h) => match trader::llama_hurt_by_can_continue(w, i).filter(|_| h.llama) {
+            Some(r) => r,
+            None => targets::target_can_continue(w, i, &mut h.base),
+        },
         Goal::NearestAttackableTarget(n) if n.non_tame => targets::non_tame_can_continue(w, i, n),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
