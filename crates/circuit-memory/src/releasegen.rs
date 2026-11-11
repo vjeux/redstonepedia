@@ -726,7 +726,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         }
         let m = |q: P3| [q[0] + crate::sidinggen::MODULE_AT[0], q[1] + crate::sidinggen::MODULE_AT[1], q[2] + crate::sidinggen::MODULE_AT[2]];
         sp.ports.insert("input.golem".into(), golem);
-        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", [20, -6, 9]), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-17, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-12, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", [-27, -1, 5]), ("fa_rel", [-25, -1, 4])] {
+        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", [20, -6, 9]), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-17, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-12, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", [-27, -1, 5]), ("fa_rel", [-25, -1, 4]), ("thr", [-56, 1, -19]), ("lock", [-55, 1, -20]), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", [18, -6, 10]), ("g2_loc", [20, -6, 9])] {
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {

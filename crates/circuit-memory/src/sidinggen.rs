@@ -88,6 +88,14 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     // the bed's port (R1's home: the runner gives the bed to each napper from it; ironfarm 14:00)
     let home = s.ports.get("home").copied().ok_or_else(|| anyhow::anyhow!("the siding file has no `port home:`"))?;
     d.ports.insert("home".into(), at(&home));
+    // the siding's force-re-board input (58f770cc's gated siding, `force=x,y,z` on its `siding:`
+    // line): it must be where the module's F line ends (FORCE)
+    if let Some(f) = s.meta.get("siding").and_then(|l| l.split_whitespace().find_map(|w| w.strip_prefix("force="))) {
+        let v: Vec<i32> = f.split(',').map(|n| n.parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("the siding's force={f}: {e}"))?;
+        if v.len() != 3 || at(&[v[0], v[1], v[2]]) != FORCE {
+            bail!("the siding's force input {f} (local) is not at the module's F line's end {FORCE:?} (world)");
+        }
+    }
     // the siding's own build list (`build: last x,y,z ...`, its cells placed after all others),
     // moved into the loop's frame; joined with the drop ends' below
     let mut last: Vec<P3> = Vec::new();
@@ -757,6 +765,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     dl.push(at([3, -2, 0]));
     dl.push(at([3, -2, 1]));
     route_d(&mut b, [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 14], &dl, 6, 0, 1)?;
+    // (the night latch on thr comes after the module's REL route, below)
     b.on(at([2, -2, 1]), DUST)?;
     b.on(at([1, -2, 1]), &rep("east", 1))?;
     // REL in: a dust beside the REL stone, down east to y -6, north along x 4, west along z -10,
@@ -773,6 +782,34 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // (the feed dust touches the module's REL branch on purpose: the same signal)
     b.on(at([14, -2, -6]), DUST)?;
     b.on(at([14, -2, -5]), &rep("north", 1))?;
+    // ---- the night latch: the threshold repeater (thr) locked except once a release, so NV (the
+    // scheduler's "the next release is a visit") changes only between the divert unit's read of
+    // it (golem +12..22, NV ~25 gt late there) and the module's (golem +32..44): a night edge
+    // between the two reads diverted a cart the module never registered, so no kick came (old
+    // 7d947146b file, seed 2, slot 459 at day time 22,369). The unlock: REL tapped off the
+    // module's REL route (z -10, y -6) at x -44, west along z -12, up a stair north along x -50 to
+    // y 1, west along z -20 into a repeater, a block, its wall torch (lit = locked) and the lock
+    // repeater pointing into thr's east side.
+    let thr = [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 12];
+    let tap = [-44, -6, -10];
+    if !b.blocks.get(&tap).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("the module's REL route at {tap:?} is {:?}, not a dust to branch from", b.blocks.get(&tap));
+    }
+    b.on([tap[0], -6, -11], &rep("south", 1))?;
+    let mut lk = vec![[tap[0], -6, -12]];
+    seg_to(&mut lk, [-50, -6, -12]);
+    seg_to(&mut lk, [-50, -6, -13]);
+    for k in 1..=7 {
+        lk.push([-50, -6 + k, -13 - k]);
+    }
+    lk.push([thr[0] + 5, thr[1], thr[2]]);
+    route_d(&mut b, [tap[0], -6, -11], &lk, 3, 0, 1)?;
+    // (both repeaters at 4 rt: the unlock at golem +~48..60, the night edge at the module's NV at
+    // ~+64, mid-way between its read (+32..44) and the divert unit's next (+112, ~25 gt behind))
+    b.on([thr[0] + 4, thr[1], thr[2]], &rep("east", 4))?;
+    b.put([thr[0] + 3, thr[1], thr[2]], STONE)?;
+    b.put([thr[0] + 2, thr[1], thr[2]], "minecraft:redstone_wall_torch[facing=west,lit=true]")?;
+    b.on([thr[0] + 1, thr[1], thr[2]], &rep("east", 4))?;
     // ---- NV, the module's steady "the next release is a visit", to the divert unit: from its port
     // (28, 4, 3) down a stair south to y -9, east along z 12, north to z 10, up a stair east into
     // (16, -6, 10)
