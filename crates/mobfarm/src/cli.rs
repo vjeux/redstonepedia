@@ -591,6 +591,38 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// The re-packing tail's arrival injector: a `queue-loop --tail-esc` design's tail benched
+    /// alone, ridden carts spawned on the return run per `--pattern` (per cycle
+    /// `N[/GAP][@DT][:SPEED][*REPEAT]`, defaults 3/12@76:1.2; 0 = nothing), the register's first
+    /// slots advancing at the loop's times; prints the escapement's contract lines.
+    TailBench {
+        design: PathBuf,
+        #[arg(long)]
+        pattern: String,
+        /// Cycles run after the pattern's.
+        #[arg(long, default_value_t = 4)]
+        extra: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        /// Seeds 1..=N in parallel (the summary line per seed).
+        #[arg(long)]
+        seeds: Option<i64>,
+        #[arg(long, default_value_t = 38)]
+        advance_at: i64,
+        #[arg(long, default_value_t = 20)]
+        advance_every: i64,
+        #[arg(long, default_value_t = 9)]
+        pulse: i64,
+        /// The gate and P: opened D gt after each advance's start, for W gt.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        fifo_intake: Vec<i64>,
+        /// B: powered K gt after the gate opens, for W gt.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        esc_b: Vec<i64>,
+        /// Every cart's position each tick in the log.
+        #[arg(long)]
+        trace: bool,
+    },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
     QueueLoopRun {
@@ -1989,6 +2021,56 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             if out.is_none() {
                 let _ = std::fs::remove_file(&path);
+            }
+        }
+        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, trace } => {
+            let (c, spec) = load(version, &design)?;
+            let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
+            let pat = crate::tail_bench::parse_pattern(&pattern).map_err(|e| anyhow::anyhow!(e))?;
+            let tm = crate::queue::LoopTiming {
+                advance_at,
+                advance_every,
+                pulse,
+                fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (6, 10), _ => anyhow::bail!("--fifo-intake takes D,W") },
+                esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 8), _ => anyhow::bail!("--esc-b takes K,W") },
+                ..Default::default()
+            };
+            match seeds {
+                None => print!("{}", crate::tail_bench::run_tail_bench(&spec, &o, &tm, &pat, extra, seed, trace).map_err(|e| anyhow::anyhow!(e))?),
+                Some(n) => {
+                    // (the seeds in parallel, each its summary: every contract line on one row)
+                    let out: Vec<(i64, Result<String, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = (1..=n).map(|s| { let (spec, o, tm, pat) = (&spec, &o, &tm, &pat); (s, sc.spawn(move || crate::tail_bench::run_tail_bench(spec, o, tm, pat, extra, s, false))) }).collect();
+                        hs.into_iter().map(|(s, h)| (s, h.join().unwrap_or_else(|_| Err("panicked".into())))).collect()
+                    });
+                    let mut bad = Vec::new();
+                    for (s, r) in &out {
+                        match r {
+                            Ok(t) => {
+                                let line = |pre: &str| t.lines().find(|l| l.starts_with(pre)).unwrap_or("").to_string();
+                                let num = |pre: &str| line(pre).trim_start_matches(pre).split_whitespace().next().unwrap_or("?").to_string();
+                                let lost = num("lost intakes (P loaded, slot 0 empty at the next advance): ");
+                                let starv = num("starved intakes (carts waiting in the tail, P empty): ");
+                                let dbl = num("doubles (two carts in slot 0 at an advance): ");
+                                let ooo = num("out of arrival order: ");
+                                let fell = num("fell or left the rails: ");
+                                let gate = num("through the shut gate: ");
+                                let back = num("backward on a powered rail (B, P, slot 0): ");
+                                let hurt = num("villagers: ");
+                                let clean = [&lost, &starv, &dbl, &ooo, &fell, &gate, &back, &hurt].iter().all(|v| v.as_str() == "0");
+                                if !clean {
+                                    bad.push(*s);
+                                }
+                                println!("seed {s}: lost {lost} starved {starv} doubles {dbl} out-of-order {ooo} fell {fell} gate {gate} backward {back} villagers-hurt {hurt} | {} | {} | {}", line("at rest in the tail: "), line("creep while quiet"), line("the tail's most carts at once: "));
+                            }
+                            Err(e) => {
+                                bad.push(*s);
+                                println!("seed {s}: error {e}");
+                            }
+                        }
+                    }
+                    println!("tail bench: {} of {n} seeds clean{}", n as usize - bad.len(), if bad.is_empty() { String::new() } else { format!("; not clean: {bad:?}") });
+                }
             }
         }
         MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, drive_out } => {
