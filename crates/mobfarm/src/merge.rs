@@ -1,6 +1,6 @@
 //! Merged carts: the one shared check every bench calls (tail-bench, queue-loop-run, the siding
 //! bench, day-1's runner). Two minecarts are merged when the game's cart push would pair them but
-//! never separates them: `Entity.pushEntities` collects the entities whose box meets this cart's
+//! never separates them: the minecart's own collector (`OldMinecartBehavior.pushAndPickupEntities`) collects the entities whose box meets this cart's
 //! box inflated 0.2 sideways (`getBoundingBox().inflate(0.2, 0.0, 0.2)`), and
 //! `AbstractMinecart.push` does nothing when the squared horizontal distance between the two
 //! centres is under 1.0E-4 (redsim: `minecart::push_by`). So a merged pair is two carts whose
