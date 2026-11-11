@@ -704,6 +704,13 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     b.set(2, -4, 5, "stone");
     on(b, [3, -3, 5], dust)?;
     on(b, [3, -2, 4], dust)?;
+    // (not-H into BK: the chain's 44 gt also delay H's fall, so after each return K would light
+    // for 44 gt with H off and the next arrival meet a powered park (it bounces, stops short of
+    // the stop and is kicked too slow to take its napper). Ha's strongly powered hatch control
+    // (2,0,2) feeds dust east and south into the L line at (6,0,4): BK = SC or L or not-H)
+    for c in [[3, 0, 2], [3, 0, 3], [3, 0, 4], [4, 0, 4], [5, 0, 4]] {
+        on(b, c, dust)?;
+    }
     Ok(())
 }
 
