@@ -4844,6 +4844,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut dep_prev_x: Vec<Option<f64>> = Vec::new();
     let mut dep_last_cross: Option<i64> = None;
     let mut rel_at_g0: Vec<String> = Vec::new();
+    let mut g0_rises: Vec<i64> = Vec::new();
     let mut rel_at_g0_was = false;
     let mut walk_push: i64 = 0;
     let (mut summon_ticks, mut summon_panic) = (0i64, 0i64);
@@ -6649,6 +6650,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let s0 = run.world.has_neighbor_signal(*g0);
             if s0 != rel_at_g0_was {
                 rel_at_g0.push(format!("{}{} +{}", if s0 { "↑" } else { "↓" }, c, dt));
+                if s0 {
+                    g0_rises.push(t);
+                }
                 rel_at_g0_was = s0;
             }
         }
@@ -9224,16 +9228,18 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         let gaps: Vec<(i64, i64, bool)> = departs.windows(2).map(|w| (w[1].0 / 100, w[1].0 - w[0].0, w[1].2)).collect();
         let normal: Vec<i64> = gaps.iter().filter(|(_, g, _)| *g < 60).map(|(_, g, _)| *g).collect();
         let contact = departs.iter().filter(|(_, _, tch)| *tch).count();
-        // (the most carts out of the stand in one release window: departures closer than 60 gt to
-        // the one before belong to one window; the bar is 3)
+        // (the most carts out of the stand in one release window: the departures between two rises
+        // of G0's signal (REL at the stand) belong to one window; the bar is 3)
         let mut win_max = 0usize;
-        let mut win = 0usize;
-        for (k, d) in departs.iter().enumerate() {
-            if k == 0 || d.0 - departs[k - 1].0 >= 60 {
-                win = 0;
+        {
+            let mut counts: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+            for d in &departs {
+                let key = g0_rises.iter().rev().find(|r| **r <= d.0).copied().unwrap_or(i64::MIN);
+                *counts.entry(key).or_insert(0) += 1;
             }
-            win += 1;
-            win_max = win_max.max(win);
+            for v in counts.values() {
+                win_max = win_max.max(*v);
+            }
         }
         out.push(format!("stand departures: {} carts, gap min {} max {} gt (gaps under 60 gt), {contact} in contact with the one before; most in one window {win_max}", departs.len(), normal.iter().min().map_or("-".to_string(), |v| v.to_string()), normal.iter().max().map_or("-".to_string(), |v| v.to_string())));
         let small: Vec<String> = gaps.iter().filter(|(_, g, tch)| *g < 8 || *tch).take(12).map(|(s, g, tch)| format!("slot {s} {g} gt{}", if *tch { " touching" } else { "" })).collect();
