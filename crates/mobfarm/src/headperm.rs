@@ -94,6 +94,33 @@ pub struct HeadPerm {
     pub rel_log: Vec<String>,
     /// each summon tick: t: riders in the stand's carts / panicking / unlocked and panicking
     pub summon_log: Vec<String>,
+    /// (the pulse-driven router) on; R points at A; B's missed ticks; B's pulses doubled onto a
+    /// slot; a forced wrong GO; this GO's time, kind, EXPIRE and stand; the hold-at-tick check
+    pub pulse_router: bool,
+    pub r_a: bool,
+    pub b_miss: Vec<i64>,
+    pub b_double: Vec<i64>,
+    pub wrong_go: Option<i64>,
+    pub go_t: i64,
+    pub last_kind: String,
+    pub last_expire: bool,
+    pub last_to_a: bool,
+    pub tick_waits: Vec<String>,
+    /// (day-1's latches, farmopt 2026-11-11: ARR_X re-armed by the launch (DEP_X later), cleared
+    /// by D_arr's first edge after it; EMP_X (BLOCK_e) re-armed by the launch only while the stand
+    /// holds a batch, cleared by SE_X; permission = both clear; RETRY = EXPIRE and EMP_X armed)
+    pub day1: bool,
+    pub arr_armed: bool,
+    pub emp_armed: bool,
+    pub se_seen: u64,
+    pub launch_waits: Vec<String>,
+    /// the most carts stopped on the descent at once, and the farthest back z (loop frame)
+    pub held_max: (usize, f64),
+    /// the last summon tick's snapshot (t, A's riders at rest in its pockets, carts stopped at H),
+    /// each A GO's copy of it (slot, snapshot), and the fault's slot (cycles-to-clean)
+    pub last_tick: (i64, usize, usize),
+    pub ledger: Vec<(i64, (i64, usize, usize))>,
+    pub fault_slot: Option<i64>,
     /// D_arr's and Dh's levels at each change (t: A/a = D_arr on/off, H/h = Dh on/off)
     pub det_log: Vec<String>,
 }
@@ -131,6 +158,25 @@ impl HeadPerm {
             rel_lost: None,
             rel_log: Vec::new(),
             summon_log: Vec::new(),
+            pulse_router: false,
+            r_a: false,
+            b_miss: Vec::new(),
+            b_double: Vec::new(),
+            wrong_go: None,
+            go_t: 0,
+            last_kind: String::new(),
+            last_expire: false,
+            last_to_a: false,
+            tick_waits: Vec::new(),
+            day1: false,
+            arr_armed: false,
+            emp_armed: false,
+            se_seen: 0,
+            launch_waits: Vec::new(),
+            held_max: (0, 0.0),
+            last_tick: (0, 0, 0),
+            ledger: Vec::new(),
+            fault_slot: None,
             det_log: Vec::new(),
         }
     }
@@ -147,7 +193,25 @@ impl HeadPerm {
     }
 
     pub fn permit(&self) -> bool {
+        if self.day1 {
+            return !self.arr_armed && !self.emp_armed;
+        }
         self.arr && self.emp
+    }
+
+    /// (day-1's latches) the launch re-arms ARR_X, and EMP_X only while the stand holds a batch
+    /// (¬E_X): `occupied` the stand's occupancy at the launch, `waiting` the carts stopped at H then.
+    pub fn day1_launch(&mut self, t: i64, slot: i64, occupied: bool, waiting: usize) {
+        self.arr_armed = true;
+        self.emp_armed = occupied;
+        if waiting > 0 {
+            self.launch_waits.push(format!("slot {slot} (t {t}): {waiting} carts stopped at H"));
+        }
+    }
+
+    /// (day-1's latches) SE_X, the rearmost occupied pocket's departure edge: EMP_X cleared.
+    pub fn day1_se(&mut self) {
+        self.emp_armed = false;
     }
 
     /// The head's decision at a GO of cycle `c` (the router phase-locked, 7b90c3f1's, ironspec's
@@ -155,7 +219,33 @@ impl HeadPerm {
     /// this GO follows (A on even cycles, B on odd), never at a count; that stand is launched if its
     /// permission is set, else it just skips its slot.
     pub fn go(&mut self, c: i64) -> Go {
-        let (who, d) = if c.rem_euclid(2) == 0 {
+        // (the pulse-driven router, day-1's ports: R set by each stand's raw pad pulse (A's from
+        // its summon ticks, B's virtual at its ticks unless missed, or doubled onto A's); with no
+        // pulse, EXPIRE's GO toggles R; both at once (a double tick) toggles it too, one train;
+        // a forced wrong GO flips it (the positive control))
+        let to_a = if self.pulse_router {
+            let a_p = self.a_pulses.iter().any(|p| self.go_t - *p >= 0 && self.go_t - *p < 60);
+            let b_p = (c.rem_euclid(2) == 1 && !self.b_miss.contains(&c)) || self.b_double.contains(&c);
+            let (r, kind) = match (a_p, b_p) {
+                (true, false) => (true, "A's pulse"),
+                (false, true) => (false, "B's pulse"),
+                (true, true) => (!self.r_a, "a double tick, R toggled"),
+                (false, false) => (!self.r_a, "EXPIRE, R toggled"),
+            };
+            let r = if self.wrong_go == Some(c) { !r } else { r };
+            self.last_kind = format!("{kind}{}", if self.wrong_go == Some(c) { ", forced wrong" } else { "" });
+            self.last_expire = !a_p && !b_p;
+            self.r_a = r;
+            r
+        } else {
+            self.last_expire = !self.a_pulses.iter().any(|p| self.go_t - *p >= 0 && self.go_t - *p < 60);
+            c.rem_euclid(2) == 0
+        };
+        self.last_to_a = to_a;
+        if to_a {
+            self.ledger.push((c, self.last_tick));
+        }
+        let (who, d) = if to_a {
             let forced = self.a_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + 2 * n);
             ("A", if forced || (self.gate && !self.permit()) { Go::Hold } else { Go::Launch })
         } else {
@@ -174,17 +264,22 @@ impl HeadPerm {
             self.holds += 1;
         }
         if self.router_log.len() < 60 {
-            self.router_log.push(format!("{c}:{who}{}", match d {
+            self.router_log.push(format!("{c}:{who}{}{}", match d {
                 Go::Launch => "+",
                 Go::VirtualB => "+",
                 Go::Hold => "(held)",
-            }));
+            }, if self.pulse_router { format!(" [{}]", self.last_kind) } else { String::new() }));
         }
         d
     }
 
     /// The head's launch for this stand: the latches read (a bind if either is unset), then both
     /// reset.
+    /// Whether the next launch is B's (VB's real launch, unseen by A's latches).
+    pub fn launching_b(&self) -> bool {
+        self.skip_next_launch
+    }
+
     pub fn on_launch(&mut self, t: i64, slot: i64) {
         if self.skip_next_launch {
             self.skip_next_launch = false;
@@ -230,6 +325,9 @@ impl HeadPerm {
         if da_rise && !self.arr {
             self.arr = true;
         }
+        if da_rise {
+            self.arr_armed = false;
+        }
         if dh_rise {
             self.flag_a = true;
         }
@@ -237,10 +335,21 @@ impl HeadPerm {
             self.emp = true;
         }
         let mut waiting = false;
+        let (mut n_held, mut z_back) = (0usize, 0.0f64);
         for (_, p, v) in carts {
             if self.hold.iter().any(|c| (p.x - (c[0] as f64 + 0.5)).abs() < 0.99 && (p.z - (c[2] as f64 + 0.5)).abs() < 0.99 && p.y > c[1] as f64 - 0.6 && p.y < c[1] as f64 + 1.2) && (v.x * v.x + v.z * v.z).sqrt() < 0.01 {
                 waiting = true;
             }
+            // (carts stopped on the descent's column, H to T and beyond)
+            let col_x = self.hold[0][0] as f64 + 0.5;
+            let z0 = self.hold[2][2] as f64;
+            if (p.x - col_x).abs() < 0.45 && p.z > z0 + 0.5 && p.z < z0 + 7.0 && p.y > 1.5 && (v.x * v.x + v.z * v.z).sqrt() < 0.01 {
+                n_held += 1;
+                z_back = z_back.max(p.z - z0);
+            }
+        }
+        if n_held > self.held_max.0 || (n_held == self.held_max.0 && z_back > self.held_max.1) {
+            self.held_max = (n_held, z_back);
         }
         // (each launch followed to completion within 300 gt)
         let rel_known = self.rel_cell.is_some();
@@ -306,6 +415,33 @@ impl HeadPerm {
                 if self.rel_log.is_empty() { "-".to_string() } else { self.rel_log.join("; ") }
             ));
             out.push(format!("head-perm summon ticks (t: riders in the stand's carts / panicking / unlocked and panicking): {}", self.summon_log.join(" ")));
+            out.push(format!("head-perm trains waiting in A's hold through A's tick (a summon tick with A's batch in the stand and carts stopped in the hold: inside the summoners' 10-box): {}{}", self.tick_waits.len(), if self.tick_waits.is_empty() { String::new() } else { format!(" ({})", self.tick_waits.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }));
+            if self.day1 {
+                // (cycles-to-clean: each A GO's last summon tick, clean = three riders at rest in
+                // A's pockets and nothing stopped at H; clean from the first A GO after the fault
+                // whose tick and every later one are clean)
+                let led: Vec<String> = self.ledger.iter().map(|(c, (t, p, h))| format!("{c}:{p}/{h}{}", if *t == 0 { "?" } else { "" })).collect();
+                let clean = |x: &(i64, (i64, usize, usize))| x.1 .1 >= 3 && x.1 .2 == 0;
+                let from = self.fault_slot.unwrap_or(0);
+                let after: Vec<&(i64, (i64, usize, usize))> = self.ledger.iter().filter(|x| x.0 > from).collect();
+                let clean_from = (0..after.len()).find(|&i| after[i..].iter().all(|x| clean(x))).map(|i| after[i].0);
+                out.push(format!(
+                    "head-perm cycles-to-clean (each A GO: its tick's riders at rest in A's pockets / carts stopped at H): {}; clean from slot {} ({} A-cycles after the fault at slot {from})",
+                    led.join(" "),
+                    clean_from.map_or("- (never within the run)".to_string(), |s| s.to_string()),
+                    clean_from.map_or("-".to_string(), |s| ((s - from) / 2).to_string())
+                ));
+                out.push(format!(
+                    "head-perm day-1 latches (ARR_X by the launch, cleared by D_arr's first edge; EMP_X by the launch while the stand holds a batch, cleared by SE_X): launches for A with carts stopped at H: {}{}; the most carts stopped on the descent at once {} (the farthest back z {:.2} from the snap turn's cell)",
+                    self.launch_waits.len(),
+                    if self.launch_waits.is_empty() { String::new() } else { format!(" ({})", self.launch_waits.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) },
+                    self.held_max.0,
+                    self.held_max.1
+                ));
+            }
+            if !self.tick_waits.is_empty() {
+                problems.push(format!("head-perm: {} trains waited in A's hold through A's tick", self.tick_waits.len()));
+            }
         }
         (out, problems)
     }
