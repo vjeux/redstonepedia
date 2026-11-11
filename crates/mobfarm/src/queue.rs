@@ -4226,6 +4226,8 @@ pub struct MeterState {
     mirror: bool,
     /// the pending opening is a retry (the guard doesn't hold it)
     retry_open: bool,
+    /// the opening in progress (or the last one) came from a retry
+    cur_open_retry: bool,
     init: bool,
     rel_was: bool,
     rel_open: bool,
@@ -4595,8 +4597,12 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         }
         // (H open awaiting its cart's Dh edge: that edge still closes it; H shut with no Dh edge
         // since its last opening (a short train: the opening found no cart): the train is complete,
-        // a new cycle from SE and ARR; otherwise a new cycle)
-        if s.phase % 2 == 0 || !s.h_open {
+        // a new cycle from SE and ARR; a retry opening (no evidence a cart waits): a new cycle too,
+        // so a REL inside a retry never keeps a stale phase; otherwise a new cycle)
+        if s.phase % 2 == 0 || !s.h_open || s.cur_open_retry {
+            if s.cur_open_retry && s.phase % 2 == 1 {
+                log(s, format!("{c}+{dt} REL inside a retry opening: phase {} reset", s.phase));
+            }
             s.phase = 0;
             s.open_at = None;
         }
@@ -4718,6 +4724,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     let guard_wait = m.guard && !s.retry_open && ((s.phase == 2 && !s.l1) || (s.phase == 4 && !s.l2));
     if s.open_at.is_some_and(|a| t >= a) && !s.h_open && !guard_wait {
         s.open_at = None;
+        s.cur_open_retry = s.retry_open;
         s.retry_open = false;
         s.h_open = true;
         if s.phase % 2 == 0 {
@@ -4810,7 +4817,16 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     let g: Vec<BlockPos> = lay.pockets.iter().take(3).map(|p| p.0).collect();
     let gw: Vec<BlockPos> = g.iter().map(|p| BlockPos::new(p.x + offx, p.y + offy, if mz { offz - (p.z - sz) + sz } else { p.z + offz })).collect();
     if g.len() == 3 {
-        let want = [s.rel_open, s.rel_open || !s.l1, s.rel_open || !s.l2];
+        // (`MCTAS_METER_G2_DELAY` k / `MCTAS_METER_G1_DELAY` k: at REL, G2 (pocket 3's gate) or G1
+        // opens k gt after G0, widening the departure gaps P2 -> P3 / P1 -> P2)
+        let gdel = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+        let (g1d, g2d) = (gdel("MCTAS_METER_G1_DELAY"), gdel("MCTAS_METER_G2_DELAY"));
+        let since_rel = s.rel_t.map_or(i64::MAX, |r| t - r);
+        let want = [
+            s.rel_open,
+            if s.rel_open && since_rel < g1d { false } else { s.rel_open || !s.l1 },
+            if s.rel_open && since_rel < g2d { false } else { s.rel_open || !s.l2 },
+        ];
         for k in 0..3 {
             let cur = w.get(gw[k]).to_string();
             let open_now = cur.contains("open=true");
@@ -5090,7 +5106,7 @@ fn meter_trace(w: &redsim::world::World, s: &mut MeterState, lay: &LoopLayout, o
         // (`MCTAS_METER_TRACE_ALL`: every entity's position too, on its own line, to find the first
         // tick two runs differ anywhere)
         if std::env::var("MCTAS_METER_TRACE_ALL").is_ok() {
-            let all: Vec<String> = w.entities.list.iter().map(|e| format!("{}:{:?}:{:.5},{:.5},{:.5}", e.id, e.kind, e.pos.x, e.pos.y, e.pos.z)).collect();
+            let all: Vec<String> = w.entities.list.iter().map(|e| format!("{}:{:?}:{:.5},{:.5},{:.5}@yaw{:.1}/v{:.4},{:.4}", e.id, e.kind, e.pos.x, e.pos.y, e.pos.z, e.y_rot, e.delta_movement.x, e.delta_movement.z)).collect();
             let _ = writeln!(f, "# all {t}: {}", all.join(" "));
         }
     }
