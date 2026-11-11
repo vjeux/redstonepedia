@@ -186,6 +186,8 @@ pub struct HeadPerm {
     pub darr_holds: Vec<String>,
     /// (a fix candidate for (i)'s drain) RETRY also while D_arr is on
     pub retry_darr: bool,
+    /// (a fault) D_arr stuck at a level from a slot on
+    pub darr_stuck: Option<(i64, bool)>,
     pub expire_since_dep: u32,
     pub dh3_since_dep: bool,
     pub branch_occupied: bool,
@@ -270,6 +272,7 @@ impl HeadPerm {
             darr_gate: false,
             darr_holds: Vec::new(),
             retry_darr: false,
+            darr_stuck: None,
             expire_since_dep: 0,
             dh3_since_dep: false,
             branch_occupied: false,
@@ -472,6 +475,11 @@ impl HeadPerm {
     /// (a cart in the hold, stopped or moving).
     pub fn pre_tick(&mut self, w: &World, carts: &[(u32, Vec3, Vec3)], t: i64) {
         let (da, dh) = (self.read(w, carts, 0, self.d_arr, t), self.read(w, carts, 1, self.dh, t));
+        // (a fault: D_arr stuck at a level from a slot on)
+        let da = match self.darr_stuck {
+            Some((s, lv)) if t.div_euclid(100) >= s => lv,
+            _ => da,
+        };
         let (da_rise, dh_rise) = (da && !self.prev[0], dh && !self.prev[1]);
         if (da != self.prev[0] || dh != self.prev[1]) && self.det_log.len() < 120 {
             self.det_log.push(format!("{t}:{}{}", if da { "A" } else { "a" }, if dh { "H" } else { "h" }));
@@ -561,10 +569,20 @@ impl HeadPerm {
         let ec: Vec<i64> = self.tracks.iter().filter_map(|tr| tr.emp_c.map(|x| x - tr.launch)).collect();
         let stopped: Vec<String> = self.tracks.iter().filter(|tr| tr.stopped).map(|tr| format!("slot {}", tr.slot)).collect();
         out.push(format!(
-            "head-perm (S3(ii)'s per-stand latches, {}{}; summon frame {}): {} launches of this stand, binds {}{}",
+            "head-perm (S3(ii)'s per-stand latches, {}{}; summon frame {}{}): {} launches of this stand, binds {}{}",
             if self.gate { "gating the head" } else { "observed only" },
             if self.router { ", router phase-locked (A here, B virtual)" } else { "" },
             self.frame,
+            if self.retry {
+                format!(
+                    "; RETRY = EXPIRE and (EMP_X armed{}); (i) the D_arr gate {}; (ii) the stale clear {}",
+                    if self.retry_darr { " or D_arr on" } else { "" },
+                    if self.darr_gate { "on" } else { "off" },
+                    if self.stale_live { "liveness-gated" } else if self.stale_clear { "a variant" } else { "off" }
+                )
+            } else {
+                String::new()
+            },
             self.launches,
             self.binds.len(),
             if self.binds.is_empty() { String::new() } else { format!(" ({})", self.binds.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }

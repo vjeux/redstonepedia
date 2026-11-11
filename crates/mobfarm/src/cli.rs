@@ -1423,6 +1423,10 @@ pub enum MobfarmCmd {
         /// N gt from that gt; per run H's openings, its shuts, any gate shut on a cart.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         meter_freeze: Vec<i64>,
+        /// With --meter-freeze: N0,N1: sweep the freeze's length from N0 to N1 gt at the fixed
+        /// start SLOT +DT0 (DT1 and N ignored).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        meter_freeze_n: Vec<i64>,
         /// The register's cart interlock, ideal sensors (bench-driven): an advance moves a cart
         /// only into an empty slot, the head releases only into an empty stand, the tail launches
         /// only into an empty slot 0 (the advance spacing is --advance-every).
@@ -1694,9 +1698,22 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         hold_cart: Vec<f64>,
         /// A fix candidate for `--darr-gate`'s drain: day-1's RETRY (a REL alone) also fires on an
-        /// EXPIRE GO while D_arr is on (carts waiting at H), not only while EMP_X is armed.
+        /// EXPIRE GO while D_arr is on (carts waiting at H), not only while EMP_X is armed. Now
+        /// the head model's default with `--head-retry` (day-1 builds it); kept for old command
+        /// lines.
         #[arg(long)]
         retry_darr: bool,
+        /// With `--head-retry`: day-1's original RETRY (EXPIRE and EMP_X armed only), the D_arr
+        /// term off (an opt-out of the default).
+        #[arg(long)]
+        retry_emp_only: bool,
+        /// With `--head-retry`: ironspec's ARR-gap rules off ((i) the D_arr gate and (ii) the
+        /// liveness-gated stale clear, both the head model's default): an opt-out.
+        #[arg(long)]
+        no_arr_rules: bool,
+        /// A fault: SLOT,LEVEL: the head's D_arr read stuck at LEVEL (0 off, 1 on) from slot SLOT.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        darr_stuck: Vec<i64>,
         /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
         /// partial unloads too when the design is shifted), on --seeds seeds from --seed, --jobs
         /// threads; a value keeps only the cases whose name contains it ("D1|REL").
@@ -3291,7 +3308,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::TraceDiff { a, b, tol } => {
             println!("{}", crate::queue::trace_diff(&std::fs::read_to_string(&a)?, &std::fs::read_to_string(&b)?, tol));
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, fault_table, perfect_tail, all_corners, rel_sweep, corner_table, exposure_out, hold_progress, meter_hold, meter_sweep, meter_freeze, rider_space_control, watch_mob, watch_mob_slots, bed_distance, approach_trace, rel_clear, cprime_variants, force_phase, phase_sweep, sight, reg_interlock, l33_delay, arrival_log, hold_back, bench_release, release_start, release_offs, head_wait, head_latch, head_perm, strip_riders, trace_pair, head_retry, train_size, router_pulses, dep_x, vanish, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, summon_unaligned, stale_live, darr_gate, go_lead, hold_cart, retry_darr } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, fault_table, perfect_tail, all_corners, rel_sweep, corner_table, exposure_out, hold_progress, meter_hold, meter_sweep, meter_freeze, meter_freeze_n, rider_space_control, watch_mob, watch_mob_slots, bed_distance, approach_trace, rel_clear, cprime_variants, force_phase, phase_sweep, sight, reg_interlock, l33_delay, arrival_log, hold_back, bench_release, release_start, release_offs, head_wait, head_latch, head_perm, strip_riders, trace_pair, head_retry, train_size, router_pulses, dep_x, vanish, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, summon_unaligned, stale_live, darr_gate, go_lead, hold_cart, retry_darr, darr_stuck, retry_emp_only, no_arr_rules } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3405,7 +3422,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
                 }
                 a
-            }, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, head_perm: match head_perm.as_slice() { [a, b, c, d, e, f] => Some(([*a, *b, *c], [*d, *e, *f], false, false, None)), [a, b, c, d, e, f, g] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, false, None)), [a, b, c, d, e, f, g, r] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, *r != 0, None)), [a, b, c, d, e, f, g, r, c0, n] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, *r != 0, Some((*c0 as i64, *n as i64)))), [] => None, _ => anyhow::bail!("--head-perm takes AX,AY,AZ,HX,HY,HZ[,G[,R[,BC0,BN]]]") }, strip_riders: match strip_riders.as_slice() { [x, y, z] => Some(([*x as i32, *y as i32, *z as i32], 0, i64::MAX, 0)), [x, y, z, s0, s1] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, 0)), [x, y, z, s0, s1, k] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, *k as usize)), [] => None, _ => anyhow::bail!("--strip-riders takes X,Y,Z[,S0,S1[,K]]") }, trace_pair: match trace_pair.as_slice() { [a, b, t0, t1] => Some((*a as u32, *b as u32, *t0, *t1)), [] => None, _ => anyhow::bail!("--trace-pair takes A,B,T0,T1") }, head_retry: match head_retry.as_slice() { [] | [0] => None, [_] => Some((None, None)), [_, c0, n] => Some((Some((*c0, *n)), None)), [_, c0, n, lost] => Some((if *n > 0 { Some((*c0, *n)) } else { None }, Some(*lost))), _ => anyhow::bail!("--head-retry takes ON[,AC0,AN[,LOST]]") }, train_size: match train_size.as_slice() { [s, k] => Some((*s, *k)), [] => None, _ => anyhow::bail!("--train-size takes SLOT,K") }, router_pulses: match router_pulses.as_slice() { [a, b, c, d, e] => Some([*a, *b, *c, *d, *e]), [] => None, _ => anyhow::bail!("--router-pulses takes BMISS1,BMISS2,BDOUBLE1,BDOUBLE2,WRONG (-1 none)") }, dep_x, vanish: match vanish.as_slice() { [s, d, z0, z1] => Some((*s as i64, *d as i64, *z0, *z1, 1)), [s, d, z0, z1, n] => Some((*s as i64, *d as i64, *z0, *z1, *n as i64)), [] => None, _ => anyhow::bail!("--vanish takes SLOT,DT,Z0,Z1[,N]") }, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, stale_live, darr_gate, go_lead, hold_cart: match hold_cart.as_slice() { [s, d, z0, z1, n, k] => Some((*s as i64, *d as i64, *z0, *z1, *n as i64, *k as i64)), [] => None, _ => anyhow::bail!("--hold-cart takes SLOT,DT,Z0,Z1,N,K") }, retry_darr, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match release_offs.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, ..Default::default() };
+            }, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, head_perm: match head_perm.as_slice() { [a, b, c, d, e, f] => Some(([*a, *b, *c], [*d, *e, *f], false, false, None)), [a, b, c, d, e, f, g] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, false, None)), [a, b, c, d, e, f, g, r] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, *r != 0, None)), [a, b, c, d, e, f, g, r, c0, n] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, *r != 0, Some((*c0 as i64, *n as i64)))), [] => None, _ => anyhow::bail!("--head-perm takes AX,AY,AZ,HX,HY,HZ[,G[,R[,BC0,BN]]]") }, strip_riders: match strip_riders.as_slice() { [x, y, z] => Some(([*x as i32, *y as i32, *z as i32], 0, i64::MAX, 0)), [x, y, z, s0, s1] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, 0)), [x, y, z, s0, s1, k] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, *k as usize)), [] => None, _ => anyhow::bail!("--strip-riders takes X,Y,Z[,S0,S1[,K]]") }, trace_pair: match trace_pair.as_slice() { [a, b, t0, t1] => Some((*a as u32, *b as u32, *t0, *t1)), [] => None, _ => anyhow::bail!("--trace-pair takes A,B,T0,T1") }, head_retry: match head_retry.as_slice() { [] | [0] => None, [_] => Some((None, None)), [_, c0, n] => Some((Some((*c0, *n)), None)), [_, c0, n, lost] => Some((if *n > 0 { Some((*c0, *n)) } else { None }, Some(*lost))), _ => anyhow::bail!("--head-retry takes ON[,AC0,AN[,LOST]]") }, train_size: match train_size.as_slice() { [s, k] => Some((*s, *k)), [] => None, _ => anyhow::bail!("--train-size takes SLOT,K") }, router_pulses: match router_pulses.as_slice() { [a, b, c, d, e] => Some([*a, *b, *c, *d, *e]), [] => None, _ => anyhow::bail!("--router-pulses takes BMISS1,BMISS2,BDOUBLE1,BDOUBLE2,WRONG (-1 none)") }, dep_x, vanish: match vanish.as_slice() { [s, d, z0, z1] => Some((*s as i64, *d as i64, *z0, *z1, 1)), [s, d, z0, z1, n] => Some((*s as i64, *d as i64, *z0, *z1, *n as i64)), [] => None, _ => anyhow::bail!("--vanish takes SLOT,DT,Z0,Z1[,N]") }, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, stale_live: stale_live || (!head_retry.is_empty() && head_retry[0] != 0 && !no_arr_rules && !stale_clear && !stale_ungated && !stale_ignore_dh3), darr_gate: darr_gate || (!head_retry.is_empty() && head_retry[0] != 0 && !no_arr_rules), go_lead, hold_cart: match hold_cart.as_slice() { [s, d, z0, z1, n, k] => Some((*s as i64, *d as i64, *z0, *z1, *n as i64, *k as i64)), [] => None, _ => anyhow::bail!("--hold-cart takes SLOT,DT,Z0,Z1,N,K") }, retry_darr: retry_darr || (!head_retry.is_empty() && head_retry[0] != 0 && !retry_emp_only), darr_stuck: match darr_stuck.as_slice() { [s, lv] => Some((*s, *lv != 0)), [] => None, _ => anyhow::bail!("--darr-stuck takes SLOT,LEVEL") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match release_offs.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, ..Default::default() };
             // (`--place-rest`: the approach's rest check instead of a run)
             if let Some(pr) = &place_rest {
                 let cells: Vec<[i32; 3]> = if pr == "approach" {
@@ -3539,34 +3556,57 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     _ => anyhow::bail!("--meter-freeze takes SLOT,DT0,DT1,N[,X0,Z0,X1,Z1]"),
                 };
                 let free = tm.acts.iter().position(|x| x.is_none()).ok_or_else(|| anyhow::anyhow!("--meter-freeze: all 8 act slots taken"))?;
-                let dts: Vec<i64> = (a..=b).collect();
-                println!("meter freeze: the chunk box {},{}..{},{} unloaded {n} gt from slot {slot} +{a}..+{b} ({} runs, seed {seed}, {cycles} cycles)", bx[0], bx[1], bx[2], bx[3], dts.len());
-                for chunk in dts.chunks(jobs.max(1)) {
-                    let got: Vec<(i64, Result<String, String>)> = std::thread::scope(|sc| {
+                // (`--meter-freeze-n N0,N1`: the freeze's length swept at the fixed start +DT0)
+                let runs: Vec<(i64, i64)> = match meter_freeze_n.as_slice() {
+                    [n0, n1] => (*n0..=*n1).map(|nn| (a, nn)).collect(),
+                    [] => (a..=b).map(|dt| (dt, n)).collect(),
+                    _ => anyhow::bail!("--meter-freeze-n takes N0,N1"),
+                };
+                if meter_freeze_n.is_empty() {
+                    println!("meter freeze: the chunk box {},{}..{},{} unloaded {n} gt from slot {slot} +{a}..+{b} ({} runs, seed {seed}, {cycles} cycles)", bx[0], bx[1], bx[2], bx[3], runs.len());
+                } else {
+                    println!("meter freeze: the chunk box {},{}..{},{} unloaded from slot {slot} +{a} for {}..{} gt ({} runs, seed {seed}, {cycles} cycles)", bx[0], bx[1], bx[2], bx[3], meter_freeze_n[0], meter_freeze_n[1], runs.len());
+                }
+                for chunk in runs.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
                         let hs: Vec<_> = chunk
                             .iter()
-                            .map(|&dt| {
+                            .map(|&(dt, nn)| {
                                 let (spec, o, hdr) = (&spec, &o, &hdr);
                                 let mut t2 = tm.clone();
-                                let act = crate::queue::parse_act(&format!("{slot},{dt},unload,{},{},{},{},{n}", bx[0], bx[1], bx[2], bx[3]));
+                                let act = crate::queue::parse_act(&format!("{slot},{dt},unload,{},{},{},{},{nn}", bx[0], bx[1], bx[2], bx[3]));
                                 sc.spawn(move || {
                                     let r = act.map(|x| {
                                         t2.acts[free] = Some(x);
                                     });
-                                    (dt, r.and_then(|_| crate::queue::run_loop_hdr(spec, o, &t2, hdr, cycles, seed, false, None, None)))
+                                    ((dt, nn), r.and_then(|_| crate::queue::run_loop_hdr(spec, o, &t2, hdr, cycles, seed, false, None, None)))
                                 })
                             })
                             .collect();
                         hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
                     });
-                    for (dt, r) in got {
+                    for ((dt, nn), r) in got {
                         let r = r.map_err(|e| anyhow::anyhow!(e))?;
                         let pick = |p: &str| r.lines().filter(|l| l.starts_with(p)).map(|l| l.trim_start_matches(p).trim().to_string()).collect::<Vec<_>>().join(" | ");
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
                         let merges = r.lines().find(|l| l.contains("merged carts:")).map(|l| l.trim().chars().take(60).collect::<String>()).unwrap_or_default();
                         let back = r.lines().find_map(|l| l.split("back travel up to ").nth(1)).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
                         let contact = r.lines().find_map(|l| l.strip_prefix("meter arrivals at a waiting cart (first contact on the hold's column: a push, or a dead stop at a rider's box): ")).map(|x| x.split("; the worst:").next().unwrap_or(x)).unwrap_or("-");
-                        println!("freeze at +{dt}: {} | shuts: {} | on a cart: {} | back: {back} | contact: {contact} | {probs}{}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
+                        // (the head model's summary, when it runs: holds, RETRYs, D_arr holds,
+                        // ARR at the end, trains onto waiting carts, stand RELs twice in a slot)
+                        let head = if r.lines().any(|l| l.starts_with("head-perm router")) {
+                            let holds = r.lines().find_map(|l| l.strip_prefix("head-perm router (phase-locked): ")).and_then(|x| x.split(" holds").next()).unwrap_or("?").to_string();
+                            let retries = r.lines().find(|l| l.starts_with("head-perm stand REL")).map_or(0, |l| l.matches("RETRY (").count());
+                            let darr = r.lines().find_map(|l| l.split("A's GOs held by it: ").nth(1)).unwrap_or("-").to_string();
+                            let arr_end = r.lines().find_map(|l| l.split("ARR_X at the run's end: ").nth(1)).unwrap_or("-").to_string();
+                            let second = r.lines().find_map(|l| l.split("a train reaching H while earlier carts still waited there: ").nth(1)).map(|x| x.split(';').next().unwrap_or(x).to_string()).unwrap_or_default();
+                            let twice = r.lines().find_map(|l| l.split("slots with two or more: ").nth(1)).unwrap_or("-").to_string();
+                            let last_go = r.lines().find_map(|l| l.strip_prefix("head-perm router (phase-locked): ")).and_then(|x| x.split("GO by GO: ").nth(1)).map(|x| x.split(' ').filter(|w| w.contains(':')).last().unwrap_or("").to_string()).unwrap_or_default();
+                            format!(" | head: holds {holds}, RETRYs {retries}, D_arr holds {darr}, ARR at the end {arr_end}, trains onto waiting carts {second}, two stand RELs in a slot {twice}, last GO {last_go}")
+                        } else {
+                            String::new()
+                        };
+                        println!("freeze at +{dt} for {nn}: {} | shuts: {} | on a cart: {} | back: {back} | contact: {contact} | {probs}{}{head}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
                     }
                 }
                 return Ok(());
