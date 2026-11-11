@@ -738,6 +738,15 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     for x in -3..=0 {
         on(b, [x, -6, 5], dust)?;
     }
+    // (B now into the torch tower's top block (0,-4,7): FAST = F - N held off while the napper
+    // sleeps now. N locks B at H's rise, and when F lands on the sleep's own tick, H rises from
+    // F before B reaches N: N locked off and FAST kicked a sleeping napper)
+    for x in -3..=-2 {
+        on(b, [x, -4, 7], dust)?;
+    }
+    // (a repeater into the block, not dust: T_low powers that block strongly, which would feed
+    // dust beside it)
+    on(b, [-1, -4, 7], &rep("west", 1))?;
     put(b, [0, -6, 7], "stone")?;
     put(b, [0, -5, 7], "redstone_torch[lit=true]")?;
     put(b, [0, -4, 7], "stone")?;
@@ -1556,6 +1565,12 @@ pub struct BenchReport {
     /// (gt), by where the villager was: in the siding (entry to exit), on the bench's approach, in
     /// the bench's enclosed hold (its riders' flee paths never reach: a bench artifact).
     pub stamp_max: [i64; 3],
+    /// (ironspec 05:47 item 1(b)) Villagers dropped at the activator while the bed was occupied.
+    pub dropped_bed_taken: u32,
+    /// (ironspec 05:23, the farm-wide edge-count check) Rising edges of the arrival detector
+    /// (0,0,0) and the return detector (3,0,0), against the carts that entered and went out.
+    pub edges: [u32; 2],
+    pub carts_in_out: [u32; 2],
     /// The off-the-rails watch's derails and its report line.
     pub derails: Vec<String>,
     pub rail_line: String,
@@ -1811,6 +1826,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         rep.seat = Some(SeatLog::default());
     }
     let mut probe_last: Vec<String> = Vec::new();
+    let mut det_prev = [false; 2];
     while run.world.time < end {
         let now = run.world.time;
         let day = run.world.day_time().rem_euclid(24000);
@@ -2079,6 +2095,16 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         // (the dawn/dusk resync, bench-driven as day-1's daylight-stair pulse: P a redstone block
         // for 12 gt at day times 1,000 and 11,000)
+        {
+            let det = |w: &World, c: BlockPos| matches!(w.get(c), Block::DetectorRail { powered: true, .. });
+            let now_d = [det(&run.world, fr.blk(0, 0, 0)), det(&run.world, fr.blk(3, 0, 0))];
+            for i in 0..2 {
+                if now_d[i] && !det_prev[i] && run.world.away.is_none() {
+                    rep.edges[i] += 1;
+                }
+            }
+            det_prev = now_d;
+        }
         if let Some(p) = resync_cell {
             let dt = run.world.day_time().rem_euclid(24000);
             if dt == 1000 || dt == 11000 {
@@ -2130,12 +2156,15 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= 0.0 && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout().park_rail.z as f64 + 1.0))
             })
         };
-        if bo.b_fc && (cart_inside() || run.world.get(s.entry).to_string().contains("powered=true")) {
+        if (bo.b_fc || bo.resync.is_some()) && (cart_inside() || run.world.get(s.entry).to_string().contains("powered=true")) {
             // (the arrival detector ARR counts too: a VR landing on the arrival tick clears the
             // V that ARR has just set, before the cart is past the entry cell)
             be.cart_seen = Some(now);
         }
-        let vr_blocked = bo.b_emul.is_some() && (matches!(run.world.get(bed), Block::Bed { occupied: true, .. }) || (bo.b_fc && be.cart_seen.is_some_and(|c| now - c <= 20)));
+        // (design (b) wired: day-1's VR as declared, gated by the siding's B (its bulb) and by the
+        // siding holding no cart (ARR and the carts from the entry to the park), 20 gt held)
+        let b_bulb = bo.resync.is_some() && matches!(run.world.get(fr.blk(-2, 0, 2)), Block::Bulb { lit: true, .. });
+        let vr_blocked = (bo.b_emul.is_some() && (matches!(run.world.get(bed), Block::Bed { occupied: true, .. }) || (bo.b_fc && be.cart_seen.is_some_and(|c| now - c <= 20)))) || (bo.resync.is_some() && (b_bulb || be.cart_seen.is_some_and(|c| now - c <= 20)));
         if bo.trace && vr_at.contains(&now) {
             eprintln!("VR gt {}: {} (DA {} | DB {})", now - t0, if vr_blocked { "held back" } else { "fires" }, run.world.get(fr.blk(0, -1, -1)), run.world.get(fr.blk(0, -1, -2)));
         }
@@ -2530,6 +2559,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 let vr = &mut rep.visits[k];
                 if vr.dropped.is_none() && riding.is_none() {
                     vr.dropped = Some(t);
+                    // (the bed taken by another: occupied with the napper not in it)
+                    if !asleep && matches!(w.get(bed), Block::Bed { occupied: true, .. }) {
+                        rep.dropped_bed_taken += 1;
+                    }
                 }
                 if vr.dropped.is_some() && vr.slept.is_none() && asleep {
                     vr.slept = Some(t);
@@ -2907,5 +2940,6 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         rep.drive = Some(drive.text(&header));
     }
+    rep.carts_in_out = [rep.visits.iter().filter(|v| v.arrived > 0).count() as u32, rep.visits.iter().filter(|v| v.exited.is_some()).count() as u32];
     Ok(rep)
 }

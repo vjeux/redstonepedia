@@ -3779,6 +3779,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     .flat_map(|(i, r)| r.visits.iter().enumerate().filter_map(move |(k, v)| v.riderless.map(|(t, p, asleep)| format!("run {} visit {k} at t0+{t}, the napper at {:.2} {:.2} {:.2} (local){}", i + 1, p[0], p[1], p[2], if asleep { " asleep" } else { "" }))))
                     .collect();
                 println!("riderless carts returned to the loop: {}{}", riderless.len(), if riderless.is_empty() { String::new() } else { format!(" ({})", riderless.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) });
+                // (ironspec 05:47 item 1(b); the farm-wide edge-count check)
+                let dbt: u32 = oks.iter().map(|r| r.dropped_bed_taken).sum();
+                let ed = oks.iter().fold([0u32; 4], |a, r| [a[0] + r.edges[0], a[1] + r.edges[1], a[2] + r.carts_in_out[0], a[3] + r.carts_in_out[1]]);
+                println!("villagers dropped while the bed was taken: {dbt}");
+                println!("detector edges: arrival (0,0,0) {} against {} carts in; return (3,0,0) {} against {} carts out{}", ed[0], ed[2], ed[1], ed[3], if ed[0] == ed[2] && ed[1] == ed[3] { "" } else { " (MISMATCH)" });
                 // (farmopt 03:55: per napped visit, the wake, the napper's first step off the free
                 // cell after it, the kicked cart's arrival at the free cell, and their margin)
                 let mut margins: Vec<i64> = Vec::new();
