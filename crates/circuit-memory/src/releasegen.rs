@@ -320,7 +320,11 @@ fn turn2(s: &str) -> String {
 /// Column 3 (c)'s controller shift: the links from the core under the lanes to row B's lines
 /// carry two 1-rt repeaters, so every controller output is 2 rt (4 gt) later than on main, and the
 /// REL taps outside the core add the same (`core_place`).
-pub(crate) const FAR_SHIFT_RT: u8 = 2;
+/// Milestone B's links' extra delay beyond main's, in rt, which the REL taps outside the core take
+/// too: with the golem path one rt shorter than main's (the core 2 gt earlier against the golem),
+/// every output then lands at main's time after the golem (the probe, which starts at the golem
+/// stone, reads every output + 2 gt).
+pub(crate) const FAR_SHIFT_RT: u8 = 1;
 
 /// Where a cell of the controller's own frame lands in the loop: turned 180 degrees west of row B
 /// (global = (-2 - x, y - 2, 10 - z)); column 3 (c) (`sidinggen::FAR`): under the lanes instead,
@@ -348,7 +352,13 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // controls); reset taps 8..44 keep the merge window to ~+58. With the stagger a fourth group
     // tap at +30 (global z 25) holds the release on to +44: the front slot's window must outlast
     // the back cart's crossing of its slope (2 x stagger + 30 = 38 gt or more, farmopt 16:30)
-    let a1_run = if stagger { [R(1), D, R(2), S(G), D, S(A | RS)] } else { [R(1), D, R(2), D, D, S(A | RS)] };
+    let far = crate::sidinggen::FAR;
+    // (milestone B's recovery: the repeater before the fourth group tap and A1 one rt shorter, so
+    // the group window's end and the three advance pulses leave the chain 2 gt earlier, which the
+    // links' repeaters make back; the reset taps from A1 on move with them, the merge window's
+    // later taps 2 gt earlier against REL, still overlapping)
+    let r14 = if far { R(1) } else { R(2) };
+    let a1_run = if stagger { [R(1), D, r14, S(G), D, S(A | RS)] } else { [R(1), D, r14, D, D, S(A | RS)] };
     let mut chain = vec![
         R(3), S(G | RS), // +8 (after the shortener C at z -5)
         R(4), S(G | RS), // +16
@@ -362,9 +372,18 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         R(1), S(A), // +50 (A2)
         R(4), R(4), R(2), S(A), // +70 (A3)
     ]);
-    let far = crate::sidinggen::FAR;
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
+    if far {
+        // (milestone B's recovery: a restore on the core's group line between the first group tap
+        // and the rest, facing the link's take-off at own z -6: the later taps' pulses reach the
+        // link at 14, so one link repeater carries the window; REL through R_g and the first tap
+        // reach it unrestored)
+        if !m.blocks.get(&[3, 1, -8]).is_some_and(|s| s.contains("redstone_wire")) {
+            bail!("the core's group line at own (3, 1, -8) is {:?}, not a dust", m.blocks.get(&[3, 1, -8]));
+        }
+        m.blocks.insert([3, 1, -8], rep("north", 1));
+    }
     let at = core_place;
     let mut b = new_b();
     for (p, s) in &m.blocks {
@@ -514,8 +533,11 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         for s in [g0, a0] {
             b.put([s[0], s[1] + 1, s[2] - 1], STONE)?;
         }
-        // (repeaters: the first right after the climb, the second 4 cells before the line)
-        lay_link(&mut b, g0, &gl, &[(3, 1), (gl.len() - 5, 1)])?;
+        // (repeaters: the group link one, 6 cells along its run west (the core's group line is
+        // restored, the take-off at 14 whatever tap holds the window), the advance link two (its 23
+        // cells and the row's spread need two refreshes), the first right after the climb, the
+        // second 4 cells before the line)
+        lay_link(&mut b, g0, &gl, &[(8, 1)])?;
         lay_link(&mut b, a0, &al, &[(3, 1), (al.len() - 5, 1)])?;
         for z in 19..=25 {
             b.on([-5, yy, z], DUST)?;

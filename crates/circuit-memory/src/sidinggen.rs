@@ -643,6 +643,13 @@ pub(crate) fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<(
 /// `route` with the dust count since the source's last repeater (`run0`: 0 right after a repeater,
 /// `every` for "take one on the first flat cell") and the repeaters' delay.
 pub(crate) fn route_d(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usize, delay: u8) -> Result<()> {
+    route_dm(b, from, cells, every, run0, delay, 14)
+}
+
+/// [`route_d`] with the longest live dust run given (14 by default, one under the game's: the
+/// k-th dust after a full-strength source holds 16 - k, so the 15th still holds 1; 15 for a run that
+/// must count every cell, as [`lay_exact_run`]'s).
+pub(crate) fn route_dm(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usize, delay: u8, max_run: usize) -> Result<()> {
     use crate::schedgen::{DUST, rep};
     let mine: std::collections::BTreeSet<P3> = cells.iter().copied().chain(std::iter::once(from)).collect();
     let mut prev = from;
@@ -693,7 +700,7 @@ pub(crate) fn route_d(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usi
         } else {
             b.on(c, DUST)?;
             run += 1;
-            if run > 14 {
+            if run > max_run {
                 bail!("route: dust {c:?} is {run} cells past its last repeater (dead)");
             }
         }
@@ -717,6 +724,12 @@ pub(crate) fn facing_in(d: P3) -> &'static str {
 /// `total_rt` (spread evenly, 1..4 each; more repeaters where the total needs them). Returns the
 /// repeaters' cells.
 pub(crate) fn lay_exact(b: &mut B, from: P3, cells: &[P3], run0: usize, total_rt: u8) -> Result<Vec<P3>> {
+    lay_exact_run(b, from, cells, run0, total_rt, 14)
+}
+
+/// [`lay_exact`] with the longest dust run between repeaters given: 15 when the line starts at full
+/// strength (off a repeater or a strongly powered block) and every cell of the run must count.
+pub(crate) fn lay_exact_run(b: &mut B, from: P3, cells: &[P3], run0: usize, total_rt: u8, max_run: usize) -> Result<Vec<P3>> {
     use crate::schedgen::rep;
     let straight = |i: usize| -> bool {
         let p = if i == 0 { from } else { cells[i - 1] };
@@ -734,7 +747,7 @@ pub(crate) fn lay_exact(b: &mut B, from: P3, cells: &[P3], run0: usize, total_rt
             Some(&r) => i - r,
             None => i + 1 + run0,
         };
-        if since > 14 {
+        if since > max_run {
             let c = cand.filter(|&c| reps.last().is_none_or(|&r| c > r)).ok_or_else(|| anyhow::anyhow!("lay_exact: no straight flat cell for a repeater before {:?}", cells[i]))?;
             reps.push(c);
             cand = None;
@@ -766,7 +779,7 @@ pub(crate) fn lay_exact(b: &mut B, from: P3, cells: &[P3], run0: usize, total_rt
     let mut placed = Vec::new();
     for (j, &r) in reps.iter().enumerate() {
         if r > start {
-            route_d(b, src, &cells[start..r], 0, 0, 1)?;
+            route_dm(b, src, &cells[start..r], 0, 0, 1, max_run)?;
         }
         let p = if r == 0 { from } else { cells[r - 1] };
         let c = cells[r];
@@ -776,7 +789,7 @@ pub(crate) fn lay_exact(b: &mut B, from: P3, cells: &[P3], run0: usize, total_rt
         start = r + 1;
     }
     if start < cells.len() {
-        route_d(b, src, &cells[start..], 0, 0, 1)?;
+        route_dm(b, src, &cells[start..], 0, 0, 1, max_run)?;
     }
     Ok(placed)
 }
@@ -988,10 +1001,32 @@ pub(crate) fn wire_pad(d: &mut Design, pad: &Path) -> Result<Vec<P3>> {
         avoid.remove(&pulse);
         avoid.insert(last);
         avoid.insert(inb);
-        let lim = crate::autoroute::Limits { lo: [-6, -4, -6], hi: [11, 10, 60], avoid, near_ok: [pulse].into_iter().collect() };
-        let mut pr = crate::autoroute::find(&b, [9, 6, -1], pre, &lim)?;
+        // (the golem route: its first dust off the pad's merged pulse line (9, 6, -2), which holds 15
+        // when the golem trips the z -2 wire and only 12 for the z -4 / -6 wires: the first repeater
+        // within 10 cells, so every wire's pulse reaches it; two route repeaters and the final one,
+        // main's 3 rt. A one-repeater route (2 rt) needs a full-strength start, which only the z -2
+        // hook's block gives: the other wires' golems were missed (B2, 2026-11-11 04:06))
+        let start = [pulse[0], pulse[1], pulse[2] + 1];
+        let lim = crate::autoroute::Limits { lo: [-6, -4, -6], hi: [11, 10, 60], avoid: avoid.clone(), near_ok: [pulse].into_iter().collect() };
+        let mut avoid = lim.avoid.clone();
+        for e in &d.entities {
+            if e.nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie")) {
+                let (zx, zy, zz) = (e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32);
+                for dx in -1..=1 {
+                    for dz in -1..=1 {
+                        for dy in 0..=2 {
+                            avoid.insert([zx + dx, zy + dy, zz + dz]);
+                        }
+                    }
+                }
+            }
+        }
+        let lim = crate::autoroute::Limits { lo: lim.lo, hi: lim.hi, avoid, near_ok: lim.near_ok.clone() };
+        let mut pr = crate::autoroute::find(&b, start, pre, &lim)?;
         pr.push(last);
-        lay_exact(&mut b, pulse, &pr, 1, 2)?;
+        if let Err(e) = lay_exact(&mut b, pulse, &pr, 4, 2) {
+            bail!("{e}: the golem route ({} cells) {pr:?}", pr.len());
+        }
         b.on(fin, &rep(facing_in([fin[0] - inb[0], 0, fin[2] - inb[2]]), 1))?;
         b.put(golem, STONE)?;
         let added: Vec<P3> = b.blocks.keys().copied().filter(|q| !before.contains(q)).collect();
@@ -1483,7 +1518,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         b.on(tr, &rep(facing_in(d), 1))?;
         let lim = crate::autoroute::Limits { lo: [-6, -18, 14], hi: [11, -3, 55], avoid: Default::default(), near_ok: [tr, [thr[0] - 4, thr[1], thr[2]]].into_iter().collect() };
         let lk = crate::autoroute::find(&b, start, sink, &lim)?;
-        lay_exact(&mut b, tr, &lk, 0, 8)?;
+        lay_exact(&mut b, tr, &lk, 0, 7)?;
         let laid = true;
         let why = String::new();
         if !laid {
