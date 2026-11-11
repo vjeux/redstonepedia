@@ -117,6 +117,8 @@ pub struct HeadPerm {
     skip_next_launch: bool,
     b_hold: Option<(i64, i64)>,
     router_log: Vec<String>,
+    /// (cc767b78) each A GO the head held (its GO index), for the register census
+    pub a_held: Vec<i64>,
     holds: usize,
     /// (day-1's RETRY-only head, farmopt 2026-11-11) this stand's REL only with a launch for it, or
     /// by RETRY (an EXPIRE GO, the stand not emptied since its last launch, no train in flight);
@@ -240,6 +242,7 @@ impl HeadPerm {
             skip_next_launch: false,
             b_hold,
             router_log: Vec::new(),
+            a_held: Vec::new(),
             holds: 0,
             retry: false,
             a_pulses: Vec::new(),
@@ -451,6 +454,7 @@ impl HeadPerm {
         };
         if d == Go::Hold {
             self.holds += 1;
+            self.a_held.push(c);
         }
         if self.router_log.len() < 200 {
             self.router_log.push(format!("{c}:{who}{}{}", match d {

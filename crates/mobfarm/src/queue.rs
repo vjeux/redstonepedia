@@ -6245,6 +6245,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut held_until: i64 = i64::MIN;
     let mut held_log: Vec<String> = Vec::new();
     let mut vbox_done: usize = 0;
+    let mut reg_census: Vec<(i64, usize, usize, usize, usize)> = Vec::new();
     let mut hbox: Option<(u32, redsim::entity::Vec3, redsim::entity::Vec3, i64)> = None;
     let (mut strip_seen, mut strip_now): (Vec<u32>, Vec<u32>) = (Vec::new(), Vec::new());
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)
@@ -7354,6 +7355,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // left the queue's head (front first)
             if o.stand_stop {
                 let queue_now: Vec<Option<u32>> = (0..q).map(|s| by_cell(lay.slot_cells[s])).collect();
+                // (cc767b78, the register's census at each slot's start, for the freeze rows that
+                // cross an advance: the queue cells holding a cart, the release group, the stand)
+                reg_census.push((c, queue_now.iter().filter(|x| x.is_some()).count(), q, rel.len(), dep.len()));
                 if fifo_on && tm.verbose_tail {
                     arrivals.push(format!("slot {c} start: queue slots 0..6 {:?}", &queue_now[..7.min(q)]));
                 }
@@ -11931,6 +11935,28 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     if tm.strip_riders.is_some() {
         out.push(format!("riders removed (riderless trains): {}{}", stripped.len(), if stripped.is_empty() { String::new() } else { format!(" ({})", stripped.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) }));
+    }
+    // (cc767b78, the register's census at each slot's start: the queue cells holding a cart, the
+    // release group, the stand; and each A slot's failure by cause: the head held its GO, the
+    // register gave the release group fewer than 3 carts at a launch, or the stand side (the
+    // release group full and launched, the stand not 3 at the next A slot's start))
+    if let Some(h) = head_perm.as_ref()
+        && !reg_census.is_empty()
+    {
+        let row = |c: i64| reg_census.iter().find(|r| r.0 == c).copied();
+        let census: Vec<String> = reg_census.iter().map(|r| format!("{}: {}/{} r{} s{}", r.0, r.1, r.2, r.3, r.4)).collect();
+        let (mut by_head, mut by_reg, mut by_stand) = (Vec::new(), Vec::new(), Vec::new());
+        for c in (0..cycles).filter(|c| c % 2 == 0) {
+            if h.a_held.contains(&c) {
+                by_head.push(c.to_string());
+            } else if row(c).is_some_and(|r| r.3 < 3) {
+                by_reg.push(format!("{c} (r{})", row(c).map_or(0, |r| r.3)));
+            } else if row(c + 2).is_some_and(|r| r.4 != 3) {
+                by_stand.push(format!("{c} (stand {} at slot {})", row(c + 2).map_or(0, |r| r.4), c + 2));
+            }
+        }
+        out.push(format!("register census at each slot's start (queue cells holding a cart / cells, r the release group, s the stand): {}", census.join(" | ")));
+        out.push(format!("A slots by cause: held by the head {}; launched short (the register's release group under 3) {}; launched full, the stand not 3 at the next A slot (the stand's side, or the train itself held up by a freeze) {}", if by_head.is_empty() { "none".to_string() } else { by_head.join(",") }, if by_reg.is_empty() { "none".to_string() } else { by_reg.join(", ") }, if by_stand.is_empty() { "none".to_string() } else { by_stand.join(", ") }));
     }
     if tm.vanish.is_some() || tm.vanish_box.is_some() {
         out.push(format!("carts removed after DEP (a train that never arrives): {}{}", vanished.len(), if vanished.is_empty() { String::new() } else { format!(" ({})", vanished.join(", ")) }));
