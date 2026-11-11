@@ -395,7 +395,7 @@ pub fn ledge(version: &str, ticks: u32, only: &[String]) -> Result<()> {
     let runs: Vec<(String, f64, i32)> = LEDGE_SPEEDS
         .iter()
         .map(|(tag, sp)| (format!("ledge-r1-{tag}"), *sp, 24))
-        .chain([("ledge-r1n-182".to_string(), 1.82, 25), ("ledge-r1s-182".to_string(), 1.82, 24)])
+        .chain([("ledge-r1n-182".to_string(), 1.82, 25), ("ledge-r1s-182".to_string(), 1.82, 24), ("takeoff-clamp".to_string(), 0.0, 24)])
         .filter(|(n, _, _)| only.is_empty() || only.iter().any(|o| o == n))
         .collect();
     for (name, sp, line) in runs {
@@ -850,8 +850,38 @@ pub fn ledge_sweep_rows() -> Vec<(Option<f64>, bool)> {
 
 /// The rows of a ledge scene by name.
 pub fn ledge_rows_of(name: &str) -> Vec<(Option<f64>, bool)> {
+    if name == "takeoff-clamp" {
+        return TAKEOFF_ROWS.iter().map(|(_, r)| (None, *r)).collect();
+    }
     if name.starts_with("ledge-r1s-") { ledge_sweep_rows() } else { LEDGE_ROWS.to_vec() }
 }
+
+/// (tickexact 2026-11-11, ironspec's take-off clamp) scene takeoff-clamp's rows: a lone cart leaving
+/// R1's take-off at each stored speed, ridden (the visible step on a rail is 0.75 x stored for a cart
+/// with a passenger: the 0.4 cap from 0.5333) or empty (1.0 x stored: from 0.4); comeOffTrack clamps
+/// the stored speed per axis to 0.4 the tick it leaves the rail.
+pub const TAKEOFF_ROWS: [(f64, bool); 20] = [
+    (1.95, true),
+    (1.2, true),
+    (0.8, true),
+    (0.6, true),
+    (0.55, true),
+    (0.54, true),
+    (0.53, true),
+    (0.5, true),
+    (0.45, true),
+    (0.35, true),
+    (0.25, true),
+    (1.95, false),
+    (1.2, false),
+    (0.6, false),
+    (0.45, false),
+    (0.42, false),
+    (0.4, false),
+    (0.38, false),
+    (0.35, false),
+    (0.3, false),
+];
 
 /// One ledge scene: the design's cells x -1..9, y 4..13, z 23..29 copied into each row (x + 2,
 /// y + 60, z + 8k - 22: row k's take-off line at z 2 + 8k), the corner (9,13,24) and the run north
@@ -866,6 +896,13 @@ fn ledge_scene(tag: &str, v: f64) -> Scene {
 /// north (the take-off flats, the gap, the landing and the slopes at design z 25), the curve (0,8,25)
 /// turning straight onto the descent's first slope (0,7,26) (escR1's flat (0,8,25) gone).
 fn ledge_scene_row(name: &str, v: f64, north: bool, rows: &[(Option<f64>, bool)]) -> Scene {
+    let rows: Vec<(Option<f64>, bool, f64)> = rows.iter().map(|(g, r)| (*g, *r, v)).collect();
+    ledge_scene_speeds(name, north, &rows)
+}
+
+/// (tickexact 2026-11-11, ironspec's take-off clamp) [`ledge_scene_row`] with each row's own stored
+/// speed (`rows`: the follower's gap, ridden, the speed).
+fn ledge_scene_speeds(name: &str, north: bool, rows: &[(Option<f64>, bool, f64)]) -> Scene {
     let d = mctas::design::Design::parse(LEDGE_ESCR1).expect("the frozen escR1 parses");
     let mut b: Vec<([i32; 3], String)> = Vec::new();
     // (the rows' extent: row k from z 2 + 8k - 1 to its stop at 2 + 8k + 7)
@@ -873,7 +910,8 @@ fn ledge_scene_row(name: &str, v: f64, north: bool, rows: &[(Option<f64>, bool)]
     floor(&mut b, 0, 32, 0, 16 * chunks_z, 63, "minecraft:stone");
     let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
     let line = if north { 25 } else { 24 };
-    for (k, (gap, ridden)) in rows.iter().enumerate() {
+    for (k, (gap, ridden, v)) in rows.iter().enumerate() {
+        let v = *v;
         let dz = 8 * k as i32 - 22;
         let at = |p: [i32; 3]| [p[0] + 2, p[1] + 60, p[2] + dz];
         for (p, st) in &d.blocks {
@@ -2966,6 +3004,8 @@ fn scenes_raw() -> Vec<Scene> {
     }
     v.push(ledge_scene_row("ledge-r1n-182", 1.82, true, &LEDGE_ROWS));
     v.push(ledge_scene_row("ledge-r1s-182", 1.82, false, &ledge_sweep_rows()));
+    // (tickexact 2026-11-11, ironspec's take-off clamp) a lone cart at each stored speed, ridden, then empty
+    v.push(ledge_scene_speeds("takeoff-clamp", false, &TAKEOFF_ROWS.iter().map(|(s, r)| (None, *r, *s)).collect::<Vec<_>>()));
     // (tickexact 2026-11-11, 58f770cc's HOME finding: a panicking rider's flee target) two lanes in a
     // void (no floor; the sandbox's edge walls kept beyond 16 of every rider, the lanes 24 apart): a
     // villager in a cart on a rail on glass, a zombie in a boat on glass 3 blocks north of it
@@ -3889,6 +3929,91 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [63, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's side push: S3's stand B branch beside A's approach one block
+    // apart) pairs of level rails along z (z 1..30 between stones), a cart on each: centres 1 apart
+    // in x at the same level (carts passing at 0.1, 0.2, 0.4 in opposite directions, ridden or
+    // empty; then one at rest mid-rail, the other passing it at those speeds), and the controls at
+    // 0.4 and at rest: centres 2 apart, 1 apart one level up, 1 apart one level down (in a trench).
+    // A pair every 4 blocks of x (the first rail at x 1 + 4k); cart A from z 5.5 moving +z, cart B
+    // from z 25.5 moving -z (or at rest at z 15.5)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 112, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        // (the second rail's offset: dx, dy; the speed; B: 0 passing, 1 at rest as placed (yaw 0:
+        // facing +x, across its rail), 2 at rest turned along its rail (Rotation 90), 3 set rolling
+        // at 0.04 from z 13.5 (its yaw follows its motion); ridden)
+        let mut pairs: Vec<(i32, i32, f64, u8, bool)> = Vec::new();
+        for rest in [0, 1] {
+            for ridden in [true, false] {
+                for v in [0.1, 0.2, 0.4] {
+                    pairs.push((1, 0, v, rest, ridden));
+                }
+            }
+        }
+        for (dx, dy) in [(2, 0), (1, 1), (1, -1)] {
+            for rest in [0, 1] {
+                for ridden in [true, false] {
+                    pairs.push((dx, dy, 0.4, rest, ridden));
+                }
+            }
+        }
+        for kind in [2, 3] {
+            for ridden in [true, false] {
+                pairs.push((1, 0, 0.4, kind, ridden));
+            }
+        }
+        let track = |b: &mut Vec<([i32; 3], String)>, x: i32, y: i32| {
+            for yy in 64..y {
+                for z in 0..=31 {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+            }
+            if y < 64 {
+                for z in 0..=31 {
+                    b.push(([x, y - 1, z], stone.to_string()));
+                    b.push(([x, y, z], "minecraft:air".to_string()));
+                }
+            }
+            b.push(([x, y, 0], stone.to_string()));
+            b.push(([x, y, 31], stone.to_string()));
+            for z in 1..=30 {
+                b.push(([x, y, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+        };
+        for (k, (dx, dy, v, rest, ridden)) in pairs.iter().enumerate() {
+            let xa = 1 + 4 * k as i32;
+            let (xb, yb) = (xa + dx, 64 + dy);
+            track(&mut b, xa, 64);
+            track(&mut b, xb, yb);
+            let nbt = |m: f64, extra: &str| {
+                let motion = format!("Motion:[0.0d,0.0d,{m:.2}d]{extra}");
+                if *ridden { Some(format!("{{{motion},Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")) } else { Some(format!("{{{motion}}}")) }
+            };
+            let _ = rider;
+            mobs.push(("minecraft:minecart".into(), [xa as f64 + 0.5, 64.0625, 5.5], nbt(*v, "")));
+            match rest {
+                1 => mobs.push(("minecraft:minecart".into(), [xb as f64 + 0.5, yb as f64 + 0.0625, 15.5], nbt(0.0, ""))),
+                2 => mobs.push(("minecraft:minecart".into(), [xb as f64 + 0.5, yb as f64 + 0.0625, 15.5], nbt(0.0, ",Rotation:[90.0f,0.0f]"))),
+                3 => mobs.push(("minecraft:minecart".into(), [xb as f64 + 0.5, yb as f64 + 0.0625, 13.5], nbt(0.04, ""))),
+                _ => mobs.push(("minecraft:minecart".into(), [xb as f64 + 0.5, yb as f64 + 0.0625, 25.5], nbt(-*v, ""))),
+            }
+        }
+        v.push(Scene {
+            name: "side-push".into(),
+            chunks: [0, 0, 6, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [111, 68, 31]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
@@ -6749,6 +6874,53 @@ pub fn rec_plate(path: &std::path::Path, scene: &str) -> Result<()> {
         let fi = first_in[k].map_or(String::new(), |t| format!(", a top first in the cell at t{t}"));
         let ed: Vec<String> = edges[k].iter().map(|(t, on)| format!("{} t{t}", if *on { "on" } else { "off" })).collect();
         println!("plate {},{},{}: {l}{fi}; {}", q[0], q[1], q[2], if ed.is_empty() { "never powered".to_string() } else { ed.join(", ") });
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's side push) A recorded scene's carts in pairs of lanes (`pairs`:
+/// each the block x of two lanes, one cart each): every tick their boxes, inflated 0.2 sideways as
+/// pushAndPickupEntities reads them, overlap the other's, with both carts' positions and velocities
+/// and each velocity's departure from free running (its own the tick before times the rail's
+/// friction, 0.997 ridden, 0.96 empty: a push shows as a departure); then each pair's largest
+/// departure.
+pub fn rec_side(path: &std::path::Path, pairs: &[(i64, i64)]) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    type C = ([f64; 3], [f64; 3], bool);
+    let mut frames: Vec<std::collections::HashMap<i64, C>> = Vec::new();
+    for (t, l) in lines.enumerate() {
+        let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
+        let ents = f["entities"].as_array().cloned().unwrap_or_default();
+        let v3 = |v: &serde_json::Value| [v[0].as_f64().unwrap_or(0.0), v[1].as_f64().unwrap_or(0.0), v[2].as_f64().unwrap_or(0.0)];
+        let ridden: std::collections::HashSet<u64> = ents.iter().filter_map(|e| e["vehicle"].as_str().and_then(|s| s.strip_prefix('#')).and_then(|s| s.parse().ok())).collect();
+        let mut m = std::collections::HashMap::new();
+        for e in ents.iter().filter(|e| e["type"] == "minecart") {
+            let p = v3(&e["pos"]);
+            m.insert(p[0].floor() as i64, (p, v3(&e["motion"]), ridden.contains(&e["n"].as_u64().unwrap_or(0))));
+        }
+        frames.push(m);
+    }
+    for &(xa, xb) in pairs {
+        println!("pair x {xa} / {xb}:");
+        let mut worst = (0.0f64, 0usize);
+        for t in 1..frames.len() {
+            let (Some(a), Some(b), Some(pa), Some(pb)) = (frames[t].get(&xa), frames[t].get(&xb), frames[t - 1].get(&xa), frames[t - 1].get(&xb)) else { continue };
+            let dev = |c: &C, p: &C| {
+                let f = if c.2 { 0.997 } else { 0.96 };
+                ((c.1[0] - p.1[0] * f).powi(2) + (c.1[2] - p.1[2] * f).powi(2)).sqrt()
+            };
+            let (da, db) = (dev(a, pa), dev(b, pb));
+            let near = (a.0[0] - b.0[0]).abs() < 1.18 && (a.0[2] - b.0[2]).abs() < 1.18 && (a.0[1] - b.0[1]).abs() < 0.7;
+            if near {
+                println!("  t{t}: A z {:.4} vz {:+.4} (dev {:.4}) | B z {:.4} y {:.3} vz {:+.4} (dev {:.4})", a.0[2], a.1[2], da, b.0[2], b.0[1], b.1[2], db);
+                if da.max(db) > worst.0 {
+                    worst = (da.max(db), t);
+                }
+            }
+        }
+        println!("  largest departure while overlapping: {:.4} at t{}", worst.0, worst.1);
     }
     Ok(())
 }

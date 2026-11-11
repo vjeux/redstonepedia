@@ -105,6 +105,7 @@ rider-sensors.rec	d6384499bd5e8371		26.3	2026-11-11T19:49Z on c0d3305d74	mctas m
 rollback-booster.rec	0c0908cf503d265e		26.3	2026-11-11T20:21Z on 6ea194a67b	mctas mobai record rollback-booster --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 rollback-halt.rec	3c8fb706f45830db		26.3	2026-11-11T20:15Z on d9a04c79b9	mctas mobai record rollback-halt --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+side-push.rec	99d33582e58d1134		26.3	2026-11-11T20:45Z on 37d74a3853	mctas mobai record side-push --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 siding-fault-nap40.rec	f1df1678c77517e6		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record siding-fault-nap40 --seed 1 --ticks 3300 --dir designs/redsim/recorded/mobai
 siding-raw.rec	04aee9029e5c9d6f		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-raw --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
@@ -124,6 +125,7 @@ stroll-village-taken.rec	17750fcccd7a68e6		26.3	2026-11-11T19:33Z on d2663812b7	
 stroll-village.rec	b0db1ed4a068d7b8		26.3	2026-11-11T19:33Z on d2663812b7	mctas mobai record stroll-village --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
 sulfur-cube-rail.rec	8099a548983c70e9		26.3	2026-11-11T07:12Z on 244b9196d	mctas mobai record sulfur-cube-rail --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mobai record sulfur-cubes --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+takeoff-clamp.rec	2d6def856f3a43f0		26.3	2026-11-11T20:54Z on 37d74a3853	mctas mobai record takeoff-clamp --seed 1 --ticks 100 --dir designs/redsim/recorded/mobai
 ticket-release.rec	51ce4f1f04f560c4		26.3	2026-11-11T15:48Z on 78e705bca2	mctas mobai record ticket-release --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 unload-part-v3-raw.rec	8bd68eb2d7b4d719		26.3	2026-11-11T03:34Z on 2a49ff7aa	mctas mobai record unload-part-v3-raw --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 unload-siding-raw.rec	c0040c175b9b7e6a		26.3	2026-11-11T02:53Z on 9dcfccb602	mctas mobai record unload-siding-raw --seed 1 --ticks 3900 --dir designs/redsim/recorded/mobai
