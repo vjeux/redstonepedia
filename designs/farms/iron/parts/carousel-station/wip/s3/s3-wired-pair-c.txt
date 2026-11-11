@@ -3,6 +3,11 @@
 # + carousel-loop-scene pasted at 0,0,0 (0 blocks)
 # + carousel-loop-scene pasted at 0,0,0 (0 blocks)
 # + lines pasted at 0,0,0 (64 blocks)
+# + carousel-loop-scene pasted at 0,0,0 (0 blocks)
+# + lines pasted at 0,0,0 (64 blocks)
+# + lines pasted at 0,0,0 (1 blocks)
+# + carousel-loop-scene pasted at 0,0,0 (0 blocks)
+# + lines pasted at 0,0,0 (4 blocks)
 name: carousel-loop-scene
 circuit: mob-farm iron_ingot
 declared: 6,4,26 rail; 6,4,27 rail; 6,4,28 rail; 6,4,29 rail; 6,3,30 powered_rail[powered=false]; 6,2,31 powered_rail[powered=false]; 6,2,32 rail; 6,3,33 rail; 6,2,34 powered_rail[powered=false]; 6,1,35 powered_rail[powered=false]; 6,1,36 rail; 6,2,37 rail; 6,1,38 powered_rail[powered=false]; 6,0,39 powered_rail[powered=false]; 6,0,40 rail; 6,1,41 rail; 6,0,42 powered_rail[powered=false]; 6,0,43 rail; 6,1,44 rail; 6,0,45 powered_rail[powered=false]; 6,0,46 rail; 6,1,47 rail; 6,0,48 powered_rail[powered=false]; 6,0,49 rail; 6,1,50 rail; 6,0,51 powered_rail[powered=false]; 6,0,52 rail; 6,1,53 rail; 5,0,53 powered_rail[powered=false]; 4,0,53 rail; 3,1,53 rail; 3,0,52 powered_rail[powered=false]; 3,0,51 rail; 3,1,50 rail; 3,0,49 powered_rail[powered=false]; 3,0,48 rail; 3,1,47 rail; 3,0,46 powered_rail[powered=false]; 3,0,45 rail; 3,1,44 rail; 3,0,43 powered_rail[powered=false]; 3,0,42 rail; 3,1,41 rail; 3,0,40 powered_rail[powered=false]; 3,0,39 rail; 3,1,38 rail; 3,0,37 powered_rail[powered=false]; 3,0,36 rail; 3,1,35 rail; 3,0,34 powered_rail[powered=false]; 3,0,33 rail; 3,1,32 rail; 3,0,31 powered_rail[powered=false]; 3,0,30 rail; 3,1,29 rail; 3,0,28 powered_rail[powered=false]; 3,0,27 rail; 3,1,26 rail; 3,0,25 powered_rail[powered=false]; 3,0,24 rail; 3,1,23 rail; 3,1,22 rail; 3,1,21 rail; 3,1,20 rail; 3,1,19 rail; 3,1,18 rail; 3,1,17 rail; 3,1,16 rail; 3,1,15 rail; 3,1,14 rail; 3,1,13 powered_rail[powered=true]!; 3,2,12 powered_rail[powered=true]!; 3,3,11 detector_rail; 3,4,10 powered_rail[powered=true]!; 3,5,9 rail; 3,4,8 rail; 3,3,7 rail; 3,2,6 rail[shape=ascending_west]; 4,1,6 rail; 5,0,6 rail; 6,-1,6 powered_rail[powered=false]; 7,-1,6 rail; 8,0,6 rail; 9,-1,6 rail; 10,-2,6 powered_rail[powered=false]; 11,-2,6 rail; 12,-1,6 detector_rail; 13,-2,6 rail; 14,-3,6 powered_rail[powered=false]; 15,-3,6 rail; 15,-3,7 powered_rail[powered=true]!; 15,-2,8 powered_rail[powered=true]!; 15,-1,9 powered_rail[powered=true]!; 15,0,10 powered_rail[powered=true]!; 15,1,11 powered_rail[powered=true]!; 15,2,12 rail; 15,1,13 rail; 15,0,14 rail; 15,-1,15 rail; 15,-1,16 powered_rail[powered=true]!; 15,-1,17 powered_rail[powered=true]!; 15,-1,18 powered_rail[powered=true]!; 15,-1,19 powered_rail[powered=true]!; 15,-1,20 powered_rail[powered=true]!; 15,-1,21 powered_rail[powered=true]!; 15,0,22 powered_rail[powered=true]!; 15,1,23 powered_rail[powered=true]!; 15,2,24 powered_rail[powered=true]!; 15,3,25 powered_rail[powered=true]!; 15,4,26 rail; 14,4,26 rail; 13,4,26 rail; 12,4,26 rail; 11,4,26 rail; 10,4,26 rail; 9,4,26 rail; 8,4,26 rail; 7,4,26 rail; 14,-2,6 oak_fence_gate[open=false]; 10,-1,6 oak_fence_gate[open=false]; 6,0,6 oak_fence_gate[open=false]
@@ -462,7 +467,7 @@ layer -27:
   ...G...........r
   ...G
   ...G
-  ..GG
+  ..SS
   ..GG
   .
   .
@@ -517,14 +522,14 @@ layer -26:
   ...L
   ...L
   ..GL
-  ..LL
+  ..FF
   ..KM
   .
   .
   .
   .
-  ...............E
-  .
+  ...............ES
+  ...............GG
   .
   .
   .
@@ -577,9 +582,9 @@ layer -25:
   .........G
   .
   .
-  .
-  .
-  .
+  ................S
+  ................C
+  ...............KM
   .
   .
   .
@@ -631,8 +636,8 @@ layer -24:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -685,8 +690,8 @@ layer -23:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -739,8 +744,8 @@ layer -22:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -793,8 +798,8 @@ layer -21:
   .
   .
   .
-  .
-  .........o
+  ................S
+  .........o......C
   .
   .
   .
@@ -847,8 +852,8 @@ layer -20:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -901,8 +906,8 @@ layer -19:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -955,8 +960,8 @@ layer -18:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1009,8 +1014,8 @@ layer -17:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1063,8 +1068,8 @@ layer -16:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1117,8 +1122,8 @@ layer -15:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1171,8 +1176,8 @@ layer -14:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1225,8 +1230,8 @@ layer -13:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1279,8 +1284,8 @@ layer -12:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1333,8 +1338,8 @@ layer -11:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1387,8 +1392,8 @@ layer -10:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1441,8 +1446,8 @@ layer -9:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1495,8 +1500,8 @@ layer -8:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1549,8 +1554,8 @@ layer -7:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1603,8 +1608,8 @@ layer -6:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1657,8 +1662,8 @@ layer -5:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1711,8 +1716,8 @@ layer -4:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1765,8 +1770,8 @@ layer -3:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1819,8 +1824,8 @@ layer -2:
   .
   .
   .
-  .
-  .
+  ................S
+  ................C
   .
   .
   .
@@ -1873,8 +1878,8 @@ layer -1:
   ...G
   ...G
   .
-  ...G
-  ...G
+  ...G............S
+  ...G............C
   .
   ...G
   ...G
@@ -1927,8 +1932,8 @@ layer 0:
   ...G
   ...r
   ...A
-  ...G
-  ...r
+  ...G............S
+  ...r............C
   ...A
   ...G
   ...r
@@ -1981,8 +1986,8 @@ layer 1:
   .
   ...L
   .
-  .
-  ...L
+  ................S
+  ...L............C
   .
   ......G
   ...L..G
@@ -2035,8 +2040,8 @@ layer 2:
   ...............E
   ...............S
   .
-  G
-  .
+  G...............S
+  ................C
   .........G
   ......G
   ......p
@@ -2089,8 +2094,8 @@ layer 3:
   .
   .
   ...............E
-  ......GGGGGGGGGG
-  ......G
+  ......GGGGGGGGGSS
+  ......G.........C
   ......G
   ......G
   ......p
@@ -2144,7 +2149,7 @@ layer 4:
   .
   .
   .
-  ......NJJJJJJJJM
+  ......NJJJJJJJJMQ
   ......L
   ......L
   ......L

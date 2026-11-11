@@ -3710,9 +3710,15 @@ pub struct MeterState {
     /// each tick of this stand (slot +60: A's on odd cycles, B's on even ones): the carts at rest
     /// in its three pockets
     tick_rest: Vec<(i64, usize)>,
+    /// per pocket, since when a cart has been at rest in it; at each summon, how long before it
+    /// the batch's last cart came to rest (None: not all three at rest)
+    rest_since: [Option<i64>; 3],
+    tick_rest_margin: Vec<Option<i64>>,
     /// each train's opening 1 and every Dh edge (a train's Dh3: the third Dh edge after its H1)
     h1_times: Vec<i64>,
     dh_times: Vec<i64>,
+    /// the REL cell's level per gt (option (c) delays stand B's REL by reading it late)
+    rel_hist: Vec<bool>,
     /// DEP_X's probe: each cart's press of a detector on A's branch at (xb,1,14) (the cart's centre
     /// crossing z 15.29 northward on the flat run), as (cycle, cart, gt after the cycle's tick)
     dep_cross: Vec<(i64, usize, i64)>,
@@ -3865,6 +3871,9 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.t_z = (o.approach.max(1) - 1) as f64;
     }
     let pos: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| w.entities.list.iter().find(|e| e.id == *id).map(|e| (e.pos.x - fx, e.pos.y - fy, e.pos.z - fz, (e.delta_movement.x.powi(2) + e.delta_movement.y.powi(2) + e.delta_movement.z.powi(2)).sqrt()))).collect();
+    // (the wired pair: each stand's meter sees only the carts within its own height band, so the
+    // other stand's carts, 27 apart, never enter its counts)
+    let pos: Vec<Option<(f64, f64, f64, f64)>> = if m.wired_b { pos.into_iter().map(|p| p.filter(|p| p.1 > -12.0 && p.1 < 12.0)).collect() } else { pos };
     // (`MCTAS_METER_TRACE=K1,K2,..,T0,T1`: those carts' loop positions from gt T0 to T1, to stderr)
     if let Ok(v) = std::env::var("MCTAS_METER_TRACE") {
         let n: Vec<i64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
@@ -3877,6 +3886,11 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     let in_h = |p: &(f64, f64, f64, f64), slack: f64| p.0 + 0.49 > xb as f64 && p.0 - 0.49 < xb as f64 + 1.0 && p.1 + 0.7 > 3.0 && p.1 < 4.5 && p.2 - 0.49 < 0.625 + slack && p.2 + 0.49 > 0.375;
     let in_g = |p: &(f64, f64, f64, f64), g: BlockPos| { let gx = (g.x - sx) as f64; let gy = g.y as f64; p.0 + 0.49 > gx + 0.375 && p.0 - 0.49 < gx + 0.625 && (p.2 - 0.5).abs() < 0.99 && p.1 + 0.7 > gy && p.1 < gy + 1.5 };
     let rel_on = rel_bench.is_some_and(|r| w.get(r).to_string().contains("redstone_block"));
+    // (option (c) for stand B, `MCTAS_WIRED_B_DELTA` D: B's own tick D gt after A + 100: its REL
+    // and its summoning moment D later, its launch unchanged)
+    let b_delta = if s.stand_b { std::env::var("MCTAS_WIRED_B_DELTA").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(0) } else { 0 };
+    s.rel_hist.push(rel_on);
+    let rel_on = if b_delta > 0 { s.rel_hist.len() > b_delta && s.rel_hist[s.rel_hist.len() - 1 - b_delta] } else { rel_on };
     let det_on: [bool; 5] = dets.map(|p| w.get(p).to_string().contains("powered=true"));
     let mut rise = [false; 5];
     for k in 0..5 {
@@ -4281,9 +4295,17 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     // its three pockets)
     let rel_dt = s.rel_t.map_or(13, |r| r.rem_euclid(100));
     let next_rel_c = if dt >= rel_dt { c + 1 } else { c };
-    if w.time % 100 == 0 && (next_rel_c % 2 == 1) == s.stand_b {
-        let n = [7.885f64, 3.885, -0.115].iter().filter(|px| pos.iter().flatten().any(|p| (p.0 - (ox as f64 + **px)).abs() < 0.3 && (p.2 - 0.5).abs() < 0.3 && p.3 < 0.02)).count();
+    // (each pocket: since when a cart has been at rest in it (centre within 0.3 of its rest x, speed
+    // under 0.02))
+    for (k, px) in [7.885f64, 3.885, -0.115].iter().enumerate() {
+        let at_rest = pos.iter().flatten().any(|p| (p.0 - (ox as f64 + *px)).abs() < 0.3 && (p.2 - 0.5).abs() < 0.3 && p.3 < 0.02);
+        s.rest_since[k] = if at_rest { Some(s.rest_since[k].unwrap_or(t)) } else { None };
+    }
+    if (w.time - b_delta as i64).rem_euclid(100) == 0 && (next_rel_c % 2 == 1) == s.stand_b {
+        let n = s.rest_since.iter().filter(|r| r.is_some()).count();
         s.tick_rest.push((t, n));
+        // (the batch's last cart at rest: how long before this summon)
+        s.tick_rest_margin.push(if n == 3 { s.rest_since.iter().flatten().max().map(|r| t - r) } else { None });
     }
     // (the hold's arrivals: a cart on the descent (x xb, z 0.5..5) reversing toward T; its stored
     // and visible speed when it reversed, the contact point and the farthest it went back)
@@ -4543,7 +4565,7 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
             })
             .collect();
         let _ = tick_parity;
-        let rest: Vec<String> = s.tick_rest.iter().map(|(t, n)| format!("{}+{} {n}/3", t / 100, t % 100)).collect();
+        let rest: Vec<String> = s.tick_rest.iter().zip(s.tick_rest_margin.iter().chain(std::iter::repeat(&None))).map(|((t, n), m)| format!("{}+{} {n}/3{}", t / 100, t % 100, m.map_or(String::new(), |m| format!(" (last at rest {m} gt before)")))).collect();
         out.push(format!("meter the stand's summoning moment (the run's world-time multiples of 100 before this stand's RELs): each train's Dh3 against it (gt before it; negative: late): {}; carts at rest in the pockets at each: {}", margins.join(", "), rest.join(", ")));
         let mut per: std::collections::BTreeMap<i64, Vec<i64>> = std::collections::BTreeMap::new();
         for (c, _, dt) in &s.dep_cross {
