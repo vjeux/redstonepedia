@@ -58,6 +58,11 @@ fn difficulty_name(d: Difficulty) -> &'static str {
     }
 }
 
+/// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
+/// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
+/// during the freeze, and whether the cart is ridden.
+const GATE_FROZEN_LANES: [(f64, bool, bool); 8] = [(0.06, false, true), (0.06, true, true), (0.2, false, true), (0.2, true, true), (0.5, false, true), (0.5, true, true), (0.06, false, false), (0.06, true, false)];
+
 /// A scene's scripted block changes: after N ticks, these blocks set like a player's (flags 3:
 /// neighbor and shape updates, `onPlace`), on both sides between the same two ticks.
 pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
@@ -72,6 +77,20 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, farmopt's H retry on a frozen cart) the lanes' chunk (1,0) frozen
+        // (its ticket dropped: level 32 beside the forced chunk 0,0) from the summon; every gate shut
+        // at t7; the retry lanes' gates opened at t30 and shut at t42; the chunk back at t80
+        "gate-frozen" => {
+            let gate = |open: bool| format!("minecraft:oak_fence_gate[facing=north,in_wall=false,open={open},powered=false]");
+            let lanes: Vec<(i32, bool)> = GATE_FROZEN_LANES.iter().enumerate().map(|(k, (_, retry, _))| (16 + 2 * k as i32, *retry)).collect();
+            vec![
+                (0, vec![s([0, 0, 0], "unload:1,0,1,0")]),
+                (7, lanes.iter().map(|(x, _)| ([*x, 64, 7], gate(false))).collect()),
+                (30, lanes.iter().filter(|(_, r)| *r).map(|(x, _)| ([*x, 64, 7], gate(true))).collect()),
+                (42, lanes.iter().filter(|(_, r)| *r).map(|(x, _)| ([*x, 64, 7], gate(false))).collect()),
+                (80, vec![s([0, 0, 0], "load:1,0,1,0")]),
+            ]
+        }
         // (tickexact 2026-11-11) the gate admissions: C1's and C2's gates (z 9, 12) for the first
         // tick only; G0 (z 3) and G_P (z 6) opened at t200 (3 and 2 gt) and at t600 (3 gt each);
         // each input a redstone block north of its gate
@@ -642,18 +661,63 @@ const R1_CONTACT_P: &str = include_str!("../scenes/r1-contact-p.txt");
 /// (tickexact 2026-11-11) A lane at `x`: a closed oak gate at (x,64,3) at the foot of `n` ascending
 /// rails rising south ((x,64+s,4+s), each on stone), then flat rails at y 64+n to z 14.
 fn slope_lane(b: &mut Vec<([i32; 3], String)>, x: i32, n: i32, stone: &str) {
-    b.push(([x, 64, 3], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+    slope_lane_at(b, x, 0, n, stone);
+}
+
+/// [`slope_lane`] moved `dz` along z.
+fn slope_lane_at(b: &mut Vec<([i32; 3], String)>, x: i32, dz: i32, n: i32, stone: &str) {
+    b.push(([x, 64, 3 + dz], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
     for s in 0..n {
         for yy in 64..64 + s {
-            b.push(([x, yy, 4 + s], stone.to_string()));
+            b.push(([x, yy, 4 + s + dz], stone.to_string()));
         }
-        b.push(([x, 64 + s, 4 + s], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+        b.push(([x, 64 + s, 4 + s + dz], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
     }
     for z in (4 + n)..=14 {
         for yy in 64..64 + n {
-            b.push(([x, yy, z], stone.to_string()));
+            b.push(([x, yy, z + dz], stone.to_string()));
         }
-        b.push(([x, 64 + n, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        b.push(([x, 64 + n, z + dz], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+    }
+}
+
+/// (tickexact 2026-11-11, ironspec's queue-back sweep) A pressed 3-cart queue on `n` slope rails
+/// before a closed gate (slope_lane's), its front and middle ridden and its back empty, at rest
+/// where scene queue-settle found them (z 4.1150 / 4.9050 / 5.6950, y 64.1775 / 64.9675 / 65.7575:
+/// each 0.79 behind the one ahead, its rider's box), and an arrival set off from the flat just
+/// behind the slope's top (z 4.5 + n) at stored 0.02 k (101 lanes, 0 to 2.0, 26 to a row 2 apart,
+/// rows 12 apart), ridden or empty.
+fn queue_back_scene(name: &str, n: i32, arrive_ridden: bool) -> Scene {
+    let stone = "minecraft:stone";
+    let mut b = Vec::new();
+    floor(&mut b, 0, 64, 0, 48, 63, stone);
+    let mut mobs = Vec::new();
+    let cart = |x: f64, y: f64, z: f64, v: f64, ridden: bool| {
+        let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+        ("minecraft:minecart".to_string(), [x, y, z], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", -v)))
+    };
+    for k in 0..101 {
+        let (col, row) = (k % 26, k / 26);
+        let (x, dz) = (1 + 2 * col as i32, 12 * row as i32);
+        slope_lane_at(&mut b, x, dz, n, stone);
+        let xf = x as f64 + 0.5;
+        mobs.push(cart(xf, 64.1775, 4.1150 + dz as f64, 0.0, true));
+        mobs.push(cart(xf, 64.9675, 4.9050 + dz as f64, 0.0, true));
+        mobs.push(cart(xf, 65.7575, 5.6950 + dz as f64, 0.0, false));
+        mobs.push(cart(xf, (64 + n) as f64, 4.5 + n as f64 + dz as f64, 0.02 * k as f64, arrive_ridden));
+    }
+    Scene {
+        name: name.to_string(),
+        chunks: [0, 0, 3, 2],
+        blocks: b,
+        mobs,
+        day_time: 6000,
+        difficulty: Difficulty::Normal,
+        mob_griefing: true,
+        watch: ([0, 62, 0], [63, 72, 47]),
+        player: None,
+        player_creative: false,
+        random_tick_speed: 0,
     }
 }
 
@@ -3664,6 +3728,61 @@ fn scenes_raw() -> Vec<Scene> {
             player_creative: false,
             random_tick_speed: 0,
         });
+    }
+    // (tickexact 2026-11-11, farmopt's H retry on a frozen cart: cc767b78's bench freezes the
+    // released front cart with its box 0.06 into H's, H shuts on it, a retry opens and shuts it
+    // again, then the thaw) H's geometry in lanes x 17..31 (chunk 1,0): a fence gate at (x,64,7) at
+    // the foot of two ascending rails rising south ((x,64,8), (x,65,9)) and the flat at y 66, the
+    // gate's cell over a rail one level down ((x,63,4..7), stone at z 3: the snap turn's drop); in
+    // each lane a cart set with its front d into the gate's box (center z 8.115 - d), moving -z at
+    // stored 0.2, the gate open; the chunk frozen from the summon (scene_actions: "gate-frozen")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        let mut mobs = Vec::new();
+        for (k, (d, _retry, ridden)) in GATE_FROZEN_LANES.iter().enumerate() {
+            // (16..30: no lane on the frozen chunk's far edge, x 31, beside the unloaded chunk 2)
+            let x = 16 + 2 * k as i32;
+            b.push(([x, 64, 7], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]".to_string()));
+            b.push(([x, 64, 8], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            b.push(([x, 64, 9], stone.to_string()));
+            b.push(([x, 65, 9], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            for z in 10..=14 {
+                for y in 64..=65 {
+                    b.push(([x, y, z], stone.to_string()));
+                }
+                b.push(([x, 66, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for z in 4..=7 {
+                b.push(([x, 62, z], stone.to_string()));
+                b.push(([x, 63, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            let zc = 8.115 - d;
+            let yc = 64.0625 + (zc - 8.0).max(0.0);
+            let rider = if *ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+            mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, yc, zc], Some(format!("{{Motion:[0.0d,0.0d,-0.2d]{rider}}}"))));
+        }
+        v.push(Scene {
+            name: "gate-frozen".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's queue-back sweep: an arrival hits a queue's back, not its
+    // front) a pressed queue of a ridden front, a ridden middle and an empty back on 2, 3 and 5
+    // slope rails before a gate, arrivals at stored 0..2.0 in steps of 0.02, ridden or empty
+    for n in [2, 3, 5] {
+        for (tag, ridden) in [("r", true), ("e", false)] {
+            v.push(queue_back_scene(&format!("queue-back-{n}-{tag}"), n, ridden));
+        }
     }
     // (tickexact 2026-11-11, ironspec's pinned-front sweep on R1's own column: ironfarm's redsim
     // runs merge from 0.44 stored with the front at rest pinned on G0, against slope-merge's

@@ -326,6 +326,29 @@ pub fn tick(w: &mut World, i: usize) {
     if crate::entity::portal::handle_portal(w, i) {
         return;
     }
+    // (tickexact 2026-11-11, the empty-cart census) a cart in lava (Entity.lavaHurt: 4 a tick) or
+    // in a cactus's cell (CactusBlock.entityInside: 1 a contact tick) takes VehicleEntity damage
+    // (+10 a point, destroyed past 40), which redsim does not model: refused, named
+    {
+        let p = w.entities.list[i].pos;
+        let cells = |a: f64, b: f64| mth::floor(a)..=mth::floor(b);
+        let mut hit = None;
+        for x in cells(p.x - 0.49, p.x + 0.49) {
+            for y in cells(p.y, p.y + 0.7) {
+                for z in cells(p.z - 0.49, p.z + 0.49) {
+                    if matches!(w.get(BlockPos::new(x, y, z)), Block::Lava { .. } | Block::Cactus { .. }) {
+                        hit = Some(BlockPos::new(x, y, z));
+                    }
+                }
+            }
+        }
+        if let Some(q) = hit {
+            let why = format!("a minecart in lava or a cactus's cell ({q}): its VehicleEntity damage (lavaHurt 4 a tick, a cactus 1 a contact tick) is not modeled");
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+        }
+    }
     // OldMinecartBehavior.tick (server side)
     let g = entity::kinds::gravity(w, i);
     if g != 0.0 {
