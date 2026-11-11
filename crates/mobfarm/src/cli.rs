@@ -1239,9 +1239,10 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 1)]
         jobs: usize,
         /// (ironspec's reload-order rule, farmopt 2026-11-11) The run again under each of these
-        /// load orders for every whole-part `--act ...,unload,N`: `all` = save, reverse, seed:1 ..
-        /// seed:30 (tick-exact 2026-11-11: each order is one sample of the game's random reload,
-        /// so a row samples at least 30), `all:N` = save, reverse, seed:1 .. seed:N, or a list
+        /// load orders for every whole-part `--act ...,unload,N`: `all:N` = N orders (save,
+        /// reverse, then seed:1 .. seed:N-2); `all` = `all:40` (ironspec 2026-11-11 05:12:
+        /// wherever a sensor phase cannot be forced, a reload row runs at least 40 samples with 0
+        /// failures; each order is one sample of the game's random reload, tick-exact), or a list
         /// (`save,reverse,seed:3`, ranges `seed:1-30`); on `--jobs` threads: one line each (its
         /// problems and first problem, the visits, night 1, the lap order, and the visits spanning
         /// the unload: each one's rest slot and tick), then the row's verdict (a failure under any
