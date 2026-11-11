@@ -314,6 +314,96 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
 static RELOAD_WAKE_FORCE: std::sync::Mutex<Option<(i64, i64)>> = std::sync::Mutex::new(None);
 static RELOAD_WAKE_POSES: std::sync::Mutex<Option<Vec<(i64, Option<String>, Option<String>)>>> = std::sync::Mutex::new(None);
 
+/// (tickexact 2026-11-11, the ledge report) the game's minecarts each tick while a ledge scene runs:
+/// (game time, entity number, position, motion).
+type LedgeTrack = Vec<(i64, u32, [f64; 3], [f64; 3])>;
+static LEDGE_TRACK: std::sync::Mutex<Option<LedgeTrack>> = std::sync::Mutex::new(None);
+
+/// (tickexact 2026-11-11, ironspec's ledge on R1's drop) `mctas mobai ledge`: each ledge scene (one per
+/// stored speed of [`LEDGE_SPEEDS`]) in the game and in redsim, compared tick for tick, and per row
+/// (its follower's gap, riders or not) from the game's frames: each cart's take-off (the last tick
+/// on the take-off flats), its landing (the first tick back on a rail: the cell, its speed), the
+/// carts' least centre spacing after the take-off (a merge: closer than a cart's length, 0.98) and
+/// whether each cart ends on the line's rails (a derail: off them).
+pub fn ledge(version: &str, ticks: u32) -> Result<()> {
+    let all = scenes();
+    for (tag, sp) in LEDGE_SPEEDS {
+        let name = format!("ledge-r1-{tag}");
+        let s = all.iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
+        *LEDGE_TRACK.lock().map_err(|_| anyhow!("lock"))? = Some(Vec::new());
+        let c = compare(version, s, 1, ticks, 100, false, false, None);
+        let track = LEDGE_TRACK.lock().map_err(|_| anyhow!("lock"))?.take().unwrap_or_default();
+        let c = c?;
+        println!("{name} (stored {sp} b/t): {} ticks compared, {}", c.ticks, c.first.as_ref().map_or("0 differences".to_string(), |d| format!("FIRST DIFFERENCE at {}: {}", d.t, d.what)));
+        // the rows' carts in entity order (a ridden cart's villager takes the next number)
+        let mut n = 0u32;
+        for (k, (gap, ridden)) in LEDGE_ROWS.iter().enumerate() {
+            let carts: Vec<u32> = (0..if gap.is_some() { 2 } else { 1 }).map(|j| n + j * if *ridden { 2 } else { 1 }).collect();
+            n += carts.len() as u32 * if *ridden { 2 } else { 1 };
+            let z_line = (2 + 8 * k) as f64 + 0.5;
+            let path = |e: u32| -> Vec<(i64, [f64; 3], [f64; 3])> { track.iter().filter(|(_, m, _, _)| *m == e).map(|(t, _, p, v)| (*t, *p, *v)).collect() };
+            let t0 = track.first().map(|x| x.0).unwrap_or(0);
+            let mut parts = Vec::new();
+            for (j, e) in carts.iter().enumerate() {
+                let p = path(*e);
+                // take-off: the last tick at rail height on the flats (x >= 8.0: design 6.0); landing:
+                // the first tick after it back at rest on a rail of the drop (no fall: motion y >= 0)
+                let take = p.iter().rposition(|(_, q, _)| q[0] >= 8.0 && (q[1] - 73.0625).abs() < 1e-6);
+                let land = take.and_then(|i| p[i + 1..].iter().position(|(_, q, v)| q[1] < 73.0 && v[1].abs() < 1e-9 && q[0] < 8.0).map(|d| i + 1 + d));
+                let desc = match (take, land) {
+                    (Some(i), Some(l)) => {
+                        let (tl, ql, vl) = p[l];
+                        let cell = [(ql[0] - 2.0).floor() as i32, (ql[1] - 60.0).floor() as i32, 24];
+                        format!("cart {} off at t+{} landed t+{} at x {:.2} y {:.4} (design cell {},{},{}) at {:.3} b/t", ["A", "B"][j], p[i].0 - t0, tl - t0, ql[0] - 2.0, ql[1] - 60.0, cell[0], cell[1], cell[2], (vl[0] * vl[0] + vl[2] * vl[2]).sqrt())
+                    }
+                    (Some(i), None) => format!("cart {} off at t+{}, never landed on a rail", ["A", "B"][j], p[i].0 - t0),
+                    _ => format!("cart {} never left the flats", ["A", "B"][j]),
+                };
+                // the end: at the line's stop (the descent's flats, design x 0, y 5), stuck on the
+                // take-off's lip (over the gap at the flats' height, resting on their support), stuck
+                // in the gap (on the landing's support, below the gap), or elsewhere
+                let end = p.last().map(|(_, q, v)| {
+                    let (x, y, z) = (q[0] - 2.0, q[1] - 60.0, q[2] - (8 * k) as f64 + 22.0);
+                    let moving = (v[0] * v[0] + v[2] * v[2]).sqrt() > 1e-6;
+                    let what = if (x - 0.5).abs() < 0.01 && (y - 5.0625).abs() < 0.01 && z >= 27.5 {
+                        "ends at the stop".to_string()
+                    } else if (5.0..6.3).contains(&x) && (y - 13.0).abs() < 0.01 && !moving {
+                        "STUCK on the take-off's lip (resting on its support over the gap)".to_string()
+                    } else if (4.5..6.0).contains(&x) && y < 12.0 && y > 10.0 && !moving {
+                        "STUCK in the gap (resting on the landing's support)".to_string()
+                    } else if (q[2] - z_line).abs() > 0.01 && (q[0] - 2.5).abs() > 0.01 {
+                        "DERAILED (off the line)".to_string()
+                    } else {
+                        format!("ends {}", if moving { "still moving" } else { "at rest" })
+                    };
+                    format!("{what} at design {x:.2},{y:.2},{z:.2}")
+                }).unwrap_or_default();
+                parts.push(format!("{desc}; {end}"));
+            }
+            // the least centre spacing of the pair after the leader's take-off
+            let spacing = if carts.len() == 2 {
+                let (a, b) = (path(carts[0]), path(carts[1]));
+                let off = a.iter().rposition(|(_, q, _)| q[0] >= 8.0).map(|i| a[i].0).unwrap_or(t0);
+                let least = a
+                    .iter()
+                    .filter(|(t, _, _)| *t > off)
+                    .filter_map(|(t, qa, _)| b.iter().find(|(tb, _, _)| tb == t).map(|(_, qb, _)| (*t, ((qa[0] - qb[0]).powi(2) + (qa[1] - qb[1]).powi(2) + (qa[2] - qb[2]).powi(2)).sqrt())))
+                    .min_by(|x, y| x.1.total_cmp(&y.1));
+                least.map(|(t, d)| format!("; least spacing {d:.3} at t+{}{}", t - t0, if d < 0.98 { " (MERGED: closer than a cart's length)" } else { "" })).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let what = match gap {
+                None => "a lone cart".to_string(),
+                Some(0) => "two touching carts (0.98 apart)".to_string(),
+                Some(g) => format!("two carts {g} gt apart"),
+            };
+            println!("  row {k} ({what}, {}): {}{spacing}", if *ridden { "ridden" } else { "empty" }, parts.join(" | "));
+        }
+    }
+    Ok(())
+}
+
 /// `mctas mobai reload-wake` (ironspec's forced-phase mode): scene reload-wake (a sleeper whose
 /// whole sandbox is unloaded and loaded again, a zombie shown at the load) once per pair of forced
 /// start delays of its NearestLivingEntitySensor and VillagerHostilesSensor and per sandbox seed,
@@ -528,6 +618,101 @@ impl Scene {
 /// the sandbox (design x + 34, y + 64, z + 10).
 const CAROUSEL_LOOP: &str = include_str!("../scenes/carousel-loop-wip.txt");
 const CAROUSEL_SHIFT: [i32; 3] = [34, 64, 10];
+
+/// (tickexact 2026-11-11, ironspec's ledge on R1's drop) ironfarm's escR1, generated by main's
+/// generator (`mctas mobfarm queue-loop --slots 14 --boost-first 8 --row-gap 3 --detector
+/// --zombie-every 8 --stand-stop --tail-esc 5 --esc-adm --adm-ledge --adm-xq 4`, 13,740 bytes),
+/// frozen here: its take-off flats (8,13,24) (7,13,24) (6,13,24), the gap at x 5, the landing
+/// (4,11,24) then (3,10,24), the slopes (2,9,24) (1,8,24), the curve (0,8,24) and the descent south.
+const LEDGE_ESCR1: &str = include_str!("../scenes/ledge-escR1.txt");
+
+/// The ledge scenes' stored speeds (b/t): the take-off's measured 1.82..1.96 and a band round it.
+pub const LEDGE_SPEEDS: [(&str, f64); 4] = [("150", 1.5), ("182", 1.82), ("196", 1.96), ("220", 2.2)];
+
+/// The ledge scenes' rows (each its own copy of the ledge, 8 apart in z): per row the follower's
+/// gap behind the leader in game ticks at the 0.4 cap (None: a lone cart; 0: touching, 0.98 apart)
+/// and whether both carts carry a villager.
+pub const LEDGE_ROWS: [(Option<u32>, bool); 20] = [
+    (None, false),
+    (Some(0), false),
+    (Some(3), false),
+    (Some(4), false),
+    (Some(5), false),
+    (Some(6), false),
+    (Some(7), false),
+    (Some(8), false),
+    (Some(10), false),
+    (Some(12), false),
+    (None, true),
+    (Some(0), true),
+    (Some(3), true),
+    (Some(4), true),
+    (Some(5), true),
+    (Some(6), true),
+    (Some(7), true),
+    (Some(8), true),
+    (Some(10), true),
+    (Some(12), true),
+];
+
+/// One ledge scene: the design's cells x -1..9, y 4..13, z 23..29 copied into each row (x + 2,
+/// y + 60, z + 8k - 22: row k's take-off line at z 2 + 8k), the corner (9,13,24) and the run north
+/// replaced by flats east to x 15 on glass (both carts start on straight flats), the descent's end
+/// stopped with stone; per row a leader at x 7.0 (design) moving west at `v` stored, and the row's
+/// follower behind it.
+fn ledge_scene(tag: &str, v: f64) -> Scene {
+    let d = mctas::design::Design::parse(LEDGE_ESCR1).expect("the frozen escR1 parses");
+    let mut b: Vec<([i32; 3], String)> = Vec::new();
+    floor(&mut b, 0, 32, 0, 176, 63, "minecraft:stone");
+    let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+    for (k, (gap, ridden)) in LEDGE_ROWS.iter().enumerate() {
+        let dz = 8 * k as i32 - 22;
+        let at = |p: [i32; 3]| [p[0] + 2, p[1] + 60, p[2] + dz];
+        for (p, st) in &d.blocks {
+            if (-1..=8).contains(&p[0]) && (4..=13).contains(&p[1]) && (24..=27).contains(&p[2]) {
+                b.push((at(*p), st.clone()));
+            }
+        }
+        for x in 9..=15 {
+            b.push((at([x, 13, 24]), "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            b.push((at([x, 12, 24]), "minecraft:glass".to_string()));
+        }
+        b.push((at([16, 13, 24]), "minecraft:stone".to_string()));
+        // (the descent's slope (0,6,27) runs onto flats south to z 30, a stone stop at z 31)
+        for z in 28..=30 {
+            b.push((at([0, 5, z]), "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push((at([0, 4, z]), "minecraft:glass".to_string()));
+        }
+        b.push((at([0, 5, 31]), "minecraft:stone".to_string()));
+        let cart = |x: f64| {
+            let nbt = if *ridden {
+                format!("{{Motion:[{:.4}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", -v)
+            } else {
+                format!("{{Motion:[{:.4}d,0.0d,0.0d]}}", -v)
+            };
+            let p = at([0, 13, 24]);
+            ("minecraft:minecart".to_string(), [x + 2.0, p[1] as f64, p[2] as f64 + 0.5], Some(nbt))
+        };
+        mobs.push(cart(7.0));
+        if let Some(g) = gap {
+            let behind = if *g == 0 { 0.98 } else { 0.4 * *g as f64 };
+            mobs.push(cart(7.0 + behind));
+        }
+    }
+    Scene {
+        name: format!("ledge-r1-{tag}"),
+        chunks: [0, 0, 1, 10],
+        blocks: b,
+        mobs,
+        day_time: 6000,
+        difficulty: Difficulty::Normal,
+        mob_griefing: true,
+        watch: ([0, 62, 0], [31, 75, 175]),
+        player: None,
+        player_creative: false,
+        random_tick_speed: 0,
+    }
+}
 
 /// The carousel loop's design, parsed.
 fn carousel_loop_design() -> mctas::design::Design {
@@ -2555,6 +2740,10 @@ fn scenes_raw() -> Vec<Scene> {
             player_creative: false,
             random_tick_speed: 0,
         });
+    }
+    // (tickexact 2026-11-11, ironspec's ledge on R1's drop) four scenes, one per stored speed
+    for (tag, sp) in LEDGE_SPEEDS {
+        v.push(ledge_scene(tag, sp));
     }
     // (tickexact 2026-11-11, ironspec's ticket accounting) one bed (head (5,64,6)) in a glass-walled
     // room (x 3..9, z 3..10) with A (e0) and B (e1) on foot beside it, day (AcquirePoi(HOME) runs in
@@ -4631,6 +4820,14 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
             {
                 let pose = |es: &[redsim::exact::EntityFrame]| es.iter().find(|e| e.ty.ends_with("villager")).and_then(|e| e.pose.clone());
                 v.push((f.t, pose(&f.entities), pose(&o.entities)));
+            }
+            // (tickexact, the ledge report) every minecart of the game's frame, each tick
+            if let Ok(mut g) = LEDGE_TRACK.lock()
+                && let Some(v) = g.as_mut()
+            {
+                for e in f.entities.iter().filter(|e| e.ty.ends_with("minecart")) {
+                    v.push((f.t, e.n, e.pos, e.motion));
+                }
             }
             if std::env::var_os("MOBAI_SHOW_WAKE").is_some() {
                 let g: Vec<String> = f.entities.iter().filter(|e| e.ty.ends_with("villager")).map(|e| format!("#{} {}", e.n, e.pose.as_deref().unwrap_or("-"))).collect();

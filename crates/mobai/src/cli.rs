@@ -125,6 +125,15 @@ pub enum MobaiCmd {
         #[arg(long, value_delimiter = ',', default_value = "1")]
         seeds: Vec<i64>,
     },
+    /// (tickexact 2026-11-11, ironspec's ledge on R1's drop) The ledge scenes (ironfarm's escR1 take-off,
+    /// its gap and its landing slopes, one scene per stored speed 1.5/1.82/1.96/2.2 b/t, each row a lone
+    /// cart or two carts touching or 3/4/5/6 gt apart, empty or ridden) in the game and in redsim, and per
+    /// row from the game's frames: take-offs, landings (cell and speed), the least spacing (merges) and
+    /// derails.
+    Ledge {
+        #[arg(long, default_value_t = 100)]
+        ticks: u32,
+    },
     /// (tickexact 2026-11-11) A whole-part unload at an event, in the game alone, over game seeds:
     /// for each seed the scene runs as it is (the event's game tick G: the first change of block
     /// `cell` to a state holding `state` after game time `after`; the cart's rider asleep at G or
@@ -288,6 +297,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
         MobaiCmd::SensorSweep { name, villager, reveal, dir } => crate::fixture::sensor_sweep(&name, villager, reveal, &dir),
         MobaiCmd::ReloadWake { living, hostiles, seeds } => crate::fixture::reload_wake(version, &living, &hostiles, &seeds),
+        MobaiCmd::Ledge { ticks } => crate::fixture::ledge(version, ticks),
         MobaiCmd::UnloadRate { name, from, to, cell, state, after, cart, len, check } => {
             let [x, y, z] = cell[..] else { anyhow::bail!("--cell takes x,y,z") };
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
