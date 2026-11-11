@@ -3706,6 +3706,60 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's roll-back question ahead of 58f770cc's geometry: a halted
+    // empty cart on an unpowered powered-rail slope must roll back) lanes along z: three rails
+    // ascending south ((x,64,4), (x,65,5), (x,66,6), each on stone), flat rails at y 64 from z 1 to 3
+    // below them (a stone at z 0) and at y 67 from z 7 to 12 above (a stone at z 13); the slope of
+    // unpowered powered rails or of plain rails; a cart at rest on the middle slope rail, empty or
+    // ridden, or one rolling up it from the flat below at 0.3
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        // (lane x, powered-rail slope, the cart: "rest-e" / "rest-r" / "up-e")
+        for (x, powered, cart) in [(2, true, "rest-e"), (5, true, "rest-r"), (8, true, "up-e"), (11, false, "rest-e"), (14, false, "rest-r"), (17, false, "up-e")] {
+            b.push(([x, 64, 0], stone.to_string()));
+            for z in 1..=3 {
+                b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for (k, z) in (4..=6).enumerate() {
+                let y = 64 + k as i32;
+                for yy in 64..y {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, y, z], if powered { "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]" } else { "minecraft:rail[shape=ascending_south,waterlogged=false]" }.to_string()));
+            }
+            for z in 7..=12 {
+                for yy in 64..67 {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, 67, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for yy in 64..68 {
+                b.push(([x, yy, 13], stone.to_string()));
+            }
+            let (pos, nbt) = match cart {
+                "rest-e" => ([x as f64 + 0.5, 65.5625, 5.5], None),
+                "rest-r" => ([x as f64 + 0.5, 65.5625, 5.5], Some(rider.to_string())),
+                _ => ([x as f64 + 0.5, 64.0625, 2.5], Some("{Motion:[0.0d,0.0d,0.3d]}".to_string())),
+            };
+            mobs.push(("minecraft:minecart".into(), pos, nbt));
+        }
+        v.push(Scene {
+            name: "rollback-halt".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
