@@ -946,6 +946,22 @@ pub enum MobfarmCmd {
         #[arg(long)]
         flights: Option<String>,
     },
+    /// The summon-frame defaults' test (ironspec Nov 11 13:13): queue-loop-run's default bench
+    /// timing (release group, register advances) against day-1's wired C24 core, by per-tick
+    /// trace-diff on its build (default: the c24u-pad fixture): the wired reference, the bench
+    /// driving the release group on the defaults (IDENTICAL required), and the 1-gt controls
+    /// (release start 3 and 5, advance-at 31, offs one earlier: each must differ).
+    FrameCheck {
+        /// The wired build (day-1's c24u-pad: release-gen at explore/day1-sched-wip 37fe1c656 with
+        /// main's pad wip/pad-a247e2fc2.txt).
+        #[arg(default_value = "crates/mobfarm/fixtures/c24u-pad.txt")]
+        design: PathBuf,
+        #[arg(long, default_value_t = 10)]
+        cycles: i64,
+        /// The wired input (the golem pulse's cell) of that build.
+        #[arg(long, default_value = "-2,-5,20", allow_hyphen_values = true)]
+        wired: String,
+    },
     /// Two release traces (queue-loop-run with MCTAS_RELEASE_TRACE=path) compared tick by tick,
     /// the bench-against-wired check: the release group's 3 rails' power and every cart on the
     /// release run, the first difference of each, their counts and the largest position gap.
@@ -1079,12 +1095,13 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 40)]
         release_for: i64,
         /// The queue's 3 advance pulses: the first this many gt after the slot's start, then
-        /// every `--advance-every`, each `--pulse` long (main's wired controller: 41, 20, 10, with
-        /// slots 0-2 two later (`--skew 2,2,2`); the bench-against-wired check, Nov 11 07:00:
-        /// the old 38 ran the whole register 3 gt early).
-        #[arg(long, default_value_t = 41)]
+        /// every `--advance-every`, each `--pulse` long. Default 32, 24, 10: day-1's wired C24
+        /// core in the farm's summon frame (A1 +32 = S+39, A2 S+63, A3 S+87; the c24u-pad
+        /// trace-diff, Nov 11 13:05, where 31 differs). Main's old 20-gt controller was 41, 20,
+        /// 10 with `--skew 2,2,2`.
+        #[arg(long, default_value_t = 32)]
         advance_at: i64,
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = 24)]
         advance_every: i64,
         #[arg(long, default_value_t = 10)]
         pulse: i64,
@@ -1220,10 +1237,15 @@ pub enum MobfarmCmd {
         #[arg(long)]
         bench_release: bool,
         /// Each release slope's off time, q15,q16,q17 (gt into the slot), overriding the computed
-        /// windows: day-1's new core at 24 gt closes q15 with A1's pulse (its +42, here 41:
-        /// --release-offs 41,47,43).
-        #[arg(long, value_delimiter = ',')]
+        /// windows. Default 42,48,44: day-1's C24 core in the farm's summon frame (q15 closes
+        /// with A1's pulse at +42; the c24u-pad trace-diff, Nov 11 13:05). `--release-computed`
+        /// drops it for the windows `--release-for` / `--stagger-off` compute.
+        #[arg(long, value_delimiter = ',', default_values_t = [42, 48, 44])]
         release_offs: Vec<i64>,
+        /// The release slopes' off times computed from `--release-for` (and `--stagger-off`)
+        /// instead of `--release-offs` (main's old controllers).
+        #[arg(long)]
+        release_computed: bool,
         /// With `--bench-release`: the first slot whose release group the bench drives (1 for a
         /// design whose pad gives its first pulse in slot 1: day-1's wired reference).
         #[arg(long, default_value_t = 0)]
@@ -1244,18 +1266,21 @@ pub enum MobfarmCmd {
         /// signal at rest; a stored shape it would not keep fails the run); the run says so.
         #[arg(long)]
         no_junction_check: bool,
-        /// The release group's first slope (the head) on this many gt into the slot: 3 is main's
-        /// wired controller (q17's rail powered at +3 here, its +4), found by the
-        /// bench-against-wired check (Nov 11 07:00, IDENTICAL with --release-stagger 4
-        /// --advance-at 41 --pulse 10 --skew 2,2,2).
-        #[arg(long, default_value_t = 3)]
+        /// The release group's first slope (the head) on this many gt into the slot. Default 4:
+        /// day-1's wired C24 core in the farm's summon frame (q17's rail powered at slot +4 =
+        /// S+11), found by the per-tick trace-diff on day-1's c24u-pad (Nov 11 13:05, IDENTICAL
+        /// with --release-stagger 4 --release-offs 42,48,44 --advance-at 32 --advance-every 24
+        /// --pulse 10; 3 and 5 each differ). Main's old 20-gt controller was 3 (with
+        /// --advance-at 41 --advance-every 20 --skew 2,2,2 --summon-unaligned).
+        #[arg(long, default_value_t = 4)]
         release_start: i64,
         /// Added to the stand's departure times (with `--wired`, day-1's release starts 4 gt
         /// after the golem pulse: pass 4).
         #[arg(long, default_value_t = 0)]
         stand_offset: i64,
-        /// The release group's 3 slopes on front first, this many gt apart (0: together).
-        #[arg(long, default_value_t = 0)]
+        /// The release group's 3 slopes on front first, this many gt apart (0: together). Default
+        /// 4, day-1's C24 core (q17 +4, q16 +8, q15 +12; the c24u-pad trace-diff).
+        #[arg(long, default_value_t = 4)]
         release_stagger: i64,
         /// When (gt into a slot) to check that every earlier returning batch rests in the
         /// queue's tail (default: the first advance pulse; wired with day-1's tail: 49).
@@ -1379,9 +1404,11 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 40)]
         stop_close: i64,
         /// The pocket stand's release (its REL at the stand's input, a redstone block from this gt
-        /// of the slot): 13 is main's wired controller at the stand's input repeater (+13..+53,
-        /// 51b2aacd's trace, Nov 11 07:32; the old 10 ran 3 gt early).
-        #[arg(long, default_value_t = 13, allow_hyphen_values = true)]
+        /// of the slot). Default 14: day-1's wired C24 core in the farm's summon frame (the stand
+        /// departs at slot +14 = S+21; the bench's departure equal to the wired one to 4
+        /// decimals, Nov 11 13:10; 13 and 15 one tick early / late). Main's old controller was 13
+        /// at its stand's input repeater (51b2aacd's trace, Nov 11 07:32).
+        #[arg(long, default_value_t = 14, allow_hyphen_values = true)]
         pocket_release: i64,
         /// The pocket stand's gates reset (the last shut, the other two open) at this gt of the slot.
         #[arg(long, default_value_t = 52)]
@@ -2947,6 +2974,45 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
+        MobfarmCmd::FrameCheck { design, cycles, wired } => {
+            // (each run a queue-loop-run of this binary, its release trace through the stand)
+            let exe = std::env::current_exe()?;
+            let dir = std::env::temp_dir().join(format!("frame-check-{}", std::process::id()));
+            std::fs::create_dir_all(&dir)?;
+            let base: Vec<String> = vec!["mobfarm".into(), "queue-loop-run".into(), design.display().to_string(), "--wired".into(), wired.clone(), "--no-inject".into(), "--slept".into(), "--seed".into(), "1".into(), "--cycles".into(), cycles.to_string(), "--no-flee-check".into(), "--no-eye-check".into()];
+            let run = |name: &str, extra: &[&str]| -> anyhow::Result<String> {
+                let path = dir.join(format!("{name}.trace"));
+                let st = std::process::Command::new(&exe).args(&base).args(extra).env("MCTAS_RELEASE_TRACE", &path).env("MCTAS_RELEASE_TRACE_CELLS", "90").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status()?;
+                if !st.success() {
+                    anyhow::bail!("frame-check: the {name} run failed ({st})");
+                }
+                Ok(std::fs::read_to_string(&path)?)
+            };
+            let reference = run("wired", &[])?;
+            let bench = ["--bench-release", "--release-from", "1"];
+            let mut ok = true;
+            let cases: [(&str, &[&str], bool); 5] = [
+                ("the defaults", &[], true),
+                ("control: --release-start 3", &["--release-start", "3"], false),
+                ("control: --release-start 5", &["--release-start", "5"], false),
+                ("control: --advance-at 31", &["--advance-at", "31"], false),
+                ("control: --release-offs 41,47,43", &["--release-offs", "41,47,43"], false),
+            ];
+            for (k, (name, extra, want_same)) in cases.iter().enumerate() {
+                let args: Vec<&str> = bench.iter().copied().chain(extra.iter().copied()).collect();
+                let t = run(&format!("bench{k}"), &args)?;
+                let line = crate::queue::trace_diff(&reference, &t, 0.0001);
+                let same = line.ends_with("IDENTICAL");
+                let pass = same == *want_same;
+                ok &= pass;
+                println!("{} {name}: {}", if pass { "PASS" } else { "FAIL" }, line);
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+            println!("frame-check {}: queue-loop-run's default bench timing against the wired build {} ({} slots)", if ok { "PASS" } else { "FAIL" }, design.display(), cycles);
+            if !ok {
+                anyhow::bail!("frame-check failed");
+            }
+        }
         MobfarmCmd::TraceDiff { a, b, tol } => {
             println!("{}", crate::queue::trace_diff(&std::fs::read_to_string(&a)?, &std::fs::read_to_string(&b)?, tol));
         }
@@ -3056,7 +3122,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_computed, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3173,7 +3239,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
                 }
                 a
-            }, arrivals: arrivals_out.is_some(), verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match release_offs.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, release_from, ..Default::default() };
+            }, arrivals: arrivals_out.is_some(), verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match (release_computed, release_offs.as_slice()) { (true, _) | (false, []) => None, (false, [a, b, c]) => Some([*a, *b, *c]), _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, release_from, ..Default::default() };
             // (`--shift name=gt,...`: controls shifted as the sweep shifts them, e.g. to rerun a
             // corner without one of its controls)
             let mut tm = tm;

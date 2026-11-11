@@ -1604,18 +1604,20 @@ pub fn emulated_signals(o: &LoopOpts, tm: &LoopTiming) -> (String, bool) {
         all &= ok;
     };
     if !wired || tm.bench_release {
-        let ok = tm.release_start == 3 && tm.release_stagger == 4 && tm.release_for == 40 && tm.stagger_off && tm.release_offs.is_none();
-        add("the release group", ok, if ok { "main's nominal, trace-diff 07e5bd5ef" } else { "these settings differ from main's validated nominal (start 3, stagger 4, 40 gt each from its opening)" });
+        let ok = tm.release_start == 4 && tm.release_stagger == 4 && tm.release_offs == Some([42, 48, 44]);
+        add("the release group", ok, if ok { "day-1's wired C24 core, per-tick trace-diff on its c24u-pad (Nov 11 13:05: IDENTICAL; start 3 and 5 differ)" } else { "these settings differ from the validated C24 set (start 4, stagger 4, offs q15 42, q16 48, q17 44); main's old 20-gt controller (start 3, 40 gt each) is superseded" });
     }
     if !wired {
-        let ok = tm.advance_at == 41 && tm.advance_every == 20 && tm.pulse == 10 && tm.skew[..3] == [2, 2, 2] && tm.skew[3..].iter().all(|s| *s == 0) && tm.adv_shift == [0; 3] && tm.adv_width == [0; 3];
-        add("the register's advances", ok, if ok { "main's nominal, trace-diff 07e5bd5ef" } else { "these settings differ from main's validated nominal (+41/+61/+81, 10 gt, slots 0-2 two later)" });
+        let ok = tm.advance_at == 32 && tm.advance_every == 24 && tm.pulse == 10 && tm.skew.iter().all(|s| *s == 0) && tm.adv_shift == [0; 3] && tm.adv_width == [0; 3];
+        add("the register's advances", ok, if ok { "day-1's wired C24 core, the c24u-pad trace-diff (A1 +32 = S+39, every 24, 10 gt; 31 differs)" } else { "these settings differ from the validated C24 set (+32/+56/+80, 10 gt, no skew); main's old +41/+61/+81 with skew 2,2,2 is superseded" });
     }
     if o.stand_stop && o.stand_wired && (!wired || tm.bench_stand) {
-        let ok = tm.pocket_release == 13 && tm.rel_for == 40 && tm.rel_on == 0;
-        add("the stand's REL at its input", ok, if ok { "+13 for 40 gt, 51b2aacd's trace of main's wired file" } else { "not main's validated +13 for 40 gt" });
+        let ok = tm.pocket_release == 14 && tm.rel_for == 40 && tm.rel_on == 0;
+        add("the stand's REL at its input", ok, if ok { "+14 for 40 gt = S+21..61, day-1's c24u-pad stand REL at the stand" } else { "not the C24 core's +14 for 40 gt (S+21..61)" });
     } else if o.stand_stop && !o.stand_wired && !wired {
-        add("the pocket stand's gates", false, "a bench stand; only the wired stand's REL input has been traced");
+        let ok = tm.pocket_release == 14;
+        add("the pocket stand's release", ok, if ok { "+14 = S+21: its departure equal to day-1's wired c24u-pad stand to 4 decimals (Nov 11 13:10; 13 and 15 one tick off)" } else { "not the C24 core's +14 (S+21)" });
+        add("the pocket stand's gates", false, "a bench stand; its arrivals are not traced against the wired stand");
     }
     if o.esc_adm {
         add("the escapement's G_P, G0 and P", false, "no wired version yet (day-1's new core builds them at step 3)");
