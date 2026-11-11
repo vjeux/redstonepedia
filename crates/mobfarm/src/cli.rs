@@ -1138,10 +1138,26 @@ pub enum MobfarmCmd {
         #[arg(long)]
         slept: bool,
         /// The slots' phase: the bench starts its slots so that slot +K falls on the villagers'
-        /// summon tick (gameTime % 100 == 0); 99 for a controller that takes the golem pulse
-        /// (summon +1) as its slot's start. Default: no alignment.
+        /// summon tick (gameTime % 100 == 0). Default 93, the farm frame: the controller's slot
+        /// starts on input.golem, which day-1's wired c24pad measured at summon +7 (the pad's pulse
+        /// +1, its 243-cell line +6; ironspec Nov 11 12:12). 99 is a controller on the pad's pulse
+        /// itself. Every run prints its frame.
         #[arg(long, allow_hyphen_values = true)]
         summon_at: Option<i64>,
+        /// No summon alignment (the slots start wherever the settle leaves them): every margin
+        /// against a summon is then in a bench frame, and the run says "summon frame unaligned".
+        #[arg(long)]
+        summon_unaligned: bool,
+        /// Skip the cross-track push count (`crate::crosspush`, ironspec Nov 11 12:40: by default
+        /// an acting push between carts on different tracks fails the run); the run says so.
+        #[arg(long)]
+        no_cross_push_check: bool,
+        /// Start every cart at yaw 0 (facing +x), as a player-placed or summoned cart starts
+        /// whatever its rail (tick-exact), instead of along its rail as a cart that arrived there
+        /// faces (ironspec Nov 11 12:48 and 12:50: the default; this for the assembly's start-up
+        /// row, once per assembly).
+        #[arg(long)]
+        placed_yaw: bool,
         /// Fault injection: SLOT,DT,X,Y,Z,BLOCK[,FOR]: the block set at slot SLOT + DT gt; with
         /// FOR, the block it replaced put back FOR gt later (meanwhile the bench's own drive of
         /// that cell, the wired stand's REL, leaves it). SLOT,DT,unload,N[,ORDER] or
@@ -3023,7 +3039,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check, no_eye_check, takeoff_list } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check, no_eye_check, takeoff_list } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3055,6 +3071,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 for c in ph.rider_space_ok {
                     hdr.rider_space_ok.push(mv(c));
+                }
+                for c in ph.cross_push_ok {
+                    hdr.cross_push_ok.push(mv(c));
                 }
                 let bx = match siding_box.as_slice() { [a, b, c, d, e, f] => ([*a, *b, *c], [*d, *e, *f]), [] => ([-7, -4, -3], [6, 4, 9]), _ => anyhow::bail!("--siding-box takes x0,y0,z0,x1,y1,z1 in the part's own frame") };
                 let n = crate::queue::paste_part(&mut spec, &part, at, siding_turn, bx).map_err(|e| anyhow::anyhow!(e))?;
@@ -3119,7 +3138,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some(crate::queue::parse_rider("--watch-mob", s).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 v
-            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, takeoff_list, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_evidence, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, arrival_log, hold_back: match hold_back.as_slice() { [c, d, n] => Some([*c, *d, *n]), [] => None, _ => anyhow::bail!("--hold-back takes C,DT,N") }, p_always, adm_faults: {
+            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at: crate::queue::summon_frame(summon_at, summon_unaligned).map_err(|e| anyhow::anyhow!(e))?, no_cross_push: no_cross_push_check, placed_yaw, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, takeoff_list, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_evidence, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, arrival_log, hold_back: match hold_back.as_slice() { [c, d, n] => Some([*c, *d, *n]), [] => None, _ => anyhow::bail!("--hold-back takes C,DT,N") }, p_always, adm_faults: {
                 anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
                 let mut a = [None; 8];
                 for (i, s) in adm_fault.iter().enumerate() {

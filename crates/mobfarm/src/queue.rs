@@ -1553,6 +1553,40 @@ impl TailWatch {
     }
 }
 
+/// The farm's summon frame (ironspec Nov 11 11:59 and 12:12, the tool's default): day-1's wired
+/// c24pad measured in a closed loop against the summon tick S: the pad's `output.pulse` at S+1, its
+/// 243-cell line to the head at +6, so input.golem (the controller's slot start) at S+7; then GO
+/// S+9, the core's REL S+11 and the stand's REL S+21 at the stand. The slot's start on input.golem
+/// puts the summon on the slot before's +93. S3's own pads set their own wiring delay: until they
+/// are wired, S+7 is an assumption, and the run prints it.
+pub const FARM_SUMMON_AT: i64 = 93;
+
+/// `--summon-at K` and `--summon-unaligned` resolved: the farm frame unless one of them says
+/// otherwise; both at once is refused.
+pub fn summon_frame(at: Option<i64>, unaligned: bool) -> Result<Option<i64>, String> {
+    match (at, unaligned) {
+        (Some(_), true) => Err("--summon-at and --summon-unaligned exclude each other".into()),
+        (Some(k), false) => Ok(Some(k)),
+        (None, true) => Ok(None),
+        (None, false) => Ok(Some(FARM_SUMMON_AT)),
+    }
+}
+
+/// The frame as every run prints it (with its emulated signals, and again beside its verdict).
+pub fn summon_frame_label(at: Option<i64>) -> String {
+    match at {
+        Some(FARM_SUMMON_AT) => format!("summon frame: farm (slot +{FARM_SUMMON_AT} on the summon tick: input.golem, the slot's start, at summon +{}, day-1's wired c24pad; assumed for S3's pads)", 100 - FARM_SUMMON_AT),
+        Some(k) => format!("summon frame: slot +{k} on the summon tick (not the farm's +{FARM_SUMMON_AT})"),
+        None => "summon frame unaligned".to_string(),
+    }
+}
+
+/// The ticks the bench waits from `time` so that slot +K falls on the summon tick: a tick's summon
+/// happens at the time it ticks to, so the slot's offset K + 1 lands on a multiple of 100.
+pub fn summon_align_wait(time: i64, k: i64) -> i64 {
+    (-(time + k + 1)).rem_euclid(100)
+}
+
 /// The signals a loop bench run emulates instead of the wired controller, each named validated or
 /// not (ironspec Nov 11 07:32: every emulated signal trace-diffed against the wired file, and a run
 /// on an unvalidated one labelled "bench, not yet validated"). Validated so far, at main's 20-gt
@@ -1595,12 +1629,16 @@ pub fn emulated_signals(o: &LoopOpts, tm: &LoopTiming) -> (String, bool) {
     if tm.reg_interlock {
         add("the register interlock", false, "ideal sensors");
     }
+    // (the summon frame on the same line, ironspec Nov 11 11:59: a frame other than the farm's
+    // puts every margin against a summon in a bench frame)
+    let frame_ok = tm.summon_at == Some(FARM_SUMMON_AT);
+    let frame = format!("{}{}", summon_frame_label(tm.summon_at), if frame_ok { "" } else { " (margins against summons are bench-frame)" });
     let line = if parts.is_empty() {
-        "emulated signals: none (the design's own redstone drives every control)".to_string()
+        format!("emulated signals: none (the design's own redstone drives every control); {frame}")
     } else {
-        format!("emulated signals: {}{}", parts.join("; "), if all { "" } else { ". This run is bench, not yet validated" })
+        format!("emulated signals: {}; {frame}{}", parts.join("; "), if all { "" } else { ". This run is bench, not yet validated" })
     };
-    (line, all)
+    (line, all && frame_ok)
 }
 
 /// Job-site blocks and bells within a rider's reach (ironspec Nov 11 08:53: a rider walks toward
@@ -1749,6 +1787,9 @@ pub struct Headers {
     /// sight; `sight_ok:` the blocks allowed to stop a line.
     pub sight: Vec<([i32; 3], [i32; 3])>,
     pub sight_ok: Vec<[i32; 3]>,
+    /// Rail cells where the design declares a cross-track push harmless (`cross_push_ok:`, each
+    /// with its bridged rows; `crate::crosspush`).
+    pub cross_push_ok: Vec<[i32; 3]>,
     /// Static checks run once before the bench (each line, and whether it fails the run): the
     /// walk-target check's flee verdict (`mobfarm flee-check`, ironspec Nov 11 09:03: the gate).
     pub static_checks: Vec<(String, bool)>,
@@ -1763,6 +1804,7 @@ pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<H
         rider_space_control: Vec::new(),
         sight: match meta.get("sight") { Some(s) => crate::declared::parse_boxes(s).map_err(|e| format!("sight: {e}"))?, None => Vec::new() },
         sight_ok: match meta.get("sight_ok") { Some(s) => crate::declared::parse_cells(s).map_err(|e| format!("sight_ok: {e}"))?, None => Vec::new() },
+        cross_push_ok: match meta.get("cross_push_ok") { Some(s) => crate::declared::parse_cells(s).map_err(|e| format!("cross_push_ok: {e}"))?, None => Vec::new() },
         static_checks: Vec::new(),
     })
 }
@@ -3593,6 +3635,10 @@ pub struct LoopTiming {
     pub pulse_at: Option<BlockPos>,
     /// The slots' phase: slot +K on the villagers' summon tick (gameTime % 100 == 0).
     pub summon_at: Option<i64>,
+    /// `--no-cross-push-check`: the cross-track push count off (`crate::crosspush`).
+    pub no_cross_push: bool,
+    /// `--placed-yaw`: every cart starts at yaw 0, as placed or summoned (else along its rail).
+    pub placed_yaw: bool,
     /// Fault injection (`--act`): each sets a block at a slot offset, and with a hold restores
     /// the block it replaced that many gt later; while held, the bench's own drive of that cell
     /// (the wired stand's REL) leaves it.
@@ -4012,7 +4058,7 @@ impl LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: Some(FARM_SUMMON_AT), no_cross_push: false, placed_yaw: false, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, takeoff_list: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -4671,6 +4717,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     if carts.len() != 21 {
         return Err(format!("{} carts, not 21", carts.len()));
     }
+    // (each cart's yaw along its rail at the start, as a cart that arrived there faces; ironspec
+    // Nov 11 12:48: a placed cart faces +x, and at rest with that yaw across its rail a cart passing
+    // beside it pushes it along, tick-exact's side-push bridge; `--placed-yaw` keeps the placement's)
+    let yaw_turned = if tm.placed_yaw { crate::crosspush::yaw_placed(&mut run.world); None } else { Some(crate::crosspush::yaw_along_rails(&mut run.world)) };
     // (each cart's rider)
     let mut riders: Vec<u32> = carts.iter().map(|c| run.world.entities.list.iter().find(|e| e.id == *c).and_then(|e| e.passengers.first().copied()).unwrap_or(0)).collect();
     let mut night_ticks = vec![0u64; riders.len()];
@@ -5149,10 +5199,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // that takes the golem pulse (summon +1) as its slot's start)
     if let Some(k) = tm.summon_at {
         // (a tick's summon happens at the time it ticks to: the slot's offset k + 1 on it)
-        while (run.world.time + k + 1).rem_euclid(100) != 0 {
+        for _ in 0..summon_align_wait(run.world.time, k) {
             run.tick();
             stop_brake(&mut run.world, &mut stop_arm);
             hold_day(&mut run.world);
+        }
+        if (run.world.time + k + 1).rem_euclid(100) != 0 {
+            return Err(format!("summon frame: slot +{k} missed the summon tick (world time {})", run.world.time));
         }
     }
     let mut late_total: i64 = 0;
@@ -5198,6 +5251,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut bed_near: Option<(f64, String)> = None;
     // (merged carts: the shared check, `crate::merge`, every tick; a hard fail)
     let mut merges = crate::merge::MergeTally::default();
+    // (cross-track pushes, `crate::crosspush`: the design's declared cells moved by its shift)
+    let mut cross = crate::crosspush::CrossPushTally::default();
+    let cross_ok: Vec<[i32; 3]> = hdr.cross_push_ok.iter().map(|c| [c[0] + o.shift[0] as i32, c[1], c[2] + o.shift[1] as i32]).collect();
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
     // (slots from a departure to the slot whose advance must find that batch in the queue's
     // tail: the line loop's long return takes two)
@@ -6503,6 +6559,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         run.tick();
         merges.observe(&run.world, &format!("t {t}"));
+        if !tm.no_cross_push {
+            cross.observe(&run.world, &cross_ok, &format!("slot {c} +{dt}"), o.shift[0] as i32, o.shift[1] as i32);
+        }
         // (the boosters still powered after the warm-up)
         if t == 20 && build_start.is_none() {
             for b in crate::declared::check(&run.world, &declared, true) {
@@ -8128,6 +8187,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             problems.push(format!("the count: {c_end} of {} carts and {r_end} of {} riders at the end", carts.len(), riders.len()));
         }
         out.push(merges.line());
+        out.push(if tm.no_cross_push { "cross-track pushes: not checked (--no-cross-push-check)".to_string() } else { cross.line() });
+        out.push(match yaw_turned {
+            Some(n) => format!("carts' yaw at the start: along each cart's rail ({n} of {} turned; --placed-yaw starts every cart at 0)", carts.len()),
+            None => "carts' yaw at the start: 0 for every cart, as placed or summoned (--placed-yaw: the assembly's start-up row)".to_string(),
+        });
         if lay.esc_adm_a1.is_some() {
             out.push(format!("riders in the pressed queue (landing to P) with a walk target, rider-ticks by path: reaching {}, partial {}, no path {}{}; riders whose box touches another cart's, walking or not (contact alone pushes: LivingEntity.pushEntities, bridged in gate-escg6l-v3; must be 0): {walk_touch} (not walking {touch_idle}){}", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }, if walk_touch_log.is_empty() { String::new() } else { format!(" ({})", walk_touch_log.join("; ")) }));
             if !hold_cells.is_empty() {
@@ -8194,6 +8258,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         if !merges.pairs.is_empty() {
             problems.push(format!("merged carts: {} pairs ({})", merges.pairs.len(), merges.first.join("; ")));
+        }
+        if !cross.pairs.is_empty() {
+            problems.push(format!("cross-track pushes: {} pairs over {} cart-pair ticks ({})", cross.pairs.len(), cross.ticks, cross.first.join("; ")));
         }
     }
     if verbose {
@@ -8294,7 +8361,54 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         out.push(format!("problem slots: {}", by.iter().map(|(s, n)| format!("{s}x{n}")).collect::<Vec<_>>().join(" ")));
     }
+    // (the frame beside the verdict too, ironspec Nov 11 11:59)
+    out.push(summon_frame_label(tm.summon_at));
     Ok(format!("{}\n{} problems{}", out.join("\n"), problems.len(), if problems.is_empty() { String::new() } else { format!(":\n  {}", problems.iter().take(if verbose { 2000 } else { 20 }).cloned().collect::<Vec<_>>().join("\n  ")) }))
+}
+
+#[cfg(test)]
+mod summon_frame_tests {
+    use super::*;
+
+    /// The summon frame (ironspec Nov 11 11:59 and 12:12): the farm's by default, an explicit
+    /// opt-out, both at once refused; and the positive control: `--summon-at K-1` against K moves
+    /// every margin against a summon by exactly 1 gt, from any start time.
+    #[test]
+    fn summon_frame_default_and_control() {
+        assert_eq!(summon_frame(None, false), Ok(Some(FARM_SUMMON_AT)));
+        // (day-1's wired c24pad: input.golem, the slot's start, 7 gt after the summon tick)
+        assert_eq!(FARM_SUMMON_AT, 93);
+        assert_eq!(summon_frame(None, true), Ok(None));
+        assert_eq!(summon_frame(Some(60), false), Ok(Some(60)));
+        assert!(summon_frame(Some(99), true).is_err());
+        assert_eq!(LoopTiming::default().summon_at, Some(FARM_SUMMON_AT));
+        assert!(summon_frame_label(None).contains("unaligned"));
+        assert!(summon_frame_label(Some(FARM_SUMMON_AT)).starts_with("summon frame: farm"));
+        assert!(summon_frame_label(Some(FARM_SUMMON_AT)).contains("summon +7"));
+        assert!(summon_frame_label(Some(99)).contains("not the farm's"));
+        // (a fake clock: the summon tick is the tick that brings the time to a multiple of 100)
+        let next_summon_at_or_after = |t: i64| t + (-t).rem_euclid(100);
+        for t0 in 0..300 {
+            let mut margins: Vec<[i64; 2]> = Vec::new();
+            for k in [FARM_SUMMON_AT, FARM_SUMMON_AT - 1, 99, 98] {
+                let start = t0 + summon_align_wait(t0, k);
+                assert!(start >= t0 && start < t0 + 100);
+                // (slot +K is the summon tick: it ticks the time to start + K + 1, so the slot
+                // starts 100 - K ticks after the summon tick began)
+                assert_eq!((start + k + 1).rem_euclid(100), 0, "t0 {t0} k {k}");
+                assert_eq!(start.rem_euclid(100), (99 - k).rem_euclid(100), "t0 {t0} k {k}");
+                // (an event at slot-relative time d, against the first summon after it)
+                let m: Vec<i64> = (0..200).map(|d| next_summon_at_or_after(start + d + 1) - (start + d)).collect();
+                margins.push([m[13], m[154]]);
+            }
+            for pair in [(0, 1), (2, 3)] {
+                assert_eq!(margins[pair.0][0] - margins[pair.1][0], 1, "t0 {t0} pair {pair:?}");
+                assert_eq!(margins[pair.0][1] - margins[pair.1][1], 1, "t0 {t0} pair {pair:?}");
+            }
+            // (the pad's 6-gt line: the farm frame reads every margin 6 gt below the pulse frame)
+            assert_eq!(margins[2][0] - margins[0][0], 6, "t0 {t0}");
+        }
+    }
 }
 
 #[cfg(test)]
