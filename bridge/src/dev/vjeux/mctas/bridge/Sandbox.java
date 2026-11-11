@@ -384,6 +384,12 @@ final class Sandbox {
         if (sb == null) {
             return;
         }
+        if (sb.loading) {
+            // (tickexact 2026-11-10, ironspec's fault rule) an entity its chunk's saved data brings
+            // back (loadAll), constructed on the entity deserializer's thread: loadAll numbers and
+            // seeds it on the main thread, in a fixed order, before it enters
+            return;
+        }
         if (e instanceof net.minecraft.world.entity.LivingEntity living) {
             sb.ctorYaw.put(e.getId(), living.getYRot());
         }
@@ -1648,45 +1654,164 @@ final class Sandbox {
      * as in the game. The sandbox saves only while this runs.
      */
     void reload(SimServer server) {
+        unloadAll(server);
+        loadAll(server);
+    }
+
+    /**
+     * (tickexact 2026-11-10, ironspec's fault rule) Whether the sandbox's chunks are saved and
+     * unloaded ({@link #unloadAll}) and wait to load again: its level ticks on (game time, day
+     * time), nothing of its chunks does, and a frame reads none of their cells.
+     */
+    boolean away;
+
+    /** (tickexact 2026-11-10) {@link #loadAll} is bringing entities back from their saved data. */
+    volatile boolean loading;
+
+    /** The last {@link #loadAll}'s chunks in the order their entities entered (x,z:count ...). */
+    String lastLoadOrder = "";
+
+    /** Each entity's number before {@link #unloadAll}, by UUID. */
+    private final java.util.Map<UUID, Integer> numbersBefore = new java.util.HashMap<>();
+
+    /** The last {@link #loadAll}'s renumbering: [old number, new number] per entity back. */
+    final List<int[]> lastRenumbered = new ArrayList<>();
+
+    private static final Field LOADING_INBOX = field(PersistentEntitySectionManager.class, "loadingInbox");
+
+    /**
+     * (tickexact 2026-11-10, ironspec's fault rule) The first half of {@link #reload}: every chunk of
+     * the sandbox saved and unloaded (its forced tickets dropped), between two ticks. The level keeps
+     * ticking while they are away (game time and day time run; pending block events wait for their
+     * chunk); {@link #loadAll} brings them back. The sandbox saves until then.
+     */
+    void unloadAll(SimServer server) {
+        if (this.away) {
+            throw new IllegalStateException("sandbox " + this.id + " is already unloaded");
+        }
+        // (each entity's number by its UUID, which its saved data keeps: loadAll's renumbering)
+        this.numbersBefore.clear();
+        for (Entity e : entities()) {
+            if (!(e instanceof net.minecraft.server.level.ServerPlayer)) {
+                this.numbersBefore.put(e.getUUID(), e.getId() - entityIdBase());
+            }
+        }
         this.level.noSave = false;
+        this.away = true;
+        for (int cx = this.minChunkX; cx <= this.maxChunkX; cx++) {
+            for (int cz = this.minChunkZ; cz <= this.maxChunkZ; cz++) {
+                this.level.setChunkForced(cx, cz, false);
+            }
+        }
+        PersistentEntitySectionManager<?> entityManager = (PersistentEntitySectionManager<?>) get(ENTITY_MANAGER, this.level);
+        long deadline = System.nanoTime() + 60_000_000_000L;
+        while (anyLoaded()) {
+            server.pumpTasks();
+            this.level.getChunkSource().tick(() -> true, false);
+            this.level.getChunkSource().pollTask();
+            entityManager.tick();
+            if (System.nanoTime() > deadline) {
+                throw new IllegalStateException("chunks of sandbox " + this.id + " did not unload");
+            }
+            LockSupport.parkNanos(20_000L);
+        }
+    }
+
+    /**
+     * The second half of {@link #reload}: the sandbox's chunks forced and loaded again. Their
+     * entities come back as new objects, constructed from their saved data on the entity
+     * deserializer's thread in no fixed order; held until every chunk's are read, they enter in the
+     * chunks' forced order (x, then z), each chunk's in its saved order (a vehicle before its
+     * passengers), each numbered and seeded then as the sandbox's next entity (its constructor's
+     * draws redone; its saved UUID, yaw and head kept).
+     */
+    @SuppressWarnings("unchecked")
+    void loadAll(SimServer server) {
+        if (!this.away) {
+            throw new IllegalStateException("sandbox " + this.id + " is not unloaded");
+        }
         try {
-            for (int cx = this.minChunkX; cx <= this.maxChunkX; cx++) {
-                for (int cz = this.minChunkZ; cz <= this.maxChunkZ; cz++) {
-                    this.level.setChunkForced(cx, cz, false);
-                }
-            }
+            this.loading = true;
             PersistentEntitySectionManager<?> entityManager = (PersistentEntitySectionManager<?>) get(ENTITY_MANAGER, this.level);
-            long deadline = System.nanoTime() + 60_000_000_000L;
-            while (anyLoaded()) {
-                server.pumpTasks();
-                this.level.getChunkSource().tick(() -> true, false);
-                this.level.getChunkSource().pollTask();
-                entityManager.tick();
-                if (System.nanoTime() > deadline) {
-                    throw new IllegalStateException("chunks of sandbox " + this.id + " did not unload");
-                }
-                LockSupport.parkNanos(20_000L);
-            }
+            java.util.Queue<net.minecraft.world.level.entity.ChunkEntities<Entity>> inbox = (java.util.Queue<net.minecraft.world.level.entity.ChunkEntities<Entity>>) get(LOADING_INBOX, entityManager);
             // every ticket queued before any runs (see create): the chunk tick order comes back the same
             for (int cx = this.minChunkX; cx <= this.maxChunkX; cx++) {
                 for (int cz = this.minChunkZ; cz <= this.maxChunkZ; cz++) {
                     this.level.getChunkSource().updateChunkForced(new ChunkPos(cx, cz), true);
                 }
             }
-            deadline = System.nanoTime() + 60_000_000_000L;
-            while (!entitiesLoaded(this.level, this.minChunkX, this.minChunkZ, this.maxChunkX, this.maxChunkZ) || !allChunks()) {
+            int width = this.maxChunkZ - this.minChunkZ + 1;
+            long deadline = System.nanoTime() + 60_000_000_000L;
+            // every chunk loaded and every chunk's entities read (the ring of loaded chunks around
+            // the box reads its own: empty), none entered yet (no entity manager tick: it would add
+            // them as they come)
+            while (!allChunks() || !allRead(inbox)) {
                 server.pumpTasks();
                 this.level.getChunkSource().tick(() -> true, false);
                 this.level.getChunkSource().pollTask();
-                entityManager.tick();
                 if (System.nanoTime() > deadline) {
                     throw new IllegalStateException("chunks of sandbox " + this.id + " did not load again");
                 }
                 LockSupport.parkNanos(20_000L);
             }
+            List<net.minecraft.world.level.entity.ChunkEntities<Entity>> read = new ArrayList<>(inbox);
+            inbox.clear();
+            java.util.function.ToIntFunction<net.minecraft.world.level.entity.ChunkEntities<Entity>> rank = c -> {
+                int x = c.getPos().x();
+                int z = c.getPos().z();
+                boolean in = x >= this.minChunkX && x <= this.maxChunkX && z >= this.minChunkZ && z <= this.maxChunkZ;
+                return in ? (x - this.minChunkX) * width + (z - this.minChunkZ) : Integer.MAX_VALUE;
+            };
+            read.sort(java.util.Comparator.comparingInt(rank));
+            StringBuilder trace = new StringBuilder();
+            for (net.minecraft.world.level.entity.ChunkEntities<Entity> c : read) {
+                trace.append(c.getPos().x()).append(',').append(c.getPos().z()).append(':').append(c.getEntities().count()).append(' ');
+            }
+            this.lastLoadOrder = trace.toString().trim();
+            this.lastRenumbered.clear();
+            for (net.minecraft.world.level.entity.ChunkEntities<Entity> c : read) {
+                c.getEntities().forEach(e -> {
+                    int n = this.entityCount++;
+                    Integer old = this.numbersBefore.get(e.getUUID());
+                    if (old != null) {
+                        this.lastRenumbered.add(new int[] {old, n});
+                    }
+                    e.setId(entityIdBase() + n);
+                    this.seeded.put(e, Exact.seed(e, this.seed, n, false, false, Exact.ItemPath.NONE, Float.NaN));
+                });
+                inbox.add(c);
+            }
+            while (!entitiesLoaded(this.level, this.minChunkX, this.minChunkZ, this.maxChunkX, this.maxChunkZ)) {
+                server.pumpTasks();
+                this.level.getChunkSource().tick(() -> true, false);
+                this.level.getChunkSource().pollTask();
+                entityManager.tick();
+                if (System.nanoTime() > deadline) {
+                    throw new IllegalStateException("entities of sandbox " + this.id + " did not load again");
+                }
+                LockSupport.parkNanos(20_000L);
+            }
         } finally {
+            this.loading = false;
+            this.away = false;
             this.level.noSave = true;
         }
+    }
+
+    /** Whether the entity loading inbox holds every chunk of the box's entities. */
+    private boolean allRead(java.util.Queue<net.minecraft.world.level.entity.ChunkEntities<Entity>> inbox) {
+        java.util.Set<Long> got = new java.util.HashSet<>();
+        for (net.minecraft.world.level.entity.ChunkEntities<Entity> c : inbox) {
+            got.add(c.getPos().pack());
+        }
+        for (int cx = this.minChunkX; cx <= this.maxChunkX; cx++) {
+            for (int cz = this.minChunkZ; cz <= this.maxChunkZ; cz++) {
+                if (!got.contains(ChunkPos.pack(cx, cz))) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private boolean anyLoaded() {

@@ -1,0 +1,103 @@
+# drive v1: mctas mobfarm siding-bench <design> --wired --launch --from 1 --to 1 --nights 1 --placed-raw --drive-out F (arrivals launched from rest on the bench's launcher; the release placed as a block: the loop's input)
+# caption carts launched in and released by the test bench; the siding's own redstone does the rest
+# seed 1
+# days 2
+# walk random
+# ai on
+# start Run::start(spec, RunOpts { ai: true, raw: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }) (the file pasted as written, no settle); the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then
+# act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order)
+# t0 0
+# placed: settled as placed: Run::start(spec, RunOpts { raw: true, .. }): the design's blocks written raw, its nbt: lines merged (the game's data merge), no shape or neighbour update and no settle (the Nether part too); the entities spawned at once (t0 = the world's time then)
+# expect t: the event happened in the tick that brought the world's time to t0 + t (an act at t comes before the tick to t0 + t + 1)
+act 1568 tp e1 -8.5 0.0625 0.5
+act 1976 tp e2 -8.5 0.0625 0.5
+act 2199 set 4 -2 0 minecraft:redstone_block
+act 2203 unload
+act 2206 load
+act 2209 set 4 -2 0 minecraft:glass
+act 2218 tp e1 -19.5 0.0625 -19.5
+act 2456 tp e3 -8.5 0.0625 0.5
+act 2500 unload
+act 2540 load
+act 2584 set 4 -2 0 minecraft:redstone_block
+act 2594 set 4 -2 0 minecraft:glass
+act 2603 tp e2 -17.5 0.0625 -19.5
+act 2928 tp e4 -8.5 0.0625 0.5
+act 3092 set 4 -2 0 minecraft:redstone_block
+act 3095 unload
+act 3095 load
+act 3102 set 4 -2 0 minecraft:glass
+act 3111 tp e3 -15.5 0.0625 -19.5
+act 3419 tp e5 -8.5 0.0625 0.5
+act 3541 set 4 -2 0 minecraft:redstone_block
+act 3551 set 4 -2 0 minecraft:glass
+act 3560 tp e4 -13.5 0.0625 -19.5
+act 3600 unload
+act 3840 load
+act 3852 tp e6 -8.5 0.0625 0.5
+act 4009 set 4 -2 0 minecraft:redstone_block
+act 4019 set 4 -2 0 minecraft:glass
+act 4028 tp e5 -11.5 0.0625 -19.5
+act 4259 tp e7 -8.5 0.0625 0.5
+act 4470 set 4 -2 0 minecraft:redstone_block
+act 4480 set 4 -2 0 minecraft:glass
+act 4489 tp e6 -9.5 0.0625 -19.5
+act 4728 tp e8 -8.5 0.0625 0.5
+act 4854 set 4 -2 0 minecraft:redstone_block
+act 4864 set 4 -2 0 minecraft:glass
+act 4873 tp e7 -7.5 0.0625 -19.5
+act 5189 tp e9 -8.5 0.0625 0.5
+act 5351 set 4 -2 0 minecraft:redstone_block
+act 5361 set 4 -2 0 minecraft:glass
+act 5370 tp e8 -5.5 0.0625 -19.5
+act 5676 tp e10 -8.5 0.0625 0.5
+act 5789 set 4 -2 0 minecraft:redstone_block
+act 5799 set 4 -2 0 minecraft:glass
+act 5808 tp e9 -3.5 0.0625 -19.5
+act 6106 tp e11 -8.5 0.0625 0.5
+act 6304 set 4 -2 0 minecraft:redstone_block
+act 6314 set 4 -2 0 minecraft:glass
+act 6323 tp e10 -1.5 0.0625 -19.5
+act 6532 tp e12 -8.5 0.0625 0.5
+act 6711 set 4 -2 0 minecraft:redstone_block
+act 6721 set 4 -2 0 minecraft:glass
+act 6730 tp e11 0.5 0.0625 -19.5
+act 6970 tp e13 -8.5 0.0625 0.5
+act 7165 set 4 -2 0 minecraft:redstone_block
+act 7175 set 4 -2 0 minecraft:glass
+act 7184 tp e12 2.5 0.0625 -19.5
+act 7449 tp e14 -8.5 0.0625 0.5
+act 7580 set 4 -2 0 minecraft:redstone_block
+act 7590 set 4 -2 0 minecraft:glass
+act 7599 tp e13 4.5 0.0625 -19.5
+act 7943 tp e15 -8.5 0.0625 0.5
+act 8087 set 4 -2 0 minecraft:redstone_block
+act 8097 set 4 -2 0 minecraft:glass
+act 8106 tp e14 6.5 0.0625 -19.5
+act 8383 tp e16 -8.5 0.0625 0.5
+act 8558 set 4 -2 0 minecraft:redstone_block
+act 8568 set 4 -2 0 minecraft:glass
+act 8577 tp e15 8.5 0.0625 -19.5
+act 8837 tp e17 -8.5 0.0625 0.5
+act 8975 set 4 -2 0 minecraft:redstone_block
+act 8985 set 4 -2 0 minecraft:glass
+act 8994 tp e16 10.5 0.0625 -19.5
+act 9256 tp e18 -8.5 0.0625 0.5
+act 9457 set 4 -2 0 minecraft:redstone_block
+act 9467 set 4 -2 0 minecraft:glass
+act 9476 tp e17 12.5 0.0625 -19.5
+act 9692 tp e19 -8.5 0.0625 0.5
+act 9853 set 4 -2 0 minecraft:redstone_block
+act 9863 set 4 -2 0 minecraft:glass
+act 9872 tp e18 14.5 0.0625 -19.5
+act 10166 tp e20 -8.5 0.0625 0.5
+act 10317 set 4 -2 0 minecraft:redstone_block
+act 10327 set 4 -2 0 minecraft:glass
+act 10336 tp e19 16.5 0.0625 -19.5
+act 10582 tp e21 -8.5 0.0625 0.5
+act 10768 set 4 -2 0 minecraft:redstone_block
+act 10778 set 4 -2 0 minecraft:glass
+act 10787 tp e20 18.5 0.0625 -19.5
+act 11212 set 4 -2 0 minecraft:redstone_block
+act 11222 set 4 -2 0 minecraft:glass
+act 11231 tp e21 20.5 0.0625 -19.5

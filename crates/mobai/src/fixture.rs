@@ -128,8 +128,18 @@ fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<
 fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> Result<()> {
     for (p, s) in blocks {
         let pos = BlockPos::new(p[0], p[1], p[2]);
+        // (tickexact 2026-11-10, ironspec's fault rule) every chunk saved and unloaded / loaded
+        // again
+        if s == "unload" {
+            redsim::reload::unload_all(w);
+            continue;
+        }
+        if s == "load" {
+            redsim::reload::load_all(w);
+            continue;
+        }
         // (tickexact 2026-11-10, farmopt's station) a drive's Nether build: redsim's Nether part
-        // only (the bridge has no Nether: [`GameScene::apply`] skips it)
+        // ([`GameScene::apply`]: the bridge's Nether sandbox's)
         if let Some(st) = s.strip_prefix("nether:") {
             let n = w.nether.as_deref_mut().ok_or_else(|| anyhow!("a nether-set act in a scene without a Nether part"))?;
             let b = Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("action block {st}: {e}"))?;
@@ -297,6 +307,13 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
 ///   chasing it from the Nether: `target::Who::Foreign`) and through the build to t9704 built in
 ///   order; then a zombie post's MoveThroughVillageGoal finds the village close in the game after
 ///   the bed's release (the POI manager's stored level 6, mob-AI's) and not in redsim.
+/// - unload-v3-raw / unload-siding-raw: ironspec's fault rule (a player leaving and coming back)
+///   on day-1's wired loop v3 and farmopt's bed siding, placed as written: their drives (the
+///   benches' acts, expects dropped) with `unload` / `load` acts added: mid-cycle (30 and 40 gt
+///   away), mid-pulse (3 and 5 gt), N = 0 mid-pulse, and the siding's 240 gt (past its 220 gt
+///   timer). Every chunk saved and unloaded (the bridge's `unload`: the level ticks on), loaded
+///   again (`load`: the entities back as new objects, numbered in the chunks' order; the drive's
+///   `tp eN` follow them, `World::renumbered`); redsim's `reload::unload_all` / `load_all`.
 const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
@@ -310,6 +327,8 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("siding-built", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/siding-wired-built.drive")),
     ("station-raw", include_str!("../scenes/station-linear-stand.txt"), include_str!("../scenes/station-linear-stand-raw.drive")),
     ("station-built", include_str!("../scenes/station-linear-stand.txt"), include_str!("../scenes/station-linear-stand-built.drive")),
+    ("unload-v3-raw", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/unload-v3-raw.drive")),
+    ("unload-siding-raw", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/unload-siding-raw.drive")),
 ];
 
 /// A drive scene's day time at its spawn in its bench's run: the bench's world is
@@ -363,7 +382,12 @@ fn drive_text(name: &str) -> Option<String> {
 fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
     let text = drive_text(name)?;
     let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
-    let bad = |line: &str| -> ! { panic!("the drive log of {name}: {line:?} is not `act T set|nbt x y z <state|snbt>`, `tp eN x y z`, `home eN.pK x y z`, `last-slept eN.pK t` or `poi-take x y z`") };
+    let mut later: Vec<(u32, ([i32; 3], String))> = Vec::new();
+    let push = |v: &mut Vec<(u32, Vec<([i32; 3], String)>)>, t: u32, c: ([i32; 3], String)| match v.last_mut() {
+        Some((lt, b)) if *lt == t => b.push(c),
+        _ => v.push((t, vec![c])),
+    };
+    let bad = |line: &str| -> ! { panic!("the drive log of {name}: {line:?} is not `act T set|nbt x y z <state|snbt>`, `tp eN x y z`, `home eN.pK x y z`, `last-slept eN.pK t`, `poi-take x y z`, `unload`, `load` or `unload all N`") };
     for line in text.lines().filter(|l| l.starts_with("act ")) {
         let f: Vec<&str> = line.splitn(7, ' ').collect();
         let int = |i: usize| f.get(i).and_then(|x| x.trim().parse::<i32>().ok());
@@ -393,12 +417,30 @@ fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
                 let (Some(x), Some(y), Some(z)) = (int(3), int(4), int(5)) else { bad(line) };
                 ([x, y, z], format!("{}:{}", if f[2] == "nether-set" { "nether" } else { "nether-nbt" }, f[6].trim()))
             }
+            // (tickexact 2026-11-10, ironspec's fault rule) every chunk of the scene saved and
+            // unloaded (a player leaving), then loaded again (back): the bridge's `unload` /
+            // `load`, redsim's `reload::unload_all` / `load_all`
+            Some(a @ ("unload" | "load")) if f.len() == 3 => ([0, 0, 0], a.to_string()),
+            // (the brief's shared act: `unload all <N>`, the load N ticks later)
+            Some("unload") if f.len() == 5 && f[3] == "all" => {
+                let Some(n) = f[4].trim().parse::<u32>().ok() else { bad(line) };
+                later.push((t + n, ([0, 0, 0], "load".to_string())));
+                later.sort_by_key(|(t, _)| *t);
+                ([0, 0, 0], "unload".to_string())
+            }
             _ => bad(line),
         };
-        match v.last_mut() {
-            Some((lt, b)) if *lt == t => b.push(c),
-            _ => v.push((t, vec![c])),
+        // (an act an earlier line put at or before this line's time goes in first, as redsim's
+        // drive sorts them)
+        while let Some(i) = later.iter().position(|(lt, _)| *lt <= t) {
+            let (lt, c) = later.remove(i);
+            push(&mut v, lt, c);
         }
+        push(&mut v, t, c);
+    }
+    later.sort_by_key(|(t, _)| *t);
+    for (t, c) in later {
+        push(&mut v, t, c);
     }
     Some(v)
 }
@@ -551,9 +593,9 @@ enum Placement {
 fn scene_placement(name: &str) -> Placement {
     match name {
         "carousel-wired" => Placement::Judge,
-        "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" => Placement::Merged,
+        "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" | "unload-v3-raw" => Placement::Merged,
         "carousel-wired-built" | "carousel-wired-v3-built" | "siding-built" | "station-built" => Placement::Built,
-        "siding-raw" | "station-raw" => Placement::Merged,
+        "siding-raw" | "station-raw" | "unload-siding-raw" => Placement::Merged,
         _ => Placement::Raw,
     }
 }
@@ -2380,7 +2422,7 @@ fn scenes_raw() -> Vec<Scene> {
         // seed, less the settle before the summon)
         let day_time = if first {
             1000
-        } else if name.starts_with("carousel-wired") || name.starts_with("siding") || name.starts_with("station") {
+        } else if name.starts_with("carousel-wired") || name.starts_with("siding") || name.starts_with("station") || name.starts_with("unload-") {
             // (the bench's world: day0 at the end of its settle, which the raw paste skips)
             drive_day0(name).unwrap_or(200) - redsim::entity::mob::farm::SETTLE_TICKS
         } else {
@@ -2424,6 +2466,9 @@ pub struct GameScene {
     /// (tickexact 2026-11-10) A scene's Nether sandbox ([`scene_nether_part`]): its id and the box
     /// both sides watch.
     nether: Option<(u32, [i32; 3], [i32; 3])>,
+    /// (tickexact 2026-11-10) Entities a `load` brought back under new numbers: old -> current
+    /// (the bridge's answer; a drive's `eN` follows it).
+    renumbered: std::collections::HashMap<u32, u32>,
 }
 
 impl GameScene {
@@ -2492,7 +2537,35 @@ impl GameScene {
         } else {
             (Vec::new(), Vec::new())
         };
-        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether })
+        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether, renumbered: Default::default() })
+    }
+
+    /// The bridge's `unload` / `load` of every chunk of the sandbox (a load's renumbering kept).
+    fn unload_load(&mut self, op: &str) -> Result<()> {
+        let v = self.w.call(json!({"op": op, "sandbox": self.sb}))?;
+        if std::env::var_os("MOBAI_TRACE_LOAD").is_some() {
+            eprintln!("bridge {op}: {}", v["order"].as_str().unwrap_or(""));
+        }
+        if let Some(a) = v["renumbered"].as_array() {
+            let pairs: Vec<(u32, u32)> = a.iter().filter_map(|p| Some((p[0].as_u64()? as u32, p[1].as_u64()? as u32))).collect();
+            // (a number renumbered before follows to its newest)
+            for (o, n) in &pairs {
+                for v in self.renumbered.values_mut() {
+                    if *v == *o {
+                        *v = *n;
+                    }
+                }
+            }
+            for (o, n) in pairs {
+                self.renumbered.insert(o, n);
+            }
+        }
+        Ok(())
+    }
+
+    /// A drive entity's number now (after the loads that renumbered it).
+    fn now(&self, n: u32) -> u32 {
+        self.renumbered.get(&n).copied().unwrap_or(n)
     }
 
     /// Summon the scene's mobs (seeded); their numbers.
@@ -2522,6 +2595,16 @@ impl GameScene {
         // entity act through its bridge op
         let mut run: Vec<([i32; 3], &str)> = Vec::new();
         for (p, s) in blocks {
+            // (tickexact 2026-11-10, ironspec's fault rule) every chunk of the sandbox saved and
+            // unloaded / loaded again, between two ticks
+            if s == "unload" || s == "load" {
+                if !run.is_empty() {
+                    self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+                    run.clear();
+                }
+                self.unload_load(s)?;
+                continue;
+            }
             // (a Nether build act: the Nether sandbox's, placed like a player's)
             if s.starts_with("nether:") || s.starts_with("nether-nbt:") {
                 if !run.is_empty() {
@@ -2560,10 +2643,18 @@ impl GameScene {
         use redsim::entity::mob::drive::Act;
         let sb = self.sb;
         match a {
-            Act::Tp(who, v) => self.w.call(json!({"op": "teleport", "sandbox": sb, "entity": ctx.number(*who)?, "pos": [v.x, v.y, v.z]}))?,
-            Act::Home(who, p) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": ctx.number(*who)?, "memories": {"home": [p.x, p.y, p.z]}}))?,
-            Act::LastSlept(who, t) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": ctx.number(*who)?, "memories": {"last_slept": ctx.g0 + t}}))?,
+            Act::Tp(who, v) => self.w.call(json!({"op": "teleport", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "pos": [v.x, v.y, v.z]}))?,
+            Act::Home(who, p) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "memories": {"home": [p.x, p.y, p.z]}}))?,
+            Act::LastSlept(who, t) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "memories": {"last_slept": ctx.g0 + t}}))?,
             Act::PoiTake(p) => self.w.call(json!({"op": "poi_take", "sandbox": sb, "pos": [p.x, p.y, p.z]}))?,
+            Act::Unload => {
+                self.unload_load("unload")?;
+                json!({})
+            }
+            Act::Load => {
+                self.unload_load("load")?;
+                json!({})
+            }
             Act::Set(..) => bail!("a block act through apply_act"),
         };
         Ok(())

@@ -287,6 +287,13 @@ pub struct World {
     /// while a PORTAL ticket holds it. None (the default): an entity through a portal leaves the
     /// simulation (removed).
     pub nether: Option<Box<World>>,
+    /// (tickexact 2026-11-10, ironspec's fault rule) The world's chunks saved and unloaded, waiting
+    /// to load again (`reload::unload_all` / `load_all`): the level ticks on (its time; the
+    /// Nether), nothing of them does.
+    pub away: Option<Box<crate::reload::Away>>,
+    /// (tickexact 2026-11-10) Entities a load brought back under new ids: old id -> its current
+    /// id (`reload::load_all`; a drive's `eN` follows it).
+    pub renumbered: HashMap<u32, u32>,
     /// This world is the Nether (`DimensionType.ultraWarm`): lava flows every 10 gt, drops off by
     /// 1, looks 4 blocks for a slope and pushes entities by 0.007; a portal's random tick spawns
     /// nothing; an entity through a portal goes to the overworld (`outgoing`).
@@ -406,6 +413,8 @@ impl World {
             entity_chunks: None,
             frozen: Vec::new(),
             nether: None,
+            away: None,
+            renumbered: HashMap::new(),
             ultrawarm: false,
             portal_tickets: Vec::new(),
             portal_since: None,
@@ -1209,6 +1218,15 @@ impl World {
         // mobinfra: the weather (advanceWeatherCycle, first in ServerLevel.tick); off: nothing
         if self.weather.on {
             crate::weather::tick(self);
+        }
+        // (tickexact 2026-11-10, ironspec's fault rule) its chunks saved and unloaded: the level
+        // ticks on (its time; the Nether after it), nothing of them does (`reload::unload_all`)
+        if self.away.is_some() {
+            self.handling_tick = false;
+            if self.nether.is_some() {
+                crate::entity::portal::tick_nether(self);
+            }
+            return;
         }
         // a primed TNT explodes after its 80 gt fuse (it ticks from the tick it spawns in): not
         // modeled, unless the caller removes primed TNT before that (the TNT judge does); TNT

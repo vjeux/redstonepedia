@@ -157,6 +157,8 @@ public final class Protocol {
             case "drop" -> drop(r);
             case "clear" -> clear(r);
             case "reload" -> reload(r);
+            case "unload" -> unload(r);
+            case "load" -> load(r);
             case "set" -> set(r);
             case "fill" -> fill(r);
             case "get" -> get(r);
@@ -290,6 +292,33 @@ public final class Protocol {
     private JsonObject reload(JsonObject r) {
         sandbox(r).reload(this.server);
         return new JsonObject();
+    }
+
+    /**
+     * (tickexact 2026-11-10, ironspec's fault rule) {@code unload}: every chunk of a sandbox saved
+     * and unloaded ({@link Sandbox#unloadAll}); the steps after it tick the level with them away
+     * until {@code load} ({@link Sandbox#loadAll}) brings them back.
+     */
+    private JsonObject unload(JsonObject r) {
+        sandbox(r).unloadAll(this.server);
+        return new JsonObject();
+    }
+
+    private JsonObject load(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        sb.loadAll(this.server);
+        JsonObject o = new JsonObject();
+        o.addProperty("order", sb.lastLoadOrder);
+        // each entity back under its new number: [old, new]
+        JsonArray re = new JsonArray();
+        for (int[] p : sb.lastRenumbered) {
+            JsonArray a = new JsonArray();
+            a.add(p[0]);
+            a.add(p[1]);
+            re.add(a);
+        }
+        o.add("renumbered", re);
+        return o;
     }
 
     private static int flags(JsonObject r) {
