@@ -244,6 +244,14 @@ enum Cmd {
         #[arg(long, allow_hyphen_values = true, default_value = "-6,-4,-7,9,6,53")]
         riders: String,
     },
+    /// A `queue-loop-run --watch ... --watch-cells ...` log as events: each watched cell's state
+    /// changes, each watched cart's starts and stops and the watched cells it rides over, with
+    /// times in gt after `--from-slot`'s start (crates/circuit-memory/src/releasebench.rs).
+    WatchEvents {
+        trace: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        from_slot: u64,
+    },
     /// Each design's pricing line for the fold (the parent and ironspec 2026-11-10: "compact:
     /// volume decides", dig depth priced in build minutes): blocks, box, volume, the box's depth
     /// under the ground layer and its dug cells (footprint x depth, as the judge's site footprint
@@ -546,6 +554,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::NapReport { log } => releasebench::nap_report(&log)?,
         Cmd::TraceDiff { a, b } => releasebench::trace_diff(&a, &b)?,
         Cmd::BedDistance { design, riders } => releasebench::bed_distance(&design, &riders)?,
+        Cmd::WatchEvents { trace, from_slot } => releasebench::watch_events(&trace, from_slot)?,
         Cmd::Price { designs, ground, stage } => releasebench::price(&designs, ground, &stage)?,
         Cmd::ReleaseSweep { loop_file, offdelay, siding, siding_ctl, pad, knob, values, run, show } => releasebench::release_sweep(&loop_file, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref(), knob.as_deref(), &values, &run, &show)?,
         Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,

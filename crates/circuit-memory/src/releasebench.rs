@@ -630,6 +630,64 @@ pub fn bed_distance(design: &Path, riders: &str) -> Result<()> {
     Ok(())
 }
 
+/// `watch-events`: a `queue-loop-run --watch` log (lines `cS +T: cart | cart ... | gates ... |
+/// x,y,z state | ...`) as events, in gt after slot `from`'s start: each watched cell's state
+/// changes (its `power=`/`powered=`/`lit=`/`triggered=` and shape fields), each watched cart's
+/// starts (speed above 0.001 after rest) and stops, and the watched cells' columns it rides over
+/// (the cart's block cell equal to a watched cell or the one above it).
+pub fn watch_events(trace: &Path, from: u64) -> Result<()> {
+    let text = std::fs::read_to_string(trace)?;
+    let mut last_cell: std::collections::BTreeMap<String, String> = Default::default();
+    let mut moving: Vec<bool> = Vec::new();
+    let mut on_cell: Vec<Option<String>> = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix('c') else { continue };
+        let Some((head, body)) = rest.split_once(": ") else { continue };
+        let Some((slot, off)) = head.split_once(" +") else { continue };
+        let (Ok(slot), Ok(off)) = (slot.parse::<u64>(), off.parse::<u64>()) else { continue };
+        let t = (slot * 100 + off) as i64 - (from * 100) as i64;
+        let parts: Vec<&str> = body.split(" | ").collect();
+        let gates = parts.iter().position(|p| p.starts_with("gates")).unwrap_or(parts.len());
+        let cells: Vec<(String, String)> = parts[gates + 1..].iter().filter_map(|p| p.split_once(' ').map(|(a, b)| (a.to_string(), b.trim_start_matches("minecraft:").to_string()))).collect();
+        for (k, cart) in parts[..gates].iter().enumerate() {
+            if moving.len() <= k {
+                moving.push(false);
+                on_cell.push(None);
+            }
+            let f: Vec<&str> = cart.split_whitespace().collect();
+            let pos: Vec<f64> = f.first().map(|s| s.split(',').filter_map(|n| n.parse().ok()).collect()).unwrap_or_default();
+            let v: f64 = f.get(1).and_then(|s| s.strip_prefix('v')).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            if pos.len() != 3 {
+                continue;
+            }
+            let m = v > 0.001;
+            if m != moving[k] {
+                println!("{t:+6} cart {k}: {} at {:.2},{:.2},{:.2}", if m { "starts" } else { "stops" }, pos[0], pos[1], pos[2]);
+                moving[k] = m;
+            }
+            let c = [pos[0].floor() as i32, pos[1].floor() as i32, pos[2].floor() as i32];
+            let hit = cells.iter().map(|(p, _)| p.clone()).find(|p| {
+                let q: Vec<i32> = p.split(',').filter_map(|n| n.parse().ok()).collect();
+                q.len() == 3 && q[0] == c[0] && q[2] == c[2] && (q[1] == c[1] || q[1] + 1 == c[1])
+            });
+            if hit != on_cell[k] {
+                if let Some(h) = &hit {
+                    println!("{t:+6} cart {k}: over watched cell {h} at {:.2} b/t", v);
+                }
+                on_cell[k] = hit;
+            }
+        }
+        for (p, s) in cells {
+            let key: String = s.split(['[', ',', ']']).filter(|f| ["power=", "powered=", "lit=", "triggered=", "shape="].iter().any(|k| f.starts_with(k))).collect::<Vec<_>>().join(",");
+            let prev = last_cell.insert(p.clone(), key.clone());
+            if prev.as_deref() != Some(key.as_str()) && prev.is_some() {
+                println!("{t:+6} cell {p}: {} -> {key}", prev.unwrap_or_default());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `trace-diff` (the fold's check: which control lines moved, and by how much): two `release-trace`
 /// outputs, per port: identical, every edge shifted by the same gt (and that shift), or the first
 /// edge that differs.

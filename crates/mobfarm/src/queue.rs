@@ -2119,6 +2119,10 @@ pub struct LoopTiming {
     /// A diagnostic, never a design check: every rider holds GOLEM_DETECTED_RECENTLY, so none
     /// summons a golem (what a loop does once its off-pad golem cells are gone).
     pub no_summons: bool,
+    /// (tickexact 2026-11-11) A diagnostic, never a design check: every zombie killed at the
+    /// start, so the riders stay calm (the `cant-reach:` line's positive control: a calm rider in
+    /// REST builds its streak and releases HOME past 1200 gt).
+    pub calm: bool,
     /// Every villager's block position each tick, printed at the end (`--record-positions`: the
     /// golem-spots check's positions over a full bench night).
     pub record_positions: bool,
@@ -2273,7 +2277,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, start_random: false }
     }
 }
 
@@ -3098,6 +3102,21 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // cell, slot and offset), its crossing and death in the Nether, the pulse, the iron)
     let has_nether = run.world.nether.is_some();
     let mut ev_seen = run.world.mob.events.len();
+    // (tickexact 2026-11-11, ironspec: the one-bed claim's second failure path) per rider, the
+    // oldest CANT_REACH_WALK_TARGET_SINCE at a tick SetWalkTargetFromBlockMemory(HOME) can run
+    // (REST, no WALK_TARGET, HOME held: past 1200 gt it releases HOME), and every POI release
+    // (MobEvent::Released: a rider's is its HOME); `calm`: every zombie killed first (the control)
+    let mut reach_worst: Option<(i64, String)> = None;
+    let mut home_releases: Vec<String> = Vec::new();
+    let mut rel_seen = run.world.mob.events.len();
+    if tm.calm {
+        let zombies: Vec<u32> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Zombie)).map(|e| e.id).collect();
+        for id in &zombies {
+            redsim::entity::kill(&mut run.world, *id).map_err(|e| format!("--calm: {e}"))?;
+        }
+        rel_seen = run.world.mob.events.len();
+        eprintln!("--calm: {} zombies killed at the start (a diagnostic, never a design check)", zombies.len());
+    }
     let mut crossed_seen = run.world.crossings.len();
     let mut pad_golems: Vec<(u32, i64, u32, [i32; 3], i64, i64)> = Vec::new();
     let mut out_of_turn: Vec<String> = Vec::new();
@@ -3180,6 +3199,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut late_total: i64 = 0;
     let mut out = Vec::new();
     let mut problems = Vec::new();
+    // (the bed's nearest awake villager while it is taken: its distance and where; see the tick
+    // loop)
+    let mut bed_near: Option<(f64, String)> = None;
     // (merged carts: the shared check, `crate::merge`, every tick; a hard fail)
     let mut merges = crate::merge::MergeTally::default();
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
@@ -3276,6 +3298,31 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                                 v.iter_mut().for_each(r);
                             }
                             intake_trains.iter_mut().for_each(|(_, v, _)| v.iter_mut().for_each(r));
+                            // (tickexact 2026-11-11) the visits' records too (each visit's cart,
+                            // napper and batch: a visit spanning the reload read the old numbers,
+                            // "the napper is not back in its own cart" / "the cart never came back
+                            // to rest in a slot" whatever the world did), the stop brake's armed
+                            // cart and the pad's golems
+                            for vr in visits.iter_mut() {
+                                if let Some(c) = vr.cart.as_mut() {
+                                    r(c);
+                                }
+                                if let Some(x) = vr.rider.as_mut() {
+                                    r(x);
+                                }
+                                vr.batch.iter_mut().for_each(r);
+                            }
+                            if let Some((id, _)) = stop_arm.as_mut() {
+                                r(id);
+                            }
+                            for g in pad_golems.iter_mut() {
+                                r(&mut g.0);
+                                r(&mut g.2);
+                            }
+                            for g in nether_golems.iter_mut() {
+                                r(&mut g.0);
+                                r(&mut g.3);
+                            }
                             unload_log.push(format!("slot {c} +{dt}: the whole part away {n} gt, {} entities back under new numbers", m.len()));
                         }
                         Some(b) => {
@@ -4280,7 +4327,54 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     slept_tonight[k] = true;
                 }
             }
+            // the bed's nearest awake villager while it is taken (ironspec 2026-11-11: a calm
+            // villager within 16 of an occupied bed loses HOME for good; traced, every tick): from
+            // each sleeper's bed block centre to every rider not asleep
+            for (k, a) in asleep_now.iter().enumerate() {
+                if !*a {
+                    continue;
+                }
+                let Some(bed) = redsim::entity::index_of(&run.world, riders[k]).and_then(|i| redsim::entity::mob::mob(&run.world, i).sleeping_pos) else { continue };
+                for (j, r) in riders.iter().enumerate() {
+                    if j == k || asleep_now[j] {
+                        continue;
+                    }
+                    let Some(p) = pos_of(&run.world, *r) else { continue };
+                    let d = ((p.x - (bed.x as f64 + 0.5)).powi(2) + (p.y - (bed.y as f64 + 0.5)).powi(2) + (p.z - (bed.z as f64 + 0.5)).powi(2)).sqrt();
+                    if bed_near.as_ref().is_none_or(|b: &(f64, String)| d < b.0) {
+                        bed_near = Some((d, format!("rider e{j} at {:.2},{:.2},{:.2}, bed {},{},{}, slot {c} +{dt}", p.x, p.y, p.z, bed.x, bed.y, bed.z)));
+                    }
+                }
+            }
             let homes_now: Vec<Option<BlockPos>> = riders.iter().map(|r| redsim::entity::index_of(&run.world, *r).and_then(|i| match &run.world.entities.list[i].kind { redsim::entity::EntityKind::Mob(m) => m.brain.as_deref().and_then(|b| b.home), _ => None })).collect();
+            // (the `cant-reach:` line: each rider's streak where HOME's release can run, and the
+            // releases)
+            for (k, r) in riders.iter().enumerate() {
+                let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+                let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { continue };
+                let Some(b) = m.brain.as_deref() else { continue };
+                let Some(x) = b.ex.as_deref() else { continue };
+                if b.home.is_some()
+                    && x.active == redsim::entity::mob::ai::brain::Act::Rest
+                    && x.mem.walk_target.is_none()
+                    && let Some(since) = x.mem.cant_reach_since
+                {
+                    let age = run.world.time - since;
+                    if reach_worst.as_ref().is_none_or(|w| age > w.0) {
+                        let p = run.world.entities.list[i].pos;
+                        reach_worst = Some((age, format!("rider e{k} at {:.2},{:.2},{:.2}, slot {c} +{dt}", p.x, p.y, p.z)));
+                    }
+                }
+            }
+            let n_ev = run.world.mob.events.len();
+            for ev in &run.world.mob.events[rel_seen.min(n_ev)..] {
+                if let redsim::entity::mob::MobEvent::Released { id, .. } = ev
+                    && let Some(k) = riders.iter().position(|r| r == id)
+                {
+                    home_releases.push(format!("rider e{k} slot {c} +{dt}"));
+                }
+            }
+            rel_seen = n_ev;
             if home_at_start.is_none() {
                 home_at_start = Some(homes_now.clone());
             }
@@ -4872,10 +4966,22 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     if !rider_hurt.is_empty() {
         out.push(format!("riders hurt: {}", rider_hurt.join("; ")));
     }
+    out.push(format!(
+        "cant-reach: {}; HOME releases: {}",
+        match &reach_worst {
+            Some((age, at)) => format!("the oldest CANT_REACH_WALK_TARGET_SINCE where HOME's release can run (REST, no WALK_TARGET, HOME held) {age} gt ({at}); margin to 1200: {:+}", 1200 - age),
+            None => "never set where HOME's release can run (REST, no WALK_TARGET, HOME held)".to_string(),
+        },
+        if home_releases.is_empty() { "none".to_string() } else { format!("{} ({})", home_releases.len(), home_releases.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }
+    ));
     if let Some(v) = tm.visit {
         out.extend(visit_lines.iter().cloned());
         out.push(format!("visit: bed claims: {}", if bed_claims.is_empty() { "none".to_string() } else { bed_claims.join("; ") }));
         // (each visit: asleep, rolled off, back; a visit whose 6 slots outran the run is left out)
+        out.push(match &bed_near {
+            Some((d, at)) => format!("bed: the nearest awake villager while a bed was taken {d:.2} ({at}); margin over 16: {:+.2}", d - 16.0),
+            None => "bed: never taken".into(),
+        });
         let mut done = 0;
         for vr in &visits {
             if vr.slot + 6 > cycles {

@@ -454,6 +454,30 @@ bed, and an empty cart (a detector rail sees any cart). Measured in redsim, behi
   nothing moves it): a lead, not built: the activator cell tilted to rise toward the free cell so
   a stalled empty cart rolls back to the park and is kicked again while K holds, with the
   approach under 0.2 b/t so the retry cannot skip the band either.
+- **The design (b) approved (ironspec 2026-11-11 00:52; to build, then test after tick-exact's
+  reload/eject fixes):**
+  - **The after-wake kick:** the empty cart kicked only once the napper is awake, then about 60 gt
+    later (the bench-driven siding's ideal controls do exactly that and run nap40 and the whole
+    unload at the kick 60 of 60, pre-fix): the wake comes only while the villager ticks, so a freeze
+    delays wake and kick together and the boarding cooldown is covered. Wired: BK fed by not-H
+    delayed, B delayed (about 40-60 gt through the chain's repeaters, no item timer) and B now (the
+    re-sleep cancel), and L; F's own fast kick F and V and not B and not H into the park support
+    (a napper asleep when F comes is not cut).
+  - **B, the bed occupied:** a waxed copper bulb toggled by every raw bed-observer pulse (follows
+    the bed for any nap length: a 20-gt nap was measured, so H cannot tell the edges apart),
+    resynced off at dawn and at dusk (no villager in the bed then; it also clears the build's
+    stray toggles before night 1). Faults (injected only) invert it until the next resync.
+  - **day-1's divert gate:** no divert while V or B; VR (day-1's scheduler, visit about +420) resets
+    V and H, never B (gate without VR deadlocks: measured).
+  - **Cost:** estimated +25-30 blocks over 262 (the long nap path's 8 dropped); the exact total
+    after building. Tests: R, V and B faults, a short nap (a panic wake), a re-sleep inside the
+    60 gt, asleep700, nap40, sleep until dawn, the unload at the kick, a built-in-order run ending
+    by day then night 1, normal 100 x 6; recovery in slots and HOME on all 21.
+- **tick-exact's 26.3 bridge of the three drives:** nap40's jam matches the game (the cart stops at
+  z 3.29, its napper on the free cell); asleep700 matches through drive t 7,466 (the next visit's
+  cart parks with its napper aboard for about 2,000 gt, then the following visit wedges both
+  nappers on the free cell; 20 of 21 keep HOME); kick3 in the game had the napper wake a tick
+  before the kick (the rate is being measured).
 
 ## The give-up's first version, its own timer (2026-11-10; `--give-up timer`, superseded)
 
