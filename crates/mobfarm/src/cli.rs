@@ -631,6 +631,10 @@ pub enum MobfarmCmd {
         /// With --hump: the run's boosters as the hump's first slopes up (not flat).
         #[arg(long)]
         boost_slopes: bool,
+        /// With --boost-slopes: the first this many boosters flat at the head's height, the rest as
+        /// slopes (S3's DP cell two before the hump's top clear of the boosters; at hump 4, 1).
+        #[arg(long, default_value_t = 0)]
+        boost_flat: u32,
         /// With --hump: the hump's flat top this many cells long.
         #[arg(long, default_value_t = 1)]
         top_flat: u32,
@@ -2918,7 +2922,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, d.to_text())?;
             println!("{}: {} blocks", out.display(), d.blocks.len());
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, approach_climb_boost, hump, dip_y, dip_flat, boost_slopes, top_flat, top_boost, crest_plain_dip, crest_descent, part_handoff, part_allowed, part_departure, cprime, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, approach_climb_boost, hump, dip_y, dip_flat, boost_slopes, boost_flat, top_flat, top_boost, crest_plain_dip, crest_descent, part_handoff, part_allowed, part_departure, cprime, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2927,11 +2931,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, approach_climb_boost, hump, dip_y, dip_flat, boost_slopes, top_flat, top_boost, crest_plain_dip, crest_descent, cprime: match cprime.as_slice() { [a, b, c, d, e, f] => Some([*a, *b, *c, *d, *e, *f]), [] => None, _ => anyhow::bail!("--cprime takes six delays") }, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq };
+            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, approach_climb_boost, hump, dip_y, dip_flat, boost_slopes, boost_flat, top_flat, top_boost, crest_plain_dip, crest_descent, cprime: match cprime.as_slice() { [a, b, c, d, e, f] => Some([*a, *b, *c, *d, *e, *f]), [] => None, _ => anyhow::bail!("--cprime takes six delays") }, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq };
             // (C''''s flags: no unused or contradictory flag; the dip covers z 9 and 10, the line
             // z 9|10 on its flat)
             anyhow::ensure!(hump == 0 || approach == 4 || approach == 5, "--hump needs --approach 5 (T at (-3,6,4), approach 5's descent) or 4 (C''s T)");
             anyhow::ensure!(hump > 0 || (dip_y == 2 && dip_flat == 2 && !boost_slopes && top_flat == 1 && !top_boost), "--dip-y, --dip-flat, --boost-slopes, --top-flat and --top-boost need --hump");
+            anyhow::ensure!(boost_flat == 0 || (boost_slopes && boost_flat as i32 <= boost_first), "--boost-flat needs --boost-slopes and at most --boost-first boosters");
             anyhow::ensure!(top_flat >= 1, "--top-flat takes 1 or more");
             anyhow::ensure!(hump == 0 || !approach_boost, "--hump: drop --approach-boost");
             anyhow::ensure!(hump == 0 || (dip_flat >= 1 && dip_y >= 1 && dip_y <= approach), "--dip-flat takes 1 or more, --dip-y 1..=approach (the climb to T)");

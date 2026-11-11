@@ -449,6 +449,9 @@ pub struct LoopOpts {
     /// With `hump`: the run's boosters as slopes up toward the hump (each a block of the hump's
     /// rise), not flat at the head's height.
     pub boost_slopes: bool,
+    /// With `boost_slopes`: the first this many boosters flat at the head's height, the rest as
+    /// slopes (S3's DP cell two before the hump's top clear of the boosters).
+    pub boost_flat: u32,
     /// With `hump`: the hump's flat top this many cells long (1: a single flat at the peak).
     pub top_flat: u32,
     /// With `hump`: the top's flat cells boosters (a backward cart never reaches them: the hump's
@@ -519,7 +522,7 @@ pub struct LoopOpts {
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, approach_boost: false, approach_climb_boost: false, hump: 0, dip_y: 2, dip_flat: 2, boost_slopes: false, top_flat: 1, top_boost: false, crest_plain_dip: false, crest_descent: 0, cprime: None, adm_xq: 0 }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, approach_boost: false, approach_climb_boost: false, hump: 0, dip_y: 2, dip_flat: 2, boost_slopes: false, boost_flat: 0, top_flat: 1, top_boost: false, crest_plain_dip: false, crest_descent: 0, cprime: None, adm_xq: 0 }
     }
 }
 
@@ -1768,7 +1771,7 @@ pub fn hump_pad(o: &LoopOpts) -> i32 {
     let n = o.approach as i32;
     let (dy, top) = (o.dip_y as i32, (o.dip_y + o.hump) as i32);
     let b = o.boost_first as i32;
-    let y0 = if o.boost_slopes { 1 + b } else { 1 };
+    let y0 = if o.boost_slopes { 1 + b - (o.boost_flat as i32).min(b) } else { 1 };
     // (from the head's peak (the head slot's z - 2) the run's cells down to the climb's foot)
     let need = b + (top - y0) + o.top_flat.max(1) as i32 + (top - dy) + o.dip_flat as i32;
     let have = (head[2] - 3) - (2 * n - dy);
@@ -2210,11 +2213,13 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             let (dy, top) = (o.dip_y as i32, (o.dip_y + o.hump) as i32);
             let foot = 2 * n - dy;
             let b = o.boost_first as i32;
+            // (`boost_flat`: the first boosters flat, the rest as slopes: S3's DP clear of them)
+            let bf = (o.boost_flat as i32).min(b);
             for i in 0..b {
-                path.push(([xb, 1 + if o.boost_slopes { i } else { 0 }, z], Cell::Boost));
+                path.push(([xb, 1 + if o.boost_slopes { (i - bf).max(0) } else { 0 }, z], Cell::Boost));
                 z -= 1;
             }
-            let y0 = if o.boost_slopes { 1 + b } else { 1 };
+            let y0 = if o.boost_slopes { 1 + b - bf } else { 1 };
             for y in y0..top {
                 path.push(([xb, y, z], Cell::Plain));
                 z -= 1;
@@ -3221,7 +3226,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.set(c[0], c[1], c[2], s);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.approach_boost { " approach_boost=1" } else { "" } + if o.approach_climb_boost { " approach_climb_boost=1" } else { "" } + &(if o.hump > 0 { format!(" hump={} dip_y={} dip_flat={}{}{}{}", o.hump, o.dip_y, o.dip_flat, if o.boost_slopes { " boost_slopes=1" } else { "" }, if o.top_flat != 1 { format!(" top_flat={}", o.top_flat) } else { String::new() }, if o.top_boost { " top_boost=1" } else { "" }) } else { String::new() }) + if o.crest_plain_dip { " crest_plain_dip=1" } else { "" } + &(if o.crest_descent > 0 { format!(" crest_descent={}", o.crest_descent) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default() + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() })));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + if o.approach_boost { " approach_boost=1" } else { "" } + if o.approach_climb_boost { " approach_climb_boost=1" } else { "" } + &(if o.hump > 0 { format!(" hump={} dip_y={} dip_flat={}{}{}{}", o.hump, o.dip_y, o.dip_flat, if o.boost_slopes { if o.boost_flat > 0 { format!(" boost_slopes=1 boost_flat={}", o.boost_flat) } else { " boost_slopes=1".to_string() } } else { String::new() }, if o.top_flat != 1 { format!(" top_flat={}", o.top_flat) } else { String::new() }, if o.top_boost { " top_boost=1" } else { "" }) } else { String::new() }) + if o.crest_plain_dip { " crest_plain_dip=1" } else { "" } + &(if o.crest_descent > 0 { format!(" crest_descent={}", o.crest_descent) } else { String::new() }) + if o.adm_short { " adm_short=1" } else { "" } + if o.adm_qboost { " adm_qboost=1" } else { "" } + if o.adm_flatb { " adm_flatb=1" } else { "" } + if o.adm_rboost { " adm_rboost=1" } else { "" } + if o.adm_pdet { " adm_pdet=1" } else { "" } + if o.adm_sensors { " adm_sensors=1" } else { "" } + &if o.adm_sensors && o.adm_room_k != 2 { format!(" adm_room_k={}", o.adm_room_k) } else { String::new() } + if o.adm_sensors && o.adm_latch_reset { " adm_latch_reset=1" } else { "" } + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default() + &if o.adm_xq > 0 { format!(" adm_xq={}", o.adm_xq) } else { String::new() })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     // (the design's declared flights (`crate::flight`), in its final, shifted coordinates)
     if !lay.flights.is_empty() {
@@ -3297,6 +3302,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "dip_y" => o.dip_y = v.parse()?,
             "dip_flat" => o.dip_flat = v.parse()?,
             "boost_slopes" => o.boost_slopes = v == "1",
+            "boost_flat" => o.boost_flat = v.parse().unwrap_or(0),
             "top_flat" => o.top_flat = v.parse()?,
             "top_boost" => o.top_boost = v == "1",
             "crest_plain_dip" => o.crest_plain_dip = v == "1",
@@ -6181,7 +6187,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let (ap_dip_hi, ap_top_z) = if o.hump > 0 {
         let b = o.boost_first as f64;
         let (dy, top) = (o.dip_y as f64, (o.dip_y + o.hump) as f64);
-        let y0 = if o.boost_slopes { 1.0 + b } else { 1.0 };
+        let y0 = if o.boost_slopes { 1.0 + b - (o.boost_flat as f64).min(b) } else { 1.0 };
         // (the top's southmost flat cell; the falling face below it)
         let zt = ap_head_z - 3.0 - b - (top - y0) - (o.top_flat.max(1) as f64 - 1.0);
         (zt - (top - dy), zt)
