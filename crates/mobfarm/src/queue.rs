@@ -2974,12 +2974,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 stand_count[at_stand.min(3)] += 1;
             }
             // (each release: G0, the front pocket's gate, opening; a release is locked to the
-            // grid when it opens 1..=8 gt after a golem pulse rose)
+            // grid when it opens 1..=20 gt after the pad's golem pulse rose: pulse-triggered (day-1's
+            // stand REL comes about 14 gt after the pulse; an EXPIRE release has none that near))
             if let Some(g) = g0 {
                 let open = matches!(run.world.get(g), Block::FenceGate { open: true, .. });
                 if open && !g0_was {
                     let t = run.world.time;
-                    let locked = pulse_rises.last().is_some_and(|r| t - r >= 1 && t - r <= 8);
+                    let locked = pulse_rises.last().is_some_and(|r| t - r >= 1 && t - r <= 20);
                     releases.push((t, locked));
                 }
                 g0_was = open;
@@ -3638,7 +3639,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         let first_release = releases.first().map(|r| r.0 - t_start);
         let before_lock = releases.iter().position(|r| r.1);
         out.push(format!(
-            "power-on: day time at the start {}; the first golem at +{} gt; the first release (G0 open) at +{} gt; {} releases before the first locked one (G0 open 1..8 gt after a pulse){}",
+            "power-on: day time at the start {}; the first golem at +{} gt; the first release (G0 open) at +{} gt; {} releases before the first locked one (G0 open 1..20 gt after the pad's pulse; with an injected pulse the releases follow it instead){}",
             start_day.map_or("(as the bench's)".to_string(), |d| d.to_string()),
             first_golem.map_or("never".to_string(), |t| t.to_string()),
             first_release.map_or("never".to_string(), |t| t.to_string()),
