@@ -3383,6 +3383,54 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's follow-up: "never merges" on flat track and one slope rail
+    // must cover the farm's speeds, up to 1.96 stored at R1's take-off) merge-threshold's flat and
+    // one-rail geometries with followers at stored 1.2, 1.4, 1.6, 1.8, 2.0 and 2.2, empty (lanes
+    // 0..11: flat, then one rail) and ridden (lanes 12..23: flat, then one rail); the front empty
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 63, 0, 15, 63, stone);
+        let rail = |shape: &str| format!("minecraft:rail[shape={shape},waterlogged=false]");
+        let cart = |x: i32, y: f64, z: f64, v: f64, ridden: bool| {
+            let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+            ("minecraft:minecart".to_string(), [x as f64 + 0.5, y, z], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", -v)))
+        };
+        let mut mobs = Vec::new();
+        let speeds = [1.2, 1.4, 1.6, 1.8, 2.0, 2.2];
+        for (r, ridden) in [false, true].into_iter().enumerate() {
+            for slopes in 0..2 {
+                for (k, sp) in speeds.iter().enumerate() {
+                    let x = 1 + 2 * (r * 12 + slopes as usize * 6 + k) as i32;
+                    b.push(([x, 64, 3], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+                    if slopes == 1 {
+                        b.push(([x, 64, 4], rail("ascending_south")));
+                    }
+                    let top = 64 + slopes;
+                    for z in (4 + slopes)..=12 {
+                        for yy in 64..top {
+                            b.push(([x, yy, z], stone.to_string()));
+                        }
+                        b.push(([x, top, z], rail("north_south")));
+                    }
+                    mobs.push(cart(x, 64.0, 4.5, 0.0, false));
+                    mobs.push(cart(x, top as f64, 7.5, *sp, ridden));
+                }
+            }
+        }
+        v.push(Scene {
+            name: "merge-flat".into(),
+            chunks: [0, 0, 3, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
     // reloaded sleeper's wake) a villager asleep in its bed, a zombie walled in stone 4 blocks east;
     // the whole sandbox unloaded at t200, loaded at t240 and the zombie's west wall taken away at

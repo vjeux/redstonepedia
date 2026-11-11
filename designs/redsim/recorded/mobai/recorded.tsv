@@ -66,6 +66,7 @@ level32.rec	0ee4f1cd919d8aad		26.3	2026-11-11T03:34Z on 2a49ff7aa	mctas mobai re
 level33-set.rec	564e605c5463249e		26.3	2026-11-11T12:25Z on f6d0a622a	mctas mobai record level33-set --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 loot-pickup.rec	399481169aa92c26		26.3	2026-11-10T15:13Z on 15717973b	mctas mobai record loot-pickup --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
+merge-flat.rec	f58ae116a16d052e		26.3	2026-11-11T17:55Z on fdfdfa0d66	mctas mobai record merge-flat --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 merge-threshold.rec	ded8d58396e39485		26.3	2026-11-11T17:48Z on b6dbc4de63	mctas mobai record merge-threshold --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 pane-connect.rec	8106ec4b73502113		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record pane-connect --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
