@@ -1272,6 +1272,16 @@ pub(crate) fn release_all_pois(w: &mut World, i: usize) {
     }
 }
 
+/// (tickexact 2026-11-11, a bench's fault act: a rider made homeless) Villager `i`'s HOME given up as
+/// SetWalkTargetFromBlockMemory's release does it: `releasePoi(HOME)` (the record's ticket back,
+/// when one is held) and the memory erased, a `Released` event.
+pub fn release_home(w: &mut World, i: usize) {
+    let (t, id) = (w.time, w.entities.list[i].id);
+    w.mob.events.push(crate::entity::mob::MobEvent::Released { t, id });
+    release_poi(w, i, M::Home);
+    erase(w, i, M::Home);
+}
+
 /// `Villager.releasePoi(memory)`: the memory's POI, still there and of the memory's kind, gives a
 /// ticket back (`PoiManager.release`: `PoiRecord.releaseTicket`, at most its max; a record shared
 /// by two claims after a replace gives back once per release). The memory itself stays.

@@ -3323,6 +3323,9 @@ pub enum RiderRef {
 pub enum RideAct {
     Dismount(RiderRef),
     Swap(RiderRef, RiderRef),
+    /// (tickexact 2026-11-11, ironspec's long-homeless re-claim) the rider's HOME given up as the
+    /// game's release does it (`releasePoi(HOME)`, the memory erased).
+    Unhome(RiderRef),
 }
 
 pub fn parse_rider(s: &str, t: &str) -> Result<RiderRef, String> {
@@ -3427,13 +3430,14 @@ fn anyhow_lite(ok: bool, why: impl FnOnce() -> String) -> Result<(), String> {
 /// `SLOT,DT,swap,R1,R2` (R: `visit:SLOT` or an entity number).
 pub fn parse_act(s: &str) -> Result<Act, String> {
     let f: Vec<&str> = s.split(',').map(|t| t.trim()).collect();
-    if f.len() >= 3 && (f[2] == "dismount" || f[2] == "swap") {
+    if f.len() >= 3 && (f[2] == "dismount" || f[2] == "swap" || f[2] == "unhome") {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let (slot, dt) = (num(f[0], "SLOT")?, num(f[1], "DT")?);
         let ride = match (f[2], f.len()) {
             ("dismount", 4) => RideAct::Dismount(parse_rider(s, f[3])?),
             ("swap", 5) => RideAct::Swap(parse_rider(s, f[3])?, parse_rider(s, f[4])?),
-            _ => return Err(format!("--act {s}: give SLOT,DT,dismount,R or SLOT,DT,swap,R1,R2 (R: visit:SLOT or an entity number)")),
+            ("unhome", 4) => RideAct::Unhome(parse_rider(s, f[3])?),
+            _ => return Err(format!("--act {s}: give SLOT,DT,dismount,R, SLOT,DT,swap,R1,R2 or SLOT,DT,unhome,R (R: visit:SLOT or an entity number)")),
         };
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
         return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: None, unload: None, order: redsim::reload::Order::Save, ride: Some(ride) });
@@ -4682,6 +4686,14 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                                 format!("slot {c} +{dt}: act: e{id} dismounted (it rode {})", v.map(|v| format!("cart e{v}")).unwrap_or_else(|| "nothing".into()))
                             }
                             None => format!("slot {c} +{dt}: act: dismount {r:?}: no such rider"),
+                        },
+                        RideAct::Unhome(r) => match who(r).and_then(|id| redsim::entity::index_of(&run.world, id).map(|i| (id, i))) {
+                            Some((id, i)) if redsim::entity::mob::ai::brain::has_exact(&run.world, i) => {
+                                let had = redsim::entity::mob::ai::brain::brain(&run.world, i).home;
+                                redsim::entity::mob::ai::brain::run::release_home(&mut run.world, i);
+                                format!("slot {c} +{dt}: act: e{id} gave up its HOME ({had:?})")
+                            }
+                            _ => format!("slot {c} +{dt}: act: unhome {r:?}: no such villager with the AI's brain"),
                         },
                         RideAct::Swap(r1, r2) => match (who(r1), who(r2)) {
                             (Some(a1), Some(a2)) => match (vehicle_of(&run.world, a1), vehicle_of(&run.world, a2)) {
