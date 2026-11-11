@@ -5006,6 +5006,26 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
         if merges > 0 {
             problems.push(format!("meter: {merges} arrivals merged into a waiting cart"));
         }
+        // (by rest place: the waiting cart's z (place 1 under 1.5, place 2 to 2.4, place 3 beyond):
+        // each place's contacts, its closest centres and the arrivals' stored speeds; then every
+        // arrival's stored speed in order)
+        let onto_z = |txt: &str| txt.split("onto z ").nth(1).and_then(|x| x.split(|ch: char| ch == ',' || ch == ' ').next()).and_then(|x| x.parse::<f64>().ok());
+        let place_of = |z: f64| if z < 1.5 { 0 } else if z < 2.4 { 1 } else { 2 };
+        let mut by_place: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+        for r in &rows {
+            if let Some(z) = onto_z(&r.2) {
+                by_place[place_of(z)].push((r.0, r.1));
+            }
+        }
+        let place_txt = |k: usize| {
+            let v = &by_place[k];
+            if v.is_empty() {
+                format!("place {}: none", k + 1)
+            } else {
+                format!("place {}: {} arrivals, closest centres {:.3}, stored up to {:.3}", k + 1, v.len(), v.iter().map(|x| x.1).fold(f64::MAX, f64::min), v.iter().map(|x| x.0).fold(0.0f64, f64::max))
+            }
+        };
+        out.push(format!("meter arrivals by rest place: {}; {}; {}; each arrival's stored speed: {}", place_txt(0), place_txt(1), place_txt(2), if rows.is_empty() { "-".to_string() } else { rows.iter().map(|r| format!("{:.3}", r.0)).collect::<Vec<_>>().join(" ") }));
     }
     if !s.shut_on_cart.is_empty() {
         out.push(format!("meter: gates shut on a cart: {} ({})", s.shut_on_cart.len(), s.shut_on_cart.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
@@ -6028,7 +6048,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             Some(k) => format!("+{k} (summon ticks at slot +{k})"),
             None => "unaligned (summon ticks at slot +60; --summon-unaligned)".to_string(),
         };
-        h.b_physical = tm.meter.is_some_and(|m| m.vb);
+        h.b_physical = tm.meter.is_some_and(|m| m.vb || m.wired_b);
         if let Some((ah, lost)) = tm.head_retry {
             h.retry = true;
             h.day1 = true;

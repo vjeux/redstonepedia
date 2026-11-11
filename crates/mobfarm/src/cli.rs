@@ -3592,6 +3592,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let merges = r.lines().find(|l| l.contains("merged carts:")).map(|l| l.trim().chars().take(60).collect::<String>()).unwrap_or_default();
                         let back = r.lines().find_map(|l| l.split("back travel up to ").nth(1)).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
                         let contact = r.lines().find_map(|l| l.strip_prefix("meter arrivals at a waiting cart (first contact on the hold's column: a push, or a dead stop at a rider's box): ")).map(|x| x.split("; the worst:").next().unwrap_or(x)).unwrap_or("-");
+                        // (by rest place, each arrival's stored speed, T-cell crossings)
+                        let places = r.lines().find_map(|l| l.strip_prefix("meter arrivals by rest place: ")).unwrap_or("-");
+                        let t_cross = r.lines().find_map(|l| l.split("backward crossings into T's cell: ").nth(1)).unwrap_or("-");
                         // (the head model's summary, when it runs: holds, RETRYs, D_arr holds,
                         // ARR at the end, trains onto waiting carts, stand RELs twice in a slot)
                         let head = if r.lines().any(|l| l.starts_with("head-perm router")) {
@@ -3606,7 +3609,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         } else {
                             String::new()
                         };
-                        println!("freeze at +{dt} for {nn}: {} | shuts: {} | on a cart: {} | back: {back} | contact: {contact} | {probs}{}{head}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
+                        println!("freeze at +{dt} for {nn}: {} | shuts: {} | on a cart: {} | back: {back} | T crossings: {t_cross} | contact: {contact} | by place: {places} | {probs}{}{head}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
                     }
                 }
                 return Ok(());
