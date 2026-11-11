@@ -62,6 +62,7 @@ reclaim-backoff-1.rec	5bb1341f0fe9a2bb		26.3	2026-11-11T11:42Z on 388d91c58	mcta
 recover-occupied.rec	9459a35cd221c296		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-occupied --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 recover-shared.rec	ab8f7b683acc91d6		26.3	2026-11-11T10:50Z on ac495f13c	mctas mobai record recover-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 recover-single.rec	b3e69998f7c7bb39		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record recover-single --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
+rider-push.rec	41ddc5c2374f5bfd		26.3	2026-11-11T12:10Z on b0728a805	mctas mobai record rider-push --seed 1 --ticks 900 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 siding-fault-nap40.rec	f1df1678c77517e6		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record siding-fault-nap40 --seed 1 --ticks 3300 --dir designs/redsim/recorded/mobai
