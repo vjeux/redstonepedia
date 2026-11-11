@@ -245,7 +245,7 @@ pub fn layout_at(dx: i32, dz: i32) -> Siding {
         bed_foot: p(0, 0, 3),
         hatch: p(2, 1, 2),
         hatch_ctrl: p(2, 0, 2),
-        zombie: [4.5 + dx as f64, 1.0, 2.5 + dz as f64],
+        zombie: if fc() { [4.5 + dx as f64, 7.0, 3.5 + dz as f64] } else { [4.5 + dx as f64, 1.0, 2.5 + dz as f64] },
         slot_rails: [p(4, -1, 0), p(5, -1, 0)],
         release: p(4, -2, 0),
         exit: p(6, -1, 0),
@@ -390,6 +390,14 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     put(b, [zc[0], zc[1] - 1, zc[2]], "glass")?;
     put(b, [zc[0], zc[1] + 3, zc[2]], "oak_leaves[distance=1,persistent=true,waterlogged=false]")?;
     b.entity("oak_boat", s.zombie, Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+    if fc() {
+        // (post 1, the wake and the departure, ironspec 11:38: its boat in a glass box open only
+        // west at the boat's level (3,7,3), the hatch's cell; the L hook's glass (4,0,2) kept)
+        put(b, [4, 0, 2], "glass")?;
+        for c in [[5, 7, 3], [5, 8, 3], [4, 7, 2], [4, 8, 2], [4, 7, 4], [4, 8, 4], [3, 8, 3]] {
+            put(b, c, "glass")?;
+        }
+    }
     Ok(())
 }
 
@@ -546,18 +554,19 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     // neither H nor V: the divert holds)
     let rd: u8 = std::env::var("MCTAS_SIDING_RDELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(if slong { 4 } else { 1 });
     if fc() {
-        // (a stone pressure plate (3,2,0) on glass (3,1,0) over the exit branch: its touch box, 2.0-2.25,
-        // meets a seated rider's top (2.0125 on a flat rail) and not a standing villager's (1.95) or
-        // an empty cart; mobs only, no items. Its dust east (4,2,0), (5,2,0), down north (5,1,-1),
-        // (5,0,-2), north (5,0,-3) into a repeater (4,0,-3) into the R line's east end (3,0,-3))
-        put(b, [3, 1, 0], "glass")?;
-        put(b, [3, 2, 0], "stone_pressure_plate[powered=false]")?;
-        on(b, [4, 2, 0], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-        on(b, [5, 2, 0], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-        on(b, [5, 1, -1], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-        on(b, [5, 0, -2], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-        on(b, [5, 0, -3], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-        on(b, [4, 0, -3], &rep("east", rd))?;
+        // (the ridden signal and R in one, ironspec 12:05 (no rider's eye inside glass): a north-south
+        // tripwire at rider height over the exit branch, (3,1,0), hooks (3,1,-1) on glass (3,1,-2) and
+        // (3,1,1) on (3,1,2); a seated rider's box crosses its band (1.06-1.16), an empty cart (0.76)
+        // does not, and no standing villager reaches the exit branch. The north hook feeds dust
+        // (2,1,-1) on glass (2,0,-1), down north (2,0,-2) into the R line (2,0,-3), clear of L's hook)
+        put(b, [3, 1, 0], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+        put(b, [3, 1, -1], "tripwire_hook[attached=true,facing=south,powered=false]")?;
+        put(b, [3, 1, -2], "glass")?;
+        put(b, [3, 1, 1], "tripwire_hook[attached=true,facing=north,powered=false]")?;
+        // (stone, not glass: dust on glass never powers down a step)
+        put(b, [2, 0, -1], "stone")?;
+        put(b, [2, 1, -1], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        on(b, [2, 0, -2], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
     } else {
         swap(b, [3, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
         on(b, [3, 0, -1], &rep("south", rd))?;
@@ -753,12 +762,8 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     // (the two-torch tower's top block, under nothing now: FAST's block for SC's side repeater)
     put(b, [0, -2, 7], "stone")?;
     if fc() {
-        // (not-FC: a wall torch (1,1,7) on FC's block (1,1,6), dust (1,0,7), (0,0,7) on stone, down
-        // south onto (0,-1,8): the whole network once fed B now carries not-FC)
-        put(b, [0, -1, 7], "stone")?;
-        put(b, [1, 1, 7], "redstone_wall_torch[facing=south,lit=true]")?;
-        on(b, [1, 0, 7], dust)?;
-        put(b, [0, 0, 7], dust)?;
+        // (not-FC enters at the network's foot (-4,-3,6), B's old place: see the FC block below)
+        put(b, [0, -1, 7], "glass")?;
         // (K holds, ironspec 08:40 item 1: K fed back into SC's side. From the stop (1,-1,6), K's
         // strongly powered block: dust west (0,-1,6), (-1,-1,6), (-2,-1,6), south (-2,-1,7) on the
         // block (-2,-2,7), read by a repeater (-1,-2,7) east into FAST's block (0,-2,7): once lit, K
@@ -887,27 +892,48 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     for c in [[3, 0, 2], [3, 0, 3], [3, 0, 4], [4, 0, 4], [5, 0, 4]] {
         on(b, c, dust)?;
     }
-    // (the free-cell sensor FC, MCTAS_SIDING_FC=1 on the retry build, ironspec 09:19: a tripwire
-    // string at y 1 over the T, the booster and the free cell, every cell the napper can stand on,
-    // between hooks at (1,1,-1) (on glass at (1,1,-2)) and (1,1,5) (on stone at (1,1,6), FC's block);
-    // the booster's cap gone, so glass caps over the T's sides (0,1,0), (2,1,0), glass at its north
-    // (1,0,-1), and glass at y 2 over the trapdoors. A standing villager's box crosses the band at
-    // 1.06-1.16; a baby (0.98) and the cart (0.76) do not)
+    // (the free-cell sensor FC on the tight cage, ironspec 10:52-11:38: the free cell the only cell
+    // the napper can stand on (the booster capped again). FC: one east-west string over the free
+    // cell (1,1,2), hooks (0,1,2) on FC's block (-1,1,2) (the cage's west wall, stone now) and (2,1,2)
+    // (the old hatch's cell) on glass (3,1,2); a standing villager's box crosses the band at
+    // 1.06-1.16, a baby (0.98) and the cart (0.76) do not. not-FC: a wall torch (-2,1,2) on FC's
+    // block, dust west and down B's old path into (-4,-3,6), the network's foot.
+    // SP, the ridden-only hold: a stone pressure plate (1,2,1) on the booster's cap: its touch box
+    // (2.0-2.25) meets a seated rider's top (2.0125; tick-exact plate-rider, 0 differences) and no
+    // standing villager (1.95), baby or bare cart. Dust (0,2,1) on the front wall's glass, down west
+    // (-1,1,1) onto (-1,0,1), read by a repeater (0,0,1) east into the booster: the booster powered
+    // only with a rider over it, so an empty cart is halted on it, inside the siding)
     if fc() {
-        swap(b, [1, 1, 1], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
-        for z in [0, 2, 3, 4] {
-            if b.d.blocks.contains_key(&[1, 1, z]) {
-                swap(b, [1, 1, z], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
-            } else {
-                put(b, [1, 1, z], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
-            }
+        put(b, [1, 1, 2], "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]")?;
+        put(b, [0, 1, 2], "tripwire_hook[attached=true,facing=east,powered=false]")?;
+        swap(b, [-1, 1, 2], "stone")?;
+        put(b, [-1, 2, 2], "glass")?;
+        swap(b, [2, 1, 2], "tripwire_hook[attached=true,facing=west,powered=false]")?;
+        put(b, [3, 1, 2], "glass")?;
+        put(b, [-2, 1, 2], "redstone_wall_torch[facing=west,lit=true]")?;
+        on(b, [-3, 1, 2], dust)?;
+        for c in [[-4, 0, 2], [-5, 0, 2], [-5, 0, 3], [-5, -1, 4], [-5, -2, 5], [-4, -2, 5]] {
+            on(b, c, dust)?;
         }
-        put(b, [1, 1, -1], "tripwire_hook[attached=true,facing=south,powered=false]")?;
-        put(b, [1, 1, -2], "glass")?;
-        swap(b, [1, 1, 5], "tripwire_hook[attached=true,facing=north,powered=false]")?;
-        put(b, [1, 1, 6], "stone")?;
-        for c in [[0, 1, 0], [2, 1, 0], [1, 0, -1], [1, 2, -1], [1, 2, 3], [1, 2, 4], [1, 2, 6]] {
-            put(b, c, "glass")?;
+        // (the booster's cap a top-half iron trapdoor, ironspec 12:05: 1.81-2.0 keeps a standing
+        // villager (1.95) off the booster and leaves a seated rider's eye (1.68) in open air; nothing
+        // beside it is a source, so it never opens)
+        swap(b, [1, 1, 1], "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")?;
+        // (glass over the cap: its top is a golem spot otherwise)
+        put(b, [1, 2, 1], "glass")?;
+        // (the eye lines from the sleeper and the stand-up cell leave the cage through (2,2,2), over FC's
+        // east hook: iron bars there, joined north only (the cage glass south of it, (2,2,3), gone),
+        // stand across the north half of the cell where a villager on (2,0,2)'s top would stand, and
+        // leave the lines (z 2.62 and up) clear)
+        swap(b, [2, 2, 2], "smooth_stone_slab[type=bottom,waterlogged=false]")?;
+        // (post 1's hatch: a top-half iron trapdoor facing west in the box's one open cell (4,6,3).
+        // Closed, the eye lines pass under it (y 6.81); open (powered), its plate x 4.81-5.0 cuts every
+        // line into the box. Its control is the L network (not-H or L, BK's own input), brought up
+        // from (4,0,4) by dust (4,1,5), (5,2,5), (5,3,6), (4,4,6), (4,5,5), (4,6,4), the last pointing
+        // north into it: post 1 seen from F to R, not while the slot is taken)
+        put(b, [3, 7, 3], "iron_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]")?;
+        for c in [[4, 1, 5], [5, 2, 5], [5, 3, 6], [4, 4, 6], [4, 5, 5], [3, 6, 5], [3, 7, 4]] {
+            on(b, c, dust)?;
         }
     }
     // (the declared z >= -4 rule's positive control, ironspec 08:13: MCTAS_SIDING_EXTRA_STONE=x,y,z
@@ -1357,7 +1383,7 @@ fn declared_of(b: &Builder, s: &Siding, wired: bool) -> Vec<crate::declared::Dec
         cells.push((BlockPos::new(s.free_cell.x, s.park_rail.y, z), &[], false));
     }
     cells.extend([(s.park_rail, off, false), (BlockPos::new(2, 0, 0), &[][..], false), (BlockPos::new(3, 0, 0), &[][..], false), (s.slot_rails[0], &[][..], false), (s.slot_rails[1], &[][..], false), (s.exit, &[][..], false)]);
-    cells.push((s.hatch, &[("open", "true")], false));
+    cells.push((if fc() { BlockPos::new(3, 7, 3) } else { s.hatch }, &[("open", "true")], false));
     let mut out: Vec<Decl> = cells.iter().filter_map(|(c, p, a)| id_at(*c).map(|id| Decl::new([c.x, c.y, c.z], &id, p, *a))).collect();
     // (the bench's own: the launcher's boosters, the approach and run-out rails, the hold's brakes)
     let mut extra: Vec<(BlockPos, String)> = b.d.blocks.iter().filter(|(c, st)| st.contains("rail") && !out.iter().any(|d| d.cell == **c)).map(|(c, st)| (BlockPos::new(c[0], c[1], c[2]), st.clone())).collect();
@@ -1425,20 +1451,27 @@ pub fn cage(spec: &FarmSpec, toggle: bool, remove: &[[i32; 3]]) -> Result<Vec<([
         None
     };
     let mut seen: std::collections::BTreeMap<[i32; 3], f64> = Default::default();
-    let mut todo: Vec<(f64, f64, f64)> = Vec::new();
-    for c in [[1, 0, 0], [1, 0, 1], [1, 0, 2]] {
+    let mut todo: Vec<(f64, f64, f64, Option<[i32; 3]>)> = Vec::new();
+    let mut parent: std::collections::BTreeMap<[i32; 3], [i32; 3]> = Default::default();
+    // (the tight cage (FC): the napper stands only on the free cell, the seed; the corridor build
+    // seeded the T and the booster too)
+    let seeds: Vec<[i32; 3]> = if fc() { vec![[1, 0, 2]] } else { vec![[1, 0, 0], [1, 0, 1], [1, 0, 2]] };
+    for c in seeds {
         let p = fr.blk(c[0], c[1], c[2]);
         if let Some(y) = land(w, p.x as f64 + 0.5, p.y as f64 + 0.5, p.z as f64 + 0.5) {
-            todo.push((p.x as f64 + 0.5, y, p.z as f64 + 0.5));
+            todo.push((p.x as f64 + 0.5, y, p.z as f64 + 0.5, None));
         }
     }
-    while let Some((x, y, z)) = todo.pop() {
+    while let Some((x, y, z, par)) = todo.pop() {
         let l = fr.local(redsim::entity::vec3::Vec3::new(x, y, z));
         let key = [l.x.floor() as i32, l.y.floor() as i32, l.z.floor() as i32];
         if seen.get(&key).is_some_and(|&h| h <= y + 1.0e-6) || seen.len() > 4000 {
             continue;
         }
         seen.insert(key, y);
+        if let Some(pk) = par {
+            parent.insert(key, pk);
+        }
         for (dx, dz) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
             let (tx, tz) = (x + dx, z + dz);
             // (try every start height from the jump's top down to the current floor: the box must be
@@ -1447,13 +1480,22 @@ pub fn cage(spec: &FarmSpec, toggle: bool, remove: &[[i32; 3]]) -> Result<Vec<([
             while top >= y - 1.0e-6 {
                 if free(w, x, top, z) && free(w, tx, top, tz) && (dx == 0.0 || dz == 0.0 || (free(w, tx, top, z) && free(w, x, top, tz))) {
                     if let Some(h) = land(w, tx, top, tz) {
-                        todo.push((tx, h, tz));
+                        todo.push((tx, h, tz, Some(key)));
                     }
                     break;
                 }
                 top -= 1.0 / 16.0;
             }
         }
+    }
+    // (the escape: the path from the corridor to the first position outside it, on stderr)
+    let corridor = |c: &[i32; 3]| c[0] == 1 && c[1] == 0 && (if fc() { 2..=2 } else { 0..=2 }).contains(&c[2]);
+    if let Some(out) = seen.keys().find(|k| !corridor(k) && parent.get(*k).is_some_and(|p| corridor(p))) {
+        let mut chain = vec![*out];
+        while let Some(p) = parent.get(chain.last().unwrap()) {
+            chain.push(*p);
+        }
+        eprintln!("cage escape (toggle {toggle}): {}", chain.iter().rev().map(|c| format!("({},{},{}) {:.3}", c[0], c[1], c[2], seen[c] - fr.blk(0, 0, 0).y as f64)).collect::<Vec<_>>().join(" -> "));
     }
     Ok(seen.into_iter().map(|(k, v)| (k, v - fr.blk(0, 0, 0).y as f64)).collect())
 }
@@ -1866,6 +1908,8 @@ pub struct BenchReport {
     /// path, no walk target), and a few approach samples (walk target and path end, local).
     pub walk_kinds: [[u64; 4]; 3],
     pub walk_samples: Vec<String>,
+    /// Every hurt to a tracked villager (its damage kind, where, when).
+    pub hurts: Vec<String>,
     /// The off-the-rails watch's derails and its report line.
     pub derails: Vec<String>,
     pub rail_line: String,
@@ -2741,6 +2785,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     let region = if l.x >= -0.5 && l.x <= 7.0 && l.z >= -0.5 && l.z <= 8.0 { 0 } else if l.x < -0.5 && (l.z - 0.5).abs() < 1.0 { 1 } else { 2 };
                     let kind = crate::queue::rider_walk_kind(w, p.1).map_or(3, |x| x as usize);
                     rep.walk_kinds[region][kind] += 1;
+                    // (day-1 11:43: any hurt to a villager (InWall above all) is a problem)
+                    if let Some((t, d)) = redsim::entity::mob::mob(w, i).last_damage && t == w.time {
+                        rep.hurts.push(format!("villager {} {:?} at {:.2},{:.2},{:.2} (local) t0+{}", p.1, d, l.x, l.y, l.z, w.time - t0));
+                    }
                     if region >= 1 && kind < 3 && rep.walk_samples.len() < 16 && brain::has_exact(w, i) {
                         let ex = brain::ex(w, i);
                         let bl = |b: BlockPos| {
@@ -3120,10 +3168,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("AaR", if retry() { [0, -4, 3] } else { [0, -3, 3] }),
                 ("Hs3", [-1, -4, 3]),
                 ("FCh", [1, 1, 5]),
-                ("R1", [5, 0, -3]),
+                ("R1", [2, 0, -2]),
 
-                ("Rs", [3, 2, 0]),
-                ("Rd", [4, 2, 0]),
+                ("Rs", [3, 1, 0]),
+                ("hatch1", [3, 7, 3]),
+                ("hst", [4, 6, 4]),
+                ("Rd", [2, 1, -1]),
                 ("R2", [3, 0, -2]),
                 ("Hl0", [-1, -3, 0]),
                 ("FCs", [1, 1, 2]),

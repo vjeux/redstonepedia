@@ -1938,6 +1938,12 @@ pub enum MobfarmCmd {
     /// `--remove x,y,z` (repeatable) sets cells to air first, a positive control.
     /// The bed siding's eye lines (ironspec 11:16): from each `--from x,y,z` (local, repeatable) to
     /// `--to x,y,z`, as built and with every trapdoor flipped: clear or the first blocking cell.
+    /// The design's blocks inside a box (`--box x0,y0,z0,x1,y1,z1`, the spec's coordinates), one per line.
+    SidingCells {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        r#box: Vec<i32>,
+    },
     SidingSight {
         design: PathBuf,
         #[arg(long, allow_hyphen_values = true)]
@@ -3732,6 +3738,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", out.display());
         }
+        MobfarmCmd::SidingCells { design, r#box } => {
+            let (_c, spec) = load(version, &design)?;
+            anyhow::ensure!(r#box.len() == 6, "--box x0,y0,z0,x1,y1,z1");
+            let mut v: Vec<String> = spec.blocks.iter().filter(|(p, _)| (r#box[0]..=r#box[3]).contains(&p.x) && (r#box[1]..=r#box[4]).contains(&p.y) && (r#box[2]..=r#box[5]).contains(&p.z)).map(|(p, b)| format!("({},{},{}) {}", p.x, p.y, p.z, b.to_string().trim_start_matches("minecraft:"))).collect();
+            v.sort();
+            for l in v {
+                println!("{l}");
+            }
+        }
         MobfarmCmd::SidingSight { design, from, to } => {
             let (_c, spec) = load(version, &design)?;
             let p3 = |s: &str| -> anyhow::Result<[f64; 3]> {
@@ -3755,9 +3770,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }).collect::<anyhow::Result<_>>()?;
             for toggle in [false, true] {
                 let r = crate::siding::cage(&spec, toggle, &rm).map_err(|e| anyhow::anyhow!(e))?;
-                let corridor = |c: &[i32; 3]| c[0] == 1 && c[1] == 0 && (0..=2).contains(&c[2]);
+                let corridor = |c: &[i32; 3]| c[0] == 1 && c[1] == 0 && (if crate::siding::fc() { 2..=2 } else { 0..=2 }).contains(&c[2]);
                 let out: Vec<String> = r.iter().filter(|(c, _)| !corridor(c)).map(|(c, h)| format!("({},{},{}) floor {h:.3}", c[0], c[1], c[2])).collect();
-                println!("cage, trapdoors {}: {} standing positions reached; outside the corridor (the T, the booster, the free cell): {}", if toggle { "flipped" } else { "as built" }, r.len(), if out.is_empty() { "none".to_string() } else { format!("{} [{}]", out.len(), out.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) });
+                println!("cage (flood fill, no path-length limit), trapdoors {}: {} standing positions reached; outside the napper's cells (the free cell; the corridor build: the T, the booster, the free cell): {}", if toggle { "flipped" } else { "as built" }, r.len(), if out.is_empty() { "none".to_string() } else { format!("{} [{}]", out.len(), out.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) });
             }
         }
         MobfarmCmd::SidingCheck { design } => {
@@ -4270,6 +4285,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     let f = |a: [u64; 4]| format!("reaching {} / partial {} / no path {} / no walk {}", a[0], a[1], a[2], a[3]);
                     println!("riders' walk state, villager-ticks (ironspec 08:13): in the siding {}; on the bench's approach {}; in the hold {}", f(wk[0]), f(wk[1]), f(wk[2]));
+                    let hurts: Vec<&String> = oks.iter().flat_map(|r| r.hurts.iter()).collect();
+                    println!("villagers hurt: {}{}", hurts.len(), if hurts.is_empty() { String::new() } else { format!(" (FAIL; first: {})", hurts.iter().take(3).map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) });
                     for s in oks.iter().flat_map(|r| r.walk_samples.iter()).filter(|s| s.starts_with("hold")).take(8).chain(oks.iter().flat_map(|r| r.walk_samples.iter()).filter(|s| s.starts_with("approach")).take(4)) {
                         println!("  walk sample: {s}");
                     }
