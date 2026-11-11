@@ -586,6 +586,16 @@ pub enum MobfarmCmd {
         /// Admission control: P a sloped detector rail (senses its cart; the launch on gravity).
         #[arg(long)]
         adm_pdet: bool,
+        /// Admission control's entry-hold sensors: the plain landing flat and the third queue
+        /// slope as detector rails (the stand's REL waits while either is on).
+        #[arg(long)]
+        adm_sensors: bool,
+        /// The room detector's queue slope (0 = the top one, by the landing).
+        #[arg(long, default_value_t = 2)]
+        adm_room_k: u32,
+        /// The top queue slope a detector too: the landing latch's reset (the cart moved on).
+        #[arg(long)]
+        adm_latch_reset: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -1190,6 +1200,16 @@ pub enum MobfarmCmd {
         /// divert's hole), miss-g0, miss-gp, extra-g0 or extra-gp (a pulse OFF gt after G_P opens).
         #[arg(long)]
         adm_fault: Vec<String>,
+        /// The entry hold (`--adm-sensors` designs): the stand's release waits while either tail
+        /// detector (landing, room for 3) is on.
+        #[arg(long)]
+        entry_hold: bool,
+        /// The entry hold's landing input counts only after this many gt on without a break.
+        #[arg(long, default_value_t = 0)]
+        hold_landing_rest: i64,
+        /// The cart-evidence landing latch's strand threshold (gt set).
+        #[arg(long, default_value_t = 40)]
+        hold_strand_t: i64,
         /// Admission control's skip requests, SLOT,DT (up to 8): each sets the latch; the next
         /// G0 opening after it is skipped.
         #[arg(long)]
@@ -2249,7 +2269,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2258,7 +2278,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet };
+            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2529,7 +2549,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, adm_skip_req, arrivals_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -2609,7 +2629,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_rpulse, p_always, adm_faults: {
+            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, p_always, adm_faults: {
                 anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
                 let mut a = [None; 8];
                 for (i, s) in adm_fault.iter().enumerate() {

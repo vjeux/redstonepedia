@@ -137,6 +137,8 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let cycles = pattern.len() as i64 + extra;
     let ticks = 100 * cycles + 300;
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
+    // (the build's ground under the tail's ledge: a derail lands as it would)
+    let spec = &crate::queue::with_tail_ground(spec, o, dx, dz);
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
     // (a partial unload needs the forced chunk box: the design's, as an exact run mirrors it)
@@ -163,6 +165,14 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
         return Err(format!("declared states: {} mismatches ({})", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
     }
     let mut runtime_bad: Vec<String> = Vec::new();
+    let mut walk_kinds = [0usize; 3];
+    let mut walking_log: Vec<String> = Vec::new();
+    // (every detector rail of the design: its on-edges against the carts entering it)
+    let mut det_edges = crate::queue::DetectorEdges::new(lay.path.iter().filter(|(_, k)| matches!(k, crate::queue::Cell::Detector)).map(|(c, _)| BlockPos::new(c[0] + dx, c[1], c[2] + dz)).collect());
+    let land_det: Option<BlockPos> = if o.adm_sensors { lay.flights.first().and_then(|f| f.landing.get(1)).map(|l| BlockPos::new(l[0] + dx, l[1], l[2] + dz)) } else { None };
+    let mut land_since: Option<i64> = None;
+    let mut land_on_max: (i64, String) = (0, String::new());
+    let mut land_cycle_max: Vec<i64> = Vec::new();
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let off = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
     // the tail: x 0 from the entry curve (z 20) to slot 0; slot 0's rest cell; B's and P's rail
@@ -680,6 +690,40 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
                 runtime_bad.push(format!("{b} (slot {c} +{dt})"));
             }
         }
+        // (riders in the buffer's pressed queue with a walk target, by path: reaching (they push
+        // the cart beside them; must be 0), partial, none)
+        for (k, id) in carts.iter().enumerate() {
+            if let (Some(p), Some(Some(r))) = (pos_of(&run.world, *id), riders.get(k))
+                && in_tail(&p)
+                && let Some(kind) = crate::queue::rider_walk_kind(&run.world, *r)
+            {
+                walk_kinds[kind as usize] += 1;
+                if walking_log.iter().filter(|l| l.ends_with(["reaching", "partial", "no path"][kind as usize])).count() < 3 {
+                    walking_log.push(format!("slot {c} +{dt}: cart {k} at z {:.2} {}", p.z - fz, ["reaching", "partial", "no path"][kind as usize]));
+                }
+            }
+        }
+        det_edges.observe(&run.world, &carts);
+        // (the entry hold's landing detector: its unbroken on time, per cycle)
+        if let Some(p) = land_det {
+            let now = run.world.time as i64;
+            if run.world.get(p).to_string().contains("powered=true") {
+                land_since.get_or_insert(now);
+            } else {
+                land_since = None;
+            }
+            if let Some(s) = land_since {
+                let d = now - s + 1;
+                if d > land_on_max.0 {
+                    land_on_max = (d, format!("slot {c} +{dt}"));
+                }
+                let ci = c.max(0) as usize;
+                if land_cycle_max.len() <= ci {
+                    land_cycle_max.resize(ci + 1, 0);
+                }
+                land_cycle_max[ci] = land_cycle_max[ci].max(d);
+            }
+        }
         run.tick();
         // per tick: falls, backward motion on B/P/slot 0, the gate, rest gaps and drift, the
         // per-cart cycle, riders
@@ -936,6 +980,11 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     s += &format!("the tail's most carts at once: {max_tail}\n");
     s += &format!("{}\n", merges.line());
     s += &format!("{}\n", rails.line());
+    s += &format!("riders in the buffer with a walk target, rider-ticks by path: reaching {} (they push the cart beside them; must be 0), partial {}, no path {}{}\n", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) });
+    s += &format!("{}\n", det_edges.line(dx, dz));
+    if land_det.is_some() {
+        s += &format!("landing detector (the entry hold's strand input by level): longest unbroken on {} gt ({}); per cycle {:?}\n", land_on_max.0, land_on_max.1, land_cycle_max);
+    }
     if !runtime_bad.is_empty() {
         return Err(format!("declared states at runtime (a driven block powered against its control): {}", runtime_bad.join("; ")));
     }
