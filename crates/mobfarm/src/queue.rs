@@ -4794,7 +4794,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // control is the OR of its lines: the release's off waits for an advance pulse in
             // progress, and the advance's off (below) for a release window still open
             let st_on = |k: usize| tm.release_start + if let Some((g12, g23)) = tm.release_gaps { match k { 2 => 0, 1 => g12, _ => g12 + g23 } } else if tm.release_stagger > 0 { (2 - k as i64) * tm.release_stagger } else { 0 };
-            let st_off = |k: usize| tm.release_for + if tm.stagger_off && tm.release_stagger > 0 { (2 - k as i64) * tm.release_stagger } else { 0 };
+            let st_off = |k: usize| tm.release_for + if tm.stagger_off && (tm.release_stagger > 0 || tm.release_gaps.is_some()) { st_on(k) - tm.release_start } else { 0 };
             let adv_on = |s: usize, dt: i64| (0..3usize).any(|k| { let a = tm.advance_at + k as i64 * tm.advance_every + tm.adv_shift[k] + tm.skew.get(s).copied().unwrap_or(0); dt >= a && dt < a + tm.pulse + tm.adv_width[k] });
             for k in 0..3usize {
                 if tm.release_stagger > 0 && k < 2 && dt == st_on(k) {
