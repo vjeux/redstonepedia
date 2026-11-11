@@ -5232,7 +5232,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // (`unset_quiet`: the unset-pass also needs the entry quiet, no cart in flight from
                 // the downslope hold through the drop turn to pocket 3's entry: loop x -3.5..-1,
                 // z -0.5..4.5; pocket 3's resting cell excluded)
-                let quiet = !tm.unset_quiet || !carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| { let (lx, lz) = (p.x - o.shift[0] as f64, p.z - o.shift[1] as f64); lx >= -3.5 && lx < -1.0 && lz >= -0.5 && lz < 4.5 && p.y < 7.0 }));
+                let quiet = !tm.unset_quiet || !carts.iter().any(|id| redsim::entity::index_of(&run.world, *id).is_some_and(|i| { let e = &run.world.entities.list[i]; let (lx, lz) = (e.pos.x - o.shift[0] as f64, e.pos.z - o.shift[1] as f64); let moving = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt() > 0.02; moving && e.pos.y < 8.0 && ((lx >= -3.6 && lx < -2.4 && lz >= -0.5 && lz < 17.5) || (lx >= -3.6 && lx < 8.5 && lz >= -0.5 && lz < 1.5)) }));
                 let by_q = (!q && since >= gate_wait_unset && quiet) || (q && gate_q_at.is_some_and(|qa| t - qa >= gs));
                 if since > gt {
                     gate_armed = false;
@@ -5370,7 +5370,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 q_y_orig = Some(run.world.get(y).clone());
             }
             let q_now = !run.world.get(t2).to_string().contains("lit=true");
-            let p1 = carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| { let (lx, lz) = (p.x - o.shift[0] as f64, p.z - o.shift[1] as f64); lx >= 4.5 && lx < 8.5 && (lz - 0.5).abs() < 0.6 && p.y < 1.5 }));
+            let g0_shut = lay.pockets.first().is_some_and(|(g, _)| !run.world.get(*g).to_string().contains("open=true"));
+            let p1 = g0_shut && carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| { let (lx, lz) = (p.x - o.shift[0] as f64, p.z - o.shift[1] as f64); lx >= 4.5 && lx < 8.5 && (lz - 0.5).abs() < 0.6 && p.y < 1.5 }));
             let want_glass = !p1 && !q_now;
             let is_glass = run.world.get(y).to_string() == "minecraft:glass";
             if want_glass && !is_glass {
