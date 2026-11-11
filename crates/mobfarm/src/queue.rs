@@ -1817,6 +1817,8 @@ pub struct LoopTiming {
     /// `--no-inject` (day-1's pad runs): with `wired`, no golem pulse from the bench at all, the
     /// controls left to the design (its pad gives the pulse).
     pub no_inject: bool,
+    /// `--start-random`: the run starts at a day time drawn from the seed (the power-on sweep).
+    pub start_random: bool,
     /// The bench-driven pocket stand's gates shut on a trigger position instead of their count
     /// (an ideal-input lab for a wired trigger): G1, then G2, shut this many gt after the first
     /// cart's centre passes this x (a detector rail at cell x0 fires at x0 - 0.29).
@@ -1937,7 +1939,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0 }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, start_random: false }
     }
 }
 
@@ -2417,6 +2419,18 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // between placements, the carts spawned after the last)
     let empty = FarmSpec { blocks: Vec::new(), block_entities: Vec::new(), ..spec.clone() };
     let mut run = Run::start(if tm.build_gap.is_some() { &empty } else { spec }, &ro)?;
+    // (`start_random`: the run starts at a day time drawn from the seed, 0..24,000: the power-on
+    // sweep (day-1 19:02: from any time of day, how long to the first golem and to the grid))
+    let start_day = if tm.start_random {
+        let mut z = (seed as u64).wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x5DEE_CE66_D1CE_4E5B;
+        z = (z ^ (z >> 31)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z ^= z >> 29;
+        let d = (z % 24000) as i64;
+        run.world.mob.day_offset = d - run.world.time;
+        Some(d)
+    } else {
+        None
+    };
     // (`placed_raw`: the file as written, no settle either: it must start at rest by itself)
     if !tm.placed_raw && tm.build_gap.is_none() {
         while run.settle_tick() {}
@@ -2719,6 +2733,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut crossed_seen = run.world.crossings.len();
     let mut pad_golems: Vec<(u32, i64, u32, [i32; 3], i64, i64)> = Vec::new();
     let mut out_of_turn: Vec<String> = Vec::new();
+    // (the power-on view: each golem pulse's rise, each release (G0 opening) and whether it came
+    // 1..=20 gt after the pad's pulse; G0 the front pocket's gate, the one with the largest x)
+    let mut pulse_rises: Vec<i64> = Vec::new();
+    let mut releases: Vec<(i64, bool)> = Vec::new();
+    let g0: Option<BlockPos> = lay.pockets.iter().map(|(g, _)| *g).max_by_key(|g| g.x);
+    let mut g0_was = g0.is_some_and(|g| matches!(run.world.get(g), Block::FenceGate { open: true, .. }));
     // (per summon tick: how many stand riders were willing, panicking, at the stand (0..=3);
     // the unwilling ones: never slept, slept 24,000 gt ago or more, a golem seen lately)
     let (mut willing, mut panicking, mut stand_count) = ([0u32; 4], [0u32; 4], [0u32; 4]);
@@ -3505,8 +3525,23 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 panicking[panic.min(3)] += 1;
                 stand_count[at_stand.min(3)] += 1;
             }
+            // (each release: G0 opening; locked to the grid when it opens 1..=20 gt after the
+            // pad's pulse rose: pulse-triggered (day-1's stand REL comes about 14 gt after the
+            // pulse; an EXPIRE release has none that near))
+            if let Some(g) = g0 {
+                let open = matches!(run.world.get(g), Block::FenceGate { open: true, .. });
+                if open && !g0_was {
+                    let t = run.world.time;
+                    let locked = pulse_rises.last().is_some_and(|r| t - r >= 1 && t - r <= 20);
+                    releases.push((t, locked));
+                }
+                g0_was = open;
+            }
             if let Some(p) = tm.pulse_at {
                 let on = matches!(run.world.get(p), Block::Wire { power, .. } if power > 0);
+                if on && !pulse_was {
+                    pulse_rises.push(run.world.time);
+                }
                 if on && !pulse_was {
                     let t = run.world.time;
                     if pad_golems.iter().any(|g| t - g.1 >= 0 && t - g.1 <= 5) {
@@ -4176,6 +4211,19 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(format!("pad stats: golems {} with {} slots {cycles} crossed {} died {} alive {} pulses {pulses} spurious {spurious_pulses} iron {iron} out_of_turn {}", pad_golems.len(), with.len(), nether_golems.len(), died, nether_golems.len() - died, out_of_turn.len()));
         out.push(format!("summon ticks: stand riders willing 0/1/2/3: {} {} {} {}; panicking 0/1/2/3: {} {} {} {}; riders at the stand 0/1/2/3: {} {} {} {}; unwilling: never slept {}, slept 24,000 gt ago or more {}, a golem seen lately {}", willing[0], willing[1], willing[2], willing[3], panicking[0], panicking[1], panicking[2], panicking[3], stand_count[0], stand_count[1], stand_count[2], stand_count[3], unwilling[0], unwilling[1], unwilling[2]));
         out.push(format!("summon stats: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}", willing[0], willing[1], willing[2], willing[3], panicking[0], panicking[1], panicking[2], panicking[3], stand_count[0], stand_count[1], stand_count[2], stand_count[3], unwilling[0], unwilling[1], unwilling[2]));
+        // (power-on: the first golem, the first release, the releases before the first locked one)
+        let first_golem = pad_golems.first().map(|g| g.1 - t_start);
+        let first_release = releases.first().map(|r| r.0 - t_start);
+        let before_lock = releases.iter().position(|r| r.1);
+        out.push(format!(
+            "power-on: day time at the start {}; the first golem at +{} gt; the first release (G0 open) at +{} gt; {} releases before the first locked one (G0 open 1..20 gt after the pad's pulse){}",
+            start_day.map_or("(as the bench's)".to_string(), |d| d.to_string()),
+            first_golem.map_or("never".to_string(), |t| t.to_string()),
+            first_release.map_or("never".to_string(), |t| t.to_string()),
+            before_lock.map_or("all".to_string(), |n| n.to_string()),
+            if releases.is_empty() { String::new() } else { format!(", {} of {} releases locked", releases.iter().filter(|r| r.1).count(), releases.len()) },
+        ));
+        out.push(format!("power stats: {} {} {} {} {} {}", start_day.unwrap_or(-1), first_golem.unwrap_or(-1), first_release.unwrap_or(-1), before_lock.map_or(-1, |n| n as i64), releases.iter().filter(|r| r.1).count(), releases.len()));
         for s in out_of_turn.iter().take(3) {
             problems.push(format!("a summon onto the pad out of turn: {s}"));
         }
