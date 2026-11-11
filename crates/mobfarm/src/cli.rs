@@ -567,6 +567,14 @@ pub enum MobfarmCmd {
         /// Admission control: a mid-queue gate G1 over the K-th queue slope (0: none).
         #[arg(long, default_value_t = 0)]
         adm_g1: u32,
+        /// Admission control's short entry (with --adm-ledge): the entry curve as the pre-ledge,
+        /// a one-cell booster landing (two more queue slopes fit).
+        #[arg(long)]
+        adm_short: bool,
+        /// Admission control: the last queue slope (the front's rest against G0) an always-on
+        /// booster.
+        #[arg(long)]
+        adm_qboost: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -763,6 +771,17 @@ pub enum MobfarmCmd {
         /// ticks later (repeatable).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true, num_args = 7)]
         unload: Vec<i64>,
+        /// Write the bench's block changes as a drive for tick-exact's bridge.
+        #[arg(long)]
+        drive_out: Option<PathBuf>,
+        /// Write the design reduced to what the bench keeps (the tail's carts and the other
+        /// entities) as a scene file for the bridge.
+        #[arg(long)]
+        scene_out: Option<PathBuf>,
+        /// Replace the design's declared flights (a positive control of the off-the-rails
+        /// check): `X,Y,Z>X,Y,Z|X,Y,Z@AIR; ...`.
+        #[arg(long)]
+        flights: Option<String>,
     },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
@@ -2131,7 +2150,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2140,7 +2159,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1 };
+            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2268,7 +2287,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, trace, shift, from_climb, unload } => {
+        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, trace, shift, from_climb, unload, drive_out, scene_out, flights } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let pat = crate::tail_bench::parse_pattern(&pattern).map_err(|e| anyhow::anyhow!(e))?;
@@ -2277,6 +2296,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 shift: match shift.as_slice() { [x, z] => (*x, *z), [] => (0, 0), _ => anyhow::bail!("--shift takes DX,DZ") },
                 from_climb,
                 unloads: unload.chunks(7).map(|u| (u[0], u[1], [u[2] as i32, u[3] as i32, u[4] as i32, u[5] as i32], u[6])).collect(),
+                drive_out: drive_out.clone(),
+                flights: match &flights { Some(s) => Some(crate::flight::parse(s).map_err(|e| anyhow::anyhow!(e))?), None => None },
             };
             let tm = crate::queue::LoopTiming {
                 advance_at,
@@ -2291,6 +2312,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 adm_g1_w,
                 ..Default::default()
             };
+            // (`scene_out`: the design reduced to what the bench keeps: every entity line but the
+            // minecarts outside the tail (x 0, from the entry curve to slot 0), shifted with the
+            // design when `--shift` is given)
+            if let Some(sp) = &scene_out {
+                let lay = crate::queue::loop_layout(&o);
+                let z_slot0 = lay.slot_cells[0][2] as f64;
+                let text = std::fs::read_to_string(&design)?;
+                let mut out = String::new();
+                let mut kept = 0;
+                for l in text.lines() {
+                    if let Some(rest) = l.strip_prefix("entity: minecraft:minecart ") {
+                        let v: Vec<f64> = rest.split_whitespace().take(3).filter_map(|t| t.parse().ok()).collect();
+                        let in_tail = v.len() == 3 && v[0] > -0.5 && v[0] < 1.5 && v[2] > 20.5 && v[2] < z_slot0;
+                        if !in_tail {
+                            continue;
+                        }
+                        kept += 1;
+                    }
+                    out.push_str(l);
+                    out.push('\n');
+                }
+                anyhow::ensure!(bo.shift == (0, 0), "--scene-out writes the unshifted design; drop --shift");
+                std::fs::write(sp, out)?;
+                println!("scene: {} ({kept} tail carts kept)", sp.display());
+            }
             match seeds {
                 None => print!("{}", crate::tail_bench::run_tail_bench(&spec, &o, &tm, &pat, extra, seed, trace, &bo).map_err(|e| anyhow::anyhow!(e))?),
                 Some(n) => {
@@ -2330,7 +2376,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                         String::new()
                                     } else {
                                         let grab = |pre: &str| a.split(pre).nth(1).and_then(|t| t.split(|c: char| c == ' ' || c == ';' || c == '(').next()).unwrap_or("?").to_string();
-                                        format!(" | adm-missed {} front-missed {} front-far {} fol-near {} fol-fast {} adm-doubles {} follow {} gp-run {}", grab("missed "), grab("front missed "), grab("the front at most "), grab("the follower at least "), grab("short and at most "), grab("doubles at G0's shut "), grab("front face at least "), grab("behind the launched one "))
+                                        format!(" | adm-missed {} front-missed {} miss-pressed {} miss-rolling {} miss-far {} front-far {} fol-near {} fol-fast {} adm-doubles {} follow {} gp-run {} p-margin {}", grab("missed "), grab("front missed "), grab("P empty: pressed "), grab(" rolling "), grab(" far "), grab("the front at most "), grab("the follower at least "), grab("short and at most "), grab("doubles at G0's shut "), grab("front face at least "), grab("behind the launched one "), {
+                                            let b = line("admission: ");
+                                            b.split("at rest on P ").nth(1).and_then(|t| t.split_whitespace().next()).unwrap_or("?").to_string()
+                                        })
                                     }
                                 });
                             }
