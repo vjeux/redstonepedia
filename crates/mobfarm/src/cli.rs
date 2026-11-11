@@ -482,13 +482,18 @@ pub enum MobfarmCmd {
         /// y 1 + N; needs --stand-stop and --slots 15 (21 carts: 15 + the stand's 3 + the FIFO's 3).
         #[arg(long, default_value_t = 0)]
         tail_fifo: u32,
-        /// The escapement tail: the returning carts fall off a ledge (landing at <= 0.4 b/t), roll
-        /// down a gravity queue of Q plain slopes onto the escapement E, a braked powered slope
-        /// pulsed briefly after each advance (one cart into slot 0, a deep slot, per advance); the
-        /// return comes in at y Q + 4; needs --stand-stop and --slots 16 (21 carts: 16 + the
-        /// stand's 3 + the queue's 2).
+        /// The escapement tail: the returning carts roll down a gravity queue of Q plain slopes onto
+        /// B (braked, holds the next cart), X (plain), P (braked, against a gate, pulsed with it),
+        /// R (plain), then slot 0 a sawtooth slot (one cart into slot 0 per advance; queue-loop-run
+        /// --fifo-intake and --esc-b time it); the return comes in at y Q + 5; needs --stand-stop
+        /// and --slots 14 (21 carts: 14 + the stand's 3 + the escapement's 4, one left waiting on P
+        /// between cycles).
         #[arg(long, default_value_t = 0)]
         tail_esc: u32,
+        /// The departure climb's boosted cells from its foot, the rest plain slopes (the returning
+        /// carts' speed into the tail); default all boosted.
+        #[arg(long)]
+        climb_boost: Option<u32>,
         #[arg(long)]
         out: PathBuf,
     },
@@ -910,6 +915,9 @@ pub enum MobfarmCmd {
         /// The queue's first slots' carts at each slot's start (a re-packing tail diagnostic).
         #[arg(long)]
         verbose_tail: bool,
+        /// Every cart in the tail's cells each tick over cycles C0,C1 (a re-packing tail diagnostic).
+        #[arg(long, value_delimiter = ',')]
+        tail_trace: Vec<i64>,
         /// `--seeds` runs on this many threads (one process).
         #[arg(long, default_value_t = 1)]
         jobs: usize,
@@ -1856,10 +1864,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, tail_fifo, tail_esc, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, tail_fifo, tail_esc, climb_boost, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, tail_fifo, tail_esc };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, tail_fifo, tail_esc, climb_boost };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -1949,7 +1957,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let _ = std::fs::remove_file(&path);
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, drive_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             if let Some(sf) = &siding {
@@ -2012,7 +2020,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, slept, summon_at, no_inject, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, golem_jitter, golem_late, day_only, slept, summon_at, no_inject, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
             // (`--shift name=gt,...`: controls shifted as the sweep shifts them, e.g. to rerun a
             // corner without one of its controls)
             let mut tm = tm;

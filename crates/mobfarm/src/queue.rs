@@ -401,19 +401,20 @@ pub struct LoopOpts {
     /// intake, opens once after each advance: one cart into slot 0 per advance), and the register
     /// is 3 slots shorter (15 with 21 carts). 0 = the timed tail.
     pub tail_fifo: u32,
-    /// The re-packing tail as an escapement (ironspec's call, 19:21): the returning carts fall
-    /// off a 1-block ledge (the landing clamps every cart to 0.4 b/t), roll down a gravity queue
-    /// of this many plain slopes (carts at rest in contact allowed if measured safe) onto the
-    /// escapement E, a braked powered slope pulsed briefly after each advance: the front cart
-    /// leaves boosted, the one behind (its centre still on the plain slope above) stays, and
-    /// rolls onto E after the pulse. Then the register's slot 0, a deep slot (braked C and A).
-    /// 0 = off.
+    /// The re-packing tail as a two-stage escapement (ironspec's calls, 19:21 and 19:45): the
+    /// returning carts roll down a gravity queue of this many plain slopes onto B (a braked
+    /// powered slope that holds the next cart), X (plain), P (a braked powered slope against a
+    /// gate, pulsed with the gate), R (plain), then the register's slot 0, a sawtooth slot. Each
+    /// advance lets P's cart into slot 0, then moves B's onto P. 0 = off.
     pub tail_esc: u32,
+    /// The departure climb's boosted cells (from its foot), the rest plain slopes: the returning
+    /// carts' speed into the tail. None = all boosted.
+    pub climb_boost: Option<u32>,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, tail_fifo: 0, tail_esc: 0 }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, tail_fifo: 0, tail_esc: 0, climb_boost: None }
     }
 }
 
@@ -642,10 +643,10 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     let mut tail_b = Vec::new();
     // (with a turn slot, row A gets one slot fewer than half: its V slots are longer, and the
     // queue's head lands 19 cells from the stand; with deep tail slots, two fewer)
-    let half = if o.row_gap == 3 { if o.tail_fifo > 0 || o.tail_esc > 0 { o.slots / 2 - 3 } else if o.tail_deep || o.tail_desc { o.slots / 2 - 2 } else { o.slots / 2 - 1 } } else { o.slots / 2 };
+    let half = if o.row_gap == 3 { if o.tail_fifo > 0 || o.tail_esc > 0 { o.slots - 10 } else if o.tail_deep || o.tail_desc { o.slots / 2 - 2 } else { o.slots / 2 - 1 } } else { o.slots / 2 };
     // (`tail_desc`: the return comes in 3 blocks higher, at y 4, and the tail's 3 slots step down
     // to the queue's level; `tail_fifo` N: at y 1 + N, the FIFO's pockets each a block lower;
-    // `tail_esc` Q: at y Q + 4, the ledge, the gravity queue and the escapement stepping down)
+    // `tail_esc` Q: at y Q + 6, the ledge, the gravity queue and the escapement stepping down)
     let ye = if o.tail_esc > 0 { o.tail_esc as i32 + 6 } else if o.tail_fifo > 0 { 2 + o.tail_fifo as i32 } else if o.tail_desc { 4 } else { 1 };
     // row A from its entry curve at (0, ye, zr): north (+z)
     path.push(([0, ye, zr], Cell::Plain));
@@ -655,21 +656,28 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     let mut esc_p: Option<BlockPos> = None;
     let mut queue_cells: Vec<[i32; 3]> = Vec::new();
     if o.tail_esc > 0 {
-        // the escapement tail (two stages, ironspec 19:45): a flat, a one-cell gap (the ledge: off
-        // its rail a cart's speed is clamped to 0.4 b/t, so every returning cart lands slow
-        // whatever its train did), two landing flats a block lower, Q plain slopes down (the
-        // gravity queue), B (a braked powered slope, its own control: it holds the next cart),
-        // two flats (no box of B's cart can reach P's), P (a plain slope down: the front cart
-        // rests on it pressed against the gate), the gate over R (a plain slope: no booster, so no
-        // powered rail touches C), then the register's slot 0 as a deep slot (braked C and A, a
-        // plain slope up, the peak). One pulse opens the gate and powers B together: P's cart
-        // creeps out through the gate while B's cart crosses the flats behind it
+        // the escapement tail (ironspec's decisions 19:21, 19:45): a flat (the queue's head stays
+        // where the timed tail left it, z 19, and slots 8/9/10 sit where the timed tail's 12/13/14
+        // were: the nap drop lines unmoved), a flat, a one-cell gap (the ledge: off its rail a
+        // cart's speed is clamped to 0.4 b/t and halved while it still touches the rail's top, so
+        // every returning cart lands at ~0.1-0.2 b/t whatever its train did), a booster flat (the
+        // landed cart leaves the landing point at once: a slow one lingering there was hit by the
+        // next cart in the air, which fell into the gap) and a flat a block lower, Q plain slopes
+        // down (the gravity queue), B (a braked powered slope, its own control: it holds the next
+        // cart), X (a plain slope: B's and P's powered rails apart, no box of B's cart reaching
+        // P's), P (a braked powered slope, its own control, pulsed with the gate: its cart rests
+        // against the gate), the gate over R (a plain slope: P's power stays off slot 0), then
+        // slot 0 as a sawtooth slot. Each advance: gate and P open together (P's cart leaves
+        // boosted and enters slot 0 as a queue move does), then B (its cart crosses X and is
+        // braked on P)
         let q = o.tail_esc as i32;
         let l = ye - 1;
         path.push(([0, ye, z], Cell::Plain));
+        z += 1;
+        path.push(([0, ye, z], Cell::Plain));
         z += 2;
-        for _ in 0..2 {
-            path.push(([0, l, z], Cell::Plain));
+        for cell in [Cell::Boost, Cell::Plain] {
+            path.push(([0, l, z], cell));
             queue_cells.push([0, l, z]);
             z += 1;
         }
@@ -927,7 +935,9 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         path.push(([xd, -3, 0], Cell::Plain));
         let mut z = 1;
         for y in -3..top {
-            path.push(([xd, y, z], Cell::Boost));
+            // (`climb_boost` N: only the climb's first N cells boosted, the rest plain slopes)
+            let boosted = o.climb_boost.is_none_or(|n| (y + 3) < n as i32);
+            path.push(([xd, y, z], if boosted { Cell::Boost } else { Cell::Plain }));
             z += 1;
         }
         while z < zr {
@@ -1361,7 +1371,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() })));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default())));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -1397,6 +1407,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "stand_wired" => o.stand_wired = v != "0",
             "tail_fifo" => o.tail_fifo = v.parse()?,
             "tail_esc" => o.tail_esc = v.parse()?,
+            "climb_boost" => o.climb_boost = Some(v.parse()?),
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -1570,6 +1581,8 @@ pub struct LoopTiming {
     pub esc_b: (i64, i64),
     /// Print the queue's first slots' carts at each slot's start (a re-packing tail diagnostic).
     pub verbose_tail: bool,
+    /// Every cart in the tail's cells each tick over cycles C0..=C1 (`--tail-trace C0,C1`).
+    pub tail_trace: Option<(i64, i64)>,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -1647,7 +1660,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None }
     }
 }
 
@@ -3431,6 +3444,20 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 } else if let Some(p) = pos_of(&run.world, carts[k]) {
                     *calm_at.entry([p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32]).or_insert(0) += 1;
                 }
+            }
+        }
+        if let Some((c0, c1)) = tm.tail_trace {
+            if c >= c0 && c <= c1 && (lay.esc.is_some() || !lay.fifo.is_empty()) {
+                // (`--tail-trace`: every cart in the tail's cells, x 0, z 20..slot 0, each tick, with
+                // B, P and the gate)
+                let z1 = lay.slot_cells.first().map_or(40, |s| s[2]) + 1;
+                let ps: Vec<String> = carts.iter().enumerate().filter_map(|(k, id)| pos_of(&run.world, *id).filter(|p| p.x > -0.5 && p.x < 1.5 && p.z > 19.5 && p.z < z1 as f64).map(|p| {
+                    let v = run.world.entities.list.iter().find(|e| e.id == *id).map_or(0.0, |e| e.delta_movement.horizontal_distance());
+                    format!("{k}@{:.2},{:.2} v{:.3}", p.y, p.z, v)
+                })).collect();
+                let on = |b: Option<BlockPos>| b.map_or('?', |b| if matches!(run.world.get(b), Block::RedstoneBlock) { 'P' } else { '-' });
+                let gate = lay.fifo.last().map_or('?', |(g, _)| if matches!(run.world.get(*g), Block::FenceGate { open: true, .. }) { 'o' } else { '-' });
+                println!("tt c{c} +{dt}: B{} P{} G{} | {}", on(lay.esc), on(lay.esc_p), gate, ps.join(" "));
             }
         }
         if let Some(w) = watch {
