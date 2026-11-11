@@ -559,6 +559,9 @@ pub fn restore_fresh(e: &mut Entity) {
         }
         m.no_action_time = 0;
         m.damage_cooldown = 0;
+        // (tickexact 2026-11-11) the pose is not saved: a sleeper loads with pose SLEEPING
+        // (readAdditionalSaveData's SleepingX), even one a minecart had picked up standing
+        m.pose_standing = false;
         m.last_hurt = 0.0;
         m.speed = 0.0;
         m.xxa = 0.0;

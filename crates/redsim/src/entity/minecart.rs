@@ -423,6 +423,14 @@ fn start_riding(w: &mut World, j: usize, i: usize) {
     let (rider, cart) = (w.entities.list[j].id, w.entities.list[i].id);
     w.entities.list[j].vehicle = Some(cart);
     w.entities.list[i].passengers.push(rider);
+    // the pose STANDING: a sleeper picked up off its bed keeps its sleeping pos (no stopSleeping)
+    // but rides with the standing box (refreshDimensions; fudgePositionAfterSizeChange's move is
+    // undone by the seat taken in this same tick)
+    if let entity::EntityKind::Mob(m) = &mut w.entities.list[j].kind
+        && m.sleeping_pos.is_some()
+    {
+        m.pose_standing = true;
+    }
     let vp = w.entities.list[i].pos;
     w.game_event_at("entity_mount", [vp.x, vp.y, vp.z], None, false);
 }

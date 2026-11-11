@@ -103,6 +103,16 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             v
         }
+        // (tickexact 2026-11-11) the freeze across a cant-reach streak: each rider's HOME and its
+        // bed's POI at t1, then R1's chunk (0, 0) frozen from t900 for 1500 (or 5000) gt
+        "freeze-cantreach" | "freeze-cantreach-5000" | "freeze-cantreach-zombie" | "freeze-cantreach-zombie-5000" => {
+            let back = if name.ends_with("-5000") { 5900 } else { 2400 };
+            vec![
+                (1, vec![s([10, 64, 11], "home:e0.p0"), s([10, 64, 11], "poi-take"), s([26, 64, 11], "home:e1.p0"), s([26, 64, 11], "poi-take")]),
+                (900, vec![s([0, 0, 0], "unload:0,0,0,0")]),
+                (back, vec![s([0, 0, 0], "load:0,0,0,0")]),
+            ]
+        }
         // (tickexact 2026-11-10) the boarding cooldown across a reload: the whole part away 1 gt
         // right after the throw (t8)
         "board-cooldown-reload" => vec![(10, vec![s([0, 0, 0], "unload")]), (11, vec![s([0, 0, 0], "load")])],
@@ -450,6 +460,16 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     // `--drive-out`, 2 cycles: per advance (+38/+58/+78) the slot controls 9 gt, G_P (0,2,32) set
     // open at +6 for 2 gt, G0 (0,3,31) open 3 gt from G_P's +3, P's redstone block (0,1,31) once)
     ("gate-escg6l", include_str!("../scenes/gate-escg6l.txt"), include_str!("../scenes/gate-escg6l.drive")),
+    // (ironfarm's escG6L-v3: the same cells, G0 at G_P +2 for 4 gt at advances 1 and 2, at G_P +10
+    // for 4 gt at advance 3 (the binding case); one full cycle from the scene's 4 tail carts)
+    ("gate-escg6l-v3", include_str!("../scenes/gate-escg6l-v3.txt"), include_str!("../scenes/gate-escg6l-v3.drive")),
+    // (tickexact 2026-11-11, 58f770cc's plate: main's faults/carousel-siding-wired-plate.txt, a
+    // stone pressure plate (1,2,1) on the glass ceiling over the booster rail (1,0,1), and its three
+    // drives (`siding-bench --wired --launch --nights 1 --drive-out`): a normal night (seed 1), a
+    // day (seed 1), the whole part away 3 gt at visit 3's kick (seed 4))
+    ("siding-plate-normal", include_str!("../scenes/siding-plate.txt"), include_str!("../scenes/siding-plate-normal-seed1.drive")),
+    ("siding-plate-day", include_str!("../scenes/siding-plate.txt"), include_str!("../scenes/siding-plate-day-seed1.drive")),
+    ("siding-plate-kick3", include_str!("../scenes/siding-plate.txt"), include_str!("../scenes/siding-plate-whole-kick-3-seed4.drive")),
 ];
 
 /// (tickexact 2026-11-10, ironspec's chunk alignment) Drive scenes moved in the sandbox, with
@@ -847,7 +867,7 @@ fn scene_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
 /// from the state its redstone settles in with no cart on its detector rails. Its actions count
 /// from the summon.
 fn scene_settle(name: &str) -> u32 {
-    if name == "carousel-wired" || name == "gate-escg6l" || scene_bench_start(name) { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
+    if name == "carousel-wired" || name == "gate-escg6l" || name == "gate-escg6l-v3" || scene_bench_start(name) { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
 }
 
 /// The ticks before a scene's mobs are summoned: a built-in-order scene's build (its drive log's
@@ -891,7 +911,7 @@ fn scene_placement(name: &str) -> Placement {
         return scene_placement(base);
     }
     match name {
-        "carousel-wired" | "carousel-wired-pocket" | "siding-fault-kick3" | "siding-fault-asleep700" | "siding-fault-nap40" | "gate-escg6l" => Placement::Judge,
+        "carousel-wired" | "carousel-wired-pocket" | "siding-fault-kick3" | "siding-fault-asleep700" | "siding-fault-nap40" | "gate-escg6l" | "gate-escg6l-v3" | "siding-plate-normal" | "siding-plate-day" | "siding-plate-kick3" => Placement::Judge,
         "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" | "unload-v3-raw" | "unload-part-v3-raw" => Placement::Merged,
         "carousel-wired-built" | "carousel-wired-v3-built" | "siding-built" | "station-built" => Placement::Built,
         "siding-raw" | "station-raw" | "unload-siding-raw" => Placement::Merged,
@@ -909,7 +929,7 @@ fn scene_judge_placed(name: &str) -> bool {
 /// summon (they would read the settle's sky), then placed raw with their updates; its output chest
 /// (`port output`) set when it is not one, and emptied.
 fn scene_bench_start(name: &str) -> bool {
-    name == "carousel-wired-pocket" || name.starts_with("siding-fault-") || moved(name).is_some_and(|(base, ..)| scene_bench_start(base))
+    name == "carousel-wired-pocket" || name.starts_with("siding-fault-") || name.starts_with("siding-plate-") || moved(name).is_some_and(|(base, ..)| scene_bench_start(base))
 }
 
 /// The chest a bench start sets at the output.
@@ -2229,6 +2249,50 @@ fn scenes_raw() -> Vec<Scene> {
             c.name = n.into();
             v.push(c);
         }
+    }
+    // (tickexact 2026-11-11, ironspec: CANT_REACH_WALK_TARGET_SINCE across a freeze) two riders,
+    // each a villager in a minecart on a rail, each with HOME on its own bed sealed in glass (the
+    // path never reaches: MoveToTargetSink sets the streak, SetWalkTargetFromBlockMemory(HOME, ..,
+    // 1200) releases past 1200 gt); R1 (e0) in chunk (0, 0), frozen from t900 (its chunk's forced
+    // ticket dropped: level 32, its entities still while game time runs), R2 (e1) in chunk (1, 0),
+    // never frozen (the control: its release at 1200 gt of streak); night (REST from day time
+    // 13000); "-zombie": a zombie in a boat in R1's sight (4 blocks: R1 panics), out of R2's (13);
+    // "-5000": the freeze 5000 gt instead of 1500 (scene_actions)
+    for (name, zombie) in [("freeze-cantreach", false), ("freeze-cantreach-5000", false), ("freeze-cantreach-zombie", true), ("freeze-cantreach-zombie-5000", true)] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        for (cart_x, bed_x) in [(5, 10), (21, 26)] {
+            b.push(([cart_x, 64, 5], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            for x in bed_x - 1..=bed_x + 1 {
+                for z in 9..=12 {
+                    for y in 64..=65 {
+                        if !(x == bed_x && (z == 10 || z == 11) && y == 64) {
+                            b.push(([x, y, z], "minecraft:glass".to_string()));
+                        }
+                    }
+                }
+            }
+            b.push(([bed_x, 64, 10], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+            b.push(([bed_x, 64, 11], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        }
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = vec![("minecraft:minecart".into(), [5.5, 64.0, 5.5], Some(rider.into())), ("minecraft:minecart".into(), [21.5, 64.0, 5.5], Some(rider.into()))];
+        if zombie {
+            mobs.push(("minecraft:oak_boat".into(), [8.5, 64.0, 2.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
     }
     // (tickexact 2026-11-10, the boarding cooldown across a reload) a ridden minecart over a
     // powered activator rail throws its villager out (`ejectPassengers`: boardingCooldown 60);
