@@ -1830,6 +1830,13 @@ pub enum MobfarmCmd {
         /// in each slot.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         strip_riders: Vec<i64>,
+        /// The take-off grid instead of a run (farmopt's rise child): STAGGERS;RELS (e.g.
+        /// 2,3,4,5,6;12,14,16): each release stagger x the stand's REL (`--pocket-release`), `--seeds`
+        /// seeds on `--jobs` threads, the take-off log on; one line per corner (the least take-off
+        /// gap, gaps under 9 and 11, the stored speeds ridden and empty, the PAIR change, the jumps
+        /// landed, the off-rail cells) and the grid's least.
+        #[arg(long)]
+        takeoff_grid: Option<String>,
         /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
         /// partial unloads too when the design is shifted), on --seeds seeds from --seed, --jobs
         /// threads; a value keeps only the cases whose name contains it ("D1|REL").
@@ -3540,7 +3547,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, takeoff_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, bed_distance, approach_trace, rel_clear, head_wait, head_latch, fault_table, perfect_tail, all_corners, cprime_variants, corner_table, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, rel_sweep, meter_hold, strip_riders } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, takeoff_log, hold_back, bench_release, release_start, release_offs, flee_gate, no_flee_check, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, bed_distance, approach_trace, rel_clear, head_wait, head_latch, fault_table, perfect_tail, all_corners, cprime_variants, corner_table, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, rel_sweep, meter_hold, strip_riders, takeoff_grid } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -3745,6 +3752,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             if let Some(f) = &force_phase {
                 tm.phase_force = Some(crate::queue::parse_phase_force(f).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            if let Some(g) = &takeoff_grid {
+                return takeoff_grid_cmd(&spec, &o, &tm, &hdr, g, cycles, seed, seeds, jobs);
             }
             if let Some(sw) = &phase_sweep {
                 return phase_sweep_cmd(&spec, &o, &tm, &hdr, sw, &reload_orders, cycles, seed, jobs);
@@ -5652,6 +5662,91 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
 /// combination one line (its problems, first problem, WHO's wake after the load), then the table
 /// (rows S1, columns S2: `.` clean, `X` a problem) and the failing share of the phase space.
 #[allow(clippy::too_many_arguments)]
+/// `--takeoff-grid STAGGERS;RELS` (farmopt's rise child, ironspec's take-off bars at every ±2
+/// corner): the run at each release stagger x the stand's REL (`--pocket-release`), `--seeds` seeds
+/// each on `--jobs` threads, with the take-off log on; one line per corner: the least take-off gap
+/// (fractional gt), the gaps under 9 and under 11, the least and most stored speed at the take-off
+/// (ridden, empty), the PAIR change (take-off gap against the corner gap), the jumps landed as
+/// declared, the off-rail cells and the unseated riders, summed over the seeds; then the grid's least
+/// gap and least speeds.
+fn takeoff_grid_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, grid: &str, cycles: i64, seed: i64, seeds: i64, jobs: usize) -> Result<()> {
+    let (st, rel) = grid.split_once(';').ok_or_else(|| anyhow::anyhow!("--takeoff-grid takes STAGGERS;RELS (e.g. 2,3,4,5,6;12,14,16)"))?;
+    let list = |s: &str| -> Result<Vec<i64>> { s.split(',').filter(|t| !t.trim().is_empty()).map(|t| Ok(t.trim().parse::<i64>()?)).collect() };
+    let (sts, rels) = (list(st)?, list(rel)?);
+    // (a number after a key in a line; a range "a..b" after a key)
+    let num = |l: &str, key: &str| -> Option<f64> { l.split(key).nth(1).and_then(|t| t.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+')).next()).and_then(|t| t.parse().ok()) };
+    let range = |l: &str, key: &str| -> Option<(f64, f64)> {
+        let t = l.split(key).nth(1)?.trim_start();
+        let r = t.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+')).next()?;
+        let (a, b) = r.split_once("..")?;
+        Some((a.parse().ok()?, b.parse().ok()?))
+    };
+    let mut grid_least = f64::INFINITY;
+    let (mut grid_ridden, mut grid_empty) = (f64::INFINITY, f64::INFINITY);
+    for s in &sts {
+        for r in &rels {
+            let t = crate::queue::LoopTiming { release_stagger: *s, pocket_release: *r, takeoff_log: true, ..*tm };
+            let all: Vec<i64> = (seed..seed + seeds).collect();
+            let mut outs: Vec<String> = Vec::new();
+            for chunk in all.chunks(jobs.max(1)) {
+                let got: Vec<Result<String, String>> = std::thread::scope(|sc| {
+                    let hs: Vec<_> = chunk.iter().map(|&sd| { let t = &t; sc.spawn(move || crate::queue::run_loop_hdr(spec, o, t, hdr, cycles, sd, false, None, None)) }).collect();
+                    hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                });
+                for g in got {
+                    outs.push(g.map_err(|e| anyhow::anyhow!(e))?);
+                }
+            }
+            let (mut least, mut u9, mut u11, mut gaps) = (f64::INFINITY, 0usize, 0usize, 0usize);
+            let (mut rid, mut emp, mut chg) = ((f64::INFINITY, f64::NEG_INFINITY), (f64::INFINITY, f64::NEG_INFINITY), (f64::INFINITY, f64::NEG_INFINITY));
+            let (mut landed, mut unseated) = (0usize, 0usize);
+            let mut cells: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            for out in &outs {
+                for l in out.lines() {
+                    if let Some(x) = l.strip_prefix("take-off speeds: ") {
+                        if let Some(v) = num(x, "(the least ") { least = least.min(v); }
+                        u9 += num(x, "under 9 gt: ").unwrap_or(0.0) as usize;
+                        u11 += num(x, "under 11 gt: ").unwrap_or(0.0) as usize;
+                        gaps += num(x, "gaps under 60 gt: ").unwrap_or(0.0) as usize;
+                        if let Some((a, b)) = range(x, "stored ridden ") { rid = (rid.0.min(a), rid.1.max(b)); }
+                        if let Some((a, b)) = range(x, "empty ") { emp = (emp.0.min(a), emp.1.max(b)); }
+                    } else if let Some(x) = l.strip_prefix("departure gap -> take-off gap: ") {
+                        if let Some((a, b)) = range(x, "change ") { chg = (chg.0.min(a), chg.1.max(b)); }
+                    } else if let Some(x) = l.strip_prefix("carts off the rails: ") {
+                        landed += x.split(" declared flights landed as declared").next().and_then(|t| t.rsplit(|ch: char| !ch.is_ascii_digit()).next()).and_then(|t| t.parse::<usize>().ok()).unwrap_or(0);
+                        if let Some(cs) = x.split("off-rail cells ").nth(1) {
+                            for c in cs.split("), ") {
+                                if let Some((cell, n)) = c.split_once(" x") {
+                                    let cell = format!("{})", cell.trim_end_matches(')'));
+                                    *cells.entry(cell).or_default() += n.split(|ch: char| !ch.is_ascii_digit()).next().and_then(|t| t.parse::<usize>().ok()).unwrap_or(0);
+                                }
+                            }
+                        }
+                        if let Some(u) = x.split("riders not seated: ").nth(1) {
+                            unseated += u.split(|ch: char| !ch.is_ascii_digit()).next().and_then(|t| t.parse::<usize>().ok()).unwrap_or(0);
+                        }
+                    }
+                }
+            }
+            grid_least = grid_least.min(least);
+            grid_ridden = grid_ridden.min(rid.0);
+            grid_empty = grid_empty.min(emp.0);
+            let rng = |p: (f64, f64)| if p.0.is_finite() { format!("{:.3}..{:.3}", p.0, p.1) } else { "-".to_string() };
+            println!(
+                "GRID stagger {s} REL {r} ({seeds} seeds): take-off gaps {gaps}, the least {}, under 9: {u9}, under 11: {u11}; stored ridden {}, empty {}; PAIR change {}; jumps landed as declared {landed}; off-rail cells {}; riders not seated {unseated}",
+                if least.is_finite() { format!("{least:.2}") } else { "-".into() }, rng(rid), rng(emp),
+                if chg.0.is_finite() { format!("{:+.2}..{:+.2}", chg.0, chg.1) } else { "-".into() },
+                if cells.is_empty() { "none".to_string() } else { cells.iter().map(|(c, n)| format!("{c} x{n}")).collect::<Vec<_>>().join(", ") }
+            );
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+        }
+    }
+    let fmt = |v: f64, p: usize| if v.is_finite() { format!("{v:.p$}") } else { "-".to_string() };
+    println!("GRID: {} corners x {seeds} seeds: the least take-off gap {} gt; the least stored speed ridden {}, empty {}", sts.len() * rels.len(), fmt(grid_least, 2), fmt(grid_ridden, 3), fmt(grid_empty, 3));
+    Ok(())
+}
+
 fn phase_sweep_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, sweep: &str, orders: &[String], cycles: i64, seed: i64, jobs: usize) -> Result<()> {
     let (who, rest) = sweep.split_once('@').ok_or_else(|| anyhow::anyhow!("--phase-sweep {sweep}: WHO@SENSOR[=VALUES][,SENSOR[=VALUES]]"))?;
     let who = crate::queue::parse_rider(sweep, who).map_err(|e| anyhow::anyhow!(e))?;
