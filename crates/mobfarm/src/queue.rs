@@ -4377,6 +4377,15 @@ pub struct MeterHold {
     /// The guard (`--meter-hold ...,GUARD` 1): a chained opening waits for the previous cart's
     /// L1/L2 edge (the cart counted in the stand), not only Dh + D12.
     pub guard: bool,
+    /// At REL, G2 (pocket 3's gate) and G1 open this many gt after G0 (`--meter-hold` fields 14
+    /// and 15; G2 default 6, ironspec's nominal with corners 4..8): the departure gaps.
+    pub g2_delay: i64,
+    pub g1_delay: i64,
+    /// P2 (`--meter-hold` field 16, 1 on): a REL waits while a cart is in transit from H's plane
+    /// to its count edge, and no opening starts from REL until SE; the transit latch times out
+    /// after T_LIVE live gt (field 17, default 50).
+    pub p2: bool,
+    pub t_live: i64,
 }
 
 /// The metered stand's state and measurements (`meter_tick`).
@@ -4391,6 +4400,18 @@ pub struct MeterState {
     mirror: bool,
     /// the pending opening is a retry (the guard doesn't hold it)
     retry_open: bool,
+    /// router S's shape last seen, and its changes
+    s_shape: String,
+    s_flips: usize,
+    s_flip_on_cart: Vec<String>,
+    /// P2: the transit latch (set when a cart passes H's plane, cleared by its count edge), its
+    /// live gt, a held REL, and the counts
+    tl: Option<i64>,
+    tl_live: i64,
+    rel_pending: Option<i64>,
+    rels_held: usize,
+    rel_late: Vec<i64>,
+    transit_timeouts: usize,
     /// the opening in progress (or the last one) came from a retry
     cur_open_retry: bool,
     init: bool,
@@ -4442,6 +4463,8 @@ pub struct MeterState {
     rest_for: Vec<i64>,
     prev_v: Vec<f64>,
     contacts: Vec<((usize, usize), f64, f64, i64, bool, bool)>,
+    /// per contact: the mover ridden, the resting cart ridden
+    contact_ridden: Vec<(bool, bool)>,
     contact_at: Vec<(f64, f64, f64)>,
     contact_slopes: Vec<usize>,
     /// H's logic state per gt (the emulated gate follows it `h_delay` late), the wired trigger's
@@ -4545,6 +4568,29 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             && let Ok(b) = Block::parse(want)
         {
             w.set_block(p, b, redsim::world::flags::ALL);
+        }
+    }
+    // (S's shape as the world holds it, logged at each change: the junction settles by its own
+    // neighbour update from the repeater, never set by the bench)
+    if m.wired_b && !s.stand_b {
+        let st = w.get(at(xb, 1, 16)).to_string();
+        let shape = st.split("shape=").nth(1).map(|r| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
+        if shape != s.s_shape {
+            if (c < 4 || s.s_shape.is_empty()) && s.events.len() < 60 {
+                s.events.push(format!("{c}+{dt} S {shape}"));
+            }
+            // (the switch rule: S never flips with a cart in its cell, ridden or empty)
+            if !s.s_shape.is_empty() {
+                let cell = at(xb, 1, 16);
+                let (lx, ly, lz) = (cell.x as f64, cell.y as f64, cell.z as f64);
+                for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))) {
+                    if e.bb.max_x > lx && e.bb.min_x < lx + 1.0 && e.bb.max_y > ly && e.bb.min_y < ly + 1.0 && e.bb.max_z > lz && e.bb.min_z < lz + 1.0 {
+                        s.s_flip_on_cart.push(format!("{c}+{dt} S to {shape} with e{} ({}) in its cell", e.id, if e.passengers.is_empty() { "empty" } else { "ridden" }));
+                    }
+                }
+            }
+            s.s_flips += 1;
+            s.s_shape = shape;
         }
     }
     let hcell = at(xb, 3, 0);
@@ -4745,15 +4791,59 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         }
     }
     let rel_on = rel_on && if s.stand_b { c % 2 == 1 } else { !((m.vb || m.wired_b) && c % 2 == 1) };
-    if rel_on && !s.rel_was {
+    // (P2 (i), `--meter-hold` field 16: a REL waits while a cart is in transit from H's plane to
+    // its count edge; the latch times out after T live gt (field 17), counted only while H's
+    // chunk ticks entities, so a frozen cart never times out)
+    let rel_edge = rel_on && !s.rel_was;
+    if m.p2 {
+        let hc = at(xb, 3, 0);
+        let live = w.chunk_level(hc.x.div_euclid(16), hc.z.div_euclid(16)) <= 31;
+        if s.tl.is_some() && live {
+            s.tl_live += 1;
+            if s.tl_live >= m.t_live {
+                s.tl = None;
+                s.tl_live = 0;
+                s.transit_timeouts += 1;
+                log(s, format!("{c}+{dt} transit timeout (no count edge within {} live gt)", m.t_live));
+            }
+        }
+        if rel_edge && s.tl.is_some() {
+            s.rel_pending = Some(t);
+            s.rels_held += 1;
+            log(s, format!("{c}+{dt} REL held: a cart in transit"));
+        }
+    }
+    let rel_go = (rel_edge && !(m.p2 && s.tl.is_some())) || (s.rel_pending.is_some() && s.tl.is_none());
+    if rel_go {
+        if let Some(h) = s.rel_pending.take() {
+            s.rel_late.push(t - h);
+            log(s, format!("{c}+{dt} REL released {} gt late", t - h));
+        }
+        if m.p2 {
+            // (P2 (ii): at REL a pending opening is cancelled and an open H shuts)
+            s.open_at = None;
+            if s.h_open {
+                s.h_close_at = Some(t);
+            }
+        }
         s.rel_t = Some(t);
         s.metering = false;
         s.crest_seen = 0;
         s.rel_open = true;
         // (the occupancy latched at REL: P1 = L1, P2 = L2, P3 = a Dh edge while L2 was set; SE armed
-        // for the rearmost occupied pocket's departure edge: P3 by D2, P2 by D1, P1 by the crest)
-        s.occ = [s.l1, s.l2, s.p3];
-        s.se_armed = s.occ.iter().any(|x| *x);
+        // for the rearmost occupied pocket's departure edge: P3 by D2, P2 by D1, P1 by the crest; a
+        // REL while the previous departure's SE is still pending (a freeze between REL and SE) keeps
+        // that departure's occupancy and arming, so its edge fires SE after the thaw)
+        let new_occ = [s.l1, s.l2, s.p3];
+        if s.se_armed {
+            for k in 0..3 {
+                s.occ[k] = s.occ[k] || new_occ[k];
+            }
+            log(s, format!("{c}+{dt} REL with SE pending: occupancy kept"));
+        } else {
+            s.occ = new_occ;
+            s.se_armed = s.occ.iter().any(|x| *x);
+        }
         s.l1 = false;
         s.l2 = false;
         s.p3 = false;
@@ -4863,6 +4953,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
                 s.done_at.push(t);
             }
             s.p3 = true;
+            s.tl = None;
+            s.tl_live = 0;
         } else {
             s.open_at = Some(t + m.d12);
         }
@@ -4878,15 +4970,20 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         } else if !s.l1 {
             s.l1 = true;
             s.face_wait[1] = Some(t);
+            s.tl = None;
+            s.tl_live = 0;
         }
     }
     if rise[3] && !s.rel_open && s.l1 && !s.l2 {
         s.l2 = true;
         s.face_wait[2] = Some(t);
+        s.tl = None;
+        s.tl_live = 0;
     }
     // (the guard, `--meter-hold ...,GUARD` 1: a chained opening (Dh + D12) waits for the cart it
-    // follows to be counted in the stand: opening 2 for L1, opening 3 for L2; a retry doesn't wait)
-    let guard_wait = m.guard && !s.retry_open && ((s.phase == 2 && !s.l1) || (s.phase == 4 && !s.l2));
+    // follows to be counted in the stand: opening 2 for L1, opening 3 for L2; a retry doesn't wait;
+    // P2 (ii): no opening from REL until SE)
+    let guard_wait = (m.guard && !s.retry_open && ((s.phase == 2 && !s.l1) || (s.phase == 4 && !s.l2))) || (m.p2 && s.rel_open && s.se_armed);
     if s.open_at.is_some_and(|a| t >= a) && !s.h_open && !guard_wait {
         s.open_at = None;
         s.cur_open_retry = s.retry_open;
@@ -4985,7 +5082,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         // (`MCTAS_METER_G2_DELAY` k / `MCTAS_METER_G1_DELAY` k: at REL, G2 (pocket 3's gate) or G1
         // opens k gt after G0, widening the departure gaps P2 -> P3 / P1 -> P2)
         let gdel = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
-        let (g1d, g2d) = (gdel("MCTAS_METER_G1_DELAY"), gdel("MCTAS_METER_G2_DELAY"));
+        let (g1d, g2d) = (gdel("MCTAS_METER_G1_DELAY").max(if std::env::var("MCTAS_METER_G1_DELAY").is_ok() { 0 } else { m.g1_delay }), if std::env::var("MCTAS_METER_G2_DELAY").is_ok() { gdel("MCTAS_METER_G2_DELAY") } else { m.g2_delay });
         let since_rel = s.rel_t.map_or(i64::MAX, |r| t - r);
         let want = [
             s.rel_open,
@@ -5153,6 +5250,12 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             if (p.0 - (xb as f64 + 0.5)).abs() < 0.45 && p.1 > 1.5 && q.2 < 0.5 && p.2 >= 0.5 {
                 s.back_entries.push(format!("cart {k} north through H at {c}+{dt}"));
             }
+            // (P2's transit latch: a cart passing H's plane forward, from the queue into the
+            // snap turn, not H opening)
+            if m.p2 && (p.0 - (xb as f64 + 0.5)).abs() < 0.45 && p.1 > 1.5 && q.2 >= 0.6 && p.2 < 0.6 {
+                s.tl = Some(t);
+                s.tl_live = 0;
+            }
         }
         if let Some(Some(q)) = s.prev.get(k)
             && (p.2 - 0.5).abs() < 0.6
@@ -5220,6 +5323,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
                         s.contacts.push((key, s.prev_v[a], d, t, at_h, true));
                         s.contact_at.push((pb.0, pb.1, pb.2));
                         s.contact_slopes.push(slopes);
+                        let ridden = |k: usize| carts.get(k).and_then(|id| w.entities.list.iter().find(|e| e.id == *id)).is_some_and(|e| !e.passengers.is_empty());
+                        s.contact_ridden.push((ridden(a), ridden(b)));
                     }
                 }
                 (true, Some(i)) => {
@@ -5278,6 +5383,99 @@ fn meter_trace(w: &redsim::world::World, s: &mut MeterState, lay: &LoopLayout, o
 }
 
 /// The metered stand's report lines (`meter_tick`'s measurements), and its problems.
+/// Each curve's passages, for tick-exact's curve-pair rule (a follower must not enter a curve
+/// before the leader's centre is 0.98 past the curve's centre; G1's bar): per plain curve rail and
+/// 3-arm junction, each cart's entry (its box front at the cell's near edge: its centre within
+/// 0.99 of the cell's centre, within 1 in height) and clear (0.98 past the centre along its exit,
+/// after passing within 0.5 of it), and the least margin, follower entry minus leader clear, over
+/// consecutive passages, with the leader's speed at its entry; plus the ticks on which two carts'
+/// boxes touch while both centres are within 1.5 of the curve's centre (must be 0).
+#[derive(Default)]
+struct CurveSpacing {
+    cells: Vec<BlockPos>,
+    /// (curve, cart): entry tick, speed at entry, passed the centre
+    open: std::collections::HashMap<(usize, u32), (i64, f64, bool)>,
+    passes: Vec<Vec<(i64, i64, u32, f64)>>,
+    touches: Vec<(usize, i64)>,
+}
+
+impl CurveSpacing {
+    fn init(&mut self, w: &redsim::world::World) {
+        let (mn, sz) = (w.min, w.size);
+        for x in mn.x..mn.x + sz[0] {
+            for y in mn.y..mn.y + sz[1] {
+                for z in mn.z..mn.z + sz[2] {
+                    let p = BlockPos::new(x, y, z);
+                    let s = w.get(p).to_string();
+                    // (plain curves, and plain rails with 3+ rail neighbours: a junction that
+                    // settles to a curve by its power, router S included)
+                    let rail = |q: BlockPos| w.get(q).to_string().contains("rail[");
+                    let arms = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().filter(|(dx, dz)| (-1..=1).any(|dy| rail(BlockPos::new(x + dx, y + dy, z + dz)))).count();
+                    if s.starts_with("minecraft:rail[") && (arms >= 3 || ["north_east", "north_west", "south_east", "south_west"].iter().any(|c| s.contains(&format!("shape={c}")))) {
+                        self.cells.push(p);
+                    }
+                }
+            }
+        }
+        self.passes = vec![Vec::new(); self.cells.len()];
+    }
+    fn observe(&mut self, w: &redsim::world::World, t: i64) {
+        let carts: Vec<&redsim::entity::Entity> = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).collect();
+        for (i, p) in self.cells.iter().enumerate() {
+            let (cx, cz) = (p.x as f64 + 0.5, p.z as f64 + 0.5);
+            let near: Vec<&&redsim::entity::Entity> = carts.iter().filter(|e| (e.pos.y - p.y as f64).abs() <= 1.0 && ((e.pos.x - cx).powi(2) + (e.pos.z - cz).powi(2)).sqrt() < 1.5).collect();
+            if near.iter().enumerate().any(|(a, ea)| near.iter().skip(a + 1).any(|eb| ea.bb.intersects(eb.bb))) {
+                self.touches.push((i, t));
+            }
+            for e in &carts {
+                if (e.pos.y - p.y as f64).abs() > 1.0 {
+                    continue;
+                }
+                let v = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
+                let d = ((e.pos.x - cx).powi(2) + (e.pos.z - cz).powi(2)).sqrt();
+                let key = (i, e.id);
+                match self.open.get(&key).copied() {
+                    None if d < 0.99 => {
+                        self.open.insert(key, (t, v, d < 0.5));
+                    }
+                    Some((t0, v0, passed)) => {
+                        if !passed && d < 0.5 {
+                            self.open.insert(key, (t0, v0, true));
+                        } else if passed && d > 0.98 {
+                            self.passes[i].push((t0, t, e.id, v0));
+                            self.open.remove(&key);
+                        } else if !passed && d > 1.5 {
+                            // (in and back out without passing the centre: no passage)
+                            self.open.remove(&key);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    /// One line per curve passed by two or more carts (loop cells: the design frame less
+    /// (6,0,6)), the least margin first; a negative margin is a follower entering before the
+    /// leader cleared; then the touch count.
+    fn report(&self) -> Vec<String> {
+        let mut rows: Vec<(i64, String)> = Vec::new();
+        for (i, p) in self.cells.iter().enumerate() {
+            let mut ps = self.passes[i].clone();
+            if ps.len() < 2 {
+                continue;
+            }
+            ps.sort_by_key(|x| x.0);
+            let worst = ps.windows(2).map(|w| (w[1].0 - w[0].1, w[0].1, w[0].3, w[1].3)).min_by_key(|x| x.0);
+            let touch = self.touches.iter().filter(|x| x.0 == i).count();
+            if let Some((m, at, vl, vf)) = worst {
+                rows.push((m, format!("({},{},{}) {} passes, least margin {m} gt at t {at} (leader {vl:.2}, follower {vf:.2} b/gt){}", p.x - 6, p.y, p.z - 6, ps.len(), if touch > 0 { format!(", {touch} touching ticks") } else { String::new() })));
+            }
+        }
+        rows.sort_by_key(|r| r.0);
+        rows.into_iter().map(|r| r.1).collect()
+    }
+}
+
 fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let span = |v: &[i64]| if v.is_empty() { "-".to_string() } else { format!("{}..{} (n {})", v.iter().min().unwrap(), v.iter().max().unwrap(), v.len()) };
     let mut out = Vec::new();
@@ -5362,6 +5560,11 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
             deps.push(format!("+{} gaps {}", run.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("/+"), if gaps.is_empty() { "-".to_string() } else { gaps.join(",") }));
             i = j;
         }
+        out.push(format!("meter router S (the switch rule: never a shape change with a cart's box in S's cell): {} changes, {} with a cart in the cell{}", s.s_flips.saturating_sub(1), s.s_flip_on_cart.len(), if s.s_flip_on_cart.is_empty() { String::new() } else { format!(" ({})", s.s_flip_on_cart.join("; ")) }));
+        out.push(format!("meter P2 (a REL held while a cart is in transit from H to its count edge; the latch's live-time timeout): {} RELs held{}, {} transit timeouts", s.rels_held, if s.rel_late.is_empty() { String::new() } else { format!(" (released {} gt late)", s.rel_late.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) }, s.transit_timeouts));
+        if !s.s_flip_on_cart.is_empty() {
+            problems.push(format!("router S flipped with a cart in its cell: {}", s.s_flip_on_cart[0]));
+        }
         out.push(format!("meter departure at the crest (each REL: carts' crossing gt after REL, then the gaps): {}", deps.join("; ")));
         out.push(format!("meter DEP_X probe (a detector at (xb,1,14) on A's branch, the centre crossing z 15.29 northward; gt after the cycle's tick, each cart): {}", rows.join("; ")));
         if !s.dep_level.is_empty() {
@@ -5386,6 +5589,31 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
         let h_max = cs.iter().filter(|c| c.0 .4).map(|c| c.0 .1).fold(0.0f64, f64::max);
         let top: Vec<String> = cs.iter().take(5).map(|(c, w, g)| format!("cart {} onto {} at {}+{} stored {:.3} ({}) closest {:.3}, the resting cart at {:.2},{:.2},{:.2}{}", c.0 .0, c.0 .1, c.3 / 100, c.3 % 100, c.1, geo(*g), c.2, w.0, w.1, w.2, if c.4 { " (H's queue)" } else { "" })).collect();
         out.push(format!("meter speed rule (a moving cart's stored speed the gt before it enters a resting cart's push range: centres within 1.18 across, 1.0 up): {}; {} at H's queue (fastest there {:.3}); the fastest {}; closest centres {}", by.join("; "), at_h, h_max, top.join("; "), if cs.is_empty() { "-".to_string() } else { format!("{:.3}", cs.iter().map(|c| c.0 .2).fold(f64::MAX, f64::min)) }));
+        // (H's arrivals for tick-exact's lanes: each contact into a cart resting at H's queue, by
+        // rest place (the resting cart's z: place 1 at 1.12, 2 at 1.91, 3 at 2.70) and by the
+        // pair (R ridden, E empty: mover then resting cart), the mover's stored speed)
+        {
+            let mut cells: std::collections::BTreeMap<(usize, &str), (usize, f64, f64)> = std::collections::BTreeMap::new();
+            for (k, c) in s.contacts.iter().enumerate() {
+                if !c.4 {
+                    continue;
+                }
+                let z = s.contact_at.get(k).map_or(0.0, |p| p.2);
+                let place = if z < 1.5 { 1 } else if z < 2.3 { 2 } else { 3 };
+                let pair = match s.contact_ridden.get(k).copied().unwrap_or((true, true)) {
+                    (true, true) => "R->R",
+                    (false, true) => "E->R",
+                    (true, false) => "R->E",
+                    (false, false) => "E->E",
+                };
+                let e = cells.entry((place, pair)).or_insert((0, f64::MAX, 0.0));
+                e.0 += 1;
+                e.1 = e.1.min(c.1);
+                e.2 = e.2.max(c.1);
+            }
+            let txt: Vec<String> = cells.iter().map(|((p, pair), (n, lo, hi))| format!("place {p} {pair}: {n} arrivals, stored {lo:.3}..{hi:.3}")).collect();
+            out.push(format!("meter H arrivals (stored speed the gt before contact, by rest place and pair; R ridden, E empty, mover then resting cart): {}", if txt.is_empty() { "-".to_string() } else { txt.join("; ") }));
+        }
         if let Some(c) = cs.iter().find(|c| c.0 .1 >= bar(c.2)) {
             problems.push(format!("meter: a contact at stored {:.3} after {} (bar {:.2})", c.0 .1, geo(c.2), bar(c.2)));
         }
@@ -7202,6 +7430,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (cross-track pushes, `crate::crosspush`: the design's declared cells moved by its shift)
     let mut cross = crate::crosspush::CrossPushTally::default();
     let cross_ok: Vec<[i32; 3]> = hdr.cross_push_ok.iter().map(|c| [c[0] + o.shift[0] as i32, c[1], c[2] + o.shift[1] as i32]).collect();
+    let mut curves = CurveSpacing::default();
+    curves.init(&run.world);
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
     // (slots from a departure to the slot whose advance must find that batch in the queue's
     // tail: the line loop's long return takes two)
@@ -9360,6 +9590,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if !tm.no_cross_push {
             cross.observe(&run.world, &cross_ok, &format!("slot {c} +{dt}"), o.shift[0] as i32, o.shift[1] as i32);
         }
+        curves.observe(&run.world, t);
         // (the boosters still powered after the warm-up)
         if t == 20 && build_start.is_none() {
             for b in crate::declared::check(&run.world, &declared, true) {
@@ -11531,6 +11762,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             Some(n) => format!("carts' yaw at the start: along each cart's rail ({n} of {} turned; --placed-yaw starts every cart at 0)", carts.len()),
             None => "carts' yaw at the start: 0 for every cart, as placed or summoned (--placed-yaw: the assembly's start-up row)".to_string(),
         });
+        {
+            let cr = curves.report();
+            let touching: usize = curves.touches.len();
+            out.push(format!("curve spacing (G1's bar: each curve's passages, the follower's box front at the cell's near edge, its centre within 0.99 of the curve's centre, minus the leader's clear, its centre 0.98 past along the exit; least first): {}", if cr.is_empty() { "no curve passed twice".to_string() } else { cr.join("; ") }));
+            out.push(format!("curve contact (ticks on which two carts' boxes touch, both centres within 1.5 of a curve's centre; must be 0): {touching}"));
+            if touching > 0 {
+                problems.push(format!("curve contact: {touching} ticks with two carts' boxes touching at a curve"));
+            }
+        }
         if lay.esc_adm_a1.is_some() {
             out.push(format!("riders in the pressed queue (landing to P) with a walk target, rider-ticks by path: reaching {}, partial {}, no path {}{}; riders whose box touches another cart's, walking or not (contact alone pushes: LivingEntity.pushEntities, bridged in gate-escg6l-v3; must be 0): {walk_touch} (not walking {touch_idle}){}", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }, if walk_touch_log.is_empty() { String::new() } else { format!(" ({})", walk_touch_log.join("; ")) }));
             if !hold_cells.is_empty() {
