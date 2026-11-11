@@ -3618,11 +3618,14 @@ pub struct LoopTiming {
     pub head_latch: Option<(usize, [i32; 3])>,
     /// S3(ii)'s per-stand head-launch permissions (`crate::headperm`): D_arr, Dh (loop frame),
     /// whether they gate the head, the router emulated (A here, B virtual), B held (C0, N).
-    pub head_perm: Option<([i32; 3], [i32; 3], bool, u8, Option<(i64, i64)>)>,
+    pub head_perm: Option<([i32; 3], [i32; 3], bool, bool, Option<(i64, i64)>)>,
     /// Riderless trains (cc767b78, H's rows): the riders of carts entering this cell (loop
     /// frame) in slots S0..=S1 removed (an empty cart from there on); K > 0: only the K-th cart to
     /// enter the cell in each slot (a single riderless cart in its train).
     pub strip_riders: Option<([i32; 3], i64, i64, usize)>,
+    /// (cc767b78) Two carts traced per tick from T0 to T1 (the run's gt): (A, B, T0, T1), entity
+    /// ids: their gap, motions and every push on either.
+    pub trace_pair: Option<(u32, u32, i64, i64)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -4487,7 +4490,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, meter: None }
     }
 }
 
@@ -5266,6 +5269,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // pushEntities gives another cart (redsim's log, drained each tick), by the pusher's walk state;
     // the largest; the most in one tick; the cells; other mobs' pushes on carts
     redsim::entity::minecart::log_cart_pushes(&mut run.world);
+    // (`trace_pair`: the cart-on-cart pushes logged too)
+    let mut pair_lines: Vec<String> = Vec::new();
+    let mut pair_prev: std::collections::HashMap<u32, redsim::entity::Vec3> = std::collections::HashMap::new();
+    if tm.trace_pair.is_some() {
+        redsim::entity::minecart::log_cart_cart_pushes(&mut run.world);
+    }
     let mut pushes = [0u64; 4];
     let mut push_big = 0.0f64;
     let mut push_max: (usize, String) = (0, String::new());
@@ -6437,7 +6446,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 hl_in[k] = inside;
             }
         }
-        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set) || head_perm.as_ref().is_some_and(|h| h.gate && h.router == 0 && !h.permit());
+        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set) || head_perm.as_ref().is_some_and(|h| h.gate && !h.router && !h.permit());
         if head_pending && !dep_busy {
             if let Some(cr) = comb_run.as_mut() {
                 cr.on_launch(t, c);
@@ -6469,7 +6478,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         let router_skip = c < cycles
             && dt == tm.release_start
             && !stand_has_carts
-            && head_perm.as_mut().is_some_and(|h| h.router > 0 && {
+            && head_perm.as_mut().is_some_and(|h| h.router && {
                 let g = h.go(c);
                 if g != crate::headperm::Go::Launch {
                     reg_held.push(format!("slot {c}: release {}", if g == crate::headperm::Go::Hold { "held (router)" } else { "to the virtual stand B" }));
@@ -9157,6 +9166,38 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
             // the pushes this tick, at the push (redsim's log)
             let now = redsim::entity::minecart::take_cart_pushes(&mut run.world);
+            // (`trace_pair`: the two carts per tick, their gap, stored and visible motion, and every
+            // push on either (a mob's on a cart; a cart's on a cart with the alignment test): the
+            // riderless merge, for tick-exact's bridge)
+            if let Some((a, b, t0, t1)) = tm.trace_pair {
+                let cc = redsim::entity::minecart::take_cart_cart_pushes(&mut run.world);
+                if t >= t0 && t <= t1 {
+                    let get = |id: u32| redsim::entity::index_of(&run.world, id).map(|i| {
+                        let e = &run.world.entities.list[i];
+                        (e.pos, e.delta_movement, e.passengers.first().copied())
+                    });
+                    if let (Some((pa, va, ra)), Some((pb, vb, rb))) = (get(a), get(b)) {
+                        let vis = |id: u32, p: redsim::entity::Vec3| pair_prev.get(&id).map_or(f64::NAN, |q: &redsim::entity::Vec3| ((p.x - q.x).powi(2) + (p.z - q.z).powi(2)).sqrt());
+                        let mut line = format!(
+                            "pair t {t} (slot {c} +{dt}): gap {:.4} | e{a}{} at {:.3},{:.3},{:.3} stored ({:.4},{:.4}) |{:.4}| visible {:.4} | e{b}{} at {:.3},{:.3},{:.3} stored ({:.4},{:.4}) |{:.4}| visible {:.4}",
+                            ((pa.x - pb.x).powi(2) + (pa.z - pb.z).powi(2)).sqrt(),
+                            ra.map_or(" (empty)".to_string(), |r| format!(" (rider e{r})")),
+                            pa.x - fx, pa.y, pa.z - fz, va.x, va.z, va.x.hypot(va.z), vis(a, pa),
+                            rb.map_or(" (empty)".to_string(), |r| format!(" (rider e{r})")),
+                            pb.x - fx, pb.y, pb.z - fz, vb.x, vb.z, vb.x.hypot(vb.z), vis(b, pb)
+                        );
+                        for p in now.iter().filter(|p| p.cart == a || p.cart == b) {
+                            line.push_str(&format!(" || mob e{} pushes cart e{} by ({:.4},{:.4}) at {:.3}", p.mob, p.cart, p.push[0], p.push[1], p.dist));
+                        }
+                        for p in cc.iter().filter(|p| [a, b].contains(&p.this) || [a, b].contains(&p.other)) {
+                            line.push_str(&format!(" || cart e{} pushes cart e{}: {} (dot {:.3}, gap {:.4}) motions e{} ({:.4},{:.4})->({:.4},{:.4}) e{} ({:.4},{:.4})->({:.4},{:.4})", p.other, p.this, p.what, p.dot, p.dist, p.this, p.before[0], p.before[1], p.after[0], p.after[1], p.other, p.before[2], p.before[3], p.after[2], p.after[3]));
+                        }
+                        pair_lines.push(line);
+                        pair_prev.insert(a, pa);
+                        pair_prev.insert(b, pb);
+                    }
+                }
+            }
             // (the push's harm, ironspec Nov 11 04:53: per pushed cart an episode from the push, its
             // displacement along the push, the peak, and the tick it is back (the displacement back to
             // 0 or below), and whether it crossed a cell boundary backward)
@@ -10375,6 +10416,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     if tm.strip_riders.is_some() {
         out.push(format!("riders removed (riderless trains): {}{}", stripped.len(), if stripped.is_empty() { String::new() } else { format!(" ({})", stripped.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) }));
     }
+    out.extend(pair_lines);
     if !problems.is_empty() {
         let mut by: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
         let mut trains_seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();

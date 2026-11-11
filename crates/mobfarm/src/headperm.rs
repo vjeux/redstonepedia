@@ -15,12 +15,12 @@
 //!   off (exact when each opening passes one cart; undercounts, so never sets, when an opening
 //!   passes two or a train is short, until the next REL resets the count).
 //!
-//! With `router`, the router is emulated: it toggles only on an actual (gated) launch (ironspec
-//! via farmopt, 2026-11-11: never on GO), the head checks the permissions of the stand it points
-//! to at each GO and holds (no launch, no toggle) otherwise. Stand A is this bench's stand (its
-//! real latches); stand B is virtual (its launches toggle the router and send no train; its
-//! permission can be held for a span of cycles), so A gets a train every second launch, the
-//! double stand's cadence.
+//! With `router`, the router is emulated phase-locked (7b90c3f1's; ironspec 2026-11-11, the
+//! toggle-on-launch rule withdrawn): at each GO it points at the stand whose tick that GO follows
+//! (A on even cycles, B on odd), never at a count, and the launch is gated by that stand's
+//! permission; a held stand just skips its slot. Stand A is this bench's stand (its real
+//! latches); stand B is virtual (its launches send no train; its permission can be held for a
+//! span of cycles), so A gets a train every second GO, the double stand's cadence.
 //!
 //! Both detectors are read as the world's own detector rails when the design has them there
 //! (`--meter-hold` converts them), else ideally (`comb::VDet`). With `gate`, the head's release
@@ -36,9 +36,9 @@ use redsim::world::World;
 pub enum Go {
     /// A train for this bench's stand (A).
     Launch,
-    /// The stand the router points to isn't ready: no launch, no toggle.
+    /// The stand the router points to isn't ready: no launch (that stand skips its slot).
     Hold,
-    /// The router's virtual stand B takes this launch: no train here, the router toggles.
+    /// The router's virtual stand B takes this launch: no train here.
     VirtualB,
 }
 
@@ -76,8 +76,7 @@ pub struct HeadPerm {
     pub binds: Vec<String>,
     tracks: Vec<Track>,
     /// The router (A = this stand, B = virtual), B's held cycles, and its log.
-    pub router: u8,
-    to_a: bool,
+    pub router: bool,
     b_hold: Option<(i64, i64)>,
     router_log: Vec<String>,
     holds: usize,
@@ -85,7 +84,7 @@ pub struct HeadPerm {
 
 impl HeadPerm {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(d_arr: [i32; 3], dh: [i32; 3], xb: i32, shift: [i32; 2], rel_cell: Option<BlockPos>, gate: bool, router: u8, b_hold: Option<(i64, i64)>) -> HeadPerm {
+    pub fn new(d_arr: [i32; 3], dh: [i32; 3], xb: i32, shift: [i32; 2], rel_cell: Option<BlockPos>, gate: bool, router: bool, b_hold: Option<(i64, i64)>) -> HeadPerm {
         let w = |c: [i32; 3]| [c[0] + shift[0], c[1], c[2] + shift[1]];
         HeadPerm {
             d_arr: w(d_arr),
@@ -105,7 +104,6 @@ impl HeadPerm {
             binds: Vec::new(),
             tracks: Vec::new(),
             router,
-            to_a: true,
             b_hold,
             router_log: Vec::new(),
             holds: 0,
@@ -116,22 +114,18 @@ impl HeadPerm {
         self.arr && self.emp
     }
 
-    /// The head's decision at a GO of cycle `c`: the stand the router points to, launched if its
-    /// permission is set, else held. Router 1 (toggle on launch): the router toggles on each
-    /// actual launch, a hold retries the same stand at the next GO. Router 2 (phase-locked,
-    /// 7b90c3f1's): the router points at the stand whose tick this GO follows (A on even cycles,
-    /// B on odd), a held stand just skips its slot.
+    /// The head's decision at a GO of cycle `c` (the router phase-locked, 7b90c3f1's, ironspec's
+    /// ruling 2026-11-11: toggle-on-launch withdrawn): the router points at the stand whose tick
+    /// this GO follows (A on even cycles, B on odd), never at a count; that stand is launched if its
+    /// permission is set, else it just skips its slot.
     pub fn go(&mut self, c: i64) -> Go {
-        let to_a = if self.router == 2 { c.rem_euclid(2) == 0 } else { self.to_a };
-        let (who, d) = if to_a {
+        let (who, d) = if c.rem_euclid(2) == 0 {
             ("A", if !self.gate || self.permit() { Go::Launch } else { Go::Hold })
         } else {
             ("B", if self.b_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + n) { Go::Hold } else { Go::VirtualB })
         };
         if d == Go::Hold {
             self.holds += 1;
-        } else if self.router == 1 {
-            self.to_a = !self.to_a;
         }
         if self.router_log.len() < 60 {
             self.router_log.push(format!("{c}:{who}{}", match d {
@@ -226,7 +220,7 @@ impl HeadPerm {
         out.push(format!(
             "head-perm (S3(ii)'s per-stand latches, {}{}): {} launches of this stand, binds {}{}",
             if self.gate { "gating the head" } else { "observed only" },
-            if self.router > 0 { if self.router == 2 { ", router phase-locked (A here, B virtual)" } else { ", router toggling on launches (A here, B virtual)" } } else { "" },
+            if self.router { ", router phase-locked (A here, B virtual)" } else { "" },
             self.launches,
             self.binds.len(),
             if self.binds.is_empty() { String::new() } else { format!(" ({})", self.binds.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }
@@ -249,8 +243,8 @@ impl HeadPerm {
         if !stopped.is_empty() {
             problems.push(format!("head-perm: EMP set {} times with a cart stopped in the hold", stopped.len()));
         }
-        if self.router > 0 {
-            out.push(format!("head-perm router ({}): {} holds; GO by GO: {}", if self.router == 2 { "phase-locked" } else { "toggles on actual launches only" }, self.holds, self.router_log.join(" ")));
+        if self.router {
+            out.push(format!("head-perm router (phase-locked): {} holds; GO by GO: {}", self.holds, self.router_log.join(" ")));
         }
         (out, problems)
     }
