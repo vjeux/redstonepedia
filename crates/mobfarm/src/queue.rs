@@ -3619,6 +3619,9 @@ pub struct LoopTiming {
     /// S3(ii)'s per-stand head-launch permissions (`crate::headperm`): D_arr, Dh (loop frame),
     /// whether they gate the head, the router emulated (A here, B virtual), B held (C0, N).
     pub head_perm: Option<([i32; 3], [i32; 3], bool, u8, Option<(i64, i64)>)>,
+    /// Riderless trains (cc767b78, H's rows): every rider of a cart entering this cell (loop
+    /// frame) in slots S0..=S1 removed (an empty cart from there on).
+    pub strip_riders: Option<([i32; 3], i64, i64)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -3701,6 +3704,10 @@ pub struct MeterHold {
     pub chain: i64,
     pub fallback: i64,
     pub miss_d1: i64,
+    /// H's fixed opening (cc767b78, ironfarm's escapement): H shuts `width` gt after each opening,
+    /// whatever the carts do (Dh edges then only chain the openings); 0: H shuts `close` gt after
+    /// the released cart's Dh edge.
+    pub width: i64,
 }
 
 /// The metered stand's state and measurements (`meter_tick`).
@@ -3719,6 +3726,15 @@ pub struct MeterState {
     /// past it), and the released cart's Dh edge after the opening (gt)
     short_at_shut: Vec<f64>,
     open_to_dh: Vec<i64>,
+    /// per opening (cc767b78): its index in the train (1..3), the carts whose centre crossed H's
+    /// plane while it was the latest opening, the follower short at its shut, and the released
+    /// cart's speed (b/t) at its Dh edge
+    opening_rows: Vec<(u8, usize, f64, f64)>,
+    inside_at_shut: Vec<usize>,
+    passes_now: usize,
+    open_idx: u8,
+    short_now: f64,
+    released_v: f64,
     last_open_t: Option<i64>,
     phase: u8,
     h_open: bool,
@@ -3865,7 +3881,18 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.open_at = Some(t);
     }
     if rise[0] && s.phase % 2 == 1 {
-        s.h_close_at = Some(t + m.close);
+        if m.width == 0 {
+            s.h_close_at = Some(t + m.close);
+        }
+        // (the released cart's speed at its Dh edge: the cart nearest Dh's centre)
+        let dh_c = ((xb + 1) as f64 + 0.5, 1.5, 0.5);
+        if let Some(p) = pos.iter().flatten().min_by(|a, b| {
+            let da = (a.0 - dh_c.0).powi(2) + (a.1 - dh_c.1).powi(2) + (a.2 - dh_c.2).powi(2);
+            let db = (b.0 - dh_c.0).powi(2) + (b.1 - dh_c.1).powi(2) + (b.2 - dh_c.2).powi(2);
+            da.total_cmp(&db)
+        }) {
+            s.released_v = p.3;
+        }
         s.dh_off_margin.push(s.det_off[0].map_or(999, |x| t - x));
         if let Some(o) = s.last_open_t {
             s.open_to_dh.push(t - o);
@@ -3925,20 +3952,50 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.phase += 1;
         s.last_open = Some(t);
         s.last_open_t = Some(t);
+        // (the previous opening's row closes; a fixed opening schedules its own shut)
+        if s.open_idx > 0 {
+            s.opening_rows.push((s.open_idx, s.passes_now, s.short_now, s.released_v));
+        }
+        s.open_idx = s.phase.div_ceil(2);
+        s.passes_now = 0;
+        s.short_now = f64::NAN;
+        s.released_v = f64::NAN;
+        if m.width > 0 {
+            s.h_close_at = Some(t + m.width);
+        }
         log(s, format!("{c}+{dt} H{}", s.phase.div_ceil(2)));
+    }
+    // (carts crossing H's plane toward the snap: the centre past z 0.55 on the descent's column;
+    // the snap turn puts the centre on its axis, z 0.5, exactly)
+    for (k, p) in pos.iter().enumerate() {
+        if let (Some(p), Some(Some(q))) = (p, s.prev.get(k))
+            && (p.0 - (xb as f64 + 0.5)).abs() < 0.45
+            && q.2 > 0.55
+            && p.2 <= 0.55
+            && p.1 > 1.5
+            && p.1 < 4.5
+        {
+            s.passes_now += 1;
+        }
     }
     if s.h_close_at.is_some_and(|a| t >= a) {
         s.h_close_at = None;
         s.h_open = false;
-        if let Some(p) = pos.iter().flatten().find(|p| in_h(p, 0.0)) {
-            s.shut_on_cart.push(format!("H at slot {c} +{dt} (a cart at {:.2},{:.2},{:.2})", p.0, p.1, p.2));
+        // (carts in H's box at the shut: with a fixed opening the released cart, by design (it
+        // moves on out); two, or any with H shut on Dh's edge, are shut on a cart)
+        let inside: Vec<&(f64, f64, f64, f64)> = pos.iter().flatten().filter(|p| in_h(p, 0.0)).collect();
+        s.inside_at_shut.push(inside.len());
+        if (m.width == 0 && !inside.is_empty()) || inside.len() >= 2 {
+            let p = inside[0];
+            s.shut_on_cart.push(format!("H at slot {c} +{dt} ({} carts in its box, one at {:.2},{:.2},{:.2})", inside.len(), p.0, p.1, p.2));
         }
-        // (the follower: the nearest cart on the descent's hold side, its box front's distance
-        // short of H's plane (the gate's south face, z 0.625); negative: it is past the face)
-        let short = pos.iter().flatten().filter(|p| (p.0 - (xb as f64 + 0.5)).abs() < 0.3 && p.2 > 0.0 && p.2 < 5.0 && p.1 > 2.0).map(|p| p.2 - 0.49 - 0.625).fold(f64::MAX, f64::min);
+        // (the follower: the nearest cart on the descent's hold side still short of H's plane
+        // (the gate's south face, z 0.625): its box front's distance to it)
+        let short = pos.iter().flatten().filter(|p| (p.0 - (xb as f64 + 0.5)).abs() < 0.3 && p.2 > 0.0 && p.2 < 5.0 && p.1 > 2.0 && !in_h(p, 0.0)).map(|p| p.2 - 0.49 - 0.625).filter(|d| *d >= -1.0e-6).fold(f64::MAX, f64::min);
         if short < 9.0 {
             s.short_at_shut.push(short);
         }
+        s.short_now = short;
         s.h_pending = Some(t);
     }
     // (H's follower: the first cart touching H's face after a close)
@@ -4020,6 +4077,35 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let fspan = |v: &[f64]| if v.is_empty() { "-".to_string() } else { format!("{:.2}..{:.2} (n {})", v.iter().cloned().fold(f64::MAX, f64::min), v.iter().cloned().fold(f64::MIN, f64::max), v.len()) };
     out.push(format!("meter H per opening: the released cart's Dh edge after the opening {} gt; the follower short of H's plane when H shut {} blocks (ironfarm's escapement: >= 0.66)", span(&s.open_to_dh), fspan(&s.short_at_shut)));
     out.push(format!("meter spacing (consecutive rising edges under 100 gt): Dh {}, Darr {}, D1 {}, D2 {}", span(&s.spacing[0]), span(&s.spacing[1]), span(&s.spacing[2]), span(&s.spacing[3])));
+    // (cc767b78: per opening, by its index in the train: carts through (2+: a double), the
+    // follower short of H's plane at the shut (NaN: H still open at the next opening), the released
+    // cart's speed at its Dh edge)
+    let mut rows = s.opening_rows.clone();
+    if s.open_idx > 0 {
+        rows.push((s.open_idx, s.passes_now, s.short_now, s.released_v));
+    }
+    for k in 1..=3u8 {
+        let r: Vec<&(u8, usize, f64, f64)> = rows.iter().filter(|r| r.0 == k).collect();
+        if r.is_empty() {
+            continue;
+        }
+        let sh: Vec<f64> = r.iter().map(|x| x.2).filter(|v| v.is_finite() && *v < 9.0).collect();
+        let vs: Vec<f64> = r.iter().map(|x| x.3).filter(|v| v.is_finite()).collect();
+        out.push(format!(
+            "meter H opening {k}: {} openings; carts through 0/1/2+: {}/{}/{}; follower short of H's plane at the shut {}; released cart's speed at Dh {}",
+            r.len(),
+            r.iter().filter(|x| x.1 == 0).count(),
+            r.iter().filter(|x| x.1 == 1).count(),
+            r.iter().filter(|x| x.1 >= 2).count(),
+            fspan(&sh),
+            fspan(&vs)
+        ));
+    }
+    let doubles = rows.iter().filter(|x| x.1 >= 2).count();
+    out.push(format!("meter H shuts: carts in H's box at the shut 0/1/2+: {}/{}/{}", s.inside_at_shut.iter().filter(|n| **n == 0).count(), s.inside_at_shut.iter().filter(|n| **n == 1).count(), s.inside_at_shut.iter().filter(|n| **n >= 2).count()));
+    if doubles > 0 {
+        problems.push(format!("meter: {doubles} H openings passed two or more carts"));
+    }
     let worst = |f: &dyn Fn(&(f64, f64, f64, f64)) -> f64| s.rows.iter().map(f).fold(0.0f64, f64::max);
     let back: Vec<f64> = s.rows.iter().map(|r| r.3 - r.2).collect();
     let t_z = 3.0;
@@ -4303,7 +4389,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, meter: None }
     }
 }
 
@@ -5038,6 +5124,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut comb_run = lay.comb.clone().map(crate::comb::CombRun::new);
     // (S3(ii)'s per-stand head permissions, `crate::headperm`)
     let mut head_perm = tm.head_perm.map(|(a, d, g, r, bh)| crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, lay.stand_rel, g, r, bh));
+    let mut stripped: Vec<String> = Vec::new();
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)
     let (fx, fz) = (o.shift[0] as f64, o.shift[1] as f64);
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -7745,6 +7832,30 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let cp: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
             h.pre_tick(&run.world, &cp, t);
         }
+        // (`strip_riders`: the riders of carts entering the cell removed: riderless trains)
+        if let Some((cell, s0, s1)) = tm.strip_riders
+            && c >= s0
+            && c <= s1
+        {
+            let hits: Vec<Vec<u32>> = run
+                .world
+                .entities
+                .list
+                .iter()
+                .filter(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && !e.passengers.is_empty() && lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                })
+                .map(|e| e.passengers.clone())
+                .collect();
+            for p in hits.into_iter().flatten() {
+                if let Some(pi) = redsim::entity::index_of(&run.world, p) {
+                    run.world.entities.list[pi].removed = true;
+                    redsim::entity::stop_riding(&mut run.world, pi);
+                    stripped.push(format!("slot {c} +{dt}: e{p}"));
+                }
+            }
+        }
         if let Some(m) = tm.meter {
             meter_tick(&mut run.world, &m, &mut meter_state, &lay, o, rel_bench, &carts, t, c, dt);
         }
@@ -10147,6 +10258,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             out.extend(h.detail());
         }
         problems.extend(probs);
+    }
+    if tm.strip_riders.is_some() {
+        out.push(format!("riders removed (riderless trains): {}{}", stripped.len(), if stripped.is_empty() { String::new() } else { format!(" ({})", stripped.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) }));
     }
     if !problems.is_empty() {
         let mut by: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
