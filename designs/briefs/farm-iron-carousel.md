@@ -36,7 +36,7 @@ A design may require a part to sit inside one chunk, stated in the design file a
 
 #### Reload order
 
-After an unload, the game brings entities back in an order the design doesn't control: chunks load asynchronously, and within a chunk entities return in save order, which depends on their history. A design must not depend on that order. Every unload/reload fault runs under several orders: the save order, the reverse chunk order, and at least 8 seeded orders (chunk order shuffled, rider histories seeded). A case that fails under any sampled order fails. Each seeded order also re-rolls the brain state a reload resets, as the game can: sensor scan phases (drawn from a static Random), behavior timers (e.g., AcquirePoi's next scheduled start), and memories that aren't saved, which are dropped. The bridge validates the restore for a given order; the runners sample orders. Why: day-1's unload-mid-visit cases re-board in the bridged order but lose the napper in the runner's order, because a different rider history gives different entity ids; both are orders the real game can produce.
+After an unload, the game brings entities back in an order the design doesn't control: chunks load asynchronously, and within a chunk entities return in save order, which depends on their history. A design must not depend on that order. Every unload/reload fault runs under several orders: the save order, the reverse of the saved sequence, and at least 8 seeded orders (chunk order shuffled, rider histories seeded). Seeded orders shuffle both the chunk order and the order of top-level entities within each chunk (passengers stay with their vehicles), since within-chunk save order follows the section's insertion history, which the farm can't control. A case that fails under any sampled order fails. Each seeded order also re-rolls the brain state a reload resets, as the game can: sensor scan phases (drawn from a static Random), behavior timers (e.g., AcquirePoi's next scheduled start), and memories that aren't saved, which are dropped. The bridge validates the restore for a given order; the runners sample orders. Why: day-1's unload-mid-visit cases re-board in the bridged order but lose the napper in the runner's order, because a different rider history gives different entity ids; both are orders the real game can produce.
 
 #### Settled as placed, and built in order (every part)
 
@@ -564,6 +564,12 @@ station needs no drop and no overworld kill.
   Panic is not a protection: a reload drops the hostile memory, and riders stay calm until
   their sensor re-scans. Why: a stacked placement put the bed about 12 from the stand's riders; the
   current side-by-side layout has only about 18.
+- **No derails.** A cart off the rails (no rail in its cell or the one below for 3 ticks) is a hard
+  fail anywhere in the loop. An intended flight declared in the design (take-off, landing rail,
+  maximum airtime) is not a derail if the cart lands on the declared rail within the bound with its
+  rider seated; every other off-rail tick is. A landing on another cart, on a cell other than the
+  declared landing, or not moving forward is a derail too. The design file states its flights as a
+  header line (`flights:`); the one check is `mobfarm::flight`, which every runner calls.
 - **No merged carts.** Merged carts (two carts within 0.01 of each other, which the game's cart push
   never separates) are a hard fail anywhere in the loop; every runner checks for them. "Within
   0.01" is the horizontal distance between two carts whose boxes the push would pair (they overlap
