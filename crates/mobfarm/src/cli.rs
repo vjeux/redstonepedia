@@ -2340,6 +2340,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }).collect();
                         println!("{label}: nap visits over every seed: {}; nights with every rider asleep: {full_nights} of {nights}", parts.join("; "));
                     }
+                    // (the bed's nearest awake villager over every seed: each run's `bed:` line, the
+                    // least (ironspec 2026-11-11: the minimum across runs decides the margin))
+                    let mut bed_min: Option<(f64, String)> = None;
+                    for (seed, r) in &results {
+                        for l in r.lines() {
+                            let Some(rest) = l.strip_prefix("bed: the nearest awake villager while a bed was taken ") else { continue };
+                            let Some(d) = rest.split_whitespace().next().and_then(|t| t.parse::<f64>().ok()) else { continue };
+                            if bed_min.as_ref().is_none_or(|b| d < b.0) {
+                                bed_min = Some((d, format!("seed {seed}: {rest}")));
+                            }
+                        }
+                    }
+                    if let Some((d, at)) = bed_min {
+                        println!("{label}: bed over every seed: least {d:.2} ({at})");
+                    }
                     // (the pocket stand's margins over every seed: each run's `stand margins:` line)
                     let mut agg: Option<[i64; 9]> = None;
                     for (_, r) in &results {
