@@ -425,15 +425,29 @@ pub fn control_blocks(sched: &Path) -> Result<B> {
     // (RELd and SA moved out: the hold's kick unit near T1 takes REL from the core; the module
     // only says which release is the drop's, steadily)
     // ---- NS5 = NOT (a visit's item in D5): D5's comparator (south), a repeater into a block, a
-    // torch on it, out east along z 3 (`output.ns5`); high except from the clock of the 4th
-    // release after a visit to the clock of the 5th
+    // torch on it, south to z 5 and out east along z 5 (`output.ns5`); high except from the clock
+    // of the 4th release after a visit to the clock of the 5th
     b.on([19, -2, 0], &comp("north", "compare"))?;
     b.put([19, -2, 1], STONE)?;
     b.put([19, -2, 2], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
-    for x in 20..=27 {
-        b.on([x, -2, 2], DUST)?;
+    for z in 3..=5 {
+        b.on([19, -2, z], DUST)?;
     }
-    b.ports.insert("output.ns5".into(), [27, -2, 2]);
+    for x in 20..=27 {
+        b.on([x, -2, 5], DUST)?;
+    }
+    b.ports.insert("output.ns5".into(), [27, -2, 5]);
+    // ---- NS3 = NOT (a visit's item in D3): the same off D3 (23, -2, -1), out east along z 3
+    // (`output.ns3`): low from the clock of the 2nd release after a visit to the clock of the 3rd,
+    // which holds the 3rd release's +20 (the siding's force-re-board time, F)
+    b.on([23, -2, 0], &comp("north", "compare"))?;
+    b.put([23, -2, 1], STONE)?;
+    b.put([23, -2, 2], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    b.on([23, -2, 3], DUST)?;
+    for x in 24..=28 {
+        b.on([x, -2, 3], DUST)?;
+    }
+    b.ports.insert("output.ns3".into(), [28, -2, 3]);
     // ---- NV out: a dust on NV's block (-4, 0, 3), up two stairs to y 3 (over the D ring), east
     // along z 3 to `output.nv` (28, 4, 3): at y 4, two above the D ring's loop dust (y 1): a line
     // at y 3 strongly powers its support stones at y 2, which sit right over the loop dust and so
@@ -585,7 +599,10 @@ fn step_delay() -> u8 {
 /// The module's place in the loop (its frame's 0 0 0), under the ground west of the siding.
 pub(crate) const MODULE_AT: P3 = [-59, -4, 0];
 /// The night window's daylight detector, under the open sky north of the module.
-pub(crate) const DETECTOR: P3 = [-56, 1, -26];
+pub(crate) const DETECTOR: P3 = [-56, 1, -32];
+/// The siding's force-re-board input F (farmopt's child 58f770cc: (-5, -3, -4) in the siding's
+/// frame), a dust the siding's repeater reads from the south.
+pub(crate) const FORCE: P3 = [-25, -1, 6];
 
 /// The divert unit, next to the departure corner (REL from the core reaches it in ~6 gt; the far
 /// module's own visit pulse comes ~30 gt after REL, too late for the corner): G2' = REL and not
@@ -715,29 +732,31 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         d.block_entities.insert(at(*q), n.clone());
     }
     // night: an INVERTED daylight detector under the open sky north of the module (DETECTOR, y 1:
-    // nothing of the farm over it; its output is 15 - (sky light - darkening): 0 by day, 3 from
-    // about day time 12,500 to 23,640), three dusts south (so the repeater after them needs 3 or
-    // more), a repeater into a block, a torch on the block's south face: the line is ON by day and
-    // also while the detector is missing (a runner places detectors after its settle: the module
-    // must not start a visit then), down a stair south to y -7, south along x -56, up into the day
-    // line's dust (module (2, -2, 1)) and its repeater into the day block (the detector had been
-    // under the module: no sky, the night window open all day; ironfarm 15:37)
+    // nothing of the farm over it; its output is 15 - (sky light - darkening): 11 exactly in the
+    // deep night 13,670..22,330 in clear weather, rain and thunder, less outside it: the scheduler's
+    // weather-proof window, ironspec's ruling), eleven dusts south (so the repeater after them is
+    // on only at 11), a repeater into a block, a torch on the block's south face: the line is ON
+    // by day and also while the detector is missing (a runner places detectors after its settle:
+    // the module must not start a visit then), down a stair south to y -7, south along x -56, up
+    // into the day line's dust (module (2, -2, 1)) and its repeater into the day block. (The 3+
+    // threshold of 1152b0e38 opened at about 12,500 and closed at 23,640: 27 visits a night, 6 of
+    // them second naps that did not come back; the window of 13,670..22,330 holds 21 or 22.)
     b.put(DETECTOR, "minecraft:daylight_detector[inverted=true,power=0]")?;
-    for dz in 1..=3 {
+    for dz in 1..=11 {
         b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + dz], DUST)?;
     }
-    b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 4], &rep("north", 1))?;
-    b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 5], STONE)?;
-    b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 6], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
-    let mut dl = vec![[DETECTOR[0], DETECTOR[1], DETECTOR[2] + 7]];
+    b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 12], &rep("north", 1))?;
+    b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 13], STONE)?;
+    b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 14], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    let mut dl = vec![[DETECTOR[0], DETECTOR[1], DETECTOR[2] + 15]];
     for k in 1..=8 {
-        dl.push([DETECTOR[0], DETECTOR[1] - k, DETECTOR[2] + 7 + k]);
+        dl.push([DETECTOR[0], DETECTOR[1] - k, DETECTOR[2] + 15 + k]);
     }
     // (at y -7 under the module's REL bus (module y -1, z -4), then up a stair into (3, -2, 1))
     seg_to(&mut dl, at([3, -3, -1]));
     dl.push(at([3, -2, 0]));
     dl.push(at([3, -2, 1]));
-    route_d(&mut b, [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 6], &dl, 6, 0, 1)?;
+    route_d(&mut b, [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 14], &dl, 6, 0, 1)?;
     b.on(at([2, -2, 1]), DUST)?;
     b.on(at([1, -2, 1]), &rep("east", 1))?;
     // REL in: a dust beside the REL stone, down east to y -6, north along x 4, west along z -10,
@@ -835,16 +854,46 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     }
     b.on([-21, -4, 30], &comp("north", "subtract"))?;
     // NS5 into KA's west side through a repeater (-22, -4, 30), from the module's port: east one,
-    // south along x -30 (y -6) to z 30, east to x -25, up a stair east to (-23, -4, 30)
-    let ns5_port = at([27, -2, 2]);
+    // south along x -28 (y -6) to z 30, east to x -25, up a stair east to (-23, -4, 30)
+    let ns5_port = at([27, -2, 5]);
     let mut ns = vec![[ns5_port[0] + 1, ns5_port[1], ns5_port[2]]];
-    seg_to(&mut ns, [-28, -6, 2]);
+    seg_to(&mut ns, [-28, -6, 5]);
     seg_to(&mut ns, [-28, -6, 30]);
     seg_to(&mut ns, [-25, -6, 30]);
     ns.push([-24, -5, 30]);
     ns.push([-23, -4, 30]);
     route(&mut b, ns5_port, &ns, 14)?;
     b.on([-22, -4, 30], &rep("west", 1))?;
+    // ---- the siding's force-re-board F at the 3rd release after a visit, +20 (58f770cc: the cart
+    // then reaches the siding's slot ~95 gt later, its hold before the kick): F's gate FA, a
+    // comparator facing south at (-25, -1, 5), its output into F's dust; rear REL from the module's
+    // REL route (a repeater off it at x -25, south under the entry route along x -25 at y -6, up
+    // five stairs south to (-25, -1, 4)); side NS3 from the module (east along z 3 at y -6, up
+    // four stairs east to (-27, -2, 3), south to (-27, -2, 4), a stair up to (-27, -1, 5) and a
+    // repeater east into FA)
+    let fr_from = [FORCE[0], -6, -10];
+    if !b.blocks.get(&fr_from).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("the module's REL route at {fr_from:?} is {:?}, not a dust to branch from", b.blocks.get(&fr_from));
+    }
+    b.on([FORCE[0], -6, -9], &rep("north", 1))?;
+    let mut fr = vec![[FORCE[0], -6, -8]];
+    seg_to(&mut fr, [FORCE[0], -6, -1]);
+    for k in 1..=5 {
+        fr.push([FORCE[0], -6 + k, -1 + k]);
+    }
+    route_d(&mut b, [FORCE[0], -6, -9], &fr, 6, 0, 1)?;
+    b.on([FORCE[0], -1, 5], &comp("north", "subtract"))?;
+    b.on(FORCE, DUST)?;
+    let ns3_port = at([28, -2, 3]);
+    let mut n3 = vec![[ns3_port[0] + 1, ns3_port[1], ns3_port[2]]];
+    for k in 1..=3 {
+        n3.push([ns3_port[0] + 1 + k, ns3_port[1] + k, ns3_port[2]]);
+    }
+    n3.push([FORCE[0] - 2, -2, 4]);
+    n3.push([FORCE[0] - 2, -1, 5]);
+    // (the port is the module's 6th dust from NS3's torch)
+    route_d(&mut b, ns3_port, &n3, 14, 6, 1)?;
+    b.on([FORCE[0] - 1, -1, 5], &rep("west", 1))?;
     let mut ko = vec![[-21, -4, 31], [-21, -4, 32], [-21, -4, 33], [-21, -4, 34], [-21, -4, 35], [-21, -4, 36], [-21, -4, 37]];
     seg_to(&mut ko, [-18, -4, 37]);
     for k in 1..=3 {
