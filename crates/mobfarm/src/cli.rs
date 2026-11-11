@@ -759,9 +759,14 @@ pub enum MobfarmCmd {
         #[arg(long)]
         no_controls: bool,
         /// The AFK player's feet, design coordinates x,y,z (the site guide's spot; default the
-        /// site's, or on top of the farm's middle in the void).
+        /// nearest spot to the site's default that lies 2 sections from the shared bed's, printed).
         #[arg(long, allow_hyphen_values = true)]
         afk: Option<String>,
+        /// An empty cart's per-cell speeds from a runner trace: `x y z v` lines (design cells,
+        /// blocks a tick, the fastest crossing); pickup then counts only the cells a cart passes
+        /// at 0.1 or faster (without it, every track; the line says which).
+        #[arg(long)]
+        speeds: Option<PathBuf>,
     },
     /// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
     /// from every position a villager can occupy: a loop scene's rail cells, plus the positions
@@ -2821,7 +2826,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("wired pocket stand: REL input cell ({},{},{}): a redstone block opens the three gates and resets the latch, glass lets it count", r.x, r.y, r.z);
             }
         }
-        MobfarmCmd::SiteCheck { design, terrain, positions, rails, rod, no_controls, afk } => {
+        MobfarmCmd::SiteCheck { design, terrain, positions, rails, rod, no_controls, afk, speeds } => {
             let (c, spec) = load(version, &design)?;
             let mut extra: Vec<redsim::pos::BlockPos> = Vec::new();
             for f in &positions {
@@ -2845,7 +2850,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 None => None,
             };
-            let placed = crate::sitecheck::place(&c, &spec, terrain.as_deref(), &extra, rails, &rods, afk).map_err(|e| anyhow::anyhow!(e))?;
+            let speeds: Option<Vec<(redsim::pos::BlockPos, f64)>> = match &speeds {
+                Some(f) => {
+                    let mut v = Vec::new();
+                    for line in std::fs::read_to_string(f)?.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                        let n: Vec<f64> = line.split([',', ' ', '\t']).filter(|s| !s.is_empty()).map(|n| n.parse::<f64>()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(n.len() == 4, "{}: a speed line takes x y z v (design cell, blocks a tick): {line}", f.display());
+                        v.push((redsim::pos::BlockPos::new(n[0] as i32, n[1] as i32, n[2] as i32), n[3]));
+                    }
+                    Some(v)
+                }
+                None => None,
+            };
+            let placed = crate::sitecheck::place(&c, &spec, terrain.as_deref(), &extra, rails, &rods, afk, speeds.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             let (text, ok) = crate::sitecheck::report(&placed, !no_controls);
             print!("{text}");
             if !ok {

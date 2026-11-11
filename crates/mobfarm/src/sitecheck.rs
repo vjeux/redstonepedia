@@ -47,6 +47,11 @@ pub struct Placed {
     pub golem_cells: Vec<BlockPos>,
     pub portal: Vec<BlockPos>,
     pub afk: Vec3,
+    /// How the AFK spot was chosen (`--afk`, or the nearest legal spot the tool found).
+    pub afk_note: String,
+    /// The per-cell speeds of an empty cart from a runner trace (world cells, blocks a tick: the
+    /// fastest crossing); `None`: every track counts for pickup.
+    pub cart_speeds: Option<std::collections::HashMap<BlockPos, f64>>,
     /// The farm's own space (no flood starts there): every cell its villagers, carts, zombies and
     /// boats occupy, the golem cells and the two above them, every open cell of the design.
     pub interior: HashSet<BlockPos>,
@@ -152,12 +157,43 @@ fn sec_dist(a: BlockPos, b: BlockPos) -> i32 {
     (a.0 - b.0).abs().max((a.1 - b.1).abs()).max((a.2 - b.2).abs())
 }
 
+/// The nearest spot to `afk` 2 or more sections (Chebyshev) from `bed`'s section, at its height,
+/// moved along x or z (the site rule: no siege, `VillageSiege` needing the player within 1 section
+/// of an occupied POI); in the world, it stands on the column's nearest floor to that height.
+fn legal_afk(w: &World, afk: Vec3, bed: BlockPos) -> Vec3 {
+    let (bx, _, bz) = sec(bed);
+    let candidates = [
+        Vec3::new(((bx + 2) * 16) as f64 + 0.5, afk.y, afk.z),
+        Vec3::new(((bx - 2) * 16 + 15) as f64 + 0.5, afk.y, afk.z),
+        Vec3::new(afk.x, afk.y, ((bz + 2) * 16) as f64 + 0.5),
+        Vec3::new(afk.x, afk.y, ((bz - 2) * 16 + 15) as f64 + 0.5),
+    ];
+    let best = candidates.into_iter().min_by(|a, b| dist(*a, afk).total_cmp(&dist(*b, afk))).unwrap_or(afk);
+    // (standing: the nearest floor in its column within 16 of that height, the player's 0.6 x 1.8
+    // box fitting)
+    let c = cell_of(best);
+    for d in 0..=16 {
+        for y in [c.y - d, c.y + d] {
+            let q = BlockPos::new(c.x, y, c.z);
+            if w.contains(q)
+                && let Some(f) = hostile::floor_in(w, q)
+                && hostile::fits(w, &hostile::VILLAGER, q, f)
+            {
+                return Vec3::new(best.x, f, best.z);
+            }
+        }
+    }
+    best
+}
+
 /// The farm placed: built into `terrain` at the judge's cheapest spot, or in the void; settled;
 /// its entities spawned. `positions` are design cells (moved with the farm); `rods` (design X, Z
 /// columns) each add a lightning rod on a 1-wide stone pillar from the column's top up to 2 above
 /// the farm's top (the site guide's rod, for a design that carries none); `afk` (design
-/// coordinates) puts the AFK player there instead of the site's.
-pub fn place(c: &circuit::Circuit, spec: &redsim::entity::mob::farm::FarmSpec, terrain: Option<&str>, positions: &[BlockPos], rails: bool, rods: &[(i32, i32)], afk: Option<[f64; 3]>) -> Result<Placed, String> {
+/// coordinates) puts the AFK player there instead of the site's (else the nearest legal spot);
+/// `speeds` (design cells, an empty cart's fastest crossing in blocks a tick, from a runner trace)
+/// limits pickup to the cells a cart passes at 0.1 or faster.
+pub fn place(c: &circuit::Circuit, spec: &redsim::entity::mob::farm::FarmSpec, terrain: Option<&str>, positions: &[BlockPos], rails: bool, rods: &[(i32, i32)], afk: Option<[f64; 3]>, speeds: Option<&[(BlockPos, f64)]>) -> Result<Placed, String> {
     use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
     let (mut w, moved, offset, site_afk, seed, label) = match terrain {
         Some(t) => {
@@ -180,6 +216,7 @@ pub fn place(c: &circuit::Circuit, spec: &redsim::entity::mob::farm::FarmSpec, t
         }
     };
     let mv = |p: BlockPos| BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]);
+    let afk_given = afk.is_some();
     let afk = afk.map(|a| Vec3::new(a[0] + offset[0] as f64, a[1] + offset[1] as f64, a[2] + offset[2] as f64)).unwrap_or(site_afk);
     // the site guide's rods (`--rod X,Z`): a stone pillar from the column's top, the rod on it
     let top = moved.blocks.iter().map(|(p, _)| p.y).max().unwrap_or(0);
@@ -284,6 +321,16 @@ pub fn place(c: &circuit::Circuit, spec: &redsim::entity::mob::farm::FarmSpec, t
         None if beds.len() == 1 => Some(beds[0]),
         None => None,
     };
+    // the AFK spot: `--afk`, or the site's default moved to the nearest legal spot (2 sections
+    // from the shared bed's, the site rule against sieges), printed either way
+    let (afk, afk_note) = match (afk_given, shared_bed) {
+        (true, _) => (afk, format!("the AFK spot {} as given (--afk)", vat(afk))),
+        (false, Some(bed)) if sec_dist(cell_of(afk), bed) < 2 => {
+            let moved = legal_afk(&w, afk, bed);
+            (moved, format!("the AFK spot moved from the default {} to {}, the nearest spot 2 sections from the shared bed's (--afk overrides)", vat(afk), vat(moved)))
+        }
+        (false, _) => (afk, format!("the AFK spot {} (the default)", vat(afk))),
+    };
     let mut golem_cells: Vec<BlockPos> = Vec::new();
     for s in &positions_w {
         for (g, ok) in redsim::entity::mob::spawn::golem_spawn_cells_from(&w, *s) {
@@ -307,7 +354,9 @@ pub fn place(c: &circuit::Circuit, spec: &redsim::entity::mob::farm::FarmSpec, t
         }
     }
     let farm_blocks = moved.blocks.iter().map(|(p, _)| *p).collect();
-    Ok(Placed { w, label, positions: positions_w, villagers, carts, zombies, tracks, farm_blocks, beds, shared_bed, golem_cells, portal, afk, interior, seed, extra_parts: Vec::new(), seeded_pois: Vec::new(), extra_items: Vec::new() })
+    // the per-cell speeds of an empty cart (`--speeds`: design cells), moved with the farm
+    let cart_speeds = speeds.map(|s| s.iter().map(|(q, v)| (mv(*q), *v)).collect());
+    Ok(Placed { w, label, positions: positions_w, villagers, carts, zombies, tracks, farm_blocks, beds, shared_bed, golem_cells, portal, afk, afk_note, cart_speeds, interior, seed, extra_parts: Vec::new(), seeded_pois: Vec::new(), extra_items: Vec::new() })
 }
 
 // ------------------------------------------------------------------------- 1. lightning
@@ -676,7 +725,15 @@ pub fn natural_mobs_hits(p: &Placed, extra: &[(Body, BlockPos)]) -> (Verdict, Ve
     }
     // pickup: a pushable mob (not a bat, not an enderman out of reach) in an empty cart's pickup
     // box along a track (`pushAndPickupEntities`: the cart's box inflated 0.2 sideways)
-    let pick: Vec<Aabb> = p.tracks.iter().map(|t| cart_box(*t).inflate(0.2, 0.0, 0.2)).collect();
+    let pick_tracks: Vec<BlockPos> = match &p.cart_speeds {
+        Some(s) => p.tracks.iter().copied().filter(|t| s.get(t).is_some_and(|v| *v >= 0.1)).collect(),
+        None => p.tracks.clone(),
+    };
+    let pick_mode = match &p.cart_speeds {
+        Some(_) => format!("from the runner trace: the {} of {} track cells an empty cart passes at 0.1 or faster", pick_tracks.len(), p.tracks.len()),
+        None => format!("every one of the {} track cells (no runner trace)", p.tracks.len()),
+    };
+    let pick: Vec<Aabb> = pick_tracks.iter().map(|t| cart_box(*t).inflate(0.2, 0.0, 0.2)).collect();
     let mut pickup = Vec::new();
     for (b, cs) in &fl {
         if b.name == "bat" {
@@ -739,9 +796,15 @@ pub fn natural_mobs_hits(p: &Placed, extra: &[(Body, BlockPos)]) -> (Verdict, Ve
     }
     let mut channels: Vec<(&'static str, Vec<BlockPos>)> = Vec::new();
     for (name, hits) in [("reach", &reach), ("flee", &flee), ("pickup", &pickup), ("golem cells", &golem), ("blasts", &blast), ("ranged", &ranged)] {
-        lines.push(hits_line(name, hits));
+        let (ok, mut l) = hits_line(name, hits);
+        if name == "pickup" {
+            l = format!("{l} [{pick_mode}]");
+        }
+        lines.push((ok, l));
         channels.push((name, hits.iter().map(|h| h.cell).collect()));
     }
+    // the raiders the hostile sensor also takes, out of these channels: none spawns naturally here
+    lines.push((true, "raiders: the ravager, the vex and the zoglin are not in the floods (no natural spawn in the overworld; a raid needs Bad Omen, which the site section has no line on yet)".to_string()));
     // endermen: a teleport onto a floor of the farm's space where its 2.9-tall box fits (within
     // +-32 sideways and -32..+31 up of an enderman's position); a block of the farm in the
     // `enderman_holdable` tag; a block left into an air cell the farm needs (within 1 sideways
@@ -966,7 +1029,8 @@ pub fn controls(p: &Placed) -> Vec<(u8, Control)> {
         Control { name: format!("{what} at {}", at(cell)), bites, why: v.failing(prefix).map(str::to_string).unwrap_or_else(|| format!("{prefix}: passes")) }
     };
     let golem_box = p.golem_cells.first().map(|g| hostile::box_at(&hostile::GOLEM, *g, g.y as f64));
-    let pick_box = p.tracks.iter().map(|t| cart_box(*t).inflate(0.2, 0.0, 0.2)).find(|k| touching(p, &hostile::SLIME, k).is_some());
+    let fast = |t: &BlockPos| p.cart_speeds.as_ref().is_none_or(|s| s.get(t).is_some_and(|v| *v >= 0.1));
+    let pick_box = p.tracks.iter().filter(|t| fast(t)).map(|t| cart_box(*t).inflate(0.2, 0.0, 0.2)).find(|k| touching(p, &hostile::SLIME, k).is_some());
     let tries: [(&str, &'static str, Body, Option<&Aabb>, f64); 3] = [
         ("a zombie beside a rider", "reach", hostile::ZOMBIE, p.villagers.first(), 1.6),
         ("a zombie 5 blocks from a rider", "flee", hostile::ZOMBIE, p.villagers.first(), 5.5),
@@ -1101,7 +1165,7 @@ pub fn controls(p: &Placed) -> Vec<(u8, Control)> {
 
 /// The whole report: the five verdicts, then the controls (each must bite).
 pub fn report(p: &Placed, with_controls: bool) -> (String, bool) {
-    let mut s = format!("site-check {}: {} villager positions, {} tracks, {} zombies, {} golem spawn cells, {} portal blocks, the AFK player at {} (the world {} to {})\n", p.label, p.positions.len(), p.tracks.len(), p.zombies.len(), p.golem_cells.len(), p.portal.len(), vat(p.afk), at(p.w.min), at(p.w.min.offset(p.w.size[0] - 1, p.w.size[1] - 1, p.w.size[2] - 1)));
+    let mut s = format!("site-check {}: {} villager positions, {} tracks, {} zombies, {} golem spawn cells, {} portal blocks (the world {} to {}); {}\n", p.label, p.positions.len(), p.tracks.len(), p.zombies.len(), p.golem_cells.len(), p.portal.len(), at(p.w.min), at(p.w.min.offset(p.w.size[0] - 1, p.w.size[1] - 1, p.w.size[2] - 1)), p.afk_note);
     let verdicts = [("1 lightning", lightning(p)), ("2 natural mobs", natural_mobs(p, &[])), ("3 empty-handed zombies", empty_handed(p)), ("4 no village POI within 8 sections", pois(p)), ("5 the farm's zombies stay", zombies_stay(p))];
     let mut all = true;
     for (name, v) in &verdicts {
@@ -1134,7 +1198,10 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/farms/iron/carousel-assembly/carousel-v0a.txt");
         let c = circuit::Circuit::load(&path).unwrap();
         let spec = circuit::mobfarm::spec_of(&c).unwrap();
-        let p = place(&c, &spec, None, &[], true, &[(5, 10)], None).unwrap();
+        let p = place(&c, &spec, None, &[], true, &[(5, 10)], None, None).unwrap();
+        // (the default AFK spot is the nearest legal one: 2 sections from the shared bed's)
+        let bed = p.shared_bed.expect("v0a's single bed");
+        assert!(sec_dist(cell_of(p.afk), bed) >= 2, "{}", p.afk_note);
         assert!(lightning(&p).pass(), "the rod over the middle keeps every box out of its reach");
         let cs = controls(&p);
         for n in 1..=5u8 {
@@ -1142,6 +1209,13 @@ mod tests {
         }
         let idle: Vec<String> = cs.iter().filter(|(_, c)| !c.bites).map(|(n, c)| format!("{n}: {} ({})", c.name, c.why)).collect();
         assert!(idle.is_empty(), "controls that do not bite: {idle:?}");
+        // pickup from a runner trace: only the cells an empty cart passes at 0.1 or faster count;
+        // every track slow, no pickup at all
+        let slow: Vec<(BlockPos, f64)> = p.tracks.iter().map(|t| (*t, 0.05)).collect();
+        let q = place(&c, &spec, None, &[], true, &[(5, 10)], None, Some(&slow)).unwrap();
+        let (v, ch) = natural_mobs_hits(&q, &[]);
+        assert!(ch.iter().any(|(n, cells)| *n == "pickup" && cells.is_empty()), "every track slow: no pickup");
+        assert!(v.lines.iter().any(|(_, l)| l.starts_with("pickup") && l.contains("from the runner trace: the 0 of")), "the mode is printed");
     }
 
     #[test]
