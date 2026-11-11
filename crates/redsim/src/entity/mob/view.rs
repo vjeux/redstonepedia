@@ -50,7 +50,7 @@ pub fn view(w: &World) -> Vec<MobView> {
     let mut out = Vec::new();
     for (index, e) in w.entities.list.iter().enumerate() {
         let EntityKind::Mob(m) = &e.kind else { continue };
-        let pose = match (m.sleeping_pos, e.vehicle) {
+        let pose = match (m.sleeping_pos.filter(|_| !m.pose_standing), e.vehicle) {
             (Some(bed_head), _) => {
                 let facing = match w.get(bed_head) {
                     Block::Bed { facing, .. } => facing,
