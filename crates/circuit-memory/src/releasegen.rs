@@ -514,6 +514,93 @@ fn permit_fixed(b: &mut B) -> Result<()> {
     Ok(())
 }
 
+/// RETRY's two entries into the head (ironspec 08:52, option (b); both designs use them): R_i
+/// (4,-5,25), a repeater into I2 (3,-5,25), refills the ring (a fresh EXPIRE, BUSY) without the
+/// REL network, the chain or the refill comparator; R_s (8,-5,25), a repeater into the common stand
+/// REL line's dust (7,-5,25) just past its tap (today's stand; S3 enters each stand's own line).
+/// Each reads a stone powered weakly by a landing dust on it ((5,-4,25), (9,-4,25)), so the stone
+/// powers no line beside it (the refill dust (5,-5,26): a stone over it cuts the landing's
+/// diagonal). A block over a landing ((5,-3,25), (9,-3,25)) is the bench's drive.
+fn retry_entries(b: &mut B) -> Result<()> {
+    let ports = retry_entry_cells(&mut b.blocks, &[([4, -5, 25], [5, -5, 25], Some([5, -4, 26]), "input.retry_ring")])?;
+    b.ports.extend(ports);
+    Ok(())
+}
+
+/// The stand entry, laid on the merged file once the stand REL line exists: R_s (8,-5,26) into the
+/// line's first dust (7,-5,26), the tap's output (the line's route beyond it is the router's).
+fn retry_stand_entry(d: &mut Design) -> Result<()> {
+    let ports = retry_entry_cells(&mut d.blocks, &[([8, -5, 26], [9, -5, 26], None, "head.retry_stand")])?;
+    d.ports.extend(ports);
+    Ok(())
+}
+
+/// Each entry: a repeater facing east (input east, output west) at `rep_at`, reading a stone that a
+/// landing dust on it powers weakly; `cut` a stone cutting the landing's diagonal to a dust below.
+fn retry_entry_cells(blocks: &mut BTreeMap<P3, String>, entries: &[(P3, P3, Option<P3>, &str)]) -> Result<Vec<(String, P3)>> {
+    let mut out = Vec::new();
+    for &(rep_at, stone, cut, what) in entries {
+        let free = |blocks: &BTreeMap<P3, String>, q: P3| blocks.get(&q).is_none_or(|s| s.ends_with(":air"));
+        let land = [stone[0], stone[1] + 1, stone[2]];
+        for q in [rep_at, [rep_at[0], rep_at[1] - 1, rep_at[2]], stone, land, [land[0], land[1] + 1, land[2]]] {
+            if !free(blocks, q) && blocks.get(&q).map(|s| s.as_str()) != Some(STONE) {
+                bail!("RETRY entry {what}: {q:?} holds {:?}", blocks.get(&q));
+            }
+        }
+        // (the landing's other neighbours, at its level and the diagonals below, hold no dust)
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
+            let q = [land[0] + d[0], land[1] + d[1], land[2] + d[2]];
+            if cut.is_some_and(|c| [c[0], c[1] - 1, c[2]] == q) {
+                continue;
+            }
+            if blocks.get(&q).is_some_and(|s| s.contains("redstone_wire")) {
+                bail!("RETRY entry {what}: the landing {land:?} would touch the dust at {q:?}");
+            }
+        }
+        blocks.insert([rep_at[0], rep_at[1] - 1, rep_at[2]], STONE.into());
+        blocks.insert(rep_at, rep("east", 1));
+        blocks.insert(stone, STONE.into());
+        blocks.insert(land, DUST.into());
+        if let Some(c) = cut {
+            blocks.insert(c, STONE.into());
+        }
+        out.push((what.to_string(), [land[0], land[1] + 1, land[2]]));
+    }
+    Ok(out)
+}
+
+#[allow(dead_code)]
+fn retry_entries_old(b: &mut B) -> Result<()> {
+    let free = |b: &B, q: P3| b.blocks.get(&q).is_none_or(|s| s.ends_with(":air"));
+    for (rep_at, stone, cut, what) in [([4, -5, 25], [5, -5, 25], Some([5, -4, 26]), "input.retry_ring"), ([8, -5, 25], [9, -5, 25], None, "input.retry_stand")] {
+        let land = [stone[0], stone[1] + 1, stone[2]];
+        for q in [rep_at, [rep_at[0], rep_at[1] - 1, rep_at[2]], stone, land, [land[0], land[1] + 1, land[2]]] {
+            if !free(b, q) && b.blocks.get(&q).map(|s| s.as_str()) != Some(STONE) {
+                bail!("RETRY entry {what}: {q:?} holds {:?}", b.blocks.get(&q));
+            }
+        }
+        // (the landing's other neighbours, at its level and the diagonals below, hold no dust)
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
+            let q = [land[0] + d[0], land[1] + d[1], land[2] + d[2]];
+            if Some(q) != cut.map(|c| [c[0], c[1] - 1, c[2]]) && b.blocks.get(&q).is_some_and(|s| s.contains("redstone_wire")) {
+                if cut.is_some_and(|c| [c[0], c[1] - 1, c[2]] == q) {
+                    continue;
+                }
+                bail!("RETRY entry {what}: the landing {land:?} would touch the dust at {q:?}");
+            }
+        }
+        b.blocks.insert([rep_at[0], rep_at[1] - 1, rep_at[2]], STONE.into());
+        b.blocks.insert(rep_at, rep("east", 1));
+        b.blocks.insert(stone, STONE.into());
+        b.blocks.insert(land, DUST.into());
+        if let Some(c) = cut {
+            b.blocks.insert(c, STONE.into());
+        }
+        b.ports.insert(what.into(), [land[0], land[1] + 1, land[2]]);
+    }
+    Ok(())
+}
+
 /// The permission's feeds once the REL line is laid: each latch's Q to its OR input, the set off the
 /// reset tail (REL-derived, one pulse per launch, beside the free west side; the REL line itself is
 /// boxed in by the x -8 lines) or the REL line, into each latch's set chain (12 gt of chain).
@@ -1347,6 +1434,9 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             }
             permit_feeds(&mut b, &rel_line, &reset_tail)?;
         }
+        if std::env::var("MCTAS_RETRY").is_ok() {
+            retry_entries(&mut b)?;
+        }
         // (MCTAS_REL_FEED, ironspec 06:02 item 1: R_g moved: REL by its own path from its dust
         // beside GO, one 1-rt repeater as both the diode and the refresh, into the release group's
         // line (x -5, y -1, z 19..25); the core's group line keeps only the taps. Tried from each REL
@@ -1760,6 +1850,9 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         let cells = crate::sidinggen::stand_rel(&mut d)?;
         println!("the wired pocket stand's REL (8,-2,2): {} cells, golem +10..+50 off the controller's REL", cells.len());
         siding_cells.extend(cells);
+        if std::env::var("MCTAS_RETRY").is_ok() {
+            retry_stand_entry(&mut d)?;
+        }
     }
     if let Some(sp) = siding {
         if !pocket {
@@ -2022,7 +2115,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     if crate::sidinggen::FAR {
         d.ports.insert("head.golem".into(), golem);
         d.ports.insert("head.go".into(), core_place([5, 1, -1]));
-        d.ports.insert("head.stand_rel".into(), core_place([-3, 1, -1]));
+        d.ports.insert("head.stand_rel".into(), core_place([-4, 1, -1]));
         d.ports.insert("head.expire".into(), core_place([4, 1, 3]));
         if let Some(p) = b.ports.get("input.permit") {
             d.ports.insert("head.permit".into(), *p);
