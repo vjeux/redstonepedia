@@ -145,6 +145,10 @@ pub enum Damage {
     /// owner is `MobWorld.ai.attacker` and its motion `MobWorld.ai.projectile_motion`, as an
     /// arrow's).
     Trident,
+    /// (mob-AI 2026-11-10) `LivingEntity.onBelowWorld`: 64 below the world's bottom
+    /// (`fell_out_of_world`'s `out_of_world`: armor and resistance bypassed, no knockback; the
+    /// hurt cooldown still holds, `#bypasses_cooldown` being empty).
+    OutOfWorld,
 }
 
 impl Damage {
@@ -168,7 +172,7 @@ impl Damage {
 
     /// Tag `bypasses_armor`.
     pub fn bypasses_armor(self) -> bool {
-        matches!(self, Damage::OnFire | Damage::InWall | Damage::Cramming | Damage::Fall | Damage::Drown)
+        matches!(self, Damage::OnFire | Damage::InWall | Damage::Cramming | Damage::Fall | Damage::Drown | Damage::OutOfWorld)
     }
 
     pub fn name(self) -> &'static str {
@@ -186,6 +190,7 @@ impl Damage {
             Damage::Arrow => "arrow",
             Damage::Spear => "spear",
             Damage::Trident => "trident",
+            Damage::OutOfWorld => "out_of_world",
         }
     }
 
@@ -205,6 +210,7 @@ impl Damage {
             Damage::Arrow => "arrow",
             Damage::Spear => "spear",
             Damage::Trident => "trident",
+            Damage::OutOfWorld => "outOfWorld",
         }
     }
 }
@@ -859,7 +865,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             }
             let Some(id) = id else { return Some(Err(format!("entity {type_id}: a main-hand item needs an id: {eq}"))) };
             let id = if id.contains(':') { id } else { format!("minecraft:{id}") };
-            mainhand = Some(Held { item: id, count, guaranteed: false, enchanted: false });
+            mainhand = Some(Held { item: id, count, guaranteed: false, enchanted: false, ench: Vec::new() });
             t = format!("{}{}", &t[..s], &t[e + 1..]);
         }
         let inner = t.trim().strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(&t).trim().to_string();
@@ -1266,22 +1272,33 @@ pub fn ignite_ticks(w: &World, i: usize, ticks: i32) -> i32 {
 /// An item in a mob's main hand: its id and count, whether it drops for sure when the mob dies
 /// (`setGuaranteedDrop`: an item it picked up; a spawn weapon's 0.085 drops only on a player's
 /// kill), whether it is enchanted (a spawn weapon's `populateDefaultEquipmentEnchantments`).
+/// (mob-AI 2026-11-10) Its enchantments (bare id, level). A mob's hits never wear it
+/// (`Mob.doHurtTarget` calls only `ItemStack.hurtEnemy`; the wear is `postHurtEnemy`'s, a
+/// player's).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Held {
     pub item: String,
     pub count: u8,
     pub guaranteed: bool,
     pub enchanted: bool,
+    pub ench: Vec<(&'static str, i32)>,
+}
+
+impl Held {
+    /// The level of enchantment `id` on it (0: none).
+    pub fn level(&self, id: &str) -> i32 {
+        self.ench.iter().find(|&&(e, _)| e == id).map_or(0, |&(_, l)| l)
+    }
 }
 
 /// finalizeSpawn's hand of a natural mob: `setCanPickUpLoot`'s roll and the main-hand weapon
-/// `populateDefaultEquipmentSlots` gave it (and whether it got enchantments).
-pub fn set_hand(w: &mut World, id: u32, loot: bool, weapon: Option<(&'static str, bool)>) {
+/// `populateDefaultEquipmentSlots` gave it (and its enchantments).
+pub fn set_hand(w: &mut World, id: u32, loot: bool, weapon: Option<(&'static str, bool)>, ench: &[(&'static str, i32)]) {
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
         && let crate::entity::EntityKind::Mob(m) = &mut e.kind
     {
         m.can_pick_up_loot = loot;
-        m.mainhand = weapon.map(|(item, enchanted)| Held { item: item.to_string(), count: 1, guaranteed: false, enchanted });
+        m.mainhand = weapon.map(|(item, enchanted)| Held { item: item.to_string(), count: 1, guaranteed: false, enchanted, ench: ench.to_vec() });
     }
     // setItemSlot -> onEquipItem: a skeleton reassesses its weapon goal (its bow)
     if let Some(j) = crate::entity::index_of(w, id) {

@@ -510,10 +510,12 @@ pub fn server_ai_step(w: &mut World, i: usize) {
     let every_other = id_based % 2 != 0 && e.tick_count > 1;
     goal::tick_selector(w, i, true, every_other);
     goal::tick_selector(w, i, false, every_other);
-    // navigation.tick() (its own, whoever steers it)
+    // navigation.tick() (its own, whoever steers it), its wanted position on getMoveControl()
+    // (a rider's: the vehicle's it controls)
     let wanted = with_own_nav(w, i, |w, nm, nav, arena| nav.tick(w, nm, arena));
     if let Some((x, y, z, s)) = wanted {
-        ai_mut(w, i).move_ctl.set_wanted_position(x, y, z, s);
+        let mc = controlled_vehicle(w, i).filter(|&v| has_ai(w, v)).unwrap_or(i);
+        ai_mut(w, mc).move_ctl.set_wanted_position(x, y, z, s);
     }
     custom_server_ai_step(w, i);
     if w.entities.list[i].removed {

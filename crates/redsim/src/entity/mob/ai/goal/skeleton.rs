@@ -334,8 +334,8 @@ pub fn bow_tick(w: &mut World, i: usize, g: &mut RangedBow) {
                     "bogged" => Some("a bogged's poison arrow (its effect on the hit)"),
                     _ => None,
                 };
-                let enchanted = mob(w, i).mainhand.as_ref().is_some_and(|h| h.enchanted);
-                crate::entity::arrow::shoot_from_mob(w, i, j, power_for_time(pull), effect, enchanted);
+                let bow = mob(w, i).mainhand.as_ref().map(|h| h.ench.clone()).unwrap_or_default();
+                crate::entity::arrow::shoot_from_mob(w, i, j, power_for_time(pull), effect, &bow);
                 g.attack_time = g.attack_interval_min;
             }
         }
