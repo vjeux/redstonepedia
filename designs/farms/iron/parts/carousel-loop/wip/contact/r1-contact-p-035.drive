@@ -1,0 +1,6 @@
+seed 1
+days 0
+walk random
+# ticks 100
+# mctas mobfarm contact-scenes (case p, arrival stored 0.35 b/t)
+# start: Run::start(spec, RunOpts { ai: true, ..steady(seed, ticks, Random) }); settle_tick until false; spawn the design's entity lines in order (each cart's Motion as written); t0 = the time right after that spawn; no acts
