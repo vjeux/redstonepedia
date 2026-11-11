@@ -1260,8 +1260,11 @@ pub fn stand_circuit(ox: i32, guard: bool) -> Vec<([i32; 3], String)> {
         // repeater Dr (direct) and, through the stone under its first dust, the chain K1..K5
         // (delayed); the two meet at the dust Xd (its east stone and its support, both strongly
         // powered), which points into a dust Rq reads, Rq through a dust into B3: T3 on B3 is not
-        // (REL or REL delayed): lit from REL's fall + 37 gt to the next REL + 9, so the latch is
-        // set at REL's fall + 39 if D1 has not set it, and released 11 gt into the next REL
+        // (REL or REL delayed): lit from REL's fall + 35 gt to the next REL + 9, so the latch is
+        // set at REL's fall + 37 if D1 has not set it, and released 11 gt into the next REL
+        // (centered in its window, ironspec 2026-11-10: the REL corners end REL at +44..+76, the
+        // latest normal D1 sets the latch at +77, the next REL starts at +100..+116: set at +81
+        // at the early corner, 4 gt after that D1; +113 at the late one, 3 gt before the next REL)
         put(7, -3, 1, &r(1, "east"));
         put(7, -4, 1, "glass");
         put(6, -3, 1, "stone");
@@ -1277,7 +1280,7 @@ pub fn stand_circuit(ox: i32, guard: bool) -> Vec<([i32; 3], String)> {
         put(7, -5, 4, "glass");
         put(7, -4, 5, "stone");
         put(7, -3, 5, "glass");
-        let kd = [4, 4, 2, 2, 3];
+        let kd = [4, 4, 2, 2, 2];
         put(7, -5, 1, &r(kd[0], "west"));
         put(7, -6, 1, "glass");
         put(8, -5, 1, "stone");
