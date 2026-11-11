@@ -8,6 +8,7 @@ pub mod approach;
 pub mod carousel;
 pub mod cli;
 pub mod comb;
+pub mod borders;
 pub mod headperm;
 pub mod day1;
 pub mod entlog;

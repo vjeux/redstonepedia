@@ -450,6 +450,20 @@ pub enum MobfarmCmd {
         #[arg(long)]
         list: bool,
     },
+    /// The chunk-line crossings of a design's rails (ironspec's placement rule): each pair of
+    /// connected rail cells in different chunk columns, both cells' block, shape and powered state
+    /// as placed, and walking away from the line on each side the distance to the first climb,
+    /// drop, peak and powered rail; a crossing passes with plain flat cells on both sides and no
+    /// climb within 2 cells.
+    Borders {
+        design: PathBuf,
+        /// World = design + X,Z (0,0: the design's own frame is the world's).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        offset: Vec<i32>,
+        /// How far along the track each side is walked.
+        #[arg(long, default_value_t = 12)]
+        depth: usize,
+    },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
     /// position the flee check tries (three points along each rail cell, the cart's y: `fleecheck`)
@@ -2925,6 +2939,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let head: String = std::fs::read_to_string(&base)?.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
+        }
+        MobfarmCmd::Borders { design, offset, depth } => {
+            let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            let off = match offset.as_slice() { [x, z] => [*x, *z], [] => [0, 0], _ => anyhow::bail!("--offset takes X,Z") };
+            println!("{}", crate::borders::report(&d.blocks, off, depth));
         }
         MobfarmCmd::Box { design, r#box, list } => {
             anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
