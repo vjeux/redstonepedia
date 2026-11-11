@@ -7488,6 +7488,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
             let held: Vec<redsim::entity::Vec3> = carts.iter().copied().filter(|id| keep(*id)).filter_map(|id| pos_of(&run.world, id)).collect();
             spots.retain(|s| held.iter().all(|h| (h.x - s.x).abs() > 0.6 || (h.z - s.z).abs() > 0.6 || (h.y - s.y).abs() > 0.7));
+            // (no cart put into a chunk whose entities don't tick: set there it never moves on, and
+            // the carts frozen beside it meet it at the thaw (h0's queue slots at loop z 22 after a
+            // 200 gt freeze of chunk (0,1), 4 merges); those carts stay where they are)
+            spots.retain(|s| run.world.unforced.is_empty() || run.world.chunk_level(s.x.floor() as i32 >> 4, s.z.floor() as i32 >> 4) <= 31);
             let placed = others.len().min(spots.len());
             for ((_, id), p) in others.iter().zip(spots.iter()) {
                 let p = *p;
