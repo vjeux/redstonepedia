@@ -21,6 +21,8 @@ pub struct Summary {
     pub tail_min: Option<i64>,
     pub tail_touch: usize,
     pub tail_group_max: usize,
+    /// The most carts out of the stand in one release window (the bar is 3).
+    pub window_max: usize,
     pub problems: usize,
     /// gap12, G2 in (after cart 2's front), G2 before cart 3: each (min, max).
     pub margins: Option<[i64; 6]>,
@@ -46,6 +48,7 @@ pub fn summarize(out: &str) -> Summary {
         } else if l.starts_with("stand departures: ") {
             s.dep_min = num_after(l, "gap min ");
             s.dep_contact = l.split("gt (gaps under 60 gt), ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
+            s.window_max = num_after(l, "most in one window ").map_or(0, |v| v.max(0) as usize);
         } else if l.starts_with("tail entry: ") {
             s.tail_min = num_after(l, "gap min ");
             s.tail_touch = l.split("within groups, ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
@@ -196,9 +199,10 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let tail = ss.iter().filter_map(|s| s.tail_min).min();
         let touch: usize = ss.iter().map(|s| s.tail_touch).sum();
         let group = ss.iter().map(|s| s.tail_group_max).max().unwrap_or(0);
+        let window = ss.iter().map(|s| s.window_max).max().unwrap_or(0);
         let probs: Vec<String> = ss.iter().map(|s| s.problems.to_string()).collect();
-        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 { " <--" } else { "" };
-        out.push(format!("{name:24} clean from {:>2} | back {back} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
+        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || window > 3 { " <--" } else { "" };
+        out.push(format!("{name:24} clean from {:>2} | back {back} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | out per window {window} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
     }
     Ok(out.join("\n"))
 }
