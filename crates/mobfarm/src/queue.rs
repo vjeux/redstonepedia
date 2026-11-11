@@ -1809,6 +1809,89 @@ pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<H
     })
 }
 
+/// The rail-junction check (ironspec Nov 11 12:50, a default static check with `--no-junction-check`
+/// as its labelled opt-out): every plain rail joined to three or four rails is settled as the game
+/// would at its first update, for its signal at rest; a stored shape the game would not keep fails
+/// the file (a part turned or mirrored from where it was designed: the settle order is fixed).
+/// Both power states are printed for each junction.
+pub fn junction_gate(spec: &FarmSpec) -> (String, bool) {
+    let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let w = match Run::new(spec, &o) {
+        Ok(r) => r.world,
+        Err(e) => return (format!("rail junctions: not run ({e})"), false),
+    };
+    let letter = |d: &redsim::pos::Dir| match d {
+        redsim::pos::Dir::North => 'N',
+        redsim::pos::Dir::South => 'S',
+        redsim::pos::Dir::West => 'W',
+        redsim::pos::Dir::East => 'E',
+        _ => '?',
+    };
+    let (mut all, mut bad) = (Vec::new(), Vec::new());
+    for (p, b) in &spec.blocks {
+        if !matches!(b, Block::PlainRail { .. }) {
+            continue;
+        }
+        if let Some(j) = redsim::rails::junction_at(&w, *p) {
+            // (the stored shape is the file's: building the world may have settled it already)
+            let stored = redsim::rails::shape_of(b);
+            let arms: String = j.arms.iter().map(letter).collect();
+            let want = if j.signal { j.powered } else { j.unpowered };
+            // (a detector rail on an arm the stored shape joins powers the junction while a cart
+            // crosses it: the junction then settles to its powered shape under the entering cart
+            // (day-1's W, Nov 11 13:12: the siding's entry detector beside its half-turned T))
+            let joins = |s: redsim::block::RailShape, d: redsim::pos::Dir| {
+                use redsim::block::RailShape as R;
+                use redsim::pos::Dir as D;
+                matches!(
+                    (s, d),
+                    (R::NorthSouth, D::North | D::South) | (R::EastWest, D::East | D::West) | (R::NorthEast, D::North | D::East) | (R::NorthWest, D::North | D::West) | (R::SouthEast, D::South | D::East) | (R::SouthWest, D::South | D::West)
+                )
+            };
+            let dets: Vec<redsim::pos::Dir> = j.arms.iter().copied().filter(|d| matches!(w.get(p.rel(*d)), Block::DetectorRail { .. })).collect();
+            let det_txt: String = dets.iter().map(|d| format!("; a detector rail on its {} arm", letter(d))).collect();
+            // (ironspec 13:16: no source but its designed control may power a junction whose powered
+            // shape differs from its stored one: every path a signal can take into it, an adjacent
+            // source or an adjacent conductor with a source beside it, listed; two or more fail)
+            use redsim::block::Kind as K;
+            use redsim::pos::Dir as D6;
+            let source = |b: &Block| matches!(b.kind(), K::Wire | K::RedstoneBlock | K::Torch | K::WallTorch | K::Lever | K::Button(_) | K::Repeater | K::Comparator | K::Observer | K::Target | K::Sculk(_) | K::Plate(_) | K::TripwireHook | K::DetectorRail);
+            let dirs6 = [D6::North, D6::South, D6::West, D6::East, D6::Up, D6::Down];
+            let mut paths: Vec<String> = Vec::new();
+            if j.powered != stored {
+                for d in dirs6 {
+                    let q = p.rel(d);
+                    let bq = w.get(q);
+                    if source(&bq) {
+                        paths.push(format!("{:?} at {q}", bq.kind()));
+                    } else if redsim::behavior::is_conductor(&w, &bq, q) {
+                        let feeds: Vec<String> = dirs6.iter().map(|e| q.rel(*e)).filter(|r| r != p).filter_map(|r| {
+                            let br = w.get(r);
+                            source(&br).then(|| format!("{:?} at {r}", br.kind()))
+                        }).collect();
+                        if !feeds.is_empty() {
+                            paths.push(format!("the block {q} ({})", feeds.join(", ")));
+                        }
+                    }
+                }
+            }
+            let paths_txt = if paths.is_empty() { String::new() } else { format!("; can be powered through: {}", paths.join("; ")) };
+            let line = format!("{} (arms {arms}): stored {:?}; the game settles {:?} unpowered, {:?} powered; signal {}{det_txt}{paths_txt}", j.pos, stored, j.unpowered, j.powered, if j.signal { "on" } else { "off" });
+            if want != stored {
+                bad.push(format!("{line}: re-settles to {want:?} at its first update"));
+            } else if let Some(d) = dets.iter().find(|d| joins(stored, **d) && j.powered != stored) {
+                bad.push(format!("{line}: a cart crossing the {} detector powers it to {:?} under itself", letter(d), j.powered));
+            } else if paths.len() >= 2 {
+                bad.push(format!("{line}: {} sources can power it (only its designed control may)", paths.len()));
+            }
+            all.push(line);
+        }
+    }
+    let head = format!("rail junctions (static, the game's settle order): {} junctions, {}", all.len(), if bad.is_empty() { "PASS".to_string() } else { format!("FAIL at {}", bad.len()) });
+    let body: Vec<String> = if bad.is_empty() { all } else { bad.clone() };
+    (format!("{head}{}", body.iter().map(|l| format!("\n  {l}")).collect::<String>()), !bad.is_empty())
+}
+
 /// The walk-target static check (`mobfarm flee-check`, tick-exact 8ab79c1dc) as the bench's default
 /// static check (ironspec Nov 11 09:03): its flee verdict gates the run (every flee candidate from a
 /// rider place within 6 of a hostile reachable); the calm sources' verdicts are report only. The

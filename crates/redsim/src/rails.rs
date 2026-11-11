@@ -193,8 +193,10 @@ impl RailState {
         }
     }
 
-    /// `place(hasSignal, first, defaultShape)`: the new state.
-    pub fn place(mut self, w: &mut World, has_signal: bool, first: bool, default: RailShape) -> Block {
+    /// The shape `place` settles this rail to with `has_signal` (`default` where both axes join),
+    /// nothing placed: the computation `place` runs, read alone by the junction check (a three-arm
+    /// rail's two power states).
+    pub fn shape_for(&self, w: &World, has_signal: bool, default: RailShape) -> RailShape {
         let (n, s, wst, e) = (self.pos.rel(Dir::North), self.pos.rel(Dir::South), self.pos.rel(Dir::West), self.pos.rel(Dir::East));
         let hn = self.has_neighbor_rail(w, n);
         let hs = self.has_neighbor_rail(w, s);
@@ -262,7 +264,12 @@ impl RailState {
                 }
             }
         }
-        let shape = self.ascend(w, shape).unwrap_or(default);
+        self.ascend(w, shape).unwrap_or(default)
+    }
+
+    /// `place(hasSignal, first, defaultShape)`: the new state.
+    pub fn place(mut self, w: &mut World, has_signal: bool, first: bool, default: RailShape) -> Block {
+        let shape = self.shape_for(w, has_signal, default);
         self.conns = conns_for(self.pos, shape);
         self.state = with_shape(self.state, shape);
         if first || w.get(self.pos) != self.state {
@@ -278,6 +285,36 @@ impl RailState {
         }
         self.state
     }
+}
+
+/// A plain rail joined to three or four rails, as the game settles it (ironspec Nov 11 12:50, the
+/// junction check): the sides it can join, its stored shape, the shapes `updateDir` gives it with
+/// no signal and with one, and whether it has a signal now. The settle order is fixed (south,
+/// then east, preferred unpowered; north, then west, powered), so a part turned or mirrored keeps
+/// its stored shapes but not this choice: day-1's half-turned siding T (arms E, W, N) settled
+/// powered into the exit side where its design (arms W, E, S) settled into the bed line.
+pub struct Junction {
+    pub pos: BlockPos,
+    pub arms: Vec<Dir>,
+    pub stored: RailShape,
+    pub unpowered: RailShape,
+    pub powered: RailShape,
+    pub signal: bool,
+}
+
+/// The junction at `p` ([`Junction`]), if `p` holds a plain rail with three or more rail sides.
+pub fn junction_at(w: &World, p: BlockPos) -> Option<Junction> {
+    let s = w.get(p);
+    if !matches!(s, Block::PlainRail { .. }) {
+        return None;
+    }
+    let stored = shape_of(&s);
+    let r = RailState::new(p, s);
+    let arms: Vec<Dir> = [Dir::North, Dir::South, Dir::West, Dir::East].into_iter().filter(|d| r.has_neighbor_rail(w, p.rel(*d))).collect();
+    if arms.len() < 3 {
+        return None;
+    }
+    Some(Junction { pos: p, arms, stored, unpowered: r.shape_for(w, false, stored), powered: r.shape_for(w, true, stored), signal: w.has_neighbor_signal(p) })
 }
 
 // ---------------------------------------------------------------------------- BaseRailBlock
