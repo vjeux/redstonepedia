@@ -7670,7 +7670,18 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         let gaps: Vec<(i64, i64, bool)> = departs.windows(2).map(|w| (w[1].0 / 100, w[1].0 - w[0].0, w[1].2)).collect();
         let normal: Vec<i64> = gaps.iter().filter(|(_, g, _)| *g < 60).map(|(_, g, _)| *g).collect();
         let contact = departs.iter().filter(|(_, _, tch)| *tch).count();
-        out.push(format!("stand departures: {} carts, gap min {} max {} gt (gaps under 60 gt), {contact} in contact with the one before", departs.len(), normal.iter().min().map_or("-".to_string(), |v| v.to_string()), normal.iter().max().map_or("-".to_string(), |v| v.to_string())));
+        // (the most carts out of the stand in one release window: departures closer than 60 gt to
+        // the one before belong to one window; the bar is 3)
+        let mut win_max = 0usize;
+        let mut win = 0usize;
+        for (k, d) in departs.iter().enumerate() {
+            if k == 0 || d.0 - departs[k - 1].0 >= 60 {
+                win = 0;
+            }
+            win += 1;
+            win_max = win_max.max(win);
+        }
+        out.push(format!("stand departures: {} carts, gap min {} max {} gt (gaps under 60 gt), {contact} in contact with the one before; most in one window {win_max}", departs.len(), normal.iter().min().map_or("-".to_string(), |v| v.to_string()), normal.iter().max().map_or("-".to_string(), |v| v.to_string())));
         let small: Vec<String> = gaps.iter().filter(|(_, g, tch)| *g < 8 || *tch).take(12).map(|(s, g, tch)| format!("slot {s} {g} gt{}", if *tch { " touching" } else { "" })).collect();
         // (the departure corner (9, -3, 0), entered (x 9 crossed): each slot's carts 0, 1, 2 in
         // their departure order, and their margins in day-1's nap-visit divert windows shifted
