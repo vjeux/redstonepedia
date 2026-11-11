@@ -3,6 +3,8 @@
 name: carousel-bed-siding-wired-force-alone
 build: fills-last last 0,0,-1 0,0,-2 -5,-2,2 -7,-2,-1 2,-1,6 4,1,-2 -6,-3,-1 1,-2,6
 circuit: mob-farm iron_ingot
+declared: 0,0,0 detector_rail; 1,0,0 rail; 1,0,1 powered_rail[powered=true]!; 1,0,2 powered_rail[powered=true]!; 1,0,3 activator_rail[powered=true]; 1,0,4 rail; 1,0,5 rail; 1,0,6 powered_rail[powered=false]; 2,0,0 rail; 3,0,0 detector_rail; 4,-1,0 powered_rail; 5,-1,0 rail; 6,-1,0 rail; 2,1,2 iron_trapdoor[open=true]
+flights: 
 siding: v1 wired alone entry=0,0,0 exit=6,-1,0 release=4,-2,0 force=-5,-3,-4
 port home: 0 0 2
 port output: 12 0 6

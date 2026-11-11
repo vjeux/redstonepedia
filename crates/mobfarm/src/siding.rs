@@ -1343,6 +1343,13 @@ pub struct BenchReport {
     pub v_resets_blocked: u32,
     /// The declared states' mismatches (at the start, and the always-on cells at t0 + 20).
     pub declared_bad: Vec<String>,
+    /// ironspec's invariant (2026-11-11 02:41): the windows a villager is calm in REST with the
+    /// bed out of reach (riding, not panicking, at night): each closed window's phase (of its
+    /// visit, at the window's start) and length in gt; the most villagers exposed at one tick and
+    /// the ticks with two or more.
+    pub exposure: Vec<(String, i64)>,
+    pub exposed_max: usize,
+    pub exposed_two_ticks: u64,
     /// The off-the-rails watch's derails and its report line.
     pub derails: Vec<String>,
     pub rail_line: String,
@@ -1574,6 +1581,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let railwatch_control = std::env::var("MCTAS_RAILWATCH_CONTROL").is_ok_and(|v| v == "1");
     rep.declared_bad.extend(crate::declared::check(&run.world, &decls, false).into_iter().map(|b| format!("t0: {b}")));
     let mut rail_watch = crate::flight::RailWatch::new(bo.flights.iter().map(|f| f.shifted(dx, dz)).collect());
+    let mut exp_since: Vec<Option<(i64, &str)>> = vec![None; pairs.len()];
     // (design (b) emulated: its state; the design's kick torch K taken out, the bench drives the
     // park support)
     #[derive(Default)]
@@ -1800,6 +1808,35 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         }
                     }
                 }
+                // (tick-exact 02:28 for ironspec's item 1: a night-time sleep failure with the bed
+                // free. no-drop: the activator a plain rail for the visit, so the napper stays
+                // aboard and parks with its cart, its walk to the bed unreachable; bed-taken: the
+                // bed marked occupied with nobody in it for the visit. Both undone once the cart
+                // is out; both written to the drive)
+                "no-drop" | "bed-taken" => {
+                    let cells: Vec<(BlockPos, String, String)> = if kind == "no-drop" {
+                        let r = |st: &str| clock::canon::rotate_state(st, fr.turn.rem_euclid(4) as u8);
+                        vec![(s.activator_rail, r("rail[shape=north_south,waterlogged=false]"), r("activator_rail[powered=false,shape=north_south,waterlogged=false]"))]
+                    } else {
+                        [s.bed_head, s.bed_foot].iter().map(|&c| {
+                            let st = run.world.get(c).to_string().trim_start_matches("minecraft:").to_string();
+                            (c, st.replace("occupied=false", "occupied=true"), st.replace("occupied=true", "occupied=false"))
+                        }).collect()
+                    };
+                    let on_at = if kind == "no-drop" { v.sent + 1 } else { v.arrived + 2 };
+                    if now == on_at {
+                        for (c, on, _) in &cells {
+                            set(&mut run.world, *c, on);
+                            drive.act(now, format!("set {} {} {} minecraft:{on}", c.x, c.y, c.z));
+                        }
+                    }
+                    if v.exited == Some(now - 1) {
+                        for (c, _, off) in &cells {
+                            set(&mut run.world, *c, off);
+                            drive.act(now, format!("set {} {} {} minecraft:{off}", c.x, c.y, c.z));
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -1877,6 +1914,9 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         "arrival" => Some(v.arrived),
                         "arriving" => Some(v.arrived + 8),
                         "drop" => v.dropped,
+                        // (the napper's walk to the bed, and the cart at the park: ironspec's long-freeze phases)
+                        "walk" => v.dropped.map(|x| x + 4),
+                        "park" => v.dropped.map(|x| x + 10),
                         "nap" => v.slept,
                         "asleep" => v.slept.map(|x| x + 10),
                         "waking" => v.woken,
@@ -1995,6 +2035,47 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         for (k, p) in pairs.iter().enumerate() {
             rail_watch.observe(&run.world, k, p.0, Some(p.1), &format!("t0+{}", t - t0));
+        }
+        // (the exposure: riding, calm in REST, at night)
+        {
+            let w = &run.world;
+            let night_now = w.day_time().rem_euclid(24000) >= 12000;
+            let mut n_exp = 0usize;
+            for (k, p) in pairs.iter().enumerate() {
+                let exposed = night_now
+                    && index_of(w, p.1).is_some_and(|i| w.entities.list[i].vehicle.is_some() && brain::has_exact(w, i) && brain::ex(w, i).active == Act::Rest);
+                match (exposed, exp_since[k]) {
+                    (true, None) => {
+                        // (the phase, from the villager's latest visit at the window's start)
+                        let ph = match rep.visits.iter().rev().find(|v| v.villager == p.1) {
+                            Some(v) if v.dropped.is_none() && v.exited.is_none() => "before the drop-off",
+                            Some(v) if v.reboarded.is_some() && v.exited.is_none() && v.slept.is_some() => "after the nap (re-boarded to out)",
+                            Some(v) if v.reboarded.is_some() && v.exited.is_none() => "the stuck path (no nap, sent out by F)",
+                            Some(v) if v.exited.is_some() && t - v.exited.unwrap() < 400 => "out, on the bench's run-out and back in its hold (no loop zombies; not counted at once)",
+                            _ => "elsewhere (the bench's hold or approach start; not counted at once)",
+                        };
+                        exp_since[k] = Some((t, ph));
+                    }
+                    (false, Some((s0, ph))) => {
+                        rep.exposure.push((ph.to_string(), t - s0));
+                        exp_since[k] = None;
+                    }
+                    _ => {}
+                }
+            }
+            // (counted at once: the siding's own windows; the bench's run-out past the exit and
+            // its hold have no loop zombies (a released cart is teleported back to the hold, its
+            // rider calm until the hold zombies are seen again), the loop's release run does)
+            n_exp = exp_since.iter().filter(|e| e.is_some_and(|(_, ph)| !ph.starts_with("out,") && !ph.starts_with("elsewhere"))).count();
+            rep.exposed_max = rep.exposed_max.max(n_exp);
+            rep.exposed_two_ticks += (n_exp >= 2) as u64;
+            if bo.trace && n_exp >= 2 && rep.exposed_two_ticks <= 3 {
+                let who: Vec<String> = pairs.iter().enumerate().filter_map(|(k, p)| exp_since[k].map(|(s0, ph)| {
+                    let c = w.entities.list.iter().find(|e| e.id == p.0 && !e.removed).map(|c| fr.local(c.pos)).unwrap_or(Vec3::new(f64::NAN, 0.0, f64::NAN));
+                    format!("villager {} since {} ({ph}) cart at {:.2} {:.2} {:.2}", p.1, t - s0, c.x, c.y, c.z)
+                })).collect();
+                eprintln!("exposed two at gt {}: {}", t - t0, who.join("; "));
+            }
         }
         if let Some(sl) = rep.seat.as_mut() {
             let w = &run.world;

@@ -3156,14 +3156,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let fault_opt: Option<(String, usize)> = match &fault {
                 Some(f) => {
                     let (k, n) = f.split_once(':').ok_or_else(|| anyhow::anyhow!("--fault KIND:K"))?;
-                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra or f-double");
+                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double", "no-drop", "bed-taken"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra, f-double, no-drop or bed-taken");
                     Some((k.to_string(), n.parse()?))
                 }
                 None => None,
             };
             // (the partial unload: one, or every line, side, level, state and N; `whole,STATE,N[,K]`:
             // the whole part saved and unloaded)
-            const STATES: [&str; 13] = ["sent", "arrival", "arriving", "drop", "nap", "asleep", "waking", "delay", "fpending", "kick", "reboard", "exit", "none"];
+            const STATES: [&str; 15] = ["sent", "arrival", "arriving", "drop", "walk", "park", "nap", "asleep", "waking", "delay", "fpending", "kick", "reboard", "exit", "none"];
             let unload_one: Option<crate::siding::Unload> = match unload.as_deref() {
                 Some(u) if u.starts_with("whole,") => {
                     let p: Vec<&str> = u.split(',').map(|x| x.trim()).collect();
@@ -3238,7 +3238,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the partial unload matrix: every line, side, level, state and N on visit K, each
             // config over the seeds; one line each: the visits until a clean one, naps lost, jams)
             let matrix_mode = unload.as_deref().and_then(|u| {
-                for (p, m) in [("whole-matrix", 1u8), ("chunk-matrix", 2), ("accept-matrix", 4), ("chunk-accept-matrix", 5), ("matrix", 0)] {
+                for (p, m) in [("whole-matrix", 1u8), ("chunk-matrix", 2), ("accept-matrix", 4), ("chunk-accept-matrix", 5), ("freeze-matrix", 6), ("matrix", 0)] {
                     if let Some(rest) = u.strip_prefix(p) {
                         return Some((m, rest.to_string()));
                     }
@@ -3254,9 +3254,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     2 => vec![3, 40, 240],
                     // (ironspec's acceptance for design (b): 1, 3, 20 and 40 gt)
                     4 | 5 => vec![1, 3, 20, 40],
+                    // (ironspec 02:31: long freezes of the siding's chunk)
+                    6 => vec![1500, 5000],
                     _ => vec![3, 40, 240, 700],
                 };
-                let control_forced = if mode == 2 || mode == 5 { [-1, 0, 1, 0] } else { [-1, -1, 0, 0] };
+                let control_forced = if mode == 2 || mode == 5 || mode == 6 { [-1, 0, 1, 0] } else { [-1, -1, 0, 0] };
                 let mut cfgs: Vec<(String, crate::siding::Unload)> = vec![(if whole { "control (nothing unloaded)" } else { "control (the forced box only)" }.into(), crate::siding::Unload { forced: control_forced, drop: [0, 0, -1, -1], state: "none".into(), n: 0, visit: k, whole, order: Default::default() })];
                 if mode == 3 {
                     // (the one whole unload, a row per reload order; no control row)
@@ -3278,10 +3280,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                 } else {
-                    let (lines, states): (&[&str], &[&str]) = if mode == 5 { (&["w", "e"], &["nap", "asleep", "waking", "delay", "kick"]) } else if mode == 2 { (&["w", "e"], &["sent", "arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) } else { (&["x", "z"], &["arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) };
+                    let (lines, states): (&[&str], &[&str]) = if mode == 6 { (&["e"], &["arriving", "park", "drop", "walk", "nap", "waking", "kick"]) } else if mode == 5 { (&["w", "e"], &["nap", "asleep", "waking", "delay", "kick"]) } else if mode == 2 { (&["w", "e"], &["sent", "arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) } else { (&["x", "z"], &["arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) };
                     for &line in lines {
-                        for side in ["lo", "hi"] {
-                            for level in if mode == 5 { vec![32u8] } else { vec![32u8, 33] } {
+                        for side in if mode == 6 { vec!["lo"] } else { vec!["lo", "hi"] } {
+                            for level in if mode == 5 || mode == 6 { vec![32u8] } else { vec![32u8, 33] } {
                                 for &state in states {
                                     for &n in &ns {
                                         let Ok((forced, drop)) = crate::siding::unload_boxes(line, side, level) else { continue };
@@ -3294,7 +3296,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 let (mx, mz) = match &unload_shift {
                     Some(s) => two_i(s).map(|(a, b)| (a as i32, b as i32))?,
-                    None => [(2, 0), (0, 0), (8, 3), (0, 0), (0, 0), (8, 3)][mode as usize],
+                    None => [(2, 0), (0, 0), (8, 3), (0, 0), (0, 0), (8, 3), (8, 3)][mode as usize],
                 };
                 let work: Vec<(usize, i64)> = (0..cfgs.len()).flat_map(|c| seeds.iter().map(move |&s| (c, s))).collect();
                 let next = std::sync::atomic::AtomicUsize::new(0);
@@ -3536,6 +3538,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let nr: usize = oks.iter().map(|r| r.derails.len()).sum();
                 let fr: Vec<String> = rows.iter().filter_map(|(s, r)| r.as_ref().ok().and_then(|r| r.derails.first().map(|f| format!("seed {s}: {f}")))).take(3).collect();
                 println!("declared states ({} cells declared): {nd} mismatches{}; carts off the rails: {nr}{} ({} flights declared)", declared.len(), if fd.is_empty() { String::new() } else { format!(" ({})", fd.join("; ")) }, if fr.is_empty() { String::new() } else { format!(" ({})", fr.join("; ")) }, flights.len());
+                // (ironspec's invariant: villagers calm in REST with the bed out of reach (riding,
+                // not panicking, at night): each window's length by phase, the most at one tick)
+                let mut by: std::collections::BTreeMap<String, Vec<i64>> = Default::default();
+                for r in &oks {
+                    for (ph, l) in &r.exposure {
+                        by.entry(ph.clone()).or_default().push(*l);
+                    }
+                }
+                let emax = oks.iter().map(|r| r.exposed_max).max().unwrap_or(0);
+                let two: u64 = oks.iter().map(|r| r.exposed_two_ticks).sum();
+                println!("calm in REST with the bed out of reach (riding, not panicking, at night): at most {emax} at once; ticks with two or more: {two}");
+                for (ph, mut ls) in by {
+                    ls.sort();
+                    let q = |p: f64| ls[((ls.len() as f64 - 1.0) * p).round() as usize];
+                    println!("  {ph}: {} windows, p50 {} p99 {} max {} gt", ls.len(), q(0.5), q(0.99), ls[ls.len() - 1]);
+                }
                 // (the divert gate, emulated: the visits it held back and the resets VR fired)
                 if divert_gate {
                     let held: usize = oks.iter().map(|r| r.held_back.len()).sum();
