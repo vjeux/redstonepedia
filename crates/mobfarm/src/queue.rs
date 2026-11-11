@@ -955,6 +955,10 @@ pub struct TailWatch {
     landing_log: Vec<String>,
     occ_down: (usize, String),
     occ_up: (usize, String),
+    /// At each G0 shut, the follower's distance short of G0's rest along the track (and its
+    /// speed): the third opening's (the slot's last), the others'.
+    end_third: Option<(f64, f64, String)>,
+    end_other: Option<(f64, f64, String)>,
     /// Every arrival printed (`--arrival-log`).
     pub verbose: bool,
 }
@@ -1093,6 +1097,21 @@ impl TailWatch {
                     None => self.empty_openings += 1,
                 }
             }
+            // (G0's end edge, ironspec 07:23: at each shut, the follower (the queue's first cart
+            // behind G0's rest) short of the rest along the track, and its speed; the third
+            // opening's (the slot's last) apart)
+            if !open && self.g0_was_open {
+                let s_rest = now.iter().find(|q| self.pressed_since.contains_key(&q.0)).map(|q| q.3);
+                let rest_s = s_rest.unwrap_or_else(|| (p_idx as f64) - 0.38);
+                if let Some(f) = now.iter().filter(|q| q.3 < rest_s - 0.3).max_by(|a, b| a.3.total_cmp(&b.3)) {
+                    let short = rest_s - f.3;
+                    let third = dt >= 90;
+                    let slot = if third { &mut self.end_third } else { &mut self.end_other };
+                    if slot.as_ref().is_none_or(|x| short < x.0) {
+                        *slot = Some((short, f.5, format!("slot {c} +{dt}")));
+                    }
+                }
+            }
             self.g0_was_open = open;
         }
         // (the batch's settling: a landed cart's first 3 ticks in a row under 0.01 b/t)
@@ -1212,6 +1231,11 @@ impl TailWatch {
                 "the queue's occupancy: at most {} carts downstream of the curve ({}) and {} upstream ({})",
                 self.occ_down.0, self.occ_down.1, self.occ_up.0, if self.occ_up.1.is_empty() { "-" } else { &self.occ_up.1 }
             ),
+            format!(
+                "G0's end edge (at each shut, the follower short of G0's rest along the track; what the window's end has to clear): the third openings' least {}, the others' least {}",
+                self.end_third.as_ref().map_or("-".to_string(), |e| format!("{:.2} cells at {:.3} b/t ({})", e.0, e.1, e.2)),
+                self.end_other.as_ref().map_or("-".to_string(), |e| format!("{:.2} cells at {:.3} b/t ({})", e.0, e.1, e.2))
+            ),
         ];
         // (each batch against the openings that admit its carts, ironspec 06:14: every cart of a
         // batch pressed at G0 at least 2 gt before the first opening that can admit it, the one
@@ -1263,7 +1287,55 @@ impl TailWatch {
     }
 }
 
-/// Two release traces (`MCTAS_RELEASE_TRACE` lines `t T c C dt D R bits | k:x,y,z ...`) compared on
+/// The signals a loop bench run emulates instead of the wired controller, each named validated or
+/// not (ironspec Nov 11 07:32: every emulated signal trace-diffed against the wired file, and a run
+/// on an unvalidated one labelled "bench, not yet validated"). Validated so far, at main's 20-gt
+/// nominal: the release group and the register (the bench-against-wired check, 07e5bd5ef:
+/// --release-start 3 --release-stagger 4 --release-for 40 with staggered offs, --advance-at 41
+/// --advance-every 20 --pulse 10 --skew 2,2,2: IDENTICAL), and the wired pocket stand's REL at its
+/// input (+13 for 40 gt: 51b2aacd's trace of main's wired file). Returns the line and whether
+/// every emulated signal is validated.
+pub fn emulated_signals(o: &LoopOpts, tm: &LoopTiming) -> (String, bool) {
+    let wired = tm.wired.is_some();
+    let mut parts: Vec<String> = Vec::new();
+    let mut all = true;
+    let mut add = |name: &str, ok: bool, why: &str| {
+        parts.push(format!("{name} ({})", if ok { format!("validated: {why}") } else { format!("NOT validated: {why}") }));
+        all &= ok;
+    };
+    if !wired || tm.bench_release {
+        let ok = tm.release_start == 3 && tm.release_stagger == 4 && tm.release_for == 40 && tm.stagger_off && tm.release_offs.is_none();
+        add("the release group", ok, if ok { "main's nominal, trace-diff 07e5bd5ef" } else { "these settings differ from main's validated nominal (start 3, stagger 4, 40 gt each from its opening)" });
+    }
+    if !wired {
+        let ok = tm.advance_at == 41 && tm.advance_every == 20 && tm.pulse == 10 && tm.skew[..3] == [2, 2, 2] && tm.skew[3..].iter().all(|s| *s == 0) && tm.adv_shift == [0; 3] && tm.adv_width == [0; 3];
+        add("the register's advances", ok, if ok { "main's nominal, trace-diff 07e5bd5ef" } else { "these settings differ from main's validated nominal (+41/+61/+81, 10 gt, slots 0-2 two later)" });
+    }
+    if o.stand_stop && o.stand_wired && (!wired || tm.bench_stand) {
+        let ok = tm.pocket_release == 13 && tm.rel_for == 40 && tm.rel_on == 0;
+        add("the stand's REL at its input", ok, if ok { "+13 for 40 gt, 51b2aacd's trace of main's wired file" } else { "not main's validated +13 for 40 gt" });
+    } else if o.stand_stop && !o.stand_wired && !wired {
+        add("the pocket stand's gates", false, "a bench stand; only the wired stand's REL input has been traced");
+    }
+    if o.esc_adm {
+        add("the escapement's G_P, G0 and P", false, "no wired version yet (day-1's new core builds them at step 3)");
+    }
+    if tm.entry_hold || tm.hold_progress {
+        add("the entry hold's inputs", false, "ideal sensors");
+    }
+    if tm.reg_interlock {
+        add("the register interlock", false, "ideal sensors");
+    }
+    let line = if parts.is_empty() {
+        "emulated signals: none (the design's own redstone drives every control)".to_string()
+    } else {
+        format!("emulated signals: {}{}", parts.join("; "), if all { "" } else { ". This run is bench, not yet validated" })
+    };
+    (line, all)
+}
+
+/// Two release traces (`MCTAS_RELEASE_TRACE` lines `t T c C dt D R bits S rel E gates | k:x,y,z
+/// ...`) compared on
 /// the ticks both have: the release rails' power and the carts on the release run (the same carts,
 /// every axis within `tol`); the first difference of each and the counts.
 pub fn trace_diff(a: &str, b: &str, tol: f64) -> String {
@@ -1286,7 +1358,7 @@ pub fn trace_diff(a: &str, b: &str, tol: f64) -> String {
                     (v.len() == 3).then(|| (k.parse().ok(), [v[0], v[1], v[2]])).and_then(|(k, p)| k.map(|k| (k, p)))
                 })
                 .collect();
-            m.insert(t, (label, w[7].to_string(), cs));
+            m.insert(t, (label, w[6..].join(" "), cs));
         }
         m
     };
@@ -1300,7 +1372,7 @@ pub fn trace_diff(a: &str, b: &str, tol: f64) -> String {
         ticks += 1;
         if ra.1 != rb.1 {
             pdiff += 1;
-            pfirst.get_or_insert_with(|| format!("t {t} ({}): rails {} against {}", ra.0, ra.1, rb.1));
+            pfirst.get_or_insert_with(|| format!("t {t} ({}): signals {} against {}", ra.0, ra.1, rb.1));
         }
         let ka: Vec<usize> = ra.2.iter().map(|c| c.0).collect();
         let kb: Vec<usize> = rb.2.iter().map(|c| c.0).collect();
@@ -1323,7 +1395,7 @@ pub fn trace_diff(a: &str, b: &str, tol: f64) -> String {
         }
     }
     format!(
-        "trace-diff: {ticks} ticks in both ({} and {} in each); the release rails' power differs on {pdiff}{}; the carts on the release run differ on {cdiff}{} (the largest gap between the same cart {gap:.4} b); {}",
+        "trace-diff: {ticks} ticks in both ({} and {} in each); the emulated signals (R: the release group's 3 rails, S: the stand's REL input, E: the escapement's G_P and G0) differ on {pdiff}{}; the carts on the release run differ on {cdiff}{} (the largest gap between the same cart {gap:.4} b); {}",
         ma.len(),
         mb.len(),
         pfirst.map_or(String::new(), |f| format!(", first {f}")),
@@ -4610,6 +4682,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     let mut late_total: i64 = 0;
     let mut out = Vec::new();
+    // (the signals this run emulates, each validated against the wired controller or not; any
+    // unvalidated one labels the run, ironspec Nov 11 07:32)
+    out.push(emulated_signals(o, tm).0);
     let mut problems = Vec::new();
     // (the bed's nearest awake villager while it is taken: its distance and where; see the tick
     // loop)
@@ -5634,7 +5709,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // (admission faults: this advance's G0 pulse skipped (with G_P) or missed, or an
                 // extra one OFF gt after G_P's opening)
                 let fault = |k: i64| tm.adm_faults.iter().flatten().find(|f| f.0 == c && f.1 == k).map(|f| (f.2, f.3));
-                let base_now = c < cycles && (0..3).any(|k| {
+                // (a window running past the slot's end spills into the next slot: the third G0
+                // late in a slot, a phase sweep's late offsets)
+                let spill = c >= 1 && c - 1 < cycles && (0..3).any(|k| {
+                    let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                    let dk = if k == 2 && tm.adm_k2 >= 0 { tm.adm_k2 } else { dl };
+                    let pf = tm.adm_faults.iter().flatten().find(|f| f.0 == c - 1 && f.1 == k).map(|f| (f.2, f.3));
+                    dt + 100 >= a + d + dk && dt + 100 < a + d + dk + wl && !matches!(pf, Some((0, _)) | Some((1, _)))
+                });
+                let base_now = spill || c < cycles && (0..3).any(|k| {
                     let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize] + if tm.reg_interlock { il_delay[k as usize].unwrap_or(0) } else { 0 };
                     let dk = if k == 2 && tm.adm_k2 >= 0 { tm.adm_k2 } else { dl };
                     dt >= a + d + dk && dt < a + d + dk + wl && !matches!(fault(k), Some((0, _)) | Some((1, _))) && !(tm.reg_interlock && (il_skip[k as usize] || il_delay[k as usize].is_none()))
@@ -5835,14 +5918,21 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             det_edges.observe(&run.world, &carts);
             plane_gaps.observe(&run.world, &carts, c as i64);
             stand_panic.observe(&run.world, &riders, c as i64, dt as i64);
-            tail_watch.observe(&run.world, &carts, t, c as i64, dt as i64);
+            // (the tail's lines over the run's own slots: after them the bench drives nothing and
+            // the queue only fills)
+            if c < cycles {
+                tail_watch.observe(&run.world, &carts, t, c as i64, dt as i64);
+            }
             // (MCTAS_RELEASE_TRACE=path, the bench-against-wired check: each tick the release
             // group's 3 rails' power and every cart within the release group and the 30 cells
             // after its first slot, for `trace-diff`)
             if let Some(f) = rel_trace.as_mut().filter(|_| c < cycles) {
                 use std::io::Write;
                 let bits: String = rel_rails.iter().map(|p| if run.world.get(*p).to_string().contains("powered=true") { '1' } else { '0' }).collect();
-                let mut line = format!("t {} c {c} dt {dt} R {bits} |", run.world.time - t_origin);
+                let rel_bit = lay.stand_rel.map_or('-', |p| { let b = run.world.get(p); if matches!(b, Block::RedstoneBlock) || b.to_string().contains("powered=true") { '1' } else { '0' } });
+                let gate_bit = |g: Option<BlockPos>| g.map_or('-', |g| if matches!(run.world.get(g), Block::FenceGate { open: true, .. }) { '1' } else { '0' });
+                let esc_bits: String = [gate_bit(lay.fifo.last().map(|f| f.0)), gate_bit(lay.esc_g0)].iter().collect();
+                let mut line = format!("t {} c {c} dt {dt} R {bits} S {rel_bit} E {esc_bits} |", run.world.time - t_origin);
                 for (k, id) in carts.iter().enumerate() {
                     if let Some(p) = pos_of(&run.world, *id)
                         && rel_run.iter().any(|c3| p.x.floor() as i32 == c3[0] && p.z.floor() as i32 == c3[2] && (p.y - c3[1] as f64) > -0.6 && (p.y - (c3[1] as f64)) < 1.6)

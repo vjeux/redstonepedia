@@ -1124,7 +1124,10 @@ pub enum MobfarmCmd {
         stop_open: i64,
         #[arg(long, default_value_t = 40)]
         stop_close: i64,
-        #[arg(long, default_value_t = 10, allow_hyphen_values = true)]
+        /// The pocket stand's release (its REL at the stand's input, a redstone block from this gt
+        /// of the slot): 13 is main's wired controller at the stand's input repeater (+13..+53,
+        /// 51b2aacd's trace, Nov 11 07:32; the old 10 ran 3 gt early).
+        #[arg(long, default_value_t = 13, allow_hyphen_values = true)]
         pocket_release: i64,
         /// The pocket stand's gates reset (the last shut, the other two open) at this gt of the slot.
         #[arg(long, default_value_t = 52)]
