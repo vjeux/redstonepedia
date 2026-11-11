@@ -98,6 +98,9 @@ pub struct BenchOpts {
     /// A loop's arrival stream replayed: (cycle, dt, x, speed) of each cart crossing x 8.5
     /// westward on the return run (queue-loop-run `--arrivals-out`), spawned there and then.
     pub arrivals: Vec<(i64, i64, f64, f64)>,
+    /// Snapshot the tail's carts at this cycle's start for a bridge scene (printed as `scene
+    /// line:` entity lines; the drive then starts there).
+    pub scene_at: Option<i64>,
 }
 
 /// The design moved by (dx, dz): blocks, block entities, entities, its box.
@@ -245,6 +248,9 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     }
     watched.extend(lay.slots.iter().take(4).map(|s| m(*s)));
     let mut watched_prev: Vec<Block> = watched.iter().map(|c| run.world.get(*c)).collect();
+    // (`scene_at`'s snapshot: the tail carts' entity lines and the driven cells' states)
+    let mut scene_snap: Vec<String> = Vec::new();
+    let mut scene_cells: Vec<String> = Vec::new();
     let mut drive: Vec<String> = Vec::new();
     // (the off-the-rails watch with the design's declared flights)
     let mut rails = crate::flight::RailWatch::new(bo.flights.clone().unwrap_or_else(|| crate::queue::merge_flights(lay.flights.iter().map(|f| f.shifted(dx, dz)).collect(), &bo.hdr.flights.iter().map(|f| f.shifted(dx, dz)).collect::<Vec<_>>())));
@@ -379,6 +385,23 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
         let c = t.div_euclid(100);
         let dt = t.rem_euclid(100);
         let live = c < cycles;
+        // (`scene_at`: at cycle C's start, every tail cart as an entity line (position, motion,
+        // facing, a villager riding) and every driven cell's state, for a bridge scene)
+        if bo.scene_at == Some(c) && dt == 0 && scene_snap.is_empty() {
+            for id in &carts {
+                if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id)
+                    && in_tail(&e.pos)
+                {
+                    scene_snap.push(format!(
+                        "entity: minecraft:minecart {:.6} {:.6} {:.6} {{Rotation:[{:.4}f,0f],Motion:[{:.6}d,{:.6}d,{:.6}d],Passengers:[{{id:\"minecraft:villager\"}}]}}",
+                        e.pos.x - fx, e.pos.y, e.pos.z - fz, e.y_rot, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z
+                    ));
+                }
+            }
+            for c2 in &watched {
+                scene_cells.push(format!("act 0 set {} {} {} {}", c2.x, c2.y, c2.z, run.world.get(*c2)));
+            }
+        }
         // (spawns due now)
         while next_spawn < spawns.len() && spawns[next_spawn].0 == t {
             let (_, p, v) = spawns[next_spawn];
@@ -885,16 +908,34 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     s += &format!("{}\n", merges.line());
     s += &format!("{}\n", rails.line());
     if let Some(path) = &bo.drive_out {
-        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {ticks}\n# mctas mobfarm tail-bench <design> --seed {seed} (pattern of {} cycles, extra {extra}), design shifted by {dx},{dz}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order; t0 = the time right after that spawn (the scene file holds only the tail's carts, as the bench keeps them); act t applied when the time is t0 + t, before the next tick\n", pattern.len());
-        if pattern.iter().any(|b| b.n > 0) {
+        // (with `scene_at` C the drive starts at cycle C: the driven cells' states then, and the
+        // acts from then on, re-based)
+        let t_base = bo.scene_at.map_or(0, |c| c * 100);
+        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# mctas mobfarm tail-bench <design> --seed {seed} (pattern of {} cycles, extra {extra}), design shifted by {dx},{dz}{}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order; t0 = the time right after that spawn (the scene file holds only the tail's carts, as the bench keeps them); act t applied when the time is t0 + t, before the next tick\n", ticks - t_base, pattern.len(), if t_base > 0 { format!(", from cycle {} (the scene holds the tail's carts as they were then)", t_base / 100) } else { String::new() });
+        if pattern.iter().enumerate().any(|(c, b)| b.n > 0 && c as i64 * 100 + b.dt >= t_base) {
             text.push_str("# NOTE: this pattern spawns carts on the return run; their spawns are not acts here (use a pattern of 0s for a bridge drive)\n");
         }
+        if t_base > 0 {
+            for l in &scene_cells {
+                text.push_str(l);
+                text.push('\n');
+            }
+        }
+        let mut n = 0;
         for l in &drive {
-            text.push_str(l);
+            let t: i64 = l.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+            if t < t_base {
+                continue;
+            }
+            text.push_str(&l.replacen(&format!("act {t} "), &format!("act {} ", t - t_base), 1));
             text.push('\n');
+            n += 1;
         }
         std::fs::write(path, text).map_err(|e| e.to_string())?;
-        s += &format!("drive log: {} ({} acts)\n", path.display(), drive.len());
+        s += &format!("drive log: {} ({} acts)\n", path.display(), n);
+    }
+    for l in &scene_snap {
+        s += &format!("scene line: {l}\n");
     }
     if adm_a1.is_some() {
         let f = |v: f64| if v == f64::MAX { "-".to_string() } else { format!("{v:.3}") };

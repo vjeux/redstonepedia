@@ -2248,6 +2248,13 @@ pub struct LoopTiming {
     /// Admission control: G0's delay after the gate opens for the third advance of each cycle (the
     /// next G_P is 60 gt away there, so its window can open later); −1: as the others.
     pub adm_k2: i64,
+    /// Admission faults (bench-driven): (slot, advance 0..2, kind, offset): kind 0 skips the
+    /// advance's G_P and G0 pulses (the divert's hole), 1 misses its G0 pulse, 2 misses its G_P
+    /// pulse, 3 adds a G0 pulse `offset` gt after G_P's opening, 4 adds a G_P pulse there.
+    pub adm_faults: [Option<(i64, i64, u8, i64)>; 8],
+    /// Admission control's skip requests (slot, dt): each sets a latch; the next G0 opening after
+    /// it is skipped (a hole one advance later), which clears the latch.
+    pub adm_skip_req: [Option<(i64, i64)>; 8],
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -2376,7 +2383,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, calm: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], start_random: false }
     }
 }
 
@@ -3183,6 +3190,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut rider_back_prev = vec![f64::MIN; 21];
     let mut front_prev = vec![f64::MIN; 21];
     let mut arrivals_now: Vec<(usize, String)> = Vec::new();
+    // (admission control's skip-request latch)
+    let mut skip_latch = false;
+    let mut skip_active = false;
+    let mut base_prev = false;
+    let mut skip_log: Vec<String> = Vec::new();
     let mut unseated: Vec<bool> = vec![false; 21];
     let mut unseat_log: Vec<String> = Vec::new();
     let mut latch_sets: Vec<i64> = Vec::new();
@@ -4055,9 +4067,14 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 } else {
                     let (d, w) = tm.fifo_intake;
                     let _ = (slot0_on, &slot0_full);
+                    // (admission faults, `adm_faults`: this advance's G_P pulse skipped or
+                    // missed, or an extra one OFF gt after its opening)
+                    let fault = |k: i64| tm.adm_faults.iter().flatten().find(|f| f.0 == c && f.1 == k).map(|f| (f.2, f.3));
                     c < cycles && (0..3).any(|k| {
                         let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
-                        dt >= a + d && dt < a + d + w
+                        let base = dt >= a + d && dt < a + d + w && !matches!(fault(k), Some((0, _)) | Some((2, _)));
+                        let extra = matches!(fault(k), Some((4, off)) if dt >= a + d + off && dt < a + d + off + w);
+                        base || extra
                     })
                 };
                 set_gate(&mut run.world, lay.fifo[j].0, "south", open);
@@ -4068,11 +4085,33 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if let (true, Some(g0)) = (o.esc_adm, lay.esc_g0) {
                 let (d, w) = tm.fifo_intake;
                 let (dl, wl) = tm.esc_adm;
-                let want = c < cycles && (0..3).any(|k| {
+                // (admission faults: this advance's G0 pulse skipped (with G_P) or missed, or an
+                // extra one OFF gt after G_P's opening)
+                let fault = |k: i64| tm.adm_faults.iter().flatten().find(|f| f.0 == c && f.1 == k).map(|f| (f.2, f.3));
+                let base_now = c < cycles && (0..3).any(|k| {
                     let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
                     let dk = if k == 2 && tm.adm_k2 >= 0 { tm.adm_k2 } else { dl };
-                    dt >= a + d + dk && dt < a + d + dk + wl
+                    dt >= a + d + dk && dt < a + d + dk + wl && !matches!(fault(k), Some((0, _)) | Some((1, _)))
                 });
+                // (the skip request, `adm_skip_req`: a latch set by a request; the next G0 opening
+                // after it is skipped, which clears it)
+                if tm.adm_skip_req.iter().flatten().any(|r| r.0 == c && r.1 == dt) {
+                    skip_latch = true;
+                    skip_log.push(format!("slot {c} +{dt}: skip requested"));
+                }
+                if base_now && !base_prev && skip_latch {
+                    skip_latch = false;
+                    skip_active = true;
+                    skip_log.push(format!("slot {c} +{dt}: G0's opening skipped"));
+                }
+                if !base_now {
+                    skip_active = false;
+                }
+                base_prev = base_now;
+                let want = (base_now && !skip_active) || (c < cycles && (0..3).any(|k| {
+                    let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                    matches!(fault(k), Some((3, off)) if dt >= a + d + off && dt < a + d + off + wl)
+                }));
                 let s = format!("minecraft:oak_fence_gate[facing=south,in_wall=false,open={want},powered=false]");
                 if let Ok(blk) = Block::parse(&s)
                     && run.world.get(g0) != blk
@@ -5352,6 +5391,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         out.push(merges.line());
         if lay.esc_adm_a1.is_some() {
+            if !skip_log.is_empty() || tm.adm_skip_req.iter().any(|r| r.is_some()) {
+                out.push(format!("skip requests (admission control's latch): {}{}", if skip_log.is_empty() { "none acted".to_string() } else { skip_log.join("; ") }, if skip_latch { "; still latched at the end" } else { "" }));
+            }
             out.push(format!("backward on P while it is powered (admission control): {p_back_ticks} ticks{}", if p_back.is_empty() { String::new() } else { format!(" ({})", p_back.join("; ")) }));
             out.push(format!(
                 "admission margins: the fastest front at a G0 opening {:.3} b/t, {:.3} short of G0's box ({}); the launched cart's rider and the next cart on P at least {} apart ({}); the admitted cart's front reached P's end at least {} gt after the launched cart's rider left G_P's plane ({})",
