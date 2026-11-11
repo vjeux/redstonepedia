@@ -184,6 +184,11 @@ Results, `siding-bench --wired` (redsim; the arrivals and the release bench-driv
   within 371 gt and released; 586 naps (the other 18 every night) in 12 of 16 seeds; in 4 seeds one
   more villager lost HOME or missed a nap: a villager without HOME races the others for the bed's
   ticket when a napper releases it at its first REST tick (the failure itself, not the give-up).
+  ironspec (2026-11-10): outside the contract (rule 1 keeps erases at 0; the bench prints them);
+  recorded as **the known failure mode**: a villager that has lost HOME can win the bed's ticket in
+  a napper's release-and-reclaim, and the napper then loses its HOME too. **The player's recovery
+  step:** run R1's break-and-replace again for every villager without HOME (the bench's HOME checks
+  name them).
 - Cost: the siding by itself 234 -> 472 blocks (box 14x9x13 -> 23x10x22), build 19.8 -> 39.6
   minutes at middle prices (10 comparators: the timer's 9 and the gate).
 
