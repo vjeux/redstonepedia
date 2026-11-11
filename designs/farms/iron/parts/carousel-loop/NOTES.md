@@ -146,6 +146,14 @@ slots per step, bench-driven controls, day-1's times):
   release is pushed backward by its powered slope (a powered rail boosts a moving cart the way it
   moves) and rolls back over the peak. The corners with both speed extremes: the early corner
   passes at +0.00 and +0.58, the late corner fails at both.
+- **The release stagger** (farmopt's pocket variant releases the group's slots s gt apart, the
+  front first): the back cart starts at +2s and needs ~26 gt to cross the front slot's slope, and
+  all three slots go off at release_for, so release_for >= 2s + 26. On the pocket loop (2 seeds x
+  30 slots): s = 3 release-end -2..+12, s = 4 +0..+12 (FLAGGED, no slack), s = 5 fails at 34 (the
+  back cart meets the braked front slope, drops from 0.53 to 0.08 b/t and the batch arrives short)
+  and passes at 40 and 44; s = 6 and 7 pass by luck (they hit the braked slope differently).
+  --stagger-off does not help: it delays the slot released last, but all three carts cross the
+  front slot. A wired controller holds the front slot's window to >= 2s + 30.
 
 ## The bed siding's merge: the side drop (day-1's (b))
 
@@ -269,6 +277,22 @@ reports each rider's damage and any rider gone from the world (a problem). The p
 file has the post at z 21: on its own timing no rider is ever hurt (10 seeds x 1,440 slots: all
 clean, 0 damage events), but a timing change could expose it; its next revision should take the
 moved post.
+
+## Golem spawn cells off the pad (open on the wired files)
+
+A villager that has slept summons an iron golem when it panics with two more such villagers near
+(within 10). The loop's riders panic all night by design, so once nappers ride it (the nap
+visits), any golem spawn cell within reach of the track spawns golems off the pad. `mctas mobfarm
+queue-loop-spots F` lists them (none may exist away from the pad): this part's generated loop
+files have 0 (the bench file, the pocket base); **main's published wired v2 has 30**, all on its
+wiring's blocks (the control lines at x -7, the cells at x 8, the release-run controls at x -4..-2,
+z -3 by the stand, y 2 at z 0..4); day-1's wired night file (1152b0e38) has 24, three of them its
+drop-line stone stops. There a golem spawned at slot 33 +59 on the stop (-2,1,31), walked beside
+tail slot 2 and pushed the resting front cart back up its braked slope; the next advance boosted it
+backward into the next cart and the tail jammed (slot 35). The loop benches without visits never
+showed it: their riders never sleep. The bench now makes any iron golem in a loop run a problem.
+Fix (day-1, the wiring's owner): glass for those blocks or glass covers, then queue-loop-spots 0
+on the file as published.
 
 ## The stand catch's window (open)
 
