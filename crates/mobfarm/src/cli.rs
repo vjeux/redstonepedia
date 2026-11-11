@@ -425,6 +425,18 @@ pub enum MobfarmCmd {
         /// properties swapped (facing, rail shapes, wire sides): a stand copied facing the other way.
         #[arg(long)]
         mirror_z: bool,
+        /// A cell both designs hold with different blocks keeps the base's block (counted and
+        /// listed) instead of refusing the paste: a priced route laid over the base.
+        #[arg(long)]
+        keep_base: bool,
+        /// The base's blocks, block entities and entities inside this box removed first
+        /// (X0,Y0,Z0,X1,Y1,Z1, the base's frame): a part moved elsewhere (a siding placement).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        remove_box: Vec<i32>,
+        /// Set (or move) one of the result's ports, NAME=x,y,z (repeatable): a moved part's port
+        /// (the bed's `home`) in the base's frame.
+        #[arg(long, allow_hyphen_values = true)]
+        set_port: Vec<String>,
         #[arg(long)]
         out: PathBuf,
     },
@@ -434,6 +446,23 @@ pub enum MobfarmCmd {
         design: PathBuf,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         r#box: Vec<i32>,
+    },
+    /// A part made of straight runs, to price a route before it is designed: each option a list of
+    /// segments `x0,y0,z0>x1,y1,z1` (`;`-separated; along x or z, y moving one block per cell toward
+    /// y1 until it gets there) laid as plain rails on glass (`--rail`), boosters on redstone blocks
+    /// (`--booster`) or dust on stone with a repeater every 15 cells (`--wire`), plus single blocks
+    /// (`--block "x,y,z=state;..."`). Written as a design to paste (`paste --overworld-only`).
+    Lines {
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        rail: String,
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        booster: String,
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        wire: String,
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        block: String,
+        #[arg(long)]
+        out: PathBuf,
     },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
@@ -2489,11 +2518,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Paste { base, part, at, r#box, overworld_only, mirror_z, out } => {
+        MobfarmCmd::Paste { base, part, at, r#box, overworld_only, mirror_z, keep_base, remove_box, set_port, out } => {
             let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(o.len() == 3, "--at x,y,z");
             anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
+            anyhow::ensure!(remove_box.is_empty() || remove_box.len() == 6, "--remove-box X0,Y0,Z0,X1,Y1,Z1");
             let mut d = mctas::design::Design::parse(&std::fs::read_to_string(&base)?)?;
+            if remove_box.len() == 6 {
+                let b = remove_box.clone();
+                let inside = |c: &[i32; 3]| (0..3).all(|k| c[k] >= b[k].min(b[k + 3]) && c[k] <= b[k].max(b[k + 3]));
+                let n0 = d.blocks.len();
+                d.blocks.retain(|c, _| !inside(c));
+                d.block_entities.retain(|c, _| !inside(c));
+                d.entities.retain(|e| !inside(&[e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]));
+                println!("--remove-box: {} of the base's blocks removed", n0 - d.blocks.len());
+            }
             let mut p = mctas::design::Design::parse(&std::fs::read_to_string(&part)?)?;
             // (`--box`: only the part's cells and entities inside the box, its own frame)
             if r#box.len() == 6 {
@@ -2560,6 +2599,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
             }
+            if keep_base && !clashes.is_empty() {
+                println!("--keep-base: {} cells kept as the base's: {}", clashes.len(), clashes.iter().take(12).cloned().collect::<Vec<_>>().join("; "));
+                clashes.clear();
+            }
             anyhow::ensure!(clashes.is_empty(), "{} cells both designs hold: {}", clashes.len(), clashes.iter().take(12).cloned().collect::<Vec<_>>().join("; "));
             for (c, s) in &p.block_entities {
                 d.block_entities.insert(mv(c), s.clone());
@@ -2621,6 +2664,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if d.meta.contains_key("flights") || p.meta.contains_key("flights") {
                 d.meta.insert("flights".into(), crate::flight::format(&fl));
             }
+            for sp in &set_port {
+                let (k, v) = sp.split_once('=').ok_or_else(|| anyhow::anyhow!("--set-port NAME=x,y,z: {sp}"))?;
+                let c: Vec<i32> = v.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(c.len() == 3, "--set-port NAME=x,y,z: {sp}");
+                d.ports.insert(k.to_string(), [c[0], c[1], c[2]]);
+            }
             let head: String = std::fs::read_to_string(&base)?.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
@@ -2647,6 +2696,66 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let mut v: Vec<(String, usize)> = kinds.into_iter().collect();
             v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
             println!("  {}", v.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "));
+        }
+        MobfarmCmd::Lines { rail, booster, wire, block, out } => {
+            let mut cells: std::collections::BTreeMap<[i32; 3], String> = std::collections::BTreeMap::new();
+            let pt = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "a point is x,y,z: {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            // (each segment's cells, along x or z, y stepping toward y1 one block per cell)
+            let walk = |seg: &str| -> anyhow::Result<Vec<([i32; 3], &'static str)>> {
+                let (a, b) = seg.split_once('>').ok_or_else(|| anyhow::anyhow!("a segment is x0,y0,z0>x1,y1,z1: {seg}"))?;
+                let (a, b) = (pt(a)?, pt(b)?);
+                anyhow::ensure!(a[0] == b[0] || a[2] == b[2], "a segment runs along x or z: {seg}");
+                let (dx, dz) = ((b[0] - a[0]).signum(), (b[2] - a[2]).signum());
+                let n = (b[0] - a[0]).abs().max((b[2] - a[2]).abs());
+                let mut y = a[1];
+                let mut v = Vec::new();
+                for i in 0..=n {
+                    let dy = if i < n { (b[1] - y).signum() } else { 0 };
+                    let shape = match (dx, dz, dy) {
+                        (_, _, 0) => if dx != 0 { "east_west" } else { "north_south" },
+                        (1, _, 1) | (-1, _, -1) => "ascending_east",
+                        (-1, _, 1) | (1, _, -1) => "ascending_west",
+                        (_, 1, 1) | (_, -1, -1) => "ascending_south",
+                        _ => "ascending_north",
+                    };
+                    v.push(([a[0] + dx * i, y, a[2] + dz * i], shape));
+                    y += dy;
+                }
+                Ok(v)
+            };
+            for (list, top, support) in [(&rail, "rail", "minecraft:glass"), (&booster, "powered_rail", "minecraft:redstone_block")] {
+                for seg in list.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                    for (c, shape) in walk(seg)? {
+                        let st = if top == "rail" { format!("minecraft:rail[shape={shape},waterlogged=false]") } else { format!("minecraft:powered_rail[powered=true,shape={shape},waterlogged=false]") };
+                        cells.insert(c, st);
+                        cells.entry([c[0], c[1] - 1, c[2]]).or_insert_with(|| support.to_string());
+                    }
+                }
+            }
+            for seg in wire.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                for (i, (c, shape)) in walk(seg)?.into_iter().enumerate() {
+                    let facing = if shape.contains("east") || shape.contains("west") { "east" } else { "south" };
+                    let st = if i > 0 && i % 15 == 0 { format!("minecraft:repeater[delay=1,facing={facing},locked=false,powered=false]") } else { "minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]".to_string() };
+                    cells.insert(c, st);
+                    cells.entry([c[0], c[1] - 1, c[2]]).or_insert_with(|| "minecraft:stone".to_string());
+                }
+            }
+            for t in block.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                let (p, s) = t.split_once('=').ok_or_else(|| anyhow::anyhow!("a block is x,y,z=state: {t}"))?;
+                cells.insert(pt(p)?, if s.starts_with("minecraft:") { s.to_string() } else { format!("minecraft:{s}") });
+            }
+            anyhow::ensure!(!cells.is_empty(), "no cells");
+            let mut d = mctas::design::Design::parse("name: lines\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\norigin: 0 0 0\npalette:\n  G minecraft:glass\nlayer 0:\n  G\n")?;
+            d.blocks.clear();
+            for (c, s) in cells {
+                d.blocks.insert(c, s);
+            }
+            std::fs::write(&out, d.to_text())?;
+            println!("{}: {} blocks", out.display(), d.blocks.len());
         }
         MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, crest_plain_dip, crest_descent, part_handoff, part_departure, cprime, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
