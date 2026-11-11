@@ -688,6 +688,10 @@ pub enum MobfarmCmd {
         /// the curve (0,y,25) then the border's flat cell.
         #[arg(long)]
         xq_z: Option<i32>,
+        /// Row A's slot count (default by the tail's formula; the rest are row B's): the S3
+        /// bench's C register behind R1's tail is --slots 16 --row-a 5.
+        #[arg(long)]
+        row_a: Option<i32>,
         /// The 6-8 rule's zombie posts beside R1's tail (each the boat's cell X,Y,Z, glass under,
         /// leaves 3 over; separated by `;`), replacing the strip's posts at z 21 and 29.
         #[arg(long, default_value = "", allow_hyphen_values = true)]
@@ -965,6 +969,34 @@ pub enum MobfarmCmd {
         riders: String,
         #[arg(long, default_value_t = 60)]
         ticks: u32,
+    },
+    /// S3's bench file with R1's tail (farmopt Nov 11 10:47): the base loop's old departure,
+    /// return run and register head taken out (--remove, the loop frame), the stand departure part
+    /// laid ((c′), the loop frame) and R1's tail from a queue-loop design that has it (its cells in
+    /// --tail-box plus its tail posts' columns); the header joined (declared, flights, border,
+    /// handoff, the queue line with R1's options and the tail file's slots and row A).
+    R1Combine {
+        /// The base loop (its frame the loop frame moved by its queue line's shift).
+        base: PathBuf,
+        /// The stand departure part, in the loop frame.
+        #[arg(long)]
+        departure: PathBuf,
+        /// R1's source: a queue-loop design with R1's tail and the base's register, in the loop
+        /// frame.
+        #[arg(long)]
+        tail: PathBuf,
+        /// The base's boxes taken out (the loop frame; `;`-separated X0,Y0,Z0,X1,Y1,Z1): by default
+        /// the old departure past the climb's foot and the return run, register head and tail
+        /// posts it replaces.
+        #[arg(long, default_value = "9,-6,1,10,16,20;0,-2,19,8,8,32", allow_hyphen_values = true)]
+        remove: String,
+        /// R1's cells in the tail file (the loop frame, X0,Y0,Z0,X1,Y1,Z1).
+        #[arg(long, default_value = "0,-3,21,8,16,32", allow_hyphen_values = true)]
+        tail_box: String,
+        #[arg(long, default_value = "carousel-loop-s3-r1")]
+        name: String,
+        #[arg(long)]
+        out: PathBuf,
     },
     /// R1's queue-contact scenes for the merge bridge: the escapement column of a queue-loop
     /// design in 4 lanes (RR, RE, ER, EE: the waiting cart's rider, then the arrival's), case g0 (an
@@ -2565,7 +2597,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, tail_posts, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, row_a, tail_posts, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2574,7 +2606,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, tail_posts: {
+            }, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, row_a, tail_posts: {
                 let mut a = [None; 4];
                 for (i, s) in tail_posts.split(';').filter(|s| !s.trim().is_empty()).enumerate() {
                     anyhow::ensure!(i < 4, "--tail-posts takes up to 4 posts");
@@ -2935,6 +2967,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("the least distance from any rider point to a post: {:.2}", f.least);
             let bad: Vec<String> = f.cover.iter().filter(|(_, d, seen)| *d > 8.0 - margin || !seen).map(|(c, d, seen)| format!("({},{},{}) {d:.2}{}", c[0], c[1], c[2], if *seen { "" } else { " unseen" })).collect();
             println!("panic cells: {} of {} covered (a seen post within 8 - margin from every point){}", f.cover.len() - bad.len(), f.cover.len(), if bad.is_empty() { String::new() } else { format!("; not: {}", bad.join(", ")) });
+        }
+        MobfarmCmd::R1Combine { base, departure, tail, remove, tail_box, name, out } => {
+            let rd = |p: &PathBuf| -> Result<mctas::design::Design> { Ok(mctas::design::Design::parse(&std::fs::read_to_string(p)?)?) };
+            let bx = |s: &str| -> Result<([i32; 3], [i32; 3])> {
+                let n: Vec<i32> = s.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(n.len() == 6, "a box is X0,Y0,Z0,X1,Y1,Z1");
+                Ok(([n[0], n[1], n[2]], [n[3], n[4], n[5]]))
+            };
+            let rm: Vec<([i32; 3], [i32; 3])> = remove.split(';').filter(|s| !s.trim().is_empty()).map(bx).collect::<Result<_>>()?;
+            let c = crate::combine::combine(&rd(&base)?, &rd(&departure)?, &rd(&tail)?, &rm, bx(&tail_box)?, &name).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &c.lines {
+                println!("{l}");
+            }
+            std::fs::write(&out, c.design.to_text())?;
+            println!("{}", out.display());
         }
         MobfarmCmd::ContactScenes { design, case, speeds, out_dir, ticks, front_frac, from_rest } => {
             let src = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
