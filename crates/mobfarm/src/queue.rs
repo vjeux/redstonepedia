@@ -1842,6 +1842,18 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     if !tm.placed_raw && tm.build_gap.is_none() {
         while run.settle_tick() {}
     }
+    // (the daylight detectors: `Run::start` holds them back for `Run::arrive`, which this runner
+    // never calls (it spawns its own carts): placed here, after the settle, as `arrive` would;
+    // the build in order places them with the rest. day-1 found every run's detector missing)
+    if tm.build_gap.is_none() {
+        let dets: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).cloned().collect();
+        if !dets.is_empty() {
+            run.world.place_raw(&dets);
+            if !tm.placed_raw {
+                run.world.place_updates(&dets);
+            }
+        }
+    }
     let drive: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
     let mut build_start: Option<i64> = None;
     let mut built_diff: Option<String> = None;
@@ -3050,7 +3062,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(format!("PANIC at night (day time 13,670..22,330, {} rider-ticks): {:.2}% of rider-ticks, the least-panicking rider {:.2}%; calm most at {}", nights, 100.0 * mean, 100.0 * min, if top.is_empty() { "-".to_string() } else { top.join(", ") }));
     }
     if let Some(path) = drive_out {
-        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# t0 {t_spawn}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t0 = the time right after that spawn; act t applied when the time is t0 + t, before the next tick\n", run.world.time - t_origin, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
+        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# t0 {t_spawn}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; the daylight detectors placed (raw, then updates), as Run::arrive does; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t0 = the time right after that spawn; act t applied when the time is t0 + t, before the next tick\n", run.world.time - t_origin, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
         if let (Some(b), Some(g)) = (build_start, tm.build_gap) {
             let gaps = if tm.build_priced { "each cell's priced gap between placements (20 gt; 40 gt at a cell the bill charges place:edge)".to_string() } else { format!("{g} gt between placements") };
             text.push_str(&format!("# build: built in order instead: Run::start with the design's blocks and block entities removed (no settle), then each `act t set x y z <state>` a placement with the game's updates (flags 3) and each `act t nbt x y z <snbt>` a container's fill, in the build order, {gaps}; every time here counts from the build's start (time {b}), not from t0\n# spawn {}\n", t_spawn - b));
