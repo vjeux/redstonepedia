@@ -95,6 +95,9 @@ pub struct BenchOpts {
     /// The design file's own declared states and flights (`declared:`, `flights:`), checked on
     /// top of the derived ones.
     pub hdr: crate::queue::Headers,
+    /// A loop's arrival stream replayed: (cycle, dt, x, speed) of each cart crossing x 8.5
+    /// westward on the return run (queue-loop-run `--arrivals-out`), spawned there and then.
+    pub arrivals: Vec<(i64, i64, f64, f64)>,
 }
 
 /// The design moved by (dx, dz): blocks, block entities, entities, its box.
@@ -319,6 +322,10 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             let p = if bo.from_climb { [9.5 + fx, -3.0 + 0.0625, 0.5 + fz - back] } else { [8.5 + fx + back, ye as f64 + 0.0625, 20.5 + fz] };
             spawns.push((t, p, b.speed));
         }
+    }
+    // (a loop's arrival stream replayed: each cart where and when the loop's crossed x 8.5)
+    for (c, dt, x, v) in &bo.arrivals {
+        spawns.push((c * 100 + dt, [x + fx, ye as f64 + 0.0625, 20.5 + fz], *v));
     }
     spawns.sort_by_key(|s| s.0);
     let mut next_spawn = 0;
