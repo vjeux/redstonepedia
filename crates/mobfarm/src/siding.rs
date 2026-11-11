@@ -751,6 +751,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
         on(b, [-1, -2, 7], &rep("west", 1))?;
         put(b, [0, 0, 6], "stone")?;
         put(b, [0, 1, 6], "glass")?;
+        b.d.meta.insert("fc".into(), "1".into());
     } else {
         put(b, [0, -1, 7], "glass")?;
     }
@@ -1578,6 +1579,9 @@ pub struct BenchOpts {
     /// The dawn/dusk resync's input block (the design's `resync:` line, local): the bench powers it
     /// for 12 gt at day times 1,000 and 11,000 (day-1's daylight-stair pulse).
     pub resync: Option<[i32; 3]>,
+    /// The free-cell sensor design (its `fc:` meta): VR gated by carts in the siding, the divert
+    /// gate on V alone (no bulb).
+    pub fc: bool,
 }
 
 /// A partial unload of the bench's world ([`BenchOpts::unload`]): the forced chunk box (chunk
@@ -2101,7 +2105,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     (true, Block::Bulb { lit, .. }) => Some(lit),
                     _ => None,
                 };
-                v || b_wired.unwrap_or_else(|| matches!(run.world.get(bed), Block::Bed { occupied: true, .. }))
+                v || (!bo.fc && b_wired.unwrap_or_else(|| matches!(run.world.get(bed), Block::Bed { occupied: true, .. })))
             } {
                 rep.held_back.push(now);
                 if let Some(at) = bo.v_reset {
@@ -2254,6 +2258,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         pulse(&mut run.world, &[da, n1], r + 40);
                     }
                 }
+                "f-lost" | "f-early" => {}
                 "f-double" => {
                     if let Some(f) = v.forced {
                         let fc = force_cell;
@@ -2367,6 +2372,14 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 let v = &rep.visits[k];
                 if v.forced.is_none() && !v.force_dropped && (!bo.launch || v.entered) {
                     let delay = fa + ((v.villager as i64 * 104_729 + v.arrived) % (fb - fa + 1));
+                    // (ironspec 10:04, F lost: the faulted visit's F never comes; F early: it comes 5 gt after
+                    // the arrival, before the cart parks)
+                    let lost = bo.fault.as_ref().is_some_and(|(kd, fk)| kd == "f-lost" && *fk == k);
+                    let delay = if bo.fault.as_ref().is_some_and(|(kd, fk)| kd == "f-early" && *fk == k) { 5 } else { delay };
+                    if lost && now >= v.arrived + delay {
+                        rep.visits[k].forced = Some(now);
+                        continue;
+                    }
                     if now >= v.arrived + delay {
                         set(&mut run.world, fc, "redstone_block");
                         drive.act(now, format!("set {} {} {} minecraft:redstone_block", fc.x, fc.y, fc.z));
@@ -2400,7 +2413,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= 0.0 && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout().park_rail.z as f64 + 1.0))
             })
         };
-        if (bo.b_fc || bo.resync.is_some()) && (cart_inside() || run.world.get(s.entry).to_string().contains("powered=true")) {
+        if (bo.b_fc || bo.resync.is_some() || bo.fc) && (cart_inside() || run.world.get(s.entry).to_string().contains("powered=true")) {
             // (the arrival detector ARR counts too: a VR landing on the arrival tick clears the
             // V that ARR has just set, before the cart is past the entry cell)
             be.cart_seen = Some(now);
@@ -2408,7 +2421,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         // (design (b) wired: day-1's VR as declared, gated by the siding's B (its bulb) and by the
         // siding holding no cart (ARR and the carts from the entry to the park), 20 gt held)
         let b_bulb = bo.resync.is_some() && matches!(run.world.get(fr.blk(-2, 0, 2)), Block::Bulb { lit: true, .. });
-        let vr_blocked = (bo.b_emul.is_some() && (matches!(run.world.get(bed), Block::Bed { occupied: true, .. }) || (bo.b_fc && be.cart_seen.is_some_and(|c| now - c <= 20)))) || (bo.resync.is_some() && (b_bulb || be.cart_seen.is_some_and(|c| now - c <= 20)));
+        let vr_blocked = (bo.b_emul.is_some() && (matches!(run.world.get(bed), Block::Bed { occupied: true, .. }) || (bo.b_fc && be.cart_seen.is_some_and(|c| now - c <= 20)))) || ((bo.resync.is_some() || bo.fc) && (b_bulb || be.cart_seen.is_some_and(|c| now - c <= 20)));
         // (a one-tick dump for tracing: MCTAS_BENCH_DUMP_AT=gt1,gt2,... prints every cart and mob
         // inside the siding's box at those ticks after t0, local, with riders and sleep)
         if bo.trace && let Ok(v) = std::env::var("MCTAS_BENCH_DUMP_AT") && v.split(',').filter_map(|x| x.trim().parse::<i64>().ok()).any(|g| g == now - t0) {

@@ -3381,6 +3381,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // bench; a siding file without the lines declares nothing)
             let declared = crate::declared::parse(c.clock.design.meta.get("declared").map(|s| s.as_str()).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
             let resync_meta: Option<[i32; 3]> = c.clock.design.meta.get("resync").and_then(|s| { let v: Vec<i32> = s.split_whitespace().filter_map(|x| x.parse().ok()).collect(); (v.len() == 3).then(|| [v[0], v[1], v[2]]) });
+            let fc_meta = c.clock.design.meta.contains_key("fc");
             let flights = crate::flight::parse(c.clock.design.meta.get("flights").map(|s| s.as_str()).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
             anyhow::ensure!(turn == 0 || unload.is_none(), "--unload on a turned design: its chunk boxes are the unturned frame's");
             let two_i = |s: &str| -> Result<(i64, i64)> {
@@ -3392,7 +3393,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let fault_opt: Option<(String, usize)> = match &fault {
                 Some(f) => {
                     let (k, n) = f.split_once(':').ok_or_else(|| anyhow::anyhow!("--fault KIND:K"))?;
-                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double", "no-drop", "bed-taken", "b-sleep", "b-wake", "b-extra", "b-nap", "b-delay"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra, f-double, no-drop, bed-taken, or B's bulb flipped: b-sleep, b-wake (a missed pulse), b-extra, b-nap, b-delay (an extra pulse)");
+                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double", "f-lost", "f-early", "no-drop", "bed-taken", "b-sleep", "b-wake", "b-extra", "b-nap", "b-delay"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra, f-double, no-drop, bed-taken, or B's bulb flipped: b-sleep, b-wake (a missed pulse), b-extra, b-nap, b-delay (an extra pulse)");
                     Some((k.to_string(), n.parse()?))
                 }
                 None => None,
@@ -3460,7 +3461,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta, fc: fc_meta });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -3540,7 +3541,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&(c, seed)) = work.get(j) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta, fc: fc_meta });
                             out.lock().unwrap().push((c, seed, r));
                         });
                     }
