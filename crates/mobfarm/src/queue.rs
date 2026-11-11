@@ -3616,6 +3616,9 @@ pub struct LoopTiming {
     /// The "train arrived since launch" latch: (K, the arrival cell); the head launches only
     /// once the K-th cart since its last launch has entered the cell.
     pub head_latch: Option<(usize, [i32; 3])>,
+    /// S3(ii)'s per-stand head-launch permissions (`crate::headperm`): D_arr, Dh (loop frame) and
+    /// whether they gate the head (else only observed).
+    pub head_perm: Option<([i32; 3], [i32; 3], bool)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -3940,7 +3943,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None }
     }
 }
 
@@ -4673,6 +4676,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let lay = loop_layout(o);
     // (S2's comb: its bench state, `crate::comb`)
     let mut comb_run = lay.comb.clone().map(crate::comb::CombRun::new);
+    // (S3(ii)'s per-stand head permissions, `crate::headperm`)
+    let mut head_perm = tm.head_perm.map(|(a, d, g)| crate::headperm::HeadPerm::new(a, d, -o.row_gap, o.shift, g));
     // (`shift`: the bench's own coordinates below, in the loop's frame, moved with the design)
     let (fx, fz) = (o.shift[0] as f64, o.shift[1] as f64);
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -5884,10 +5889,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 hl_in[k] = inside;
             }
         }
-        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set);
+        let dep_busy = dep_busy || (tm.head_wait && !stand_emptied) || (tm.head_latch.is_some() && !hl_set) || head_perm.as_ref().is_some_and(|h| h.gate && !h.permit());
         if head_pending && !dep_busy {
             if let Some(cr) = comb_run.as_mut() {
                 cr.on_launch(t, c);
+            }
+            if let Some(h) = head_perm.as_mut() {
+                h.on_launch(t, c);
             }
             set(&mut run.world, &release_group[..], true);
             head_pending = false;
@@ -5914,6 +5922,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         } else if c < cycles && dt == tm.release_start && !stand_has_carts {
             if let Some(cr) = comb_run.as_mut() {
                 cr.on_launch(t, c);
+            }
+            if let Some(h) = head_perm.as_mut() {
+                h.on_launch(t, c);
             }
             stand_emptied = false;
             hl_set = false;
@@ -7354,6 +7365,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         if let Some(cr) = comb_run.as_mut() {
             cr.pre_tick(&mut run.world, t, c, dt, &lay.pockets, &lay.stand_cells);
+        }
+        if let Some(h) = head_perm.as_mut() {
+            let cp: Vec<(u32, redsim::entity::Vec3, redsim::entity::Vec3)> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, e.pos, e.delta_movement)).collect();
+            h.pre_tick(&run.world, &cp, t, c);
         }
         run.tick();
         merges.observe(&run.world, &format!("t {t}"));
@@ -9741,6 +9756,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             out.extend(cr.detail());
         }
         problems.extend(cr.problems.iter().cloned());
+    }
+    if let Some(h) = head_perm.as_ref() {
+        let (lines, probs) = h.report(100);
+        out.extend(lines);
+        out.push(h.tracks_line());
+        if verbose {
+            out.extend(h.detail());
+        }
+        problems.extend(probs);
     }
     if !problems.is_empty() {
         let mut by: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
