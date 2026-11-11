@@ -361,11 +361,21 @@ fn find_hit_entity_spit(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Option
     let id = e.id;
     let candidates = w.get_entities(area, |x| x.id != id);
     let mut best: Option<(usize, Vec3, f64)> = None;
+    let trace = std::env::var("MCTAS_TRACE_SPIT").is_ok();
+    if trace {
+        let e = &w.entities.list[i];
+        eprintln!("spit t{} #{}: tick_count {} margin {m} from {:?} to {:?} candidates {:?}", w.time, e.id, e.tick_count, (from.x, from.y, from.z), (to.x, to.y, to.z), candidates.iter().map(|&j| w.entities.list[j].id).collect::<Vec<_>>());
+    }
     for j in candidates {
         if !can_hit(w, i, j) {
             continue;
         }
-        if let Some(p) = collide::clip(w.entities.list[j].bb.inflate(m, m, m), from, to) {
+        let hit = collide::clip(w.entities.list[j].bb.inflate(m, m, m), from, to);
+        if trace {
+            let b = w.entities.list[j].bb;
+            eprintln!("spit t{}:   #{} bb ({}, {}, {})..({}, {}, {}) clip {:?}", w.time, w.entities.list[j].id, b.min_x, b.min_y, b.min_z, b.max_x, b.max_y, b.max_z, hit.map(|p| (p.x, p.y, p.z)));
+        }
+        if let Some(p) = hit {
             let dd = from.distance_to_sqr(p);
             if best.as_ref().is_none_or(|b| dd < b.2) {
                 best = Some((j, p, dd));

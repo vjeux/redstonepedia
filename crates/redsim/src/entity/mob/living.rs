@@ -1400,29 +1400,13 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
         let on = entity::collide::get_on_pos(w, &w.entities.list[i], 0.2);
         let on_state = w.get(on);
         let distance = w.entities.list[i].fall_distance;
-        // (mob-AI 2026-11-10) the landing block's fallOn: a bed or a shelf mushroom halves the fall
-        // (fallDistanceReduction 0.5F), hay and honey take a 0.2F damage modifier, slime none;
-        // farmland's trampling roll (the level random) first
-        let id = match &on_state {
-            Block::Terrain(t) => crate::terrain::blocks::props(*t).block_id().to_string(),
-            Block::Bed { .. } => "minecraft:red_bed".to_string(),
-            Block::Simple(Simple::SlimeBlock) => "minecraft:slime_block".to_string(),
-            Block::Simple(Simple::HoneyBlock) => "minecraft:honey_block".to_string(),
-            Block::Farmland { .. } => "minecraft:farmland".to_string(),
-            _ => String::new(),
-        };
-        if id == "minecraft:farmland" {
+        let (farmland, mult, modifier) = fall_on_factors(&on_state);
+        if farmland {
             let (wd, ht) = mob(w, i).dims();
             let griefing = w.mob.ai.mob_griefing;
             crate::stems::mob_fall_on(w, on, distance, wd, ht, griefing);
         }
-        let bed = id.ends_with("_bed") || id == "minecraft:shelf_mushroom";
-        let distance = if bed { distance * (1.0f32 - 0.5f32) as f64 } else { distance };
-        let modifier = match id.as_str() {
-            "minecraft:slime_block" => 0.0f32,
-            "minecraft:hay_block" | "minecraft:honey_block" => 0.2f32,
-            _ => 1.0f32,
-        };
+        let distance = distance * mult;
         if modifier > 0.0 && !chicken {
             cause_fall_damage(w, i, distance, modifier);
         }
@@ -1436,9 +1420,35 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
     }
 }
 
+/// (mob-AI 2026-11-10) The landing block's `fallOn`: whether it is farmland (its trampling roll
+/// on the level random comes first), the fall's multiplier (a bed or a shelf mushroom halves it:
+/// fallDistanceReduction 0.5F) and the damage modifier (hay and honey 0.2F, slime none, else 1).
+pub(crate) fn fall_on_factors(on_state: &Block) -> (bool, f64, f32) {
+    let id = match on_state {
+        Block::Terrain(t) => crate::terrain::blocks::props(*t).block_id().to_string(),
+        Block::Bed { .. } => "minecraft:red_bed".to_string(),
+        Block::Simple(Simple::SlimeBlock) => "minecraft:slime_block".to_string(),
+        Block::Simple(Simple::HoneyBlock) => "minecraft:honey_block".to_string(),
+        Block::Farmland { .. } => "minecraft:farmland".to_string(),
+        _ => String::new(),
+    };
+    let bed = id.ends_with("_bed") || id == "minecraft:shelf_mushroom";
+    let mult = if bed { (1.0f32 - 0.5f32) as f64 } else { 1.0 };
+    let modifier = match id.as_str() {
+        "minecraft:slime_block" => 0.0f32,
+        "minecraft:hay_block" | "minecraft:honey_block" => 0.2f32,
+        _ => 1.0f32,
+    };
+    (id == "minecraft:farmland", mult, modifier)
+}
+
 /// `LivingEntity.causeFallDamage(distance, modifier, fall)`: `floor((distance + 1e-6 - 3) x
-/// modifier)` damage unless immune (`calculateFallDamage`).
-fn cause_fall_damage(w: &mut World, i: usize, distance: f64, modifier: f32) {
+/// modifier)` damage unless immune (`calculateFallDamage`). (mob-AI 2026-11-11) Its passengers
+/// first (`super.causeFallDamage`: Entity's `propagateFallToPassengers`, none from a
+/// `#fall_damage_immune` vehicle): a spider jockey's skeleton is hurt by the spider's landing
+/// (d1u-deep village-edge b10 t32541). A horse's or a trader llama's (`AbstractHorse` /
+/// `Llama.causeFallDamage`) pass it on only after their own damage, and only when they took some.
+pub(crate) fn cause_fall_damage(w: &mut World, i: usize, distance: f64, modifier: f32) {
     if mob(w, i).ty.def().fall_immune {
         return;
     }
@@ -1447,11 +1457,27 @@ fn cause_fall_damage(w: &mut World, i: usize, distance: f64, modifier: f32) {
         let dmg = mth::floor((distance + 1.0e-6 - 6.0) * modifier as f64 * 0.5);
         if dmg > 0 {
             hurt(w, i, Damage::Fall, dmg as f32);
+            propagate_fall(w, i, distance, modifier);
         }
         return;
     }
+    propagate_fall(w, i, distance, modifier);
     let dmg = mth::floor((distance + 1.0e-6 - 3.0) * modifier as f64);
     if dmg > 0 {
         hurt(w, i, Damage::Fall, dmg as f32);
+    }
+}
+
+/// `Entity.propagateFallToPassengers`: each mob passenger's `causeFallDamage` with the same fall,
+/// in passenger order (the caller checked the vehicle is not `#fall_damage_immune`).
+pub(crate) fn propagate_fall(w: &mut World, i: usize, distance: f64, modifier: f32) {
+    let passengers = w.entities.list[i].passengers.clone();
+    for p in passengers {
+        if let Some(j) = crate::entity::index_of(w, p)
+            && matches!(w.entities.list[j].kind, EntityKind::Mob(_))
+            && !w.entities.list[j].removed
+        {
+            cause_fall_damage(w, j, distance, modifier);
+        }
     }
 }
