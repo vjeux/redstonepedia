@@ -590,6 +590,19 @@ station needs no drop and no overworld kill.
   are not merged. The one check is `mobfarm::merge` (with its test), which every runner calls. Why:
   a cart sliding into a resting one on a slope gets pressed to the identical spot, and a merged pair
   later swaps order (measured on the tail's 10-slope queue, 2026-11-10).
+- **No meetings on climbs or boosters.** A moving cart on a climb (track rising in its direction of
+  travel) or a boosted cell must never meet a stopped or frozen cart: on a climb gravity reverses
+  the pusher, and a booster drives any backward motion harder (0.06 a tick, about 8 times
+  gravity's pull on a slope). Carts touch at centre distances up to about 1.18 blocks along the
+  track, so the keep-off zone is every climb and boosted cell plus every cell within that reach of
+  one, in practice the first cell past each. Each part names, cause by cause, what keeps stopped
+  or frozen carts out of that zone whenever carts can arrive, and its rows show it, faults and
+  freezes included. A downhill queue on unpowered rail, where gravity keeps pressing carts forward,
+  may take arrivals against stopped carts, shown in its own rows; a boosted cell in a queue falls
+  under this rule, not the exception. Why: on the stand's approach, a cart stopped on the climb's
+  flat top is met by the next train while that train is still on the last slope; the pusher
+  reverses and rolls back down the boosters into the queue (0–3 clean of 12 per position), and
+  powering the last slope made it worse (0–2 of 12).
 - No escapes (villagers, golems, the zombie), the hostile and sky rules of the parent brief.
 - **Compact, measured** (rule 2 made measurable). The assembly prints the assembled overworld
   bounding box (x × y × z extents and its volume) and each part's own box, next to the block count;
