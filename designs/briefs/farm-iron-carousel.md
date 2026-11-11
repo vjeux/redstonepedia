@@ -98,7 +98,7 @@ lists. Every candidate meets all three rules; there is no first version without 
    - **The occupied erase:** no other sharer in REST within 16 of the bed while it's occupied
      (ValidateNearbyPoi(HOME), in the REST package only, erases the HOME of any villager within 16
      of an occupied bed that isn't the sleeper). So a nap happens only when every other sharer is
-     farther than 16 from the bed or not in REST (panicking).
+     more than 16 + the stated margin from the bed, panic or not (the Shared bed radius must-have).
    - No second bed within any villager's POI search: a free bed would be claimed and break the
      sharing.
 2. **Compact.** The target is the portal-pad station of "Golems removed by portal, and the
@@ -113,7 +113,8 @@ lists. Every candidate meets all three rules; there is no first version without 
    blocks before and after. Villagers move in short hops: carts on short shuttles, water streams, pistons,
    whatever measures smallest. The lock box still holds (waiting groups more than 10.6 from every
    summoner on one horizontal axis, or 11.95 vertically, at every summon tick), and so does the
-   occupied-erase distance (16 from the bed during a nap); the layout is the smallest arrangement
+   occupied-erase distance (more than 16 + the stated margin from the bed during a nap, panic or
+   not); the layout is the smallest arrangement
    of the station, the queue and the bed that keeps both. GolemSensor re-locks any villager whose
    scan still sees a golem within its follow range (16, up to 17.8 with the spawn bonus; no sight
    test), and the detection is phase-locked to the slot grid (the sensor periods 20 and 200 divide
@@ -180,7 +181,7 @@ that arrives already panicking with a zombie kept in its sight the whole way), w
 still outside the golem's follow box; the summon happens at the slot; the golem leaves through the
 portal 1-2 gt later; the leaving batch is out of the station's 10.6 box before the next slot; each
 villager's once-a-night bed visit fits inside its 600-gt wait, with the rest of the queue more than
-16 from the bed while it sleeps. Dispatch is event-driven from each golem spawn, so the farm
+16 + the stated margin from the bed while it sleeps, panic or not. Dispatch is event-driven from each golem spawn, so the farm
 phase-locks to the game clock, and a slot with no golem still advances the rotation on the next
 grid tick (a fallback clock), so one failed summon never stalls it. Every interval in the diagram
 is checked tick by tick in redsim and on the bridge, and G1 checks the diagram against the code.
@@ -241,13 +242,14 @@ the timing diagram checks every coupling.
    (LAST_SLEPT set at start: a one-tick nap counts), the observer on OCCUPIED opens a hatch on a
    dorm zombie, it panics and wakes within up to 39 gt (measured 18), stands up at the one free cell,
    and is taken back; SleepInBed can't restart until 40 gt after a wake (nextOkStartTime) and 100
-   gt after LAST_WOKEN. With the panicking hold, only the napper is in REST, so the occupied erase
+   gt after LAST_WOKEN. Every other villager stays more than 16 + the stated margin from the bed,
+   panic or not (the Shared bed radius must-have), so the occupied erase
    can't hit anyone else. The napper's release at its first REST tick is expected; AcquirePoi(HOME)
    re-takes the bed 20-39 gt after it is unoccupied (measured 28), from the cart too, provided a
    path with reach 1 succeeds and no other bed with a free ticket lies within 48 (a failed path
    backs off 40-79 gt, growing to 400). Invariants: every villager's HOME = the bed at every dawn and
-   midday (the R1 claims kept); while the bed is occupied, every other villager is in PANIC or more
-   than 16 from it; each villager's LAST_SLEPT advances at least once a night. Contract: each visit fits
+   midday (the R1 claims kept); while the bed is occupied, every other villager is more than 16 + the
+   stated margin from it, panic or not; each villager's LAST_SLEPT advances at least once a night. Contract: each visit fits
    inside that villager's wait; the 21 visits fit inside the night. The golem condition is
    gameTime − LAST_SLEPT < 24,000 (strict), so for each villager no gap window [its last nap +
    24,000, its next nap) may contain one of its batch's slots; that window condition is the
@@ -546,8 +548,8 @@ station needs no drop and no overworld kill.
   over many nights, not only through a save and load), and the farm restarts after days away (a
   stalled advance recovers: a fallback pulse when no golem has come for a full cycle).
 - **Shared bed radius.** While a napper sleeps, the shared bed is OCCUPIED, and any other villager
-  in REST within 16 blocks of it (Euclidean, from the bed block's center to the villager's
-  position) has its HOME erased (ValidateNearbyPoi). Because the occupied POI isn't released, it can
+  in REST within 16 blocks of it (Euclidean, from the center of the bed's head block, its POI
+  position, which HOME holds, to the villager's position) has its HOME erased (ValidateNearbyPoi). Because the occupied POI isn't released, it can
   never re-claim the bed, so its naps stop for good. Every position a non-sleeping villager can
   occupy at night (loop riders anywhere on the loop, the queue, the tail, the stand, the pad, and
   the siding's waiting and free cells) lies at least 16 blocks plus a stated margin (≥ 1, for rider
