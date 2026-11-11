@@ -325,11 +325,17 @@ static LEDGE_TRACK: std::sync::Mutex<Option<LedgeTrack>> = std::sync::Mutex::new
 /// on the take-off flats), its landing (the first tick back on a rail: the cell, its speed), the
 /// carts' least centre spacing after the take-off (a merge: closer than a cart's length, 0.98) and
 /// whether each cart ends on the line's rails (a derail: off them).
-pub fn ledge(version: &str, ticks: u32) -> Result<()> {
+pub fn ledge(version: &str, ticks: u32, only: &[String]) -> Result<()> {
     let all = scenes();
-    for (tag, sp) in LEDGE_SPEEDS {
-        let name = format!("ledge-r1-{tag}");
+    let runs: Vec<(String, f64, i32)> = LEDGE_SPEEDS
+        .iter()
+        .map(|(tag, sp)| (format!("ledge-r1-{tag}"), *sp, 24))
+        .chain([("ledge-r1n-182".to_string(), 1.82, 25), ("ledge-r1s-182".to_string(), 1.82, 24)])
+        .filter(|(n, _, _)| only.is_empty() || only.iter().any(|o| o == n))
+        .collect();
+    for (name, sp, line) in runs {
         let s = all.iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
+        let rows = ledge_rows_of(&name);
         *LEDGE_TRACK.lock().map_err(|_| anyhow!("lock"))? = Some(Vec::new());
         let c = compare(version, s, 1, ticks, 100, false, false, None);
         let track = LEDGE_TRACK.lock().map_err(|_| anyhow!("lock"))?.take().unwrap_or_default();
@@ -337,10 +343,10 @@ pub fn ledge(version: &str, ticks: u32) -> Result<()> {
         println!("{name} (stored {sp} b/t): {} ticks compared, {}", c.ticks, c.first.as_ref().map_or("0 differences".to_string(), |d| format!("FIRST DIFFERENCE at {}: {}", d.t, d.what)));
         // the rows' carts in entity order (a ridden cart's villager takes the next number)
         let mut n = 0u32;
-        for (k, (gap, ridden)) in LEDGE_ROWS.iter().enumerate() {
+        for (k, (gap, ridden)) in rows.iter().enumerate() {
             let carts: Vec<u32> = (0..if gap.is_some() { 2 } else { 1 }).map(|j| n + j * if *ridden { 2 } else { 1 }).collect();
             n += carts.len() as u32 * if *ridden { 2 } else { 1 };
-            let z_line = (2 + 8 * k) as f64 + 0.5;
+            let z_line = (2 + 8 * k) as f64 + 0.5 + (line - 24) as f64;
             let path = |e: u32| -> Vec<(i64, [f64; 3], [f64; 3])> { track.iter().filter(|(_, m, _, _)| *m == e).map(|(t, _, p, v)| (*t, *p, *v)).collect() };
             let t0 = track.first().map(|x| x.0).unwrap_or(0);
             let mut parts = Vec::new();
@@ -353,7 +359,7 @@ pub fn ledge(version: &str, ticks: u32) -> Result<()> {
                 let desc = match (take, land) {
                     (Some(i), Some(l)) => {
                         let (tl, ql, vl) = p[l];
-                        let cell = [(ql[0] - 2.0).floor() as i32, (ql[1] - 60.0).floor() as i32, 24];
+                        let cell = [(ql[0] - 2.0).floor() as i32, (ql[1] - 60.0).floor() as i32, line];
                         format!("cart {} off at t+{} landed t+{} at x {:.2} y {:.4} (design cell {},{},{}) at {:.3} b/t", ["A", "B"][j], p[i].0 - t0, tl - t0, ql[0] - 2.0, ql[1] - 60.0, cell[0], cell[1], cell[2], (vl[0] * vl[0] + vl[2] * vl[2]).sqrt())
                     }
                     (Some(i), None) => format!("cart {} off at t+{}, never landed on a rail", ["A", "B"][j], p[i].0 - t0),
@@ -395,7 +401,7 @@ pub fn ledge(version: &str, ticks: u32) -> Result<()> {
             };
             let what = match gap {
                 None => "a lone cart".to_string(),
-                Some(0) => "two touching carts (0.98 apart)".to_string(),
+                Some(g) if *g == 0.0 => "two touching carts (0.98 apart)".to_string(),
                 Some(g) => format!("two carts {g} gt apart"),
             };
             println!("  row {k} ({what}, {}): {}{spacing}", if *ridden { "ridden" } else { "empty" }, parts.join(" | "));
@@ -632,28 +638,40 @@ pub const LEDGE_SPEEDS: [(&str, f64); 4] = [("150", 1.5), ("182", 1.82), ("196",
 /// The ledge scenes' rows (each its own copy of the ledge, 8 apart in z): per row the follower's
 /// gap behind the leader in game ticks at the 0.4 cap (None: a lone cart; 0: touching, 0.98 apart)
 /// and whether both carts carry a villager.
-pub const LEDGE_ROWS: [(Option<u32>, bool); 20] = [
+pub const LEDGE_ROWS: [(Option<f64>, bool); 20] = [
     (None, false),
-    (Some(0), false),
-    (Some(3), false),
-    (Some(4), false),
-    (Some(5), false),
-    (Some(6), false),
-    (Some(7), false),
-    (Some(8), false),
-    (Some(10), false),
-    (Some(12), false),
+    (Some(0.0), false),
+    (Some(3.0), false),
+    (Some(4.0), false),
+    (Some(5.0), false),
+    (Some(6.0), false),
+    (Some(7.0), false),
+    (Some(8.0), false),
+    (Some(10.0), false),
+    (Some(12.0), false),
     (None, true),
-    (Some(0), true),
-    (Some(3), true),
-    (Some(4), true),
-    (Some(5), true),
-    (Some(6), true),
-    (Some(7), true),
-    (Some(8), true),
-    (Some(10), true),
-    (Some(12), true),
+    (Some(0.0), true),
+    (Some(3.0), true),
+    (Some(4.0), true),
+    (Some(5.0), true),
+    (Some(6.0), true),
+    (Some(7.0), true),
+    (Some(8.0), true),
+    (Some(10.0), true),
+    (Some(12.0), true),
 ];
+
+/// (tickexact 2026-11-11, ironspec: the clean floor printed) the sweep scene's rows: the follower's
+/// gap at both edges of the bad band in quarter ticks (3..4 and 6..8 gt), empty, then ridden.
+pub fn ledge_sweep_rows() -> Vec<(Option<f64>, bool)> {
+    let gaps: Vec<f64> = (12..=16).chain(24..=32).map(|q| q as f64 / 4.0).collect();
+    [false, true].iter().flat_map(|r| gaps.iter().map(move |g| (Some(*g), *r))).collect()
+}
+
+/// The rows of a ledge scene by name.
+pub fn ledge_rows_of(name: &str) -> Vec<(Option<f64>, bool)> {
+    if name.starts_with("ledge-r1s-") { ledge_sweep_rows() } else { LEDGE_ROWS.to_vec() }
+}
 
 /// One ledge scene: the design's cells x -1..9, y 4..13, z 23..29 copied into each row (x + 2,
 /// y + 60, z + 8k - 22: row k's take-off line at z 2 + 8k), the corner (9,13,24) and the run north
@@ -661,23 +679,37 @@ pub const LEDGE_ROWS: [(Option<u32>, bool); 20] = [
 /// stopped with stone; per row a leader at x 7.0 (design) moving west at `v` stored, and the row's
 /// follower behind it.
 fn ledge_scene(tag: &str, v: f64) -> Scene {
+    ledge_scene_row(&format!("ledge-r1-{tag}"), v, false, &LEDGE_ROWS)
+}
+
+/// [`ledge_scene`] named `name` with `rows`, or with `north` farmopt's (c′) row: the x-run one row
+/// north (the take-off flats, the gap, the landing and the slopes at design z 25), the curve (0,8,25)
+/// turning straight onto the descent's first slope (0,7,26) (escR1's flat (0,8,25) gone).
+fn ledge_scene_row(name: &str, v: f64, north: bool, rows: &[(Option<f64>, bool)]) -> Scene {
     let d = mctas::design::Design::parse(LEDGE_ESCR1).expect("the frozen escR1 parses");
     let mut b: Vec<([i32; 3], String)> = Vec::new();
-    floor(&mut b, 0, 32, 0, 176, 63, "minecraft:stone");
+    // (the rows' extent: row k from z 2 + 8k - 1 to its stop at 2 + 8k + 7)
+    let chunks_z = (2 + 8 * rows.len() as i32 + 16) / 16;
+    floor(&mut b, 0, 32, 0, 16 * chunks_z, 63, "minecraft:stone");
     let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
-    for (k, (gap, ridden)) in LEDGE_ROWS.iter().enumerate() {
+    let line = if north { 25 } else { 24 };
+    for (k, (gap, ridden)) in rows.iter().enumerate() {
         let dz = 8 * k as i32 - 22;
         let at = |p: [i32; 3]| [p[0] + 2, p[1] + 60, p[2] + dz];
         for (p, st) in &d.blocks {
             if (-1..=8).contains(&p[0]) && (4..=13).contains(&p[1]) && (24..=27).contains(&p[2]) {
-                b.push((at(*p), st.clone()));
+                if north && p[2] == 25 {
+                    continue;
+                }
+                let q = if north && p[2] == 24 { [p[0], p[1], 25] } else { *p };
+                b.push((at(q), st.clone()));
             }
         }
         for x in 9..=15 {
-            b.push((at([x, 13, 24]), "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
-            b.push((at([x, 12, 24]), "minecraft:glass".to_string()));
+            b.push((at([x, 13, line]), "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            b.push((at([x, 12, line]), "minecraft:glass".to_string()));
         }
-        b.push((at([16, 13, 24]), "minecraft:stone".to_string()));
+        b.push((at([16, 13, line]), "minecraft:stone".to_string()));
         // (the descent's slope (0,6,27) runs onto flats south to z 30, a stone stop at z 31)
         for z in 28..=30 {
             b.push((at([0, 5, z]), "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
@@ -690,24 +722,24 @@ fn ledge_scene(tag: &str, v: f64) -> Scene {
             } else {
                 format!("{{Motion:[{:.4}d,0.0d,0.0d]}}", -v)
             };
-            let p = at([0, 13, 24]);
+            let p = at([0, 13, line]);
             ("minecraft:minecart".to_string(), [x + 2.0, p[1] as f64, p[2] as f64 + 0.5], Some(nbt))
         };
         mobs.push(cart(7.0));
         if let Some(g) = gap {
-            let behind = if *g == 0 { 0.98 } else { 0.4 * *g as f64 };
+            let behind = if *g == 0.0 { 0.98 } else { 0.4 * *g };
             mobs.push(cart(7.0 + behind));
         }
     }
     Scene {
-        name: format!("ledge-r1-{tag}"),
-        chunks: [0, 0, 1, 10],
+        name: name.to_string(),
+        chunks: [0, 0, 1, chunks_z - 1],
         blocks: b,
         mobs,
         day_time: 6000,
         difficulty: Difficulty::Normal,
         mob_griefing: true,
-        watch: ([0, 62, 0], [31, 75, 175]),
+        watch: ([0, 62, 0], [31, 75, 16 * chunks_z - 1]),
         player: None,
         player_creative: false,
         random_tick_speed: 0,
@@ -2741,10 +2773,13 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
-    // (tickexact 2026-11-11, ironspec's ledge on R1's drop) four scenes, one per stored speed
+    // (tickexact 2026-11-11, ironspec's ledge on R1's drop) four scenes, one per stored speed, and
+    // farmopt's (c′) row at 1.82
     for (tag, sp) in LEDGE_SPEEDS {
         v.push(ledge_scene(tag, sp));
     }
+    v.push(ledge_scene_row("ledge-r1n-182", 1.82, true, &LEDGE_ROWS));
+    v.push(ledge_scene_row("ledge-r1s-182", 1.82, false, &ledge_sweep_rows()));
     // (tickexact 2026-11-11, ironspec's ticket accounting) one bed (head (5,64,6)) in a glass-walled
     // room (x 3..9, z 3..10) with A (e0) and B (e1) on foot beside it, day (AcquirePoi(HOME) runs in
     // CORE all day): the acts give HOME up and erase it (see `actions`)

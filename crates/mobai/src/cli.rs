@@ -133,6 +133,10 @@ pub enum MobaiCmd {
     Ledge {
         #[arg(long, default_value_t = 100)]
         ticks: u32,
+        /// Only these scenes (ledge-r1-150/-182/-196/-220, ledge-r1n-182: farmopt's (c′) row,
+        /// ledge-r1s-182: the quarter-tick sweep at both edges of the bad band); default all
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
     },
     /// (tickexact 2026-11-11) A whole-part unload at an event, in the game alone, over game seeds:
     /// for each seed the scene runs as it is (the event's game tick G: the first change of block
@@ -297,7 +301,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
         MobaiCmd::SensorSweep { name, villager, reveal, dir } => crate::fixture::sensor_sweep(&name, villager, reveal, &dir),
         MobaiCmd::ReloadWake { living, hostiles, seeds } => crate::fixture::reload_wake(version, &living, &hostiles, &seeds),
-        MobaiCmd::Ledge { ticks } => crate::fixture::ledge(version, ticks),
+        MobaiCmd::Ledge { ticks, only } => crate::fixture::ledge(version, ticks, &only),
         MobaiCmd::UnloadRate { name, from, to, cell, state, after, cart, len, check } => {
             let [x, y, z] = cell[..] else { anyhow::bail!("--cell takes x,y,z") };
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
