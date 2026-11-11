@@ -233,6 +233,17 @@ enum Cmd {
     /// Two `release-trace` outputs compared port by port: identical, every edge shifted by one
     /// amount, or the first differing edge (crates/circuit-memory/src/releasebench.rs).
     TraceDiff { a: PathBuf, b: PathBuf },
+    /// The shared bed's nearest rider (ironspec 2026-11-11: a calm villager within 16 of an
+    /// occupied bed loses HOME for good): the least distance from a bed block's centre to a
+    /// rider's place on a rail inside the riders' box (the loop's: its carts carry the riders
+    /// while the bed is taken; the junctions carry only the napper itself, visits 400 gt apart)
+    /// (the rail cell's centre, 0.35 up), and where (crates/circuit-memory/src/releasebench.rs).
+    BedDistance {
+        design: PathBuf,
+        /// The riders' box, x0,y0,z0,x1,y1,z1 (design frame): rails inside it count.
+        #[arg(long, allow_hyphen_values = true, default_value = "-6,-4,-7,9,6,53")]
+        riders: String,
+    },
     /// Each design's pricing line for the fold (the parent and ironspec 2026-11-10: "compact:
     /// volume decides", dig depth priced in build minutes): blocks, box, volume, the box's depth
     /// under the ground layer and its dug cells (footprint x depth, as the judge's site footprint
@@ -534,6 +545,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::FaultSurvey { design, spec, pulses } => releasebench::fault_survey(&design, &spec, pulses)?,
         Cmd::NapReport { log } => releasebench::nap_report(&log)?,
         Cmd::TraceDiff { a, b } => releasebench::trace_diff(&a, &b)?,
+        Cmd::BedDistance { design, riders } => releasebench::bed_distance(&design, &riders)?,
         Cmd::Price { designs, ground, stage } => releasebench::price(&designs, ground, &stage)?,
         Cmd::ReleaseSweep { loop_file, offdelay, siding, siding_ctl, pad, knob, values, run, show } => releasebench::release_sweep(&loop_file, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref(), knob.as_deref(), &values, &run, &show)?,
         Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,

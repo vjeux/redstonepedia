@@ -594,6 +594,42 @@ pub fn price(designs: &[std::path::PathBuf], ground: i32, stage: &str) -> Result
     Ok(())
 }
 
+/// `bed-distance` (ironspec 2026-11-11: the shared bed >= 16 + margin from every place a
+/// non-sleeping villager can be at night): the least Euclidean distance from a bed block's centre
+/// to a rider's place on a rail (the rail cell's centre, 0.35 up: a villager in a minecart) inside
+/// the riders' box (the loop's carts carry the riders while the bed is taken; the junctions carry
+/// only the napper itself), the five nearest with where.
+pub fn bed_distance(design: &Path, riders: &str) -> Result<()> {
+    let c = Circuit::load(design)?;
+    let v: Vec<i32> = riders.split(',').map(|n| n.trim().parse()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow!("--riders {riders}: {e}"))?;
+    if v.len() != 6 {
+        bail!("--riders {riders}: want x0,y0,z0,x1,y1,z1");
+    }
+    let inside = |p: &[i32; 3]| (v[0]..=v[3]).contains(&p[0]) && (v[1]..=v[4]).contains(&p[1]) && (v[2]..=v[5]).contains(&p[2]);
+    let blocks = c.clock.design.block_list();
+    let id = |s: &str| s.split('[').next().unwrap_or("").trim_start_matches("minecraft:").to_string();
+    let beds: Vec<[i32; 3]> = blocks.iter().filter(|(_, s)| id(s).ends_with("_bed")).map(|(p, _)| *p).collect();
+    if beds.is_empty() {
+        bail!("{}: no bed", design.display());
+    }
+    let mut near: Vec<(f64, [i32; 3], [i32; 3])> = Vec::new();
+    for (r, s) in blocks.iter().filter(|(p, s)| id(s).ends_with("rail") && inside(p)) {
+        let _ = s;
+        let (rx, ry, rz) = (r[0] as f64 + 0.5, r[1] as f64 + 0.35, r[2] as f64 + 0.5);
+        let best = beds.iter().map(|b| (((b[0] as f64 + 0.5 - rx).powi(2) + (b[1] as f64 + 0.5 - ry).powi(2) + (b[2] as f64 + 0.5 - rz).powi(2)).sqrt(), *b)).fold((f64::MAX, [0; 3]), |a, x| if x.0 < a.0 { x } else { a });
+        near.push((best.0, *r, best.1));
+    }
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    match near.first() {
+        Some((d, r, b)) => println!("{}: the bed's nearest rider place {d:.2} (rail {},{},{}, bed {},{},{}); margin over 16: {:+.2}", design.display(), r[0], r[1], r[2], b[0], b[1], b[2], d - 16.0),
+        None => println!("{}: no rail inside the riders' box", design.display()),
+    }
+    for (d, r, _) in near.iter().skip(1).take(4) {
+        println!("  {d:.2} at rail {},{},{}", r[0], r[1], r[2]);
+    }
+    Ok(())
+}
+
 /// `trace-diff` (the fold's check: which control lines moved, and by how much): two `release-trace`
 /// outputs, per port: identical, every edge shifted by the same gt (and that shift), or the first
 /// edge that differs.

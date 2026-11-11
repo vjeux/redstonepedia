@@ -73,7 +73,14 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     let s = Design::load(siding)?;
     let inbox = |q: &P3| (-7..=6).contains(&q[0]) && (-4..=4).contains(&q[1]) && (-3..=9).contains(&q[2]);
     let at = |q: &P3| [q[0] + SIDING_AT[0], q[1] + SIDING_AT[1], q[2] + SIDING_AT[2]];
+    // (measurement only, ironspec 2026-11-11: the integration gate's second night, every napper
+    // failing: the siding's bed occupied)
+    let occupied = std::env::var("MCTAS_BED_OCCUPIED").is_ok();
     for (q, st) in s.blocks.iter().filter(|(q, _)| inbox(q)) {
+        if occupied && st.contains("_bed[") {
+            b.put(at(q), &st.replace("occupied=false", "occupied=true"))?;
+            continue;
+        }
         b.put(at(q), st)?;
     }
     for (q, n) in s.block_entities.iter().filter(|(q, _)| inbox(q)) {
@@ -84,6 +91,17 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
         if inbox(&q) {
             let p = [e.pos[0] + SIDING_AT[0] as f64, e.pos[1] + SIDING_AT[1] as f64, e.pos[2] + SIDING_AT[2] as f64];
             d.entities.push(EntitySpec { kind: e.kind.clone(), pos: p, nbt: e.nbt.clone() });
+        }
+    }
+    // (a siding by itself (main's 248e34c6f, `siding: v1 wired alone`: "no launcher, approach,
+    // run-out") carries no approach: the one the bench siding carried (local x -7 a booster on a
+    // redstone block, x -6..-1 rails on glass, into its entry (0, 0, 0)) is laid where the pasted
+    // siding has nothing)
+    for lx in -7..=-1 {
+        let (r, sup) = (at(&[lx, 0, 0]), at(&[lx, -1, 0]));
+        if !b.blocks.contains_key(&r) {
+            b.put(r, &if lx == -7 { booster("east_west") } else { rail("east_west") })?;
+            b.put(sup, if lx == -7 { RBLOCK } else { GLASS })?;
         }
     }
     if b.blocks.get(&RELEASE).map(|s| s.as_str()) != Some(GLASS) {
@@ -104,12 +122,18 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
             bail!("the siding's force input {f} (local) is not at the module's F line's end {FORCE:?} (world)");
         }
     }
-    // the siding's own build list (`build: last x,y,z ...`, its cells placed after all others),
-    // moved into the loop's frame; joined with the drop ends' below
+    // the siding's own build list (`build: last x,y,z ...`, its cells placed after all others;
+    // `fills-last` may stand anywhere in it), moved into the loop's frame; joined with the drop
+    // ends' below
     let mut last: Vec<P3> = Vec::new();
+    let mut fills_last = false;
     if let Some(bl) = s.meta.get("build") {
-        let cells = bl.strip_prefix("last ").ok_or_else(|| anyhow::anyhow!("the siding's `build: {bl}` is not a `last` list"))?;
-        for c in cells.split_whitespace() {
+        let toks: Vec<&str> = bl.split_whitespace().collect();
+        if !toks.contains(&"last") {
+            bail!("the siding's `build: {bl}` is not a `last` list");
+        }
+        fills_last |= toks.contains(&"fills-last");
+        for c in toks.into_iter().filter(|t| *t != "last" && *t != "fills-last") {
             let v: Vec<i32> = c.split(',').map(|n| n.parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("the siding's build cell {c}: {e}"))?;
             if v.len() != 3 {
                 bail!("the siding's build cell {c} is not x,y,z");
@@ -252,11 +276,15 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     let mut cells: Vec<String> = [[-4, 1, 28], [-4, 1, 31], [-4, 1, 34]].iter().chain(last.iter()).map(|q| format!("{},{},{}", q[0], q[1], q[2])).collect();
     // (a build list the loop file already has comes first)
     if let Some(prev) = d.meta.get("build") {
-        let prev = prev.strip_prefix("last ").ok_or_else(|| anyhow::anyhow!("the loop's `build: {prev}` is not a `last` list"))?;
-        cells.splice(0..0, prev.split_whitespace().map(|c| c.to_string()));
+        let toks: Vec<&str> = prev.split_whitespace().collect();
+        if !toks.contains(&"last") {
+            bail!("the loop's `build: {prev}` is not a `last` list");
+        }
+        fills_last |= toks.contains(&"fills-last");
+        cells.splice(0..0, toks.into_iter().filter(|t| *t != "last" && *t != "fills-last").map(|c| c.to_string()));
     }
     cells.dedup();
-    d.meta.insert("build".into(), format!("last {}", cells.join(" ")));
+    d.meta.insert("build".into(), format!("last {}{}", cells.join(" "), if fills_last { " fills-last" } else { "" }));
     Ok(added)
 }
 
@@ -745,13 +773,16 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     b.on([19, -6, 10], &rep("west", 2))?;
     b.on([20, -6, 10], &comp("south", "subtract"))?;
     b.on([17, -6, 10], &rep("west", 1))?;
-    // the chain north: T0 (20, -6, 9), five repeaters, T1 (20, -6, 3), five, T2 (20, -6, -3)
+    // the chain north: T0 (20, -6, 9), five repeaters, T1 (20, -6, 3), five, T2 (20, -6, -3). The
+    // first after T0 at 2 rt: cart k's window starts 0 / +12 / +22 after cart 0's, not 0 / +10 /
+    // +20 (51b2aacd 23:58: the stand's guard sends its carts 13 and 10 gt apart; ironspec's
+    // contract: >= 3 gt each side of every cart's occupancy of the corner cell)
     let tz = [9, 3, -3];
     for (k, &z) in tz.iter().enumerate() {
         b.put([20, -6, z], STONE)?;
         if k < 2 {
             for dz in 1..=5 {
-                b.on([20, -6, z - dz], &rep("south", 1))?;
+                b.on([20, -6, z - dz], &rep("south", if k == 0 && dz == 1 { 2 } else { 1 }))?;
             }
         }
         // P_k east of the tap, its side from the north: a repeater fed by the row of NOT l_k
