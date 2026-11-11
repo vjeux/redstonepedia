@@ -38,10 +38,12 @@ pub fn spawn_golem_if_needed(w: &mut World, i: usize, needed: usize) {
         [b.x, b.y, b.z]
     });
     w.mob.events.push(MobEvent::GolemTry { t, villager, willing: willing as u32, golem, at });
-    if golem.is_some() {
+    if let Some(g) = golem {
         for j in nearby {
             if mob(w, j).brain.is_some() {
                 super::villager::golem_detected(w, j);
+                let id = w.entities.list[j].id;
+                w.mob.events.push(MobEvent::GolemLocked { t, villager: id, summoner: villager, golem: g });
             }
         }
     }

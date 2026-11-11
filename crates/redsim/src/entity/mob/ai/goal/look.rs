@@ -10,6 +10,10 @@ use crate::world::World;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LookType {
     Player,
+    /// (mob-AI 2026-11-11) `Mob.class` (a wandering trader's): the mobs whose boxes meet its box
+    /// grown by the distance (3 up and down), in the level's section order, the nearest
+    /// (`getNearestEntity`).
+    Mob,
 }
 
 /// `LookAtPlayerGoal`.
@@ -21,11 +25,13 @@ pub struct LookAtPlayer {
     pub only_horizontal: bool,
     pub look_at: Option<u32>,
     pub look_time: i32,
+    /// `InteractGoal` (a LookAtPlayerGoal holding LOOK and MOVE).
+    pub interact: bool,
 }
 
 impl LookAtPlayer {
     pub fn new(look_type: LookType, look_distance: f32) -> LookAtPlayer {
-        LookAtPlayer { look_type, look_distance, probability: 0.02, only_horizontal: false, look_at: None, look_time: 0 }
+        LookAtPlayer { look_type, look_distance, probability: 0.02, only_horizontal: false, look_at: None, look_time: 0, interact: false }
     }
 }
 
@@ -50,6 +56,11 @@ pub fn look_can_use(w: &mut World, i: usize, g: &mut LookAtPlayer) -> bool {
     let cond = Conditions::non_combat().range(g.look_distance as f64);
     let list = match g.look_type {
         LookType::Player => target::players(w),
+        LookType::Mob => {
+            let d = g.look_distance as f64;
+            let area = w.entities.list[i].bb.inflate(d, 3.0, d);
+            target::mobs_in(w, area, |_| true)
+        }
     };
     g.look_at = target::nearest(w, i, &list, &cond, at).map(|t| target::id_of(w, t));
     g.look_at.is_some()

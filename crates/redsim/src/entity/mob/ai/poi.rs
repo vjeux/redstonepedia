@@ -403,6 +403,12 @@ pub fn occupied_in_range_ordered(w: &mut World, center: BlockPos, radius: i32) -
     pois_ordered(w, center, radius, |_, taken| taken)
 }
 
+/// `PoiManager.getInRange(predicate, center, radius, occupancy)`' first position of a type (any
+/// occupancy): `find(MEETING, any, center, radius, ANY)`, the wandering trader spawner's.
+pub fn first_meeting_within(w: &mut World, center: BlockPos, radius: i32) -> Option<BlockPos> {
+    pois_ordered(w, center, radius, |k, _| k == PoiKind::Meeting).into_iter().next()
+}
+
 /// The POIs `keep(kind, claimed)` keeps within `radius` of `center`, in the POI manager's order.
 fn pois_ordered(w: &mut World, center: BlockPos, radius: i32, keep: impl Fn(PoiKind, bool) -> bool) -> Vec<BlockPos> {
     let taken = claimed(w);

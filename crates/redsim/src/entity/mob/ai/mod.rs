@@ -124,6 +124,12 @@ pub struct MobAi {
     pub stabbed: Vec<(u32, i64)>,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
+    /// (mob-AI 2026-11-11) `Mob.homePosition` and `homeRadius` (`None`: -1, no home): a wandering
+    /// trader's (its spawner's reference, 16), a leashed mob's (`PathfinderMob.whenLeashedTo`: the
+    /// holder's block, 5, every tick). The random positions pull toward it and stay inside it.
+    pub home: Option<(crate::pos::BlockPos, i32)>,
+    /// (mob-AI 2026-11-11) A wandering trader's or a trader llama's own state.
+    pub trader: Option<goal::trader::TraderState>,
 }
 
 impl MobAi {
@@ -216,6 +222,8 @@ impl MobAi {
             horse: None,
             stabbed: Vec::new(),
             age: 0,
+            home: None,
+            trader: None,
         };
         goal::register_goals(&mut ai, ty);
         if let Some(_) = cube::cube_size(d.id) {

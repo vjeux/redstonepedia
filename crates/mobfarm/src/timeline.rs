@@ -402,6 +402,13 @@ fn read_frame_villager(e: &serde_json::Value, t: i64, golems: &[u32]) -> Option<
     })
 }
 
+/// Whether villager entity `i` is panicking (its `VillagerPanicTrigger` running), as the timeline
+/// reads it; none if it is no villager with a brain (the runners' stand-batch count, ironspec
+/// 2026-11-11 05:49).
+pub(crate) fn panicking(w: &World, i: usize) -> Option<bool> {
+    read_villager(w, i).map(|r| r.panic)
+}
+
 fn read_villager(w: &World, i: usize) -> Option<Read> {
     let e = &w.entities.list[i];
     let EntityKind::Mob(m) = &e.kind else { return None };

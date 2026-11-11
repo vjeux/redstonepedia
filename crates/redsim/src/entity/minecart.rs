@@ -560,6 +560,13 @@ fn push_by(w: &mut World, j: usize, i: usize) {
     if matches!(w.entities.list[i].kind, entity::EntityKind::Minecart(_)) {
         push_other_minecart(w, j, i, xa, za);
     } else {
+        // (tickexact 2026-11-11, ironspec's push rule) a mob's push logged when asked
+        if matches!(w.entities.list[i].kind, entity::EntityKind::Mob(_)) && w.mob.cart_pushes.is_some() {
+            let p = crate::entity::mob::CartPush { t: w.time, mob: w.entities.list[i].id, cart: w.entities.list[j].id, push: [-xa, -za], dist: dd };
+            if let Some(log) = w.mob.cart_pushes.as_mut() {
+                log.push(p);
+            }
+        }
         // `this.push(-xa, 0, -za); entity.push(xa / 4, 0, za / 4)` (Entity.push: the delta; its
         // hasImpulse only syncs clients)
         let c = &mut w.entities.list[j];
@@ -572,6 +579,19 @@ fn push_by(w: &mut World, j: usize, i: usize) {
 /// A mob's `pushEntities` meeting cart `j`: `doPush` = `cart.push(mob)` ([`push_by`]).
 pub fn pushed_by_mob(w: &mut World, j: usize, i: usize) {
     push_by(w, j, i);
+}
+
+/// (tickexact 2026-11-11, ironspec's push rule) Start logging every push a mob gives a minecart
+/// (`MobWorld::cart_pushes`; a diagnostic, no model state).
+pub fn log_cart_pushes(w: &mut World) {
+    if w.mob.cart_pushes.is_none() {
+        w.mob.cart_pushes = Some(Vec::new());
+    }
+}
+
+/// The mob-on-cart pushes logged since the last call (empty unless [`log_cart_pushes`] ran).
+pub fn take_cart_pushes(w: &mut World) -> Vec<crate::entity::mob::CartPush> {
+    w.mob.cart_pushes.as_mut().map(std::mem::take).unwrap_or_default()
 }
 
 /// `AbstractMinecart.pushOtherMinecart(otherMinecart, xa, za)` on cart `j` (this), `i` the other

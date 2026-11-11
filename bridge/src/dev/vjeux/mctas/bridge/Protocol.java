@@ -179,6 +179,7 @@ public final class Protocol {
             case "teleport" -> teleport(r);
             case "poi_take" -> poiTake(r);
             case "poi_free" -> poiFree(r);
+            case "sensor_delay" -> sensorDelay(r);
             case "golem_spots" -> golemSpots(r);
             case "trace" -> trace(r);
             case "terrain" -> Terrain.load(this, sandbox(r), r);
@@ -1125,6 +1126,39 @@ public final class Protocol {
                 .orElse(-1);
         JsonObject o = new JsonObject();
         o.addProperty("free", free);
+        return o;
+    }
+
+    /**
+     * (tickexact 2026-11-11, ironspec's forced-phase mode) A villager's brain sensor start delay
+     * set: the villager nearest {@code pos} (its block's centre; within 2 blocks) gets its {@code
+     * sensor}-th sensor's {@code timeToTick} (the brain's sensor order: {@code Brain.<init>}'s
+     * {@code randomlyDelayStart}, one {@code nextInt(scanRate)} each) set to {@code value}. Returns
+     * the villager's id and the delay it had.
+     */
+    private JsonObject sensorDelay(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int[] p = ints(r.getAsJsonArray("pos"));
+        int k = r.get("sensor").getAsInt();
+        long v = r.get("value").getAsLong();
+        Vec3 c = new Vec3(p[0] + 0.5, p[1] + 0.5, p[2] + 0.5);
+        net.minecraft.world.entity.npc.villager.Villager best = null;
+        double bd = 4.0;
+        for (net.minecraft.world.entity.npc.villager.Villager e : sb.level.getEntitiesOfClass(
+                net.minecraft.world.entity.npc.villager.Villager.class, new net.minecraft.world.phys.AABB(c.x - 2, c.y - 2, c.z - 2, c.x + 2, c.y + 2, c.z + 2))) {
+            double d = e.position().distanceToSqr(c);
+            if (d < bd) {
+                bd = d;
+                best = e;
+            }
+        }
+        if (best == null) {
+            throw new IllegalArgumentException("sensor_delay: no villager within 2 of " + p[0] + " " + p[1] + " " + p[2]);
+        }
+        long was = Exact.setSensorDelay(best, k, v);
+        JsonObject o = new JsonObject();
+        o.addProperty("entity", best.getId());
+        o.addProperty("was", was);
         return o;
     }
 

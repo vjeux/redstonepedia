@@ -722,13 +722,18 @@ pub(crate) const FORCE: P3 = [-25, -1, 6];
 /// visit pulse (in sync with the module's R'); the router (T1 = NOT l1, T2 = l0) hangs off it.
 fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     use crate::schedgen::{DUST, rep};
-    // REL: a second tap on the core's REL dust (0, -1, 11), east along z 11 at y -1 to x 8, south to
-    // z 13, down a stair east to y -6, east along z 13, north to (20, -6, 12), a repeater into G2''s
-    // rear (full strength for the windows' long OR path; one repeater mid-way)
+    // REL: a second tap on the core's REL dust (0, -1, 11), east along z 11 at y -1 to x 7, down a
+    // stair south to y -3 and one east to y -4 (under farmopt's departure crest: its redstone
+    // blocks (9, -2, 10..15) and boosters (9, -1, 10..15) keep a dust off x 9 above y -4), east
+    // along z 13 at y -4, down a stair east to y -6, east along z 13, north to (20, -6, 12), a
+    // repeater into G2''s rear (full strength for the windows' long OR path; one repeater mid-way,
+    // 14 dust after the tap as before the crest)
     b.on([1, -1, 11], &rep("west", 1))?;
     let mut rel = vec![[2, -1, 11]];
-    seg_to(&mut rel, [8, -1, 11]);
-    seg_to(&mut rel, [8, -1, 13]);
+    seg_to(&mut rel, [7, -1, 11]);
+    seg_to(&mut rel, [7, -3, 13]);
+    seg_to(&mut rel, [8, -4, 13]);
+    seg_to(&mut rel, [11, -4, 13]);
     seg_to(&mut rel, [13, -6, 13]);
     seg_to(&mut rel, [20, -6, 13]);
     rel.push([20, -6, 12]);
