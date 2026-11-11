@@ -2370,6 +2370,13 @@ pub struct LoopTiming {
     /// With `rel_gate`: REL_eff ends DELAY gt after the next train's first cart enters C′'s detector
     /// cell (-3,3,7) (N), or TIMEOUT gt after its rise (`--rel-end-n DELAY,TIMEOUT`).
     pub rel_end_n: Option<(i64, i64)>,
+    /// With `rel_gate`: REL_eff ends 4 gt after the K-th cart since its rise crosses G0, or TIMEOUT
+    /// gt after its rise (`--rel-end-count K,TIMEOUT`).
+    pub rel_end_count: Option<(i64, i64)>,
+    /// With `rel_gate`: REL_eff ends D gt after the first cart since its rise enters this loop-frame
+    /// cell (the rearmost pocket's exit), or TIMEOUT gt after its rise
+    /// (`--rel-end-rear X,Y,Z,D,TIMEOUT`).
+    pub rel_end_rear: Option<([i32; 3], i64, i64)>,
     /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
     /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
     pub arrivals: bool,
@@ -2534,7 +2541,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, entry_hold: None, entry_hold_after: 0, depart_space: 0, rel_end_n: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], start_random: false, calm: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, entry_hold: None, entry_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], start_random: false, calm: false }
     }
 }
 
@@ -3423,6 +3430,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut gate_open_len: Vec<(i64, i64)> = Vec::new();
     let mut n_d_last: Option<i64> = None;
     let mut n_d_was = false;
+    let mut cnt_prev_x: Vec<Option<f64>> = Vec::new();
+    let mut cnt_since_rise: i64 = 0;
+    let mut rear_prev: Vec<bool> = Vec::new();
+    let mut rear_edge_at: Option<i64> = None;
+    let mut rear_edge_after: Vec<i64> = Vec::new();
+    let mut rear_extra: i64 = 0;
+    let mut rear_extra_log: Vec<String> = Vec::new();
     let mut gate_skips: Vec<(i64, i64)> = Vec::new();
     // (`split`: done for this release, G2 held until, the cell's occupants, held last tick, the
     // releases split (slot, dt), the held ticks)
@@ -4658,10 +4672,57 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // in an earlier pulse (the memory: a pulse that passed its deadline untriggered); past
             // the deadline the pulse is skipped and remembered, so a held release waits at most
             // one REL period)
-            if gate_eff_until.is_some_and(|u| t >= u) && (tm.rel_end_n.is_some() || !(raw && gate_trig_this_pulse)) {
+            if gate_eff_until.is_some_and(|u| t >= u) && (tm.rel_end_n.is_some() || tm.rel_end_count.is_some() || tm.rel_end_rear.is_some() || !(raw && gate_trig_this_pulse)) {
                 gate_eff_until = None;
                 if let Some(er) = gate_eff_rise.take() {
                     gate_open_len.push((c, t - er));
+                }
+            }
+            // (`rel_end_rear` (cell, D, TIMEOUT): REL_eff ends D gt after the first cart since its rise
+            // enters the rearmost pocket's exit cell (only pocket 3's departing cart crosses it while
+            // the release is open), or TIMEOUT gt after its rise; arrivals entering the cell while
+            // REL_eff is open are counted (they would fool it))
+            if let Some((rc, rd, _)) = tm.rel_end_rear {
+                let (x0, y0, z0) = (rc[0] as f64 + o.shift[0] as f64, rc[1] as f64, rc[2] as f64 + o.shift[1] as f64);
+                let ins: Vec<bool> = carts.iter().map(|id| pos_of(&run.world, *id).is_some_and(|p| p.x >= x0 && p.x < x0 + 1.0 && p.z >= z0 && p.z < z0 + 1.0 && p.y >= y0 - 0.5 && p.y < y0 + 1.5)).collect();
+                let entered: Vec<usize> = ins.iter().enumerate().filter(|(i, v)| **v && !rear_prev.get(*i).copied().unwrap_or(false)).map(|(i, _)| i).collect();
+                rear_prev = ins;
+                if let Some(er) = gate_eff_rise {
+                    for i in &entered {
+                        if rear_edge_at.is_none() {
+                            rear_edge_at = Some(t);
+                            rear_edge_after.push(t - er);
+                        } else {
+                            rear_extra += 1;
+                            if rear_extra_log.len() < 4 {
+                                rear_extra_log.push(format!("cart {i} slot {c} +{dt}"));
+                            }
+                        }
+                    }
+                    if let Some(te) = rear_edge_at {
+                        let end = te + rd;
+                        if gate_eff_until.is_some_and(|u| end < u) {
+                            gate_eff_until = Some(end.max(t));
+                        }
+                    }
+                } else {
+                    rear_edge_at = None;
+                }
+            }
+            // (`rel_end_count` (K, TIMEOUT): REL_eff ends on cart evidence, 4 gt after the K-th cart
+            // since its rise crosses G0 eastward (the batch out), or TIMEOUT gt after its rise)
+            if let (Some((kk, _)), Some((g0, _))) = (tm.rel_end_count, lay.pockets.first()) {
+                let gx = g0.x as f64 + 0.5;
+                let xs: Vec<Option<f64>> = carts.iter().map(|id| pos_of(&run.world, *id).filter(|p| (p.z - (g0.z as f64 + 0.5)).abs() < 0.6).map(|p| p.x)).collect();
+                let crossed = xs.iter().enumerate().filter(|(i, x)| x.is_some_and(|x| x >= gx) && cnt_prev_x.get(*i).copied().flatten().is_some_and(|w| w < gx)).count();
+                cnt_prev_x = xs;
+                if gate_eff_rise.is_some() {
+                    cnt_since_rise += crossed as i64;
+                    if cnt_since_rise >= kk && gate_eff_until.is_some_and(|u| t + 4 < u) {
+                        gate_eff_until = Some(t + 4);
+                    }
+                } else {
+                    cnt_since_rise = 0;
                 }
             }
             // (`rel_end_n` (DELAY, TIMEOUT): REL_eff ends train-synchronously, DELAY gt after the
@@ -4693,8 +4754,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     gate_missed = true;
                     gate_skips.push((c, dt));
                 } else if by_q || gate_missed {
-                    gate_eff_until = Some(t + tm.rel_end_n.map_or(gl, |(_, to)| to));
+                    gate_eff_until = Some(t + tm.rel_end_n.map(|(_, to)| to).or(tm.rel_end_count.map(|(_, to)| to)).or(tm.rel_end_rear.map(|(_, _, to)| to)).unwrap_or(gl));
                     gate_eff_rise = Some(t);
+                    rear_edge_at = None;
+                    cnt_since_rise = 0;
                     gate_armed = false;
                     gate_trig_this_pulse = true;
                     gate_log.push((c, dt, since, by_q, if q { gate_q_at.map(|qa| t - qa) } else { None }));
@@ -6321,6 +6384,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let mm = |v: &Vec<i64>| if v.is_empty() { "-".to_string() } else { format!("{}..{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
             out.push(format!("rel gate band: the batch at rest {} gt after the latch sets (S at least the top); the latch's age at REL's rise {} gt (S at most the bottom keeps a release undelayed)", mm(&gate_rest_after_q), mm(&gate_age_at_rise)));
             let ol: Vec<i64> = gate_open_len.iter().map(|(_, l)| *l).collect();
+            if let Some((rc, rd, rto)) = tm.rel_end_rear {
+                out.push(format!("rear exit cell {},{},{} (REL_eff ends {rd} gt after its first entry, or {rto} gt after the rise): entered {} gt after REL_eff's rise; other carts entering it while REL_eff is open: {rear_extra}{}", rc[0], rc[1], rc[2], mm(&rear_edge_after), if rear_extra_log.is_empty() { String::new() } else { format!(" ({})", rear_extra_log.join("; ")) }));
+            }
             out.push(format!("REL_eff open lengths: {} gt{}{}", mm(&ol), if let Some((nd, to)) = tm.rel_end_n { format!(" (ended on N + {nd} or a {to} gt timeout)") } else { String::new() }, if gate_open_len.is_empty() { String::new() } else { format!("; each: {}", gate_open_len.iter().take(16).map(|(c, l)| format!("{c}:{l}")).collect::<Vec<_>>().join(" ")) }));
         }
         if tm.late_hold.iter().any(|h| h.is_some()) {
