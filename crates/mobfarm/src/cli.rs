@@ -1920,7 +1920,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         (false, None, _) => "the judge's placement".to_string(),
                     };
                     let (mut clean, mut bad) = (0, Vec::new());
-                    // (`--jobs`: the seeds run on that many threads at once, results in seed order)
+                    // (`--jobs`: the seeds run on that many threads at once, results in seed order,
+                    // each chunk's seeds printed as soon as it ends: a long run's partial results
+                    // survive it)
                     let mut results: Vec<(i64, String)> = Vec::new();
                     let all: Vec<i64> = (seed..seed + seeds).collect();
                     for chunk in all.chunks(jobs.max(1)) {
@@ -1929,22 +1931,65 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
                         });
                         for (s, r) in got {
-                            results.push((s, r.map_err(|e| anyhow::anyhow!(e))?));
+                            let r = r.map_err(|e| anyhow::anyhow!(e))?;
+                            let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
+                            let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).unwrap_or("").trim().to_string();
+                            if seeds > 1 {
+                                // (and how often a rider took damage, a zombie in reach say)
+                                let hurt = r.matches(" hurt at slot ").count();
+                                println!("{label}, seed {s}: {probs} {first}{}", if hurt > 0 { format!(" (riders hurt {hurt} times)") } else { String::new() });
+                                use std::io::Write;
+                                let _ = std::io::stdout().flush();
+                            }
+                            results.push((s, r));
                         }
                     }
                     for (s, r) in &results {
                         let s = *s;
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
-                        let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).unwrap_or("").trim().to_string();
-                        if seeds > 1 {
-                            // (and how often a rider took damage, a zombie in reach say)
-                            let hurt = r.matches(" hurt at slot ").count();
-                            println!("{label}, seed {s}: {probs} {first}{}", if hurt > 0 { format!(" (riders hurt {hurt} times)") } else { String::new() });
-                        }
                         if probs.starts_with("0 problems") { clean += 1 } else { bad.push(s) }
                     }
                     all_clean &= bad.is_empty();
                     println!("{label}: {clean} of {seeds} seeds clean over {cycles} slots each{}", if bad.is_empty() { String::new() } else { format!("; problems on seeds {bad:?}") });
+                    // (the nap visits over every seed: per stand cart (its drop slot), how many,
+                    // how many came back, the roll-off speeds; and the nights with every rider
+                    // asleep)
+                    let mut per_k: std::collections::BTreeMap<String, (usize, usize, f64, f64, Vec<f64>)> = std::collections::BTreeMap::new();
+                    let (mut nights, mut full_nights) = (0usize, 0usize);
+                    for (_, r) in &results {
+                        for l in r.lines() {
+                            if let Some(rest) = l.strip_prefix("visit slot ") {
+                                let k = rest.split(" cart ").nth(1).and_then(|t| t.split(':').next()).unwrap_or("?").to_string();
+                                let e = per_k.entry(k).or_insert((0, 0, f64::MAX, 0.0, Vec::new()));
+                                e.0 += 1;
+                                if l.contains("back at rest in slot") {
+                                    e.1 += 1;
+                                }
+                                if let Some(v) = l.split("rolled off its drop rail at +").nth(1).and_then(|t| t.split(" at ").nth(1)).and_then(|t| t.split(' ').next()).and_then(|t| t.parse::<f64>().ok()) {
+                                    e.2 = e.2.min(v);
+                                    e.3 = e.3.max(v);
+                                    e.4.push(v);
+                                }
+                            }
+                            if let Some(rest) = l.strip_prefix("visits: ") {
+                                for n in rest.split("; ").filter(|t| t.starts_with("night ")) {
+                                    nights += 1;
+                                    if n.split(": ").nth(1).is_some_and(|t| { let w: Vec<&str> = t.split_whitespace().collect(); w.len() >= 3 && w[0] == w[2] }) {
+                                        full_nights += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !per_k.is_empty() {
+                        let parts: Vec<String> = per_k.iter().map(|(k, (n, back, lo, hi, vs))| {
+                            let mut vs = vs.clone();
+                            vs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                            let pct = |p: f64| vs.get(((vs.len() as f64 - 1.0) * p).round() as usize).copied().unwrap_or(0.0);
+                            format!("cart {k}: {back} of {n} back, roll-off {lo:.2}..{hi:.2} b/t (median {:.2}, 99th pct {:.2})", pct(0.5), pct(0.99))
+                        }).collect();
+                        println!("{label}: nap visits over every seed: {}; nights with every rider asleep: {full_nights} of {nights}", parts.join("; "));
+                    }
                     // (the pocket stand's margins over every seed: each run's `stand margins:` line)
                     let mut agg: Option<[i64; 9]> = None;
                     for (_, r) in &results {
