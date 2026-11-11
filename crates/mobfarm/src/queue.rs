@@ -2168,20 +2168,22 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // (`build_priced`: each cell's own priced gap, prices.tsv's place 1 s = 20 gt, and 2 s =
         // 40 gt for a cell the bill charges place:edge, the longest priced gap; else `g` for all)
         let edges = edge_cells(spec);
-        // (a design's `build: last x,y,z ...`: those cells after every other, in its order)
+        // (a design's `build: last x,y,z ...`: those cells after every other one, in its order, and
+        // after the `fills-last` stocks too, as placing.rs's build steps list them (day-1, 20:55:
+        // detectors listed last went down before the rings were stocked))
         let mut order = build_order(spec);
+        let mut last: Vec<(BlockPos, Block, Option<String>)> = Vec::new();
         for p in tm.build_last.iter().flatten() {
             if let Some(i) = order.iter().position(|(q, _, _)| q == p) {
-                let cell = order.remove(i);
-                order.push(cell);
+                last.push(order.remove(i));
             }
         }
         let mut fills: Vec<(BlockPos, String)> = Vec::new();
-        for (p, b, fill) in order {
+        let place = |run: &mut Run, p: BlockPos, b: Block, fill: Option<String>, defer: bool, fills: &mut Vec<(BlockPos, String)>| -> Result<(), String> {
             run.world.set_block(p, b, redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, b));
             if let Some(f) = fill {
-                if tm.build_fills_last {
+                if defer {
                     fills.push((p, f));
                 } else {
                     redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
@@ -2192,14 +2194,21 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             for _ in 0..gap.max(1) {
                 run.tick();
             }
+            Ok(())
+        };
+        for (p, b, fill) in order {
+            place(&mut run, p, b, fill, tm.build_fills_last, &mut fills)?;
         }
         // (`build: fills-last`: the containers' stocks after every block, in the build's order)
-        for (p, f) in fills {
+        for (p, f) in std::mem::take(&mut fills) {
             redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
             drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
             for _ in 0..(if tm.build_priced { 20 } else { g }).max(1) {
                 run.tick();
             }
+        }
+        for (p, b, fill) in last {
+            place(&mut run, p, b, fill, false, &mut fills)?;
         }
         // (the cells the build left different from the file: a design that needs a listed order
         // or a "place this last" step shows up here)
