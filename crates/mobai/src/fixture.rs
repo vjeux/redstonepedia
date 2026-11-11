@@ -128,6 +128,19 @@ fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<
 fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> Result<()> {
     for (p, s) in blocks {
         let pos = BlockPos::new(p[0], p[1], p[2]);
+        // (tickexact 2026-11-10, farmopt's station) a drive's Nether build: redsim's Nether part
+        // only (the bridge has no Nether: [`GameScene::apply`] skips it)
+        if let Some(st) = s.strip_prefix("nether:") {
+            let n = w.nether.as_deref_mut().ok_or_else(|| anyhow!("a nether-set act in a scene without a Nether part"))?;
+            let b = Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("action block {st}: {e}"))?;
+            n.set_block(pos, b, redsim::world::flags::ALL);
+            continue;
+        }
+        if let Some(snbt) = s.strip_prefix("nether-nbt:") {
+            let n = w.nether.as_deref_mut().ok_or_else(|| anyhow!("a nether-nbt act in a scene without a Nether part"))?;
+            redsim::redstone::container::apply_block_entities(n, [(pos, snbt)]).map_err(|e| anyhow!(e))?;
+            continue;
+        }
         if let Some(snbt) = s.strip_prefix("nbt:") {
             redsim::redstone::container::apply_block_entities(w, [(pos, snbt)]).map_err(|e| anyhow!(e))?;
             continue;
@@ -267,8 +280,18 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
 ///   own redstone switches the T, the activator, the hatch and the kick); the bench launches each
 ///   cart from rest on its launcher and moves it back to its hold after the exit (`tp`) and places
 ///   the release as a redstone block for 10 gt. The one bed's shared claim is the design's (`port
-///   home`, R1's end state: [`scene_home`]): every villager loads HOME = the bed, the bed's one
-///   ticket taken.
+///   home`, R1's end state: [`scene_home`]): every villager loads HOME = the bed as data, no
+///   ticket taken on either side.
+/// - carousel-wired-v3 / carousel-wired-v3-built: day-1's published wired loop (explore/day1-counter
+///   b808c2125: v2 plus 31 glass covers over the off-pad golem spawn cells), placed as written /
+///   built in order, ironfarm's `queue-loop-run --wired=-7,-1,5 --tail-check-at 43 --cycles 60
+///   --placed-raw | --placed-in-order` drive logs: WIRED, the golem pulse the only input.
+/// - station-raw / station-built: farmopt's linear stand with its Nether part
+///   (`carousel-linear-stand.txt`), its `linear-bench --from 1 --to 1 --days 1 --lead 60
+///   --placed-raw | --placed-in-order` drive logs (bench-driven: the batches teleported to the
+///   stand). Not exact yet: the bridge has no Nether, so a golem at the portal stays in the game's
+///   overworld while redsim's crosses (t102); its Nether part and `nether-set` / `nether-nbt` acts
+///   are redsim's alone ([`scene_nether`]).
 const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
@@ -276,8 +299,12 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-wired-raw", include_str!("../scenes/carousel-wired.txt"), include_str!("../scenes/carousel-wired-raw.drive")),
     ("carousel-wired-v2", include_str!("../scenes/carousel-wired-v2.txt"), include_str!("../scenes/carousel-wired-v2-raw.drive")),
     ("carousel-wired-built", include_str!("../scenes/carousel-wired-v2.txt"), include_str!("../scenes/carousel-wired-v2-built.drive")),
+    ("carousel-wired-v3", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/carousel-wired-v3-raw.drive")),
+    ("carousel-wired-v3-built", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/carousel-wired-v3-built.drive")),
     ("siding-raw", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/siding-wired-raw.drive")),
     ("siding-built", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/siding-wired-built.drive")),
+    ("station-raw", include_str!("../scenes/station-linear-stand.txt"), include_str!("../scenes/station-linear-stand-raw.drive")),
+    ("station-built", include_str!("../scenes/station-linear-stand.txt"), include_str!("../scenes/station-linear-stand-built.drive")),
 ];
 
 /// A drive scene's day time at its spawn in its bench's run: the bench's world is
@@ -354,6 +381,12 @@ fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
             Some("poi-take") if f.len() == 6 => {
                 let (Some(x), Some(y), Some(z)) = (int(3), int(4), int(5)) else { bad(line) };
                 ([x, y, z], "poi-take".to_string())
+            }
+            // (farmopt's station) its Nether part's build, in the file's Nether coordinates
+            // (anchor 0 0 0): redsim's Nether only ([`apply_redsim`])
+            Some("nether-set") | Some("nether-nbt") if f.len() == 7 => {
+                let (Some(x), Some(y), Some(z)) = (int(3), int(4), int(5)) else { bad(line) };
+                ([x, y, z], format!("{}:{}", if f[2] == "nether-set" { "nether" } else { "nether-nbt" }, f[6].trim()))
             }
             _ => bad(line),
         };
@@ -513,9 +546,9 @@ enum Placement {
 fn scene_placement(name: &str) -> Placement {
     match name {
         "carousel-wired" => Placement::Judge,
-        "carousel-wired-raw" | "carousel-wired-v2" => Placement::Merged,
-        "carousel-wired-built" | "siding-built" => Placement::Built,
-        "siding-raw" => Placement::Merged,
+        "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" => Placement::Merged,
+        "carousel-wired-built" | "carousel-wired-v3-built" | "siding-built" | "station-built" => Placement::Built,
+        "siding-raw" | "station-raw" => Placement::Merged,
         _ => Placement::Raw,
     }
 }
@@ -2313,7 +2346,7 @@ fn scenes_raw() -> Vec<Scene> {
         // seed, less the settle before the summon)
         let day_time = if first {
             1000
-        } else if name.starts_with("carousel-wired") || name.starts_with("siding") {
+        } else if name.starts_with("carousel-wired") || name.starts_with("siding") || name.starts_with("station") {
             // (the bench's world: day0 at the end of its settle, which the raw paste skips)
             drive_day0(name).unwrap_or(200) - redsim::entity::mob::farm::SETTLE_TICKS
         } else {
@@ -2422,6 +2455,10 @@ impl GameScene {
         // entity act through its bridge op
         let mut run: Vec<([i32; 3], &str)> = Vec::new();
         for (p, s) in blocks {
+            // (a Nether build act: the bridge has no Nether, redsim's part alone takes it)
+            if s.starts_with("nether:") || s.starts_with("nether-nbt:") {
+                continue;
+            }
             let special = s.starts_with("nbt:") || entity_act(*p, s)?.is_some();
             if special && !run.is_empty() {
                 self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
@@ -2514,7 +2551,43 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     }
     w.mirror_level_random(seed, s.chunks);
     w.random_ticks = Some(redsim::crops::RandomTicks::new(s.random_tick_speed, seed));
+    // the sandbox's SPAWN_MOBS / SPAWN_MONSTERS rules ([`scene_spawns`]: a nether portal's random
+    // tick draws only with monsters spawning)
+    w.spawn_monsters = Some(scene_spawns(&s.name));
+    if let Some(n) = scene_nether(&s.name)? {
+        w.nether = Some(Box::new(n));
+    }
     Ok(w)
+}
+
+/// (tickexact 2026-11-10, farmopt's station) A drive scene's Nether part in redsim, as the farm's
+/// `Run::start` builds it (`World::nether`: its own world, the design's `nether` lines at the
+/// anchor's Nether image, its `nether nbt:` data merged, its output chest emptied; a built-in-order
+/// scene's part starts empty, its drive's `nether-set` acts build it). The bridge has no Nether: a
+/// golem crossing leaves both overworlds, the Nether side is redsim's alone (not compared).
+fn scene_nether(name: &str) -> Result<Option<World>> {
+    let Some(d) = drive_design(name) else { return Ok(None) };
+    if d.nether_blocks.is_empty() {
+        return Ok(None);
+    }
+    let spec = circuit::mobfarm::spec_of(&circuit::Circuit::from_design(d)?).map_err(|e| anyhow!(e))?;
+    let Some(ns) = spec.nether else { return Ok(None) };
+    let seed = drive_text(name)
+        .and_then(|t| t.lines().find_map(|l| l.trim_start_matches('#').trim_start().strip_prefix("seed ").and_then(|s| s.trim().parse::<i64>().ok())))
+        .unwrap_or(1);
+    let o = redsim::entity::mob::farm::RunOpts { ai: true, raw: true, ..redsim::entity::mob::farm::RunOpts::steady(seed, 24000, redsim::entity::mob::farm::WalkMode::Random) };
+    let mut n = ns.world(&o).map_err(|e| anyhow!(e))?;
+    if scene_placement(name) != Placement::Built {
+        n.place_raw(&ns.placed());
+        let bes = ns.block_entities_at();
+        redsim::redstone::container::apply_block_entities(&mut n, bes.iter().map(|(p, s)| (*p, s.as_str()))).map_err(|e| anyhow!(e))?;
+        if let Some(out) = ns.output_at()
+            && matches!(n.get(out), Block::Chest { .. })
+        {
+            redsim::redstone::container::apply_block_entities(&mut n, [(out, "{Items:[]}")]).map_err(|e| anyhow!(e))?;
+        }
+    }
+    Ok(Some(n))
 }
 
 /// Summon the scene's mobs in redsim (no follow-range bonus: a summon has none).

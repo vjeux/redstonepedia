@@ -176,6 +176,11 @@ pub struct World {
     /// (tickexact 2026-11-10) Inside [`World::tick`], entities included (the bridge's
     /// `Sandbox.ticking`: a drop then is reseeded by its drop seeder, [`World::pop_resource`]).
     pub in_tick: bool,
+    /// (tickexact 2026-11-10) `ServerLevel.isSpawningMonsters` (SPAWN_MOBS and SPAWN_MONSTERS) for
+    /// a world without natural spawning (`mob.natural` None): `None` = on (the judge's void runs,
+    /// whose game has them on); a mob AI fixture scene sets its sandbox's rules (a nether portal's
+    /// random tick draws only with monsters spawning).
+    pub spawn_monsters: Option<bool>,
     /// Comparator block entities: their output signal.
     pub comparator_out: HashMap<BlockPos, u8>,
     /// Container block entities (droppers, dispensers, hoppers): contents, hopper cooldowns.
@@ -357,6 +362,7 @@ impl World {
             nu_count: 0,
             handling_tick: false,
             in_tick: false,
+            spawn_monsters: None,
             comparator_out: HashMap::new(),
             containers: Default::default(),
             torch_toggles: Vec::new(),
