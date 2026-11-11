@@ -895,7 +895,7 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
 /// Each door it opens or closes draws its sound's pitch from the level random.
 fn interact_with_door(w: &mut World, i: usize, n: usize) -> bool {
     let Some(path) = ex(w, i).mem.path.clone() else { return false };
-    let live = ai(w, i).nav.path.clone().filter(|p| p.uid == path.uid).unwrap_or(path);
+    let live = ai(w, i).nav.path_object(&path).clone();
     if live.not_started() || live.is_done() {
         return false;
     }
@@ -1003,7 +1003,7 @@ fn other_villager_coming_through(w: &World, i: usize, d: BlockPos) -> bool {
         }
         let Some(x) = m.brain.as_deref().and_then(|b| b.ex.as_deref()) else { return false };
         let Some(pa) = x.mem.path.as_ref() else { return false };
-        let live = m.ai.as_deref().and_then(|a| a.nav.path.as_ref()).filter(|n| n.uid == pa.uid).unwrap_or(pa);
+        let live = m.ai.as_deref().map(|a| a.nav.path_object(pa)).unwrap_or(pa);
         if live.is_done() || live.next_node_index == 0 {
             return false;
         }

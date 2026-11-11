@@ -128,6 +128,9 @@ pub static DEFS: &[TypeDef] = &[
     // (mob-AI 2026-11-10) a baby zombie horse (AbstractHorse.finalizeSpawn: 1 in 5):
     // ZombieHorse.BABY_DIMENSIONS, the zombie horse's x 0.7 (its passenger seat: `rider_seat`)
     row(49, "baby_zombie_horse", "minecraft:zombie_horse", 1.3964844 * 0.7, 1.6 * 0.7, 1.52 * 0.7, 25.0, 0.2f32 as f64, false, true, 1.0),
+    // (mob-AI 2026-11-10) the phantom (size 0: EntityTypes.PHANTOM's 0.9 x 0.5, eye 0.175; Monster's
+    // attributes; no fall damage: its checkFallDamage does nothing; it burns in daylight)
+    TypeDef { fall_immune: true, ..row(50, "phantom", "minecraft:phantom", 0.9, 0.5, 0.175, 20.0, 0.7, true, true, 0.6) },
 ];
 
 // ------------------------------------------------------------------------- the categories
@@ -345,6 +348,8 @@ pub static KINDS: &[Kind] = &[
     kind("minecraft:skeleton_horse", MobType::Natural(46), C::Creature, P::OnGround, Rule::Always, 1, false, None, F::Unmodeled, false, W::Animal),
     kind("minecraft:zombified_piglin", MobType::Natural(47), C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(48)), F::Unmodeled, false, W::Monster),
     kind("minecraft:bee", MobType::Natural(43), C::Creature, P::NoRestrictions, Rule::Always, 4, false, None, F::Unmodeled, false, W::Animal),
+    // (mob-AI 2026-11-10) the phantom spawner's (`spawn_phantom`; never a biome's)
+    kind("minecraft:phantom", MobType::Natural(50), C::Monster, P::NoRestrictions, Rule::Always, 1, true, None, F::Unmodeled, false, W::None),
 ];
 
 /// A spawnable type by its game id.
@@ -1522,6 +1527,36 @@ pub fn spawn_cat(w: &mut World, at: BlockPos, persistent: bool) -> u32 {
         && let EntityKind::Mob(m) = &mut e.kind
     {
         m.persistence_required = true;
+    }
+    if temp {
+        w.mob.natural = None;
+    }
+    id
+}
+
+/// (mob-AI 2026-11-10) The phantom spawner's phantom at cell `at`: `EntityTypes.PHANTOM.create`
+/// (a construction), `snapTo(spawnPos, 0, 0)` (the cell's bottom centre), `finalizeSpawn`
+/// (NATURAL: its anchor 5 above its block, size 0, then Mob's follow range triangle and
+/// left-handed roll from the level random), added. Returns its id.
+pub fn spawn_phantom(w: &mut World, at: BlockPos) -> u32 {
+    let temp = w.mob.natural.is_none();
+    if temp {
+        let players: Vec<Vec3> = w.afk.into_iter().collect();
+        w.mob.natural = Some(Natural::new(players, w.mob.ai.difficulty));
+    }
+    let _ctor = w.construct();
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.bonuses.clear();
+    }
+    mob_base(w);
+    let k = kind_of("minecraft:phantom").expect("a phantom row");
+    let f = Finalized { ty: k.ty, baby: false, jockey: Jockey::None, helmet: None, rider_helmet: None, breaks_doors: false, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None, hand: Hand::default(), rider_hand: Hand::default() };
+    let pos = Vec3::new(at.x as f64 + 0.5, at.y as f64, at.z as f64 + 0.5);
+    let id = spawn_mob(w, k, &f, pos, 0.0);
+    if let Some(i) = crate::entity::index_of(w, id)
+        && super::ai::phantom::is_phantom(w, i)
+    {
+        super::ai::phantom::set_anchor(w, i);
     }
     if temp {
         w.mob.natural = None;

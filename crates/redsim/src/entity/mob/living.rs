@@ -571,6 +571,23 @@ pub fn travel(w: &mut World, i: usize, input: Vec3) {
         entity::move_(w, i, MoverType::Self_, d);
         return;
     }
+    // (mob-AI 2026-11-10) Phantom.travel: travelFlying(input, 0.2F): no gravity; in water 0.02F
+    // and x 0.8F, in lava 0.02F and x 0.5, else 0.2F and x 0.91F
+    if super::ai::phantom::is_phantom(w, i) {
+        let (speed, scale) = if w.entities.list[i].fluid.in_water() {
+            (0.02f32, 0.8f32 as f64)
+        } else if mob(w, i).lava_height > 0.0 {
+            (0.02f32, 0.5)
+        } else {
+            (0.2f32, 0.91f32 as f64)
+        };
+        move_relative(w, i, speed, input);
+        let d = w.entities.list[i].delta_movement;
+        entity::move_(w, i, MoverType::Self_, d);
+        let d = w.entities.list[i].delta_movement;
+        w.entities.list[i].delta_movement = d.scale(scale);
+        return;
+    }
     let in_water = w.entities.list[i].fluid.in_water();
     let in_lava = mob(w, i).lava_height > 0.0;
     if in_water || in_lava {
@@ -981,9 +998,11 @@ fn die(w: &mut World, i: usize, src: Damage) {
     }
     w.game_event_at("entity_die", [pos.x, pos.y, pos.z], None, false);
     drop_loot(w, i, src);
-    // dropCustomDeathLoot (after the loot table, when it drops loot): a picked-up item in hand
+    // dropCustomDeathLoot (after the loot table, when it drops loot): a picked-up item in hand;
+    // an enderman's carried block after it
     if drops_loot(w, i) {
         super::ai::loot::drop_hand(w, i);
+        super::ai::goal::enderman::drop_carried(w, i);
     }
 }
 
@@ -1352,9 +1371,31 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
         let on = entity::collide::get_on_pos(w, &w.entities.list[i], 0.2);
         let on_state = w.get(on);
         let distance = w.entities.list[i].fall_distance;
-        let distance = if matches!(on_state, Block::Bed { .. }) { distance * 0.5 } else { distance };
-        if !matches!(on_state, Block::Simple(Simple::SlimeBlock)) && !chicken {
-            cause_fall_damage(w, i, distance);
+        // (mob-AI 2026-11-10) the landing block's fallOn: a bed or a shelf mushroom halves the fall
+        // (fallDistanceReduction 0.5F), hay and honey take a 0.2F damage modifier, slime none;
+        // farmland's trampling roll (the level random) first
+        let id = match &on_state {
+            Block::Terrain(t) => crate::terrain::blocks::props(*t).block_id().to_string(),
+            Block::Bed { .. } => "minecraft:red_bed".to_string(),
+            Block::Simple(Simple::SlimeBlock) => "minecraft:slime_block".to_string(),
+            Block::Simple(Simple::HoneyBlock) => "minecraft:honey_block".to_string(),
+            Block::Farmland { .. } => "minecraft:farmland".to_string(),
+            _ => String::new(),
+        };
+        if id == "minecraft:farmland" {
+            let (wd, ht) = mob(w, i).dims();
+            let griefing = w.mob.ai.mob_griefing;
+            crate::stems::mob_fall_on(w, on, distance, wd, ht, griefing);
+        }
+        let bed = id.ends_with("_bed") || id == "minecraft:shelf_mushroom";
+        let distance = if bed { distance * (1.0f32 - 0.5f32) as f64 } else { distance };
+        let modifier = match id.as_str() {
+            "minecraft:slime_block" => 0.0f32,
+            "minecraft:hay_block" | "minecraft:honey_block" => 0.2f32,
+            _ => 1.0f32,
+        };
+        if modifier > 0.0 && !chicken {
+            cause_fall_damage(w, i, distance, modifier);
         }
         let e = &w.entities.list[i];
         let at = [e.pos.x, e.pos.y, e.pos.z];
@@ -1366,21 +1407,21 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
     }
 }
 
-/// `LivingEntity.causeFallDamage(distance, 1, fall)`: `floor(distance + 1e-6 - 3)` damage unless
-/// immune (`calculateFallDamage`).
-fn cause_fall_damage(w: &mut World, i: usize, distance: f64) {
+/// `LivingEntity.causeFallDamage(distance, modifier, fall)`: `floor((distance + 1e-6 - 3) x
+/// modifier)` damage unless immune (`calculateFallDamage`).
+fn cause_fall_damage(w: &mut World, i: usize, distance: f64, modifier: f32) {
     if mob(w, i).ty.def().fall_immune {
         return;
     }
     // a horse: SAFE_FALL_DISTANCE 6, FALL_DAMAGE_MULTIPLIER 0.5 (createBaseHorseAttributes)
     if super::ai::goal::animal::is_horse(mob(w, i).ty.def().id) {
-        let dmg = mth::floor((distance + 1.0e-6 - 6.0) * 1.0 * 0.5);
+        let dmg = mth::floor((distance + 1.0e-6 - 6.0) * modifier as f64 * 0.5);
         if dmg > 0 {
             hurt(w, i, Damage::Fall, dmg as f32);
         }
         return;
     }
-    let dmg = mth::floor(distance + 1.0e-6 - 3.0);
+    let dmg = mth::floor((distance + 1.0e-6 - 3.0) * modifier as f64);
     if dmg > 0 {
         hurt(w, i, Damage::Fall, dmg as f32);
     }

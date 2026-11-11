@@ -127,6 +127,7 @@ fn ensure_tickets(w: &mut World) -> &mut std::collections::BTreeMap<(i32, i32, i
 /// `PoiManager.take`: a ticket of the record at `p` taken.
 pub fn take(w: &mut World, p: BlockPos) {
     *ensure_tickets(w).entry((p.x, p.y, p.z)).or_insert(0) += 1;
+    note_village_centres(w);
 }
 
 /// (tickexact 2026-11-11) `PoiRecord.getFreeTickets` of the record at `p` (None: no POI there):
@@ -279,25 +280,58 @@ pub fn sections_to_village_of(w: &World, s: (i32, i32, i32)) -> i32 {
     sections_to_village_in(&village_sections(w), s)
 }
 
-/// The sections of the claimed village POIs (what `sectionsToVillage` measures from): callers
-/// asking about many sections take them once.
-pub fn village_sections(w: &World) -> Vec<(i32, i32, i32)> {
-    claimed_village_pois(w).into_iter().map(section).collect()
+/// What `sectionsToVillage` measures from: the sections of the claimed village POIs, and the
+/// sections the distance tracker ever stored (`AiWorld::village_seen`). Callers asking about many
+/// sections take them once.
+#[derive(Clone, Debug)]
+pub struct Villages {
+    pub centres: Vec<(i32, i32, i32)>,
+    pub seen: std::sync::Arc<std::collections::HashSet<(i32, i32, i32)>>,
+}
+
+/// The village centres now, and the tracker's memory.
+pub fn village_sections(w: &World) -> Villages {
+    Villages { centres: claimed_village_pois(w).into_iter().map(section).collect(), seen: w.mob.ai.village_seen.clone() }
+}
+
+/// (mob-AI 2026-11-11) A run of `PoiManager.DistanceTracker`: every section within 5 of a village
+/// centre is stored from then on (`AiWorld::village_seen`). The game's tracker runs in
+/// `PoiManager.tick` (each tick, after the chunks' ticks) and in every `sectionsToVillage`; this
+/// is called at the first of those and when a ticket is taken (a claim lasts longer than a tick).
+pub fn note_village_centres(w: &mut World) {
+    let centres: Vec<(i32, i32, i32)> = claimed_village_pois(w).into_iter().map(section).collect();
+    for c in centres {
+        if !w.mob.ai.village_noted.insert(c) {
+            continue;
+        }
+        let seen = std::sync::Arc::make_mut(&mut w.mob.ai.village_seen);
+        for dx in -5..=5 {
+            for dy in -5..=5 {
+                for dz in -5..=5 {
+                    seen.insert((c.0 + dx, c.1 + dy, c.2 + dz));
+                }
+            }
+        }
+    }
 }
 
 /// `sectionsToVillage` against precomputed [`village_sections`]: the Chebyshev distance in sections
-/// up to 5, else 7. PoiManager's DistanceTracker is a SectionTracker of 7 levels (clamped to 0..6)
-/// whose decreases spread from a section only below level 5 (`checkNeighborsAfterUpdate`: `level
-/// < levelCount - 2`), so a section 6 away is never reached and keeps the map's default 7.
-pub fn sections_to_village_in(v: &[(i32, i32, i32)], s: (i32, i32, i32)) -> i32 {
+/// up to 5, else 6 for a section the tracker ever stored, else 7. PoiManager's DistanceTracker is a
+/// SectionTracker of 7 levels (clamped to 0..6) whose decreases spread from a section only below
+/// level 5 (`checkNeighborsAfterUpdate`: `level < levelCount - 2`), so a section 6 away is never
+/// reached and keeps the map's default 7. When a centre goes, the increase path stores
+/// `levelCount - 1` = 6 in every section it had reached (`setLevel` keeps levels up to 6), and
+/// nothing ever removes them (tickexact's carousel siding t10117 and station t2471: a zombie's
+/// MoveThroughVillageGoal still sees the village after its last bed is released).
+pub fn sections_to_village_in(v: &Villages, s: (i32, i32, i32)) -> i32 {
     let mut best = 7;
-    for c in v {
+    for c in &v.centres {
         let d = (c.0 - s.0).abs().max((c.1 - s.1).abs()).max((c.2 - s.2).abs());
         if d <= 5 {
             best = best.min(d);
         }
     }
-    best
+    if best == 7 && v.seen.contains(&s) { 6 } else { best }
 }
 
 /// `PoiManager.sectionsToVillage(SectionPos.of(pos))`.

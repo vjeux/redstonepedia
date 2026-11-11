@@ -264,9 +264,14 @@ fn phantoms(w: &mut World, c: &mut Custom) {
     if !super::natural::valid_empty(w, at, "minecraft:phantom") {
         return;
     }
-    let size = 1 + level(w).next_int(3 + 1);
+    // (mob-AI 2026-11-10) the group: 1 + nextInt(difficulty id + 1) phantoms, each constructed,
+    // snapped to the cell, finalized and added in turn
+    let did = super::ai::difficulty_id(w);
+    let size = 1 + level(w).next_int(did + 1);
     c.log.push((w.time, format!("phantoms: {size} at {at}")));
-    model_error(w, format!("gt {}: {size} phantoms spawn at {at} (phantoms are not modeled)", w.time));
+    for _ in 0..size {
+        super::natural::spawn_phantom(w, at);
+    }
 }
 
 /// `PatrolSpawner.tick`.
