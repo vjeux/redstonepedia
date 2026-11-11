@@ -505,6 +505,241 @@ pub fn fault_survey(design: &Path, spec: &Path, n: u64) -> Result<()> {
     Ok(())
 }
 
+/// `release-sweep` (the parent 22:23: sweeps and surveys from one Rust command, never a shell
+/// loop): the wired farm generated once, or once per value when `knob` names one of the
+/// generator's environment knobs (e.g. `MCTAS_K2_KICK`), then `run` (a command line, split on
+/// spaces, no shell; `{design}` stands for the generated file, `{value}` for the value) once per
+/// value, one after the other; per value it prints the runner's problems and visits lines and every
+/// line holding one of `show`'s strings.
+#[allow(clippy::too_many_arguments)]
+pub fn release_sweep(loop_file: &Path, offdelay: &Path, siding: Option<&Path>, siding_ctl: Option<&Path>, pad: Option<&Path>, knob: Option<&str>, values: &str, run: &str, show: &[String]) -> Result<()> {
+    let vals: Vec<&str> = values.split('|').map(|v| v.trim()).filter(|v| !v.is_empty()).collect();
+    if vals.is_empty() {
+        bail!("--values: give v1|v2|...");
+    }
+    let dir = std::env::temp_dir().join(format!("release-sweep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let make = |out: &Path| -> Result<()> { crate::releasegen::generate_loop(out, loop_file, offdelay, siding, siding_ctl, pad) };
+    let once = dir.join("design.txt");
+    if knob.is_none() {
+        make(&once)?;
+    }
+    let mut rows: Vec<String> = Vec::new();
+    for (i, v) in vals.iter().enumerate() {
+        let design = match knob {
+            Some(k) => {
+                // (the generator reads its knobs from the environment, as `release-gen` does)
+                unsafe { std::env::set_var(k, v) };
+                let out = dir.join(format!("design-{i}.txt"));
+                make(&out)?;
+                out
+            }
+            None => once.clone(),
+        };
+        let args: Vec<String> = run.split_whitespace().map(|t| t.replace("{design}", &design.display().to_string()).replace("{value}", v)).collect();
+        let Some((prog, rest)) = args.split_first() else { bail!("--run is empty") };
+        let o = std::process::Command::new(prog).args(rest).output()?;
+        let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+        let mut row = format!("== {v}");
+        for l in text.lines() {
+            let t = l.trim_start();
+            let key = t.ends_with(" problems:") || t.ends_with(" problems") || t.starts_with("visits:") || t.contains("seeds clean") || t.contains("riders hurt");
+            if key || show.iter().any(|s| l.contains(s.as_str())) {
+                row.push_str("\n   ");
+                row.push_str(&l.chars().take(240).collect::<String>());
+            }
+        }
+        println!("{row}");
+        rows.push(row);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+/// `price` (the fold's pricing, the parent and ironspec 2026-11-10 23:50: "compact: volume
+/// decides", dig depth priced in build minutes, horizontal over vertical the tie-breaker): per
+/// design, its blocks, box and volume; the box's depth under the ground layer and its dug cells
+/// (footprint x depth: the judge's site footprint, `redsim::entity::mob::site::footprint`); the
+/// dig's minutes at the stage's price; the void bill's build minutes (the judge's `build minutes`,
+/// `circuit::mobfarm::site_bill` with no site) and its `place:edge` share (blocks placed in the
+/// air, which a dug build places from its dug floor instead).
+pub fn price(designs: &[std::path::PathBuf], ground: i32, stage: &str) -> Result<()> {
+    let st = redsim::entity::mob::prices::stage_ix(stage);
+    let dig = redsim::entity::mob::prices::Prices::get().map_err(|e| anyhow!(e))?.price("dig", st).map_err(|e| anyhow!(e))?;
+    println!("design\tblocks\tbox\tsize\tvolume\tbelow\tdug (box)\tdug (own cells)\tdig min (box)\tbuild min\tof it mid-air\tbuild + dig (box)");
+    for d in designs {
+        let c = Circuit::load(d)?;
+        let (lo, hi) = c.clock.design.bounds().unwrap_or(([0; 3], [0; 3]));
+        let size = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+        let volume = size.iter().map(|s| *s as i64).product::<i64>();
+        let below = (ground - lo[1]).max(0);
+        let dug = size[0] as i64 * size[2] as i64 * below as i64;
+        // (the lower bound: only the design's own cells under the ground layer, as a farm dug
+        // into rock is priced (`site::spots_for_spec`); its air under the ground stays natural
+        // there, which a redstone build cannot always keep)
+        let own = c.clock.design.block_list().iter().filter(|(p, _)| p[1] < ground).count();
+        let bill = circuit::mobfarm::site_bill(&c, None, st).map_err(|e| anyhow!(e))?;
+        let edge = bill.items.get("place:edge").map_or(0.0, |x| x.1);
+        let (bm, dm) = (bill.seconds / 60.0, dug as f64 * dig / 60.0);
+        println!(
+            "{}\t{}\t[{},{},{}]..[{},{},{}]\t{}x{}x{}\t{volume}\t{below}\t{dug}\t{own}\t{dm:.1}\t{bm:.1}\t{:.1}\t{:.1}",
+            d.file_name().map_or_else(|| d.display().to_string(), |f| f.to_string_lossy().into_owned()),
+            c.clock.design.blocks.len(),
+            lo[0], lo[1], lo[2], hi[0], hi[1], hi[2],
+            size[0], size[1], size[2],
+            edge / 60.0,
+            bm + dm
+        );
+    }
+    Ok(())
+}
+
+/// `bed-distance` (ironspec 2026-11-11: the shared bed >= 16 + margin from every place a
+/// non-sleeping villager can be at night): the least Euclidean distance from a bed block's centre
+/// to a rider's place on a rail (the rail cell's centre, 0.35 up: a villager in a minecart) inside
+/// the riders' box (the loop's carts carry the riders while the bed is taken; the junctions carry
+/// only the napper itself), the five nearest with where.
+pub fn bed_distance(design: &Path, riders: &str) -> Result<()> {
+    let c = Circuit::load(design)?;
+    let v: Vec<i32> = riders.split(',').map(|n| n.trim().parse()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow!("--riders {riders}: {e}"))?;
+    if v.len() != 6 {
+        bail!("--riders {riders}: want x0,y0,z0,x1,y1,z1");
+    }
+    let inside = |p: &[i32; 3]| (v[0]..=v[3]).contains(&p[0]) && (v[1]..=v[4]).contains(&p[1]) && (v[2]..=v[5]).contains(&p[2]);
+    let blocks = c.clock.design.block_list();
+    let id = |s: &str| s.split('[').next().unwrap_or("").trim_start_matches("minecraft:").to_string();
+    let beds: Vec<[i32; 3]> = blocks.iter().filter(|(_, s)| id(s).ends_with("_bed")).map(|(p, _)| *p).collect();
+    if beds.is_empty() {
+        bail!("{}: no bed", design.display());
+    }
+    let mut near: Vec<(f64, [i32; 3], [i32; 3])> = Vec::new();
+    for (r, s) in blocks.iter().filter(|(p, s)| id(s).ends_with("rail") && inside(p)) {
+        let _ = s;
+        let (rx, ry, rz) = (r[0] as f64 + 0.5, r[1] as f64 + 0.35, r[2] as f64 + 0.5);
+        let best = beds.iter().map(|b| (((b[0] as f64 + 0.5 - rx).powi(2) + (b[1] as f64 + 0.5 - ry).powi(2) + (b[2] as f64 + 0.5 - rz).powi(2)).sqrt(), *b)).fold((f64::MAX, [0; 3]), |a, x| if x.0 < a.0 { x } else { a });
+        near.push((best.0, *r, best.1));
+    }
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    match near.first() {
+        Some((d, r, b)) => println!("{}: the bed's nearest rider place {d:.2} (rail {},{},{}, bed {},{},{}); margin over 16: {:+.2}", design.display(), r[0], r[1], r[2], b[0], b[1], b[2], d - 16.0),
+        None => println!("{}: no rail inside the riders' box", design.display()),
+    }
+    for (d, r, _) in near.iter().skip(1).take(4) {
+        println!("  {d:.2} at rail {},{},{}", r[0], r[1], r[2]);
+    }
+    Ok(())
+}
+
+/// `watch-events`: a `queue-loop-run --watch` log (lines `cS +T: cart | cart ... | gates ... |
+/// x,y,z state | ...`) as events, in gt after slot `from`'s start: each watched cell's state
+/// changes (its `power=`/`powered=`/`lit=`/`triggered=` and shape fields), each watched cart's
+/// starts (speed above 0.001 after rest) and stops, and the watched cells' columns it rides over
+/// (the cart's block cell equal to a watched cell or the one above it).
+pub fn watch_events(trace: &Path, from: u64) -> Result<()> {
+    let text = std::fs::read_to_string(trace)?;
+    let mut last_cell: std::collections::BTreeMap<String, String> = Default::default();
+    let mut moving: Vec<bool> = Vec::new();
+    let mut on_cell: Vec<Option<String>> = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix('c') else { continue };
+        let Some((head, body)) = rest.split_once(": ") else { continue };
+        let Some((slot, off)) = head.split_once(" +") else { continue };
+        let (Ok(slot), Ok(off)) = (slot.parse::<u64>(), off.parse::<u64>()) else { continue };
+        let t = (slot * 100 + off) as i64 - (from * 100) as i64;
+        let parts: Vec<&str> = body.split(" | ").collect();
+        let gates = parts.iter().position(|p| p.starts_with("gates")).unwrap_or(parts.len());
+        let cells: Vec<(String, String)> = parts[gates + 1..].iter().filter_map(|p| p.split_once(' ').map(|(a, b)| (a.to_string(), b.trim_start_matches("minecraft:").to_string()))).collect();
+        for (k, cart) in parts[..gates].iter().enumerate() {
+            if moving.len() <= k {
+                moving.push(false);
+                on_cell.push(None);
+            }
+            let f: Vec<&str> = cart.split_whitespace().collect();
+            let pos: Vec<f64> = f.first().map(|s| s.split(',').filter_map(|n| n.parse().ok()).collect()).unwrap_or_default();
+            let v: f64 = f.get(1).and_then(|s| s.strip_prefix('v')).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            if pos.len() != 3 {
+                continue;
+            }
+            let m = v > 0.001;
+            if m != moving[k] {
+                println!("{t:+6} cart {k}: {} at {:.2},{:.2},{:.2}", if m { "starts" } else { "stops" }, pos[0], pos[1], pos[2]);
+                moving[k] = m;
+            }
+            let c = [pos[0].floor() as i32, pos[1].floor() as i32, pos[2].floor() as i32];
+            let hit = cells.iter().map(|(p, _)| p.clone()).find(|p| {
+                let q: Vec<i32> = p.split(',').filter_map(|n| n.parse().ok()).collect();
+                q.len() == 3 && q[0] == c[0] && q[2] == c[2] && (q[1] == c[1] || q[1] + 1 == c[1])
+            });
+            if hit != on_cell[k] {
+                if let Some(h) = &hit {
+                    println!("{t:+6} cart {k}: over watched cell {h} at {:.2} b/t", v);
+                }
+                on_cell[k] = hit;
+            }
+        }
+        for (p, s) in cells {
+            let key: String = s.split(['[', ',', ']']).filter(|f| ["power=", "powered=", "lit=", "triggered=", "shape="].iter().any(|k| f.starts_with(k))).collect::<Vec<_>>().join(",");
+            let prev = last_cell.insert(p.clone(), key.clone());
+            if prev.as_deref() != Some(key.as_str()) && prev.is_some() {
+                println!("{t:+6} cell {p}: {} -> {key}", prev.unwrap_or_default());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `trace-diff` (the fold's check: which control lines moved, and by how much): two `release-trace`
+/// outputs, per port: identical, every edge shifted by the same gt (and that shift), or the first
+/// edge that differs.
+pub fn trace_diff(a: &Path, b: &Path) -> Result<()> {
+    let read = |p: &Path| -> Result<Vec<(String, Vec<String>)>> {
+        Ok(std::fs::read_to_string(p)?
+            .lines()
+            .filter_map(|l| {
+                let mut w = l.split_whitespace();
+                let k = w.next()?.to_string();
+                Some((k, w.map(String::from).collect()))
+            })
+            .collect())
+    };
+    let (ra, rb) = (read(a)?, read(b)?);
+    let num = |s: &str| -> Option<i64> { s.trim_start_matches(['+', '-']).split('@').last()?.parse().ok() };
+    let (mut same, mut moved) = (0, 0);
+    for (k, ea) in &ra {
+        let Some((_, eb)) = rb.iter().find(|(n, _)| n == k) else {
+            println!("{k:24} only in {}", a.display());
+            continue;
+        };
+        if ea == eb {
+            same += 1;
+            continue;
+        }
+        moved += 1;
+        let shifts: Vec<i64> = ea.iter().zip(eb).filter_map(|(x, y)| Some(num(y)? - num(x)?)).collect();
+        let kinds_match = ea.len() == eb.len() && ea.iter().zip(eb).all(|(x, y)| x.chars().next() == y.chars().next());
+        if kinds_match && !shifts.is_empty() && shifts.iter().all(|&s| s == shifts[0]) {
+            println!("{k:24} every edge {:+} gt ({} edges)", shifts[0], ea.len());
+        } else {
+            let i = ea.iter().zip(eb).position(|(x, y)| x != y).unwrap_or(ea.len().min(eb.len()));
+            let (lo, hi) = (shifts.iter().min().copied().unwrap_or(0), shifts.iter().max().copied().unwrap_or(0));
+            println!(
+                "{k:24} differs from edge {i} ({} vs {}); edges {} vs {}; shifts {lo:+}..{hi:+}",
+                ea.get(i).map(|s| s.as_str()).unwrap_or("-"),
+                eb.get(i).map(|s| s.as_str()).unwrap_or("-"),
+                ea.len(),
+                eb.len()
+            );
+        }
+    }
+    for (k, _) in &rb {
+        if !ra.iter().any(|(n, _)| n == k) {
+            println!("{k:24} only in {}", b.display());
+        }
+    }
+    println!("{same} lines identical, {moved} moved");
+    Ok(())
+}
+
 /// `nap-report` (ironspec 21:08, the night-1 lines): from one `queue-loop-run --visits-observe`
 /// log (one seed), each villager's first nap (its cart `eN`: a villager rides its own cart for
 /// life) and each batch's first fully napped slot (the batch at the stand during slot S is

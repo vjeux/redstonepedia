@@ -269,7 +269,11 @@ shifted 8,3; STATE also `sent`, the cart on the launcher), `--unload-shift DX,DZ
 shift (0,0 writes a drive in the design's coordinates, the unload acts as drive lines), and
 `--unload matrix[:K]` / `whole-matrix[:K]` / `chunk-matrix[:K]` every case at N = 3, 40, 240
 (and 700), one line each: the visits until a clean one, naps lost, carts out without their
-napper, jams;
+napper, jams; `MCTAS_SIDING_SEAT=2` adds design (b)'s napper-aboard sensor (a stone pressure plate
+on the booster's glass ceiling, emulation only) and the bench prints its readings (turns on with
+and without a seated villager in its band, seat heights). `mctas mobfarm edit <design>
+--set=x,y,z=state` (repeatable; `air` removes the cell) sets blocks of a design in place: a fault
+copy of a farm, say the bed set occupied=true so no napper sleeps;
 `siding-bench --day-visits` (every visit by day: no napper sleeps) and `--fail-no-home N` (the
 first N villagers' HOME erased before each of their visits) are its forced failures: every cart
 must still be on the slot with its villager within 500 gt of its arrival;

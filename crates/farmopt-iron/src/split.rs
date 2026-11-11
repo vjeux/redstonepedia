@@ -255,11 +255,27 @@ pub fn member_of(c: &Cand, part: &str) -> String {
     }
 }
 
+/// What `farmopt part-members` writes: only these parts' catalogs (empty: every part), and
+/// whether a kill or cage row it wrote itself is written again ([`write_members`]).
+#[derive(Clone, Debug, Default)]
+pub struct MembersOpts {
+    pub parts: Vec<String>,
+    pub refresh: bool,
+}
+
+/// A catalog row's metrics in `write_members`' own format (`blocks N, blocks dug N, build seconds
+/// N`, a storage row's hours after them), not a part front's (`lava buckets 1, ...`).
+fn own_metrics(m: &str) -> bool {
+    let mut it = m.split(", ");
+    let num = |s: Option<&str>, k: &str| s.and_then(|s| s.strip_prefix(k)).is_some_and(|v| v.trim().parse::<f64>().is_ok());
+    num(it.next(), "blocks ") && num(it.next(), "blocks dug ") && num(it.next(), "build seconds ")
+}
+
 /// The transport, storage and access catalogs (page copy's new component pages): each member the
 /// blocks its part holds in a reference farm (the split above), its blocks placed, dug and build
 /// seconds at its stage's prices (storage: its hours at 480 iron/h), the farms of `used` that use
 /// it. Returns one line per part.
-pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(String, Cand, String)]) -> Result<Vec<String>> {
+pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(String, Cand, String)], opts: &MembersOpts) -> Result<Vec<String>> {
     let mut by_part: BTreeMap<&str, Vec<(String, String, String, String)>> = BTreeMap::new();
     for (c, stage) in refs {
         let stage_ix = crate::price::stage_ix(stage);
@@ -267,6 +283,9 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
         let (d, roles) = roles(c, &calm_parts)?;
         let prices = redsim::entity::mob::prices::Prices::get().map_err(|e| anyhow::anyhow!(e))?;
         for part in ["transport", "storage", "access", "kill", "cage"] {
+            if !opts.parts.is_empty() && !opts.parts.iter().any(|p| p == part) {
+                continue;
+            }
             let stem = member_of(c, part);
             if stem.is_empty() || by_part.get(part).is_some_and(|v| v.iter().any(|m| m.0 == stem)) {
                 continue;
@@ -362,8 +381,9 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
             let metrics = format!("blocks {placed}, blocks dug {dug}, build seconds {secs:.0}{extra}");
             std::fs::create_dir_all(dir.join(part))?;
             let catalog = std::fs::read_to_string(dir.join(part).join("members.tsv")).unwrap_or_default();
-            let mine = matches!(part, "storage" | "access" | "transport");
-            if mine || !catalog.lines().any(|l| l.split('\t').next() == Some(format!("{stem}.txt").as_str())) {
+            let row = catalog.lines().find(|l| l.split('\t').next() == Some(format!("{stem}.txt").as_str()));
+            let mine = matches!(part, "storage" | "access" | "transport") || (opts.refresh && row.and_then(|l| l.split('\t').nth(3)).is_some_and(own_metrics));
+            if mine || row.is_none() {
                 std::fs::write(dir.join(part).join(format!("{stem}.txt")), format!("{}{ghosts}", out.to_text()))?;
             }
             by_part.entry(part).or_default().push((stem, name, stage.to_string(), format!("{metrics}\t{}", users.join(" "))));
@@ -372,11 +392,16 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
     let mut lines = Vec::new();
     for (part, members) in by_part {
         // merged into the part's catalog: its members kept as they are (farmopt's catalogs, page
-        // copy's), only the missing ones added
+        // copy's), only the missing ones added; with `refresh`, a kill or cage row this tool wrote
+        // (its own metrics: `blocks N, blocks dug N, build seconds N`) is written again from its
+        // reference farm, rows in other formats (the part fronts') kept (farmopt 2026-11-10: the
+        // kill rows written under the 4-layer pit kill kept 61 dug after 2b376c59d made it 5)
         let path = dir.join(part).join("members.tsv");
         let old = std::fs::read_to_string(&path).unwrap_or_default();
         let have: Vec<&str> = old.lines().skip(1).map(|l| l.split('\t').next().unwrap_or("")).collect();
-        let members: Vec<_> = members.into_iter().filter(|m| !have.contains(&format!("{}.txt", m.0).as_str()) || part == "storage" || part == "access" || part == "transport").collect();
+        let own_row = |file: &str| old.lines().skip(1).find(|l| l.split('\t').next() == Some(file)).and_then(|l| l.split('\t').nth(3)).is_some_and(own_metrics);
+        let rewrite = |stem: &str| part == "storage" || part == "access" || part == "transport" || (opts.refresh && own_row(&format!("{stem}.txt")));
+        let members: Vec<_> = members.into_iter().filter(|m| !have.contains(&format!("{}.txt", m.0).as_str()) || rewrite(&m.0)).collect();
         let mut tsv = String::from("file\tname\tstage\tmetrics\tused_by\n");
         // (a member written again keeps its row's place: the catalog is best first)
         for l in old.lines().skip(1) {

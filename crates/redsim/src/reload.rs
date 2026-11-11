@@ -316,7 +316,7 @@ pub fn load_all(w: &mut World) {
                 {
                     m.egg_time = t;
                 }
-                rebuild_villager_brain(w, id);
+                rebuild_villager_brain(w, id, None);
             } else {
                 let mut own = w.entering_random(id);
                 crate::rng::replay_uuid(&mut own);
@@ -329,6 +329,18 @@ pub fn load_all(w: &mut World) {
                     w.entities.list[i].random = Some(own);
                 }
             }
+        } else if living {
+            // (tickexact 2026-11-10, the fault runners) a bench's world, not seeded like the
+            // bridge: the new object's own random from the mob layer's stand-in (as `mob::add`
+            // seeds a new mob), and the same restart of its brain as in an exact world (a villager
+            // loaded from its save starts a new brain: no running behavior, its saved memories
+            // kept): without it a reloaded napper kept its sleep and its timers, which the game
+            // does not
+            let seed = w.mob.rng_mut().next_long();
+            if let Some(i) = crate::entity::index_of(w, id) {
+                w.entities.list[i].random = Some(crate::rng::LegacyRandom::new(seed));
+            }
+            rebuild_villager_brain(w, id, Some(seed));
         }
         back.push(id);
     }
@@ -401,13 +413,15 @@ pub fn load_some(w: &mut World, b: [i32; 4]) {
 /// the yaw), no behavior running, the schedule's activity at the game time (WORK and MEET without
 /// their memories: IDLE), and only the memories registered with a codec kept (HOME, LAST_SLEPT,
 /// LAST_WOKEN, GOLEM_DETECTED_RECENTLY with its time left, JOB_SITE, POTENTIAL_JOB_SITE,
-/// MEETING_POINT, SECONDARY_JOB_SITE; not the sensed ones, NEAREST_HOSTILE, HURT_BY or the walk
-/// and look targets). Its exact brain's shuffling lists keyed by the entity's seed, generation 0
-/// (the bridge seeds the live brain of a loaded villager as the first brain it saw).
-fn rebuild_villager_brain(w: &mut World, id: u32) {
+/// MEETING_POINT; not SECONDARY_JOB_SITE (no codec), the sensed ones, NEAREST_HOSTILE, HURT_BY,
+/// CANT_REACH_WALK_TARGET_SINCE or the walk and look targets). Its exact brain's shuffling lists keyed by the entity's seed, generation 0
+/// (the bridge seeds the live brain of a loaded villager as the first brain it saw); in a bench's
+/// world (no bridge seeding) by `stand_in`, the new random's seed (as `mob::add` keys a new
+/// villager's): the same restart, its own randoms.
+fn rebuild_villager_brain(w: &mut World, id: u32, stand_in: Option<i64>) {
     let Some(i) = crate::entity::index_of(w, id) else { return };
     let (t, day) = (w.time, w.day_time());
-    let es = w.exact_seed.map(|s| crate::rng::entity_seed(s, id));
+    let es = w.exact_seed.map(|s| crate::rng::entity_seed(s, id)).or(stand_in);
     let ai_on = w.mob.ai.on;
     let e = &mut w.entities.list[i];
     let crate::entity::EntityKind::Mob(m) = &mut e.kind else { return };
@@ -428,7 +442,8 @@ fn rebuild_villager_brain(w: &mut World, id: u32) {
         x.mem.job_site = ox.mem.job_site;
         x.mem.potential_job_site = ox.mem.potential_job_site;
         x.mem.meeting_point = ox.mem.meeting_point;
-        x.mem.secondary_job_site = ox.mem.secondary_job_site.clone();
+        // (SECONDARY_JOB_SITE is registered without a codec: not saved, dropped on a reload until
+        // the secondary POI sensor scans again)
         x.last_gossip = ox.last_gossip;
         x.last_schedule_update = t;
         let sched = scheduled(day);

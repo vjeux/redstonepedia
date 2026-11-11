@@ -740,9 +740,12 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     {
         let changed: Vec<String> = siding_cells.iter().filter_map(|p| states.get(p).filter(|s| d.blocks.get(p) != Some(*s)).map(|s| format!("{p:?} {} -> {s}", d.blocks.get(p).map(|x| x.as_str()).unwrap_or("air")))).collect();
         if !changed.is_empty() {
-            println!("settling changed {} siding/junction cells:", changed.len());
-            for c in &changed {
-                println!("  {c}");
+            // (the count by default; each cell with MCTAS_LIST_SETTLED)
+            println!("settling changed {} siding/junction cells{}", changed.len(), if std::env::var("MCTAS_LIST_SETTLED").is_ok() { ":" } else { " (MCTAS_LIST_SETTLED lists them)" });
+            if std::env::var("MCTAS_LIST_SETTLED").is_ok() {
+                for c in &changed {
+                    println!("  {c}");
+                }
             }
         }
     }

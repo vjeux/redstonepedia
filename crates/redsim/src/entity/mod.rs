@@ -522,6 +522,9 @@ fn spawn_falling_block(w: &mut World, pos: [f64; 3], nbt: Option<&str>) -> Resul
 pub fn restore_fresh(e: &mut Entity) {
     e.tick_count = 0;
     e.first_tick = true;
+    // (tickexact 2026-11-10) Entity.boardingCooldown is not saved (Entity.load reads no such
+    // field): a loaded entity starts at 0, free to board at once, whatever was left of its 60 gt
+    e.boarding_cooldown = 0;
     e.horizontal_collision = false;
     e.vertical_collision = false;
     e.vertical_collision_below = false;
@@ -987,9 +990,11 @@ pub fn stop_riding(w: &mut World, i: usize) {
         let to = minecart::dismount_location(w, vi, d.width as f64, d.height as f64);
         w.entities.set_pos(i, to);
         let e = &mut w.entities.list[i];
-        // (`teleportTo`: `teleportSetPosition`, the old position too, the motion zero)
+        // (`dismountTo` -> `teleportTo` -> `snapTo`: the position, the old position and rotation
+        // set from it; the motion kept (tickexact 2026-11-10: its rideTick's -0.0784 then meets the
+        // floor in its own tick that follows, on the ground as in the game))
         (e.xo, e.yo, e.zo) = (to.x, to.y, to.z);
-        e.delta_movement = Vec3::ZERO;
+        (e.y_rot_o, e.x_rot_o) = (e.y_rot, e.x_rot);
         return;
     }
     if !removed {

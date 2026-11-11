@@ -72,6 +72,9 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-10) the boarding cooldown across a reload: the whole part away 1 gt
+        // right after the throw (t8)
+        "board-cooldown-reload" => vec![(10, vec![s([0, 0, 0], "unload")]), (11, vec![s([0, 0, 0], "load")])],
         // (tickexact 2026-11-10) the natural doors' halves: the first copper door's upper half
         // removed, the second's lower half, the floor under the third, the fourth's upper half
         // swapped for an east-facing door's, the oak door's upper half removed
@@ -396,6 +399,15 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("unload-siding-raw", include_str!("../scenes/siding-wired.txt"), include_str!("../scenes/unload-siding-raw.drive")),
     ("unload-part-v3-raw", include_str!("../scenes/carousel-wired-v3.txt"), include_str!("../scenes/unload-part-v3-raw.drive")),
     ("carousel-wired-pocket", include_str!("../scenes/carousel-wired-pocket.txt"), include_str!("../scenes/carousel-wired-pocket.drive")),
+    // (tickexact 2026-11-10, 58f770cc's siding unload cases: main 1ae586523's
+    // carousel-siding-wired.txt and its three fault drives (`siding-bench --wired --nights 1
+    // --release-held --visits 6 --unload ..`, launched arrivals, visit 3): the whole part away 3 gt at
+    // the kick (seed 4), 700 gt at the sleep onset +10 (seed 1), and chunks x 0, z -1..0 at level
+    // 32 for 40 gt at the sleep onset (seed 1; the sandbox's box forced, the bench's hold chunk
+    // z -2 included))
+    ("siding-fault-kick3", include_str!("../scenes/siding-fault.txt"), include_str!("../scenes/siding-fault-whole-kick-3-seed4.drive")),
+    ("siding-fault-asleep700", include_str!("../scenes/siding-fault.txt"), include_str!("../scenes/siding-fault-whole-asleep-700-seed1.drive")),
+    ("siding-fault-nap40", include_str!("../scenes/siding-fault.txt"), include_str!("../scenes/siding-fault-partial-x-hi-32-nap-40-seed1.drive")),
 ];
 
 /// (tickexact 2026-11-10, ironspec's chunk alignment) Drive scenes moved in the sandbox, with
@@ -420,17 +432,17 @@ const MOVED_SCENES: &[(&str, &str, [i32; 3], &str)] = &[
         "act 1250 unload -5,1,2,1 30\nact 2080 unload -5,2,2,2 60\nact 3200 unload -2,-2,-2,3 200\nact 5040 unload -5,0,2,2 100\n",
     ),
     // (tickexact 2026-11-10, day-1's question: the whole part unloaded during a k2 visit, slot 38's
-    // (slot k's ticks from 100 k; its napper asleep +203..+234, the k2 cart leaving the siding at
-    // +386): at visit +250 for 40 gt and at +280 for 15 gt, both back before the next golem pulse)
-    ("carousel-wired-pocket-u250", "carousel-wired-pocket", [0, 0, 0], "act 4050 unload all 40\n"),
-    ("carousel-wired-pocket-u280", "carousel-wired-pocket", [0, 0, 0], "act 4080 unload all 15\n"),
-    // (and as day-1's fault runner does it, away 4,000 gt, its golem pulses while away dropped
-    // (`drop T0 T1`: the base's acts strictly inside): at visit +250 (the napper just woke,
-    // walking back), +280 (waiting in the siding), +392 (the k2 cart moving from the siding's exit
-    // toward its hold, the napper aboard))
-    ("carousel-wired-pocket-u250l", "carousel-wired-pocket", [0, 0, 0], "act 4050 unload all 4000\ndrop 4050 8050\n"),
-    ("carousel-wired-pocket-u280l", "carousel-wired-pocket", [0, 0, 0], "act 4080 unload all 4000\ndrop 4080 8080\n"),
-    ("carousel-wired-pocket-u392l", "carousel-wired-pocket", [0, 0, 0], "act 4192 unload all 4000\ndrop 4192 8192\n"),
+    // (the bench's slot k from 40 + 100 k: its 40 settle ticks first; the napper asleep
+    // +203..+234, the k2 cart leaving the siding at +386): at visit +250 for 40 gt and at +280
+    // for 15 gt, both back before the next golem pulse)
+    ("carousel-wired-pocket-u250", "carousel-wired-pocket", [0, 0, 0], "act 4090 unload all 40\n"),
+    ("carousel-wired-pocket-u280", "carousel-wired-pocket", [0, 0, 0], "act 4120 unload all 15\n"),
+    // (and away 4,000 gt, the golem pulses while away dropped (`drop T0 T1`: the base's acts
+    // strictly inside): at visit +250 (the napper just woke, walking back), +280 (waiting in the
+    // siding), +392 (the k2 cart moving from the siding's exit toward its hold, the napper aboard))
+    ("carousel-wired-pocket-u250l", "carousel-wired-pocket", [0, 0, 0], "act 4090 unload all 4000\ndrop 4090 8090\n"),
+    ("carousel-wired-pocket-u280l", "carousel-wired-pocket", [0, 0, 0], "act 4120 unload all 4000\ndrop 4120 8120\n"),
+    ("carousel-wired-pocket-u392l", "carousel-wired-pocket", [0, 0, 0], "act 4232 unload all 4000\ndrop 4232 8232\n"),
 ];
 
 /// A moved scene's copy: (the drive scene, the shift, the extra drive lines).
@@ -811,7 +823,7 @@ fn scene_placement(name: &str) -> Placement {
         return scene_placement(base);
     }
     match name {
-        "carousel-wired" | "carousel-wired-pocket" => Placement::Judge,
+        "carousel-wired" | "carousel-wired-pocket" | "siding-fault-kick3" | "siding-fault-asleep700" | "siding-fault-nap40" => Placement::Judge,
         "carousel-wired-raw" | "carousel-wired-v2" | "carousel-wired-v3" | "unload-v3-raw" | "unload-part-v3-raw" => Placement::Merged,
         "carousel-wired-built" | "carousel-wired-v3-built" | "siding-built" | "station-built" => Placement::Built,
         "siding-raw" | "station-raw" | "unload-siding-raw" => Placement::Merged,
@@ -829,7 +841,7 @@ fn scene_judge_placed(name: &str) -> bool {
 /// summon (they would read the settle's sky), then placed raw with their updates; its output chest
 /// (`port output`) set when it is not one, and emptied.
 fn scene_bench_start(name: &str) -> bool {
-    name == "carousel-wired-pocket" || moved(name).is_some_and(|(base, ..)| scene_bench_start(base))
+    name == "carousel-wired-pocket" || name.starts_with("siding-fault-") || moved(name).is_some_and(|(base, ..)| scene_bench_start(base))
 }
 
 /// The chest a bench start sets at the output.
@@ -2078,6 +2090,41 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [31, 68, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-10, the boarding cooldown across a reload) a ridden minecart over a
+    // powered activator rail throws its villager out (`ejectPassengers`: boardingCooldown 60);
+    // a second, empty cart on the parallel line behind it comes through the villager's cell
+    // within those 60 gt and must not take it; "board-cooldown-reload" unloads and loads the whole
+    // part for 1 gt right after the throw: the game does not save the cooldown, the second cart
+    // takes the villager (scene_actions)
+    for name in ["board-cooldown", "board-cooldown-reload"] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, -16, 32, 63, stone);
+        for z in -12..=24 {
+            for x in [3, 4] {
+                let rail = if x == 4 && z == 8 { "minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]" } else { "minecraft:rail[shape=north_south,waterlogged=false]" };
+                b.push(([x, 64, z], rail.to_string()));
+            }
+        }
+        b.push(([4, 63, 8], "minecraft:redstone_block".to_string()));
+        b.push(([3, 64, 25], stone.to_string()));
+        b.push(([4, 64, 25], stone.to_string()));
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, -1, 0, 1],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:minecart".into(), [4.5, 64.0, 6.5], Some("{Motion:[0.0d,0.0d,0.3d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into())),
+                ("minecraft:minecart".into(), [3.5, 64.0, -0.5], Some("{Motion:[0.0d,0.0d,0.5d]}".into())),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, -16], [15, 68, 31]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
@@ -3615,6 +3662,9 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 }
             }
             for (_, n, p) in expects.iter().filter(|(t, _, _)| *t == f.t - t_summon) {
+                // (an entity a reload brought back: its new number, redsim's renumbering, the
+                // bridge's as the frames agree)
+                let n = &ours.renumbered.get(n).copied().unwrap_or(*n);
                 match f.entities.iter().find(|e| e.n == *n) {
                     Some(e) if (0..3).all(|k| (e.pos[k] - p[k]).abs() < 0.0006) => exp_ok += 1,
                     Some(e) => exp_bad.push(format!("t {} #{n}: the game at {:?}, the drive log expects {:?}", f.t, e.pos, p)),

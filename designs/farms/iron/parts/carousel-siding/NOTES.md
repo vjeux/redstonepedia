@@ -26,10 +26,24 @@ joined to the loop.**
 - **Missing:** ironfarm's two junctions (the entry off the departure run, the merge into the
   release run) and the zombies along the loop.
 - **The give-up (day-1's force input F):**
-  - **F's window, met** (2026-11-10 21:30, the long nap path below): the stuck cart's F to past
-    the exit is 55-58 gt against ironspec's 60.5 at k2 with the +6 missed-golem corner (day-1's
-    +4 gt of D at k2): the double-fault corner closes by 2.5 gt; at nominal F the margins are k0
-    25, k1 12.5, k2 8.5.
+  - **F's window: met, against the right deadline** (2026-11-11 00:22, reconciled with day-1 on
+    one trace). A stuck cart's binding deadline is its drop-line hold's 12-gt release pulse: on
+    day-1's fold (ca69490a8a) the holds release at k0 +471..482, k1 +469..480, k2 +473..484 (gt
+    from the visit slot's start, day-1's and the tool's frame; F rises at slot S+3 +19 = +319,
+    B3a's +320) and the route from the siding's exit to them takes 67/80/88 gt, so the cart must
+    pass the exit by +415/+400/+396 (close to the earlier queue-based +413/+398/+386.5). With F
+    at +320 (+326 at the missed-golem corner) and F to past the exit 55-58 gt it passes at
+    +375..378 (+381..384): margins k0 +37/+31, k1 +22/+16, k2 +18/+12; day-1, with main's siding
+    pasted into the integrated file and the bed occupied (+6 corner), measured every stuck cart
+    making its slot with 16-25 gt to spare. (A first reading, 00:00, said k1 and k2 missed: the
+    cart traces were timed from the "visit (observed)" line, slot S +27/37/47, with F put at +320
+    in that frame: 27-47 gt off. Retracted.)
+  - **The failure mode when a stuck cart misses its hold (a miss breaks the loop):** day-1's fold
+    with its older siding (a slower forced exit) and the bed occupied (no napper can sleep, F sends
+    every cart out): k0's stuck cart made slot 14 (at rest +524); k1's missed its hold and never
+    completed its visit; from the next slot the release group and stand counts went wrong, the
+    queue order broke ("queue slot 15 holds None") and the returning trains missed the tail; it
+    never recovered (305 problems in 60 slots). Closing it (a safe miss) is a must-have.
   - **Open: self-recovery after F dropped** while the napper cannot sleep: 3 of 16 seeds jam (13
     recover within one visit); the cause is traced (below), not yet fixed.
   - **Open: unloads** (the loop's chunk lines through the siding, and the whole part; below): a
@@ -414,6 +428,56 @@ junction tracks': `w` the approach's at the siding's x -9|-8, `e` the run-out's 
   out unnapped).
 - w hi 33 and e lo 33 would leave the far junction's chunk at 34 (its entities saved and
   unloaded): not modeled, not run.
+
+## Design (b), the napper-aboard sensor (emulation; ironspec and farmopt 2026-11-10 23:25)
+
+The re-board mechanism must know a seated villager from one standing on the free cell or in the
+bed, and an empty cart (a detector rail sees any cart). Measured in redsim, behind
+`MCTAS_SIDING_SEAT` (not in the member file):
+- **A tripwire at head height fails** (`=1`, a string at (1,2,1) over the booster, hooks on glass):
+  a seated villager's feet sit at its cart's own y (0.0625 on a flat rail), so its box tops out at
+  2.0125; a standing one at 1.95: 1/16 apart, below the string's band (2.06-2.16). It never fired
+  (8 seeds x 1 night, the dropped-F and by-day runs).
+- **A stone pressure plate on the booster's glass ceiling** (`=2`, at (1,2,1); +1 block, 263, 0
+  golem spots): its touch box (y 2.0-2.25) meets the seated top 2.0125 and not the standing 1.95;
+  no villager can stand on the booster (the glass at (1,1,1) leaves no headroom), and an empty
+  cart's top is 0.76. Normal visits, 8 seeds x 1 night: on 336 times with a seated villager in its
+  band (every pass in and out, 8 x 21 x 2), never without one, each a tick after the box enters;
+  the dropped-F runs (a villager standing on the free cell for thousands of ticks), by day, the
+  whole unload at the kick (empty carts passing) and the nap-onset freeze: 0 false. Its margin is
+  the 1/16 of the seat height (a rider 1/16 lower would not press it); the 26.3 bridge's check
+  (a passenger presses it; a standing villager and an empty cart do not) is asked of tick-exact.
+  Its drives: `faults/plate-normal-seed1`, `faults/plate-day-seed1`,
+  `faults/plate-whole-kick-3-seed4` (`web drive-check` ok on all three), design
+  `faults/carousel-siding-wired-plate.txt`.
+- **The retry** (a cart that fails the pickup stops dead against the villager, z about 3.3, and
+  nothing moves it): a lead, not built: the activator cell tilted to rise toward the free cell so
+  a stalled empty cart rolls back to the park and is kicked again while K holds, with the
+  approach under 0.2 b/t so the retry cannot skip the band either.
+- **The design (b) approved (ironspec 2026-11-11 00:52; to build, then test after tick-exact's
+  reload/eject fixes):**
+  - **The after-wake kick:** the empty cart kicked only once the napper is awake, then about 60 gt
+    later (the bench-driven siding's ideal controls do exactly that and run nap40 and the whole
+    unload at the kick 60 of 60, pre-fix): the wake comes only while the villager ticks, so a freeze
+    delays wake and kick together and the boarding cooldown is covered. Wired: BK fed by not-H
+    delayed, B delayed (about 40-60 gt through the chain's repeaters, no item timer) and B now (the
+    re-sleep cancel), and L; F's own fast kick F and V and not B and not H into the park support
+    (a napper asleep when F comes is not cut).
+  - **B, the bed occupied:** a waxed copper bulb toggled by every raw bed-observer pulse (follows
+    the bed for any nap length: a 20-gt nap was measured, so H cannot tell the edges apart),
+    resynced off at dawn and at dusk (no villager in the bed then; it also clears the build's
+    stray toggles before night 1). Faults (injected only) invert it until the next resync.
+  - **day-1's divert gate:** no divert while V or B; VR (day-1's scheduler, visit about +420) resets
+    V and H, never B (gate without VR deadlocks: measured).
+  - **Cost:** estimated +25-30 blocks over 262 (the long nap path's 8 dropped); the exact total
+    after building. Tests: R, V and B faults, a short nap (a panic wake), a re-sleep inside the
+    60 gt, asleep700, nap40, sleep until dawn, the unload at the kick, a built-in-order run ending
+    by day then night 1, normal 100 x 6; recovery in slots and HOME on all 21.
+- **tick-exact's 26.3 bridge of the three drives:** nap40's jam matches the game (the cart stops at
+  z 3.29, its napper on the free cell); asleep700 matches through drive t 7,466 (the next visit's
+  cart parks with its napper aboard for about 2,000 gt, then the following visit wedges both
+  nappers on the free cell; 20 of 21 keep HOME); kick3 in the game had the napper wake a tick
+  before the kick (the rate is being measured).
 
 ## The give-up's first version, its own timer (2026-11-10; `--give-up timer`, superseded)
 

@@ -1482,6 +1482,27 @@ pub struct GateReport {
 }
 
 impl GateReport {
+    /// The game's own spread per window (the parent's noise question: enough runs that the 95%
+    /// interval on a difference of two gates' means is narrow): each window's mean golems an hour
+    /// over the game's runs, its standard deviation, the runs and the mean's 95% half-width, as
+    /// `(name, mean, sd, runs, half_width)`; windows with fewer than 2 runs left out.
+    pub fn game_spread(&self) -> Vec<(String, f64, f64, usize, f64)> {
+        let n_windows = self.builds.iter().map(|b| b.windows.len()).max().unwrap_or(0);
+        let mut out = Vec::new();
+        for k in 0..n_windows {
+            let v: Vec<f64> = self.builds.iter().filter_map(|b| b.windows.get(k)).map(|w| w.golems_per_hour()).collect();
+            if v.len() < 2 {
+                continue;
+            }
+            let n = v.len() as f64;
+            let m = v.iter().sum::<f64>() / n;
+            let sd = (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (n - 1.0)).sqrt();
+            let name = self.builds.iter().find_map(|b| b.windows.get(k)).map(|w| w.name.clone()).unwrap_or_default();
+            out.push((name, m, sd, v.len(), 1.96 * sd / n.sqrt()));
+        }
+        out
+    }
+
     pub fn passed(&self) -> bool {
         self.failures.is_empty()
     }
