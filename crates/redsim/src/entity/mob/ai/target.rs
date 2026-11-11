@@ -218,6 +218,10 @@ pub fn has_line_of_sight(w: &mut World, i: usize, t: Who) -> bool {
 /// heads modeled.
 pub fn visibility_percent(w: &World, t: Who, _i: usize) -> f64 {
     match t {
+        // (a wandering trader's: its INVISIBLE flag, a tick behind its drink)
+        Who::Entity(j) if super::goal::trader::is_trader(w, j) => {
+            if super::goal::trader::is_invisible(w, j) { 0.7 * (0.1f32 as f64) } else { 1.0 }
+        }
         Who::Entity(j) if matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.effects.invisibility > 0) => 0.7 * (0.1f32 as f64),
         _ => 1.0,
     }

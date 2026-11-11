@@ -52,6 +52,22 @@ pub enum MobaiCmd {
         verbose: bool,
     },
     /// A mob-AI scene in the game and in redsim, compared tick for tick (redsim::exact).
+    /// (mob-AI 2026-11-11) The seeds whose WanderingTraderSpawner reaches a spawn try: its own
+    /// random (the bridge's seeding, `rng::trader_seed`) over the 24000-tick attempts of a new
+    /// world (chance 25, +25 up to 75 each attempt; a try needs nextInt(100) <= chance, then 1 in
+    /// 10). `--judge`: the judge's builds FROM..=TO, run 0 (seed JUDGE_SEED0 + 1000 K).
+    TraderTries {
+        #[arg(long, default_value_t = 0)]
+        from: i64,
+        #[arg(long, default_value_t = 11)]
+        to: i64,
+        #[arg(long)]
+        judge: bool,
+        /// Attempts looked at (5: a 5-day judge run's 24000..120000).
+        #[arg(long, default_value_t = 5)]
+        attempts: u32,
+    },
+    /// A mob-AI scene in the game and in redsim, compared tick for tick (redsim::exact).
     Fixture {
         /// The scene (`zombie-stroll`, `zombie-obstacles`, ...).
         name: String,
@@ -232,6 +248,28 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::BenchGame { mob, count, ticks, half, seed } => crate::bench::bench_game(version, &mob, count, ticks, half, seed),
         MobaiCmd::BenchRedsim { mob, count, ticks, half, seed } => crate::bench::bench_redsim(&mob, count, ticks, half, seed),
         MobaiCmd::Pathfuzz { cases, seed, density, verbose } => crate::pathfuzz::pathfuzz(version, cases, seed, density, verbose),
+        MobaiCmd::TraderTries { from, to, judge, attempts } => {
+            for k in from..=to {
+                let seed = if judge { redsim::entity::mob::farm::JUDGE_SEED0 + 1000 * k } else { k };
+                let mut r = redsim::rng::LegacyRandom::new(redsim::rng::trader_seed(seed));
+                let mut chance = 25;
+                let mut first = None;
+                for a in 1..=attempts {
+                    let roll = r.next_int(100);
+                    let passed = roll <= chance;
+                    chance = (chance + 25).clamp(25, 75);
+                    if passed && r.next_int(10) == 0 {
+                        first = Some(a);
+                        break;
+                    }
+                }
+                match first {
+                    Some(a) => println!("{} {k} (seed {seed}): a spawn try at attempt {a} (~gt {})", if judge { "build" } else { "seed" }, 24000 * a),
+                    None => println!("{} {k} (seed {seed}): no try in {attempts} attempts", if judge { "build" } else { "seed" }),
+                }
+            }
+            Ok(())
+        }
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
         MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
