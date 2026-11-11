@@ -58,6 +58,25 @@ fn difficulty_name(d: Difficulty) -> &'static str {
     }
 }
 
+/// (tickexact 2026-11-11, farmopt's hold H: its release width and its shut on a passing cart)
+/// scene gate-hold-w's lanes: (pressed carts, ridden, H's open ticks). The first 8: a pressed train
+/// of 3 released for W = 1, 3, 5, 7 gt, ridden and empty; then one pressed cart, ridden and empty,
+/// with H shut 1..10 gt after it opens.
+fn gate_hold_lanes() -> Vec<(usize, bool, u32)> {
+    let mut v = Vec::new();
+    for ridden in [true, false] {
+        for w in [1, 3, 5, 7] {
+            v.push((3, ridden, w));
+        }
+    }
+    for ridden in [true, false] {
+        for s in 1..=10 {
+            v.push((1, ridden, s));
+        }
+    }
+    v
+}
+
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
 /// during the freeze, and whether the cart is ridden.
@@ -77,6 +96,23 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, farmopt's hold H) every lane's H opened at t30, shut its lane's
+        // ticks later
+        "gate-hold-w" => {
+            let gate = |open: bool| format!("minecraft:oak_fence_gate[facing=north,in_wall=false,open={open},powered=false]");
+            let lanes = gate_hold_lanes();
+            let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = vec![(30, (0..lanes.len()).map(|k| ([1 + 2 * k as i32, 64, 7], gate(true))).collect())];
+            for (k, (_, _, w)) in lanes.iter().enumerate() {
+                let t = 30 + w;
+                let p = ([1 + 2 * k as i32, 64, 7], gate(false));
+                match v.iter_mut().find(|(tt, _)| *tt == t) {
+                    Some((_, b)) => b.push(p),
+                    None => v.push((t, vec![p])),
+                }
+            }
+            v.sort_by_key(|(t, _)| *t);
+            v
+        }
         // (tickexact 2026-11-11, ironspec's frozen-rider sensors) chunk (1,0) frozen at level 32 from
         // t40 to t240; at t260 the two powered rails powered (a redstone block for the floor under
         // each) to kick their carts on
@@ -3793,6 +3829,59 @@ fn scenes_raw() -> Vec<Scene> {
         }
         v.push(Scene {
             name: "rollback-booster".into(),
+            chunks: [0, 0, 3, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, farmopt's hold H: (a) the pressed train's release through H for W =
+    // 1, 3, 5, 7 gt, ridden and empty; (b) H shut 1..10 gt after it opens on one pressed cart, so
+    // it shuts with the cart in its box at each tick of the passage) gate-frozen's geometry: a
+    // fence gate at (x,64,7) at the foot of three rails rising south ((x,64,8), (x,65,9),
+    // (x,66,10)), a flat at y 67 to z 14, the gate's cell over a rail one level down ((x,63,4..7),
+    // stone at z 3); the carts pressed down the slope against the shut gate (front at z 8.115, the
+    // next 0.79 behind each); lanes x 1, 3, ... (gate_hold_lanes; scene_actions: H opened at t30)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 64, 0, 16, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        for (k, (n, ridden, _)) in gate_hold_lanes().into_iter().enumerate() {
+            let x = 1 + 2 * k as i32;
+            b.push(([x, 64, 7], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+            for (s, z) in (8..=10).enumerate() {
+                let y = 64 + s as i32;
+                for yy in 64..y {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, y, z], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            }
+            for z in 11..=14 {
+                for yy in 64..67 {
+                    b.push(([x, yy, z], stone.to_string()));
+                }
+                b.push(([x, 67, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for z in 4..=7 {
+                b.push(([x, 62, z], stone.to_string()));
+                b.push(([x, 63, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for c in 0..n {
+                let z = 8.115 + 0.79 * c as f64;
+                // (on a slope rail: its height 64 + (z - 8) + 0.0625)
+                let y = 64.0625 + (z - 8.0);
+                mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, y, z], if ridden { Some(rider.to_string()) } else { None }));
+            }
+        }
+        v.push(Scene {
+            name: "gate-hold-w".into(),
             chunks: [0, 0, 3, 0],
             blocks: b,
             mobs,
