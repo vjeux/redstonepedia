@@ -407,6 +407,30 @@ fn far_tree(b: &mut B) -> Result<()> {
         b.put([-5, 2, z], "minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
         b.put(HOLDS[i], GLASS)?;
         lay(b, [-4, 2, z], &rail("east_west"), true)?;
+        // (the backstop: glass beyond the slot, so a cart off the ledge too fast stops against it
+        // and falls onto the slot: the first night rolled off at 0.44 b/t and landed at x -2.7, off
+        // the rails; the side-fed drop ends had their stop glass here too)
+        b.put([-2, 1, z], GLASS)?;
+        b.put([-2, 2, z], GLASS)?;
+    }
+    Ok(())
+}
+
+/// Column 3 (c)'s switch drive at a switch's support `sup` (S1 (-6, 2, 31), S2 (-6, 2, 34)), its line
+/// arriving at (sup.x - 5, sup.y, sup.z): an inverter (a block (x - 4), a wall torch on its east
+/// face (x - 3)), a dust (x - 2), a repeater (x - 1) east into the support. (A plain rail at a
+/// three-way junction rests on the south-east curve: unpowered, the cart turns east into the line;
+/// the line (T1 = not k0, T2 = k2) inverted powers the straight way for every other cart. Stone
+/// over the holds' kick rows beside the line's dusts (z - 1) keeps them from joining as a stair.)
+fn far_t_drive(b: &mut B, sup: P3) -> Result<()> {
+    let [x, y, z] = sup;
+    b.put([x - 4, y, z], STONE)?;
+    b.put([x - 3, y, z], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
+    b.on([x - 2, y, z], crate::schedgen::DUST)?;
+    b.on([x - 1, y, z], &crate::schedgen::rep("west", 1))?;
+    b.blocks.insert(sup, STONE.into());
+    for dx in [5, 2] {
+        b.put([x - dx, y, z - 1], STONE)?;
     }
     Ok(())
 }
@@ -1232,11 +1256,10 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         // back south to z 31 (clear of T2's row along z 34), east along it, down a stair to the
         // repeater's input (-8, 2, 31))
         seg_to(&mut t1, [-16, 3, 31]);
-        seg_to(&mut t1, [T1[0] - 3, T1[1] + 1, T1[2]]);
-        t1.push([T1[0] - 2, T1[1], T1[2]]);
+        seg_to(&mut t1, [T1[0] - 6, T1[1] + 1, T1[2]]);
+        t1.push([T1[0] - 5, T1[1], T1[2]]);
         route(&mut b, t1_row, &t1, 6)?;
-        b.blocks.insert(T1, STONE.into());
-        b.on([T1[0] - 1, T1[1], T1[2]], &rep("west", 1))?;
+        far_t_drive(&mut b, T1)?;
     } else {
     seg_to(&mut t1, [-17, -4, 26]);
     seg_to(&mut t1, [-17, -4, 28]);
@@ -1273,11 +1296,10 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         }
         t2.push([-18, 3, 40]);
         seg_to(&mut t2, [-18, 3, 34]);
-        seg_to(&mut t2, [T2[0] - 3, T2[1] + 1, T2[2]]);
-        t2.push([T2[0] - 2, T2[1], T2[2]]);
+        seg_to(&mut t2, [T2[0] - 6, T2[1] + 1, T2[2]]);
+        t2.push([T2[0] - 5, T2[1], T2[2]]);
         route(&mut b, [t2_row[0], -6, t2_row[2] + 3], &t2, 6)?;
-        b.blocks.insert(T2, STONE.into());
-        b.on([T2[0] - 1, T2[1], T2[2]], &rep("west", 1))?;
+        far_t_drive(&mut b, T2)?;
     } else {
     seg_to(&mut t2, [-3, -4, 31]);
     seg_to(&mut t2, [-3, -4, 33]);
@@ -1341,21 +1363,25 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         // (4 rt: F at the time the old route set it, +320 after the visit: ironspec's B3a)
         b.on([fx, -4, 17], &rep("south", 4))?;
         let mut fr = vec![[fx, -4, 16]];
+        // (the route's first cell after its source: the tap repeater, or column 3 (c)'s FA)
+        let mut from = [fx, -4, 17];
         if FAR {
-            // (column 3 (c), tentative until 58f770cc confirms F's feed side on the turned siding:
-            // FA east of F at (F.x + 1, F.y, F.z) facing it, its rear dust (F.x + 2, F.y, F.z); the
-            // route down a stair north to y -6 (under the kick route's y -4, over the module's
-            // top), south along x fx to z 56, east along z 56 under the far end to x F.x + 3, up a
-            // stair south to F's level, south along x F.x + 3 (outside the siding's box) to F's z,
-            // west into the rear dust)
-            fr.push([fx - 1, -4, 16]);
-            fr.push([fx - 2, -5, 16]);
-            fr.push([fx - 3, -6, 16]);
+            // (column 3 (c): F's gate FA right after the tap, a comparator at (fx, -4, 16) facing
+            // south (rear: the tap), NS3 into its east side (a repeater (fx + 1, -4, 16)); its
+            // gated output north and down a stair to y -6 (under the kick route's y -4, over the
+            // module's top), west, south along x fx - 3 to z 56, east along z 56 under the far end
+            // to x 11, up a stair south to F's support level, south along x 11 (outside the siding's
+            // box) to F's z, west through three repeaters into F's support (F powered from below:
+            // the turned siding's comparator reads it from the north, its east and west neighbours
+            // at F's level are the siding's, z 74 is the next chunk))
+            b.on([fx, -4, 16], &comp("south", "subtract"))?;
+            b.on([fx + 1, -4, 16], &rep("east", 1))?;
+            from = [fx, -4, 16];
+            fr = vec![[fx, -4, 15], [fx, -5, 14], [fx, -6, 13]];
+            seg_to(&mut fr, [fx - 3, -6, 13]);
             seg_to(&mut fr, [fx - 3, -6, 56]);
             seg_to(&mut fr, [FORCE[0] + 4, -6, 56]);
-            for k in 1..=FORCE[1] + 5 {
-                fr.push([FORCE[0] + 4, -6 + k, 56 + k]);
-            }
+            seg_to(&mut fr, [FORCE[0] + 4, FORCE[1] - 1, 56 + FORCE[1] + 5]);
             seg_to(&mut fr, [FORCE[0] + 4, FORCE[1] - 1, FORCE[2]]);
         } else {
         seg_to(&mut fr, [FORCE[0] + 1, -4, 16]);
@@ -1363,11 +1389,11 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         seg_to(&mut fr, [FORCE[0] + 1, FORCE[1] - 1, FORCE[2] - 2]);
         fr.push([FORCE[0], FORCE[1], FORCE[2] - 2]);
         }
-        route_d(&mut b, [fx, -4, 17], &fr, 6, 0, 1)?;
+        route_d(&mut b, from, &fr, 6, 0, 1)?;
         // (measurement only, ironspec 2026-11-11: the integration gate's F +6 corner (the
         // missed-golem +6): the route's first straight dust a 3 rt repeater along it)
         if std::env::var("MCTAS_F_PLUS6").is_ok() {
-            let mut all = vec![[fx, -4, 17]];
+            let mut all = vec![from];
             all.extend(fr.iter().copied());
             let i = (1..all.len() - 1)
                 .find(|&i| {
@@ -1386,23 +1412,33 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         }
     }
     if FAR {
-        // (column 3 (c): the turned siding's comparator reads F from the north, its east and west
-        // neighbours at F's level are the siding's redstone and z 74 is the next chunk: F powered
-        // from below, its support (F.x, F.y - 1, F.z) driven by two repeaters west from FA, which
-        // sits outside the siding's box at (F.x + 3, F.y - 1, F.z) facing east (rear from x + 4,
-        // NS3's side from the north))
-        b.on([FORCE[0] + 3, FORCE[1] - 1, FORCE[2]], &comp("east", "subtract"))?;
-        b.on([FORCE[0] + 2, FORCE[1] - 1, FORCE[2]], &rep("east", 1))?;
-        b.on([FORCE[0] + 1, FORCE[1] - 1, FORCE[2]], &rep("east", 1))?;
+        // (column 3 (c): F's route ends at (F.x + 4, F.y - 1, F.z); three repeaters west into F's
+        // support, which powers F from below)
+        for dx in [3, 2, 1] {
+            b.on([FORCE[0] + dx, FORCE[1] - 1, FORCE[2]], &rep("east", 1))?;
+        }
         b.put([FORCE[0], FORCE[1] - 1, FORCE[2]], STONE)?;
     } else {
         b.on([FORCE[0], FORCE[1], FORCE[2] - 1], &comp("north", "subtract"))?;
     }
     b.on(FORCE, DUST)?;
     if FAR {
-        // TODO(column 3 (c)): NS3 into FA's north side (F.x + 3, F.y - 1, F.z - 1); unwired in the
-        // first prototype: F fires at every visit's +320 (58f770cc: F with V only sets H and kicks
-        // an empty park)
+        // (column 3 (c): NS3 into FA's east side at the tap: from its port north along x -12 at
+        // y -15 to z 8 (under NS5's row at z 9), up a stair north to y -9 at z 2, up a stair north
+        // to y -4 at z -3, west along z -3 to x fx + 2, south along it into the repeater (fx + 1,
+        // -4, 16))
+        let fx = kick_dust_near(&b, -19)?;
+        let s3 = at([29, -2, 3]);
+        let mut n3 = vec![s3];
+        seg_to(&mut n3, [s3[0], s3[1], s3[2] - 5]);
+        seg_to(&mut n3, [s3[0], s3[1] + 6, s3[2] - 11]);
+        // (a flat run of 3 between the climbs, for a repeater: a stair holds none)
+        seg_to(&mut n3, [s3[0], s3[1] + 6, s3[2] - 14]);
+        let zt = s3[2] - 14 - (-4 - (s3[1] + 6));
+        seg_to(&mut n3, [s3[0], -4, zt]);
+        seg_to(&mut n3, [fx + 2, -4, zt]);
+        seg_to(&mut n3, [fx + 2, -4, 16]);
+        route_d(&mut b, at([28, -2, 3]), &n3, 6, 6, 1)?;
     }
     if FAR {
     } else {
