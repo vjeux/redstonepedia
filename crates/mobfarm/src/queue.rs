@@ -1383,6 +1383,12 @@ pub struct LoopTiming {
     /// A design's `build: last x,y,z ...` cells (up to 16), placed after every other in the
     /// built-in-order mode.
     pub build_last: [Option<BlockPos>; 16],
+    /// A diagnostic, never a design check: every rider holds GOLEM_DETECTED_RECENTLY, so none
+    /// summons a golem (what a loop does once its off-pad golem cells are gone).
+    pub no_summons: bool,
+    /// Every villager's block position each tick, printed at the end (`--record-positions`: the
+    /// golem-spots check's positions over a full bench night).
+    pub record_positions: bool,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -1453,7 +1459,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 16], watch_cells: [None; 8], pocket_trigger: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 16], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false }
     }
 }
 
@@ -1468,6 +1474,16 @@ impl Default for LoopTiming {
 /// 17 x 17 columns with `checkSpawnObstruction`) would spawn a golem, with the design built and
 /// its carts in place. A summon anywhere but the pad must find none.
 pub fn loop_spots(spec: &FarmSpec, o: &LoopOpts) -> Result<String, String> {
+    golem_spots(spec, Some(o), &[], false, 40)
+}
+
+/// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
+/// (`golem_spawn_cells_from`) from every position a villager can occupy: the loop's rail cells
+/// (`o`, a loop scene), plus `extra` (positions recorded over a full bench night, or a design's
+/// `positions:` list: the siding's branch, the cage, the bed, the dismount and stand-up cells, the
+/// way back). Block-only unless `with_entities`: a cell whose only obstruction is an entity in the
+/// golem's box (a cart, a rider, the zombie: they move) counts as a spot.
+pub fn golem_spots(spec: &FarmSpec, o: Option<&LoopOpts>, extra: &[BlockPos], with_entities: bool, list: usize) -> Result<String, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, 400, WalkMode::Random) };
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
@@ -1477,19 +1493,33 @@ pub fn loop_spots(spec: &FarmSpec, o: &LoopOpts) -> Result<String, String> {
     for _ in 0..20 {
         run.tick();
     }
-    let lay = loop_layout(o);
-    let mut found: std::collections::BTreeMap<[i32; 3], Vec<[i32; 3]>> = std::collections::BTreeMap::new();
-    for (c, _) in &lay.path {
-        let start = BlockPos::new(c[0], c[1], c[2]);
-        for (cell, ok) in redsim::entity::mob::spawn::golem_spawn_cells_from(&run.world, start) {
-            if ok.is_ok() {
-                found.entry([cell.x, cell.y, cell.z]).or_default().push(*c);
+    let path: Vec<BlockPos> = o.map(|o| loop_layout(o).path.iter().map(|(c, _)| BlockPos::new(c[0], c[1], c[2])).collect()).unwrap_or_default();
+    let mut starts: Vec<(BlockPos, bool)> = path.iter().map(|p| (*p, false)).collect();
+    let mut seen: std::collections::HashSet<BlockPos> = path.iter().copied().collect();
+    for p in extra {
+        if seen.insert(*p) {
+            starts.push((*p, true));
+        }
+    }
+    // (each spot: the positions it is seen from, whether any is a rail cell, whether an entity
+    // covered it at the check)
+    let mut found: std::collections::BTreeMap<[i32; 3], (Vec<BlockPos>, bool, bool)> = std::collections::BTreeMap::new();
+    for (start, is_extra) in &starts {
+        for (cell, ok) in redsim::entity::mob::spawn::golem_spawn_cells_from(&run.world, *start) {
+            let entity_only = ok == Err("an entity is in the golem's box");
+            if ok.is_ok() || (entity_only && !with_entities) {
+                let f = found.entry([cell.x, cell.y, cell.z]).or_insert((Vec::new(), false, false));
+                f.0.push(*start);
+                f.1 |= !is_extra;
+                f.2 |= entity_only;
             }
         }
     }
-    let mut out = vec![format!("{} golem spawn cells seen from the loop's {} rail cells", found.len(), lay.path.len())];
-    for (cell, from) in found.iter().take(40) {
-        out.push(format!("  {} {} {} (from {} rail cells, e.g. {:?})", cell[0], cell[1], cell[2], from.len(), from[0]));
+    let only_extra = found.values().filter(|f| !f.1).count();
+    let covered = found.values().filter(|f| f.2).count();
+    let mut out = vec![format!("{} golem spawn cells seen from {} positions ({} rail cells of the loop, {} more listed or recorded){}; {} of them only from the extra positions, {} covered by an entity at the check", found.len(), starts.len(), path.len(), starts.len() - path.len(), if with_entities { ", entities counted" } else { ", block-only (a cell only an entity covers counts)" }, only_extra, covered)];
+    for (cell, (from, _, cov)) in found.iter().take(list) {
+        out.push(format!("  {} {} {} (from {} positions, e.g. {} {} {}){}", cell[0], cell[1], cell[2], from.len(), from[0].x, from[0].y, from[0].z, if *cov { " [an entity covered it]" } else { "" }));
     }
     Ok(out.join("\n"))
 }
@@ -2095,6 +2125,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut rider_last: Vec<([f64; 3], f32, i64)> = vec![([0.0; 3], 20.0, 0); riders.len()];
     let mut rider_hurt: Vec<String> = Vec::new();
     let mut golems_seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut villager_cells: std::collections::BTreeSet<BlockPos> = std::collections::BTreeSet::new();
     let mut golem_log: Vec<String> = Vec::new();
     let mut bed_claims: Vec<String> = Vec::new();
     // (the stop stand's brake: armed with a batch's third cart, set `stop_brake_delay` gt after
@@ -2625,12 +2656,25 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
             }
         }
+        // (`no_summons`, a diagnostic: every rider remembers a golem, so none summons one)
+        if tm.no_summons {
+            for r in &riders {
+                if let Some(i) = redsim::entity::index_of(&run.world, *r) {
+                    if matches!(&run.world.entities.list[i].kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) {
+                        redsim::entity::mob::villager::golem_detected(&mut run.world, i);
+                    }
+                }
+            }
+        }
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
         // (every rider's damage and loss from the world, every tick; with a visit also each
         // rider's bed claim, when it starts and ends, and where it rode then)
         for e in run.world.entities.list.iter() {
             if let redsim::entity::EntityKind::Mob(m) = &e.kind {
+                if tm.record_positions && m.ty == redsim::entity::mob::types::MobType::Villager {
+                    villager_cells.insert(e.block_position());
+                }
                 if m.ty == redsim::entity::mob::types::MobType::IronGolem && golems_seen.insert(e.id) {
                     golem_log.push(format!("e#{} at slot {c} +{dt} (day time {}) at {:.2},{:.2},{:.2}", e.id, run.world.day_time().rem_euclid(24000), e.pos.x, e.pos.y, e.pos.z));
                     // (the loop has no pad: a golem here spawned off the pad, a spawn cell
@@ -2720,7 +2764,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         visit_lines.push(format!("visit: +{now}: the divert's rail ({},{},{}) is {} over {}; the cart at {p}", rail.x, rail.y, rail.z, run.world.get(rail), run.world.get(v.divert)));
                     }
                 }
-                if away.contains(&id) {
+                // (an entry back from its visit tracks no more: the same cart visited again later
+                // has its own entry)
+                if away.contains(&id) && vr.back.is_none() {
                     // (the rider's last seen state)
                     if let Some(i) = vr.rider.and_then(|r| redsim::entity::index_of(&run.world, r)) {
                         let e = &run.world.entities.list[i];
@@ -3116,7 +3162,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     let nights: u64 = night_ticks.iter().sum();
     // (every rider alive and still in its own cart)
-    let lost: Vec<usize> = (0..riders.len()).filter(|k| !run.world.entities.list.iter().any(|e| e.id == carts[*k] && e.passengers.first() == Some(&riders[*k]))).collect();
+    let lost: Vec<usize> = (0..riders.len()).filter(|k| !away.contains(&carts[*k]) && !run.world.entities.list.iter().any(|e| e.id == carts[*k] && e.passengers.first() == Some(&riders[*k]))).collect();
     if !lost.is_empty() {
         problems.push(format!("riders no longer in their carts at the end: carts {lost:?}"));
     }
@@ -3150,6 +3196,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(d);
     }
     out.extend(visit_lines_pre.iter().cloned());
+    if tm.record_positions {
+        out.push(format!("villager positions ({}): {}", villager_cells.len(), villager_cells.iter().map(|p| format!("{},{},{}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" ")));
+    }
+    if tm.no_summons {
+        out.push("diagnostic (--no-summons): every rider held GOLEM_DETECTED_RECENTLY, so no golem was summoned anywhere; not a design check".to_string());
+    }
     if !golem_log.is_empty() {
         out.push(format!("iron golems: {} first seen: {}", golem_log.len(), golem_log.iter().take(12).cloned().collect::<Vec<_>>().join("; ")));
     }
