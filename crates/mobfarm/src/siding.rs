@@ -1458,6 +1458,54 @@ pub fn cage(spec: &FarmSpec, toggle: bool, remove: &[[i32; 3]]) -> Result<Vec<([
     Ok(seen.into_iter().map(|(k, v)| (k, v - fr.blk(0, 0, 0).y as f64)).collect())
 }
 
+/// (ironspec 10:56/11:16, the zombie's sight) The eye line from each `from` point to `to` (local
+/// coordinates), on the design as built and with every trapdoor flipped: clear, or the first cell
+/// whose collision shape it meets (`LivingEntity.hasLineOfSight`, ClipContext COLLIDER).
+pub fn sight(spec: &FarmSpec, from: &[[f64; 3]], to: [f64; 3]) -> Result<Vec<(bool, [f64; 3], Option<[i32; 3]>)>, String> {
+    let fr = Frame { turn: 0, dx: 0, dz: 0 };
+    let mut out = Vec::new();
+    for toggle in [false, true] {
+        let mut run = crate::station::world_of(spec, 1)?;
+        let w = &mut run.world;
+        if toggle {
+            let o = fr.blk(-8, -8, -6);
+            for y in 0..18 {
+                for z in 0..17 {
+                    for x in 0..16 {
+                        let p = BlockPos::new(o.x + x, o.y + y, o.z + z);
+                        let st = w.get(p).to_string();
+                        if st.contains("trapdoor") {
+                            let t = if st.contains("open=true") { st.replace("open=true", "open=false") } else { st.replace("open=false", "open=true") };
+                            if let Ok(b) = Block::parse(t.trim_start_matches("minecraft:")) {
+                                w.set_block(p, b, 2);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let o = fr.blk(0, 0, 0);
+        let at = |p: [f64; 3]| redsim::entity::vec3::Vec3::new(o.x as f64 + p[0], o.y as f64 + p[1], o.z as f64 + p[2]);
+        for f in from {
+            let hit = redsim::entity::mob::los::first_hit(w, at(*f), at(to)).map(|c| [c.x - o.x, c.y - o.y, c.z - o.z]);
+            // (every non-air cell the segment crosses, for placing the hatch: MCTAS_SIGHT_ALL=1)
+            if std::env::var("MCTAS_SIGHT_ALL").is_ok_and(|v| v == "1") {
+                let mut cells = Vec::new();
+                redsim::entity::collide::traverse_blocks(at(*f), at(to), |p| {
+                    let s = w.get(p);
+                    if !s.is_air() {
+                        cells.push(format!("({},{},{}) {}", p.x - o.x, p.y - o.y, p.z - o.z, s.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("")));
+                    }
+                    false
+                });
+                eprintln!("  cells on the line from {:?}: {}", f, cells.join(", "));
+            }
+            out.push((toggle, *f, hit));
+        }
+    }
+    Ok(out)
+}
+
 pub fn check(spec: &FarmSpec, turn: i32) -> Result<Vec<String>, String> {
     let fr = Frame { turn, dx: 0, dz: 0 };
     let s = layout_fr(&fr);

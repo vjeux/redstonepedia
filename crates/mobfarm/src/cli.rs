@@ -1925,6 +1925,15 @@ pub enum MobfarmCmd {
     /// The bed siding's cage proof (ironspec 09:57): every standing position a villager reaches from
     /// the corridor cells (step, jump 1.25, any fall), in the design's trapdoor states and flipped;
     /// `--remove x,y,z` (repeatable) sets cells to air first, a positive control.
+    /// The bed siding's eye lines (ironspec 11:16): from each `--from x,y,z` (local, repeatable) to
+    /// `--to x,y,z`, as built and with every trapdoor flipped: clear or the first blocking cell.
+    SidingSight {
+        design: PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        from: Vec<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        to: String,
+    },
     SidingCage {
         design: PathBuf,
         #[arg(long)]
@@ -3708,6 +3717,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", out.display());
+        }
+        MobfarmCmd::SidingSight { design, from, to } => {
+            let (_c, spec) = load(version, &design)?;
+            let p3 = |s: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                anyhow::ensure!(v.len() == 3, "a point is x,y,z: {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let fr: Vec<[f64; 3]> = from.iter().map(|s| p3(s)).collect::<anyhow::Result<_>>()?;
+            let t = p3(&to)?;
+            for (toggle, f, hit) in crate::siding::sight(&spec, &fr, t).map_err(|e| anyhow::anyhow!(e))? {
+                let d = ((f[0] - t[0]).powi(2) + (f[1] - t[1]).powi(2) + (f[2] - t[2]).powi(2)).sqrt();
+                println!("trapdoors {}: {:.2},{:.2},{:.2} -> {:.2},{:.2},{:.2} ({d:.2}): {}", if toggle { "flipped" } else { "as built" }, f[0], f[1], f[2], t[0], t[1], t[2], match hit { None => "CLEAR".to_string(), Some(c) => format!("blocked at ({},{},{})", c[0], c[1], c[2]) });
+            }
         }
         MobfarmCmd::SidingCage { design, remove } => {
             let (_c, spec) = load(version, &design)?;
