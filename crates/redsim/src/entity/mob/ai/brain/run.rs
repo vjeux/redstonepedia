@@ -1082,11 +1082,19 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
     // then the behaviour's own test (a home: a bed nobody sleeps in)
     let me = w.entities.list[i].block_position();
     let mut passed = Vec::new();
+    let trace = std::env::var("MCTAS_TRACE_ACQUIRE").is_ok();
     for p in crate::entity::mob::ai::poi::free_pois_ordered(w, poi, me, 48) {
         let marker = match kind(w, i, n) {
             Kind::AcquirePoi { batch, .. } => batch.iter().position(|(q, _)| *q == p),
             _ => None,
         };
+        if trace {
+            let m = match kind(w, i, n) {
+                Kind::AcquirePoi { batch, .. } => marker.map(|k| (batch[k].1.previous, batch[k].1.next, batch[k].1.delay)),
+                _ => None,
+            };
+            eprintln!("acquire t{t}: #{} at {me:?} candidate {p:?} marker {m:?}", w.entities.list[i].id);
+        }
         match marker {
             None => passed.push(p),
             Some(k) => {
@@ -1132,6 +1140,9 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
     let targets: Vec<BlockPos> = order.iter().map(|&k| valid[k]).collect();
     let reach = crate::entity::mob::ai::poi::valid_range(poi).max(1);
     let path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_positions(w, nm, &targets, reach, arena));
+    if trace {
+        eprintln!("acquire t{t}: #{} targets {targets:?} path {:?}", w.entities.list[i].id, path.as_ref().map(|p| (p.target, p.reached, p.node_count())));
+    }
     match path {
         Some(p) if p.reached && poi != PoiSel::Home => {
             // a job site or a meeting point taken: the profession and the meeting point's

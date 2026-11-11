@@ -2409,25 +2409,20 @@ fn valid_position_for_mob(w: &mut World, k: &Kind, ty: MobType, pos: Vec3, d2: f
 /// `Zombie.finalizeSpawn`'s near chicken: the first chicken (entity order) in the zombie's box at
 /// `pos` inflated by (5, 3, 5) that nobody rides.
 fn near_chicken(w: &World, zombie: MobType, pos: Vec3, not: u32) -> Option<u32> {
-    let bb = entity_box(zombie, pos.x, pos.y, pos.z);
+    // (mob-AI 2026-11-11) getEntitiesOfClass(Chicken.class, box.inflate(5, 3, 5),
+    // ENTITY_NOT_BEING_RIDDEN): the boxes that intersect it, in the level's section order (each
+    // section's in the order they entered it), alive, neither ridden nor riding; the first
+    let bb = entity_box(zombie, pos.x, pos.y, pos.z).inflate(5.0, 3.0, 5.0);
     let riders: Vec<u32> = w.mob.natural.as_ref().map(|n| n.riders.iter().map(|r| r.1).collect()).unwrap_or_default();
-    w.entities
-        .list
-        .iter()
-        .find(|e| {
-            !e.removed
-                && e.id != not
-                && matches!(&e.kind, EntityKind::Mob(m) if m.ty.def().game_id == "minecraft:chicken")
-                && !riders.contains(&e.id)
-                && e.passengers.is_empty()
-                && e.pos.x > bb.min_x - 5.0
-                && e.pos.x < bb.max_x + 5.0
-                && e.pos.y > bb.min_y - 3.0
-                && e.pos.y < bb.max_y + 3.0
-                && e.pos.z > bb.min_z - 5.0
-                && e.pos.z < bb.max_z + 5.0
-        })
-        .map(|e| e.id)
+    w.get_entities(bb, |e| {
+        e.id != not
+            && matches!(&e.kind, EntityKind::Mob(m) if m.ty.def().game_id == "minecraft:chicken" && !m.dead && m.health > 0.0)
+            && !riders.contains(&e.id)
+            && e.passengers.is_empty()
+            && e.vehicle.is_none()
+    })
+    .first()
+    .map(|&i| w.entities.list[i].id)
 }
 
 /// `Chicken.setChickenJockey(true)`.

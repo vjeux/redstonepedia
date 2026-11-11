@@ -3347,6 +3347,21 @@ pub struct GameScene {
     /// (tickexact 2026-11-11) The game's last whole-part load sequence (`n:type ...`, the bridge's
     /// `load` reply), compared with redsim's `World::last_load`.
     last_load: String,
+    /// (mob-AI 2026-11-11) The POI type holders' identity hashes in this JVM (the bridge's
+    /// `identity_hashes`), for redsim's `AiWorld::poi_hashes`.
+    pub poi_hashes: std::collections::HashMap<String, i32>,
+}
+
+/// The bridge's `identity_hashes`: each POI type's registry holder's identity hash in this JVM.
+fn poi_identity_hashes(w: &mut Worker) -> Result<std::collections::HashMap<String, i32>> {
+    let v = w.call(json!({"op": "identity_hashes"}))?;
+    Ok(v["poi_types"].as_object().map(|m| m.iter().filter_map(|(k, h)| h.as_i64().map(|h| (k.clone(), h as i32))).collect()).unwrap_or_default())
+}
+
+/// A recording's POI holder hashes (its header's `poi_types`; none in a recording made before
+/// they were kept).
+fn header_poi_hashes(header: &serde_json::Value) -> Option<std::collections::HashMap<String, i32>> {
+    header["poi_types"].as_object().map(|m| m.iter().filter_map(|(k, h)| h.as_i64().map(|h| (k.clone(), h as i32))).collect())
 }
 
 impl GameScene {
@@ -3423,7 +3438,11 @@ impl GameScene {
         } else {
             (Vec::new(), Vec::new())
         };
-        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether, renumbered: Default::default(), last_load: String::new() })
+        // (mob-AI 2026-11-11) this JVM's POI type holders' identity hashes: AcquirePoi's retry
+        // markers are made in a HashSet<Pair<Holder<PoiType>, BlockPos>>'s order (tickexact's
+        // reclaim-backoff: three free beds, the markers' delays dealt in the game's order)
+        let poi_hashes = poi_identity_hashes(&mut w)?;
+        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning, nether, renumbered: Default::default(), last_load: String::new(), poi_hashes })
     }
 
     /// The bridge's `unload` / `load` of every chunk of the sandbox (a load's renumbering kept),
@@ -3769,10 +3788,17 @@ pub fn redsim_summon(w: &mut World, s: &Scene) -> Result<Vec<u64>> {
 /// Where the game's frames come from: the live bridge, or a recording of it (`mobai record`).
 pub enum Source {
     Live(Box<GameScene>),
-    Recorded { frames: std::collections::VecDeque<serde_json::Value>, game_ids: Vec<u64>, ticking: Vec<[i32; 2]>, spawning: Vec<[i32; 2]> },
+    Recorded { frames: std::collections::VecDeque<serde_json::Value>, game_ids: Vec<u64>, ticking: Vec<[i32; 2]>, spawning: Vec<[i32; 2]>, poi_hashes: Option<std::collections::HashMap<String, i32>> },
 }
 
 impl Source {
+    /// (mob-AI 2026-11-11) The game's POI holder identity hashes (a recording's when it kept them).
+    fn poi_hashes(&self) -> Option<std::collections::HashMap<String, i32>> {
+        match self {
+            Source::Live(g) => Some(g.poi_hashes.clone()),
+            Source::Recorded { poi_hashes, .. } => poi_hashes.clone(),
+        }
+    }
     /// The game's last whole-part load sequence (a live game's; a recording does not keep it).
     fn last_load(&self) -> Option<&str> {
         match self {
@@ -3859,6 +3885,9 @@ pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full
 #[allow(clippy::too_many_arguments)]
 pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch: u32, full: bool, probe: bool, trace: Option<(i64, Option<u32>)>) -> Result<Compare> {
     let mut ours = redsim_world(s, seed)?;
+    if let Some(h) = game.poi_hashes() {
+        ours.mob.ai.poi_hashes = Some(h);
+    }
     let ticking = game.ticking();
     if !ticking.is_empty() {
         ours.chunk_order = ticking;
@@ -4276,6 +4305,7 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
             "game_ids": game_ids,
             "ticking": game.ticking,
             "spawning": game.spawning,
+            "poi_types": game.poi_hashes,
         });
         let mut text = header.to_string();
         text.push('\n');
@@ -4451,6 +4481,9 @@ pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Pat
     let list = |k: &str| -> Vec<[i32; 2]> { header[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
     let seed = header["seed"].as_i64().unwrap_or(1);
     let mut ours = redsim_world(s, seed)?;
+    if let Some(h) = header_poi_hashes(&header) {
+        ours.mob.ai.poi_hashes = Some(h);
+    }
     let ticking = list("ticking");
     if !ticking.is_empty() {
         ours.chunk_order = ticking;
@@ -4626,6 +4659,7 @@ pub fn replay(paths: &[std::path::PathBuf]) -> Result<()> {
             game_ids: header["game_ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default(),
             ticking: list("ticking"),
             spawning: list("spawning"),
+            poi_hashes: header_poi_hashes(&header),
         };
         let seed = header["seed"].as_i64().unwrap_or(1);
         let c = compare_source(&mut src, s, seed, ticks, 100, false, false, None)?;
