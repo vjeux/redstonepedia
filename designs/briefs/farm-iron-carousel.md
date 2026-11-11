@@ -101,7 +101,10 @@ lists. Every candidate meets all three rules; there is no first version without 
    smallest box" (about 24 x 12 x 5 at 99% summon success), with the queue and the bed inside a
    small box. The objective is the whole build's box volume, the queue and the bed included. No
    giant loops: short return paths or a compact loop are allowed when they measure smallest; the
-   volume objective decides. Villagers move in short hops: carts on short shuttles, water streams, pistons,
+   volume objective decides. Volume decides: the assembled overworld box's volume is the measure,
+   with dig depth priced in build minutes, and horizontal over vertical as the tie-breaker (vjeux's
+   rules, via the parent). A layout change prints box extents, volume, dug cells, build minutes and
+   blocks before and after. Villagers move in short hops: carts on short shuttles, water streams, pistons,
    whatever measures smallest. The lock box still holds (waiting groups more than 10.6 from every
    summoner on one horizontal axis, or 11.95 vertically, at every summon tick), and so does the
    occupied-erase distance (16 from the bed during a nap); the layout is the smallest arrangement
