@@ -5504,6 +5504,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut each_at: [Option<i64>; 3] = [None; 3];
     let mut each_done = [false; 3];
     let mut intake_trains: Vec<(i64, Vec<u32>, u8)> = Vec::new();
+    // (each returning train missing from the tail reported once, at its own slot: ironspec Nov 11
+    // 15:06, a finding re-printed at every later slot is a runner bug)
+    let mut tail_reported: std::collections::BTreeSet<i64> = Default::default();
     let mut arrivals: Vec<String> = Vec::new();
     let mut stand_braked_at: Vec<i64> = Vec::new();
     let mut intake_braked_at: Vec<(i64, i64)> = Vec::new();
@@ -6144,7 +6147,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if c < cycles && dt == tm.tail_check_at.unwrap_or(tm.advance_at) && !fifo_on {
             // the queue's tail must hold every earlier returning train before the advance
             for (c0, _, st) in &intake_trains {
-                if *c0 + lag <= c && (*st < 2 || (o.plain && *st != 9) || (tm.tail_check_rest && *st == 2)) {
+                if *c0 + lag <= c && (*st < 2 || (o.plain && *st != 9) || (tm.tail_check_rest && *st == 2)) && tail_reported.insert(*c0) {
                     problems.push(format!("slot {c}: slot {c0}'s returning train not in the queue's tail at the advance"));
                 }
             }
@@ -8328,6 +8331,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     }
     if !rider_hurt.is_empty() {
         out.push(format!("riders hurt: {}", rider_hurt.join("; ")));
+        // (a rider hurt fails the run by default, each hurt a problem at its own slot: ironspec Nov
+        // 11 15:06, W's exit climb hurt every visiting rider and nothing failed)
+        for h in &rider_hurt {
+            let slot = h.split_once("at slot ").and_then(|(_, r)| r.split(|ch: char| !ch.is_ascii_digit()).next()).and_then(|d| d.parse::<i64>().ok());
+            match slot {
+                Some(s) => problems.push(format!("slot {s}: a rider hurt: {h}")),
+                None => problems.push(format!("a rider hurt: {h}")),
+            }
+        }
     }
     // (the blind rider-ticks: the eye inside a collision shape as the blocks stood)
     {
