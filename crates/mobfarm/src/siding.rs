@@ -219,6 +219,11 @@ pub fn retry() -> bool {
     std::env::var("MCTAS_SIDING_RETRY").is_ok_and(|v| v == "1")
 }
 
+/// The free-cell sensor (MCTAS_SIDING_FC=1, on the retry build): see `wire_b`.
+pub fn fc() -> bool {
+    retry() && std::env::var("MCTAS_SIDING_FC").is_ok_and(|v| v == "1")
+}
+
 /// [`layout`] moved `dx` east and `dz` south (the bench's world shifted so the loop's chunk lines
 /// fall on the siding as day-1 pastes it: `BenchOpts::shift_x`, `shift_z`).
 pub fn layout_at(dx: i32, dz: i32) -> Siding {
@@ -489,7 +494,11 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     on(b, [-2, -3, 0], dust)?;
     // S: the observer south of the bed's foot (replacing the cage's glass), dust west along z 5,
     // down north to the 4-tick repeater into N1
+    // (the free-cell sensor FC: no S observer or S line; H is set by F alone, day-1's pulse on
+    // every visit, so a bed change with no visit (a stranger leaving the bed) sets nothing)
+    if !fc() {
     swap(b, [0, 0, 4], "observer[facing=north,powered=false]")?;
+    }
     // (the forced give-up's speed, 2026-11-10: delay moved from the kick chain (H to the kick,
     // which the scheduler's F also waits through) to the nap path (S to H, which F skips); the
     // nap's onset to its kick stays the same. MCTAS_SIDING_MOVE = repeaters moved, 0..3; the
@@ -509,7 +518,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
         for z in [7, 6, 5] {
             on(b, [-3, 0, z], dust)?;
         }
-    } else {
+    } else if !fc() {
         // (the self-retrying kick: the S dust on glass, not stone: dust powers the block under it,
         // and a powered (0,-1,5) powers the low park rail beside it at every S pulse)
         if retry() {
@@ -522,10 +531,12 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
             on(b, [x, 0, 5], &if i < mv.min(2) { rep("east", 4) } else { dust.to_string() })?;
         }
     }
-    on(b, [-3, -1, 4], dust)?;
-    on(b, [-3, -2, 3], dust)?;
-    on(b, [-3, -3, 2], dust)?;
-    on(b, [-4, -3, 2], &rep("east", 4))?;
+    if !fc() {
+        on(b, [-3, -1, 4], dust)?;
+        on(b, [-3, -2, 3], dust)?;
+        on(b, [-3, -3, 2], dust)?;
+        on(b, [-4, -3, 2], &rep("east", 4))?;
+    }
     // R: the exit branch's detector rail (its second rail, two from the T), repeaters north, dust
     // west along z -3, down west into a repeater south into N2
     swap(b, [3, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
@@ -690,13 +701,18 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     // and B stays out of D1 (D1 also powers N2, the H latch's reset: B there would hold H off
     // through every nap). (The first route went down onto N1's glass cap: dust on glass carries
     // power up the stair and not down, so B never reached the chain.)
-    swap(b, [-1, 0, 2], "observer[facing=east,powered=false]")?;
-    on(b, [-2, 0, 2], bulb)?;
-    put(b, [-2, 1, 2], "glass")?;
-    on(b, [-3, 0, 2], &cmp("east"))?;
-    for c in [[-4, 0, 2], [-5, 0, 2], [-5, 0, 3], [-5, -1, 4], [-5, -2, 5], [-4, -2, 5], [-4, -3, 6]] {
-        on(b, c, dust)?;
+    // (the free-cell sensor FC replaces B: no observer, bulb or comparator; B's downstream network
+    // from (-4,-3,6) on carries not-FC instead, fed at (0,-1,8) below)
+    if !fc() {
+        swap(b, [-1, 0, 2], "observer[facing=east,powered=false]")?;
+        on(b, [-2, 0, 2], bulb)?;
+        put(b, [-2, 1, 2], "glass")?;
+        on(b, [-3, 0, 2], &cmp("east"))?;
+        for c in [[-4, 0, 2], [-5, 0, 2], [-5, 0, 3], [-5, -1, 4], [-5, -2, 5], [-4, -2, 5]] {
+            on(b, c, dust)?;
+        }
     }
+    on(b, [-4, -3, 6], dust)?;
     on(b, [-5, -3, 6], &rep("east", 1))?;
     // the chain: 8-gt repeaters, (-6,-3,6) the merge cell (dust)
     for z in [4, 5, 7, 8] {
@@ -718,8 +734,28 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     on(b, [1, -2, 8], &rep("west", 1))?;
     // (the two-torch tower's top block, under nothing now: FAST's block for SC's side repeater)
     put(b, [0, -2, 7], "stone")?;
-    put(b, [0, -1, 7], "glass")?;
+    if fc() {
+        // (not-FC: a wall torch (1,1,7) on FC's block (1,1,6), dust (1,0,7), (0,0,7) on stone, down
+        // south onto (0,-1,8): the whole network once fed B now carries not-FC)
+        put(b, [0, -1, 7], "stone")?;
+        put(b, [1, 1, 7], "redstone_wall_torch[facing=south,lit=true]")?;
+        on(b, [1, 0, 7], dust)?;
+        put(b, [0, 0, 7], dust)?;
+        // (K holds, ironspec 08:40 item 1: K fed back into SC's side. From the stop (1,-1,6), K's
+        // strongly powered block: dust west (0,-1,6), (-1,-1,6), (-2,-1,6), south (-2,-1,7) on the
+        // block (-2,-2,7), read by a repeater (-1,-2,7) east into FAST's block (0,-2,7): once lit, K
+        // stays lit until not-H (R) or L. Stone (0,0,6) keeps (0,-1,6) off not-FC's (0,0,7))
+        for c in [[0, -1, 6], [-1, -1, 6], [-2, -1, 6], [-2, -1, 7]] {
+            on(b, c, dust)?;
+        }
+        on(b, [-1, -2, 7], &rep("west", 1))?;
+        put(b, [0, 0, 6], "stone")?;
+        put(b, [0, 1, 6], "glass")?;
+    } else {
+        put(b, [0, -1, 7], "glass")?;
+    }
     on(b, [-4, -4, 7], dust)?;
+    if !fc() {
     // the dawn/dusk resync (ironspec 05:47, day-1's pulse from its daylight stair, 05:53): a pulse
     // into P (-4,1,4) turns off the wall torch (-4,1,3) on it (not-RS), whose repeater (-4,1,2)
     // feeds the side of G (-4,1,1), a subtract comparator with B at its back (dust up from B's
@@ -737,6 +773,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     put(b, [-4, 1, 3], "redstone_wall_torch[facing=north,lit=true]")?;
     put(b, [-4, 2, 4], "glass")?;
     b.d.meta.insert("resync".into(), "-4 1 4".into());
+    }
     // step 2's FAST unit is described above; the old comment block follows for the record
     // (superseded: N fed B now from a second bulb, FA = H - N at (-1,-6,7))
     // - L into BK from the east (its dust no longer joins the chain's end).
@@ -830,6 +867,29 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     // (2,0,2) feeds dust east and south into the L line at (6,0,4): BK = SC or L or not-H)
     for c in [[3, 0, 2], [3, 0, 3], [3, 0, 4], [4, 0, 4], [5, 0, 4]] {
         on(b, c, dust)?;
+    }
+    // (the free-cell sensor FC, MCTAS_SIDING_FC=1 on the retry build, ironspec 09:19: a tripwire
+    // string at y 1 over the T, the booster and the free cell, every cell the napper can stand on,
+    // between hooks at (1,1,-1) (on glass at (1,1,-2)) and (1,1,5) (on stone at (1,1,6), FC's block);
+    // the booster's cap gone, so glass caps over the T's sides (0,1,0), (2,1,0), glass at its north
+    // (1,0,-1), and glass at y 2 over the trapdoors. A standing villager's box crosses the band at
+    // 1.06-1.16; a baby (0.98) and the cart (0.76) do not)
+    if fc() {
+        swap(b, [1, 1, 1], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+        for z in [0, 2, 3, 4] {
+            if b.d.blocks.contains_key(&[1, 1, z]) {
+                swap(b, [1, 1, z], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+            } else {
+                put(b, [1, 1, z], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+            }
+        }
+        put(b, [1, 1, -1], "tripwire_hook[attached=true,facing=south,powered=false]")?;
+        put(b, [1, 1, -2], "glass")?;
+        swap(b, [1, 1, 5], "tripwire_hook[attached=true,facing=north,powered=false]")?;
+        put(b, [1, 1, 6], "stone")?;
+        for c in [[0, 1, 0], [2, 1, 0], [1, 0, -1], [1, 2, -1], [1, 2, 3], [1, 2, 4], [1, 2, 6]] {
+            put(b, c, "glass")?;
+        }
     }
     // (the declared z >= -4 rule's positive control, ironspec 08:13: MCTAS_SIDING_EXTRA_STONE=x,y,z
     // adds one stone at that local cell; at z -5 the bench's HOME rows fail)
@@ -2897,6 +2957,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("Aa", if retry() { [1, -3, 3] } else { [1, -2, 3] }),
                 ("AaR", if retry() { [0, -4, 3] } else { [0, -3, 3] }),
                 ("Hs3", [-1, -4, 3]),
+                ("FCh", [1, 1, 5]),
+                ("FCs", [1, 1, 2]),
                 // (the give-up's, when it has one)
                 ("ARR", [0, 0, 0]),
                 ("Aset", [0, -2, -5]),
