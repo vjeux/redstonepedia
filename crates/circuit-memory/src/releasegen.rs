@@ -855,7 +855,7 @@ struct Latch {
 /// (1,0,3) 2 rt into the loop from the landing (1,0,5) or, gated (EMP: set = launch AND NOT E), from
 /// Cg (1,0,5) = launch (1,0,6) - E (its side repeater (2,0,5) from the landing (3,0,5)). Q: the
 /// repeater (-1,0,-1) out to the dust (-2,0,-1).
-fn latch_gadget(b: &mut B, gated: bool, what: &str) -> Result<Latch> {
+fn latch_gadget(b: &mut B, gated: bool, ys: &[i32], what: &str) -> Result<Latch> {
     let cmp = |f: &str| format!("minecraft:comparator[facing={f},mode=subtract,powered=false]");
     let mut gad: Vec<([i32; 3], String)> = vec![([0, 0, 0], rep("south", 1))];
     for d in [[0, 0, -1], [1, 0, -1], [2, 0, -1], [2, 0, 1], [2, 0, 2], [1, 0, 2], [0, 0, 2], [0, 0, 1]] {
@@ -884,7 +884,7 @@ fn latch_gadget(b: &mut B, gated: bool, what: &str) -> Result<Latch> {
     } else {
         clear.extend([[1, 0, 5], [1, 0, 6]]);
     }
-    let v = place_gadget_in(b, &gad, &clear, &HEAD_YS, -6..=9, 10..=25, &in_go_chunk, what)?;
+    let v = place_gadget_in(b, &gad, &clear, ys, -6..=9, 10..=25, &in_go_chunk, what)?;
     let at = |d: [i32; 3]| [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
     Ok(Latch {
         clear_in: at([5, 0, 0]),
@@ -900,7 +900,7 @@ fn latch_gadget(b: &mut B, gated: bool, what: &str) -> Result<Latch> {
 /// RETRY's shaper gadget (retry_source's cells: I = 15 - SIDE, C = REAR - I, an edge on C's rise, a
 /// 4-rt extender and two copies 6 gt apart: one 14-gt pulse per rise), placed in GO's chunk. Returns
 /// (rear input, side input, output N, rear's near, side's near).
-fn shaper_gadget(b: &mut B, what: &str) -> Result<(P3, P3, P3, [P3; 2], P3)> {
+fn shaper_gadget(b: &mut B, ys: &[i32], what: &str) -> Result<(P3, P3, P3, [P3; 2], P3)> {
     let gad: Vec<([i32; 3], String)> = vec![
         ([0, 0, 0], "minecraft:comparator[facing=south,mode=subtract,powered=false]".into()),
         ([0, 0, 1], rep("south", 1)),
@@ -924,7 +924,7 @@ fn shaper_gadget(b: &mut B, what: &str) -> Result<(P3, P3, P3, [P3; 2], P3)> {
         ([6, 0, -1], DUST.into()),
     ];
     let inputs = [[-2, 0, 0], [-1, 0, -1], [7, 0, -1], [-3, 0, 0], [-1, 0, -2]];
-    let v = place_gadget_in(b, &gad, &inputs, &HEAD_YS, -6..=9, 10..=25, &in_go_chunk, what)?;
+    let v = place_gadget_in(b, &gad, &inputs, ys, -6..=9, 10..=25, &in_go_chunk, what)?;
     let at = |d: [i32; 3]| [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
     Ok((at([-1, 0, -1]), at([-2, 0, 0]), at([6, 0, -1]), [at([0, 0, -1]), at([-1, 0, 0])], at([-1, 0, 0])))
 }
@@ -949,16 +949,37 @@ fn head_port(b: &mut B, name: &str, delay: u8) -> Result<(P3, P3)> {
     Ok((v, if delay > 0 { [v[0] + 2, v[1], v[2]] } else { v }))
 }
 
+/// A landing's zone: the cell and the four beside it at its level and one up or down (a dust in any
+/// of them would join the landing's dust, a stair for the diagonal ones).
+fn landing_zone(p: P3) -> Vec<P3> {
+    let mut v = vec![p];
+    for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]] {
+        for dy in [-1, 0, 1] {
+            v.push([p[0] + d[0], p[1] + dy, p[2] + d[2]]);
+        }
+    }
+    v
+}
+
 /// A route that may end on any of `ends` (the first that lays), each with its own near cells.
 fn feed_any(b: &mut B, srcs: &[(P3, usize)], ends: &[(P3, Vec<P3>)], what: &str) -> Result<Vec<(P3, usize)>> {
-    let none = std::collections::BTreeSet::new();
-    let (lo, hi) = ([-6, -24, 10], [9, -2, 25]);
+    feed_any_r(b, srcs, ends, what, &std::collections::BTreeSet::new())
+}
+
+/// `feed_any` keeping its dust off `blocked` (other landings not yet routed, and their neighbours)
+/// except at its own end.
+fn feed_any_r(b: &mut B, srcs: &[(P3, usize)], ends: &[(P3, Vec<P3>)], what: &str, blocked: &std::collections::BTreeSet<P3>) -> Result<Vec<(P3, usize)>> {
+    let (lo, hi) = ([-6, -34, 10], [9, -2, 25]);
     let mut why = Vec::new();
     for (e, near) in ends {
         // (every source cell is the same net: a start or path cell may join any of them)
         let mut nn = near.clone();
         nn.extend(srcs.iter().map(|(c, _)| *c));
-        match feed(b, srcs, *e, 4, &nn, lo, hi, what, &none) {
+        // (the corridor rule keeps dust off the cell over each listed cell; the route's own end and
+        // its zone are free to it)
+        let own: std::collections::BTreeSet<P3> = landing_zone(*e).into_iter().chain(near.iter().copied()).collect();
+        let corridor: std::collections::BTreeSet<P3> = blocked.iter().filter(|q| !own.contains(*q)).map(|q| [q[0], q[1] - 1, q[2]]).collect();
+        match feed(b, srcs, *e, 4, &nn, lo, hi, what, &corridor) {
             Ok(p) => return Ok(p),
             Err(err) => why.push(format!("{e:?}: {err}")),
         }
@@ -1060,16 +1081,18 @@ fn s3_head_module(b: &mut B) -> Result<()> {
         }
         v
     };
-    for x in ["A", "B"] {
-        let emp = latch_gadget(b, true, &format!("S3 head: EMP_{x}"))?;
-        let e = latch_gadget(b, false, &format!("S3 head: E_{x}"))?;
-        let arr = latch_gadget(b, false, &format!("S3 head: ARR_{x}"))?;
+    for (x, base) in [("A", -13), ("B", -23)] {
+        // (the floor plan: one gadget per level, two apart (a gadget's supports never meet the next
+        // one's cells), each level's rest free for the routes; the OR and the ports at y -11)
+        let emp = latch_gadget(b, true, &[base], &format!("S3 head: EMP_{x}"))?;
+        let e = latch_gadget(b, false, &[base - 2], &format!("S3 head: E_{x}"))?;
+        let arr = latch_gadget(b, false, &[base - 4], &format!("S3 head: ARR_{x}"))?;
         b.ports.insert(format!("output.emp_{x}"), emp.q);
         b.ports.insert(format!("output.e_{x}"), e.q);
         b.ports.insert(format!("output.arr_{x}"), arr.q);
-        let (rt_rear, rt_side, rt_out, rt_rear_near, rt_side_near) = shaper_gadget(b, &format!("S3 head: RETRY_{x}"))?;
-        let (c1_side, c1_rear, c1_out) = and_gadget(b, &HEAD_YS, -6..=9, 10..=25, &format!("S3 head: CANCEL_{x} ring AND"))?;
-        let (c2_side, c2_rear, c2_out) = and_gadget(b, &HEAD_YS, -6..=9, 10..=25, &format!("S3 head: CANCEL_{x} reset AND"))?;
+        let (rt_rear, rt_side, rt_out, rt_rear_near, rt_side_near) = shaper_gadget(b, &[base - 6], &format!("S3 head: RETRY_{x}"))?;
+        let (c1_side, c1_rear, c1_out) = and_gadget(b, &[base - 8], -6..=9, 10..=25, &format!("S3 head: CANCEL_{x} ring AND"))?;
+        let (c2_side, c2_rear, c2_out) = and_gadget(b, &[base - 8], -6..=9, 10..=25, &format!("S3 head: CANCEL_{x} reset AND"))?;
         // (DEP_X, a cart actually left toward X (ironspec 10:47, farmopt's (b); 7b90c3f1's detector on
         // each branch after the router's switch): the launch both latches re-arm on, EMP's gated set
         // (DEP AND NOT E) and ARR's set; an empty launch re-arms neither)
@@ -2488,7 +2511,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             bail!("--siding needs farmopt's pocket-stand loop (stand_stop=1)");
         }
         let phys = crate::sidinggen::physical(&mut d, sp)?;
-        println!("siding pasted at {:?}: {} cells added; controls divert {:?}, T1 {:?}, T2 {:?}, holds {:?} (the siding's release {:?} held on)", crate::sidinggen::SIDING_AT, phys.len(), crate::sidinggen::DIVERT, crate::sidinggen::T1, crate::sidinggen::T2, crate::sidinggen::HOLDS, crate::sidinggen::RELEASE);
+        println!("siding pasted at {:?}: {} cells added; controls divert {:?}, T1 {:?}, T2 {:?}, holds {:?} (the siding's release {:?} held on)", crate::sidinggen::origin(), phys.len(), crate::sidinggen::DIVERT, crate::sidinggen::T1, crate::sidinggen::T2, crate::sidinggen::HOLDS, crate::sidinggen::release());
         siding_cells.extend(phys);
         if let Some(sched) = siding_ctl {
             let more = crate::sidinggen::wire_control(&mut d, sched)?;
@@ -2554,8 +2577,8 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         let base_cells: std::collections::BTreeSet<P3> = Design::load(loop_file)?.blocks.keys().copied().collect();
         // (the siding's own blocks are farmopt's: its floor is where the napper walks to the bed, a
         // glass cover there would block it; it is left as pasted)
-        let s0 = crate::sidinggen::SIDING_AT;
-        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 4..=s0[1] + 4).contains(&p[1]) && (s0[2] - 3..=s0[2] + 9).contains(&p[2]);
+        let s0 = crate::sidinggen::origin();
+        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 7..=s0[1] + 4).contains(&p[1]) && (s0[2] - 4..=s0[2] + 9).contains(&p[2]);
         let solid = |s: &str| ["minecraft:stone", "minecraft:redstone_block", "minecraft:dropper", "minecraft:observer", "minecraft:target", "minecraft:smooth_stone", "minecraft:waxed_copper_bulb", "minecraft:copper_bulb"].iter().any(|k| s == *k || s.starts_with(&format!("{k}[")));
         let covers: Vec<P3> = d
             .blocks
@@ -2649,7 +2672,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         // (column 3 (c): thr at (d0 + 1, -17, d2 - 11) facing north, its output the cell north of
         // it, the lock repeater on its west side)
         let (thr_port, lock_port) = if far { ([dt[0] + 1, -17, dt[2] - 12], [dt[0], -17, dt[2] - 11]) } else { ([dt[0], dt[1], dt[2] + 13], [dt[0] + 1, dt[1], dt[2] + 12]) };
-        for (n, q) in [("rel", rel_port), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", u([20, -6, 9])), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-16, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-11, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", { let f = crate::sidinggen::FORCE; [f[0] - 2, f[1], f[2] - 1] }), ("fa_rel", { let f = crate::sidinggen::FORCE; [f[0], f[1], f[2] - 2] }), ("thr", thr_port), ("lock", lock_port), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", u([18, -6, 10])), ("g2_loc", u([20, -6, 9]))] {
+        for (n, q) in [("rel", rel_port), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", u([20, -6, 9])), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-16, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-11, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::force()), ("ns3_in", { let f = crate::sidinggen::force(); [f[0] - 2, f[1], f[2] - 1] }), ("fa_rel", { let f = crate::sidinggen::force(); [f[0], f[1], f[2] - 2] }), ("thr", thr_port), ("lock", lock_port), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", u([18, -6, 10])), ("g2_loc", u([20, -6, 9]))] {
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {
@@ -2714,8 +2737,8 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // the partial-unload faults at each line)
     {
         let base_cells: std::collections::BTreeSet<P3> = Design::load(loop_file)?.blocks.keys().copied().collect();
-        let s0 = crate::sidinggen::SIDING_AT;
-        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 4..=s0[1] + 4).contains(&p[1]) && (s0[2] - 3..=s0[2] + 9).contains(&p[2]);
+        let s0 = crate::sidinggen::origin();
+        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 7..=s0[1] + 4).contains(&p[1]) && (s0[2] - 4..=s0[2] + 9).contains(&p[2]);
         let real = |s: &String| !s.starts_with("minecraft:glass") && !s.ends_with(":air");
         let mine: std::collections::BTreeSet<P3> = d.blocks.iter().filter(|(p, s)| !base_cells.contains(*p) && !pad_cells.contains(*p) && !(siding.is_some() && in_siding(p)) && real(s)).map(|(p, _)| *p).collect();
         let solid_at = |p: &P3| d.blocks.get(p).is_some_and(real);
@@ -2794,6 +2817,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // (PERMIT in, powered = hold: GO blocked 14 gt after it rises, REL 20 gt after it falls), head.go
     // (the head's ports live in the siding probe; this file is a mob-farm design: no ports)
     d.name = "carousel-release-loop-wired".into();
+    // (built as designed (ironspec 11:51): a farm file carries every declared drive of the siding
+    // layout; one missing (B's old check under MCTAS_FAR_B_ONLY skipped the kick chain, F and the
+    // switch drives) fails here, unless MCTAS_PROBE_ONLY says only the probes are wanted (the core's
+    // traces), in which case no farm file is written)
+    if siding.is_some() && crate::sidinggen::FAR {
+        let forced = Design::load(siding.expect("siding"))?.meta.get("siding").is_some_and(|l| l.contains("force="));
+        if let Err(e) = crate::sidinggen::check_declared_drives(&d.blocks, forced) {
+            if std::env::var("MCTAS_PROBE_ONLY").is_ok() {
+                println!("{}: not written (probes only): {e}", out.display());
+                return Ok(());
+            }
+            return Err(e);
+        }
+    }
     d.save(out)?;
     println!("{}: {} blocks ({} the controller's), golem input at {:?}, stand reset at {:?}", out.display(), d.blocks.len(), b.blocks.len(), golem, reset);
     Ok(())

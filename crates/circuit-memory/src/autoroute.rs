@@ -434,13 +434,21 @@ fn self_conflict_old(path: &[P3]) -> Option<P3> {
     None
 }
 
+/// Opt-in for [`find`]: every path keeps a repeater spot (a flat step followed by a flat step) at
+/// most 12 dust cells apart, so `sidinggen::route`'s repeaters can keep it live across long stairs
+/// (sidinggen's auto-routed under-stand lines set it around their search; off, the search is as it
+/// was for every other caller).
+pub(crate) static LANDINGS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn find_once(b: &B, start: P3, end: P3, l: &Limits, no_path: &BTreeSet<P3>) -> Result<Vec<P3>> {
     for (p, what) in [(start, "start"), (end, "end")] {
         if let Some(why) = why_not(b, l, p) {
             bail!("autoroute: the {what} {p:?} cannot hold a dust: {why}");
         }
     }
-    // state: (cell, the step's horizontal direction index, or 4 at the start)
+    let landings = LANDINGS.load(std::sync::atomic::Ordering::Relaxed);
+    // state: (cell, the step's horizontal direction index, or 4 at the start; with `landings`, plus
+    // 5 x (2 x the dust since the last repeater spot + whether the step was flat))
     type S = (P3, usize);
     let mut dist: HashMap<S, u32> = HashMap::new();
     let mut prev: HashMap<S, S> = HashMap::new();
@@ -457,7 +465,9 @@ fn find_once(b: &B, start: P3, end: P3, l: &Limits, no_path: &BTreeSet<P3>) -> R
             done = Some(st);
             break;
         }
-        let (p, dir) = st;
+        let (p, code) = st;
+        let dir = code % 5;
+        let (run, was_flat) = (code / 10, (code / 5) % 2 == 1);
         for (di, d) in H4.iter().enumerate() {
             for dy in [0, -1, 1] {
                 let n = [p[0] + d[0], p[1] + dy, p[2] + d[2]];
@@ -481,7 +491,16 @@ fn find_once(b: &B, start: P3, end: P3, l: &Limits, no_path: &BTreeSet<P3>) -> R
                 if dy != 0 {
                     cost += 6;
                 }
-                let ns: S = (n, di);
+                let ns: S = if landings {
+                    let flat = dy == 0;
+                    let run2 = if flat && was_flat { 0 } else { run + 1 };
+                    if run2 > 12 {
+                        continue;
+                    }
+                    (n, di + 5 * (run2 * 2 + usize::from(flat)))
+                } else {
+                    (n, di)
+                };
                 if dist.get(&ns).is_none_or(|&d| cost < d) {
                     dist.insert(ns, cost);
                     prev.insert(ns, st);
