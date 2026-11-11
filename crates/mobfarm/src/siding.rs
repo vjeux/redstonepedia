@@ -652,6 +652,58 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     on(b, [0, -1, 7], &rep("north", 1))?;
     on(b, [0, -1, 8], dust)?;
     on(b, [1, -2, 8], &rep("west", 1))?;
+    // step 2, the fast path (an F visit, no nap: the kick at once on H):
+    // - N, "a nap this visit": a locked repeater. Nr (-1,-6,8) takes B now (CB2's line, down a
+    //   stair (-1,-2,8), (-2,-3,8), (-3,-4,8), (-3,-5,9), (-2,-5,9), (-1,-6,9)), and H locks it
+    //   (the lock repeater (-2,-6,8) into its side, H down to it off FA's stair): H rises while
+    //   the napper sleeps (about 26 gt after the onset), so a napped visit locks N on and an F
+    //   visit locks it off; H falling at the return unlocks it, back to B (off). (Not a dropper
+    //   latch: droppers are conductors, so power into one also fires its neighbour.)
+    // - FA (-1,-6,7) = H - N (H down a stair off the H line at (-1,-3,5), into FA's back block
+    //   (-2,-6,7)); FAST into (0,-6,7), up a two-torch tower (0,-5,7), (0,-3,7) into (0,-2,7).
+    // - SC (2,-2,7), a subtract comparator before BK: back the chain's end (not-X delayed or B
+    //   now), side FAST through (1,-2,7): BK = SC or L, so K = (X delayed and not-B now, or FAST)
+    //   and not-L.
+    // - L into BK from the east (its dust no longer joins the chain's end).
+    let sub = |f: &str| format!("comparator[facing={f},mode=subtract,powered=false]");
+    on(b, [-1, -2, 8], dust)?;
+    on(b, [-2, -3, 8], dust)?;
+    on(b, [-3, -4, 8], dust)?;
+    // (down under the chain's z 9 line: its supports at y -4 would cut a step there)
+    on(b, [-4, -5, 8], dust)?;
+    on(b, [-4, -6, 9], dust)?;
+    for x in -4..=-1 {
+        on(b, [x, -6, 10], dust)?;
+    }
+    on(b, [-1, -6, 9], dust)?;
+    on(b, [-1, -6, 8], &rep("south", 1))?;
+    on(b, [-3, -6, 7], dust)?;
+    on(b, [-3, -6, 8], dust)?;
+    on(b, [-2, -6, 8], &rep("west", 1))?;
+    on(b, [-1, -6, 7], &sub("west"))?;
+    on(b, [-1, -4, 6], dust)?;
+    on(b, [-2, -5, 6], dust)?;
+    on(b, [-2, -5, 7], dust)?;
+    put(b, [0, -6, 7], "stone")?;
+    put(b, [0, -5, 7], "redstone_torch[lit=true]")?;
+    put(b, [0, -4, 7], "stone")?;
+    put(b, [0, -3, 7], "redstone_torch[lit=false]")?;
+    swap(b, [2, -2, 7], &sub("south"))?;
+    on(b, [1, -2, 7], &rep("west", 1))?;
+    swap(b, [3, -2, 8], "glass")?;
+    on(b, [4, -2, 7], dust)?;
+    on(b, [4, -2, 6], dust)?;
+    on(b, [3, -2, 6], &rep("east", 1))?;
+    // (SC and the L repeater power BK strongly, and a strongly powered block powers the dust
+    // beside it: the H line's step (2,-2,5) north of BK would take BK's power into H, and dust at
+    // (1,-3,4) would take Aa's block's (the wire's own note). The H line's end goes round the
+    // east instead: (1,-3,5), (2,-3,5), (3,-3,5), up north to (3,-2,4), west to (2,-2,4); (2,-2,5)
+    // is glass)
+    swap(b, [2, -2, 5], "glass")?;
+    swap(b, [2, -3, 5], dust)?;
+    b.set(2, -4, 5, "stone");
+    on(b, [3, -3, 5], dust)?;
+    on(b, [3, -2, 4], dust)?;
     Ok(())
 }
 
@@ -1468,7 +1520,7 @@ fn short_state(s: &str) -> String {
     let s = s.trim_start_matches("minecraft:");
     let name: String = s.split('[').next().unwrap_or(s).chars().take(5).collect();
     let mut flags = String::new();
-    for (k, tag) in [("lit=true", "L"), ("powered=true", "P"), ("open=true", "O"), ("occupied=true", "Z"), ("attached=true", "")] {
+    for (k, tag) in [("lit=true", "L"), ("powered=true", "P"), ("triggered=true", "T"), ("open=true", "O"), ("occupied=true", "Z"), ("attached=true", "")] {
         if s.contains(k) {
             flags.push_str(tag);
         }
@@ -2487,6 +2539,18 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let probes: Vec<(&str, [i32; 3])> = vec![
                 ("obs", [0, 0, 4]),
                 ("s0", [0, 0, 5]),
+                ("B1", [-2, 0, 2]),
+                ("Ds", [-3, -3, 3]),
+                ("Dr", [-3, -3, 4]),
+                ("CN", [-3, -3, 5]),
+                ("FA", [-1, -6, 7]),
+                ("Fs", [-1, -6, 8]),
+                ("B2", [0, -1, 5]),
+                ("C2", [0, -1, 6]),
+                ("e28", [2, -2, 8]),
+                ("SCs", [1, -2, 7]),
+                ("Lr", [3, -2, 6]),
+                ("Ttop", [0, -3, 7]),
                 ("s1", [-1, 0, 5]),
                 ("s3", [-3, 0, 5]),
                 ("s4", [-3, -1, 4]),
