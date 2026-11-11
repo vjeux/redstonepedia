@@ -67,4 +67,5 @@ zombie-obstacles.rec	26fc66de4a19d6ae		26.3	2026-11-08T21:43Z on 88512141f	mctas
 zombie-spear.rec	28b890397c1c4153		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-stroll.rec	3fda981d2947ddc8		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-stroll --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-village.rec	02c7f373276cdaf0		26.3	2026-11-09T00:47Z on 6205e5357	mctas mobai record zombie-village --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-villager-hard.rec	7aaf2cf57309bf65		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-villager.rec	7d7ed052702f4fba		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-villager --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

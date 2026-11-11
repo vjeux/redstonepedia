@@ -914,6 +914,30 @@ fn scenes_raw() -> Vec<Scene> {
             player_creative: false,
             random_tick_speed: 3,
         });
+        // (mob-AI 2026-11-10) on Hard, in a small pen: the villager the zombie kills becomes a
+        // zombie villager (Zombie.killedEntity: convertVillagerToZombieVillager), which then
+        // hunts on its own
+        let mut pen = Vec::new();
+        floor(&mut pen, 0, 48, 0, 48, 63, stone);
+        for (a, c) in [((20, 20), (26, 20)), ((20, 26), (26, 26)), ((20, 20), (20, 26)), ((26, 20), (26, 26))] {
+            wall(&mut pen, a, c, 63, 2, stone);
+        }
+        v.push(Scene {
+            name: "zombie-villager-hard".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: pen,
+            mobs: vec![
+                ("minecraft:zombie".into(), [21.5, 64.0, 21.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [25.5, 64.0, 25.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Hard,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
     }
     // a zombie standing in a 2-deep pool (its eye in water): 600 ticks, then the 300-tick
     // conversion, then the drowned in its place (its handleAttributes draws, its amphibious

@@ -224,6 +224,12 @@ impl Navigation {
     /// The target's chunk is loaded (`getChunkNow` != null): it meets the world's box.
     fn chunk_loaded(w: &World, p: BlockPos) -> bool {
         let (cx, cz) = (p.x >> 4, p.z >> 4);
+        // (mob-AI 2026-11-10) `getChunkNow`: the game's chunks at full status, when the bridge
+        // reported them (a terrain world's sandbox loads void superflat chunks past the sample:
+        // a wolf at the box's edge paths into one; forest build 1 t13035)
+        if let Some(c) = w.mob.custom.as_ref().filter(|c| !c.full_chunks.is_empty()) {
+            return c.full_chunks.contains(&[cx, cz]);
+        }
         let (x0, z0) = (w.min.x >> 4, w.min.z >> 4);
         let (x1, z1) = ((w.min.x + w.size[0] - 1) >> 4, (w.min.z + w.size[2] - 1) >> 4);
         cx >= x0 && cx <= x1 && cz >= z0 && cz <= z1
