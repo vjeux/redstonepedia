@@ -17,15 +17,24 @@ pub fn attack_damage(w: &World, i: usize) -> f32 {
     let base = base_attack_damage(w, i);
     // the main hand's ATTACK_DAMAGE modifier (a natural zombie's iron sword +5, a zombified
     // piglin's golden sword +3; a picked-up item's)
-    match &mob(w, i).mainhand {
-        Some(h) => (base as f64 + super::loot::weapon_damage(&h.item)) as f32,
-        None => base,
-    }
+    let d = match &mob(w, i).mainhand {
+        Some(h) => base as f64 + super::loot::weapon_damage(&h.item),
+        None => base as f64,
+    };
+    // (tickexact 2026-11-10) strength's ADD_VALUE modifier, 3 x (amplifier + 1): a spider's spawn
+    // effect
+    let d = if mob(w, i).effects.strength > 0 { d + 3.0 } else { d };
+    d as f32
 }
 
 /// `getAttributeBaseValue(ATTACK_DAMAGE)` of the modeled attackers (a spear's stab adds to it).
 pub fn base_attack_damage(w: &World, i: usize) -> f32 {
-    match mob(w, i).ty.def().id {
+    base_attack_damage_by_id(mob(w, i).ty.def().id)
+}
+
+/// [`base_attack_damage`] by mob type id.
+pub fn base_attack_damage_by_id(id: &str) -> f32 {
+    match id {
         "zombie" | "baby_zombie" | "zombie_villager" | "baby_zombie_villager" | "husk" | "drowned" | "baby_drowned" => 3.0,
         // ZombifiedPiglin.createAttributes
         "zombified_piglin" | "baby_zombified_piglin" => 5.0,

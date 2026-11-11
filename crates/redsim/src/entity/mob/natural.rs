@@ -2024,6 +2024,10 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
                 if hard && rng(w).next_float() < 0.1 * special {
                     // the group's effect (speed, strength, regeneration, invisibility)
                     g.spider_effect = Some(rng(w).next_int(5));
+                    // probe (tickexact): which spawn effect a spider group drew, and when
+                    if std::env::var_os("MCTAS_TRACE_SPIDER_EFFECT").is_some() {
+                        eprintln!("spider effect t{}: {:?} (0-1 speed, 2 strength, 3 regeneration, 4 invisibility)", w.time, g.spider_effect);
+                    }
                 }
             }
             spider_effect = g.spider_effect;
@@ -2255,25 +2259,22 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
     if f.hand != Hand::default() {
         super::set_hand(w, id, f.hand.loot, f.hand.weapon);
     }
-    // (tickexact 2026-11-10) a spider's group effect, infinite (`addEffect(effect, -1)`): speed
-    // (x 1.2 on its MOVEMENT_SPEED, the witch's speed effect's way); the others are named
-    if let Some(sel) = f.spider_effect {
-        if sel <= 1 {
-            if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
-                && let EntityKind::Mob(m) = &mut e.kind
-            {
-                m.effects.speed = i32::MAX;
-            }
-        } else {
-            let what = match sel {
-                2 => "strength",
-                3 => "regeneration",
-                _ => "invisibility",
-            };
-            let why = format!("a spider spawned with {what} (SpiderEffectsGroupData) is not modeled");
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
-            }
+    // (tickexact 2026-11-10) a spider's group effect, infinite (`addEffect(new
+    // MobEffectInstance(effect, -1))`, amplifier 0): speed (x 1.2 on its MOVEMENT_SPEED, the
+    // witch's speed effect's way), strength (+3 ATTACK_DAMAGE: `attack::attack_damage`),
+    // regeneration (`living::base_tick`'s tickEffects) or invisibility (`target::visibility_percent`;
+    // set at the sync right after the spawning phase, `updateDataBeforeSync`, so before any entity
+    // ticks)
+    if let Some(sel) = f.spider_effect
+        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+    {
+        let fx = &mut m.effects;
+        match sel {
+            0 | 1 => fx.speed = i32::MAX,
+            2 => fx.strength = i32::MAX,
+            3 => fx.regeneration = i32::MAX,
+            _ => fx.invisibility = i32::MAX,
         }
     }
     // a horse's attributes as randomizeAttributes drew them: its health is its max health

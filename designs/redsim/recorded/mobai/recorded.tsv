@@ -37,6 +37,7 @@ salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: se
 skeleton-golem.rec	201cbec2967abec0		26.3	2026-11-10T16:07Z on 4b8e206c1	mctas mobai record skeleton-golem --seed 1 --ticks 1500 --dir designs/redsim/recorded/mobai
 skeleton-night.rec	0c0593037b2d3fb3		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-night --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 skeleton-sun.rec	2c1222b87fbd3641		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-sun --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+spider-effects.rec	bc7bcd4b52713a4f		26.3	2026-11-10T23:51Z on 4e39780ede	mctas mobai record spider-effects --seed 1 --ticks 2400 --dir designs/redsim/recorded/mobai
 spider-golem.rec	68e63d0d953653ad		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-golem --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 spider-walls.rec	460e567ed52121ef		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-walls --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 squids.rec	63dbb40561554df8		26.3	2026-11-09T02:42Z on 4381c606f	mctas mobai record squids --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai

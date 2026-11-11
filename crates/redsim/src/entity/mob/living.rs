@@ -178,13 +178,21 @@ fn base_tick(w: &mut World, i: usize) {
     if m.damage_cooldown > 0 {
         m.damage_cooldown -= 1;
     }
-    // tickEffects: an instant health heals 4 (`heal`), the others count down
+    // tickEffects: an instant health heals 4 (`heal`), regeneration heals 1 when its tick comes
+    // (an infinite one's: the mob's tickCount % 50; `RegenerationMobEffect`), the others count down
     {
+        let tick_count = w.entities.list[i].tick_count;
         let m = mob_mut(w, i);
+        if m.effects.regeneration > 0 && tick_count % 50 == 0 {
+            let max = max_health(m);
+            if m.health < max && m.health > 0.0 {
+                m.health = (m.health + 1.0).min(max);
+            }
+        }
         let e = &mut m.effects;
         let heal = std::mem::take(&mut e.instant_health);
-        for d in [&mut e.water_breathing, &mut e.fire_resistance, &mut e.speed] {
-            if *d > 0 {
+        for d in [&mut e.water_breathing, &mut e.fire_resistance, &mut e.speed, &mut e.strength, &mut e.regeneration, &mut e.invisibility] {
+            if *d > 0 && *d != i32::MAX {
                 *d -= 1;
             }
         }

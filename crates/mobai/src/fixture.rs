@@ -1451,6 +1451,45 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // (tickexact 2026-11-10) the spawn effects a spider group draws on Hard (Spider.finalizeSpawn's
+    // SpiderEffectsGroupData: `addEffect(new MobEffectInstance(effect, -1))`), loaded as data (the
+    // same infinite effects; strength's ATTACK_DAMAGE +3 restored from `attributes` as a load does)
+    // at night: a spider with strength bites the iron golem for 2 + 3; an invisible one is seen at
+    // max(16 x 0.07, 2) only (the golem's NearestAttackableTargetGoal, the villager's visible list)
+    // until it bites and the golem's HurtByTargetGoal answers; one with regeneration, hurt to 6 and
+    // penned in glass, heals 1 whenever its tickCount is a multiple of 50
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        let glass = "minecraft:glass";
+        wall(&mut b, (38, 38), (44, 38), 63, 3, glass);
+        wall(&mut b, (38, 44), (44, 44), 63, 3, glass);
+        wall(&mut b, (38, 38), (38, 44), 63, 3, glass);
+        wall(&mut b, (44, 38), (44, 44), 63, 3, glass);
+        floor(&mut b, 38, 45, 38, 45, 67, glass);
+        let strength = "{PersistenceRequired:1b,active_effects:[{id:\"minecraft:strength\",amplifier:0b,duration:-1}],attributes:[{id:\"minecraft:attack_damage\",base:2.0d,modifiers:[{id:\"minecraft:effect.strength\",amount:3.0d,operation:\"add_value\"}]}]}";
+        v.push(Scene {
+            name: "spider-effects".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:iron_golem".into(), [20.5, 64.0, 20.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:spider".into(), [10.5, 64.0, 20.5], Some(strength.into())),
+                ("minecraft:spider".into(), [20.5, 64.0, 12.5], Some(strength.into())),
+                ("minecraft:spider".into(), [14.5, 64.0, 28.5], Some(strength.into())),
+                ("minecraft:spider".into(), [30.5, 64.0, 20.5], Some("{PersistenceRequired:1b,active_effects:[{id:\"minecraft:invisibility\",amplifier:0b,duration:-1}]}".into())),
+                ("minecraft:villager".into(), [30.5, 64.0, 26.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:spider".into(), [41.5, 64.0, 41.5], Some("{PersistenceRequired:1b,Health:6.0f,active_effects:[{id:\"minecraft:regeneration\",amplifier:0b,duration:-1}]}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Hard,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // bats in a closed stone hall at night: a summoned bat flies (BatFlags 0: its target cells,
     // its motion, hanging again under the ceiling 1 in 100); one hangs from the ceiling (BatFlags
     // 1) and wakes when its ceiling block is mined... here a creative player hangs 3 below it

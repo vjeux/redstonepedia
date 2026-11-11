@@ -449,14 +449,21 @@ impl MobState {
     }
 }
 
-/// A mob's potion effects (the ones a witch drinks): each its remaining duration in ticks (0:
-/// none); an instant health waits for the next `tickEffects`.
+/// A mob's potion effects (the ones a witch drinks; a spider's spawn effect): each its remaining
+/// duration in ticks (0: none; `i32::MAX`: infinite, `MobEffectInstance(effect, -1)`); an instant
+/// health waits for the next `tickEffects`. Every modeled effect has amplifier 0.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Effects {
     pub water_breathing: i32,
     pub fire_resistance: i32,
     pub speed: i32,
     pub instant_health: bool,
+    /// (tickexact 2026-11-10) A spider's spawn effects (SpiderEffectsGroupData): strength (+3
+    /// ATTACK_DAMAGE), regeneration (heals 1 every 50 ticks of its tickCount), invisibility
+    /// (`getVisibilityPercent`).
+    pub strength: i32,
+    pub regeneration: i32,
+    pub invisibility: i32,
 }
 
 /// The mob layer's level state.
@@ -658,11 +665,34 @@ pub fn shift_home_nbt(nbt: &Option<String>, d: [i32; 3]) -> Option<String> {
     Some(out)
 }
 
+/// The index of the bracket closing the one at `open` (`[` or `{`) in `t`, both kinds nested.
+fn bracket_end(t: &str, open: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    for (k, c) in t[open..].char_indices() {
+        match c {
+            '[' | '{' => depth += 1,
+            ']' | '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open + k);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `getAttributeBaseValue(ATTACK_DAMAGE)` of a mob type ([`ai::attack::base_attack_damage`]).
+fn base_attack_damage_of(ty: MobType) -> f32 {
+    ai::attack::base_attack_damage_by_id(ty.def().id)
+}
+
 /// `summon <mob> x y z [nbt]` (the entity core's spawn hook): `Some` for a modeled mob type, else
 /// `None` (the caller goes on). NBT is refused except `PersistenceRequired` and `Rotation` (the
-/// yaw; a design turned by the judge carries one). The mob's own random and its follow-range bonus
-/// come from [`MobWorld::rng`]: the judge models a mob the player brought in (its
-/// `finalizeSpawn` ran where it spawned), not a `/summon` with data.
+/// yaw; a design turned by the judge carries one) and the keys below. The mob's own random and its
+/// follow-range bonus come from [`MobWorld::rng`]: the judge models a mob the player brought in
+/// (its `finalizeSpawn` ran where it spawned), not a `/summon` with data.
 pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> Option<Result<u32, String>> {
     let mut ty = MobType::from_id(type_id)?;
     let mut persistent = false;
@@ -682,8 +712,63 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     // LAST_SLEPT; `Villager.readAdditionalSaveData` builds its brain from them (no POI ticket taken)
     let mut home: Option<crate::pos::BlockPos> = None;
     let mut last_slept: Option<i64> = None;
+    // (tickexact 2026-11-10, the spider-effects scene) a loaded mob's effects (`active_effects`:
+    // amplifier 0, a duration or -1 for infinite) and the one attribute modifier redsim models with
+    // them (strength's ATTACK_DAMAGE +3, which a load restores from `attributes`, not the effect)
+    let mut effects = Effects::default();
+    let mut strength_modifier = false;
+    let mut loaded_health: Option<f32> = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
+        if let Some(s) = t.find("active_effects:[") {
+            let open = s + "active_effects:".len();
+            let Some(e) = bracket_end(&t, open) else { return Some(Err(format!("entity {type_id}: unclosed active_effects in {n}"))) };
+            for entry in t[open + 1..e].split('}').map(|x| x.trim_start_matches([',', ' ']).trim_start_matches('{')).filter(|x| !x.trim().is_empty()) {
+                let (mut id, mut amp, mut dur) = (None, 0i32, None);
+                for kv in entry.split(',').map(str::trim).filter(|x| !x.is_empty()) {
+                    match kv.split_once(':').map(|(k, v)| (k.trim(), v.trim())) {
+                        Some(("id", v)) => id = Some(v.trim_matches('"').trim_start_matches("minecraft:").to_string()),
+                        Some(("amplifier", v)) => amp = v.trim_end_matches(['b', 'B']).parse().unwrap_or(-1),
+                        Some(("duration", v)) => dur = v.parse::<i32>().ok(),
+                        Some(("ambient", "0b" | "false")) | Some(("show_particles", "1b" | "true")) | Some(("show_icon", "1b" | "true")) => {}
+                        _ => return Some(Err(format!("entity {type_id}: an effect with {kv} is not modeled"))),
+                    }
+                }
+                let d = match dur {
+                    Some(-1) => i32::MAX,
+                    Some(d) if d > 0 => d,
+                    _ => return Some(Err(format!("entity {type_id}: an effect needs a duration (-1: infinite): {entry}"))),
+                };
+                if amp != 0 {
+                    return Some(Err(format!("entity {type_id}: an effect of amplifier {amp} is not modeled")));
+                }
+                match id.as_deref() {
+                    Some("speed") => effects.speed = d,
+                    Some("strength") => effects.strength = d,
+                    Some("regeneration") => effects.regeneration = d,
+                    Some("invisibility") => effects.invisibility = d,
+                    Some("water_breathing") => effects.water_breathing = d,
+                    Some("fire_resistance") => effects.fire_resistance = d,
+                    other => return Some(Err(format!("entity {type_id}: the effect {other:?} is not modeled"))),
+                }
+            }
+            t = format!("{}{}", &t[..s], &t[e + 1..]);
+        }
+        if let Some(s) = t.find("attributes:[") {
+            let open = s + "attributes:".len();
+            let Some(e) = bracket_end(&t, open) else { return Some(Err(format!("entity {type_id}: unclosed attributes in {n}"))) };
+            let body: String = t[open..=e].chars().filter(|c| !c.is_whitespace()).collect();
+            let base = base_attack_damage_of(ty);
+            let want = format!("[{{id:\"minecraft:attack_damage\",base:{base:?}d,modifiers:[{{id:\"minecraft:effect.strength\",amount:3.0d,operation:\"add_value\"}}]}}]");
+            if body != want {
+                return Some(Err(format!("entity {type_id}: only strength's ATTACK_DAMAGE modifier is modeled in attributes ({want}): {body}")));
+            }
+            strength_modifier = true;
+            t = format!("{}{}", &t[..s], &t[e + 1..]);
+        }
+        if (effects.strength > 0) != strength_modifier {
+            return Some(Err(format!("entity {type_id}: a loaded strength effect and its ATTACK_DAMAGE modifier go together (a load restores the modifier from attributes)")));
+        }
         if let Some(s) = t.find("Brain:{") {
             // the compound to its matching brace
             let mut depth = 0;
@@ -793,6 +878,12 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Some(("EggLayTime", v)) if ty.def().game_id == "minecraft:chicken" => egg_lay_time = v.parse::<i32>().ok(),
                 // `Mob.readAdditionalSaveData`'s CanPickUpLoot (the mob AI's loot pickup)
                 Some(("CanPickUpLoot", v)) if w.mob.ai.on => can_pick_up_loot = matches!(v, "1b" | "true" | "1"),
+                // (tickexact 2026-11-10) `LivingEntity.readAdditionalSaveData`'s Health (setHealth:
+                // clamped to the max health)
+                Some(("Health", v)) => match v.trim_end_matches(['f', 'F']).parse::<f32>() {
+                    Ok(h) => loaded_health = Some(h),
+                    Err(_) => return Some(Err(format!("entity {type_id}: bad Health {v}"))),
+                },
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
         }
@@ -837,6 +928,20 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
     {
         m.can_pick_up_loot = true;
+    }
+    // loaded effects (an invisible one is invisible from the sync before the next entity tick:
+    // `updateDataBeforeSync`)
+    if effects != Effects::default()
+        && let Some(j) = crate::entity::index_of(w, id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+    {
+        m.effects = effects;
+    }
+    if let Some(h) = loaded_health
+        && let Some(j) = crate::entity::index_of(w, id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+    {
+        m.health = h.clamp(0.0, crate::entity::mob::living::max_health(m));
     }
     // a loaded main hand (AbstractSkeleton.readAdditionalSaveData: reassessWeaponGoal)
     if let Some(j) = crate::entity::index_of(w, id) {

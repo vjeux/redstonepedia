@@ -159,9 +159,14 @@ pub fn has_line_of_sight(w: &mut World, i: usize, t: Who) -> bool {
     v
 }
 
-/// `getVisibilityPercent(level, targeter)` (no sneaking, invisibility or mob heads modeled: 1).
-pub fn visibility_percent(_w: &World, _t: Who, _i: usize) -> f64 {
-    1.0
+/// `getVisibilityPercent(level, targeter)`: an invisible mob (a spider's spawn effect) 0.7 x its
+/// armour cover (at least 0.1: an invisible spider wears none, so 0.7 x 0.1F); no sneaking or mob
+/// heads modeled.
+pub fn visibility_percent(w: &World, t: Who, _i: usize) -> f64 {
+    match t {
+        Who::Entity(j) if matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.effects.invisibility > 0) => 0.7 * (0.1f32 as f64),
+        _ => 1.0,
+    }
 }
 
 /// `TargetingConditions`.
