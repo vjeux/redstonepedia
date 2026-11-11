@@ -2511,8 +2511,9 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
         let fl = |t: &str, what: &str| t.parse::<f64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
         // (K `head`: the cart nearest the queue's head slot when the act fires, so the next
-        // release group is one short and the placed cart is the one it misses, in order)
-        let k = if f[3] == "head" { usize::MAX } else { num(f[3], "K")? as usize };
+        // release group is one short and the placed cart is the one it misses, in order; `s1`,
+        // `s2`, `s3`: the cart nearest that stand pocket's rest place)
+        let k = match f[3] { "head" => usize::MAX, "s1" => usize::MAX - 1, "s2" => usize::MAX - 2, "s3" => usize::MAX - 3, _ => num(f[3], "K")? as usize };
         return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: None, unload: None, place: Some((k, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?])), order: redsim::reload::Order::Save });
     }
     let mut parts = s.splitn(6, ',');
@@ -3682,9 +3683,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 if let Some((k, [x, y, z])) = a.place {
                     // (a lab act: cart k and its rider set at a loop-frame point, at rest)
                     let p = redsim::entity::Vec3::new(x + fx, y, z + fz);
-                    let k = if k == usize::MAX {
-                        // (`head`: the cart nearest the queue's head slot)
-                        let h = lay.slot_cells[lay.slot_cells.len() - 1];
+                    let k = if k >= usize::MAX - 3 {
+                        // (`head`: the cart nearest the queue's head slot; `s1`..`s3`: nearest that
+                        // pocket's rest cell)
+                        let h = if k == usize::MAX { lay.slot_cells[lay.slot_cells.len() - 1] } else { lay.stand_cells[usize::MAX - 1 - k] };
                         let hp = redsim::entity::Vec3::new(h[0] as f64 + 0.5 + fx, h[1] as f64, h[2] as f64 + 0.5 + fz);
                         let d = |id: &u32| redsim::entity::index_of(&run.world, *id).map(|i| { let q = run.world.entities.list[i].pos; (q.x - hp.x).powi(2) + (q.y - hp.y).powi(2) + (q.z - hp.z).powi(2) }).unwrap_or(f64::MAX);
                         (0..carts.len()).min_by(|a, b| d(&carts[*a]).total_cmp(&d(&carts[*b]))).unwrap_or(0)
