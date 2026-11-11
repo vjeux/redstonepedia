@@ -101,6 +101,7 @@ reload-wake.rec	f8568a9cc5f26122		26.3	2026-11-11T14:34Z on edd6bbe50	mctas moba
 rider-eye-block.rec	1bfd51735215e944		26.3	2026-11-11T19:57Z on f3a5b75987	mctas mobai record rider-eye-block --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 rider-push.rec	a1a9e3d0bfceaf94		26.3	2026-11-11T18:41Z on 1ccfb43c1e	mctas mobai record rider-push --seed 1 --ticks 900 --dir /tmp/rerec
 rider-sensors.rec	d6384499bd5e8371		26.3	2026-11-11T19:49Z on c0d3305d74	mctas mobai record rider-sensors --seed 1 --ticks 400 --dir designs/redsim/recorded/mobai
+rollback-booster.rec	0c0908cf503d265e		26.3	2026-11-11T20:21Z on 6ea194a67b	mctas mobai record rollback-booster --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 rollback-halt.rec	3c8fb706f45830db		26.3	2026-11-11T20:15Z on d9a04c79b9	mctas mobai record rollback-halt --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai

@@ -3760,6 +3760,51 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, 58f770cc's roll-back after the booster: the exit branch's rise past a
+    // booster the ridden signal powers; an empty cart gets no boost, stalls on the plain slope and
+    // must roll back west through the booster) lanes along z: flat rails z 1..5 (a stone at z 0), an
+    // unpowered powered rail (the booster, flat) at z 6, two plain rails ascending south (z 7, 8),
+    // flat rails at y 66 z 9..12 (a stone at z 13); an empty cart from z 2.5 at stored 0.1..1.0
+    // (x 2..29, every 3), and the same lanes with a plain rail for the booster (x 32..59)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 64, 0, 16, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for (k, booster) in (0..20).map(|k| (k, k < 10)) {
+            let x = 2 + 3 * k as i32;
+            let v = 0.1 * ((k % 10) + 1) as f64;
+            b.push(([x, 64, 0], stone.to_string()));
+            for z in 1..=5 {
+                b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            b.push(([x, 64, 6], if booster { "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]" } else { "minecraft:rail[shape=north_south,waterlogged=false]" }.to_string()));
+            b.push(([x, 64, 7], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            b.push(([x, 64, 8], stone.to_string()));
+            b.push(([x, 65, 8], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            for z in 9..=12 {
+                b.push(([x, 64, z], stone.to_string()));
+                b.push(([x, 65, z], stone.to_string()));
+                b.push(([x, 66, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for yy in 64..67 {
+                b.push(([x, yy, 13], stone.to_string()));
+            }
+            mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, 64.0625, 2.5], Some(format!("{{Motion:[0.0d,0.0d,{v:.2}d]}}"))));
+        }
+        v.push(Scene {
+            name: "rollback-booster".into(),
+            chunks: [0, 0, 3, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
