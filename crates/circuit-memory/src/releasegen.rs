@@ -314,6 +314,16 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     ]);
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
+    if siding_ctl.is_some() {
+        // (a') the fallback armed at the first darkness (the parent 18:47: a farm with the bed
+        // siding gets no golem before a rider has slept, and no rider sleeps before the loop has
+        // moved): an inverted daylight detector (3, 6) on a stone, under the open sky beside
+        // ARMED's loop dust (2, 6), sets ARMED once its output is above 0 (dusk, or rain by day);
+        // a golem still sets it whenever one comes first. ARMED is a block-state latch: an unload
+        // and reload keeps it
+        m.put([3, 1, 6], "minecraft:daylight_detector[inverted=true,power=0]")?;
+        m.put([3, 0, 6], STONE)?;
+    }
     let at = |p: P3| -> P3 { [-2 - p[0], p[1] - 2, 10 - p[2]] };
     let mut b = new_b();
     for (p, s) in &m.blocks {
@@ -702,13 +712,14 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // redstone block beside a wire counts), written into the loop file and the probe
     let mut sd = Design::parse("name: carousel-release-loop-settle\n")?;
     // (a pad's nether portal cells are left out: the plain redstone world does not model them, and
-    // no redstone of the loop's touches them)
-    sd.blocks = d.blocks.iter().filter(|(_, s)| !s.starts_with("minecraft:nether_portal")).map(|(p, s)| (*p, s.clone())).collect();
+    // no redstone of the loop's touches them; and the daylight detectors: the file starts as the
+    // runners settle it, with its detectors not yet placed (the night line reads day, ARMED unset))
+    sd.blocks = d.blocks.iter().filter(|(_, s)| !s.starts_with("minecraft:nether_portal") && !s.starts_with("minecraft:daylight_detector")).map(|(p, s)| (*p, s.clone())).collect();
     sd.block_entities = d.block_entities.clone();
     sd.ports.insert("input.golem".into(), golem);
     let settle_path = out.with_extension("settle.txt");
     sd.save(&settle_path)?;
-    let mut cells: Vec<P3> = b.blocks.keys().copied().collect();
+    let mut cells: Vec<P3> = b.blocks.keys().copied().filter(|p| sd.blocks.contains_key(p)).collect();
     cells.extend(siding_cells.iter().copied().filter(|p| sd.blocks.contains_key(p)));
     let settled = settle(&settle_path, &cells);
     let _ = std::fs::remove_file(&settle_path);

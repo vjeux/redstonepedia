@@ -36,7 +36,7 @@ entity: minecraft:oak_boat -5.5 3 21.5 {Passengers:[{id:"minecraft:zombie",Persi
 entity: minecraft:oak_boat -15.5 3 12.5 {Passengers:[{id:"minecraft:zombie"}]}
 nbt: -62 -4 17 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
 nbt: -60 -4 0 {OutputSignal:1}
-nbt: -59 -4 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: -58 -4 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
 nbt: -53 -6 9 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
 nbt: -53 -6 10 {OutputSignal:1}
 nbt: -52 -6 8 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
@@ -52,13 +52,13 @@ nbt: 29 -6 4 {OutputSignal:1}
 origin: -72 0 -32
 palette:
   ! minecraft:redstone_wire[east=none,north=none,power=6,south=up,west=side]
-  " minecraft:redstone_wire[east=none,north=side,power=11,south=side,west=none]
+  " minecraft:redstone_wire[east=none,north=side,power=10,south=up,west=none]
   $ minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
   % minecraft:redstone_wire[east=none,north=none,power=0,south=up,west=side]
   & minecraft:redstone_wire[east=none,north=none,power=10,south=side,west=side]
   ' minecraft:redstone_wire[east=none,north=side,power=10,south=side,west=none]
-  ( minecraft:redstone_wire[east=none,north=side,power=11,south=up,west=none]
-  ) minecraft:redstone_wire[east=none,north=side,power=12,south=side,west=none]
+  ( minecraft:redstone_wire[east=none,north=side,power=11,south=side,west=none]
+  ) minecraft:redstone_wire[east=none,north=side,power=11,south=up,west=none]
   * minecraft:redstone_wire[east=none,north=none,power=12,south=side,west=side]
   + minecraft:redstone_wire[east=none,north=none,power=13,south=side,west=side]
   , minecraft:redstone_wire[east=none,north=side,power=1,south=side,west=none]
@@ -107,7 +107,7 @@ palette:
   Z minecraft:observer[facing=north,powered=false]
   \ minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
   ^ minecraft:redstone_wire[east=none,north=none,power=8,south=side,west=side]
-  ` minecraft:redstone_wire[east=none,north=side,power=10,south=up,west=none]
+  ` minecraft:redstone_wire[east=none,north=side,power=10,south=side,west=up]
   a minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
   b minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
   c minecraft:comparator[facing=east,mode=compare,powered=false]
@@ -134,133 +134,136 @@ palette:
   x minecraft:rail[shape=north_west,waterlogged=false]
   y minecraft:rail[shape=south_east,waterlogged=false]
   z minecraft:rail[shape=south_west,waterlogged=false]
-  { minecraft:redstone_wire[east=none,north=side,power=12,south=up,west=none]
+  { minecraft:redstone_wire[east=none,north=side,power=12,south=side,west=none]
   | minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
-  } minecraft:redstone_wire[east=none,north=side,power=13,south=side,west=none]
+  } minecraft:redstone_wire[east=none,north=side,power=12,south=up,west=none]
   ~ minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
-  À minecraft:redstone_wire[east=none,north=side,power=13,south=up,west=none]
-  Á minecraft:redstone_wire[east=none,north=side,power=14,south=side,west=none]
-  Â minecraft:redstone_wire[east=none,north=side,power=14,south=up,west=none]
-  Ã minecraft:redstone_wire[east=none,north=side,power=15,south=none,west=side]
-  Ä minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=none]
-  Å minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=side]
-  Æ minecraft:redstone_wire[east=none,north=side,power=15,south=up,west=none]
-  Ç minecraft:redstone_wire[east=none,north=side,power=2,south=side,west=none]
-  È minecraft:redstone_wire[east=none,north=side,power=3,south=side,west=none]
-  É minecraft:redstone_wire[east=none,north=side,power=4,south=side,west=none]
-  Ê minecraft:redstone_wire[east=none,north=side,power=5,south=none,west=side]
-  Ë minecraft:redstone_wire[east=none,north=side,power=5,south=side,west=none]
-  Ì minecraft:redstone_wire[east=none,north=side,power=5,south=up,west=none]
-  Í minecraft:redstone_wire[east=none,north=side,power=6,south=side,west=none]
-  Î minecraft:redstone_wire[east=none,north=side,power=7,south=none,west=side]
-  Ï minecraft:redstone_wire[east=none,north=side,power=7,south=side,west=none]
-  Ð minecraft:redstone_wire[east=none,north=side,power=7,south=up,west=none]
-  Ñ minecraft:redstone_wire[east=none,north=side,power=8,south=side,west=none]
-  Ò minecraft:redstone_wire[east=none,north=side,power=8,south=up,west=none]
-  Ó minecraft:redstone_wire[east=none,north=side,power=9,south=none,west=side]
-  Ô minecraft:redstone_wire[east=none,north=side,power=9,south=side,west=none]
-  Õ minecraft:redstone_wire[east=none,north=side,power=9,south=up,west=none]
-  Ö minecraft:redstone_wire[east=none,north=up,power=0,south=none,west=side]
-  Ø minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
-  Ù minecraft:redstone_wire[east=none,north=up,power=10,south=side,west=none]
-  Ú minecraft:redstone_wire[east=none,north=up,power=11,south=side,west=none]
-  Û minecraft:redstone_wire[east=none,north=up,power=12,south=none,west=side]
-  Ü minecraft:redstone_wire[east=none,north=up,power=12,south=side,west=none]
-  Ý minecraft:redstone_wire[east=none,north=up,power=13,south=side,west=none]
-  Þ minecraft:redstone_wire[east=none,north=up,power=14,south=side,west=none]
-  ß minecraft:redstone_wire[east=none,north=up,power=6,south=side,west=none]
-  à minecraft:redstone_wire[east=none,north=up,power=7,south=none,west=side]
-  á minecraft:redstone_wire[east=none,north=up,power=7,south=side,west=none]
-  â minecraft:redstone_wire[east=none,north=up,power=8,south=none,west=side]
-  ã minecraft:redstone_wire[east=none,north=up,power=8,south=side,west=none]
-  ä minecraft:redstone_wire[east=none,north=up,power=9,south=side,west=none]
-  å minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
-  æ minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
-  ç minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
-  è minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
-  é minecraft:redstone_wire[east=side,north=none,power=10,south=none,west=side]
-  ê minecraft:redstone_wire[east=side,north=none,power=10,south=side,west=none]
-  ë minecraft:redstone_wire[east=side,north=none,power=11,south=none,west=side]
-  ì minecraft:redstone_wire[east=side,north=none,power=11,south=side,west=none]
-  í minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
-  î minecraft:redstone_wire[east=side,north=none,power=12,south=side,west=side]
-  ï minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
-  ð minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
-  ñ minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=up]
-  ò minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
-  ó minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=side]
-  ô minecraft:redstone_wire[east=side,north=none,power=2,south=none,west=side]
-  õ minecraft:redstone_wire[east=side,north=none,power=3,south=none,west=side]
-  ö minecraft:redstone_wire[east=side,north=none,power=4,south=none,west=side]
-  ø minecraft:redstone_wire[east=side,north=none,power=5,south=none,west=side]
-  ù minecraft:redstone_wire[east=side,north=none,power=6,south=none,west=side]
-  ú minecraft:redstone_wire[east=side,north=none,power=7,south=none,west=side]
-  û minecraft:redstone_wire[east=side,north=none,power=7,south=side,west=none]
-  ü minecraft:redstone_wire[east=side,north=none,power=8,south=none,west=side]
-  ý minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=side]
-  þ minecraft:redstone_wire[east=side,north=none,power=9,south=side,west=none]
-  ÿ minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
-  Α minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
-  Β minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
-  Γ minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
-  Δ minecraft:redstone_wire[east=side,north=side,power=11,south=side,west=none]
-  Ε minecraft:redstone_wire[east=side,north=side,power=13,south=none,west=none]
-  Ζ minecraft:redstone_wire[east=side,north=side,power=13,south=none,west=side]
-  Η minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=none]
-  Θ minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=side]
-  Ι minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=none]
-  Κ minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=none]
-  Λ minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
-  Μ minecraft:redstone_wire[east=side,north=side,power=3,south=none,west=none]
-  Ν minecraft:redstone_wire[east=side,north=side,power=4,south=none,west=none]
-  Ξ minecraft:redstone_wire[east=side,north=side,power=5,south=none,west=none]
-  Ο minecraft:redstone_wire[east=side,north=side,power=6,south=none,west=none]
-  Π minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
-  Ρ minecraft:redstone_wire[east=side,north=up,power=0,south=side,west=none]
-  Σ minecraft:redstone_wire[east=side,north=up,power=6,south=none,west=none]
-  Τ minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
-  Υ minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
-  Φ minecraft:redstone_wire[east=up,north=none,power=10,south=none,west=side]
-  Χ minecraft:redstone_wire[east=up,north=none,power=11,south=none,west=side]
-  Ψ minecraft:redstone_wire[east=up,north=none,power=11,south=side,west=none]
-  Ω minecraft:redstone_wire[east=up,north=none,power=13,south=none,west=side]
-  Ϊ minecraft:redstone_wire[east=up,north=none,power=14,south=none,west=side]
-  Ϋ minecraft:redstone_wire[east=up,north=none,power=14,south=side,west=none]
-  ά minecraft:redstone_wire[east=up,north=none,power=15,south=none,west=side]
-  έ minecraft:redstone_wire[east=up,north=none,power=7,south=none,west=side]
-  ή minecraft:redstone_wire[east=up,north=none,power=8,south=none,west=side]
-  ί minecraft:redstone_wire[east=up,north=none,power=9,south=none,west=side]
-  ΰ minecraft:redstone_wire[east=up,north=side,power=0,south=side,west=none]
-  α minecraft:redstone_wire[east=up,north=side,power=13,south=side,west=none]
-  β minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
-  γ minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
-  δ minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  ε minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
-  ζ minecraft:repeater[delay=1,facing=north,locked=true,powered=false]
-  η minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  θ minecraft:repeater[delay=1,facing=south,locked=false,powered=true]
-  ι minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  κ minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
-  λ minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
-  μ minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
-  ν minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
-  ξ minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
-  ο minecraft:repeater[delay=2,facing=west,locked=false,powered=true]
-  π minecraft:repeater[delay=3,facing=east,locked=false,powered=false]
-  ρ minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
-  ς minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
-  σ minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
-  τ minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
-  υ minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
-  φ minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
-  χ minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
-  ψ minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
-  ω minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
-  Ѐ minecraft:stone
-  Ё minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
-  Ђ minecraft:tripwire_hook[attached=true,facing=north,powered=false]
-  Ѓ minecraft:tripwire_hook[attached=true,facing=south,powered=false]
-  Є minecraft:waxed_copper_bulb[lit=false,powered=false]
+  À minecraft:redstone_wire[east=none,north=side,power=13,south=side,west=none]
+  Á minecraft:redstone_wire[east=none,north=side,power=13,south=up,west=none]
+  Â minecraft:redstone_wire[east=none,north=side,power=14,south=side,west=none]
+  Ã minecraft:redstone_wire[east=none,north=side,power=14,south=up,west=none]
+  Ä minecraft:redstone_wire[east=none,north=side,power=15,south=none,west=side]
+  Å minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=none]
+  Æ minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=side]
+  Ç minecraft:redstone_wire[east=none,north=side,power=15,south=up,west=none]
+  È minecraft:redstone_wire[east=none,north=side,power=2,south=side,west=none]
+  É minecraft:redstone_wire[east=none,north=side,power=3,south=side,west=none]
+  Ê minecraft:redstone_wire[east=none,north=side,power=4,south=side,west=none]
+  Ë minecraft:redstone_wire[east=none,north=side,power=5,south=none,west=side]
+  Ì minecraft:redstone_wire[east=none,north=side,power=5,south=side,west=none]
+  Í minecraft:redstone_wire[east=none,north=side,power=5,south=up,west=none]
+  Î minecraft:redstone_wire[east=none,north=side,power=6,south=side,west=none]
+  Ï minecraft:redstone_wire[east=none,north=side,power=7,south=none,west=side]
+  Ð minecraft:redstone_wire[east=none,north=side,power=7,south=side,west=none]
+  Ñ minecraft:redstone_wire[east=none,north=side,power=7,south=up,west=none]
+  Ò minecraft:redstone_wire[east=none,north=side,power=8,south=side,west=none]
+  Ó minecraft:redstone_wire[east=none,north=side,power=8,south=up,west=none]
+  Ô minecraft:redstone_wire[east=none,north=side,power=9,south=none,west=side]
+  Õ minecraft:redstone_wire[east=none,north=side,power=9,south=side,west=none]
+  Ö minecraft:redstone_wire[east=none,north=side,power=9,south=up,west=none]
+  Ø minecraft:redstone_wire[east=none,north=up,power=0,south=none,west=side]
+  Ù minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+  Ú minecraft:redstone_wire[east=none,north=up,power=10,south=side,west=none]
+  Û minecraft:redstone_wire[east=none,north=up,power=11,south=side,west=none]
+  Ü minecraft:redstone_wire[east=none,north=up,power=12,south=none,west=side]
+  Ý minecraft:redstone_wire[east=none,north=up,power=12,south=side,west=none]
+  Þ minecraft:redstone_wire[east=none,north=up,power=13,south=side,west=none]
+  ß minecraft:redstone_wire[east=none,north=up,power=14,south=side,west=none]
+  à minecraft:redstone_wire[east=none,north=up,power=6,south=side,west=none]
+  á minecraft:redstone_wire[east=none,north=up,power=7,south=none,west=side]
+  â minecraft:redstone_wire[east=none,north=up,power=7,south=side,west=none]
+  ã minecraft:redstone_wire[east=none,north=up,power=8,south=none,west=side]
+  ä minecraft:redstone_wire[east=none,north=up,power=8,south=side,west=none]
+  å minecraft:redstone_wire[east=none,north=up,power=9,south=side,west=none]
+  æ minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  ç minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
+  è minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  é minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
+  ê minecraft:redstone_wire[east=side,north=none,power=10,south=none,west=side]
+  ë minecraft:redstone_wire[east=side,north=none,power=10,south=side,west=none]
+  ì minecraft:redstone_wire[east=side,north=none,power=11,south=none,west=side]
+  í minecraft:redstone_wire[east=side,north=none,power=11,south=side,west=none]
+  î minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
+  ï minecraft:redstone_wire[east=side,north=none,power=12,south=side,west=side]
+  ð minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
+  ñ minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
+  ò minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=up]
+  ó minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
+  ô minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=side]
+  õ minecraft:redstone_wire[east=side,north=none,power=2,south=none,west=side]
+  ö minecraft:redstone_wire[east=side,north=none,power=3,south=none,west=side]
+  ø minecraft:redstone_wire[east=side,north=none,power=4,south=none,west=side]
+  ù minecraft:redstone_wire[east=side,north=none,power=5,south=none,west=side]
+  ú minecraft:redstone_wire[east=side,north=none,power=6,south=none,west=side]
+  û minecraft:redstone_wire[east=side,north=none,power=7,south=none,west=side]
+  ü minecraft:redstone_wire[east=side,north=none,power=7,south=side,west=none]
+  ý minecraft:redstone_wire[east=side,north=none,power=8,south=none,west=side]
+  þ minecraft:redstone_wire[east=side,north=none,power=8,south=side,west=none]
+  ÿ minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=side]
+  Α minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=up]
+  Β minecraft:redstone_wire[east=side,north=none,power=9,south=side,west=none]
+  Γ minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  Δ minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
+  Ε minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+  Ζ minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  Η minecraft:redstone_wire[east=side,north=side,power=11,south=side,west=none]
+  Θ minecraft:redstone_wire[east=side,north=side,power=13,south=none,west=none]
+  Ι minecraft:redstone_wire[east=side,north=side,power=13,south=none,west=side]
+  Κ minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=none]
+  Λ minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=side]
+  Μ minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=none]
+  Ν minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=none]
+  Ξ minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  Ο minecraft:redstone_wire[east=side,north=side,power=3,south=none,west=none]
+  Π minecraft:redstone_wire[east=side,north=side,power=4,south=none,west=none]
+  Ρ minecraft:redstone_wire[east=side,north=side,power=5,south=none,west=none]
+  Σ minecraft:redstone_wire[east=side,north=side,power=6,south=none,west=none]
+  Τ minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
+  Υ minecraft:redstone_wire[east=side,north=up,power=0,south=side,west=none]
+  Φ minecraft:redstone_wire[east=side,north=up,power=6,south=none,west=none]
+  Χ minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  Ψ minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
+  Ω minecraft:redstone_wire[east=up,north=none,power=10,south=none,west=side]
+  Ϊ minecraft:redstone_wire[east=up,north=none,power=11,south=none,west=side]
+  Ϋ minecraft:redstone_wire[east=up,north=none,power=11,south=side,west=none]
+  ά minecraft:redstone_wire[east=up,north=none,power=13,south=none,west=side]
+  έ minecraft:redstone_wire[east=up,north=none,power=14,south=none,west=side]
+  ή minecraft:redstone_wire[east=up,north=none,power=14,south=side,west=none]
+  ί minecraft:redstone_wire[east=up,north=none,power=15,south=none,west=side]
+  ΰ minecraft:redstone_wire[east=up,north=none,power=7,south=none,west=side]
+  α minecraft:redstone_wire[east=up,north=none,power=8,south=none,west=side]
+  β minecraft:redstone_wire[east=up,north=none,power=9,south=none,west=side]
+  γ minecraft:redstone_wire[east=up,north=side,power=0,south=side,west=none]
+  δ minecraft:redstone_wire[east=up,north=side,power=13,south=side,west=none]
+  ε minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  ζ minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  η minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  θ minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
+  ι minecraft:repeater[delay=1,facing=north,locked=true,powered=false]
+  κ minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  λ minecraft:repeater[delay=1,facing=south,locked=false,powered=true]
+  μ minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  ν minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  ξ minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  ο minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  π minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  ρ minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  ς minecraft:repeater[delay=2,facing=west,locked=false,powered=true]
+  σ minecraft:repeater[delay=3,facing=east,locked=false,powered=false]
+  τ minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
+  υ minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  φ minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  χ minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  ψ minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  ω minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  Ѐ minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
+  Ё minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  Ђ minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  Ѓ minecraft:stone
+  Є minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  Ѕ minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  І minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  Ї minecraft:waxed_copper_bulb[lit=false,powered=false]
 layer -14:
   .
   .
@@ -313,9 +316,9 @@ layer -14:
   .
   .
   .
-  ......................................................ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
-  ......................................................Ѐ
-  ......................................................Ѐ
+  ......................................................ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
+  ......................................................Ѓ
+  ......................................................Ѓ
   .
   .
   .
@@ -399,11 +402,11 @@ layer -13:
   .
   .
   .
-  .................................................................................................Ѐ
-  ......................................................þéëíïðòγéëíïðòγéëíïðòγéëíïðòγéëíïðòγéëíïðòγâ
-  ......................................................ε
-  ......................................................Æ
-  ......................................................Ѐ
+  .................................................................................................Ѓ
+  ......................................................Βêìîðñóζêìîðñóζêìîðñóζêìîðñóζêìîðñóζêìîðñóζã
+  ......................................................θ
+  ......................................................Ç
+  ......................................................Ѓ
   .
   .
   .
@@ -463,35 +466,35 @@ layer -12:
   .
   .
   .
-  .......................................................ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ
-  .......................................................Ѐ.........................................Ѐ
-  .......................................................Ѐ.........................................ä
-  .......................................................Ѐ
-  .......................................................Ѐ
+  .......................................................ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ
+  .......................................................Ѓ.........................................Ѓ
+  .......................................................Ѓ.........................................å
+  .......................................................Ѓ
+  .......................................................Ѓ
   .
-  ......................................................Â
-  ......................................................Ѐ
+  ......................................................Ã
+  ......................................................Ѓ
   .
   .
   .
@@ -550,36 +553,36 @@ layer -11:
   .
   .
   .
-  .......................................................ìíïðòγéëíïðòγéëíïðòγéëíïðòγéëíïðòγéëíïðòγ>
-  .......................................................'........................................Ѐ
-  .......................................................ε
-  .......................................................Ä
-  .......................................................Á
-  .......................................................}
-  .......................................................)
-  ......................................................."
-  .......................................................'
-  .......................................................ε
-  .......................................................Ä
-  .......................................................Á
-  .......................................................}
-  .......................................................)
-  ......................................................."
-  .......................................................'
-  .......................................................ε
-  .......................................................Ä
-  .......................................................Á
-  .......................................................}
-  .......................................................)
-  .......................................................".........................................Ѐ
-  .......................................................'.........................................Ù
-  .......................................................ε
-  .......................................................Ä
+  .......................................................íîðñóζêìîðñóζêìîðñóζêìîðñóζêìîðñóζêìîðñóζ>
+  .......................................................'........................................Ѓ
+  .......................................................θ
+  .......................................................Å
   .......................................................Â
-  .......................................................Ѐ
+  .......................................................À
+  .......................................................{
+  .......................................................(
+  .......................................................'
+  .......................................................θ
+  .......................................................Å
+  .......................................................Â
+  .......................................................À
+  .......................................................{
+  .......................................................(
+  .......................................................'
+  .......................................................θ
+  .......................................................Å
+  .......................................................Â
+  .......................................................À
+  .......................................................{
+  .......................................................(.........................................Ѓ
+  .......................................................'.........................................Ú
+  .......................................................θ
+  .......................................................Å
+  .......................................................Ã
+  .......................................................Ѓ
   .
-  ......................................................À
-  ......................................................Ѐ
+  ......................................................Á
+  ......................................................Ѓ
   .
   .
   .
@@ -638,8 +641,8 @@ layer -10:
   .
   .
   .
-  ................................................................................................Ò
-  ................................................................................................Ѐ
+  ................................................................................................Ó
+  ................................................................................................Ѓ
   .
   .
   .
@@ -652,22 +655,22 @@ layer -10:
   .
   .
   .
-  .....................................................................................Ѐ
-  .....................................................................................Ѐ
-  .....................................................................................Ѐ
-  .....................................................................................Ѐ
-  .........................................ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
-  .................................................................................................Ѐ
-  .................................................................................................Ú
+  .....................................................................................Ѓ
+  .....................................................................................Ѓ
+  .....................................................................................Ѓ
+  .....................................................................................Ѓ
+  .........................................ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
+  .................................................................................................Ѓ
+  .................................................................................................Û
   .
   .
   .
   .
-  .......................................................À
-  .......................................................Ѐ
+  .......................................................Á
+  .......................................................Ѓ
   .
-  ......................................................{
-  ......................................................Ѐ
+  ......................................................}
+  ......................................................Ѓ
   .
   .
   .
@@ -726,8 +729,8 @@ layer -9:
   .
   .
   .
-  ................................................................................................Õ
-  ................................................................................................Ѐ
+  ................................................................................................Ö
+  ................................................................................................Ѓ
   .
   .
   .
@@ -739,23 +742,23 @@ layer -9:
   .
   .
   .
-  .....................................................................................ΨЀ
-  .....................................................................................)
-  ........................Ѐ............................................................}
-  ........................Ѐ................Ѐ...........................................Á
-  ........................Ѐ................ΣκòðïíëéκòðïíëéκòðïíëéκòðïíëéκòðïíëéκòðïíëéκÃ...........Ѐ
-  ........................Ѐ........................................................................Ü
-  ........................Ѐ
-  ........................Ѐ
-  ........................Ѐ
-  ........................Ѐ
-  ........................Ѐ
-  ........................Ѐ
-  ........................Ѐ..............................{
-  .......................................................Ѐ
+  .....................................................................................ΫЃ
+  .....................................................................................{
+  ........................Ѓ............................................................À
+  ........................Ѓ................Ѓ...........................................Â
+  ........................Ѓ................ΦνóñðîìêνóñðîìêνóñðîìêνóñðîìêνóñðîìêνóñðîìêνÄ...........Ѓ
+  ........................Ѓ........................................................................Ý
+  ........................Ѓ
+  ........................Ѓ
+  ........................Ѓ
+  ........................Ѓ
+  ........................Ѓ
+  ........................Ѓ
+  ........................Ѓ..............................}
+  .......................................................Ѓ
   .
-  ......................................................(
-  ......................................................Ѐ
+  ......................................................)
+  ......................................................Ѓ
   .
   .
   .
@@ -807,15 +810,15 @@ layer -8:
   .
   .
   .
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ...............................................................................`
-  ................Ѐ...............................................................................Ѐ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ..............................................................................."
+  ................Ѓ...............................................................................Ѓ
   .
   .
   .
@@ -826,24 +829,24 @@ layer -8:
   .
   .
   .
-  ......................................................................................ΦЀ
-  ........................Ѐ
-  ........................Ù................Ѐ
-  ........................Ô................á.......................................................Ѐ
-  ........................Ñ........................................................................Ý
-  ........................Ï
-  ........................Í
-  ........................Ë
-  ........................ε
-  ........................Ä
-  ........................Á
-  ........................}
-  ........................)
-  .......................................................(
-  .......................................................Ѐ
+  ......................................................................................ΩЃ
+  ........................Ѓ
+  ........................Ú................Ѓ
+  ........................Õ................â.......................................................Ѓ
+  ........................Ò........................................................................Þ
+  ........................Ð
+  ........................Î
+  ........................Ì
+  ........................θ
+  ........................Å
+  ........................Â
+  ........................À
+  ........................{
+  .......................................................)
+  .......................................................Ѓ
   .
-  ......................................................`
-  ......................................................Ѐ
+  ......................................................"
+  ......................................................Ѓ
   .
   .
   .
@@ -890,50 +893,50 @@ layer -7:
   .
   .
   .
-  ......................Ѐ
-  ......................ЀЀЀЀЀЀЀ
-  ............................Ѐ
-  ................Ѐ..........ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
-  ................á..........Ѐ...................Ѐ.............................Ѐ
-  ................ε..........Ѐ...................Ѐ.............................Ѐ
-  ................Ä..........Ѐ...................Ѐ.............................Ѐ
-  ................Á..........Ѐ.ЀЀЀЀЀЀЀЀЀЀ........Ѐ.............................Ѐ
-  ................}..........Ѐ.Ѐ........Ѐ........Ѐ.............................Ѐ...............ЀЀЀЀЀЀЀЀЀЀЀ
-  ................).........Ѐ.ЀЀ........Ѐ........Ѐ.............................Ѐ...............Ѐ.........Ѐ
-  ................"..........Ѐ..........Ѐ........Ѐ.............................Ѐ...............ЀЀ........Ѐ
-  ................'..........Ѐ.ЀЀ.......Ѐ........Ѐ.............................Ѐ..............Ѐ..........Ѐ
-  ................Õ..........Ѐ.Ѐ.................Ѐ.............................Ѐ..............Ѐ...(......Ѐ
-  ................Ѐ..........Ѐ.Ѐ..Ѐ...Ѐ........................................Ѐ..............Ѐ...Ѐ......Ѐ
-  ............Ѐ.ЀЀЀ..........Ѐ.Ѐ...............................................Ѐ..............ЀЀЀЀЀЀЀ....Ѐ
-  ...........................Ѐ.Ѐ...............................................Ѐ..............ЀЀ....Ѐ....Ѐ
-  ..........ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ.Ѐ..Ѐ...ЀЀЀЀЀЀЀ..................................Ѐ...............ЀЀ...Ѐ....Ѐ
-  ...........................Ѐ.Ѐ..Ѐ............................................Ѐ..............Ѐ........ЀЀЀ
-  ..................ЀЀЀЀЀЀЀЀ.Ѐ.Ѐ..ЀЀЀЀЀЀЀЀЀЀЀЀЀ................................Ѐ..............Ѐ
-  ..................Ѐ......ЀЀЀ.Ѐ..............Ѐ................................Ѐ..............Ѐ......Ѐ
-  ..................Ѐ.......ЀЀ.Ѐ..............Ѐ................................Ѐ..............ЀЀЀЀЀЀ.Ѐ
-  ................ЀЀ...ЀЀЀ.ЀЀ.Ѐ...............Ѐ................................Ѐ..............ЀЀ...ЀЀЀ
-  .......................Ѐ...Ѐ................Ѐ................................Ѐ...............ЀЀ..Ѐ
-  ...............Ѐ...Ѐ...ЀЀЀЀЀ................Ѐ................................Ѐ.........ίЀЀЀЀЀ
-  ...............Ѐ...Ѐ....Ú.ЀЀ.............Ѐ..Ѐ................................Ѐ............Ѐ.Ѐ
-  ...............Ѐ...Ѐ.....ЀЀ..............ã..Ѐ................................Ѐ............Ѐ.Ѐ....Ѐ
-  ...............Ѐ...Ѐ.......Ѐ................Ѐ................................Ѐ.......ЀЀЀЀЀЀЀЀ....Þ
-  ...............Ѐ...ЀЀЀЀЀЀЀЀЀ................Ѐ................................Ѐ
-  ...............Ѐ..........ЀЀ................Ѐ................................Ѐ
-  ...............Ѐ.........ЀЀ.................Ѐ
-  ...............Ѐ............................Ѐ
-  ...............Ѐ............................Ѐ
-  ...............Ѐ............................Ѐ
-  ...............Ѐ............................Ѐ
-  ...............Ѐ............................Ѐ
-  ...............Ѐ............................Ѐ
-  ............................................Ѐ
-  ............................................Ѐ..........`
-  ............................................Ѐ..........Ѐ
-  ............................................Ѐ
-  ............................................Ѐ.........Õ
-  ............................................Ѐ.........Ѐ
-  ............................................Ѐ
-  ............................................ЀЀЀЀ
+  ......................Ѓ
+  ......................ЃЃЃЃЃЃЃ
+  ............................Ѓ
+  ................Ѓ..........ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
+  ................â..........Ѓ...................Ѓ.............................Ѓ
+  ................θ..........Ѓ...................Ѓ.............................Ѓ
+  ................Å..........Ѓ...................Ѓ.............................Ѓ
+  ................Â..........Ѓ.ЃЃЃЃЃЃЃЃЃЃ........Ѓ.............................Ѓ
+  ................À..........Ѓ.Ѓ........Ѓ........Ѓ.............................Ѓ...............ЃЃЃЃЃЃЃЃЃЃЃ
+  ................{.........Ѓ.ЃЃ........Ѓ........Ѓ.............................Ѓ...............Ѓ.........Ѓ
+  ................(..........Ѓ..........Ѓ........Ѓ.............................Ѓ...............ЃЃ........Ѓ
+  ...............Ѓ`..........Ѓ.ЃЃ.......Ѓ........Ѓ.............................Ѓ..............Ѓ..........Ѓ
+  ................Ö..........Ѓ.Ѓ.................Ѓ.............................Ѓ..............Ѓ...)......Ѓ
+  ................Ѓ..........Ѓ.Ѓ..Ѓ...Ѓ........................................Ѓ..............Ѓ...Ѓ......Ѓ
+  ............Ѓ.ЃЃЃ..........Ѓ.Ѓ...............................................Ѓ..............ЃЃЃЃЃЃЃ....Ѓ
+  ...........................Ѓ.Ѓ...............................................Ѓ..............ЃЃ....Ѓ....Ѓ
+  ..........ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ.Ѓ..Ѓ...ЃЃЃЃЃЃЃ..................................Ѓ...............ЃЃ...Ѓ....Ѓ
+  ...........................Ѓ.Ѓ..Ѓ............................................Ѓ..............Ѓ........ЃЃЃ
+  ..................ЃЃЃЃЃЃЃЃ.Ѓ.Ѓ..ЃЃЃЃЃЃЃЃЃЃЃЃЃ................................Ѓ..............Ѓ
+  ..................Ѓ......ЃЃЃ.Ѓ..............Ѓ................................Ѓ..............Ѓ......Ѓ
+  ..................Ѓ.......ЃЃ.Ѓ..............Ѓ................................Ѓ..............ЃЃЃЃЃЃ.Ѓ
+  ................ЃЃ...ЃЃЃ.ЃЃ.Ѓ...............Ѓ................................Ѓ..............ЃЃ...ЃЃЃ
+  .......................Ѓ...Ѓ................Ѓ................................Ѓ...............ЃЃ..Ѓ
+  ...............Ѓ...Ѓ...ЃЃЃЃЃ................Ѓ................................Ѓ.........βЃЃЃЃЃ
+  ...............Ѓ...Ѓ....Û.ЃЃ.............Ѓ..Ѓ................................Ѓ............Ѓ.Ѓ
+  ...............Ѓ...Ѓ.....ЃЃ..............ä..Ѓ................................Ѓ............Ѓ.Ѓ....Ѓ
+  ...............Ѓ...Ѓ.......Ѓ................Ѓ................................Ѓ.......ЃЃЃЃЃЃЃЃ....ß
+  ...............Ѓ...ЃЃЃЃЃЃЃЃЃ................Ѓ................................Ѓ
+  ...............Ѓ..........ЃЃ................Ѓ................................Ѓ
+  ...............Ѓ.........ЃЃ.................Ѓ
+  ...............Ѓ............................Ѓ
+  ...............Ѓ............................Ѓ
+  ...............Ѓ............................Ѓ
+  ...............Ѓ............................Ѓ
+  ...............Ѓ............................Ѓ
+  ...............Ѓ............................Ѓ
+  ............................................Ѓ
+  ............................................Ѓ.........."
+  ............................................Ѓ..........Ѓ
+  ............................................Ѓ
+  ............................................Ѓ.........Ö
+  ............................................Ѓ.........Ѓ
+  ............................................Ѓ
+  ............................................ЃЃЃЃ
   .
   .
   .
@@ -976,51 +979,51 @@ layer -6:
   .
   .
   .
-  ......................Ѐ
-  ......................Ø
-  ......................ÿååβåå@
-  ................Ѐ...........η
-  ................ã..........çΑåååååååååβååååååååèååååβåååååååååååååβåååååååååå@
-  ...........................\...................δ.............................\
+  ......................Ѓ
+  ......................Ù
+  ......................Γææεææ@
+  ................Ѓ...........κ
+  ................ä..........èΔæææææææææεææææææææéææææεæææææææææææææεææææææææææ@
+  ...........................\...................η.............................\
   ...........................\...................\.............................\
-  ...........................\...................\.............................η
-  ...........................\.çåååååååι@........\.............................\
-  ...........................δ.\........\........\.............................\...............ûüýéëíïðòγ^
-  .........ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀæЀå~........\........\.............................\...............ε.........Ô
-  ...........................\..........\........\.............................\..............ЀNΤЀ.......'
-  ...........................\.çιQUQUQW.;........δ.............................\..............η.........."
-  ...........................\.\.VTXTXTЀЀ........;.............................\..............η..........)
-  ................Ñ..........\.\..E...E..........Ѐ.............................\..............η...)......}
-  ...........ЀγЀγùÎ..........\.\..Ѐ...Ѐ........................................\..............ηêëíΖð=....Á
-  ...........................\.\..7...7........................................\..............ηε....θ....Ä
-  .........ЀñïíëéýüκòðïíëéýüκG.\..Ä...ΙðïíëéίЀ.................................\..............ЀNΤЀ..J....θ
-  ...........................δ.\..Á............................................\..............η.....QUSMκÃ
-  ..................çåååååå@.δ.\..Εíëéýüúùøκòð+................................\..............η.....VTX
-  ..................η......ÿ@δ.\..............)................................\..............η......EЀЀ
-  ..................I.......δδ.\.............."................................η..............ηçååå@.δ
-  ...............ЀβcQUSMκ=ЀæDЀιЀ..............'................................\..............ηδ...Βå~
-  ...............7ЀЀVTX..Á...ρ................Ô................................\..............ЀNΤЀ.δ
-  ...............Ä...F...Εîë&δ.............Ѐ..Ñ................................\..........üκóοK....Ѐ
-  ...............Á...ε......εδ.............ä..Ï................................\............ψ.η....7
-  ...............}...Ä....ЀæDЀ................Í................................\............\.\....Ä
-  ...............)...Á.......ρ................Ë................................\......ЀæιåååΑå~
-  ..............."...Εíëéýüú?δ................É................................\
-  ...............'..........εδ................È...............................Ѐ/
-  ...............Ô........ЀæDЀ................Ç
-  ...............Ñ............................ε
-  ...............Ï............................Ä
-  ...............Í............................Á
-  ...............ε............................}
-  ...............Ä............................)
-  ...............Á............................"
+  ...........................\...................\.............................κ
+  ...........................\.èæææææææμ@........\.............................\
+  ...........................η.\........\........\.............................\...............üýÿêìîðñóζ^
+  .........ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃçЃæ~........\........\.............................\...............θ.........Õ
+  ...........................\..........\........\.............................\..............ЃNΧЃ.......'
+  ..............ЃΑ...........\.èμQUQUQW.;........η.............................\..............κ..........(
+  ..............Ѓ............\.\.VTXTXTЃЃ........;.............................\..............κ..........{
+  ................Ò..........\.\..E...E..........Ѓ.............................\..............κ...{......À
+  ...........ЃζЃζúÏ..........\.\..Ѓ...Ѓ........................................\..............κëìîΙñ=....Â
+  ...........................\.\..7...7........................................\..............κθ....λ....Å
+  .........ЃòðîìêÿýνóñðîìêÿýνG.\..Å...ΜñðîìêβЃ.................................\..............ЃNΧЃ..J....λ
+  ...........................η.\..Â............................................\..............κ.....QUSMνÄ
+  ..................èææææææ@.η.\..Θîìêÿýûúùνóñ+................................\..............κ.....VTX
+  ..................κ......Γ@η.\..............{................................\..............κ......EЃЃ
+  ..................I.......ηη.\..............(................................κ..............κèæææ@.η
+  ...............ЃεcQUSMν=ЃçDЃμЃ..............'................................\..............κη...Εæ~
+  ...............7ЃЃVTX..Â...τ................Õ................................\..............ЃNΧЃ.η
+  ...............Å...F...Θïì&η.............Ѓ..Ò................................\..........ýνôςK....Ѓ
+  ...............Â...θ......θη.............å..Ð................................\............Ё.κ....7
+  ...............À...Å....ЃçDЃ................Î................................\............\.\....Å
+  ...............{...Â.......τ................Ì................................\......ЃçμæææΔæ~
+  ...............(...Θîìêÿýû?η................Ê................................\
+  ...............'..........θη................É...............................Ѓ/
+  ...............Õ........ЃçDЃ................È
+  ...............Ò............................θ
+  ...............Ð............................Å
+  ...............Î............................Â
+  ...............θ............................À
+  ...............Å............................{
+  ...............Â............................(
   ............................................'
-  ............................................Ô
-  ............................................Ñ..........Õ
-  ............................................Ï..........Ѐ
-  ............................................Í
-  ............................................Ë.........Ò
-  ............................................É.........Ѐ
-  ............................................ΜôκάЀ
+  ............................................Õ
+  ............................................Ò..........Ö
+  ............................................Ð..........Ѓ
+  ............................................Î
+  ............................................Ì.........Ó
+  ............................................Ê.........Ѓ
+  ............................................ΟõνίЃ
   .
   .
   .
@@ -1062,59 +1065,59 @@ layer -5:
   .
   .
   .
-  ......................Ѐ
-  ......................Ø
+  ......................Ѓ
+  ......................Ù
   .
-  ................Ѐ
-  ................ä
-  .
-  .
+  ................Ѓ
+  ................å
   .
   .
   .
   .
-  ........Ѐæååβååååååååååååå.g
-  ........Ѐ...................................................................................g..ΤЀ
-  ........Ѐ......................g.çèè@...........................................................Ѐ
-  ................................åΑΑΑΑβ~.........................................................Ѐ
-  ........Ѐ..ЀЀ..................................;..................................ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
-  ........ЀЀ.3.g..................g...g..........Ѐ................................................Ѐ
-  ........ЀЀ......................................................................................Ѐ
-  ........Ѐò.................................ήЀ...............................................g..ΤЀ
-  .ЀЀ.ЀЀ.Ѐ........................................................................................Ѐ.çè@
-  Ѐ.......ЀЀЀ.....................................................................................Ѐ.ÿΑ|
-  .ЀЀЀЀЀ.ЀЀ.Ѐ.....................................................................................Ѐ...ÿΤЀЀЀЀЀ
-  ........Ѐ.Ѐ.....................................................................................Ѐ.........Ѐ
-  ........ЀЀЀ....gЀ.çè@..Ѐæ..ΤЀg..................................................................Ѐ.........Ѐ
-  ..........ЀЀ....ΠιΑΑ~..Ѐ.................Ѐ..................................................;..ΤЀ.........Ѐ
-  ..........ЀЀ...........Ѐ.................Ù..................................................Ѐ....g........Ѐ
-  .......................Ѐ....................................................................Ѐ.............Ѐ
-  .........ЀЀЀЀ..........Ѐæ..g................................................................Ѐ.............Ѐ
-  .........Ѐ..Ѐ..........Ѐ...........................................................Ѐæ.......Ѐ.............Ѐ
-  .........Ѐ..Ѐ..........Ѐ....................................................................ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
-  ........ЀЀЀ.Ѐ..........Ѐ...................................................Ѐæ
-  ........ЀЀЀ.Ѐ..........Ѐæ..g
-  ............Ѐ..........Ѐ
-  ............Ѐ......................................ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
-  .........ЀЀЀЀ......................................Ѐ
-  .........Ѐ.........................................Ѐ
-  ...................................................Ѐ
-  ...................................................Ѐ
-  ...................................................Ѐ
-  ...................................................Ѐ
-  ...................................................Ѐ
-  ...................................................Ѐ...Ò
-  ...................................................Ѐ...Ѐ
-  ...................................................Ѐ...ЀЀ
-  ...................................................Ѐ..Ð
-  ................................................ΪЀЀЀ..Ѐ
-  ...................................................Ѐ..ЀЀ
-  ...................................................Ѐ
-  ...................................................Ѐ
-  ...................................................Ѐ
-  ...................................................Ѐ
-  ...................................................Ѐ
-  ...................................................ЀЀЀЀ
+  .
+  .
+  ........Ѓçææεæææææææææææææ.g
+  ........Ѓ...................................................................................g..ΧЃ
+  ........Ѓ.....þ................g.èéé@...........................................................Ѓ
+  ..............θ.................æΔΔΔΔε~.........................................................Ѓ
+  ........Ѓ..ЃЃ.Ѓ................................;..................................ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
+  ........ЃЃ.3.g..................g...g..........Ѓ................................................Ѓ
+  ........ЃЃ......................................................................................Ѓ
+  ........Ѓó.................................αЃ...............................................g..ΧЃ
+  .ЃЃ.ЃЃ.Ѓ........................................................................................Ѓ.èé@
+  Ѓ.......ЃЃЃ.....................................................................................Ѓ.ΓΔ|
+  .ЃЃЃЃЃ.ЃЃ.Ѓ.....................................................................................Ѓ...ΓΧЃЃЃЃЃ
+  ........Ѓ.Ѓ.....................................................................................Ѓ.........Ѓ
+  ........ЃЃЃ....gЃ.èé@..Ѓç..ΧЃg..................................................................Ѓ.........Ѓ
+  ..........ЃЃ....ΤμΔΔ~..Ѓ.................Ѓ..................................................;..ΧЃ.........Ѓ
+  ..........ЃЃ...........Ѓ.................Ú..................................................Ѓ....g........Ѓ
+  .......................Ѓ....................................................................Ѓ.............Ѓ
+  .........ЃЃЃЃ..........Ѓç..g................................................................Ѓ.............Ѓ
+  .........Ѓ..Ѓ..........Ѓ...........................................................Ѓç.......Ѓ.............Ѓ
+  .........Ѓ..Ѓ..........Ѓ....................................................................ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
+  ........ЃЃЃ.Ѓ..........Ѓ...................................................Ѓç
+  ........ЃЃЃ.Ѓ..........Ѓç..g
+  ............Ѓ..........Ѓ
+  ............Ѓ......................................ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
+  .........ЃЃЃЃ......................................Ѓ
+  .........Ѓ.........................................Ѓ
+  ...................................................Ѓ
+  ...................................................Ѓ
+  ...................................................Ѓ
+  ...................................................Ѓ
+  ...................................................Ѓ
+  ...................................................Ѓ...Ó
+  ...................................................Ѓ...Ѓ
+  ...................................................Ѓ...ЃЃ
+  ...................................................Ѓ..Ñ
+  ................................................έЃЃЃ..Ѓ
+  ...................................................Ѓ..ЃЃ
+  ...................................................Ѓ
+  ...................................................Ѓ
+  ...................................................Ѓ
+  ...................................................Ѓ
+  ...................................................Ѓ
+  ...................................................ЃЃЃЃ
   .
   .
   .
@@ -1148,66 +1151,66 @@ layer -4:
   .
   .
   .
-  ......................Ѐ
-  ......................Ø
+  ......................Ѓ
+  ......................Ù
   .
-  ................Ѐ
-  ................Ù
-  .
-  .
+  ................Ѓ
+  ................Ú
   .
   .
   .
   .
-  ЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
-  Ѐ..Ѐ..Ѐ.Ρ....Ѐ
-  Ѐ..Ѐ..Ѐ.δ....Ѐ..ЀЀЀЀЀЀЀЀЀЀЀЀЀЀ..................................................................@
-  Ѐ..Ѐ..Ѐ.δ....Ѐ..Ѐ............Ѐ.............ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ2ЀЀЀЀЀ2ЀЀЀЀЀ2ЀЀЀ..............\
-  Ѐ..Ѐ..Ѐ.ЀЀЀЀЀ...Ѐ............Ѐ.............Ѐ.....................................Ѐ..............\
-  Ѐ..Ѐ..Ѐ.δ8ЀγBSX.Ѐ............Ѐ.............2....................................2Ѐβååååååååååååβ|
-  Ѐ..Ѐ..Ѐ.GΛ9Ѐ.WR.Ѐ............Ѐ.................;.................................2..............\
-  Ѐ..Ѐ..Ѐ.\ε...SV.Ѐ............Ѐ.................Ѐ................................................\
-  Ѐ..Ѐ..Ѐ.δЀ...WR.Ѐ............Ѐ..............έЀ..................................................|
-  ЀπτЀπτЀλЀ....SV.Ѐ............Ѐ..................................................................\
-  δ.......çå@..WR.Ѐ............Ѐ..................................................................\
-  ЀωωωωσЀιG.\..QV.Ѐ............Ѐ..................................................................\.....åπåπ@
-  ......Ѐ.δ.\.....Ѐ............Ѐ..................................................................\.........ς
-  ......Ѐ.ÿå|.....Ø......ç....ΤЀ...........Ѐ......................................................\.........\
-  ......Ѐ...ÿ@...........\.................Ú......................................................~.........ς
-  ......Ѐ..Ѐβ~...........\....................................................................\.............\
-  ......Ѐ..7.............\....................................................................ρ.............ς
-  ......Ѐ..Κðï*..........Β....................................................................\.............\
-  ......Ѐ..Á.."..........\..........................................................Ѐæ........ρ.............ς
-  ......Ѐ..ε..'..........\....................................................................ÿσåσåσåσåσåσåσ~
-  ......Ѐ.ηÄη.Ô..........\..................................................Ѐæ
-  ......Ѐ.KΘK.Ñ..........Β
-  ......ЀЀSXT.Ï..........δ..............................................Ѐ
-  ........UQV.Í......................................çåβååååååβååååååβååÖ
-  .........GõöÊ......................................φ
-  .........δ.........................................φ
-  ...................................................φ
-  ...................................................φ
-  ...................................................φ
-  ...................................................φ
+  .
+  .
+  ЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
+  Ѓ..Ѓ..Ѓ.Υ....Ѓ
+  Ѓ..Ѓ..Ѓ.η....Ѓ..ЃЃЃЃЃЃЃЃЃЃЃЃЃЃ..................................................................@
+  Ѓ..Ѓ..Ѓ.η....Ѓ..Ѓ............Ѓ.............ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ2ЃЃЃЃЃ2ЃЃЃЃЃ2ЃЃЃ..............\
+  Ѓ..Ѓ..Ѓ.ЃЃЃЃЃ...Ѓ............Ѓ.............Ѓ.....................................Ѓ..............\
+  Ѓ..Ѓ..Ѓ.η8ЃζBSX.Ѓ............Ѓ.............2....................................2Ѓεææææææææææææε|
+  Ѓ..Ѓ..Ѓ.GΞ9Ѓ.WR.Ѓ............Ѓ.................;.................................2..............\
+  Ѓ..Ѓ..Ѓ.\θ...SV.Ѓ............Ѓ.................Ѓ................................................\
+  Ѓ..Ѓ..Ѓ.ηЃ...WR.Ѓ............Ѓ..............ΰЃ..................................................|
+  ЃσχЃσχЃξЃ....SV.Ѓ............Ѓ..................................................................\
+  η.......èæ@..WR.Ѓ............Ѓ..................................................................\
+  ЃЂЂЂЂφЃμG.\..QV.Ѓ............Ѓ..................................................................\.....æσæσ@
+  ......Ѓ.η.\.....Ѓ............Ѓ..................................................................\.........υ
+  ......Ѓ.Γæ|.....Ù......è....ΧЃ...........Ѓ......................................................\.........\
+  ......Ѓ...Γ@...........\.................Û......................................................~.........υ
+  ......Ѓ..Ѓε~...........\....................................................................\.............\
+  ......Ѓ..7.............\....................................................................τ.............υ
+  ......Ѓ..Νñð*..........Ε....................................................................\.............\
+  ......Ѓ..Â..(..........\..........................................................Ѓç........τ.............υ
+  ......Ѓ..θ..'..........\....................................................................Γφæφæφæφæφæφæφ~
+  ......Ѓ.κÅκ.Õ..........\..................................................Ѓç
+  ......Ѓ.KΛK.Ò..........Ε
+  ......ЃЃSXT.Ð..........η..............................................Ѓ
+  ........UQV.Î......................................èæεææææææεææææææεææØ
+  .........GöøË......................................ω
+  .........η.........................................ω
+  ...................................................ω
+  ...................................................ω
+  ...................................................ω
+  ...................................................ω
   ...................................................\
   ...................................................\
-  ...................................................\...Ï
-  ...................................................\...ΟκЀ
+  ...................................................\...Ð
+  ...................................................\...ΣνЃ
   ...................................................\
-  .................................................ïκG..Í....................Ѐ
-  ...................................................δ..ΞκЀ..................Ѐ
-  ...................................................\.......................Ѐ
-  ...................................................\.......................Ѐ
-  ...................................................\.......................Ѐ
-  ...................................................\.......................Ѐ
-  ...................................................\.......................Ѐ
-  ...................................................ÿιåΤЀ...................Ѐ
-  ...........................................................................Ѐ
-  ...........................................................................Ѐ
-  ...........................................................................Ѐ
-  ...........................................................................Ѐ
-  ...........................................................................Ѐ
-  .................................................................ЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ
+  .................................................ðνG..Î....................Ѓ
+  ...................................................η..ΡνЃ..................Ѓ
+  ...................................................\.......................Ѓ
+  ...................................................\.......................Ѓ
+  ...................................................\.......................Ѓ
+  ...................................................\.......................Ѓ
+  ...................................................\.......................Ѓ
+  ...................................................ΓμæΧЃ...................Ѓ
+  ...........................................................................Ѓ
+  ...........................................................................Ѓ
+  ...........................................................................Ѓ
+  ...........................................................................Ѓ
+  ...........................................................................Ѓ
+  .................................................................ЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ
   .
   .
   .
@@ -1234,43 +1237,43 @@ layer -3:
   .
   .
   .
-  ......................Ѐ
-  ......................Ø
+  ......................Ѓ
+  ......................Ù
   .
-  ................Ѐ
-  ................Ú
-  .
-  .
+  ................Ѓ
+  ................Û
   .
   .
   .
   .
   .
-  çååèιåèåèåååι@
-  η..η..η......\
-  \..\..\......\..çτβτβτβτβτβτβ@
-  \..\..\......δ..δ............ψ.............yuuuuuuuuuuuuuuuuuuuuuumuuuuumuuuuumuuz
-  \..\..\.ååååιЀ..δ............ψ.............w.....................................w
-  \..\..\...g..ç@.δ............ψ.............k................................22.glz
-  \..\..\....g.Β|.δ............ψ.............Ѐ....................................gk
-  \..\..\......Β|.δ............ψ.................;.................................2
-  \..\..\..άЀ..Β|.δ............ψ...............!.Ѐ................................Ѐ
-  \..\..\.g....Β|.δ............ψ...............Ѐ................................g.Ѐ
-  .............Β|.δ............ψ
-  g.....\......ÿ~.δ............ψ
-  ......\.........\............ψ...........Ѐ
-  ......\......................~...........Ü
+  .
+  .
+  èææéμæéæéæææμ@
+  κ..κ..κ......\
+  \..\..\......\..èχεχεχεχεχεχε@
+  \..\..\......η..η............Ё.............yuuuuuuuuuuuuuuuuuuuuuumuuuuumuuuuumuuz
+  \..\..\.ææææμЃ..η............Ё.............w.....................................w
+  \..\..\...g..è@.η............Ё.............k................................22.glz
+  \..\..\....g.Ε|.η............Ё.............Ѓ....................................gk
+  \..\..\......Ε|.η............Ё.................;.................................2
+  \..\..\..ίЃ..Ε|.η............Ё...............!.Ѓ................................Ѓ
+  \..\..\.g....Ε|.η............Ё...............Ѓ................................g.Ѓ
+  .............Ε|.η............Ё
+  g.....\......Γ~.η............Ё
+  ......\.........\............Ё...........Ѓ
+  ......\......................~...........Ý
   ......\
   ......\..g
   ......\
-  ......φ
-  ......\..........................................................................Ѐæ
+  ......ω
+  ......\..........................................................................Ѓç
   ......\
-  ......\..................................................................Ѐæ
-  ......\..Ѐ............................................................Ѐ
-  ......ÿιèè@...........................................................Ø
-  ........ÿΑ~
-  ..........Ѐ
+  ......\..................................................................Ѓç
+  ......\..Ѓ............................................................Ѓ
+  ......Γμéé@...........................................................Ù
+  ........ΓΔ~
+  ..........Ѓ
   .
   .
   .
@@ -1278,23 +1281,23 @@ layer -3:
   .
   .
   .
-  ....................................................................ЀЀЀ
+  ....................................................................ЃЃЃ
   .........................................................3
   .
-  ..........................................................................Ѐ$
-  ........................................................3.................Ѐ\
+  ..........................................................................Ѓ$
+  ........................................................3.................Ѓ\
   ...........................................................................\
   ...........................................................................\
   ...........................................................................\
   ...........................................................................\
   ...........................................................................\
-  .......................................................ΤЀ..................\
+  .......................................................ΧЃ..................\
   ...........................................................................\
   ...........................................................................\
   ...........................................................................\
-  ...........................................................................ς
-  .................................................................Ѐ.........\....Ѐ
-  .................................................................ΠåååååιåååΑååååÖ
+  ...........................................................................υ
+  .................................................................Ѓ.........\....Ѓ
+  .................................................................ΤæææææμæææΔææææØ
   .
   .
   .
@@ -1320,11 +1323,11 @@ layer -2:
   .
   .
   .
-  ......................Ѐ
-  ......................Ø
+  ......................Ѓ
+  ......................Ù
   .
-  ................Ѐ
-  ................Ü
+  ................Ѓ
+  ................Ý
   .
   .
   .
@@ -1339,55 +1342,55 @@ layer -2:
   .
   .............g
   ........................................................................22.gljgto
-  ...........................................k................................g.g.Γ
-  ...........................................Ѐ....................ЀЀЀЀЀЀ......g.6.Ѐk
-  ..........ΪЀ...................................;................Ѐ...ЀЀ........Ѐ.η2
-  .............................................Ì.Ѐ................Ѐ...ЀЀ........η.;
-  .............................................ЀЀЀ................Ѐ...Ѐ.........Ѐ.Ѐ
-  .........................................Ѐ.....Ѐ.................ЀЀЀ............Ѐ
-  .........................................Ý...Ѐ.ЀЀ............ЀЀЀЀЀЀЀ....ЀЀЀЀЀЀЀЀЀ
-  .............................................Ѐ.Ѐ.............Ѐ..ЀЀ...ЀЀ.Ѐ..Ѐ..Ѐ.Ѐ
-  .............................................ЀЀЀ.............ЀЀ.ЀЀ..Ѐ.Ѐ..ЀЀ.ЀЀ.Ѐ
-  .............................................Ѐ.ЀЀЀЀЀЀ..........Ѐ.ЀЀЀ.Ѐ..Ѐ
-  .............................................Ѐ.Ѐ...Ѐ.........ЀЀЀ.Ѐ.Ѐ..ЀЀЀЀЀЀЀЀЀЀЀ
-  .............................................Ѐ.ЀЀЀ.Ѐ.........Ѐ...Ѐ..ЀЀ..Ѐ.......Ѐ
-  .............................................ЀЀЀ...ЀЀ........Ѐ.ЀЀЀЀЀЀЀ.ЀЀ.......Ѐæ
-  ..............................................Ѐ....Ѐ.........Ѐ.Ѐ.Ѐ.Ѐ..Ѐ.Ѐ
-  ..............................................Ѐ....ЀЀЀ.......Ѐ.ЀЀЀ.Ѐ..Ѐ.Ѐæ
-  .........g....................................Ѐ..............Ѐ...Ѐ.Ѐ..Ø
-  ..............................................Ѐ..............ЀЀЀЀ.ЀЀ
-  ..............................................Ѐ..............Ѐ...Ѐ.Ѐ
-  ..........g...................................ЀЀЀЀЀЀЀЀЀ......ЀЀЀЀ.ЀЀЀ
-  .............................................................Ѐ...Ѐ.Ѐ
-  .............................................................ЀЀЀЀ.ЀЀ
-  .............................................................Ѐ...Ѐ.ЀЀ
-  .............................................................Ѐ...Ѐ.Ѐ
-  .............................................................Ѐ...Ѐ.Ѐ........ЀЀЀЀЀЀЀ
-  .............................................................Ѐ....ЀЀЀ.......Ѐ.....Ѐ
-  .............................................................Ѐ...Ѐ..........Ѐ..Ѐ..Ѐ
-  .............................................................ЀЀЀЀ.ЀЀæιΤЀ....Ѐ.Ѐ.Ѐ.Ѐ
-  .........................................................Ѐ...Ѐ...Ѐ.ЀЀ.......Ѐ.Ѐ..ЀЀ
-  .............................................................ЀЀЀЀ..Ѐ..........Ѐ.Ѐ.Ѐ
-  .........................................................Ѐ...Ѐ...Ѐ.Ѐ......ç.Ѐ.ЀЀ.ЀЀ
-  ........................................................ЀЀ...ЀЀЀЀ..ЀЀ.....δ.Ѐ.Ѐ.Ѐ.Ѐ
-  .........................................................Ѐ...Ѐ...Ѐ.Ѐ......Ѐ.Ѐ.ЀЀ.ЀЀ
-  .........................................................Ѐ...ЀЀЀЀ..Ѐ.....ЀЀ.Ѐ.Ѐ.Ѐ.Ѐ
-  .........................................................Ѐ.......Ѐ.ЀЀ.....Ѐ.Ѐ.ЀЀ.ЀЀ
-  .........................................................Ѐ........ЀЀ......Ѐ.Ѐ.Ѐ.Ѐ
-  .........................................................Ѐ.......Ѐ.Ѐ.....ЀЀЀЀЀЀ.Ѐ
-  ........................................................ΤЀ.......Ѐ.ЀЀ.....Ѐ.....Ѐ
-  .................................................................Ѐ.Ѐ......Ѐ.....Ѐ
-  ..................................................................ЀЀ.....ЀЀ.....Ѐ
-  .................................................................Ѐ.ЀЀ.....Ѐ.....Ѐ
-  .................................................................Ѐ.Ѐ......Ѐ.....Ѐ
-  .................................................................Ø.Ѐ.....ЀЀ.....Ø
-  ...................................................................ЀЀ.....Ѐ
-  ...................................................................Ѐ......Ѐ
-  ...................................................................Ѐ.....ЀЀ
-  ...................................................................ЀЀ.....Ѐ
-  ...................................................................Ѐ......Ѐ
-  ...................................................................Ѐ...Ѐ..Ѐ
-  ...................................................................ЀЀЀЀЀЀЀЀ
+  ...........................................k................................g.g.Ζ
+  ...........................................Ѓ....................ЃЃЃЃЃЃ......g.6.Ѓk
+  ..........έЃ...................................;................Ѓ...ЃЃ........Ѓ.κ2
+  .............................................Í.Ѓ................Ѓ..ЃЃЃ........κ.;
+  .............................................ЃЃЃ................Ѓ...Ѓ.........Ѓ.Ѓ
+  .........................................Ѓ.....Ѓ.................ЃЃЃ............Ѓ
+  .........................................Þ...Ѓ.ЃЃ............ЃЃЃЃЃЃЃ....ЃЃЃЃЃЃЃЃЃ
+  .............................................Ѓ.Ѓ.............Ѓ..ЃЃ...ЃЃ.Ѓ..Ѓ..Ѓ.Ѓ
+  .............................................ЃЃЃ.............ЃЃ.ЃЃ..Ѓ.Ѓ..ЃЃ.ЃЃ.Ѓ
+  .............................................Ѓ.ЃЃЃЃЃЃ..........Ѓ.ЃЃЃ.Ѓ..Ѓ
+  .............................................Ѓ.Ѓ...Ѓ.........ЃЃЃ.Ѓ.Ѓ..ЃЃЃЃЃЃЃЃЃЃЃ
+  .............................................Ѓ.ЃЃЃ.Ѓ.........Ѓ...Ѓ..ЃЃ..Ѓ.......Ѓ
+  .............................................ЃЃЃ...ЃЃ........Ѓ.ЃЃЃЃЃЃЃ.ЃЃ.......Ѓç
+  ..............................................Ѓ....Ѓ.........Ѓ.Ѓ.Ѓ.Ѓ..Ѓ.Ѓ
+  ..............................................Ѓ....ЃЃЃ.......Ѓ.ЃЃЃ.Ѓ..Ѓ.Ѓç
+  .........g....................................Ѓ..............Ѓ...Ѓ.Ѓ..Ù
+  ..............................................Ѓ..............ЃЃЃЃ.ЃЃ
+  ..............................................Ѓ..............Ѓ...Ѓ.Ѓ
+  ..........g...................................ЃЃЃЃЃЃЃЃЃ......ЃЃЃЃ.ЃЃЃ
+  .............................................................Ѓ...Ѓ.Ѓ
+  .............................................................ЃЃЃЃ.ЃЃ
+  .............................................................Ѓ...Ѓ.ЃЃ
+  .............................................................Ѓ...Ѓ.Ѓ
+  .............................................................Ѓ...Ѓ.Ѓ........ЃЃЃЃЃЃЃ
+  .............................................................Ѓ....ЃЃЃ.......Ѓ.....Ѓ
+  .............................................................Ѓ...Ѓ..........Ѓ..Ѓ..Ѓ
+  .............................................................ЃЃЃЃ.ЃЃçμΧЃ....Ѓ.Ѓ.Ѓ.Ѓ
+  .........................................................Ѓ...Ѓ...Ѓ.ЃЃ.......Ѓ.Ѓ..ЃЃ
+  .............................................................ЃЃЃЃ..Ѓ..........Ѓ.Ѓ.Ѓ
+  .........................................................Ѓ...Ѓ...Ѓ.Ѓ......è.Ѓ.ЃЃ.ЃЃ
+  ........................................................ЃЃ...ЃЃЃЃ..ЃЃ.....η.Ѓ.Ѓ.Ѓ.Ѓ
+  .........................................................Ѓ...Ѓ...Ѓ.Ѓ......Ѓ.Ѓ.ЃЃ.ЃЃ
+  .........................................................Ѓ...ЃЃЃЃ..Ѓ.....ЃЃ.Ѓ.Ѓ.Ѓ.Ѓ
+  .........................................................Ѓ.......Ѓ.ЃЃ.....Ѓ.Ѓ.ЃЃ.ЃЃ
+  .........................................................Ѓ........ЃЃ......Ѓ.Ѓ.Ѓ.Ѓ
+  .........................................................Ѓ.......Ѓ.Ѓ.....ЃЃЃЃЃЃ.Ѓ
+  ........................................................ΧЃ.......Ѓ.ЃЃ.....Ѓ.....Ѓ
+  .................................................................Ѓ.Ѓ......Ѓ.....Ѓ
+  ..................................................................ЃЃ.....ЃЃ.....Ѓ
+  .................................................................Ѓ.ЃЃ.....Ѓ.....Ѓ
+  .................................................................Ѓ.Ѓ......Ѓ.....Ѓ
+  .................................................................Ù.Ѓ.....ЃЃ.....Ù
+  ...................................................................ЃЃ.....Ѓ
+  ...................................................................Ѓ......Ѓ
+  ...................................................................Ѓ.....ЃЃ
+  ...................................................................ЃЃ.....Ѓ
+  ...................................................................Ѓ......Ѓ
+  ...................................................................Ѓ...Ѓ..Ѓ
+  ...................................................................ЃЃЃЃЃЃЃЃ
   .
   .
   .
@@ -1406,11 +1409,11 @@ layer -1:
   .
   .
   .
-  ......................Ѐ
-  ......................Ø
+  ......................Ѓ
+  ......................Ù
   .
-  ................Ѐ
-  ................Ý
+  ................Ѓ
+  ................Þ
   .
   .
   .
@@ -1426,77 +1429,77 @@ layer -1:
   .
   .
   .......................................................................gljgto.O
-  ........................................................................g...\.Ä
-  ...........................................k....................çåååè@..g...;.Ѐgæ
-  ...........ΩЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀЀ.Ѐ....................\...δ\..ggggЀggg.k
-  .........................................Ѐ.....\................\...Β~........Ѐ..2
-  .........................................Ѐ...ΝκG................\.2.δ.........Ø.\
-  .........................................Þ.....\.................çHβЀ...........\
-  .............................................ΥЀGγ6...........çåιèΓDò6...çååèååèå|
-  .............................................δ.δ.ЀЀ..........\..ρ\..ЀL@.η..η..η.η
-  .............................................Ѐ5|.............ÿcЄD|..I.\.ЀωιЀωιЀωЀ
-  .............................................".ΒιååèιЀ.........η.GβDЀcЀ.ς
-  .............................................).\...\.........çå~.\.J..KτΓιåååååå@
-  .............................................}.Ѐτ%.\.........\...\.hçιЀ.\.......\
-  .............................................Ηó7.Ѐ.ΒιЀЀ......\.çτΓåèΑιЀå|.......ÿ
-  ..............................................χ....\..Ѐ......\.\.\.δ..δ.δ
-  ..............................................χ....ÿåΤЀ......η.ÿιG.\..\.ÿ
-  ..............................................χ......ЀЀ......\...ρ.\
-  ..............................................χ.......Ѐ......ΒååβЀι|
-  ..............................................χ.......ЀЀЀЀЀ..\...φ.\.g
-  ..............................................ΙðïíκòðïÛ......ΒååβЀιΓåЀЀЀ
-  .............................................................\...φ.\...Ѐ
-  .............................................................ΒååβЀι|.g.Ѐ
-  .............................................................\...δ.ΒξЀЀЀ
-  .............................................................\...\.\...Ѐ
-  .............................................................\...μ.\.g.Ѐ....çååååå@
-  .............................................................\...ЀιΑωЀЀЀ....\.....η
-  .............................................................\...Γ.....Ѐ....\.ЀλЀ.\
-  .............................................................ΒååβЀιè.g.Ö....\.Ø.η.\
-  .........................................................4...\...φ.ΒωЀ......;.\.Ѐι|
-  ............................................................ЀΒååβЀ.\.....ЀЀЀЀ.\.ν.\
-  .........................................................ΫЀЀ.\...φ.\.g......Ø.ΒλЀι|
-  ........................................................4Å...ΒååβЀ.ΒωЀ......\.\.ψ.\
-  .........................................................Á...\...δ.\......\.\.ΒλЀι|
-  .........................................................αЀЀ.ÿååβЀ.\.g..Ѐβ|.\.\.ψ.\
-  .........................................................).......δ.ΒωЀ..g.η.\.ΒλЀι~
-  .........................................................η..Ѐ....Ѐι|......\.η.η.\
-  .........................................................ΰЀЀ.....φ.\.g..ЀβΓåΑå~.\
-  .........................................................~.......φ.ΒωЀ..g.\.....\
-  .................................................................μ.\......\.....\
-  .................................................................Ѐι|.g..Ѐβ|.....\
-  .................................................................φ.ΒωЀ..g.\.....ν
-  .................................................................\.δ......\.....\
-  ...................................................................\.g..Ѐβ|
-  ...................................................................ΒσЀ..g.\
+  ........................................................................g...\.Å
+  ...........................................k....................èæææé@..g...;.Ѓgç
+  ...........άЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃЃ.Ѓ....................\...η\..ggggЃggg.k
+  .........................................Ѓ.....\................\..dΕ~........Ѓ..2
+  .........................................Ѓ...ΠνG................\.2.η.........Ù.\
+  .........................................ß.....\.................èHεЃ...........\
+  .............................................ΨЃGζ6...........èæμéΖDó6...èææéææéæ|
+  .............................................η.η.ЃЃ..........\..τ\..ЃL@.κ..κ..κ.κ
+  .............................................Ѓ5|.............ΓcЇD|..I.\.ЃЂμЃЂμЃЂЃ
+  .............................................(.ΕμææéμЃ.........κ.GεDЃcЃ.υ
+  .............................................{.\...\.........èæ~.\.J..KχΖμææææææ@
+  .............................................À.Ѓχ%.\.........\...\.hèμЃ.\.......\
+  .............................................Κô7.Ѓ.ΕμЃЃ......\.èχΖæéΔμЃæ|.......Γ
+  ..............................................Ѐ....\..Ѓ......\.\.\.η..η.η
+  ..............................................Ѐ....ΓæΧЃ......κ.ΓμG.\..\.Γ
+  ..............................................Ѐ......ЃЃ......\...τ.\
+  ..............................................Ѐ.......Ѓ......ΕææεЃμ|
+  ..............................................Ѐ.......ЃЃЃЃЃ..\...ω.\.g
+  ..............................................ΜñðîνóñðÜ......ΕææεЃμΖæЃЃЃ
+  .............................................................\...ω.\...Ѓ
+  .............................................................ΕææεЃμ|.g.Ѓ
+  .............................................................\...η.ΕρЃЃЃ
+  .............................................................\...\.\...Ѓ
+  .............................................................\...ο.\.g.Ѓ....èæææææ@
+  .............................................................\...ЃμΔЂЃЃЃ....\.....κ
+  .............................................................\...Ζ.....Ѓ....\.ЃξЃ.\
+  .............................................................ΕææεЃμé.g.Ø....\.Ù.κ.\
+  .........................................................4...\...ω.ΕЂЃ......;.\.Ѓμ|
+  ............................................................ЃΕææεЃ.\.....ЃЃЃЃ.\.π.\
+  .........................................................ήЃЃ.\...ω.\.g......Ù.ΕξЃμ|
+  ........................................................4Æ...ΕææεЃ.ΕЂЃ......\.\.Ё.\
+  .........................................................Â...\...η.\......\.\.ΕξЃμ|
+  .........................................................δЃЃ.ΓææεЃ.\.g..Ѓε|.\.\.Ё.\
+  .........................................................{.......η.ΕЂЃ..g.κ.\.ΕξЃμ~
+  .........................................................κ..Ѓ....Ѓμ|......\.κ.κ.\
+  .........................................................γЃЃ.....ω.\.g..ЃεΖæΔæ~.\
+  .........................................................~.......ω.ΕЂЃ..g.\.....\
+  .................................................................ο.\......\.....\
+  .................................................................Ѓμ|.g..Ѓε|.....\
+  .................................................................ω.ΕЂЃ..g.\.....π
+  .................................................................\.η......\.....\
+  ...................................................................\.g..Ѓε|
+  ...................................................................ΕφЃ..g.\
   ...................................................................\......\
-  ...................................................................\.g..Ѐβ|
-  ...................................................................ΒσЀ..g.\
-  ...................................................................δ..gЀ..η
-  ...................................................................\...ν..\
-  ...................................................................ÿåååΑåå~
+  ...................................................................\.g..Ѓε|
+  ...................................................................ΕφЃ..g.\
+  ...................................................................η..gЃ..κ
+  ...................................................................\...π..\
+  ...................................................................ΓæææΔææ~
   .
   .
   .
   .
 layer 0:
   .
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................Ѐ
-  ................ЀЀ..ЀЀЀ
-  ......................Ø
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................Ѓ
+  ................ЃЃ..ЃЃЃ
+  ......................Ù
   .
-  ................Ѐ
-  ................Þ
+  ................Ѓ
+  ................ß
   .
   .
   .
@@ -1514,41 +1517,41 @@ layer 0:
   .
   .....................................................................ggto.u
   .....................................................................g..\
-  .....................................................................g..\.....3è
-  ............íëéýüúùøöõκòðïíëéýüúκòðïíëéýü<.k.........................g..ÿåååΑåΓ~
-  .........................................ε.Ѐ.........................g........\..k
-  .........................................Ä........................g..g...........2
+  .....................................................................g..\.....3é
+  ............îìêÿýûúùøöνóñðîìêÿýûνóñðîìêÿý<.k.........................g..ΓæææΔæΖ~
+  .........................................θ.Ѓ.........................g........\..k
+  .........................................Å........................g..g...........2
   ....................................................................gg
-  ..............................................ΤЀ.....................g
-  .................................................å%.Ѐ...............gg
-  .............................................g....ЀЀ...........g.....2..g..g..g.g
-  .....................................................4..2ggЀ........g2g
+  ..............................................ΧЃ.....................g
+  .................................................æ%.Ѓ...............gg
+  .............................................g....ЃЃ...........g.....2..g..g..g.g
+  .....................................................4..2ggЃ........g2g
   ...........................................................2.........2
-  ...............................................g......Ѐ....Ѐ.........2g
-  .................................................;...4η....Ѐ.........2g
-  .................................................Ѐ....\....Ѐ.........2
-  ......................................................~....Ѐ.........2
-  .....................................................8Ѐ....Ѐ.........2
-  ......................................................'...ЀЀ.....g...g
-  ......................................................ΔéýüàЀ.........q
-  ...........................................................Ѐ.....g...bπ@
-  ...........................................................Ѐ.........g.\
-  ...........................................................Ѐ.....g...q.\
-  ...........................................................Ѐ.........bπ|
-  ...........................................................Ѐ.........g.\
-  ...........................................................Ѐ.........q.\
-  ...........................................................Ѐ.....g...bπ|.ЀЀЀЀЀЀ
-  .........................................................ЀЀЀ.........g.\......Ø.g
-  .........................................................Ѐ.......g...q
-  ........................................................ЀЀЀ.ЀЀЀЀЀЀgggb..........g
-  ........................................................Ѐ...θ....g...g..Ѐβåå|
-  ........................................................Ѐ.ïκЀ........q..g.......g
-  .......................................................ЀЀЀЀЀ.gЀЀЀЀgggb
-  .......................................................Ѐ.....Ѐ.......g..g.......g
-  .......................................................Ѐ..íΧЀЀ...g...q..a
-  .......................................................ЀЀЀЀ.ЀЀЀЀЀЀgggb..s.......g
-  ............................................................η....g...g..g
-  ..........................................................åιЀ........q..a
+  ...............................................g......Ѓ....Ѓ.........2g
+  .................................................;...4κ....Ѓ.........2g
+  .................................................Ѓ....\....Ѓ.........2
+  ......................................................~....Ѓ.........2
+  .....................................................8Ѓ....Ѓ.........2
+  ......................................................'...ЃЃ.....g...g
+  ......................................................ΗêÿýáЃ.........q
+  ...........................................................Ѓ.....g...bσ@
+  ...........................................................Ѓ.........g.\
+  ...........................................................Ѓ.....g...q.\
+  ...........................................................Ѓ.........bσ|
+  ...........................................................Ѓ.........g.\
+  ...........................................................Ѓ.........q.\
+  ...........................................................Ѓ.....g...bσ|.ЃЃЃЃЃЃ
+  .........................................................ЃЃЃ.........g.\......Ù.g
+  .........................................................Ѓ.......g...q
+  ........................................................ЃЃЃ.ЃЃЃЃЃЃgggb..........g
+  ........................................................Ѓ...λ....g...g..Ѓεææ|
+  ........................................................Ѓ.ðνЃ........q..g.......g
+  .......................................................ЃЃЃЃЃ.gЃЃЃЃgggb
+  .......................................................Ѓ.....Ѓ.......g..g.......g
+  .......................................................Ѓ..îΪЃЃ...g...q..a
+  .......................................................ЃЃЃЃ.ЃЃЃЃЃЃgggb..s.......g
+  ............................................................κ....g...g..g
+  ..........................................................æμЃ........q..a
   .....................................................................b..s
   .....................................................................g..g
   .................................................................g...q..a
@@ -1579,10 +1582,10 @@ layer 1:
   ................\
   ................\
   ................\
-  ................ζυ9Ѐτå@
-  ................Ѐ
+  ................ιψ9Ѓχæ@
+  ................Ѓ
   ................7
-  ................Ä
+  ................Å
   .
   .
   .
@@ -1604,19 +1607,19 @@ layer 1:
   .....................................................................w
   .....................................................................w
   ...........................................k.........................P
-  ...........................................Ѐ.........................w...........k
-  ...........................................Ѐ.........................w...........2
-  ...........................................Ѐ...ΤЀЀЀЀЀЀЀЀ.............w
-  ...........................................Ѐ........δ..Ѐ.............w
-  ...........................................Ѐ......ÿcЄ..Ѐ.............n
-  ...........................................ЀЀ2ggggggЀЀggluuz.........n
-  ....................................................g2...ЀЀn.........n
-  ....................................................gg4...Ѐw.........n
-  ....................................................gЀ....Ѐw.........n
-  .................................................;...g....Ѐw.........n
-  .................................................ЀЀЀЀg....Ѐw.........n
-  .....................................................Ѐg...Ѐw.........n
-  .....................................................g....ßw.........w
+  ...........................................Ѓ.........................w...........k
+  ...........................................Ѓ.........................w...........2
+  ...........................................Ѓ...ΧЃЃЃЃЃЃЃЃ.............w
+  ...........................................Ѓ........η..Ѓ.............w
+  ...........................................Ѓ......ΓcЇ..Ѓ.............n
+  ...........................................ЃЃ2ggggggЃЃggluuz.........n
+  ....................................................g2...ЃЃn.........n
+  ....................................................gg4...Ѓw.........n
+  ....................................................gЃ....Ѓw.........n
+  .................................................;...g....Ѓw.........n
+  .................................................ЃЃЃЃg....Ѓw.........n
+  .....................................................Ѓg...Ѓw.........n
+  .....................................................g....àw.........w
   ...........................................................w
   ...........................................................w
   ...........................................................w.........w
@@ -1624,16 +1627,16 @@ layer 1:
   ...........................................................w
   ...........................................................w.........w
   ...........................................................w
-  ...........................................................w............Ѐβåååå@
+  ...........................................................w............Ѓεææææ@
   .........................................................yux.........w..g
   .........................................................w
-  ........................................................yxrЀluuuuuuuu.g.g
+  ........................................................yxrЃluuuuuuuu.g.g
   ........................................................w............w..a
   ........................................................w...g...........s
-  .......................................................yxuurЀluuuuuuu.g.g
-  .......................................................w.....θ.......w..a
-  .......................................................w....éÓ
-  .......................................................vuurЀeuuuuuuuu.g
+  .......................................................yxuurЃluuuuuuu.g.g
+  .......................................................w.....λ.......w..a
+  .......................................................w....êÔ
+  .......................................................vuurЃeuuuuuuuu.g
   .....................................................................w..w
   ............................................................g
   .
@@ -1693,16 +1696,16 @@ layer 2:
   .
   ...........................................w...............................g
   ...........................................w.....................................k
-  ...........................................w....ååååååå@.........................2
-  ...........................................w...........ηЀ
-  ...........................................w........g..ηЃ
-  ...........................................vumuuuuuuOzuOЁ
-  .....................................................ng.Ђι@
-  ...................................................g1wЀ.g.,
-  ...................................................g0Ag...Ç................g
-  ....................................................Zwg...È
-  .................................................ÿåå~w....É
-  .....................................................f....Ë
+  ...........................................w....æææææææ@.........................2
+  ...........................................w...........κЃ
+  ...........................................w........g..κІ
+  ...........................................vumuuuuuuOzuOЄ
+  .....................................................ng.Ѕμ@
+  ...................................................g1wЃ.g.,
+  ...................................................g0Ag...È................g
+  ....................................................Zwg...É
+  .................................................Γææ~w....Ê
+  .....................................................f....Ì
   .....................................................C
   .
   .

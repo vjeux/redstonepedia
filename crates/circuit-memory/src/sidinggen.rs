@@ -260,6 +260,15 @@ pub fn control_blocks(sched: &Path) -> Result<B> {
     use crate::schedgen::{DUST, rep};
     let mut b = B { blocks: Default::default(), ports: Default::default(), nbt: Default::default() };
     b.stamp(sched, [0, 0, 0], 0, None)?;
+    // (night 1, ironspec 18:26: the D ring's token is built in the hopper h13 (1, 0, 0) that feeds
+    // d0, not in d0: the day line locks h13 (`wire_control`), so the token waits there all day and
+    // drops into d0 as the night window opens: the night's first release finds D = 0 and visits,
+    // every night from the first, and from a power-on at any time of day)
+    if let Some(tok) = b.nbt.remove(&[0, 0, 0]) {
+        b.nbt.insert([1, 0, 0], tok);
+    } else {
+        bail!("the scheduler's D ring has no token in d0 (0, 0, 0)");
+    }
     // ---- REL into the scheduler (its input cell becomes a repeater); the input block (14, -2, -4)
     // feeds the bus (up to y -1 at x 12) and REL2 south along x 14 for the siding logic
     b.blocks.remove(&[-5, 0, -3]);
@@ -540,6 +549,16 @@ fn route_d(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usize, delay: 
         }
         for n in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
             let q = [c[0] + n[0], c[1] + n[1], c[2] + n[2]];
+            // (a diagonal is no connection when a stone cuts it: for a dust one lower, the cell
+            // beside this dust above it; for one higher, the cell over this dust)
+            let cut = match n[1] {
+                -1 => Some([c[0] + n[0], c[1], c[2] + n[2]]),
+                1 => Some([c[0], c[1] + 1, c[2]]),
+                _ => None,
+            };
+            if cut.is_some_and(|k| b.blocks.get(&k).is_some_and(|s| s == STONE)) {
+                continue;
+            }
             if !mine.contains(&q) && b.blocks.get(&q).is_some_and(|s| s.contains("redstone_wire")) {
                 bail!("route: {c:?} would touch foreign dust at {q:?} ({})", b.blocks[&q]);
             }
@@ -710,8 +729,8 @@ pub(crate) fn wire_pad(d: &mut Design, pad: &Path) -> Result<Vec<P3>> {
     for k in 1..=3 {
         pr.push([-7, 3 - k, k]);
     }
-    route_d(&mut b, [9, 6, -1], &pr, 12, 0, 1)?;
     b.put([-8, 0, 3], STONE)?;
+    route_d(&mut b, [9, 6, -1], &pr, 12, 0, 1)?;
     b.on([-7, -1, 4], &rep("north", 1))?;
     b.put(golem, STONE)?;
     let added: Vec<P3> = b.blocks.keys().copied().filter(|q| !before.contains(q)).collect();
@@ -888,6 +907,18 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // (the night latch on thr comes after the module's REL route, below)
     b.on(at([2, -2, 1]), DUST)?;
     b.on(at([1, -2, 1]), &rep("east", 1))?;
+    // (night 1: the day line also locks the D ring's hopper h13 (module (1, 0, 0), the one that
+    // feeds d0), where the ring's token is built: by day the token waits in h13, and as the line
+    // goes off with the night window it drops into d0, so the night's first release visits. A
+    // branch up off the line's dust (3, -3, -2): dusts (2, -2, -2) and (1, -1, -2), a repeater
+    // (1, -1, -1) south into a block (1, -1, 0) under h13)
+    if !b.blocks.get(&at([3, -3, -2])).is_some_and(|s| s.contains("redstone_wire")) {
+        bail!("the day line has no dust at module (3, -3, -2) to lock h13 from: {:?}", b.blocks.get(&at([3, -3, -2])));
+    }
+    b.on(at([2, -2, -2]), DUST)?;
+    b.on(at([1, -1, -2]), DUST)?;
+    b.on(at([1, -1, -1]), &rep("north", 1))?;
+    b.put(at([1, -1, 0]), STONE)?;
     // REL in: a dust beside the REL stone, down east to y -6, north along x 4, west along z -10,
     // south along x -45 into the module's feed dust and a repeater into its input block
     // (REL is on the core's dust line (-1..0, -1, 13) -> (0, -1, 11): a repeater reads it from
