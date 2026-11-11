@@ -2409,6 +2409,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut back_through: Vec<String> = Vec::new();
     let mut departs: Vec<(i64, usize, bool)> = Vec::new();
     let mut top_v: Vec<Option<f64>> = Vec::new();
+    // (the tail's entry: each cart reaching the return run's end, x 1 westward along z 20 at the
+    // run's level, with its gap to the one before, contact and speed: what the tail sees)
+    let mut tail_in: Vec<(i64, bool, f64)> = Vec::new();
+    let mut ret_x: Vec<Option<f64>> = vec![None; 21];
     // (the slot-boundary order check: the last slot's queue, train and stand batch; clean slots)
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
     let mut order_dep2: Option<Vec<u32>> = None;
@@ -3242,6 +3246,19 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
                 strip_x[k] = now;
             }
+            // (the tail's entry: the return run along z 20 at the run's level, crossing x 1 west)
+            let ry = if o.tail_desc { 4.0 } else { 1.0 };
+            for (k, id) in carts.iter().enumerate() {
+                let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id) else { continue };
+                let now = ((e.pos.z - fz - 20.5).abs() < 0.6 && (e.pos.y - ry).abs() < 0.9).then_some(e.pos.x - fx);
+                if let (Some(x0), Some(x1)) = (ret_x[k.min(20)], now) {
+                    if x0 >= 1.0 && x1 < 1.0 {
+                        let touching = tail_in.last().is_some() && carts.iter().any(|o2| *o2 != *id && pos_of(&run.world, *o2).is_some_and(|p| (p.z - e.pos.z).abs() < 0.6 && (p.y - e.pos.y).abs() < 0.9 && (p.x - e.pos.x).abs() < 1.05 && p.x < e.pos.x));
+                        tail_in.push((t, touching, e.delta_movement.horizontal_distance()));
+                    }
+                }
+                ret_x[k.min(20)] = now;
+            }
             // (each departed cart's speed where the climb ends, on the run north's first cell)
             let (run_x, run_y) = (-o.row_gap as f64 + 12.5 + fx, if o.tail_desc { 4.0 } else { 1.0 });
             for (i, (t0, k, _)) in departs.iter().enumerate() {
@@ -4029,6 +4046,26 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             for b in bursts.iter().filter(|b| b.len() != 3) {
                 out.push(format!("  burst: {}", fmt(b)));
             }
+        }
+        // (the tail's entry: the same grouping, gaps under 30 gt one group)
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        for i in 0..tail_in.len() {
+            match groups.last_mut() {
+                Some(g) if tail_in[i].0 - tail_in[*g.last().unwrap()].0 < 30 => g.push(i),
+                _ => groups.push(vec![i]),
+            }
+        }
+        let gaps: Vec<i64> = groups.iter().flat_map(|g| g.windows(2).map(|w| tail_in[w[1]].0 - tail_in[w[0]].0)).collect();
+        let big = groups.iter().max_by_key(|g| (g.len(), std::cmp::Reverse(g.windows(2).map(|w| tail_in[w[1]].0 - tail_in[w[0]].0).min().unwrap_or(99))));
+        if let Some(g) = big {
+            let t0 = tail_in[g[0]].0;
+            let gg: Vec<String> = g.windows(2).map(|w| format!("{}{}", tail_in[w[1]].0 - tail_in[w[0]].0, if tail_in[w[1]].1 { "t" } else { "" })).collect();
+            let vs: Vec<String> = g.iter().map(|i| format!("{:.2}", tail_in[*i].2)).collect();
+            let mut sizes: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+            for g in &groups {
+                *sizes.entry(g.len()).or_default() += 1;
+            }
+            out.push(format!("tail entry: {} carts, gap min {} gt within groups, {} touching; groups {}; the biggest: {} carts (slot {} +{}, gaps {}, speeds {})", tail_in.len(), gaps.iter().min().map_or("-".to_string(), |v| v.to_string()), tail_in.iter().filter(|x| x.1).count(), sizes.iter().map(|(s, n)| format!("{s}x{n}")).collect::<Vec<_>>().join(" "), g.len(), t0.div_euclid(100), t0.rem_euclid(100), if gg.is_empty() { "-".to_string() } else { gg.join("/") }, vs.join("/")));
         }
     }
     // (which slots had a problem, and how many each: a fault's reach at a glance; a returning train
