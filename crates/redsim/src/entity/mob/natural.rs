@@ -1565,17 +1565,26 @@ pub fn spawn_cat(w: &mut World, at: BlockPos, persistent: bool) -> u32 {
     }
     mob_base(w);
     let full_moon = crate::weather::lightning::moon_brightness(w.day_time()) >= 0.9;
-    rng(w).next_int(if full_moon { 11 } else { 10 });
+    let pick = rng(w).next_int(if full_moon { 11 } else { 10 });
+    // (mob-AI 2026-11-11, for the viewer) the picked variant: the registry's entries in id order
+    // (the data pack's files, sorted), all_black's moon selector first at a full moon
+    const CATS: [&str; 10] = ["black", "british_shorthair", "calico", "jellie", "persian", "ragdoll", "red", "siamese", "tabby", "white"];
+    let variant = if full_moon { if pick == 0 { "all_black" } else { CATS[pick as usize - 1] } } else { CATS[pick as usize] };
     rng(w).next_int(2);
     let k = kind_of("minecraft:cat").expect("a cat row");
     let f = Finalized { ty: k.ty, baby: false, jockey: Jockey::None, helmet: None, rider_helmet: None, breaks_doors: false, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None, hand: Hand::default(), rider_hand: Hand::default() };
     let pos = Vec3::new(at.x as f64 + 0.5, at.y as f64, at.z as f64 + 0.5);
     let id = spawn_mob(w, k, &f, pos, 0.0);
-    if persistent
-        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
         && let EntityKind::Mob(m) = &mut e.kind
     {
-        m.persistence_required = true;
+        m.variant = Some(variant);
+        if persistent {
+            m.persistence_required = true;
+        }
+    }
+    if std::env::var("MCTAS_TRACE_CAT").is_ok() {
+        eprintln!("cat t{} #{id} at {at}: variant {variant} (pick {pick}, full moon {full_moon})", w.time);
     }
     if temp {
         w.mob.natural = None;

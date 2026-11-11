@@ -56,6 +56,11 @@ pub struct TraderState {
     pub variant: i32,
     /// `Llama.didSpit`.
     pub did_spit: bool,
+    /// (mob-AI 2026-11-11) A llama's `Llama.caravanHead` (the llama it follows) and
+    /// `caravanTail` (the one following it), by id. A tail that left the world without its goal
+    /// stopping stays (the game's reference does too), so its head keeps `hasCaravanTail`.
+    pub caravan_head: Option<u32>,
+    pub caravan_tail: Option<u32>,
     /// The INVISIBLE shared flag (`isInvisible()`): `updateInvisibilityStatus` sets it from the
     /// invisibility effect at the first `tickEffects` after the effects changed (`effectsDirty`),
     /// so a drink's effect shows a tick late (the trader drinks a second potion at dusk, a second
@@ -73,8 +78,9 @@ pub enum TraderGoal {
     WanderToPosition,
     /// `MoveTowardsRestrictionGoal(speed)`: the spot `DefaultRandomPos.getPosTowards` found.
     MoveTowardsRestriction { speed: f64, wanted: Vec3 },
-    /// `LlamaFollowCaravanGoal` (never while leashed).
-    LlamaFollowCaravan,
+    /// `LlamaFollowCaravanGoal`: its `speedModifier` (2.1F at first, the double 2.1 after a stop,
+    /// x1.2 while the head is over 26 away, up to past 3) and `distCheckCounter`.
+    LlamaFollowCaravan { speed: f64, dist_check: i32 },
     /// `RangedAttackGoal(1.25, 40, 20)`: the llama's spit (`Llama.performRangedAttack`).
     LlamaSpit(super::drowned::TridentAttack),
     /// `TraderLlamaDefendWanderingTraderGoal`: the trader's last attacker (its timestamp).
@@ -87,7 +93,7 @@ impl TraderGoal {
             TraderGoal::UseItem { .. } => "UseItemGoal",
             TraderGoal::WanderToPosition => "WanderToPositionGoal",
             TraderGoal::MoveTowardsRestriction { .. } => "MoveTowardsRestrictionGoal",
-            TraderGoal::LlamaFollowCaravan => "LlamaFollowCaravanGoal",
+            TraderGoal::LlamaFollowCaravan { .. } => "LlamaFollowCaravanGoal",
             TraderGoal::LlamaSpit(_) => "RangedAttackGoal",
             TraderGoal::DefendTrader { .. } => "TraderLlamaDefendWanderingTraderGoal",
         }
@@ -96,7 +102,7 @@ impl TraderGoal {
     pub fn flags(&self) -> u8 {
         match self {
             TraderGoal::UseItem { .. } => 0,
-            TraderGoal::WanderToPosition | TraderGoal::MoveTowardsRestriction { .. } | TraderGoal::LlamaFollowCaravan => MOVE,
+            TraderGoal::WanderToPosition | TraderGoal::MoveTowardsRestriction { .. } | TraderGoal::LlamaFollowCaravan { .. } => MOVE,
             TraderGoal::LlamaSpit(_) => MOVE | super::LOOK,
             TraderGoal::DefendTrader { .. } => super::TARGET,
         }
@@ -168,7 +174,7 @@ pub fn register_llama(a: &mut super::super::MobAi) {
     let g = &mut a.goals;
     g.add(0, Goal::Float);
     g.add(1, an(AnimalGoal::RunAround));
-    g.add(2, Goal::Trader(TraderGoal::LlamaFollowCaravan));
+    g.add(2, Goal::Trader(TraderGoal::LlamaFollowCaravan { speed: 2.1f32 as f64, dist_check: 0 }));
     g.add(3, Goal::Trader(TraderGoal::LlamaSpit(super::drowned::TridentAttack::default())));
     g.add(3, an(AnimalGoal::Panic { speed: 1.2, pos: Vec3::ZERO, mount: false, env: false }));
     g.add(4, an(AnimalGoal::Breed));
@@ -264,12 +270,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut TraderGoal) -> bool {
                 None => false,
             }
         }
-        TraderGoal::LlamaFollowCaravan => {
-            if w.entities.list[i].leash.is_none() {
-                refuse(w, "an unleashed trader llama's LlamaFollowCaravanGoal is not modeled");
-            }
-            false
-        }
+        TraderGoal::LlamaFollowCaravan { .. } => caravan_can_use(w, i),
         TraderGoal::LlamaSpit(r) => spit_can_use(w, i, r),
         TraderGoal::DefendTrader { timestamp, attacker, base } => {
             let Some(holder) = w.entities.list[i].leash.map(|l| l.holder) else { return false };
@@ -295,7 +296,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut TraderGoal) -> bool {
         TraderGoal::UseItem { .. } => is_using_item(w, i),
         TraderGoal::WanderToPosition => can_use(w, i, g),
         TraderGoal::MoveTowardsRestriction { .. } => !ai(w, i).nav.is_done(),
-        TraderGoal::LlamaFollowCaravan => false,
+        TraderGoal::LlamaFollowCaravan { speed, dist_check } => caravan_can_continue(w, i, speed, dist_check),
         TraderGoal::LlamaSpit(r) => spit_can_use(w, i, r) || (r.target.and_then(|t| target::who(w, t)).is_some_and(|t| target::is_alive(w, t)) && !ai(w, i).nav.is_done()),
         TraderGoal::DefendTrader { base, .. } => super::targets::target_can_continue(w, i, base),
     }
@@ -410,6 +411,11 @@ pub fn stop(w: &mut World, i: usize, g: &mut TraderGoal) {
         TraderGoal::DefendTrader { base, .. } => super::targets::target_stop(w, i, base),
         // RangedAttackGoal.stop: the target, sight and attack times reset
         TraderGoal::LlamaSpit(r) => *r = super::drowned::TridentAttack::default(),
+        // LlamaFollowCaravanGoal.stop: leaveCaravan; the speed back to the double 2.1
+        TraderGoal::LlamaFollowCaravan { speed, .. } => {
+            leave_caravan(w, i);
+            *speed = 2.1;
+        }
         _ => {}
     }
 }
@@ -417,6 +423,10 @@ pub fn stop(w: &mut World, i: usize, g: &mut TraderGoal) {
 pub fn tick(w: &mut World, i: usize, g: &mut TraderGoal) {
     if let TraderGoal::LlamaSpit(r) = g {
         spit_tick(w, i, r);
+        return;
+    }
+    if let TraderGoal::LlamaFollowCaravan { speed, .. } = g {
+        caravan_tick(w, i, *speed);
         return;
     }
     if let TraderGoal::WanderToPosition = g {
@@ -443,6 +453,150 @@ fn too_far(w: &World, i: usize, p: BlockPos, d: f64) -> bool {
     let e = w.entities.list[i].pos;
     let (dx, dy, dz) = (p.x as f64 + 0.5 - e.x, p.y as f64 + 0.5 - e.y, p.z as f64 + 0.5 - e.z);
     !(dx * dx + dy * dy + dz * dz < d * d)
+}
+
+/// (mob-AI 2026-11-11) Whether entity `j` is a llama with the caravan's state (`e.is(LLAMA) ||
+/// e.is(TRADER_LLAMA)`: redsim's llamas are the traders').
+fn is_caravan_llama(w: &World, j: usize) -> bool {
+    let e = &w.entities.list[j];
+    !e.removed && matches!(&e.kind, crate::entity::EntityKind::Mob(m) if is_llama_id(m.ty.def().id)) && has_ai(w, j) && ai(w, j).trader.is_some()
+}
+
+fn caravan_of(w: &World, id: u32) -> Option<usize> {
+    crate::entity::index_of(w, id).filter(|&j| is_caravan_llama(w, j))
+}
+
+/// `Llama.inCaravan()`.
+fn in_caravan(w: &World, j: usize) -> bool {
+    st(w, j).caravan_head.is_some()
+}
+
+/// `Llama.hasCaravanTail()`.
+fn has_caravan_tail(w: &World, j: usize) -> bool {
+    st(w, j).caravan_tail.is_some()
+}
+
+/// `isLeashed()`: a leash with a holder.
+fn leashed(w: &World, j: usize) -> bool {
+    w.entities.list[j].leash.is_some()
+}
+
+/// `Llama.leaveCaravan()`: the head forgets its tail, the llama its head.
+fn leave_caravan(w: &mut World, i: usize) {
+    if let Some(h) = st(w, i).caravan_head.and_then(|id| caravan_of(w, id)) {
+        st_mut(w, h).caravan_tail = None;
+    }
+    st_mut(w, i).caravan_head = None;
+}
+
+/// `LlamaFollowCaravanGoal.firstIsLeashed(currentMob, counter)`: up the caravan (at most 8 heads)
+/// to a leashed head.
+fn first_is_leashed(w: &World, j: usize, counter: i32) -> bool {
+    if counter > 8 {
+        return false;
+    }
+    let Some(h) = st(w, j).caravan_head else { return false };
+    let Some(h) = caravan_of(w, h) else {
+        // a head that left the world: the game still reads its (cleared) leash
+        return false;
+    };
+    if leashed(w, h) { true } else { first_is_leashed(w, h, counter + 1) }
+}
+
+fn dist_sqr(w: &World, a: usize, b: usize) -> f64 {
+    let (p, q) = (w.entities.list[a].pos, w.entities.list[b].pos);
+    let (dx, dy, dz) = (p.x - q.x, p.y - q.y, p.z - q.z);
+    dx * dx + dy * dy + dz * dz
+}
+
+/// `LlamaFollowCaravanGoal.canUse()`: an unleashed llama out of any caravan joins the nearest
+/// llama around it (its box grown 9, 4, 9; the level's order, the last of a tie) that heads a
+/// caravan without a tail, else the nearest leashed one without a tail, unless it is within 2 or
+/// its caravan has no leashed head within 8.
+fn caravan_can_use(w: &mut World, i: usize) -> bool {
+    if leashed(w, i) || in_caravan(w, i) {
+        return false;
+    }
+    let id = w.entities.list[i].id;
+    let area = w.entities.list[i].bb.inflate(9.0, 4.0, 9.0);
+    let llamas: Vec<usize> = w.get_entities(area, |x| x.id != id && matches!(&x.kind, crate::entity::EntityKind::Mob(m) if m.ty.def().id == "llama" || is_llama_id(m.ty.def().id)));
+    if llamas.iter().any(|&j| !is_caravan_llama(w, j) && !w.entities.list[j].removed) {
+        refuse(w, "a natural llama in a trader llama's LlamaFollowCaravanGoal is not modeled");
+        return false;
+    }
+    let mut closest: Option<usize> = None;
+    let mut closest_d = f64::MAX;
+    for &j in &llamas {
+        if is_caravan_llama(w, j) && in_caravan(w, j) && !has_caravan_tail(w, j) {
+            let d = dist_sqr(w, i, j);
+            if !(d > closest_d) {
+                closest_d = d;
+                closest = Some(j);
+            }
+        }
+    }
+    if closest.is_none() {
+        for &j in &llamas {
+            if is_caravan_llama(w, j) && leashed(w, j) && !has_caravan_tail(w, j) {
+                let d = dist_sqr(w, i, j);
+                if !(d > closest_d) {
+                    closest_d = d;
+                    closest = Some(j);
+                }
+            }
+        }
+    }
+    let Some(c) = closest else { return false };
+    if closest_d < 4.0 {
+        return false;
+    }
+    if !leashed(w, c) && !first_is_leashed(w, c, 1) {
+        return false;
+    }
+    // joinCaravan(closest)
+    let cid = w.entities.list[c].id;
+    st_mut(w, i).caravan_head = Some(cid);
+    st_mut(w, c).caravan_tail = Some(id);
+    true
+}
+
+/// `LlamaFollowCaravanGoal.canContinueToUse()`: in a caravan whose head lives and leads up to a
+/// leashed llama; over 26 from the head the speed grows by 1.2 while at most 3 (the check counter
+/// at 20), then the goal ends when the counter is out.
+fn caravan_can_continue(w: &mut World, i: usize, speed: &mut f64, dist_check: &mut i32) -> bool {
+    let Some(h) = st(w, i).caravan_head.and_then(|id| crate::entity::index_of(w, id)) else { return false };
+    let alive = !w.entities.list[h].removed && matches!(&w.entities.list[h].kind, crate::entity::EntityKind::Mob(m) if m.health > 0.0);
+    if !alive || !first_is_leashed(w, i, 0) {
+        return false;
+    }
+    if dist_sqr(w, i, h) > 676.0 {
+        if *speed <= 3.0 {
+            *speed *= 1.2;
+            *dist_check = super::reduced_tick_delay(40);
+            return true;
+        }
+        if *dist_check == 0 {
+            return false;
+        }
+    }
+    if *dist_check > 0 {
+        *dist_check -= 1;
+    }
+    true
+}
+
+/// `LlamaFollowCaravanGoal.tick()`: toward the head, 2 short of it (`distanceTo`, a float), at the
+/// goal's speed (a leash knot's llama stays: none here).
+fn caravan_tick(w: &mut World, i: usize, speed: f64) {
+    let Some(h) = st(w, i).caravan_head.and_then(|id| crate::entity::index_of(w, id)) else { return };
+    let (p, q) = (w.entities.list[i].pos, w.entities.list[h].pos);
+    let (xd, yd, zd) = ((p.x - q.x) as f32, (p.y - q.y) as f32, (p.z - q.z) as f32);
+    let distance = (xd * xd + yd * yd + zd * zd).sqrt();
+    let delta = Vec3::new(q.x - p.x, q.y - p.y, q.z - p.z).normalize().scale((distance as f64 - 2.0).max(0.0));
+    let (x, y, z) = (p.x + delta.x, p.y + delta.y, p.z + delta.z);
+    with_nav(w, i, |w, nm, nav, arena| {
+        nav.move_to_xyz(w, nm, x, y, z, 1, speed, arena);
+    });
 }
 
 fn item_interact_event(w: &mut World, i: usize, ev: &'static str) {
