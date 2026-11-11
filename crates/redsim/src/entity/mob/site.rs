@@ -266,7 +266,10 @@ fn clears_with(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool
 /// open cells (its listed cells that are not full blocks: the dug air, beds, trapdoors, signs,
 /// water, lava, the pad's gates) that is not a full block itself (a cave's air, a plant, lichen)
 /// is filled with cobblestone, so no natural mob walks in from a cave, no water or lava flows
-/// out and no drop leaves; each with whether its natural cell held a block to dig first. A void
+/// out and no drop leaves; and every natural gravity block (sand, red sand, gravel) the build's
+/// writes set falling ([`falling_seals`]: a gravel wall over a cave falls away when a pit is dug
+/// and drains it; sealed, it starts no cascade) is replaced with cobblestone; each with whether
+/// its natural cell held a block to dig first. A void
 /// design (its box cleared to the sky) has none.
 pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool) -> Vec<(BlockPos, bool)> {
     if clear_box {
@@ -297,7 +300,9 @@ pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: boo
             }
         }
         // (a falling block over an open cell: sand or gravel would drop into the farm when the
-        // cell is dug; a farm dug into rock seals it first)
+        // cell is dug; a farm dug into rock seals it first. Natural sand, red sand and gravel are
+        // redsim's `Block::Falling` since 32dfe400da and are sealed by the dig's simulation below;
+        // this keeps the inert natural falling blocks, an anvil's kind, that stay `Terrain`)
         let up = at(*p).above();
         if !listed.contains(&up)
             && world.contains(up)
@@ -308,7 +313,56 @@ pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: boo
             out.push((up, true));
         }
     }
+    // (farmopt 2026-11-10, ironspec's ruling) every natural gravity block the dig sets falling, so
+    // no cascade starts: bed-plate-lava-out-of-sight's pit at village-edge build 0 had natural
+    // gravel walls over cave air; digging the pit dropped them one after another, the pit's water
+    // drained into the cave and the hopper's corner stayed dry (the bridge's compare: the same)
+    let placed: crate::fxhash::FxHashMap<BlockPos, crate::block::Block> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
+    for p in falling_seals(world, &placed, &out) {
+        out.push((p, true));
+    }
     out.sort_by_key(|(p, _)| (p.y, p.z, p.x));
+    out
+}
+
+/// The natural gravity blocks (`Block::Falling`: sand, red sand, gravel) a build sets falling,
+/// each to seal (cobblestone, the block dug first): every one beside a cell the build writes (the
+/// farm's listed cells, the seals, these seals too: a seal is a write) whose cell below is free
+/// (`gravity::is_free`: air, fire, a liquid, a replaceable block) in the built world, the natural
+/// world with the listed cells and the cave seals written. Its write updates it
+/// (`FallingBlock.updateShape` schedules the tick), so it would fall; sealed, it starts no cascade:
+/// a gravity block over another stays put, and whether a cell's below is free never depends on
+/// these seals (a gravity block and the cobblestone in its place are both not free). A closure,
+/// so its result does not depend on any order (mobviewer 2026-11-10: the viewer runs this compiled
+/// to wasm32, whose hash iteration differs from native); a cell outside the world counts as solid.
+fn falling_seals(world: &World, placed: &crate::fxhash::FxHashMap<BlockPos, crate::block::Block>, seals: &[(BlockPos, bool)]) -> Vec<BlockPos> {
+    use crate::block::Block;
+    use crate::gravity;
+    let caves: crate::fxhash::FxHashSet<BlockPos> = seals.iter().map(|(p, _)| *p).collect();
+    let built = |p: BlockPos| -> Block {
+        match placed.get(&p) {
+            Some(b) => *b,
+            None if caves.contains(&p) || !world.contains(p) => SEAL,
+            None => world.get(p),
+        }
+    };
+    let mut sealed: crate::fxhash::FxHashSet<BlockPos> = Default::default();
+    let mut writes: Vec<BlockPos> = placed.keys().chain(caves.iter()).copied().collect();
+    let mut out: Vec<BlockPos> = Vec::new();
+    while let Some(w) = writes.pop() {
+        for d in crate::pos::Dir::ALL {
+            let q = w.rel(d);
+            if placed.contains_key(&q) || caves.contains(&q) || sealed.contains(&q) {
+                continue;
+            }
+            if matches!(built(q), Block::Falling { .. }) && q.y >= gravity::MIN_Y && gravity::is_free(built(q.below())) {
+                sealed.insert(q);
+                out.push(q);
+                writes.push(q);
+            }
+        }
+    }
+    out.sort_by_key(|p| (p.y, p.z, p.x));
     out
 }
 
@@ -931,5 +985,49 @@ mod tests {
         assert!(!got.iter().any(|(p, _)| *p == [3, 0, 3] || *p == [5, 4, 5] || *p == [-4, 4, 0]), "out of reach: {got:?}");
         assert!(!got.iter().any(|(p, _)| *p == [-1, 1, 0] || *p == [-1, 0, 0]), "the design's planks are its own, the grass by the lava its seal's: {got:?}");
         assert_eq!(got.len(), 3, "{got:?}");
+    }
+
+    /// The dig's gravity (farmopt 2026-11-10, ironspec's ruling on bed-plate-lava-out-of-sight's
+    /// pit): a gravel beside the farm's open cell over air falls when the cell is dug and is
+    /// sealed; a gravel on a gravel over air that nothing the build writes touches stays (the
+    /// column the first one's fall would have shaken); a gravel on stone stays; a gravel over the
+    /// open cell (it would drop in) is sealed, as `Block::Falling` (the natural row's rule no
+    /// longer sees it since natural gravel falls); and mobviewer's order case: a gravel on a gravel
+    /// over air, both beside open cells, seals the lower one only, whatever the order the cells
+    /// are visited in (the closure: a cell's below is free in the built world or not).
+    #[test]
+    fn gravel_the_dig_sets_falling_is_sealed() {
+        let mut w = World::new(BlockPos::new(-12, -4, -12), [25, 16, 25]);
+        let stone = block("minecraft:stone");
+        for y in -4..=6 {
+            for z in -6..=6 {
+                for x in -6..=6 {
+                    w.set_block(BlockPos::new(x, y, z), stone, crate::world::flags::RAW);
+                }
+            }
+        }
+        let gravel = block("minecraft:gravel");
+        assert!(matches!(gravel, Block::Falling { .. }));
+        // a gravel over air (0, 0, 1); the column (1, 0, 1) on (1, -1, 1) over air, its lower gravel
+        // beside no written cell; a gravel on stone; a gravel over the open cell; the column of
+        // mobviewer's case at x 3, beside an open column (3, 0, 0) and (3, -1, 0)
+        for (p, b) in [((0, 0, 1), gravel), ((0, -1, 1), Block::Air), ((1, 0, 1), gravel), ((1, -1, 1), gravel), ((1, -2, 1), Block::Air), ((-1, 0, 0), gravel), ((0, 1, 0), gravel), ((3, 0, 1), gravel), ((3, -1, 1), gravel), ((3, -2, 1), Block::Air)] {
+            w.set_block(BlockPos::new(p.0, p.1, p.2), b, crate::world::flags::RAW);
+        }
+        let spec = FarmSpec {
+            blocks: [(0, 0, 0), (1, 0, 0), (3, 0, 0), (3, -1, 0)].into_iter().map(|(x, y, z)| (BlockPos::new(x, y, z), Block::Air)).collect(),
+            entities: Vec::new(),
+            output: BlockPos::new(0, -3, 0),
+            lo: BlockPos::new(-3, -3, -3),
+            hi: BlockPos::new(4, 3, 3),
+            block_entities: Vec::new(),
+            rock: false,
+            nether: None,
+        };
+        let got: Vec<([i32; 3], bool)> = seals_at(&w, &spec, [0, 0, 0], false).iter().map(|(p, dig)| ([p.x, p.y, p.z], *dig)).collect();
+        assert_eq!(got, vec![([3, -1, 1], true), ([0, 0, 1], true), ([0, 1, 0], true)], "the gravels over free cells beside the dig, dug first; the gravels on gravel stay");
+        // the same seals whatever the order the written cells come in
+        let reversed = FarmSpec { blocks: spec.blocks.iter().rev().copied().collect(), ..spec.clone() };
+        assert_eq!(seals_at(&w, &reversed, [0, 0, 0], false).iter().map(|(p, dig)| ([p.x, p.y, p.z], *dig)).collect::<Vec<_>>(), got);
     }
 }

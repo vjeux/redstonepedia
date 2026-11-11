@@ -122,6 +122,80 @@ controller input), `nether-anchor`, `nether-axis`, `nether-output`. Pasted with 
   brief's out-of-turn flag. Those positions are empty at the summon tick (gameTime % 100 == 0) in
   every run above: the bench checks each summoner's position as it summons.
 
+## The pocket stand's fault guard (B′ + booster + C: `queue-loop … --stand-wired --stand-guard`)
+
+ironspec's self-recovery rule (one missed or extra pulse at each element, in every phase it can land in):
+the wired stand recovered its latch and gates after one REL, but its carts did not. A crowded pocket
+(D1 missed: the whole train in pocket 1) fired carts back through G1 and G2 at the next REL, because
+the always-on booster-ups and gate slopes boosted any cart drifting west while the two gates stood
+open (G1/G2 = REL or not Q, by construction). The guard makes every fault drain forward.
+
+- **B′:** the booster-ups (1,-1,0), (5,-2,0) are plain rails. G0's gate slope is powered from G0's
+  driver dust through a stone under it (instant). G1's and G2's gate slopes are powered 8 gt after
+  their gates open (from the latch's X by R1 (5,-2,3) and a dust line under the bus), so a cart
+  held against a gate's downstream side rolls onto a braking slope, stops, and is launched forward.
+  Powered at once (or after 6 gt), the slope boosts that cart back through its gate.
+- **Booster:** the pocket carts leave a little slower out of the braked slopes. One booster at the
+  run's first cell (9,4,8), downstream of every gate, restores what the tail catches (top of the
+  climb 1.05/1.01/1.12 b/t).
+- **C, the D1 fallback:** a timer on REL (T3 = not (REL or REL delayed), on B3 under F) sets the latch
+  through F (5,-1,2) into Y at REL's fall + 37 gt when D1 has not, and lets go 11 gt into the next
+  REL. G1's step dust (4,-1,2) became a stone (G1 fed by a dust on it, still instant).
+- **Cells** (against the wired stand 8481d37896): 63 added (12 repeaters, 16 dusts, 1 torch, 9 stones,
+  25 glass), 1 removed (4,-2,2), 14 changed (5 redstone blocks to glass or stone, 2 booster-ups to
+  plain rails, 3 gate slopes unpowered, (4,-1,2) dust to stone, (8,-3,1) glass to stone, the run's
+  booster and its support). Riders' rest cells, pockets, gates and rest slopes unchanged; golem
+  spots 0. The exact list went to day-1 for its re-paste (no overlap with its lean file's cells).
+
+**Normal operation (bench-driven queue, `--release-stagger 4`).** 100 × 1,440 clean; staggers 2/3/4/6
+× REL 10..50, 0..44, 16..76 all 3 × 30 clean. D1 sets the latch at +77..+79 everywhere; D2 9..15 gt
+(by stagger); departures 10–13 gt apart, never touching; tail entry ≥ 9 gt; no cart off the rails,
+every rider seated.
+
+**Margins.**
+- C (the stand's tightest control), centred at REL's fall + 37: set at +81 at the early corner; forced
+  earlier by repeater acts it is clean down to +77 (4 gt above the last clean time) and at +75 stagger
+  6 loses cart 2 behind G2 (6 above the first failure). At the late corner it sets at +113, 3 gt
+  before the next REL at +116; later changes nothing in normal operation. C catches the cart that
+  bounces back from a crowded pocket 1 only while it is west of G1: in absolute slot time C must fire
+  by about +91 (at +87 and +91 D1 missed recovers; at +95 and +99 four carts go back through the gates).
+- G2's flag (0..2 gt after cart 2's tail at stagger 4): answered by measurement, no change. G2 shuts on
+  cart 1 reaching D1, so its margins follow the cart spacing, and it is already centred over staggers
+  2..6: stagger 2: 6..8 gt after cart 2's front, 1..3 before cart 3; stagger 4: 4..6 after the front
+  (0..2 after its tail), 5..7 before cart 3; stagger 6: 2..4 after the front (−2..0 after its tail),
+  17..22 before cart 3, clean. Shutting 1–3 gt early (stagger 4) is clean; 4 gt early blocks cart 2. A
+  closing gate only blocks movement into its box, so the real edge is cart 2's front, not its tail.
+
+**Faults** (each at slot 5, 3 seeds; "perfect tail" = `--reset-queue-at 6 --reset-queue-every`, a tail
+that always re-packs, so the stand's own share shows; the bench's timed tail breaks later in most
+faults: the queue's share).
+- Back to a clean 3 by slot 7, 0 back-crossings: extra REL 40 gt at +66/+79/+85/+92; 2 gt REL glitch at
+  +66/+79; D1 missed (45 or 65 gt) at REL 10..50 and 0..44; C missed; C extra at +79/+92; the whole
+  part unloaded 3/40/240 gt in 6 states (54 of 54).
+- Drains forward but leaves stragglers (no clean 3 within 8 slots, 0 back-crossings in the fault's
+  slots): REL missed (a 4-cart group at 10/4/9 gt, the minimum departure gap); D1 extra (+50, +66);
+  C extra (+50, +66); the 2 gt glitch at +92.
+- D1 missed at the late REL corner (REL 16..76): C fires at +113, too late; 3–5 carts back through the
+  gates, a 5-cart group at 3 gt.
+- Partial unloads at the aligned chunk line z 9|10 (`--shift 6,6`, stage 32/33): departure gaps down to
+  3 gt with the stand's chunk frozen, groups ≤ 5; tail entry ≥ 5 gt, never touching, except one 4-cart
+  group at 4 gt. With z 10..25 frozen (the run north's upper part): 0–3 touching pairs at the
+  departure, 0 carts off the rails, 0 riders unseated or hurt, 0–7 carts back through G0 from the climb
+  (departing carts meet the frozen ones at z 10 and roll back down during REL), clean from slot 7–8 in
+  6 of 36 runs, from slot 14–15 in 2 more.
+
+**Open:**
+1. stragglers on the approach flats don't clear after REL missed, D1 extra, C extra (+50/+66) and most
+   partial unloads;
+2. D1 missed isn't recovered at the late REL corner, because C is keyed to REL's fall; C′, a
+   train-synchronous fallback, is the proposed fix;
+3. a frozen chunk past the climb's exit (z 10..25) rolls departing carts back down the climb and
+   through G0.
+
+The no-rest approach (ironspec's constraints) is being designed in emulation, with C′ (an edge
+detector wherever the new approach gives a clean once-per-train edge, replacing C's timer: about 25
+blocks against 43) and a departure top no cart can roll back from before the z 9|10 line folded in.
+
 ## What did not work
 
 - A 2-long pit with an end wall 1 over the frame's row: a golem pushed by the pit's crowd stepped

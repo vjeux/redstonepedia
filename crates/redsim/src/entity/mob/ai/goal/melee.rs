@@ -194,7 +194,7 @@ fn check_and_perform_attack(w: &mut World, i: usize, g: &mut MeleeAttack, t: Who
 }
 
 /// `Mob.isWithinMeleeAttackRange(target)`: the attack box (with the vehicle's), inflated by the
-/// default reach `sqrt(2.04) - 0.6`, meets the target's box.
+/// default reach `sqrt(2.04) - 0.6`, meets the target's hitbox (a rider's: from its seat up).
 pub fn within_melee_range(w: &World, i: usize, t: Who) -> bool {
     let reach = 2.04f64.sqrt() - 0.6;
     let e = &w.entities.list[i];
@@ -206,5 +206,5 @@ pub fn within_melee_range(w: &World, i: usize, t: Who) -> bool {
         }
         None => own,
     };
-    bb.inflate(reach, 0.0, reach).intersects(target::box_of(w, t))
+    bb.inflate(reach, 0.0, reach).intersects(target::hitbox_of(w, t))
 }

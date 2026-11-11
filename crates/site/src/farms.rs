@@ -1172,7 +1172,33 @@ fn game_gate(c: &circuit::Circuit) -> Result<circuit::mobfarm_game::GateReport> 
     if let Some(sample) = circuit::mobfarm::terrain_sample(c).map_err(|e| anyhow::anyhow!(e))? {
         go.terrain = Some(sample.name.to_string());
     }
-    circuit::mobfarm_game::gate(c, &go)
+    // (ironspec 2026-11-10, vjeux's rule: what a pipeline cannot produce fails it, it never writes
+    // a card) a gate that cannot run its game is no result: without the kept world every build
+    // failed to start and the card was rewritten with 0 golems an hour, silently
+    if let Some(why) = missing_kept_world(c, &mctas::paths::home()) {
+        anyhow::bail!("{why}");
+    }
+    let g = circuit::mobfarm_game::gate(c, &go)?;
+    let unrun = unrun_builds(&g);
+    if let Some(first) = unrun.first() {
+        anyhow::bail!("{} of the gate's {} runs did not run (no card is written from it): {first}", unrun.len(), unrun.len() + g.builds.len());
+    }
+    Ok(g)
+}
+
+/// The kept world a terrain farm's game gate runs in (`circuit::mobfarm_game::run_terrain`'s
+/// default under `home`, `$MCTAS_HOME`), when it is missing; None for a void farm or a world in
+/// place.
+fn missing_kept_world(c: &circuit::Circuit, home: &Path) -> Option<String> {
+    let sample = circuit::mobfarm::terrain_sample(c).ok().flatten()?;
+    let world = home.join("terrain").join("worlds").join(sample.world);
+    (!world.join("level.dat").is_file()).then(|| format!("the kept world of {} ({}) is not at {}; restore it (designs/terrain/README.md, \"The banked kept world\")", sample.name, sample.world, world.display()))
+}
+
+/// The gate's runs that did not run (a harness failure: the game could not start or stopped, not a
+/// farm break; `GateReport::unrun`): the gate measured nothing for them.
+fn unrun_builds(g: &circuit::mobfarm_game::GateReport) -> Vec<&str> {
+    g.unrun.iter().map(String::as_str).collect()
 }
 
 /// A build's break, in the player's words (one of the gate's checks, `circuit::mobfarm_game`), or
@@ -1296,6 +1322,21 @@ fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, f
     if gate && kind.name().starts_with("mob-farm") {
         eprintln!("{}: the real-game gate (about 2 minutes)...", path.display());
         let g = game_gate(c).map_err(|e| format!("the real-game gate could not run: {e:#}"))?;
+        // (farmopt 2026-11-10: a failed gate's card line says nothing when its failures are no
+        // farm break (a rate outside redsim's interval, a harness failure): its report on stderr)
+        if !g.passed() {
+            eprintln!("{}: the real-game gate failed: {}", path.display(), g.line());
+            for f in &g.failures {
+                eprintln!("  {f}");
+            }
+        }
+        // (ironspec 2026-11-10: two farms compared on the game's rate with its spread) the game's
+        // own mean and 95% interval per window, and its iron a dead golem, on stderr
+        let deaths: u32 = g.builds.iter().map(|b| b.deaths).sum();
+        let iron: u32 = g.builds.iter().map(|b| b.iron()).sum();
+        for (name, m, sd, n, hw) in g.game_spread() {
+            eprintln!("{}: the game's {name}: mean {m:.2} golems/h (95% {:.2}-{:.2}), sd {sd:.2} over {n} runs; {:.2} iron per dead golem", path.display(), m - hw, m + hw, iron as f64 / deaths.max(1) as f64);
+        }
         metrics = game_findings(&metrics, &g, c.blocks() as u32);
     }
     let (lo, hi) = c.bounds();
@@ -1327,6 +1368,42 @@ fn write_verdicts(dir: &Path, rows: &[circuit::archive::Row]) -> Result<()> {
     }
     std::fs::write(dir.join(circuit::archive::VERDICTS), out)?;
     Ok(())
+}
+
+/// `mctas site variation --restore <REF>`: each named variation's row and design file put back as
+/// they are at REF, every other row of the stage left as it is (a re-gate that measured less than
+/// the card's own evidence: d1u-deep's card came from 120 game builds, a re-gate of the default 8
+/// is a weaker test; farmopt 2026-11-10). Nothing is judged or gated.
+fn restore(repo: &Path, farm: &str, stage: &str, designs: &[PathBuf], r: &str) -> Result<()> {
+    let dir = repo.join("designs/farms").join(farm).join(stage);
+    let rel = |name: &str| format!("designs/farms/{farm}/{stage}/{name}");
+    let show = |path: &str| -> Result<Vec<u8>> {
+        let o = std::process::Command::new("git").arg("-C").arg(repo).args(["show", &format!("{r}:{path}")]).output()?;
+        if !o.status.success() {
+            bail!("git show {r}:{path}: {}", String::from_utf8_lossy(&o.stderr).trim());
+        }
+        Ok(o.stdout)
+    };
+    // (the ref's rows read by the archive's own reader, from a scratch folder)
+    let tmp = std::env::temp_dir().join(format!("mctas-restore-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp)?;
+    std::fs::write(tmp.join(circuit::archive::VERDICTS), show(&rel(circuit::archive::VERDICTS))?)?;
+    let theirs = circuit::archive::read_rows(&tmp);
+    let _ = std::fs::remove_dir_all(&tmp);
+    let theirs = theirs?;
+    let mut rows = circuit::archive::read_rows(&dir)?;
+    for p in designs {
+        let file = format!("{}.txt", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
+        let row = theirs.iter().find(|x| x.file == file).ok_or_else(|| anyhow::anyhow!("{file}: no row in {r}'s {}", rel(circuit::archive::VERDICTS)))?;
+        let text = show(&rel(&file))?;
+        std::fs::write(dir.join(&file), text)?;
+        match rows.iter_mut().find(|x| x.file == file) {
+            Some(x) => *x = row.clone(),
+            None => rows.push(row.clone()),
+        }
+        println!("{}: its row (archived {}) and its design as at {r}", dir.join(&file).display(), row.archived);
+    }
+    write_verdicts(&dir, &rows)
 }
 
 /// `mctas site variation --regate [design...]`: every listed variation of the farm (or only the ones
@@ -1391,6 +1468,9 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     }
     if !STAGES.iter().any(|s| s.0 == a.stage) {
         bail!("--stage {}: one of {}", a.stage, STAGES.iter().map(|s| s.0).collect::<Vec<_>>().join(", "));
+    }
+    if let Some(r) = &a.restore {
+        return restore(&repo, &a.farm, &a.stage, &a.designs, r);
     }
     let study = "mobfarm";
     let dir = repo.join("designs/farms").join(&a.farm).join(&a.stage);
@@ -1482,6 +1562,34 @@ fn pick_value(a: &crate::VariationArgs) -> Result<Option<String>> {
 mod tests {
     use super::*;
 
+    /// A gate that cannot run its game writes no card (ironspec 2026-11-10: a box without the kept
+    /// world zeroed bed-plate-lava-out-of-sight's card silently): a terrain farm's missing kept
+    /// world is named, a world in place is not, a void farm needs none; a run that did not run (a
+    /// harness failure) is told apart from a farm's break.
+    #[test]
+    fn a_gate_that_cannot_run_writes_no_card() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let load = |f: &str| circuit::Circuit::load(&repo.join(f)).unwrap();
+        let farm = load("designs/farms/iron/day-1/bed-plate-lava-out-of-sight.txt");
+        let home = std::env::temp_dir().join(format!("mctas-kept-world-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let why = missing_kept_world(&farm, &home).expect("no kept world under an empty home");
+        assert!(why.contains("2_-416_240_r192") && why.contains("village-edge"), "{why}");
+        let world = home.join("terrain/worlds/2_-416_240_r192");
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), b"").unwrap();
+        assert_eq!(missing_kept_world(&farm, &home), None, "the kept world in place");
+        let _ = std::fs::remove_dir_all(&home);
+        assert_eq!(missing_kept_world(&load("designs/farms/iron/day-1/d1-bed-plate.txt"), &home), None, "a void farm runs in no kept world");
+        let g = circuit::mobfarm_game::GateReport {
+            failures: vec!["build 1 (rotation 0, offset [0, 0, 0], seed 3): gt 900: a golem left the farm".into(), "build 2: the game run failed: the kept world of village-edge is not at /x".into()],
+            unrun: vec!["build 2: the game run failed: the kept world of village-edge is not at /x".into()],
+            ..Default::default()
+        };
+        assert_eq!(unrun_builds(&g), vec!["build 2: the game run failed: the kept world of village-edge is not at /x"]);
+        assert!(unrun_builds(&circuit::mobfarm_game::GateReport { failures: g.failures.clone(), ..Default::default() }).is_empty(), "a farm's break or a failure's words alone is no unrun run");
+    }
+
     #[test]
     fn a_nether_part_gets_its_own_viewer() {
         // (the carousel station's members: their Nether kill and storage drawn beside the pad)
@@ -1497,6 +1605,30 @@ mod tests {
         assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-station/carousel-linear-stand.drive.txt\"").count(), 1, "{html}");
         let plain = Member { nether: false, ..members[0].clone() };
         assert!(!member_viewer("../", &plain).contains("data-part"));
+    }
+
+    #[test]
+    fn the_kill_transport_and_access_pages_render_every_member() {
+        // (farmopt 2026-11-10: the kill catalog's rows refreshed by `farmopt part-members --parts
+        // kill --refresh`) each of the three catalogs reads, and its page lists every member with
+        // its numbers and the farms built with it
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for part in ["kill", "transport", "access"] {
+            let members = read_members(&repo, "iron", part);
+            assert!(!members.is_empty(), "{part}: no members");
+            let html = part_page(&Site::default(), "iron", part, &members, Scripts::default());
+            for m in &members {
+                assert!(html.contains(&esc(&m.name)), "{part}: {} not on its page", m.name);
+                if let Some((_, v)) = m.metrics.iter().find(|(k, _)| k == "blocks dug") {
+                    assert!(html.contains(v.as_str()), "{part}: {}'s dug cells {v} not on its page", m.stem());
+                }
+            }
+        }
+        // the refreshed pit kill: its lava's reach (5 layers of the 4 x 4 pit), the farms' parts.tsv's 77
+        let kill = read_members(&repo, "iron", "kill");
+        let m = kill.iter().find(|m| m.stem() == "lava-corner-12-drop").expect("lava-corner-12-drop");
+        assert_eq!(m.metrics.iter().find(|(k, _)| k == "blocks dug").map(|(_, v)| v.as_str()), Some("77"));
+        assert!(m.used_by.iter().any(|u| u.trim_end_matches(".txt") == "bed-plate-two-sleepers"), "{:?}", m.used_by);
     }
 
     #[test]

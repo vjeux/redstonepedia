@@ -74,6 +74,12 @@ wasm-bindgen 0.2.129 in ~/agents/ironfarm/toolchain on devvm69776, no dotfiles t
 - `mctas mobfarm exit <design>`: the golem exit flood alone (spawn spots, positions, drift runs);
   a failure names where the golem ends.
 - `mctas mobfarm run <design> --days 2 --seed 1 [--still]`: one redsim run and its misses.
+  `--log <kinds> [--log-box x0,y0,z0,x1,y1,z1] [--log-from T --log-to T] [--log-moves]`: the run's
+  entities of those kinds (`villager,zombie_villager,iron_golem,item`, `item:iron_ingot`, `all`)
+  as they appear and go, their cell changes and their mob events (deaths, hurts, drops, pickups,
+  burns: a villager discarded with a zombie villager added at its spot is a conversion);
+  `--natural` (in terrain) the site's seals with each cell's natural block, and with `--watch` the
+  watched cells' natural blocks (farmopt 2026-11-10: bed-plate-lava-out-of-sight's stranded drop).
 - `mctas mobfarm probe <design> --row x0 x1 y z`: the built farm (water settled) along a row.
 - `mctas mobfarm validate <design> --days N [--repeat R] [--kill] [--trace]`: the design run in
   the real 26.3 server through the bridge (R runs, each its own sandbox seed), against 32 redsim

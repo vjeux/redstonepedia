@@ -1469,6 +1469,10 @@ pub struct GateReport {
     pub windows: Vec<WindowCheck>,
     pub sim_runs: usize,
     pub failures: Vec<String>,
+    /// The runs that did not run (a harness failure: the game could not start or stopped; also
+    /// in `failures`): the gate measured nothing for them, so a card is never made from it
+    /// (`site variation`, farmopt 2026-11-10).
+    pub unrun: Vec<String>,
     /// Lightning's breaks the builds saw against the card's rates.
     pub tradeoffs: Vec<Tradeoff>,
     /// Redsim's delivered iron per dead golem over the reference runs (dropped less burnt) and the
@@ -1478,6 +1482,27 @@ pub struct GateReport {
 }
 
 impl GateReport {
+    /// The game's own spread per window (the parent's noise question: enough runs that the 95%
+    /// interval on a difference of two gates' means is narrow): each window's mean golems an hour
+    /// over the game's runs, its standard deviation, the runs and the mean's 95% half-width, as
+    /// `(name, mean, sd, runs, half_width)`; windows with fewer than 2 runs left out.
+    pub fn game_spread(&self) -> Vec<(String, f64, f64, usize, f64)> {
+        let n_windows = self.builds.iter().map(|b| b.windows.len()).max().unwrap_or(0);
+        let mut out = Vec::new();
+        for k in 0..n_windows {
+            let v: Vec<f64> = self.builds.iter().filter_map(|b| b.windows.get(k)).map(|w| w.golems_per_hour()).collect();
+            if v.len() < 2 {
+                continue;
+            }
+            let n = v.len() as f64;
+            let m = v.iter().sum::<f64>() / n;
+            let sd = (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (n - 1.0)).sqrt();
+            let name = self.builds.iter().find_map(|b| b.windows.get(k)).map(|w| w.name.clone()).unwrap_or_default();
+            out.push((name, m, sd, v.len(), 1.96 * sd / n.sqrt()));
+        }
+        out
+    }
+
     pub fn passed(&self) -> bool {
         self.failures.is_empty()
     }
@@ -1579,7 +1604,11 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
                 }
                 rep.builds.push(b);
             }
-            Err(e) => rep.failures.push(format!("build {k}: the game run failed: {e:#}")),
+            Err(e) => {
+                let why = format!("build {k}: the game run failed: {e:#}");
+                rep.unrun.push(why.clone());
+                rep.failures.push(why);
+            }
         }
     }
     // the rates: every window against redsim's runs of the same schedule (the judge's own runs,

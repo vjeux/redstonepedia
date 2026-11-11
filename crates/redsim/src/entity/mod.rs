@@ -522,6 +522,9 @@ fn spawn_falling_block(w: &mut World, pos: [f64; 3], nbt: Option<&str>) -> Resul
 pub fn restore_fresh(e: &mut Entity) {
     e.tick_count = 0;
     e.first_tick = true;
+    // (tickexact 2026-11-10) Entity.boardingCooldown is not saved (Entity.load reads no such
+    // field): a loaded entity starts at 0, free to board at once, whatever was left of its 60 gt
+    e.boarding_cooldown = 0;
     e.horizontal_collision = false;
     e.vertical_collision = false;
     e.vertical_collision_below = false;
@@ -799,6 +802,58 @@ pub fn position_rider(w: &mut World, vi: usize, j: usize) {
 /// two y, a small rider (at most 4 x 4) moved to `findFreePosition` around its centre there (the
 /// free part of its box-sized centre region: block boxes inflated by half its size taken away,
 /// the point of what is left closest to the centre), then `dismountTo` (`teleportTo`: `snapTo`).
+/// (mob-AI 2026-11-10) `vehicle.getDismountLocationForPassenger(rider)` of a mob vehicle that
+/// stays (`LivingEntity.dismountVehicle`): an `Animal`'s (a chicken's) tries the eight cells around
+/// its block (`DismountHelper.offsetsForDirection` of its facing, `getDirection`), the first whose
+/// floor (`getBlockFloorHeight`: its collision top, else the top below less 1) is valid (finite,
+/// under 1) and where the rider's standing box fits no block collision, its bottom centre at the
+/// floor; else (and a spider's, `Entity`'s) the vehicle's x, its box's top and z. None: a horse's
+/// own rule (`AbstractHorse`), not modeled.
+fn mob_vehicle_dismount_location(w: &World, i: usize, vi: usize) -> Option<Vec3> {
+    let EntityKind::Mob(vm) = &w.entities.list[vi].kind else { return None };
+    let EntityKind::Mob(rm) = &w.entities.list[i].kind else { return None };
+    let v = &w.entities.list[vi];
+    let fallback = Vec3::new(v.pos.x, v.bb.max_y, v.pos.z);
+    match vm.ty.def().id {
+        "spider" | "cave_spider" => return Some(fallback),
+        "chicken" | "baby_chicken" => {}
+        _ => return None,
+    }
+    // getDirection: Direction.from2DDataValue(floor(yRot / 90 + 0.5) & 3): south, west, north, east
+    let forward = [crate::pos::Dir::South, crate::pos::Dir::West, crate::pos::Dir::North, crate::pos::Dir::East][(mth::floor(v.y_rot as f64 / 90.0 + 0.5) & 3) as usize];
+    let right = forward.clockwise();
+    let (left, back) = (right.opposite(), forward.opposite());
+    let s = |d: crate::pos::Dir| (d.step()[0], d.step()[2]);
+    let add = |a: (i32, i32), b: (i32, i32)| (a.0 + b.0, a.1 + b.1);
+    let offsets = [s(right), s(left), add(s(back), s(right)), add(s(back), s(left)), add(s(forward), s(right)), add(s(forward), s(left)), s(back), s(forward)];
+    let base = BlockPos::new(mth::floor(v.pos.x), mth::floor(v.pos.y), mth::floor(v.pos.z));
+    let (rw, rh) = rm.dims();
+    let half = (rw / 2.0f32) as f64;
+    let top = |p: BlockPos| -> Option<f64> {
+        let boxes = collide::boxes_at(w, &w.get(p), p);
+        boxes.iter().map(|b| b.max_y - p.y as f64).fold(None, |m, t| Some(m.map_or(t, |m: f64| m.max(t))))
+    };
+    for (dx, dz) in offsets {
+        let p = BlockPos::new(base.x + dx, base.y, base.z + dz);
+        let floor = match top(p) {
+            Some(t) => t,
+            None => match top(p.below()) {
+                Some(b) if b >= 1.0 => b - 1.0,
+                _ => f64::NEG_INFINITY,
+            },
+        };
+        if !(floor.is_finite() && floor < 1.0) {
+            continue;
+        }
+        let at = Vec3::new(p.x as f64 + 0.5, p.y as f64 + floor, p.z as f64 + 0.5);
+        let bb = Aabb::new(at.x - half, at.y, at.z - half, at.x + half, at.y + rh as f64, at.z + half);
+        if !collide::collides_with_blocks(w, bb) {
+            return Some(at);
+        }
+    }
+    Some(fallback)
+}
+
 fn dismount_from_removed(w: &mut World, i: usize, vpos: Option<Vec3>) {
     let e = &w.entities.list[i];
     let (wd, ht) = match &e.kind {
@@ -935,15 +990,24 @@ pub fn stop_riding(w: &mut World, i: usize) {
         let to = minecart::dismount_location(w, vi, d.width as f64, d.height as f64);
         w.entities.set_pos(i, to);
         let e = &mut w.entities.list[i];
-        // (`teleportTo`: `teleportSetPosition`, the old position too, the motion zero)
+        // (`dismountTo` -> `teleportTo` -> `snapTo`: the position, the old position and rotation
+        // set from it; the motion kept (tickexact 2026-11-10: its rideTick's -0.0784 then meets the
+        // floor in its own tick that follows, on the ground as in the game))
         (e.xo, e.yo, e.zo) = (to.x, to.y, to.z);
-        e.delta_movement = Vec3::ZERO;
+        (e.y_rot_o, e.x_rot_o) = (e.y_rot, e.x_rot);
         return;
     }
     if !removed {
         if matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
             if vehicle_removed {
                 dismount_from_removed(w, i, vpos);
+            } else if let Some(to) = vi.and_then(|vi| mob_vehicle_dismount_location(w, i, vi)) {
+                // (mob-AI 2026-11-10) dismountTo -> teleportTo -> snapTo: the position, the old
+                // positions too (setOldPosAndRot), the box; the motion stays
+                w.entities.set_pos(i, to);
+                let e = &mut w.entities.list[i];
+                (e.xo, e.yo, e.zo) = (to.x, to.y, to.z);
+                (e.x_old, e.y_old, e.z_old) = (to.x, to.y, to.z);
             } else {
                 w.errors.push("a mob dismounting from a vehicle that stays (getDismountLocationForPassenger) is not modeled".into());
             }
@@ -1129,10 +1193,18 @@ pub fn base_tick(w: &mut World, i: usize) {
         crate::entity::mob::ai::goal::drowned::update_swimming(w, i);
     }
     let e = &mut w.entities.list[i];
-    // `checkBelowWorld`: below the world's bottom by 64
-    if e.pos.y < (crate::gravity::MIN_Y - 64) as f64 {
+    // `checkBelowWorld`: below the world's bottom by 64, `onBelowWorld`: discarded; (mob-AI
+    // 2026-11-10) a living one is hurt by 4 instead (LivingEntity.onBelowWorld: forest build 3
+    // t21815, a wolf falling past the terrain's edge)
+    let below = e.pos.y < (crate::gravity::MIN_Y - 64) as f64;
+    let living = matches!(e.kind, EntityKind::Mob(_));
+    if below && !living {
         e.removed = true;
     }
+    if below && living {
+        crate::entity::mob::living::hurt(w, i, crate::entity::mob::Damage::OutOfWorld, 4.0);
+    }
+    let e = &mut w.entities.list[i];
     e.first_tick = false;
     leash::tick(w, i);
 }
