@@ -83,6 +83,19 @@ pub struct HeadPerm {
     b_hold: Option<(i64, i64)>,
     router_log: Vec<String>,
     holds: usize,
+    /// (day-1's RETRY-only head, farmopt 2026-11-11) this stand's REL only with a launch for it, or
+    /// by RETRY (an EXPIRE GO, the stand not emptied since its last launch, no train in flight);
+    /// the stand's raw pad pulses (the summon ticks with three unlocked panicking riders in the
+    /// stand), A forced held for a span of its GOs (C0, N), a lost REL at one slot, and the log
+    pub retry: bool,
+    pub a_pulses: Vec<i64>,
+    pub a_hold: Option<(i64, i64)>,
+    pub rel_lost: Option<i64>,
+    pub rel_log: Vec<String>,
+    /// each summon tick: t: riders in the stand's carts / panicking / unlocked and panicking
+    pub summon_log: Vec<String>,
+    /// D_arr's and Dh's levels at each change (t: A/a = D_arr on/off, H/h = Dh on/off)
+    pub det_log: Vec<String>,
 }
 
 impl HeadPerm {
@@ -112,7 +125,25 @@ impl HeadPerm {
             b_hold,
             router_log: Vec::new(),
             holds: 0,
+            retry: false,
+            a_pulses: Vec::new(),
+            a_hold: None,
+            rel_lost: None,
+            rel_log: Vec::new(),
+            summon_log: Vec::new(),
+            det_log: Vec::new(),
         }
+    }
+
+    /// A raw pad pulse of this stand (A) at `t`.
+    pub fn a_pulse(&mut self, t: i64) {
+        self.a_pulses.push(t);
+    }
+
+    /// Whether A pulsed within the 60 gt before `t` (this GO's own pulse): else this GO is
+    /// EXPIRE's (the timer restarted by every raw pulse runs out ~104 gt after the last one).
+    pub fn a_pulsed_before(&self, t: i64) -> bool {
+        self.a_pulses.iter().any(|p| *p <= t && t - *p < 60)
     }
 
     pub fn permit(&self) -> bool {
@@ -125,7 +156,8 @@ impl HeadPerm {
     /// permission is set, else it just skips its slot.
     pub fn go(&mut self, c: i64) -> Go {
         let (who, d) = if c.rem_euclid(2) == 0 {
-            ("A", if !self.gate || self.permit() { Go::Launch } else { Go::Hold })
+            let forced = self.a_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + 2 * n);
+            ("A", if forced || (self.gate && !self.permit()) { Go::Hold } else { Go::Launch })
         } else {
             ("B", if self.b_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + n) {
                 Go::Hold
@@ -183,6 +215,9 @@ impl HeadPerm {
     pub fn pre_tick(&mut self, w: &World, carts: &[(u32, Vec3, Vec3)], t: i64) {
         let (da, dh) = (self.read(w, carts, 0, self.d_arr, t), self.read(w, carts, 1, self.dh, t));
         let (da_rise, dh_rise) = (da && !self.prev[0], dh && !self.prev[1]);
+        if (da != self.prev[0] || dh != self.prev[1]) && self.det_log.len() < 120 {
+            self.det_log.push(format!("{t}:{}{}", if da { "A" } else { "a" }, if dh { "H" } else { "h" }));
+        }
         self.prev = [da, dh];
         let rel_on = self.rel_cell.is_some_and(|r| w.get(BlockPos::new(r[0], r[1], r[2])).to_string().contains("redstone_block"));
         if rel_on && !self.rel_prev {
@@ -264,13 +299,24 @@ impl HeadPerm {
         if self.router {
             out.push(format!("head-perm router (phase-locked): {} holds; GO by GO: {}", self.holds, self.router_log.join(" ")));
         }
+        if self.retry {
+            out.push(format!(
+                "head-perm stand REL (day-1's RETRY-only head: a REL only with a launch for A, or RETRY on an EXPIRE GO with A's stand not emptied since its last launch and no train in flight): A's raw pad pulses at t {}; A's GOs: {}",
+                if self.a_pulses.is_empty() { "-".to_string() } else { self.a_pulses.iter().take(16).map(|t| t.to_string()).collect::<Vec<_>>().join(",") },
+                if self.rel_log.is_empty() { "-".to_string() } else { self.rel_log.join("; ") }
+            ));
+            out.push(format!("head-perm summon ticks (t: riders in the stand's carts / panicking / unlocked and panicking): {}", self.summon_log.join(" ")));
+        }
         (out, problems)
     }
 
     pub fn detail(&self) -> Vec<String> {
-        self.tracks
+        let mut v: Vec<String> = self
+            .tracks
             .iter()
             .map(|tr| format!("head-perm track slot {}: launch +{}: ARR {} EMP(A) {} EMP(C) {}{}", tr.slot, tr.launch - tr.slot * 100, tr.arr.map_or("-".to_string(), |x| format!("+{}", x - tr.launch)), tr.emp_a.map_or("-".to_string(), |x| format!("+{}", x - tr.launch)), tr.emp_c.map_or("-".to_string(), |x| format!("+{}", x - tr.launch)), if tr.stopped { " (a cart stopped in the hold)" } else { "" }))
-            .collect()
+            .collect();
+        v.push(format!("head-perm detectors (t: A/a D_arr on/off, H/h Dh on/off): {}", self.det_log.join(" ")));
+        v
     }
 }
