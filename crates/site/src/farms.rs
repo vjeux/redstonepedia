@@ -1330,6 +1330,13 @@ fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, f
                 eprintln!("  {f}");
             }
         }
+        // (ironspec 2026-11-10: two farms compared on the game's rate with its spread) the game's
+        // own mean and 95% interval per window, and its iron a dead golem, on stderr
+        let deaths: u32 = g.builds.iter().map(|b| b.deaths).sum();
+        let iron: u32 = g.builds.iter().map(|b| b.iron()).sum();
+        for (name, m, sd, n, hw) in g.game_spread() {
+            eprintln!("{}: the game's {name}: mean {m:.2} golems/h (95% {:.2}-{:.2}), sd {sd:.2} over {n} runs; {:.2} iron per dead golem", path.display(), m - hw, m + hw, iron as f64 / deaths.max(1) as f64);
+        }
         metrics = game_findings(&metrics, &g, c.blocks() as u32);
     }
     let (lo, hi) = c.bounds();
@@ -1559,6 +1566,30 @@ mod tests {
         assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-station/carousel-linear-stand.drive.txt\"").count(), 1, "{html}");
         let plain = Member { nether: false, ..members[0].clone() };
         assert!(!member_viewer("../", &plain).contains("data-part"));
+    }
+
+    #[test]
+    fn the_kill_transport_and_access_pages_render_every_member() {
+        // (farmopt 2026-11-10: the kill catalog's rows refreshed by `farmopt part-members --parts
+        // kill --refresh`) each of the three catalogs reads, and its page lists every member with
+        // its numbers and the farms built with it
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for part in ["kill", "transport", "access"] {
+            let members = read_members(&repo, "iron", part);
+            assert!(!members.is_empty(), "{part}: no members");
+            let html = part_page(&Site::default(), "iron", part, &members, Scripts::default());
+            for m in &members {
+                assert!(html.contains(&esc(&m.name)), "{part}: {} not on its page", m.name);
+                if let Some((_, v)) = m.metrics.iter().find(|(k, _)| k == "blocks dug") {
+                    assert!(html.contains(v.as_str()), "{part}: {}'s dug cells {v} not on its page", m.stem());
+                }
+            }
+        }
+        // the refreshed pit kill: its lava's reach (5 layers of the 4 x 4 pit), the farms' parts.tsv's 77
+        let kill = read_members(&repo, "iron", "kill");
+        let m = kill.iter().find(|m| m.stem() == "lava-corner-12-drop").expect("lava-corner-12-drop");
+        assert_eq!(m.metrics.iter().find(|(k, _)| k == "blocks dug").map(|(_, v)| v.as_str()), Some("77"));
+        assert!(m.used_by.iter().any(|u| u.trim_end_matches(".txt") == "bed-plate-two-sleepers"), "{:?}", m.used_by);
     }
 
     #[test]
