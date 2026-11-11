@@ -289,20 +289,29 @@ fn turn2(s: &str) -> String {
 /// lines wired to the 18 queue controls head first, the tail windows (slots 1-2 ON at +88..+110,
 /// slot 0 +90..+116 from the departure) and the 21 control glass blocks replaced by stone.
 pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Option<&Path>, siding_ctl: Option<&Path>) -> Result<()> {
+    // (farmopt's wired pocket stand, `stand_wired=1` in the base's `queue:` line: the release
+    // staggered, see the release group below)
+    let base_meta = Design::load(loop_file)?.meta;
+    let stagger = base_meta.get("queue").is_some_and(|q| q.contains("stand_wired=1"));
     // the chain, stretched so the group line (x -5, z 15..25) and the advance line (z 27..) do not
     // touch; the advance taps 2 gt early for the feeder repeaters (+36/56/76 -> +38/58/78 at the
-    // controls); reset taps 8..44 keep the merge window to ~+58
-    let chain = [
+    // controls); reset taps 8..44 keep the merge window to ~+58. With the stagger a fourth group
+    // tap at +30 (global z 25) holds the release on to +44: the front slot's window must outlast
+    // the back cart's crossing of its slope (2 x stagger + 30 = 38 gt or more, farmopt 16:30)
+    let a1_run = if stagger { [R(1), D, R(2), S(G), D, S(A | RS)] } else { [R(1), D, R(2), D, D, S(A | RS)] };
+    let mut chain = vec![
         R(3), S(G | RS), // +8 (after the shortener C at z -5)
         R(4), S(G | RS), // +16
         R(4), S(G | RS), // +24
-        R(1), D, R(2), D, D, S(A | RS), // +30 (A1; zero skew pads every slot to row A's path)
+    ];
+    chain.extend(a1_run); // +30 (A1; zero skew pads every slot to row A's path)
+    chain.extend([
         R(4), S(RS), // +38
         R(4), S(RS), // +46
         R(1), S(RS), // +48 (10-gt copies: the merge window to + 58)
         R(1), S(A), // +50 (A2)
         R(4), R(4), R(2), S(A), // +70 (A3)
-    ];
+    ]);
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
     let at = |p: P3| -> P3 { [-2 - p[0], p[1] - 2, 10 - p[2]] };
@@ -316,14 +325,44 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     let golem = at(m.ports["input.golem"]);
     let a3 = at([5, 1, stones.iter().filter(|s| s.1 & A != 0).map(|s| s.0).min().unwrap_or(0)]);
     let yy = -1;
-    // ---- the release group (slots 15..17 at x -3, z 19/22/25): dust spurs east from the group line
-    for z in [19, 22, 25] {
-        b.on([-4, yy, z], DUST)?;
+    // ---- the release group (slots 15..17 at x -3, z 19/22/25): spurs east from the group line;
+    // with farmopt's wired pocket stand (`stand_wired=1`: it counts the train at D2 and needs its
+    // carts 11-13 gt apart, farmopt 16:15) the release is staggered: slot 16's spur a repeater 4
+    // gt, slot 15's 8 gt (both edges), the head's a dust; the group line then carries the release
+    // alone and the advance reaches the three controls from the east (a line along x -1, fed off
+    // the advance line at z 27 under the glass at (-3, -1, 27), each through a repeater of 8 gt:
+    // with the advance diode +8 gt for row A's zero skew)
+    if stagger {
+        b.on([-4, yy, 19], DUST)?;
+        b.on([-4, yy, 22], &rep("west", 2))?;
+        b.on([-4, yy, 25], &rep("west", 4))?;
+    } else {
+        for z in [19, 22, 25] {
+            b.on([-4, yy, z], DUST)?;
+        }
     }
     // (zero skew, ironfarm 10:16: every queue control's advance on one tick; the paths differ, so
     // each feeder's delay pads its path to the slowest (row A, release + 44): the group's advance
     // diode +6, row B's head feeders +6, slots 8-9 +4, the turn slot +2)
-    b.on([-5, yy, 26], &rep("south", 4))?; // the advance into the group net (a diode)
+    if stagger {
+        // the advance's own path to the group (see above): a repeater under the glass restores
+        // the pulses injected further down the advance line (2 gt: the feeders 6 gt, 8 in all); it
+        // climbs to y 0 along x -1 and each feeder powers the slot's rail (-3, 0, z) from the east
+        // (into the control block, a repeater would power the head's dust spur beside it: the
+        // advance back into the group line, through the stagger repeaters)
+        b.on([-4, yy - 1, 27], DUST)?;
+        b.on([-3, yy - 1, 27], &rep("west", 1))?;
+        b.on([-2, yy - 1, 27], DUST)?;
+        b.on([-1, yy, 27], DUST)?;
+        for z in (19..=26).rev() {
+            b.on([-1, yy + 1, z], DUST)?;
+        }
+        for z in [19, 22, 25] {
+            b.on([-2, yy + 1, z], &rep("east", 3))?;
+        }
+    } else {
+        b.on([-5, yy, 26], &rep("south", 4))?; // the advance into the group net (a diode)
+    }
     // ---- row B (slots 14..8 at x -3, z 28..46): the advance line on to z 46, feeders from the west
     for z in a3[2] + 1..=46 {
         if z == 41 {
@@ -611,6 +650,29 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             siding_cells.extend(more);
         }
     }
+    // ---- golem spawn cells (the brief, part 1: none off the pad wherever villagers ride who may
+    // have slept): every block added here with a solid top and air over it gets a glass cover
+    // (no golem spawns on glass, nor on a block under one; glass carries no power)
+    {
+        let base_cells: std::collections::BTreeSet<P3> = Design::load(loop_file)?.blocks.keys().copied().collect();
+        // (the siding's own blocks are farmopt's: its floor is where the napper walks to the bed, a
+        // glass cover there would block it; it is left as pasted)
+        let s0 = crate::sidinggen::SIDING_AT;
+        let in_siding = |p: &P3| (s0[0] - 7..=s0[0] + 6).contains(&p[0]) && (s0[1] - 4..=s0[1] + 4).contains(&p[1]) && (s0[2] - 3..=s0[2] + 9).contains(&p[2]);
+        let solid = |s: &str| ["minecraft:stone", "minecraft:redstone_block", "minecraft:dropper", "minecraft:observer", "minecraft:target", "minecraft:smooth_stone", "minecraft:waxed_copper_bulb", "minecraft:copper_bulb"].iter().any(|k| s == *k || s.starts_with(&format!("{k}[")));
+        let covers: Vec<P3> = d
+            .blocks
+            .iter()
+            .filter(|(p, s)| !base_cells.contains(*p) && !(siding.is_some() && in_siding(p)) && solid(s))
+            .map(|(p, _)| [p[0], p[1] + 1, p[2]])
+            .filter(|up| d.blocks.get(up).is_none_or(|s| s.ends_with(":air")))
+            .collect();
+        for c in &covers {
+            d.blocks.insert(*c, "minecraft:glass".into());
+        }
+        siding_cells.extend(covers.iter().copied());
+        println!("golem covers: {} glass blocks over the added blocks' open tops", covers.len());
+    }
     // (no ports: a mob-farm design runs by itself; the runner takes the cells as flags)
     let reset = b.ports.get("input.stand_reset").copied();
     // the probe file next to it: the controller's blocks and the 21 controls alone, the controls as
@@ -668,7 +730,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {
-            for (n, q) in [("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", [23, -6, 7]), ("row1", [23, -6, 1]), ("row_5", [23, -6, -5]), ("step_in", [20, -4, 12]), ("step_end", [28, -5, 6]), ("ring_top", [27, -5, 4]), ("p0", [22, -6, 9]), ("p1", [22, -6, 3]), ("p2", [22, -6, -3]), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
+            for (n, q) in [("r15", [-3, 0, 25]), ("r16", [-3, 0, 22]), ("r17", [-3, 0, 19]), ("q14", [-3, -1, 28]), ("q15", [-3, -1, 25]), ("q16", [-3, -1, 22]), ("q17", [-3, -1, 19]), ("q00", [0, 1, 25]), ("q01", [0, 0, 29]), ("q02", [0, -1, 33]), ("q03", [0, -1, 36]), ("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", [23, -6, 7]), ("row1", [23, -6, 1]), ("row_5", [23, -6, -5]), ("step_in", [20, -4, 12]), ("step_end", [28, -5, 6]), ("ring_top", [27, -5, 4]), ("p0", [22, -6, 9]), ("p1", [22, -6, 3]), ("p2", [22, -6, -3]), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
                 sp.ports.insert(format!("output.{n}"), q);
             }
         }

@@ -178,7 +178,8 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
         for x in -11..=-4 {
             lay(&mut b, [x, 1, z], &rail("east_west"), x >= -6)?;
         }
-        b.put([-2, 1, z], STONE)?;
+        // (the stop glass: a cart stop all the same, and no golem can spawn on it; ironfarm 16:30)
+        b.put([-2, 1, z], GLASS)?;
     }
     // the always-on redstone blocks (the climb's, the exit booster's) must touch nothing that
     // carries a signal besides their own rail
@@ -547,7 +548,10 @@ pub(crate) fn stand_rel(d: &mut Design) -> Result<Vec<P3>> {
     }
     let before: std::collections::BTreeSet<P3> = d.blocks.keys().copied().collect();
     let mut b = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
-    b.on([0, -1, 10], &rep("south", 1))?;
+    // (the tap 6 gt: REL at the cell golem +14..+54 in release-trace, about the bench's +13 in a
+    // run: the wired stand passes REL starts +10..+15 with the stagger, the bench's sweep)
+    let tap_delay: u8 = std::env::var("MCTAS_STAND_REL_TAP").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    b.on([0, -1, 10], &rep("south", tap_delay))?;
     b.put([0, -1, 9], STONE)?;
     b.on([1, -1, 9], &rep("west", 4))?;
     b.on([2, -1, 9], &rep("west", 1))?;
