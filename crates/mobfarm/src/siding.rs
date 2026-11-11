@@ -1017,6 +1017,10 @@ pub struct BenchReport {
     /// ticks a seated villager crossed the band with the string unpowered, the ticks it was on, a
     /// few examples.
     pub seat: Option<SeatLog>,
+    /// ironspec's hard line (2026-11-11, ironfarm's shared check `merge::MergeTally`): merged
+    /// carts, two carts the game's push pairs but never separates (under 0.01 apart horizontally).
+    pub merged: Vec<(u32, u32)>,
+    pub merged_first: Vec<String>,
 }
 
 /// The napper-aboard sensor's measurement ([`BenchReport::seat`]).
@@ -1224,6 +1228,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         redsim::entity::Aabb { min_x: seat_cell.x as f64, min_y: 2.0 + 1.0 / 16.0, min_z: seat_cell.z as f64, max_x: seat_cell.x as f64 + 1.0, max_y: 2.0 + 2.5 / 16.0, max_z: seat_cell.z as f64 + 1.0 }
     };
     let mut seat_prev = false;
+    // (ironspec's merged-carts hard line: ironfarm's shared tally, fed every tick)
+    let mut merges = crate::merge::MergeTally::default();
     let mut seat_seated_last: i64 = i64::MIN;
     if plate || matches!(run.world.get(seat_cell), Block::Tripwire { .. }) {
         rep.seat = Some(SeatLog::default());
@@ -1253,6 +1259,14 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 next_visit = Some(now + 1);
             } else if !in_window {
                 next_visit = None;
+            } else if {
+                // (the bench never drops a cart onto another: a cart still on the launcher or the
+                // approach start holds the next arrival back, as the loop's own track would; else
+                // the bench itself makes merged carts)
+                let at = if bo.launch { LAUNCH_X } else { APPROACH_X } + dx as f64;
+                run.world.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (e.pos.x - at).abs() < 1.5 && (e.pos.z - (0.5 + zf)).abs() < 1.0 && (e.pos.y - 0.0625).abs() < 1.0)
+            } {
+                next_visit = Some(now + 20);
             } else if active.is_none_or(|a| rep.visits[a].force_dropped) && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
                 // (the fault injection: the dropped visit's cart left inside, the next sent as the
                 // loop would send it)
@@ -1490,6 +1504,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         run.tick();
         let t = run.world.time;
+        merges.observe(&run.world, &format!("t0+{}", t - t0));
         if let Some(sl) = rep.seat.as_mut() {
             let w = &run.world;
             let on = w.get(seat_cell).to_string().contains("powered=true");
@@ -1857,6 +1872,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     rep.errors = run.world.errors.iter().take(6).cloned().collect();
     rep.built_diff = built_diff;
     rep.build = built.as_ref().map(|b| (b.steps, b.cells, t0 - b.start));
+    rep.merged = merges.pairs.clone();
+    rep.merged_first = merges.first.clone();
     if bo.drive {
         drive.expect_end("golems 0".into());
         let flag = match bo.placement {
