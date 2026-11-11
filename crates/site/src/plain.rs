@@ -1002,6 +1002,27 @@ pub fn mob_farm_facts(c: &Circuit) -> Vec<String> {
     out
 }
 
+/// A design's chunk alignment as its first build step (ironspec 2026-11-10: `chunk: <x> <y> <z>
+/// <X0>-<X1> <Z0>-<Z1>`, `mcview::design::ChunkAlign`, stated for the download's facing only):
+/// where its reference block goes, read on the game's debug screen (its key's name is a letter
+/// and a digit, which the page guard reads as a design's code: `explain::internal_tokens`). None:
+/// no alignment.
+pub fn chunk_step(design: &str) -> Option<String> {
+    let d = mcview::Design::parse(design).ok()?;
+    let c = d.chunk?;
+    let block = d.blocks.get(&c.cell)?.split(['[', '{']).next()?.trim_start_matches("minecraft:").replace('_', " ");
+    let [x, y, z] = c.cell;
+    let within = |r: [i32; 2]| if r[0] == r[1] { format!("{}", r[0]) } else { format!("between {} and {}", r[0], r[1]) };
+    // (ironspec 2026-11-10: the debug screen's Chunk line gives the block's position inside its
+    // chunk, 0 to 15, the right number at a negative X too, where "X mod 16" misleads; the
+    // fallback in brackets for a client whose screen says otherwise)
+    Some(format!(
+        "Place the {block} at ({x}, {y}, {z}) first, facing as the download does: on the debug screen, the Chunk line's first and third numbers (the block's position inside its chunk) must be {} and {} (counted from the chunk's west and north edges, 0 to 15: for example X = −13 gives 3), so that the part that must not cross a chunk border sits inside one chunk.",
+        within(c.x),
+        within(c.z)
+    ))
+}
+
 /// What to do while building it, for the "Build it" steps ([`needs`] ends with them): the build
 /// facts the warning box used to hold (vjeux 2026-11-08 10:10: a mechanism is not a warning).
 fn build_steps(b: &Build) -> Vec<String> {
@@ -1131,6 +1152,8 @@ fn loading_recipe(design: &str) -> Option<String> {
 
 pub fn needs(b: &Build, design: &str) -> Vec<String> {
     let mut v = Vec::new();
+    // a design with a chunk alignment: where it goes among the chunks, the first step
+    v.extend(chunk_step(design));
     // the 0-9 display: its input chest and its face's 13 lamps are not in the download (it has the
     // decoder's blocks only), and its limits, plainly (the reviewer via the coordinator
     // 2026-10-22: one digit only; copies stand 13 blocks apart)
@@ -1608,6 +1631,15 @@ mod tests {
 
     #[test]
     fn needs_say_what_the_build_needs() {
+        // ironspec 2026-11-10: a design's chunk alignment is the first build step (its
+        // reference block, the download's facing, the debug screen's residues), in the player's
+        // words
+        let aligned = "name: c\nchunk: 2 0 1 3-9 0-4\npalette:\n  S stone\n  R redstone_block\nlayer 0:\n  SSSSS\n  SSRSS\n";
+        let v = needs(&Build::default(), aligned);
+        assert_eq!(v[0], "Place the redstone block at (2, 0, 1) first, facing as the download does: on the debug screen, the Chunk line's first and third numbers (the block's position inside its chunk) must be between 3 and 9 and between 0 and 4 (counted from the chunk's west and north edges, 0 to 15: for example X = −13 gives 3), so that the part that must not cross a chunk border sits inside one chunk.");
+        assert!(crate::explain::page_faults("", &v[0]).is_empty(), "{:?}", crate::explain::page_faults("", &v[0]));
+        assert!(chunk_step(&aligned.replace("3-9", "6-6")).unwrap().contains("must be 6 and between 0 and 4"), "one residue");
+        assert!(needs(&Build::default(), &aligned.replace("chunk: 2 0 1 3-9 0-4\n", "")).is_empty());
         // a TNT duper's safe height, and the items its containers start with
         let b = Build { circuit: Some(circuit("tnt-duper", &[("safe drop", "8 blocks")])), ..Default::default() };
         let design = "nbt: 2 0 3 {Items:[{Slot:0b,id:\"minecraft:cobblestone\",count:64},{Slot:1b,id:\"minecraft:cobblestone\",count:1047}]}";
