@@ -352,8 +352,15 @@ fn place(w: &mut World, c: Crossing, radius: i32, ticket: bool) {
         e.final_movements.clear();
         let yaw = e.y_rot;
         if let EntityKind::Mob(m) = &mut e.kind {
-            if m.ai.is_some() {
-                m.ai = Some(Box::new(crate::entity::mob::ai::MobAi::new(m.ty, yaw)));
+            if let Some(old) = m.ai.take() {
+                let mut fresh = crate::entity::mob::ai::MobAi::new(m.ty, yaw);
+                // NeutralMob's saved anger (readPersistentAngerSaveData): its end time and target,
+                // and the target it resolves in any dimension (setTarget: a Nether copy of a golem
+                // angry at an overworld zombie keeps that zombie, `target::Who::Foreign`)
+                fresh.anger_end = old.anger_end;
+                fresh.anger_target = old.anger_target;
+                fresh.target = old.anger_target;
+                m.ai = Some(Box::new(fresh));
             }
             m.no_action_time = 0;
             m.damage_cooldown = 0;
@@ -416,6 +423,21 @@ fn place(w: &mut World, c: Crossing, radius: i32, ticket: bool) {
 /// in the overworld (the closest overworld portal within 128 of their position times 8).
 pub fn tick_nether(w: &mut World) {
     let Some(mut n) = w.nether.take() else { return };
+    // (tickexact 2026-11-10) the overworld entities the Nether's mobs target, as the overworld's
+    // tick left them (the Nether ticks after it)
+    let mut wanted: Vec<u32> = Vec::new();
+    for e in &n.entities.list {
+        if let EntityKind::Mob(m) = &e.kind
+            && let Some(a) = m.ai.as_deref()
+        {
+            for id in [a.target, a.anger_target].into_iter().flatten() {
+                if !wanted.contains(&id) && crate::entity::index_of(&n, id).is_none() {
+                    wanted.push(id);
+                }
+            }
+        }
+    }
+    n.foreign = wanted.into_iter().filter_map(|id| crate::entity::mob::ai::target::foreign_of(w, id)).collect();
     let now = w.time;
     // (measured, `portal-probe --ticket`: an item beside the Nether portal kept ageing through 305
     // ticks after the crossing, then its chunk unloaded: the ticket's 300 gt, then the unload's

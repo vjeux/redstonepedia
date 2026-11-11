@@ -47,8 +47,8 @@ spider-effects.rec	bc7bcd4b52713a4f		26.3	2026-11-10T23:51Z on 4e39780ede	mctas 
 spider-golem.rec	68e63d0d953653ad		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-golem --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 spider-walls.rec	460e567ed52121ef		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-walls --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 squids.rec	63dbb40561554df8		26.3	2026-11-09T02:42Z on 4381c606f	mctas mobai record squids --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
-station-built.rec	14f2080b7f857b59		26.3	2026-11-11T01:34Z on d3c86771a7	mctas mobai record station-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
-station-raw.rec	85293825e5fd2b2c		26.3	2026-11-11T01:34Z on d3c86771a7	mctas mobai record station-raw --seed 1 --ticks 400 --dir designs/redsim/recorded/mobai
+station-built.rec	64bd4a393012cfde		26.3	2026-11-11T02:01Z on d2e9bbb3d2	mctas mobai record station-built --seed 1 --ticks 1150 --dir designs/redsim/recorded/mobai
+station-raw.rec	52917dfb724eeb7f		26.3	2026-11-11T02:00Z on d2e9bbb3d2	mctas mobai record station-raw --seed 1 --ticks 2400 --dir designs/redsim/recorded/mobai
 sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mobai record sulfur-cubes --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 villager-beds.rec	1f4af3add61d842b		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record villager-beds --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 witch.rec	a4648595d1a91707		26.3	2026-11-09T03:26Z on 06c4a9d60	mctas mobai record witch --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai

@@ -297,6 +297,10 @@ pub struct World {
     /// (tickexact 2026-11-10) When the PORTAL tickets' simulation began (the game time a ticket
     /// was made while none held: a refresh keeps it; `None` with no ticket).
     pub portal_since: Option<i64>,
+    /// (tickexact 2026-11-10) The entities of the other dimension this world's mobs target, as
+    /// they are after their own world's tick (`target::Who::Foreign`; the Nether's refreshed from
+    /// the overworld before each of its ticks).
+    pub foreign: Vec<crate::entity::mob::ai::target::Foreign>,
     /// Entities through a portal out of this Nether this tick, for the overworld to place.
     pub outgoing: Vec<crate::entity::portal::Crossing>,
     /// The crossings placed in this world or sent from it to the Nether (game time, the entity's
@@ -405,6 +409,7 @@ impl World {
             ultrawarm: false,
             portal_tickets: Vec::new(),
             portal_since: None,
+            foreign: Vec::new(),
             outgoing: Vec::new(),
             crossings: Vec::new(),
             explosion_rolls: Default::default(),
@@ -421,6 +426,16 @@ impl World {
             outer: Default::default(),
             ticking_sections: None,
         }
+    }
+
+    /// (tickexact 2026-11-10) `Level.getMinY()` / `getMaxY()` of this world's dimension type: the
+    /// overworld's -64..319, the Nether's (redsim's ultrawarm world) 0..255.
+    pub fn level_min_y(&self) -> i32 {
+        if self.ultrawarm { 0 } else { -64 }
+    }
+
+    pub fn level_max_y(&self) -> i32 {
+        if self.ultrawarm { 255 } else { 319 }
     }
 
     /// Mirror the bridge sandbox's level random: seeded `seed` (`level.getRandom().setSeed`, at

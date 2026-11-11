@@ -163,7 +163,7 @@ impl NearestAttackableTarget {
 pub fn non_tame_can_continue(w: &mut World, i: usize, g: &mut NearestAttackableTarget) -> bool {
     let Some(t) = g.found.and_then(|id| target::who(w, id)) else { return false };
     let selected = match t {
-        Who::Entity(_) => target::type_of(w, t).is_some_and(|ty| selects(g.target_type, ty)),
+        Who::Entity(_) | Who::Foreign(_) => target::type_of(w, t).is_some_and(|ty| selects(g.target_type, ty)),
         Who::Player(_) => false,
     };
     let d = follow_range(w, i);

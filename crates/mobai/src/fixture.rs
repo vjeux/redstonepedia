@@ -292,11 +292,11 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
 ///   stand). The bridge's Nether sandbox (`nether_create`: its own level under the Nether's key,
 ///   its chunks loaded but not simulated until a crossing's PORTAL ticket) and redsim's Nether
 ///   part ([`scene_nether`]) take the design's `nether` lines (built in order: the drive's
-///   `nether-set` / `nether-nbt` acts); each frame carries the Nether's. Exact to t401 placed as
-///   written (four golems through the portal, their Nether ticks) and through the build to t9401
-///   built in order; then a golem crossing while angry at a zombie post keeps it as its target
-///   from the Nether (NeutralMob's saved anger target, resolved in any dimension), which redsim's
-///   copy does not.
+///   `nether-set` / `nether-nbt` acts); each frame carries the Nether's. Exact to t2470 placed as
+///   written (24 golems through the portal, their Nether ticks, those angry at a zombie post
+///   chasing it from the Nether: `target::Who::Foreign`) and through the build to t9704 built in
+///   order; then a zombie post's MoveThroughVillageGoal finds the village close in the game after
+///   the bed's release (the POI manager's stored level 6, mob-AI's) and not in redsim.
 const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),

@@ -62,6 +62,14 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
             }
             return false;
         }
+        // (an entity of another level is never in reach: never in line of sight)
+        Who::Foreign(_) => {
+            let why = "a mob hitting an entity of another dimension is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+            return false;
+        }
     };
     if !matches!(w.entities.list[j].kind, crate::entity::EntityKind::Mob(_)) {
         return false;

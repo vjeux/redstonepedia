@@ -133,9 +133,9 @@ fn toward_direction(w: &World, i: usize, d: BlockPos) -> BlockPos {
     BlockPos::new(mth::floor(d.x as f64 + e.pos.x), mth::floor(d.y as f64 + e.pos.y), mth::floor(d.z as f64 + e.pos.z))
 }
 
-/// `Level.isOutsideBuildHeight(y)`.
-fn outside_build_height(y: i32) -> bool {
-    y < super::super::path::walk::MIN_Y || y > super::super::path::navigation::MAX_Y
+/// `Level.isOutsideBuildHeight(y)` (the level's own height: the Nether's 0..255).
+fn outside_build_height(w: &World, y: i32) -> bool {
+    y < w.level_min_y() || y > w.level_max_y()
 }
 
 /// `PathNavigation.isStableDestination(pos)`: the block below renders solid.
@@ -297,7 +297,7 @@ pub fn land_random_pos_by(w: &mut World, i: usize, h: i32, v: i32, weight: impl 
         |w| {
             let d = random_direction(w, i, h, v);
             let p = toward_direction(w, i, d);
-            if outside_build_height(p.y) || !stable_for(w, i, p) {
+            if outside_build_height(w, p.y) || !stable_for(w, i, p) {
                 return None;
             }
             move_up_out_of_solid(w, i, p)
@@ -311,7 +311,7 @@ pub fn default_random_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
         let p = toward_direction(w, i, d);
-        (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+        (!outside_build_height(w, p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
@@ -320,7 +320,7 @@ pub fn land_random_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> 
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
         let p = toward_direction(w, i, d);
-        if outside_build_height(p.y) || !stable_for(w, i, p) {
+        if outside_build_height(w, p.y) || !stable_for(w, i, p) {
             return None;
         }
         move_up_out_of_solid(w, i, p)
@@ -363,7 +363,7 @@ pub fn land_pos_in_direction(w: &mut World, i: usize, min_h: f64, max_h: f64, v:
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, min_h, max_h, v, 0, dir.x, dir.z, (std::f64::consts::PI / 2.0) as f32 as f64)?;
         let p = toward_direction(w, i, d);
-        if outside_build_height(p.y) || !stable_for(w, i, p) {
+        if outside_build_height(w, p.y) || !stable_for(w, i, p) {
             return None;
         }
         move_up_out_of_solid(w, i, p)
@@ -376,7 +376,7 @@ pub fn default_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> {
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
         let p = toward_direction(w, i, d);
-        (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+        (!outside_build_height(w, p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
@@ -389,7 +389,7 @@ pub fn default_pos_away(w: &mut World, i: usize, h: i32, v: i32, avoid: Vec3) ->
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, 0.0, h as f64, v, 0, dir.x, dir.z, (std::f64::consts::PI / 2.0) as f32 as f64)?;
         let p = toward_direction(w, i, d);
-        (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+        (!outside_build_height(w, p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
@@ -400,7 +400,7 @@ pub fn default_pos_towards(w: &mut World, i: usize, h: i32, v: i32, towards: Vec
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, 0.0, h as f64, v, 0, dir.x, dir.z, max_rad)?;
         let p = toward_direction(w, i, d);
-        (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+        (!outside_build_height(w, p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
@@ -409,7 +409,7 @@ pub fn move_up_out_of_solid(w: &World, i: usize, p: BlockPos) -> Option<BlockPos
     let mut q = p;
     if crate::behavior::is_solid(&w.get(q)) {
         q = q.above();
-        while q.y <= super::super::path::navigation::MAX_Y && crate::behavior::is_solid(&w.get(q)) {
+        while q.y <= w.level_max_y() && crate::behavior::is_solid(&w.get(q)) {
             q = q.above();
         }
     }

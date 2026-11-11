@@ -144,7 +144,8 @@ pub fn ocelot_tick(w: &mut World, i: usize, g: &mut OcelotAttack) {
     if !(dist > reach) && g.attack_time <= 0 {
         g.attack_time = 20;
         match t {
-            Who::Entity(_) => {
+            // (an entity of another dimension: do_hurt_target names it as not modeled)
+            Who::Entity(_) | Who::Foreign(_) => {
                 super::super::attack::do_hurt_target(w, i, t);
             }
             Who::Player(_) => {
