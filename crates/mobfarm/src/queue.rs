@@ -427,11 +427,20 @@ pub struct LoopOpts {
     /// The ledge's landing: both landing flats boosters (the landed cart clears the landing point
     /// faster).
     pub landing_boost2: bool,
+    /// The escapement's G0: a fence gate at B's entry, shut through B's pulse.
+    pub esc_g0: bool,
+    /// Admission control: the ledge on the return run, Q queue slopes, G0, A (booster), A'
+    /// (latch reset), B, X, P/G_P, R, slot 0.
+    pub esc_adm: bool,
+    /// Admission control's entry: the 1-block ledge on the return run (else a plain entry).
+    pub adm_ledge: bool,
+    /// Admission control: a mid-queue gate G1 over the K-th queue slope (0: none).
+    pub adm_g1: u32,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0 }
     }
 }
 
@@ -478,6 +487,12 @@ pub struct LoopLayout {
     /// The flat escapement's (`esc_flat`) G_B: the fence gate at the flat B's end, opened by the
     /// bench in B's window.
     pub esc_gb: Option<BlockPos>,
+    /// The escapement's G0 (`esc_g0`): a fence gate at B's entry, shut through B's pulse.
+    pub esc_g0: Option<BlockPos>,
+    /// Admission control's A' cell (`esc_adm`): a cart crossing it resets the latch (G0 shuts).
+    pub esc_adm_a1: Option<[i32; 3]>,
+    /// Admission control's mid-queue gate G1 (`adm_g1`), pulsed with G0.
+    pub esc_g1: Option<BlockPos>,
     /// The flat escapement's B rail cell.
     pub esc_flat_b: Option<[i32; 3]>,
     pub queue_cells: Vec<[i32; 3]>,
@@ -490,6 +505,11 @@ pub struct LoopLayout {
 /// The escapement tail's level (`tail_esc`): the return run's and the ledge's y (the queue of Q
 /// slopes, B, X, P and R stepping down to slot 0 at y 0; 2 more with `ledge_slope`'s landing).
 pub fn esc_ye(o: &LoopOpts) -> i32 {
+    if o.esc_adm {
+        // (slot 0 at y 0, R 1, P 2, G0's level 3, the Q queue slopes up to the curve at 3 + Q;
+        // with the ledge the return run (the pre-ledge) one higher)
+        return o.tail_esc as i32 + 3 + if o.adm_ledge { 1 } else { 0 };
+    }
     if o.esc_flat {
         // (slot 0 at y 0, R 1, P 2, Y 3, X 4, the flat B 5, then the Q queue slopes)
         return o.tail_esc as i32 + 5;
@@ -661,7 +681,7 @@ fn finish_layout(mut path: Vec<([i32; 3], Cell)>, slot_cells: Vec<[i32; 3]>, sta
             }
         }
     }
-    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None, fifo: Vec::new(), esc: None, esc_p: None, esc_door: None, esc_gb: None, esc_flat_b: None, queue_cells: Vec::new() }
+    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None, fifo: Vec::new(), esc: None, esc_p: None, esc_door: None, esc_gb: None, esc_g0: None, esc_adm_a1: None, esc_g1: None, esc_flat_b: None, queue_cells: Vec::new() }
 }
 
 /// The bridge loop: the stand along +x at z 0 (S3's slope at x 0, catch slots) bridging the two
@@ -683,7 +703,8 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     // to the queue's level; `tail_fifo` N: at y 1 + N, the FIFO's pockets each a block lower;
     // `tail_esc` Q: at y Q + 6, the ledge, the gravity queue and the escapement stepping down)
     let ye = if o.tail_esc > 0 { esc_ye(o) } else if o.tail_fifo > 0 { 2 + o.tail_fifo as i32 } else if o.tail_desc { 4 } else { 1 };
-    // row A from its entry curve at (0, ye, zr): north (+z)
+    // row A from its entry curve at (0, ye, zr): north (+z); with admission control (`esc_adm`)
+    // the ledge sits on the return run and the curve is the landing's level, one lower
     path.push(([0, ye, zr], Cell::Plain));
     let mut z = zr + 1;
     let mut fifo: Vec<(BlockPos, [i32; 3])> = Vec::new();
@@ -691,9 +712,61 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     let mut esc_p: Option<BlockPos> = None;
     let mut esc_door: Option<BlockPos> = None;
     let mut esc_gb: Option<BlockPos> = None;
+    let mut esc_g0: Option<BlockPos> = None;
     let mut esc_flat_b: Option<[i32; 3]> = None;
+    let mut esc_adm_a1: Option<[i32; 3]> = None;
+    let mut esc_g1: Option<BlockPos> = None;
     let mut queue_cells: Vec<[i32; 3]> = Vec::new();
-    if o.tail_esc > 0 && o.esc_flat {
+    if o.tail_esc > 0 && o.esc_adm {
+        // admission control (ironspec's approval 23:10), as measured at 23:34: Q plain slopes
+        // north from the curve (the gravity queue: storage only), G0 (a fence gate over P's upper
+        // end: the queue's front rests against it), P (a braked powered slope, pulsed with its gate
+        // G_P), R (a plain slope under G_P), slot 0. Each advance: G_P and P (P's cart into slot
+        // 0); then G0 opens (the latch's set) and shuts once a cart is on P (the latch's reset, a
+        // tripwire over P) or after its window. The admitted cart rolls onto P from rest and stops
+        // there (the brake); its follower, in contact behind it, stays off P; once G0 is shut the
+        // queue's impacts stop at G0 and can push P's cart at most 0.675 into P, the follower's
+        // centre held 0.115 short of P. A gate that shuts on a cart already inside its box lets that
+        // cart move on out, so G0 needs no speed difference to split a pressed pair. The tripwire
+        // keeps G0 shut while P holds a cart (an extra set does nothing)
+        let q = o.tail_esc as i32;
+        // (`adm_ledge`: escL3's entry inside the tail, the pre-ledge flat at the return's level, a
+        // gap, the landing (a booster flat, then a plain flat) a level lower; else the queue's
+        // slopes start at the curve)
+        let top = if o.adm_ledge {
+            path.push(([0, ye, z], Cell::Plain));
+            path.push(([0, ye - 1, z + 2], Cell::Boost));
+            path.push(([0, ye - 1, z + 3], Cell::Plain));
+            z += 4;
+            ye - 1
+        } else {
+            ye
+        };
+        for k in 0..q {
+            // (`adm_g1` K: a second gate G1 over the K-th slope's upper end splits the queue in
+            // two stages; G1 pulses with G0, so a cart enters the lower stage from rest)
+            if o.adm_g1 > 0 && k == o.adm_g1 as i32 {
+                esc_g1 = Some(BlockPos::new(0, top - k, z));
+            }
+            path.push(([0, top - 1 - k, z], Cell::Plain));
+            queue_cells.push([0, top - 1 - k, z]);
+            z += 1;
+        }
+        let lg = top - q; // G0's level: the last queue slope's lower end
+        esc_g0 = Some(BlockPos::new(0, lg, z));
+        let pz = z;
+        path.push(([0, lg - 1, pz], Cell::Linked));
+        queue_cells.push([0, lg - 1, pz]);
+        esc_adm_a1 = Some([0, lg - 1, pz]);
+        fifo.push((BlockPos::new(0, lg - 1, pz + 1), [0, lg - 1, pz]));
+        esc_p = Some(BlockPos::new(0, lg - 2, pz));
+        path.push(([0, lg - 2, pz + 1], Cell::Plain));
+        path.push(([0, lg - 3, pz + 2], Cell::Slot));
+        path.push(([0, lg - 3, pz + 3], Cell::Plain));
+        path.push(([0, lg - 2, pz + 4], Cell::Plain));
+        slot_cells.push([0, lg - 3, pz + 2]);
+        z = pz + 5;
+    } else if o.tail_esc > 0 && o.esc_flat {
         // the flat escapement (`esc_flat`): 7 − Q flats, Q plain slopes down (the gravity queue),
         // B a FLAT plain rail with a fence gate G_B at its end, X an always-on booster slope under
         // G_B, Y a plain slope (X's power kept off P), P a braked powered slope against its gate
@@ -801,6 +874,12 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         path.push(([0, by, z], Cell::Linked));
         queue_cells.push([0, by, z]);
         esc = Some(BlockPos::new(0, by - 1, z));
+        if o.esc_g0 {
+            // (G0: a fence gate at B's entry, over B's upper end, shut through B's pulse: a cart
+            // arriving fast down the queue while B is powered waits against it instead of being
+            // launched with B's cart)
+            esc_g0 = Some(BlockPos::new(0, by + 1, z));
+        }
         if o.esc_door {
             esc_door = Some(BlockPos::new(0, by, z + 1));
         }
@@ -1050,7 +1129,7 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // return run's level: from the climb's top to B the track never rises, so a cart bounced
         // backward by a contact anywhere ahead climbs a slope and comes back instead of rolling
         // back down the boosted climb)
-        let lip = if o.tail_esc > 0 { 2 } else { 0 };
+        let lip = if o.esc_adm { if o.adm_ledge { 2 } else { 1 } } else if o.tail_esc > 0 { 2 } else { 0 };
         path.push(([xd, -3, 0], Cell::Plain));
         let mut z = 1;
         for y in -3..top + lip {
@@ -1088,6 +1167,9 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         lay.esc_p = esc_p;
         lay.esc_door = esc_door;
         lay.esc_gb = esc_gb;
+        lay.esc_g0 = esc_g0;
+        lay.esc_adm_a1 = esc_adm_a1;
+        lay.esc_g1 = esc_g1;
         lay.esc_flat_b = esc_flat_b;
         lay.queue_cells = queue_cells;
         return lay;
@@ -1444,7 +1526,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     // the escapement tail: the front cart on P against the gate (above), the next braked early on
     // B (its centre 0.2 into the cell), the rest up the queue's slopes 0.79 apart (the packing
     // measured on the bench), where the queue's gravity would leave them
-    if let Some(e) = lay.esc {
+    if let Some(e) = lay.esc.filter(|_| !o.esc_adm) {
         let ez = e.z as f64;
         let ey = (e.y + 1) as f64;
         for k in 0..fifo_init.saturating_sub(1) {
@@ -1452,6 +1534,19 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
             let cell_z = zz.floor();
             let ys = ey + (ez - cell_z);
             b.entity("minecart", [0.5, ys + (1.0 - (zz - cell_z)) + 0.0625, zz], stand_rider);
+        }
+    }
+    // (admission control: the queue's front against G0 (0.885 along the last queue slope) and
+    // the rest up the slopes 0.79 apart; P's cart is the fifo's; G0 shut)
+    if let (true, Some(g0)) = (o.esc_adm, lay.esc_g0) {
+        // (the last queue slope: (0, g0.y, g0.z − 1), from g0.y + 1 at its upper end to g0.y)
+        let (yq, zq) = (g0.y as f64, (g0.z - 1) as f64);
+        for k in 0..fifo_init.saturating_sub(1) {
+            let zz = zq + 0.885 - 0.79 * k as f64;
+            let cell_z = zz.floor();
+            let s = zz - cell_z;
+            let yc = yq + (zq - cell_z);
+            b.entity("minecart", [0.5, yc + (1.0 - s) + 0.0625, zz], stand_rider);
         }
     }
     // (the flat escapement: B's cart against G_B at 0.885 on the flat, its followers up the
@@ -1467,6 +1562,14 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
             b.entity("minecart", [0.5, yb + (zb - zz) + 0.0625, zz], stand_rider);
         }
         b.set(gb.x, gb.y, gb.z, "oak_fence_gate[facing=south,in_wall=false,open=false,powered=false]");
+    }
+    // (G0, open at the start: B's pulse is not on; with admission control shut: it opens to admit)
+    if let Some(g0) = lay.esc_g0 {
+        b.set(g0.x, g0.y, g0.z, &format!("oak_fence_gate[facing=south,in_wall=false,open={},powered=false]", !o.esc_adm));
+    }
+    // (admission control's mid-queue gate G1, shut)
+    if let Some(g1) = lay.esc_g1 {
+        b.set(g1.x, g1.y, g1.z, "oak_fence_gate[facing=south,in_wall=false,open=false,powered=false]");
     }
     // the stop stand's gates: the stand's stop shut; the pockets' last gate shut, the other two
     // open (gate 2 lets two carts by, gate 1 one)
@@ -1521,7 +1624,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" })));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() })));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -1565,6 +1668,10 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "esc_door" => o.esc_door = v == "1",
             "esc_flat" => o.esc_flat = v == "1",
             "landing_boost2" => o.landing_boost2 = v == "1",
+            "esc_g0" => o.esc_g0 = v == "1",
+            "esc_adm" => o.esc_adm = v == "1",
+            "adm_ledge" => o.adm_ledge = v == "1",
+            "adm_g1" => o.adm_g1 = v.parse().map_err(|_| anyhow::anyhow!("bad adm_g1 {v}"))?,
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -1740,6 +1847,19 @@ pub struct LoopTiming {
     pub verbose_tail: bool,
     /// Every cart in the tail's cells each tick over cycles C0..=C1 (`--tail-trace C0,C1`).
     pub tail_trace: Option<(i64, i64)>,
+    /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
+    pub esc_g0: (i64, i64),
+    /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
+    /// A' or after MAX gt.
+    pub esc_adm: (i64, i64),
+    /// Admission control's latch: G0 also shuts once a cart is on P (a sensor), and stays shut
+    /// while P holds one; without it G0 is a plain timed pulse.
+    pub adm_latch: bool,
+    /// Admission control: P always powered (a booster held shut by G_P alone), from the first
+    /// gate opening on.
+    pub p_always: bool,
+    /// Admission control: G1's window (0: G0's MAX).
+    pub adm_g1_w: i64,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -1817,7 +1937,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0 }
     }
 }
 
@@ -2672,6 +2792,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut late_total: i64 = 0;
     let mut out = Vec::new();
     let mut problems = Vec::new();
+    // (merged carts: the shared check, `crate::merge`, every tick; a hard fail)
+    let mut merges = crate::merge::MergeTally::default();
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
     // (slots from a departure to the slot whose advance must find that batch in the queue's
     // tail: the line loop's long return takes two)
@@ -3298,6 +3420,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             }
         }
         run.tick();
+        merges.observe(&run.world, &format!("t {t}"));
         stop_brake(&mut run.world, &mut stop_arm);
         hold_day(&mut run.world);
         // (`slept`: every rider's LAST_SLEPT now, at the start and each night from day time
@@ -4116,6 +4239,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(format!("carts and riders: {} and {} at the start, {c_end} and {r_end} at the end ({seated} seated)", carts.len(), riders.len()));
         if c_end < carts.len() || r_end < riders.len() {
             problems.push(format!("the count: {c_end} of {} carts and {r_end} of {} riders at the end", carts.len(), riders.len()));
+        }
+        out.push(merges.line());
+        if !merges.pairs.is_empty() {
+            problems.push(format!("merged carts: {} pairs ({})", merges.pairs.len(), merges.first.join("; ")));
         }
     }
     if verbose {

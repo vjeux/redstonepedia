@@ -515,6 +515,20 @@ pub enum MobfarmCmd {
         /// The ledge's landing: both landing flats boosters.
         #[arg(long)]
         landing_boost2: bool,
+        /// The escapement's G0: a fence gate at B's entry, shut through B's pulse.
+        #[arg(long)]
+        esc_g0: bool,
+        /// Admission control (with --tail-esc Q, Q queue slopes): the gravity queue, G0 (latched:
+        /// opened once per advance, shut when a cart is on P), P/G_P, R.
+        #[arg(long)]
+        esc_adm: bool,
+        /// Admission control's entry: escL3's ledge inside the tail (else the queue's slopes start
+        /// at the curve).
+        #[arg(long)]
+        adm_ledge: bool,
+        /// Admission control: a mid-queue gate G1 over the K-th queue slope (0: none).
+        #[arg(long, default_value_t = 0)]
+        adm_g1: u32,
         #[arg(long)]
         out: PathBuf,
     },
@@ -640,6 +654,23 @@ pub enum MobfarmCmd {
         /// B: powered K gt after the gate opens, for W gt.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         esc_b: Vec<i64>,
+        /// G0 (a design with --esc-g0): shut from LEAD gt before B's pulse to LAG gt after it.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        esc_g0: Vec<i64>,
+        /// Admission control (a design with --esc-adm): G0 opened DELAY gt after the gate (G_P)
+        /// opens, shut by a cart crossing A' or after MAX gt.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        esc_adm: Vec<i64>,
+        /// Admission control's latch: G0 also shuts once a cart is on P and stays shut while P
+        /// holds one (else G0 is a plain timed pulse).
+        #[arg(long)]
+        adm_latch: bool,
+        /// Admission control: P always powered (held by G_P alone) from the first gate on.
+        #[arg(long)]
+        p_always: bool,
+        /// Admission control: G1's window in gt (default: G0's).
+        #[arg(long, default_value_t = 0)]
+        adm_g1_w: i64,
         /// Every cart's position each tick in the log.
         #[arg(long)]
         trace: bool,
@@ -1961,10 +1992,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2 };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, tail_fifo, tail_esc, climb_boost, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1 };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -2054,7 +2085,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let _ = std::fs::remove_file(&path);
             }
         }
-        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, trace, shift, from_climb, unload } => {
+        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, trace, shift, from_climb, unload } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let pat = crate::tail_bench::parse_pattern(&pattern).map_err(|e| anyhow::anyhow!(e))?;
@@ -2070,6 +2101,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 pulse,
                 fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (6, 10), _ => anyhow::bail!("--fifo-intake takes D,W") },
                 esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 8), _ => anyhow::bail!("--esc-b takes K,W") },
+                esc_g0: match esc_g0.as_slice() { [a, b] => (*a, *b), [] => (2, 0), _ => anyhow::bail!("--esc-g0 takes LEAD,LAG") },
+                esc_adm: match esc_adm.as_slice() { [a, b] => (*a, *b), [] => (8, 3), _ => anyhow::bail!("--esc-adm takes DELAY,MAX") },
+                adm_latch,
+                p_always,
+                adm_g1_w,
                 ..Default::default()
             };
             match seeds {
@@ -2097,13 +2133,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 let count = line("count: ");
                                 let lost_carts = count.split(", ").last().and_then(|t| t.split_whitespace().next()).unwrap_or("?").to_string();
                                 let hurt = num("villagers: ");
+                                let merged = num("merged carts (horizontal distance under 0.01, boxes paired by the push; the game never separates them): ");
                                 // (starved intakes are the pipeline refilling after an empty tail: a
                                 // line of their own, not a fault)
-                                let clean = [&lost, &dbl, &ooo, &fell, &rolled, &gate, &back, &hurt, &lost_carts].iter().all(|v| v.as_str() == "0");
+                                let clean = [&lost, &dbl, &ooo, &fell, &rolled, &gate, &back, &hurt, &lost_carts, &merged].iter().all(|v| v.as_str() == "0");
                                 if !clean {
                                     bad.push(*s);
                                 }
-                                println!("seed {s}: lost {lost} starved {starv} doubles {dbl} out-of-order {ooo} fell {fell} rolled-back {rolled} gate {gate} backward-powered {back} villagers-hurt {hurt} carts-lost {lost_carts} | {} | {} | {}", line("at rest in the tail: "), line("creep while quiet"), line("the tail's most carts at once: "));
+                                println!("seed {s}: lost {lost} starved {starv} doubles {dbl} out-of-order {ooo} fell {fell} rolled-back {rolled} gate {gate} backward-powered {back} villagers-hurt {hurt} carts-lost {lost_carts} merged {merged} | {} | {} | {}", line("at rest in the tail: "), line("creep while quiet"), line("the tail's most carts at once: "));
                             }
                             Err(e) => {
                                 bad.push(*s);

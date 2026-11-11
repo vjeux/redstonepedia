@@ -110,10 +110,11 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let m = |p: BlockPos| BlockPos::new(p.x + dx, p.y, p.z + dz);
     let mc = |c: [i32; 3]| [c[0] + dx, c[1], c[2] + dz];
     let spec = &shifted(spec, dx, dz);
-    // (B: the slope escapement's braked B control, or the flat escapement's B cell and its gate)
+    // (B: the slope escapement's braked B control, or the flat escapement's B cell and its gate;
+    // admission control has no B: G0 and A do its job)
     let b_ctl: Option<BlockPos> = lay.esc.map(m);
     let gb: Option<BlockPos> = lay.esc_gb.map(m);
-    if b_ctl.is_none() && gb.is_none() {
+    if b_ctl.is_none() && gb.is_none() && lay.esc_adm_a1.is_none() {
         return Err("not a --tail-esc design (no B)".into());
     }
     let p_ctl = m(lay.esc_p.ok_or("not a --tail-esc design (no P control)")?);
@@ -198,6 +199,54 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             w.set_block(g, b, redsim::world::flags::ALL);
         }
     };
+    // (G0 at B's entry, shut through B's pulse)
+    let g0 = lay.esc_g0.map(m);
+    let g1 = lay.esc_g1.map(m);
+    let set_g1 = |w: &mut redsim::world::World, open: bool| {
+        if let Some(g) = g1
+            && let Ok(b) = Block::parse(&format!("minecraft:oak_fence_gate[facing=south,in_wall=false,open={open},powered=false]"))
+            && w.get(g) != b
+        {
+            w.set_block(g, b, redsim::world::flags::ALL);
+        }
+    };
+    let mut g1_open: Option<i64> = None;
+    // (admission control: A' (the latch's reset cell) and A (the always-on booster under G0))
+    let adm_a1: Option<[i32; 3]> = lay.esc_adm_a1.map(mc);
+    let a_cell: Option<[i32; 3]> = if adm_a1.is_some() { g0.map(|g| [g.x, g.y - 1, g.z]) } else { None };
+    let mut adm_open: Option<i64> = None;
+    let mut adm_shut: Option<i64> = None;
+    let mut adm_cart: Option<usize> = None;
+    let mut adm_next_b: Option<i64> = None;
+    let mut adm_count = 0usize;
+    let mut adm_missed = 0usize;
+    let mut adm_double = 0usize;
+    let mut adm_follow_g0 = f64::MAX;
+    let mut adm_ready: bool = false;
+    let mut adm_ready_t: i64 = 0;
+    let mut gp_run = 0usize;
+    let mut gp_was_open = false;
+    let (mut p_rest_lo, mut p_rest_hi) = (f64::MAX, f64::MIN);
+    let (mut launch_lo, mut launch_hi) = (f64::MAX, f64::MIN);
+    let mut prev_z: Vec<Option<f64>> = Vec::new();
+    let mut adm_blocked = 0usize;
+    let mut adm_follow_min = f64::MAX;
+    let mut adm_timeouts = 0usize;
+    let mut adm_follower_seen = true;
+    let mut adm_min_follow_gap = i64::MAX;
+    let mut adm_min_margin = i64::MAX;
+    let mut adm_max_depth = f64::MIN;
+    let mut adm_rest_open: Option<i64> = None;
+    let mut b_two = 0usize;
+    let mut b_reached_x = 0usize;
+    let set_g0 = |w: &mut redsim::world::World, open: bool| {
+        if let Some(g) = g0
+            && let Ok(b) = Block::parse(&format!("minecraft:oak_fence_gate[facing=south,in_wall=false,open={open},powered=false]"))
+            && w.get(g) != b
+        {
+            w.set_block(g, b, redsim::world::flags::ALL);
+        }
+    };
     let set_door = |w: &mut redsim::world::World, open: bool| {
         if let Some(dp) = door {
             for (half, y) in [("lower", 0), ("upper", 1)] {
@@ -247,7 +296,10 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let mut back_braked = 0usize;
     let mut rolled: Vec<String> = Vec::new();
     let mut gate_through: Vec<String> = Vec::new();
+    let mut was_open = false;
+    let mut in_gate: Vec<usize> = Vec::new();
     let mut min_gap = f64::INFINITY;
+    let mut merges = crate::merge::MergeTally::default();
     let mut min_gap_at = String::new();
     let mut max_step = 0.0f64;
     let mut max_drift = 0.0f64;
@@ -328,7 +380,9 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             }
             if dt == a + d + w_gate {
                 set_gate(&mut run.world, false);
-                set(&mut run.world, p_ctl, false);
+                if !tm.p_always {
+                    set(&mut run.world, p_ctl, false);
+                }
             }
             if live && dt == a + d + kb {
                 if let Some(b) = b_ctl {
@@ -343,6 +397,90 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
                 }
                 set_door(&mut run.world, false);
                 set_gb(&mut run.world, false);
+            }
+            // (G0 shut from `esc_g0` LEAD gt before B's pulse to LAG gt after it; with admission
+            // control G0 is instead opened `esc_adm` DELAY gt after the gate opens (the latch set)
+            // and shut by a cart crossing A' or after MAX gt (the latch reset), below)
+            if adm_a1.is_none() {
+                let (lead, lag) = tm.esc_g0;
+                if live && dt == a + d + kb - lead {
+                    set_g0(&mut run.world, false);
+                }
+                if dt == a + d + kb + wb + lag {
+                    set_g0(&mut run.world, true);
+                }
+            } else if live && dt == a + d + tm.esc_adm.0 {
+                set_g0(&mut run.world, true);
+                set_g1(&mut run.world, true);
+                g1_open = Some(t);
+                adm_open = Some(t);
+                adm_count += 1;
+                // (a cart ready at G0: its front face at G0's near face)
+                adm_ready = g0.is_some_and(|g| carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| p.x > fx - 0.5 && p.x < fx + 1.5 && (p.z + 0.49 - (g.z as f64 + 0.375)).abs() < 0.03)));
+                adm_ready_t = t;
+                // (the next gate opening: the admitted cart must be at rest on P before it; a
+                // negative DELAY loads P for this advance's own gate)
+                let next_g = if tm.esc_adm.0 < 0 { c * 100 + a + d } else if k < 2 { c * 100 + adv(k + 1) + d } else { (c + 1) * 100 + adv(0) + d };
+                adm_next_b = Some(next_g);
+                adm_cart = None;
+            }
+        }
+        // (G1 pulses with G0: open from G0's set for the G1 window, `esc_adm` MAX gt or
+        // `adm_g1_w` when set, with no latch)
+        if let Some(t1) = g1_open
+            && t - t1 >= (if tm.adm_g1_w > 0 { tm.adm_g1_w } else { tm.esc_adm.1 })
+        {
+            set_g1(&mut run.world, false);
+            g1_open = None;
+        }
+        // (admission control: G0 opened at the set; with the latch (`adm_latch`) the set does
+        // nothing while P already holds a cart (the sensor keeps the reset on) and G0 shuts once a
+        // cart is on P or after MAX gt; without it G0 is a plain pulse MAX gt long)
+        if let (Some(a1), Some(t_open)) = (adm_a1, adm_open) {
+            let crossing = carts.iter().position(|id| pos_of(&run.world, *id).is_some_and(|p| on_cell(&p, a1)));
+            let crossing = if tm.adm_latch { crossing } else { None };
+            if t == t_open && crossing.is_some() {
+                set_g0(&mut run.world, false);
+                adm_open = None;
+                adm_blocked += 1;
+            } else if crossing.is_some() || t - t_open >= tm.esc_adm.1 {
+                set_g0(&mut run.world, false);
+                adm_open = None;
+                adm_shut = Some(t);
+                adm_cart = crossing;
+                if crossing.is_none() && tm.adm_latch {
+                    adm_timeouts += 1;
+                }
+                adm_follower_seen = false;
+                // (at G0's shut: the carts inside or past G0's box short of P's far end are this
+                // admission; two is a double; the follower's front face against G0's near face)
+                if let Some(g) = g0 {
+                    let near = g.z as f64 + 0.375;
+                    let pz_end = p_cell[2] as f64 + 1.0;
+                    let mut inside = 0;
+                    for id in &carts {
+                        if let Some(p) = pos_of(&run.world, *id).filter(|p| p.x > fx - 0.5 && p.x < fx + 1.5 && p.z > z_entry) {
+                            let front = p.z + 0.49;
+                            if front > near + 1.0e-4 && p.z < pz_end {
+                                inside += 1;
+                            } else if front <= near + 1.0e-4 {
+                                adm_follow_g0 = adm_follow_g0.min(near - front);
+                            }
+                        }
+                    }
+                    if inside >= 2 {
+                        adm_double += 1;
+                    }
+                    if adm_ready && inside == 0 && t - adm_ready_t <= tm.esc_adm.1 + 1 {
+                        adm_missed += 1;
+                    }
+                }
+            }
+        }
+        // (without the latch: the admitted cart is the first one onto P after G0 opened)
+        if !tm.adm_latch && adm_cart.is_none() && adm_shut.is_some_and(|ts| t - ts < 20) {
+            if let Some(a1) = adm_a1 {
+                adm_cart = carts.iter().position(|id| pos_of(&run.world, *id).is_some_and(|p| on_cell(&p, a1) && p.z < a1[2] as f64 + 0.5));
             }
         }
         // at each advance's start: slot 0's carts against what the intake before it had on P
@@ -383,6 +521,22 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
         // per tick: falls, backward motion on B/P/slot 0, the gate, rest gaps and drift, the
         // per-cart cycle, riders
         let gate_open = matches!(run.world.get(gate), Block::FenceGate { open: true, .. });
+        // (a cart whose box overlaps the gate's collision box (z 0.375..0.625 of its cell) when
+        // the gate shuts may move on out of it, as the game lets it: it is no pass-through)
+        if was_open && !gate_open {
+            let (g0z, g1z) = (gate.z as f64 + 0.375, gate.z as f64 + 0.625);
+            in_gate = carts.iter().enumerate().filter(|(_, id)| pos_of(&run.world, **id).is_some_and(|p| p.z + 0.49 > g0z && p.z - 0.49 < g1z && p.x > fx - 0.5 && p.x < fx + 1.5)).map(|(i, _)| i).collect();
+            // (admission control: a cart inside G_P's box when it shuts runs on through behind
+            // the launched one)
+            if adm_a1.is_some() {
+                gp_run += in_gate.len();
+            }
+        }
+        let _ = gp_was_open;
+        if gate_open {
+            in_gate.clear();
+        }
+        was_open = gate_open;
         let mut resting: Vec<(usize, redsim::entity::Vec3)> = Vec::new();
         let mut tail_n = 0;
         for (i, id) in carts.iter().enumerate() {
@@ -405,11 +559,31 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             if in_tail(&p) {
                 tail_n += 1;
             }
+            // (admission control: P's rest spread, and each cart's speed as it enters slot 0)
+            if adm_a1.is_some() && p.x > fx - 0.5 && p.x < fx + 1.5 {
+                if prev_z.len() <= i {
+                    prev_z.resize(i + 1, None);
+                }
+                if on_cell(&p, p_cell) && v.horizontal_distance() < 0.01 {
+                    let s = p.z - p_cell[2] as f64;
+                    p_rest_lo = p_rest_lo.min(s);
+                    p_rest_hi = p_rest_hi.max(s);
+                }
+                if let Some(lz) = prev_z[i]
+                    && lz < z_slot0
+                    && p.z >= z_slot0
+                {
+                    let sp = v.horizontal_distance();
+                    launch_lo = launch_lo.min(sp);
+                    launch_hi = launch_hi.max(sp);
+                }
+                prev_z[i] = Some(p.z);
+            }
             // (backward on a powered rail: B, P or slot 0, split by the rail's state: boosted
             // backward while powered, or braked while unpowered; the flat escapement's X is always
             // powered)
             let ctl = if b_ctl.is_some() && on_cell(&p, b_cell) { b_ctl } else if on_cell(&p, p_cell) { Some(p_ctl) } else if on_cell(&p, s0) { lay.slots.first().copied().map(m) } else { None };
-            if x_cell.is_some_and(|xc| on_cell(&p, xc)) && v.z < -0.003 {
+            if (x_cell.is_some_and(|xc| on_cell(&p, xc)) || a_cell.is_some_and(|ac| on_cell(&p, ac))) && v.z < -0.003 {
                 max_back = max_back.max(-v.z);
                 if backward.len() < 12 {
                     backward.push(format!("cart {i} at slot {c} +{dt}: on X, z {:.2} vz {:.3}", p.z, v.z));
@@ -434,7 +608,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             // (through the gate while shut: the centre crossing the gate cell's middle)
             if let Some(lp) = last_pos[i] {
                 let gz = gate.z as f64 + 0.5;
-                if !gate_open && lp.z < gz && p.z >= gz && p.x > -0.5 && p.x < 1.5 {
+                if !gate_open && !in_gate.contains(&i) && lp.z < gz && p.z >= gz && p.x > fx - 0.5 && p.x < fx + 1.5 {
                     gate_through.push(format!("cart {i} at slot {c} +{dt}"));
                 }
                 // (at rest, the parent's creep check: while the gate is shut and P and B are off
@@ -488,6 +662,40 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             }
         }
         max_tail = max_tail.max(tail_n);
+        // (admission control's lines: P never two carts; while P holds a cart, how close the next
+        // cart's centre comes to P (it must stay short of P's upper end); the admitted cart at
+        // rest on P before the next gate opening, and how deep)
+        if let Some(_g) = g0.filter(|_| adm_a1.is_some()) {
+            let on_p: Vec<usize> = carts.iter().enumerate().filter(|(_, id)| pos_of(&run.world, **id).is_some_and(|p| on_cell(&p, p_cell))).map(|(i, _)| i).collect();
+            if on_p.len() >= 2 {
+                b_two += 1;
+            }
+            if !on_p.is_empty() {
+                // (the queue's front: the cart with the largest z short of P, on the tail's column)
+                let pz = p_cell[2] as f64;
+                let front = carts.iter().enumerate().filter(|(i, _)| !on_p.contains(i)).filter_map(|(_, id)| pos_of(&run.world, *id)).filter(|p| p.x > fx - 0.5 && p.x < fx + 1.5 && p.z < pz && p.z > z_entry).map(|p| p.z).fold(f64::MIN, f64::max);
+                if front > f64::MIN {
+                    adm_follow_min = adm_follow_min.min(pz - front);
+                }
+            }
+            let _ = adm_follower_seen;
+            if let Some(i) = adm_cart
+                && let Some(e) = run.world.entities.list.iter().find(|e| e.id == carts[i] && !e.removed)
+            {
+                if e.pos.z >= p_cell[2] as f64 + 1.0 && e.pos.x > fx - 0.5 && e.pos.x < fx + 1.5 && adm_rest_open.is_none() {
+                    b_reached_x += 1;
+                    adm_cart = None;
+                } else if on_cell(&e.pos, p_cell) && e.delta_movement.horizontal_distance() < 0.01 {
+                    adm_max_depth = adm_max_depth.max(e.pos.z - p_cell[2] as f64);
+                    if let Some(nb) = adm_next_b {
+                        adm_min_margin = adm_min_margin.min(nb - t);
+                    }
+                    adm_cart = None;
+                }
+            }
+        }
+        // (merged carts: the shared check, `crate::merge`; a hard fail, ironspec 23:58)
+        merges.observe(&run.world, &format!("slot {c} +{dt}"));
         for a in 0..resting.len() {
             for b in a + 1..resting.len() {
                 let (pa, pb) = (resting[a].1, resting[b].1);
@@ -562,6 +770,16 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let (rmin, rmax) = (reload.iter().min().copied().unwrap_or(-1), reload.iter().max().copied().unwrap_or(-1));
     s += &format!("per-cart cycle (gate opening to P's next cart at rest): {rmin}..{rmax} gt over {} intakes\n", reload.len());
     s += &format!("the tail's most carts at once: {max_tail}\n");
+    s += &format!("{}\n", merges.line());
+    if adm_a1.is_some() {
+        let f = |v: f64| if v == f64::MAX { "-".to_string() } else { format!("{v:.3}") };
+        s += &format!("admission (G0): missed {adm_missed} (a cart at G0 when it opened, none onto P after); doubles at G0's shut {adm_double}; the follower's front face at least {} short of G0's box when it shut; at G_P's shut, a cart already inside G_P's box behind the launched one {gp_run}; P's rest spread {:.3}..{:.3}, launch into slot 0 at {:.3}..{:.3} b/t\n", f(adm_follow_g0), if p_rest_lo == f64::MAX { f64::NAN } else { p_rest_lo }, if p_rest_hi == f64::MIN { f64::NAN } else { p_rest_hi }, if launch_lo == f64::MAX { f64::NAN } else { launch_lo }, if launch_hi == f64::MIN { f64::NAN } else { launch_hi });
+    }
+    if adm_a1.is_some() {
+        let f = |v: i64| if v == i64::MAX { "none".to_string() } else { v.to_string() };
+        let _ = adm_min_follow_gap;
+        s += &format!("admission: {adm_count} G0 sets, {adm_blocked} kept shut by a cart already on P, {adm_timeouts} shut by the timeout (no cart reached P); P held two carts on {b_two} ticks; an admitted cart went past P before resting {b_reached_x} times; the next cart's centre at least {} short of P while P held a cart; the admitted cart at rest on P {} gt before the next gate opening (min), {:.2} into P (max)\n", if adm_follow_min == f64::MAX { "-".to_string() } else { format!("{adm_follow_min:.3}") }, f(adm_min_margin), if adm_max_depth == f64::MIN { f64::NAN } else { adm_max_depth });
+    }
     s += &format!("villagers: {} hurt or gone, {} zombie villagers {}\n", hurt.len(), zv_seen, hurt.iter().take(4).cloned().collect::<Vec<_>>().join("; "));
     let zombies = run.world.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.ty.def().id == "zombie")).count();
     s += &format!("riders panicking in the tail: {panic_rider_ticks} of {tail_rider_ticks} rider-ticks ({:.0}%; {zombies} zombies in the scene)\n", 100.0 * panic_rider_ticks as f64 / tail_rider_ticks.max(1) as f64);
