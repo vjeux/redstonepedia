@@ -1196,9 +1196,9 @@ fn missing_kept_world(c: &circuit::Circuit, home: &Path) -> Option<String> {
 }
 
 /// The gate's runs that did not run (a harness failure: the game could not start or stopped, not a
-/// farm break): the gate measured nothing for them.
+/// farm break; `GateReport::unrun`): the gate measured nothing for them.
 fn unrun_builds(g: &circuit::mobfarm_game::GateReport) -> Vec<&str> {
-    g.failures.iter().filter(|f| f.contains(": the game run failed: ")).map(|f| f.as_str()).collect()
+    g.unrun.iter().map(String::as_str).collect()
 }
 
 /// A build's break, in the player's words (one of the gate's checks, `circuit::mobfarm_game`), or
@@ -1537,9 +1537,11 @@ mod tests {
         assert_eq!(missing_kept_world(&load("designs/farms/iron/day-1/d1-bed-plate.txt"), &home), None, "a void farm runs in no kept world");
         let g = circuit::mobfarm_game::GateReport {
             failures: vec!["build 1 (rotation 0, offset [0, 0, 0], seed 3): gt 900: a golem left the farm".into(), "build 2: the game run failed: the kept world of village-edge is not at /x".into()],
+            unrun: vec!["build 2: the game run failed: the kept world of village-edge is not at /x".into()],
             ..Default::default()
         };
         assert_eq!(unrun_builds(&g), vec!["build 2: the game run failed: the kept world of village-edge is not at /x"]);
+        assert!(unrun_builds(&circuit::mobfarm_game::GateReport { failures: g.failures.clone(), ..Default::default() }).is_empty(), "a farm's break or a failure's words alone is no unrun run");
     }
 
     #[test]
