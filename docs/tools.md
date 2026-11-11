@@ -253,9 +253,19 @@ prints what the stuck cart and the next visits do, a one-line summary per seed f
 r-miss, r-extra, f-double: a redstone block for 4 gt beside the element) and prints the visits
 until a clean one; the sleep-onset line gives p50 to p99.99, the max and the 8 slowest. The siding's
 V (visit under way) is a dropper set/reset latch (`MCTAS_SIDING_V=bulb` the old copper bulb), and
-the forced exit's 0-block levers are on by default (the free cell a booster; two nap-path
-repeaters and the kick chain [4,2,1,1,1]; `MCTAS_SIDING_BOOST=0`, `MCTAS_SIDING_MOVE=0..3`,
-`MCTAS_SIDING_CHAIN=a,b,c,d,e` vary them);
+the forced exit's levers are on by default (the free cell a booster; the long nap path: the S line
+four 4-tick repeaters, R's reset later, the kick chain [2,1,0,0,0]; `MCTAS_SIDING_SLONG=0` the
+26-gt nap path with the chain [4,2,1,1,1]; `MCTAS_SIDING_BOOST=0`, `MCTAS_SIDING_MOVE=0..3`,
+`MCTAS_SIDING_CHAIN=a,b,c,d,e` (0 = dust), `MCTAS_SIDING_RDELAY=d`, `MCTAS_SIDING_REXTRA=n` vary
+them); it also prints when the siding's T turns back to entry-bed after each visit;
+`siding-bench --unload LINE,SIDE,LEVEL,STATE,N[,K]` is the partial unload (tick-exact's
+`reload::unload_some`, the world shifted 2 east so the loop's chunk lines fall on the siding as
+day-1 pastes it: x -3|-2 and z -1|0; SIDE lo or hi the side dropped, LEVEL 32 or 33 its level;
+STATE arrival, arriving, drop, nap, asleep, waking, fpending, kick, reboard or exit of visit K,
+default 3; for N gt), `--unload whole,STATE,N[,K]` the whole part saved and unloaded
+(`unload_all`/`load_all`, the bench following the new entity ids, its visits paused while
+away), and `--unload matrix[:K]` / `whole-matrix[:K]` every case at N = 3, 40, 240 and 700, one
+line each: the visits until a clean one, naps lost, carts out without their napper, jams;
 `siding-bench --day-visits` (every visit by day: no napper sleeps) and `--fail-no-home N` (the
 first N villagers' HOME erased before each of their visits) are its forced failures: every cart
 must still be on the slot with its villager within 500 gt of its arrival;
