@@ -430,6 +430,10 @@ pub struct LoopOpts {
     /// it held forward by gravity), boosters past the line and a climb back to the tail's level.
     /// 0 = the climb straight to the run north.
     pub depart_crest: u32,
+    /// C' wired (`--cprime`, with `approach` 5 and the guard): the approach detector's
+    /// train-synchronous D1 fallback in place of C's timer (`approach::cprime_cells`), its repeater
+    /// delays [R_in, R1, R2, R3, R4, R5] in redstone ticks; None = C.
+    pub cprime: Option<[i32; 6]>,
     /// The escapement tail's entry: one never-powered braked slope instead of the ledge (a cart
     /// at ≤ 0.4 b/t of movement spends ~3.5 gt on it, its speed halved each tick).
     pub tail_brake: bool,
@@ -460,7 +464,7 @@ pub struct LoopOpts {
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0 }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, approach: 0, depart_crest: 0, cprime: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0 }
     }
 }
 
@@ -1825,6 +1829,25 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
                 b.set(c[0], c[1], c[2], "stone");
             }
         }
+        // (C' wired: C's timer out, the approach detector's edge circuit in)
+        if let Some(d) = o.cprime {
+            if o.approach != 5 || !o.stand_guard {
+                bail!("--cprime needs --approach 5 and --stand-guard");
+            }
+            let (removed, added) = crate::approach::cprime_cells(ox, d);
+            for c in &removed {
+                if b.d.blocks.remove(c).is_none() {
+                    bail!("C' expects C's cell at {c:?}");
+                }
+            }
+            for (c, s) in added {
+                let ok = b.d.blocks.get(&c).is_none_or(|old| c == [ox - 3, 2, 7] && old == "minecraft:glass");
+                if !ok {
+                    bail!("C''s {s} at {c:?} meets {}", b.d.blocks.get(&c).cloned().unwrap_or_default());
+                }
+                b.set(c[0], c[1], c[2], &s);
+            }
+        }
     }
     // the zombie posts (PANIC for every rider): a zombie in a boat on glass (no golem spawns on
     // glass) at y 3, out of the carts' attack reach (2 above the highest rail; a zombie's attack
@@ -1868,7 +1891,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.set(c[0], c[1], c[2], s);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }))));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { if o.stand_guard { " stand_wired=1 stand_guard=1" } else { " stand_wired=1" } } else { "" }, (if o.tail_fifo > 0 { format!(" tail_fifo={}", o.tail_fifo) } else { String::new() }) + &(if o.tail_esc > 0 { format!(" tail_esc={}", o.tail_esc) } else { String::new() }) + &(o.climb_boost.map(|n| format!(" climb_boost={n}")).unwrap_or_default() + if o.tail_brake { " tail_brake=1" } else { "" } + if o.tail_plain { " tail_plain=1" } else { "" } + &(if o.climb_every > 0 { format!(" climb_every={}", o.climb_every) } else { String::new() }) + if o.ledge_slope { " ledge_slope=1" } else { "" } + if o.esc_door { " esc_door=1" } else { "" } + if o.esc_flat { " esc_flat=1" } else { "" } + if o.landing_boost2 { " landing_boost2=1" } else { "" } + if o.esc_g0 { " esc_g0=1" } else { "" } + if o.esc_adm { " esc_adm=1" } else { "" } + if o.adm_ledge { " adm_ledge=1" } else { "" } + &if o.adm_g1 > 0 { format!(" adm_g1={}", o.adm_g1) } else { String::new() } + &(if o.approach > 0 { format!(" approach={}", o.approach) } else { String::new() }) + &(if o.depart_crest > 0 { format!(" depart_crest={}", o.depart_crest) } else { String::new() }) + &o.cprime.map(|d| format!(" cprime={}", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":"))).unwrap_or_default())));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     // (`shift`: everything built in the loop's frame, then moved)
     let [sx, sz] = o.shift;
@@ -1926,6 +1949,11 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "climb_boost" => o.climb_boost = Some(v.parse()?),
             "approach" => o.approach = v.parse()?,
             "depart_crest" => o.depart_crest = v.parse()?,
+            "cprime" => {
+                let d: Vec<i32> = v.split(':').map(|t| t.parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(d.len() == 6, "cprime={v}: six delays");
+                o.cprime = Some([d[0], d[1], d[2], d[3], d[4], d[5]]);
+            }
             "tail_brake" => o.tail_brake = v == "1",
             "tail_plain" => o.tail_plain = v == "1",
             "climb_every" => o.climb_every = v.parse()?,
