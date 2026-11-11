@@ -1350,6 +1350,13 @@ impl World {
         if self.mob.custom.is_some() {
             crate::entity::mob::custom::tick(self);
         }
+        // (mob-AI 2026-11-11) ServerChunkCache.tick: chunkMap.tick() after tickChunks (the entity
+        // tracker's sendChanges: updateDataBeforeSync, a trader's INVISIBLE flag), then
+        // chunkMap.tick(haveTime), its PoiManager.tick running the village distance tracker
+        if self.mob.ai.on {
+            crate::entity::mob::ai::goal::trader::sync_flags(self);
+            crate::entity::mob::ai::poi::note_village_centres(self);
+        }
         // (a partial unload: an event whose chunk does not tick blocks waits, back at the end of
         // the queue after the others ran: runBlockEvents' blockEventsToReschedule)
         let mut waiting: Vec<BlockEvent> = Vec::new();

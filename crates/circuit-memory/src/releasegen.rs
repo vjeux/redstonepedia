@@ -301,7 +301,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // controls); reset taps 8..44 keep the merge window to ~+58. With the stagger a fourth group
     // tap at +30 (global z 25) holds the release on to +44: the front slot's window must outlast
     // the back cart's crossing of its slope (2 x stagger + 30 = 38 gt or more, farmopt 16:30)
-    let a1_run = if stagger { [R(1), D, R(2), S(G), D, S(A | RS)] } else { [R(1), D, R(2), D, D, S(A | RS)] };
+    // (MCTAS_A1_PULL, gt (0, 2 or 4), option C of the advance-spacing measurement (ironspec
+    // 2026-11-11 05:14): A1 that much earlier, the stagger's fourth group tap kept at +30 and made a
+    // reset tap too, so the merge window's taps' union stays +8..+58; the run keeps its 6 cells, so
+    // every later stone keeps its place)
+    let pull: i32 = std::env::var("MCTAS_A1_PULL").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let a1_run = match (stagger, pull) {
+        (true, 0) => [R(1), D, R(2), S(G), D, S(A | RS)],
+        (false, 0) => [R(1), D, R(2), D, D, S(A | RS)],
+        (true, 2) => [R(1), D, R(1), S(A | RS), R(1), S(G | RS)],
+        (false, 2) => [R(1), D, R(1), S(A | RS), R(1), S(RS)],
+        (true, 4) => [R(1), S(A | RS), R(2), S(G | RS), D, D],
+        (false, 4) => [R(1), S(A | RS), R(2), S(RS), D, D],
+        _ => bail!("MCTAS_A1_PULL {pull}: 0, 2 or 4 gt"),
+    };
     let mut chain = vec![
         R(3), S(G | RS), // +8 (after the shortener C at z -5)
         R(4), S(G | RS), // +16
@@ -312,9 +325,26 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         R(4), S(RS), // +38
         R(4), S(RS), // +46
         R(1), S(RS), // +48 (10-gt copies: the merge window to + 58)
-        R(1), S(A), // +50 (A2)
-        R(4), R(4), R(2), S(A), // +70 (A3)
     ]);
+    // (MCTAS_ADV_SPACING, a measurement of the register's advance spacing (ironspec 2026-11-11
+    // 04:15): the three advance pulses s gt apart instead of 20, A2 = A1 + s and A3 = A2 + s; the
+    // merge window's taps unchanged; the tail windows, taken off A3, move with it)
+    let spacing: i32 = std::env::var("MCTAS_ADV_SPACING").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
+    if !(20..=26).contains(&spacing) || spacing % 2 != 0 {
+        bail!("MCTAS_ADV_SPACING {spacing}: an even spacing in 20..=26");
+    }
+    let k = ((spacing - 20) / 2) as u8;
+    // (A2 = A1 + s: from the +48 stone, s - pull - 18 gt)
+    let a2_gt = spacing - pull - 18;
+    if !(2..=8).contains(&a2_gt) {
+        bail!("MCTAS_ADV_SPACING {spacing} with MCTAS_A1_PULL {pull}: A2 {a2_gt} gt after the +48 stone (2..=8)");
+    }
+    chain.extend([R((a2_gt / 2) as u8), S(A)]); // +30 - pull + s (A2)
+    if k <= 2 {
+        chain.extend([R(4), R(4), R(2 + k), S(A)]); // A2 + s (A3)
+    } else {
+        chain.extend([R(4), R(4), R(4), R(1), S(A)]);
+    }
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
     let at = |p: P3| -> P3 { [-2 - p[0], p[1] - 2, 10 - p[2]] };
@@ -459,7 +489,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     //   (2,-2,30), a repeater (2,-2,31) into N2's support (2,-2,32), which powers N2's dust above:
     //   control ON + 92..+ 104 (t0 + 100)
     let (ax, az) = (a3[0], a3[2]);
-    b.on([ax, yy, az + 1], &rep("north", 4))?; // golem + 80
+    // (with MCTAS_ADV_SPACING the tail windows are held at their times: A3 moves 2s - pull - 40 gt
+    // later, the tail's own path that much shorter (its first repeater 4 -> 1 rt, then its z 40
+    // repeater 2 -> 1): up to 8 gt)
+    let sp = std::env::var("MCTAS_ADV_SPACING").ok().and_then(|v| v.parse::<i32>().ok()).unwrap_or(20);
+    let pl = std::env::var("MCTAS_A1_PULL").ok().and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+    let (first_rt, z40_rt): (u8, u8) = match 2 * sp - pl - 40 {
+        0 => (4, 2),
+        2 => (3, 2),
+        4 => (2, 2),
+        6 => (1, 2),
+        8 => (1, 1),
+        d => bail!("MCTAS_ADV_SPACING {sp} with MCTAS_A1_PULL {pl}: A3 {d} gt late, the tail windows can be held only up to 8"),
+    };
+    b.on([ax, yy, az + 1], &rep("north", first_rt))?; // golem + 80
     b.on([ax, yy, az + 2], DUST)?;
     b.on([ax, -2, az + 3], DUST)?;
     b.on([ax, -3, az + 4], DUST)?;
@@ -477,7 +520,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // (v2: 10-gt copies, so the stones overlap by 2 gt: N1 86/94/102/106 → control + 92..+ 122,
     // N0 86/94/102/108 → + 92..+ 124)
     let chain_tail: [(i32, It); 15] = [
-        (40, R(2)),
+        (40, R(z40_rt)),
         (39, D), (38, D), (37, D), (36, D), (35, D),
         (34, S(0)), // golem + 86: N1 + N0
         (33, R(4)),
@@ -809,6 +852,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             line.push_str(" fills-last");
         }
         d.meta.insert("build".into(), line);
+    }
+    // (MCTAS_SET_CELLS "x,y,z=state;...", a measurement only: cells set in the written file after the
+    // settle, each one printed: the spacing measurement's unwired transit detectors on the queue's
+    // flat tops)
+    if let Ok(v) = std::env::var("MCTAS_SET_CELLS") {
+        for item in v.split(';').filter(|s| !s.trim().is_empty()) {
+            let (c, s) = item.split_once('=').ok_or_else(|| anyhow::anyhow!("MCTAS_SET_CELLS: x,y,z=state, not {item}"))?;
+            let p: Vec<i32> = c.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+            if p.len() != 3 {
+                bail!("MCTAS_SET_CELLS: x,y,z=state, not {item}");
+            }
+            let old = d.blocks.insert([p[0], p[1], p[2]], s.trim().to_string());
+            println!("set {p:?} = {} (was {old:?})", s.trim());
+        }
     }
     d.name = "carousel-release-loop-wired".into();
     d.save(out)?;

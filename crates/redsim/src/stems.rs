@@ -176,23 +176,49 @@ pub fn farmland_tick(w: &mut World, p: BlockPos) {
     }
 }
 
-/// `FarmlandBlock.turnToBaseBlock`: dirt (`pushEntitiesUp` lifts what stands on it: refused), the
-/// BLOCK_CHANGE game event.
+/// `FarmlandBlock.turnToBaseBlock`: dirt; `pushEntitiesUp` lifts what stands in the farmland's top
+/// sixteenth onto the dirt (`teleportRelative` by the shape's collide: its bottom to the block's
+/// top); the BLOCK_CHANGE game event.
 fn turn_to_dirt(w: &mut World, p: BlockPos) {
     let top = p.y as f64 + 1.0;
-    let lifted = w.entities.list.iter().any(|e| {
-        let b = e.bb;
-        b.min_x < p.x as f64 + 1.0 && b.max_x > p.x as f64 && b.min_z < p.z as f64 + 1.0 && b.max_z > p.z as f64 && b.min_y < top && b.max_y > p.y as f64 + 15.0 / 16.0 - 1e-7
-    });
-    if lifted {
-        let why = format!("farmland at {p} turning into dirt under an entity (pushEntitiesUp) is not modeled");
-        if !w.errors.contains(&why) {
-            w.errors.push(why);
+    let slab = crate::entity::Aabb::new(p.x as f64, p.y as f64 + 15.0 / 16.0, p.z as f64, p.x as f64 + 1.0, top, p.z as f64 + 1.0);
+    let lifted = w.get_entities(slab, |e| !e.removed);
+    for j in lifted {
+        // (mob-AI 2026-11-10) Shapes.collide(Y, box moved up 1, [the top sixteenth], -1): up by the
+        // block's top less the box's bottom
+        let dy = top - w.entities.list[j].bb.min_y;
+        if dy > 0.0 {
+            let pos = w.entities.list[j].pos;
+            let to = crate::entity::Vec3::new(pos.x, pos.y + dy, pos.z);
+            w.entities.set_pos(j, to);
+            let e = &mut w.entities.list[j];
+            (e.xo, e.yo, e.zo) = (to.x, to.y, to.z);
+            (e.x_old, e.y_old, e.z_old) = (to.x, to.y, to.z);
+            if !e.passengers.is_empty() {
+                let why = format!("farmland at {p} lifting a ridden entity (its passengers' teleport) is not modeled");
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+            }
         }
     }
     let dirt = Block::Simple(Simple::Dirt);
     w.set_block_and_update(p, dirt);
     w.game_event_state("block_change", p, dirt);
+}
+
+/// (mob-AI 2026-11-10) `FarmlandBlock.fallOn` for a living mob landing on the farmland at `p`:
+/// the level random's `nextFloat` under the fall distance less 0.5, with mob griefing and a box
+/// whose width x width x height passes 0.512, tramples it into dirt.
+pub fn mob_fall_on(w: &mut World, p: BlockPos, fall_distance: f64, width: f32, height: f32, griefing: bool) {
+    let Some(r) = w.level_random.as_mut() else {
+        fall_on(w);
+        return;
+    };
+    let roll = r.next_float();
+    if (roll as f64) < fall_distance - 0.5 && griefing && width * width * height > 0.512f32 {
+        turn_to_dirt(w, p);
+    }
 }
 
 /// `FarmlandBlock.isNearWater`: water in the box 4 across and 1 above.

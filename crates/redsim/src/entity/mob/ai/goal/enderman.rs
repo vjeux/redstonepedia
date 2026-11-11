@@ -82,6 +82,23 @@ fn state(w: &World, i: usize) -> &EndermanState {
     crate::entity::mob::ai::ai(w, i).enderman.as_ref().expect("an enderman")
 }
 
+/// (mob-AI 2026-11-10) `Enderman.dropCustomDeathLoot` after Mob's: the carried block's drops with
+/// a silk-touch diamond axe (`ENDERMAN_LOOT_DROP`: silk touch I, no draw), which for every
+/// #enderman_holdable block is the block itself, one; `spawnAtLocation` at its feet.
+/// cross-4-underground plains build 2 t8953: an enderman drowned holding grass.
+pub fn drop_carried(w: &mut World, i: usize) {
+    if !crate::entity::mob::ai::has_ai(w, i) {
+        return;
+    }
+    let Some(carried) = crate::entity::mob::ai::ai(w, i).enderman.as_ref().and_then(|s| s.carried) else { return };
+    let name = carried.to_string();
+    let base = name.split('[').next().unwrap_or("").to_string();
+    let base = if base.contains(':') { base } else { format!("minecraft:{base}") };
+    let pos = w.entities.list[i].pos;
+    let by = w.entities.list[i].id;
+    crate::entity::mob::living::spawn_item_at(w, pos, by, crate::entity::mob::ai::loot::intern(&base), 1);
+}
+
 fn state_mut(w: &mut World, i: usize) -> &mut EndermanState {
     crate::entity::mob::ai::ai_mut(w, i).enderman.as_mut().expect("an enderman")
 }

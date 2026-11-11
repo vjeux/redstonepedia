@@ -559,6 +559,9 @@ pub fn restore_fresh(e: &mut Entity) {
         }
         m.no_action_time = 0;
         m.damage_cooldown = 0;
+        // (tickexact 2026-11-11) the pose is not saved: a sleeper loads with pose SLEEPING
+        // (readAdditionalSaveData's SleepingX), even one a minecart had picked up standing
+        m.pose_standing = false;
         m.last_hurt = 0.0;
         m.speed = 0.0;
         m.xxa = 0.0;
@@ -718,6 +721,16 @@ pub fn tick_one(w: &mut World, i: usize) {
 /// The index of the live or removed entity with this id.
 pub fn index_of(w: &World, id: u32) -> Option<usize> {
     w.entities.list.iter().position(|e| e.id == id)
+}
+
+/// (tickexact 2026-11-11, ironspec's walker rule) Whether entity `id`'s box touches a minecart's
+/// box, its own vehicle aside: `AABB.intersects`, what `Entity.pushEntities` asks of a walking
+/// rider's box (the push needs contact whatever the path: scenes rider-push and cart-merge); with
+/// `margin` > 0, whether one is within that gap of it sideways. A diagnostic (no model state).
+pub fn touching_cart(w: &World, id: u32, margin: f64) -> bool {
+    let Some(r) = w.entities.list.iter().find(|e| e.id == id && !e.removed) else { return false };
+    let bb = r.bb.inflate(margin, 0.0, margin);
+    w.entities.list.iter().any(|c| c.id != id && !c.removed && Some(c.id) != r.vehicle && matches!(c.kind, EntityKind::Minecart(_)) && c.bb.intersects(bb))
 }
 
 /// `ServerLevel.tickPassenger(vehicle, entity)`: a passenger that left (removed, or riding something

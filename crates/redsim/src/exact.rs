@@ -267,7 +267,7 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
         EntityKind::Mob(m) => {
             f.fire = Some(m.fire_ticks);
             f.air = Some(m.air);
-            f.pose = Some(if m.sleeping_pos.is_some() { "sleeping" } else if m.dead { "dying" } else { "standing" }.into());
+            f.pose = Some(if m.sleeping_pos.is_some() && !m.pose_standing { "sleeping" } else if m.dead { "dying" } else { "standing" }.into());
             f.health = Some(m.health);
             f.hurt_time = Some(m.hurt_time);
             f.death_time = Some(m.death_time);

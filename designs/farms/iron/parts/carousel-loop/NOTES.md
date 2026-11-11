@@ -354,6 +354,52 @@ leaves it in its slope is ~0.4 cell, one or two ticks of the train's travel. Tri
 - a staggered release (train wider apart): no clean setting found;
 - more release-run boosters: 1 tick -> 2 ticks (in the file now).
 
+## The re-packing tail: admission control (escG6L, bench and loop; simulator only)
+
+The tail takes the stand's 3-cart batches back into the register one cart per advance. The
+candidate (ironspec Nov 11) is admission control: `queue-loop --tail-esc 6 --esc-adm --adm-ledge`.
+In order: a 1-block ledge entry (a declared flight), 6 plain queue slopes, G0 (a fence gate over
+P's upper end), P (a booster slope held by G_P), G_P, R and slot 0 at z 33. A short G0 pulse
+admits exactly one cart: a cart already inside a gate's box when it shuts moves on out (the
+gate-box rule, bridged in the game by tick-exact, 846ae9c28).
+- **Timing:** G_P 2 gt at advance +6. G0 2 gt after G_P opens, for 4 gt, on advances 1 and 2. On
+  advance 3, G0 opens 10 gt after G_P (`--adm-k2 10`); its next G_P is 60 gt away.
+- **Why advance 3 opens later:** the queue's last cart, with nothing behind it, bounces back about
+  0.14 when its predecessor leaves. It then rolls up from rest and reaches G0 about 23 gt later,
+  against 20-gt openings.
+- **Bench bands** (tail-bench, 100 seeds per row):
+  - DL 2–3, W 3–5, K2 8–14, G_P 1–2, all 16 corners;
+  - 0 holes in normal flow, the 4-group and the 3/3 group;
+  - 0 doubles, clearance ≥ 0.081, cycle margin 6–7 gt;
+  - 0 merges, falls, backward ticks, swaps and derails.
+- **5–6 groups:** 0–15 holes per 100 seeds (capacity, open against the stand capping its groups).
+- **The loop:** queue-loop-run drives G0 and P only since d4058c9a5. **Every esc_adm loop run
+  before that commit is void** (G0 stayed shut, P unpowered). ironspec's buffer results were bench
+  runs.
+- **First loop run** (30 cycles, seed 1, K2 10): 21/21 carts, 0 merges, 0 derails. One hole, at
+  slot 26.
+  - **Cause:** the queue's last cart reached G0 rolling just as it opened. It was admitted at
+    speed, bounced off G_P, and P (always on) boosted it backward: 7 ticks, a hard fail. It went
+    back through G0, still inside G0's box, and up the queue.
+  - **Bench replay:** the loop's arrival stream (`queue-loop-run --arrivals-out`, replayed by
+    `tail-bench --arrivals`) does not reproduce it. The loop's third cart stalls where the bench's
+    follows, so the riders or carts differ. Open.
+  - **Next:** a braked P (powered only in G_P's window) damps every bounce. Its bands are being
+    measured.
+- **Ruled out:**
+  - a booster on the last queue slope (boosts the follower backward);
+  - 10 queue slopes (merges);
+  - the ledge-free entry (merges);
+  - the latched G0 with a braked P;
+  - the short entry (carts run off west);
+  - the front on a flat booster against G0: the pressed cart doesn't restart (13 of 36 openings),
+    and carts move backward on the booster.
+- **Checks every run makes:**
+  - declared flights (`mobfarm::flight`: the ledge exempt only if the cart lands right);
+  - declared states (`mobfarm::declared`: boosters powered, braked rails unpowered, gates shut, at
+    tick 0 and t 20);
+  - merged carts (`mobfarm::merge`).
+
 ## What did not work (same tools)
 
 - flat brakes, carts 1.0 apart: one release dragged 10 carts out (push momentum);

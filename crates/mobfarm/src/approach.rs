@@ -21,6 +21,10 @@ pub struct Summary {
     pub tail_min: Option<i64>,
     pub tail_touch: usize,
     pub tail_group_max: usize,
+    /// The most carts out of the stand in one release window (the bar is 3).
+    pub window_max: usize,
+    /// Departure gaps of 4..6 gt at the take-off stand-in (R1's ledge band).
+    pub takeoff_bad: usize,
     pub problems: usize,
     /// gap12, G2 in (after cart 2's front), G2 before cart 3: each (min, max).
     pub margins: Option<[i64; 6]>,
@@ -54,13 +58,45 @@ pub struct Summary {
     pub d_rise: usize,
     pub d_rise_min: Option<f64>,
     /// Meetings by the met cart's place (the flat run below the climb, the climb, T, the descent).
-    pub cls: [usize; 4],
+    pub cls: [usize; 7],
     /// The most carts on the release run upstream of the line at once.
     pub upstream: usize,
     /// The largest backward travel on the approach and backward entries onto the run's boosters.
     pub back_travel: f64,
     pub back_boost: usize,
     pub back_vmax: f64,
+    /// Meetings by cause (frozen, over T, head-on, stalled, catch-up, other) and when (in a
+    /// freeze, within 200 gt of a thaw, other): by the met cart's place (flat, climb, T, descent),
+    /// and for the "meetings on the climb / on T / below T" counts (`meet_n`).
+    pub causes: [[usize; 6]; 7],
+    pub whens: [[usize; 3]; 7],
+    pub n_causes: [[usize; 6]; 3],
+    pub n_whens: [[usize; 3]; 3],
+    /// Contacts at a waiting cart by its place: count, the mover's highest stored speed the tick
+    /// before, how many at 0.6 (H's bar) and at 1.0 or more, the closest centres, the highest onto
+    /// an empty waiting cart, the merges.
+    pub bc: [(usize, f64, usize, usize, f64, f64, usize); 7],
+    /// Carts pushed back over T (backward crossings onto the climb) and the fastest's stored speed
+    /// (v_T, the hump's bound).
+    pub vt: (usize, f64),
+    /// The approach's profile by plane and train place: (plane code, place 1..3, stored min, max,
+    /// +gt min, max from the train's launch slot).
+    pub prof: Vec<(String, usize, f64, f64, i64, i64)>,
+}
+
+/// "name a/b/c/d/e/f when x/y/z; ..." (the runner's cause lines), the first N parts.
+fn cause_rows<const N: usize>(r: &str) -> ([[usize; 6]; N], [[usize; 3]; N]) {
+    let (mut c, mut w) = ([[0usize; 6]; N], [[0usize; 3]; N]);
+    for (i, part) in r.split("; ").take(N).enumerate() {
+        let t: Vec<&str> = part.split_whitespace().collect();
+        for (j, v) in t.get(1).map_or("", |s| *s).split('/').take(6).enumerate() {
+            c[i][j] = v.parse().unwrap_or(0);
+        }
+        for (j, v) in t.get(3).map_or("", |s| *s).split('/').take(3).enumerate() {
+            w[i][j] = v.parse().unwrap_or(0);
+        }
+    }
+    (c, w)
 }
 
 fn num_after(l: &str, key: &str) -> Option<i64> {
@@ -79,9 +115,12 @@ pub fn summarize(out: &str) -> Summary {
             starts.push((slot, l.contains("pockets S1 1 S2 1 S3 1, 0 more")));
         } else if let Some(r) = l.strip_prefix("back through a gate: ") {
             s.back = r.split(' ').next().and_then(|t| t.parse().ok()).unwrap_or(0);
+        } else if l.starts_with("departures at the take-off ") {
+            s.takeoff_bad = num_after(l, "4..6 gt: ").map_or(0, |v| v.max(0) as usize);
         } else if l.starts_with("stand departures: ") {
             s.dep_min = num_after(l, "gap min ");
             s.dep_contact = l.split("gt (gaps under 60 gt), ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
+            s.window_max = num_after(l, "most in one window ").map_or(0, |v| v.max(0) as usize);
         } else if l.starts_with("tail entry: ") {
             s.tail_min = num_after(l, "gap min ");
             s.tail_touch = l.split("within groups, ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
@@ -120,8 +159,39 @@ pub fn summarize(out: &str) -> Summary {
             s.back_vmax = r.split_once("fastest backward: stored ").and_then(|(_, v)| v.split(',').next()).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
         } else if let Some(r) = l.strip_prefix("carts on the release run upstream of the line z 9|10 at once: at most ") {
             s.upstream = r.trim().parse().unwrap_or(0);
+        } else if let Some(r) = l.strip_prefix("approach profile summary (") {
+            if let Some((_, r)) = r.split_once("): ") {
+                for e in r.split_whitespace() {
+                    let f: Vec<&str> = e.split(':').collect();
+                    if f.len() == 6 {
+                        s.prof.push((f[0].to_string(), f[1].parse().unwrap_or(0), f[2].parse().unwrap_or(0.0), f[3].parse().unwrap_or(0.0), f[4].parse().unwrap_or(0), f[5].parse().unwrap_or(0)));
+                    }
+                }
+            }
+        } else if let Some(r) = l.strip_prefix("pushed back over T (backward crossings onto the climb): ") {
+            s.vt = (r.split(';').next().and_then(|t| t.trim().parse().ok()).unwrap_or(0), r.split_once("stored ").and_then(|(_, v)| v.split(',').next()).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0));
+        } else if let Some(r) = l.strip_prefix("waiting-cart contact summary (") {
+            if let Some((_, r)) = r.split_once("): ") {
+                for (i, part) in r.split("; ").take(7).enumerate() {
+                    let v: Vec<&str> = part.split_whitespace().nth(1).unwrap_or("").split('/').collect();
+                    if v.len() == 7 {
+                        s.bc[i] = (v[0].parse().unwrap_or(0), v[1].parse().unwrap_or(0.0), v[2].parse().unwrap_or(0), v[3].parse().unwrap_or(0), v[4].parse().unwrap_or(9.0), v[5].parse().unwrap_or(0.0), v[6].parse().unwrap_or(0));
+                    }
+                }
+            }
+        } else if let Some(r) = l.strip_prefix("meetings by cause (") {
+            if let Some((_, r)) = r.split_once("): ") {
+                (s.causes, s.whens) = cause_rows::<7>(r);
+            }
+        } else if let Some(r) = l.strip_prefix("meetings on the climb, on T, below T by cause (") {
+            if let Some((_, r)) = r.split_once("): ") {
+                (s.n_causes, s.n_whens) = cause_rows::<3>(r);
+            }
         } else if let Some(r) = l.strip_prefix("meetings by the met cart's place: ") {
-            for (i, key) in ["flat run below the climb ", "climb ", "T ", "descent "].iter().enumerate() {
+            // (each count after its own key, the later ones after the previous field's close: a bare
+            // "climb " first matches inside "flat run below the climb N", and the climb column then
+            // repeated the flat count in every row (c4336062's 388 "climb" meetings, 2026-11-11))
+            for (i, key) in ["flat run below the climb ", "), climb ", "), T ", "), descent ", "), hump-down ", "), hump-up ", "), run "].iter().enumerate() {
                 s.cls[i] = r.split_once(key).and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|t| t.parse().ok()).unwrap_or(0);
             }
         } else if let Some(r) = l.strip_prefix("departure: meetings in the dip: ") {
@@ -234,11 +304,28 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
     // (the departure crest's plain dip: the queue head's cart set in the dip 30 gt after slot 5's
     // REL rises (before the departing batch reaches it), at rest or crawling 0.02, at the dip's
     // first three cells' centres; farmopt 2026-11-11, the allowed cells from push-in rows)
-    if partial && o.approach > 0 && o.approach_climb_boost {
+    if partial && o.approach > 0 && (o.approach_climb_boost || o.hump > 0) {
         // (the stand chunk frozen 240 gt from every gt of the train's arrival window, slot 5 +40
         // ..= +75: farmopt's (d) sweep on C with the head's arrival latch)
         for t in 40..=75 {
             v.push((format!("stand freeze 240 +{t}"), vec![format!("5,{t},unload,0,0,0,0,240")]));
+        }
+    }
+    // (S3(ii)'s hold H emulated on the approach (cc767b78's cells): a closed fence gate over the snap
+    // turn (xb, 3, 0) from slot 5 +30 to slot 6 +30, slot 5's whole train held against it (the
+    // waiting-cart contacts line); and an empty cart in each train place, held at H and in normal
+    // flow (`strip,X,Y,Z,S0,S1,K`: the riders of the K-th cart into the run's first cell (the head's
+    // peak) in slot 5 removed: the table's own act, set as `strip_riders`))
+    if o.approach > 0 && o.stand_stop {
+        let lay = crate::queue::loop_layout(o);
+        let head = lay.slot_cells.last().map_or(19, |c| c[2] - o.shift[1]);
+        let xb = -o.row_gap;
+        let gate = format!("5,30,{},oak_fence_gate[facing=north,in_wall=false,open=false,powered=false],100", c(xb, 3, 0));
+        v.push(("H hold".into(), vec![gate.clone()]));
+        for k in 1..=3 {
+            let strip = format!("strip,{xb},1,{},5,5,{k}", head - 2);
+            v.push((format!("H hold, empty {k}"), vec![gate.clone(), strip.clone()]));
+            v.push((format!("riderless {k}"), vec![strip]));
         }
     }
     if o.depart_crest > 0 && o.crest_plain_dip {
@@ -307,12 +394,21 @@ fn opt(v: Option<i64>) -> String {
 /// seed, `tm`'s own acts kept (C' emulated with T3 removed, say); `perfect`: the queue reset at
 /// every slot from 6.
 #[allow(clippy::too_many_arguments)]
-pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool) -> Result<String, String> {
+pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool, rel_sweep: Option<(i64, i64)>) -> Result<String, String> {
     let partial = o.shift != [0, 0];
     let cases0: Vec<(String, Vec<String>)> = fault_cases(o, partial).into_iter().filter(|(n, _)| filter.is_none_or(|f| f.split('|').any(|p| n.contains(p)))).collect();
-    // (`all_corners`: every case at REL nominal, early and late x staggers 2, 3, 4, 6)
+    // (`all_corners`: every case at REL nominal, early and late x staggers 2, 3, 4, 6; `rel_sweep`
+    // A..B: every case at the REL phases A..=B gt around the timing's own (each gt), the stagger
+    // and the rest as given)
     let mut variants: Vec<(String, LoopTiming)> = vec![(String::new(), *tm)];
-    if all_corners {
+    if let Some((a, b)) = rel_sweep {
+        variants.clear();
+        for on in a..=b {
+            let mut t = *tm;
+            t.rel_on += on;
+            variants.push((format!("REL {:+} st {}: ", on, tm.release_stagger), t));
+        }
+    } else if all_corners {
         variants.clear();
         for (cn, on, for_) in [("REL 10..50", 0, 0), ("REL 0..44", -10, -6), ("REL 16..76", 6, 26)] {
             for st in [2, 3, 4, 6] {
@@ -339,6 +435,15 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
             a[k] = Some(*x);
         }
         for (k, s) in acts.iter().enumerate() {
+            // (`strip,X,Y,Z,S0,S1,K`: the case's riderless cart, set as the run's `strip_riders`)
+            if let Some(r) = s.strip_prefix("strip,") {
+                let n: Vec<i64> = r.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>().map_err(|e| format!("{s}: {e}"))?;
+                if n.len() != 6 {
+                    return Err(format!("{s}: strip takes X,Y,Z,S0,S1,K"));
+                }
+                t.strip_riders = Some(([n[0] as i32, n[1] as i32, n[2] as i32], n[3], n[4], n[5] as usize));
+                continue;
+            }
             a[base.len() + k] = Some(crate::queue::parse_act(s)?);
         }
         t.acts = a;
@@ -351,7 +456,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         }
     }
     let got = runs(spec, o, jobs, cycles, threads)?;
-    let mut out = vec![format!("fault table: {} cases x seeds {:?}, {cycles} slots, the fault at slot 5{}; per case over the seeds: clean 3 from slot (the latest seed; never = -), carts back through a gate, departures' min gap (contacts), tail entry min gap within groups (touching), its biggest group, problems", cases.len(), seeds, if perfect { ", the perfect tail (queue reset every slot from 6)" } else { ", the bench's own tail" })];
+    let mut out = vec![format!("fault table: {} cases x seeds {:?}, {cycles} slots, the fault at slot 5{}; per case over the seeds: clean 3 from slot (the latest seed; never = -), carts back through a gate, departures' min gap (contacts), tail entry min gap within groups (touching), its biggest group, problems", cases.len(), seeds, if perfect { ", the perfect tail (queue reset every slot from 6)".to_string() } else if let (Some(r), true) = (tm.reset_queue_at, tm.reset_queue_every) { format!(", the perfect tail (queue reset every slot from {r})") } else { ", the bench's own tail".to_string() })];
     for (i, (name, _, _)) in cases.iter().enumerate() {
         let ss: Vec<&Summary> = got.iter().filter(|(k, _)| *k == i).map(|(_, s)| s).collect();
         let clean = if ss.iter().any(|s| s.clean_from.is_none()) { None } else { ss.iter().filter_map(|s| s.clean_from).max() };
@@ -361,6 +466,7 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let tail = ss.iter().filter_map(|s| s.tail_min).min();
         let touch: usize = ss.iter().map(|s| s.tail_touch).sum();
         let group = ss.iter().map(|s| s.tail_group_max).max().unwrap_or(0);
+        let window = ss.iter().map(|s| s.window_max).max().unwrap_or(0);
         let probs: Vec<String> = ss.iter().map(|s| s.problems.to_string()).collect();
         let merges: usize = ss.iter().map(|s| s.merges).sum();
         let early: usize = ss.iter().map(|s| s.latch_early).sum();
@@ -374,7 +480,54 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let rv: usize = ss.iter().map(|s| s.climb_rev).sum();
         let mn: Vec<usize> = (0..3).map(|i| ss.iter().map(|s| s.meet_n[i]).sum()).collect();
         let mm: Vec<String> = (0..3).map(|i| ss.iter().filter_map(|s| s.meet_min[i]).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.min(v)))).map_or("-".into(), |v| format!("{v:.3}"))).collect();
-        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv} | met climb {} (slowest {}) T {} (slowest {}) descent {} (slowest {}) | by place flat/climb/T/descent {}/{}/{}/{} | upstream max {} | back travel {:.2} onto boosters {} back v {:.3}", tc[0], tc[1], tc[2], tc[3], tc[4], mn[0], mm[0], mn[1], mm[1], mn[2], mm[2], ss.iter().map(|s| s.cls[0]).sum::<usize>(), ss.iter().map(|s| s.cls[1]).sum::<usize>(), ss.iter().map(|s| s.cls[2]).sum::<usize>(), ss.iter().map(|s| s.cls[3]).sum::<usize>(), ss.iter().map(|s| s.upstream).max().unwrap_or(0), ss.iter().map(|s| s.back_travel).fold(0.0, f64::max), ss.iter().map(|s| s.back_boost).sum::<usize>(), ss.iter().map(|s| s.back_vmax).fold(0.0, f64::max)) } else { pad };
+        let bp = (0..7).map(|i| ss.iter().map(|s| s.cls[i]).sum::<usize>().to_string()).collect::<Vec<_>>().join("/");
+        let pad = if o.approach > 0 { format!("{pad} | T rests {tr} (a {} b {} c {} k {} o {}) | climb rev {rv} | met climb {} (slowest {}) T {} (slowest {}) descent {} (slowest {}) | by place flat/climb/T/descent/hump-down/hump-up/run {bp} | upstream max {} | back travel {:.2} onto boosters {} back v {:.3}", tc[0], tc[1], tc[2], tc[3], tc[4], mn[0], mm[0], mn[1], mm[1], mn[2], mm[2], ss.iter().map(|s| s.upstream).max().unwrap_or(0), ss.iter().map(|s| s.back_travel).fold(0.0, f64::max), ss.iter().map(|s| s.back_boost).sum::<usize>(), ss.iter().map(|s| s.back_vmax).fold(0.0, f64::max)) } else { pad };
+        let pad = if o.approach > 0 {
+            // (the meetings by cause: "met climb" (the meetings on the climb count, `meet_n`) and
+            // the by-place climb column, frozen/over T/head-on/stalled/catch-up/other, then in a
+            // freeze/within 200 gt of a thaw/other)
+            let j6 = |f: &dyn Fn(&Summary) -> [usize; 6]| (0..6).map(|i| ss.iter().map(|s| f(s)[i]).sum::<usize>().to_string()).collect::<Vec<_>>().join("/");
+            let j3 = |f: &dyn Fn(&Summary) -> [usize; 3]| (0..3).map(|i| ss.iter().map(|s| f(s)[i]).sum::<usize>().to_string()).collect::<Vec<_>>().join("/");
+            format!("{pad} | met climb by cause fz/oT/ho/st/cu/ot {} when fr/th/ot {} | by place climb by cause {} when {} | hump-up by cause {} when {}", j6(&|s| s.n_causes[0]), j3(&|s| s.n_whens[0]), j6(&|s| s.causes[1]), j3(&|s| s.whens[1]), j6(&|s| s.causes[5]), j3(&|s| s.whens[5]))
+        } else {
+            pad
+        };
+        // (box contacts: per place with any, the follower's highest stored speed at first contact
+        // over the seeds, the count at 1.0 or more (the bridged merge threshold), the closest centres)
+        let pad = if o.approach > 0 {
+            let names = ["flat", "climb", "T", "descent", "hump-down", "hump-up", "run"];
+            let bcs: Vec<String> = (0..7)
+                .filter(|i| ss.iter().any(|s| s.bc[*i].0 > 0))
+                .map(|i| format!("{} {:.3}/{}/{:.3}/{}", names[i], ss.iter().map(|s| s.bc[i].1).fold(0.0, f64::max), ss.iter().map(|s| s.bc[i].2).sum::<usize>(), ss.iter().map(|s| s.bc[i].5).fold(0.0, f64::max), ss.iter().map(|s| s.bc[i].6).sum::<usize>()))
+                .collect();
+            format!("{pad} | waiting-cart contacts stored max/at 0.6+/onto empty max/merged {} | over T {} v_T {:.3}", if bcs.is_empty() { "-".to_string() } else { bcs.join(" ") }, ss.iter().map(|s| s.vt.0).sum::<usize>(), ss.iter().map(|s| s.vt.1).fold(0.0, f64::max))
+        } else {
+            pad
+        };
+        // (the profile at T, the snap turn and G2 by train place over the seeds: stored min..max
+        // and +gt min..max from the train's launch slot)
+        let pad = if o.approach > 0 {
+            let mut v = Vec::new();
+            for code in ["top", "T", "snap", "G2"] {
+                let by: Vec<String> = (1..=3)
+                    .filter_map(|j| {
+                        let xs: Vec<&(String, usize, f64, f64, i64, i64)> = ss.iter().flat_map(|s| s.prof.iter()).filter(|p| p.0 == code && p.1 == j).collect();
+                        if xs.is_empty() {
+                            return None;
+                        }
+                        let (s0, s1) = xs.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), p| (a.min(p.2), b.max(p.3)));
+                        let (d0, d1) = xs.iter().fold((i64::MAX, i64::MIN), |(a, b), p| (a.min(p.4), b.max(p.5)));
+                        Some(if code == "G2" { format!("+{d0}..{d1}") } else { format!("{s0:.2}..{s1:.2} +{d0}..{d1}") })
+                    })
+                    .collect();
+                if !by.is_empty() {
+                    v.push(format!("{code} {}", by.join(", ")));
+                }
+            }
+            if v.is_empty() { pad } else { format!("{pad} | by train place 1st, 2nd, 3rd: {}", v.join("; ")) }
+        } else {
+            pad
+        };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
             let dr: usize = ss.iter().map(|s| s.d_rev).sum();
@@ -385,8 +538,55 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         } else {
             pad
         };
-        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 || derails > 0 || dbad > 0 || oot > 0 { " <--" } else { "" };
-        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
+        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || window > 3 || merges > 0 || derails > 0 || dbad > 0 || oot > 0 { " <--" } else { "" };
+        // (seeds breaking a hard line: back-crossings, merges, derails, a departure under 5 gt, more
+        // than 3 out in one window)
+        let hard = ss.iter().filter(|s| s.back > 0 || s.merges > 0 || s.derails > 0 || s.dep_min.is_some_and(|g| g < 5) || s.window_max > 3).count();
+        let tko: usize = ss.iter().map(|s| s.takeoff_bad).sum();
+        out.push(format!("{name:24} clean from {:>2} | hard {hard}/{} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | take-off 4..6 gt {tko} | tail min {} ({touch}) group {group} | out per window {window} | derails {derails} | declared {dbad}{pad} | problems {}{flag}", opt(clean), ss.len(), opt(dep), opt(tail), probs.join("/")));
+    }
+    // (the approach's meetings totalled per case family (the case's name without its variant and
+    // its trailing "+T"): rows with climb meetings, "met climb" by cause and when, the by-place
+    // climb and the hump's rising face, the box contacts at 1.0 or more)
+    if o.approach > 0 {
+        let family = |name: &str| {
+            let n = name.split_once(": ").map_or(name, |(_, b)| b);
+            match n.rsplit_once(" +") {
+                Some((a, t)) if t.chars().all(|ch| ch.is_ascii_digit()) => a.to_string(),
+                _ => n.to_string(),
+            }
+        };
+        let mut fams: Vec<String> = Vec::new();
+        for (name, _, _) in &cases {
+            let f = family(name);
+            if !fams.contains(&f) {
+                fams.push(f);
+            }
+        }
+        out.push("totals per case family (met climb rows with any/rows; met climb by cause frozen/over T/head-on/stalled/catch-up/other; when in a freeze/after a thaw/other; by place climb; hump-up; contacts at 1.0+ by place):".to_string());
+        for f in fams {
+            let ids: Vec<usize> = cases.iter().enumerate().filter(|(_, (n, _, _))| family(n) == f).map(|(i, _)| i).collect();
+            let ss: Vec<&Summary> = got.iter().filter(|(k, _)| ids.contains(k)).map(|(_, s)| s).collect();
+            let rows = ids.iter().filter(|i| got.iter().any(|(k, s)| k == *i && s.meet_n[0] > 0)).count();
+            let sum6 = |f: &dyn Fn(&Summary) -> [usize; 6]| (0..6).map(|i| ss.iter().map(|s| f(s)[i]).sum::<usize>().to_string()).collect::<Vec<_>>().join("/");
+            let sum3 = |f: &dyn Fn(&Summary) -> [usize; 3]| (0..3).map(|i| ss.iter().map(|s| f(s)[i]).sum::<usize>().to_string()).collect::<Vec<_>>().join("/");
+            let met: usize = ss.iter().map(|s| s.meet_n[0]).sum();
+            let c06: Vec<String> = (0..7).map(|i| ss.iter().map(|s| s.bc[i].2).sum::<usize>().to_string()).collect();
+            let vmax: Vec<String> = (0..7).map(|i| format!("{:.2}", ss.iter().map(|s| s.bc[i].1).fold(0.0, f64::max))).collect();
+            out.push(format!(
+                "  {f}: met climb {met} in {rows}/{} rows, by cause {}, when {} | by place climb {} | hump-up {} | waiting-cart contacts at 0.6+ flat/climb/T/descent/hump-down/hump-up/run {} (stored max {}) | merged {} | pushed back over T {} (v_T max {:.3})",
+                ids.len(),
+                sum6(&|s| s.n_causes[0]),
+                sum3(&|s| s.n_whens[0]),
+                ss.iter().map(|s| s.cls[1]).sum::<usize>(),
+                ss.iter().map(|s| s.cls[5]).sum::<usize>(),
+                c06.join("/"),
+                vmax.join("/"),
+                ss.iter().map(|s| s.bc.iter().map(|b| b.6).sum::<usize>()).sum::<usize>(),
+                ss.iter().map(|s| s.vt.0).sum::<usize>(),
+                ss.iter().map(|s| s.vt.1).fold(0.0, f64::max)
+            ));
+        }
     }
     Ok(out.join("\n"))
 }
@@ -525,4 +725,64 @@ pub fn cprime_cells(ox: i32, delays: [i32; 6]) -> (Vec<[i32; 3]>, Vec<([i32; 3],
     put(6, -4, 4, "stone".into());
     put(5, -4, 4, "redstone_wall_torch[facing=west,lit=true]".into());
     (removed, add)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The runner's by-place line with these counts (and a log naming places, as the runner's does).
+    fn by_place(c: [usize; 7]) -> String {
+        format!(
+            "meetings by the met cart's place: flat run below the climb {} (slowest 0.044), climb {} (slowest -), T {} (slowest 0.010), descent {} (slowest -), hump-down {} (slowest -), hump-up {} (slowest -), run {} (slowest -) (flat slot 5 +43: cart 2 at z 9.84 y 1.06 v 0.805, pusher cart 1 at z 10.82 v 0.908; climb slot 6 +50: cart 1 at z 6.50 y 2.50 v 0.000, pusher cart 0 at z 7.48 v 0.400)",
+            c[0], c[1], c[2], c[3], c[4], c[5], c[6]
+        )
+    }
+
+    /// The per-column positive control (farmopt 2026-11-11): one meeting injected in one place reads
+    /// back in that place's column alone. A column repeating another's (the "climb " key matching
+    /// inside "flat run below the climb N": c4336062's 388 climb meetings were flat ones) fails here.
+    #[test]
+    fn each_place_column_counts_only_its_own_meetings() {
+        for i in 0..7 {
+            let mut c = [0usize; 7];
+            c[i] = 1;
+            assert_eq!(summarize(&by_place(c)).cls, c, "a meeting in place {i} alone");
+        }
+        assert_eq!(summarize(&by_place([4, 0, 0, 0, 0, 0, 0])).cls, [4, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(summarize(&by_place([0, 3, 0, 0, 0, 0, 0])).cls, [0, 3, 0, 0, 0, 0, 0]);
+        assert_eq!(summarize(&by_place([2, 5, 7, 11, 13, 17, 19])).cls, [2, 5, 7, 11, 13, 17, 19]);
+    }
+
+    /// The cause lines read back per place, cause and when (one injected count each).
+    #[test]
+    fn each_cause_column_counts_only_its_own_meetings() {
+        let names = ["flat", "climb", "T", "descent", "hump-down", "hump-up", "run"];
+        for p in 0..7 {
+            for k in 0..6 {
+                let row = |i: usize| {
+                    let mut c = [0usize; 6];
+                    let mut w = [0usize; 3];
+                    if i == p {
+                        c[k] = 1;
+                        w[k % 3] = 1;
+                    }
+                    format!("{} {} when {}", names[i], c.map(|v| v.to_string()).join("/"), w.map(|v| v.to_string()).join("/"))
+                };
+                let l = format!("meetings by cause (frozen/over T/head-on/stalled/catch-up/other, when in a freeze/after a thaw/other): {} (examples: climb over T: slot 5 +80: cart 3 z 6.20 y 3.50 vz 0.400 (back over T) / cart 4 z 7.10 y 2.60 vz -0.400)", (0..7).map(row).collect::<Vec<_>>().join("; "));
+                let s = summarize(&l);
+                for i in 0..7 {
+                    let mut c = [0usize; 6];
+                    let mut w = [0usize; 3];
+                    if i == p {
+                        c[k] = 1;
+                        w[k % 3] = 1;
+                    }
+                    assert_eq!((s.causes[i], s.whens[i]), (c, w), "place {i}, injected at place {p} cause {k}");
+                }
+            }
+        }
+        let n = summarize("meetings on the climb, on T, below T by cause (frozen/over T/head-on/stalled/catch-up/other, when in a freeze/after a thaw/other): climb 0/2/0/0/0/0 when 0/2/0; T 1/0/0/0/0/0 when 1/0/0; descent 0/0/0/0/0/3 when 0/0/3");
+        assert_eq!((n.n_causes, n.n_whens), ([[0, 2, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 3]], [[0, 2, 0], [1, 0, 0], [0, 0, 3]]));
+    }
 }

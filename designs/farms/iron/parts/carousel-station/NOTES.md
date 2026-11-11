@@ -333,6 +333,42 @@ before the z 9|10 line: next section.
   blocks would stop it), but carts pushed back over T come down the boosted climb boosted backward
   to stored 1-2.9 (210 rows): no hump stops those, so a boosted climb needs the stand never to push
   carts back over T.
+- **Withdrawn: every "by place" climb figure of C and C'' (388/404, 723/113/148).** A parse bug, not
+  meetings: `approach::summarize` read the climb count with the key `"climb "`, which first matches
+  inside "flat run below the climb N", so the table's climb column repeated the flat column in every
+  row. Fixed on explore/farmopt-c3 (keys `"), climb "` etc.) with a per-column positive control in
+  `approach::tests` (one meeting in one place reads back in that column alone; the old key fails it:
+  [1,0,..] read as [1,1,..]). Control row: C'' (bc2387241), "REL 10..50 st 2: chunks 0,0,0,0 40 +12",
+  seed 1: the table read 4/4/0/0 before, 4/0/0/0 after, the single run flat 4, climb 0.
+- **The real climb meetings on C'' ("meetings on the climb", 9fc3155f, validated bench: rel-sweep
+  -2..+2, stagger 4, skew 2,2,2, pocket-release 13, head latch 3,-3,4,2; 73 cases x 5 x 8 seeds):**
+  none in normal flow; all after a stand-side freeze. Stand freeze 240 (+40..+75): 1,326 in 116 of 180
+  rows; chunks 0,0,0,0 40/240: 13/17; 0,0,0,1 40: 20; 0,1,0,1 40: 11; the 240-gt 0,0,0,1 and 0,1,0,1
+  rows 0. By cause (the runner's new "meetings ... by cause" lines): a frozen cart in the pair 0, a cart
+  pushed back over T 285, head-on (a forward cart onto a backward one) 342, a stalled cart met 318, a
+  catch-up 381 (stand-freeze rows); 1,239 of 1,326 within 200 gt after the thaw, none during it. Traced
+  (stand freeze 240 +62, REL +0): 14 gt after the thaw the restarting stack's follower catches its
+  leader at the climb's foot (cart 19 z 7.61 vz -0.31 / cart 20 z 8.80 vz -0.35); at 55 gt a forward cart
+  boosted to stored 2.03 meets cart 16 rolling back at +0.59 after the stand pushed it back over T;
+  at 161 gt a forward cart at 0.72 meets one crawling on T (-0.010). Carts pushed back over T: 509
+  (fastest stored 0.429: v_T for today's stand).
+- **C''' (paused fallback, ironspec 11:23 Nov 11: the main line is C'' + a hump; riderless rows
+  discharged by the siding's ridden-only exit).** wip/approach-c3-hump.txt (`queue-loop ... --approach 5
+  --hump 5 --boost-first 3`, (c') departure): 3 flat boosters after the head, a plain hump (top y 7 =
+  the dip + 5 = T + 1), the dip's flat z 9..10 at y 2 (the line on flat), a plain climb z 8..5 (D at z
+  6), T (-3,6,4), approach 5's 3 slopes down. The run needs 17 cells: the queue's head moves north 9
+  (head slot z 19 -> 28; `--boost-slopes`: the boosters as the hump's first slopes, +6). Normal flow
+  (perfect tail from slot 1: the moved head breaks the bench's own tail; seed 1, nominal):
+  - arrivals at T +73/+81/+92 by train place (C'': +49/+60/+72): today's stand breaks (its slack is
+    ~8 gt); boosters as slopes: +63/+73/+84;
+  - stored at the boosters' end 0.82/0.94/1.09, the hump's top 0.37/0.49/0.64, T 0.40/0.51/0.64,
+    the snap turn 0.62/0.73/0.86; 2 or 1 boosters (flat or slopes): ridden carts don't clear the hump;
+  - the game's height-change rule (0.05 per block) and the slide (0.0078 per gt) cost ~0.075 stored per
+    block of rise at the visible cap (measured 0.074 over the hump's 6) and give it back going down: v +
+    0.075 y is about conserved, so H's 0.6 at first contact needs <= ~0.46 at T and <= ~0.40 at the top,
+    narrower than the release's spread by train place (0.25);
+  - an empty cart decays (0.96 per gt): an empty 1st cart stalls before T (0.02-0.07 in the dip), is
+    met on the hump's rising face and on the climb, and is shoved into H at stored 1.94.
 
 ## Declared states and flights (the brief's "No derails", Nov 11)
 
@@ -350,6 +386,92 @@ Both station files carry the lines `mobfarm::declared` and `mobfarm::flight` rea
   drive-check passes. Positive controls: one stand rail declared `powered=true` fails at gt 200
   and after the warm-up; a hold rail removed (no declared line) gives 41 derails, one per cart
   parked there.
+- The runtime check (`declared::check_runtime`, main b712c807d) runs every tick in linear-bench:
+  the brakes are declared bench-set (`~`: no control line, so any power reaching them fails the
+  run). 8 seeds x 1 day, all three placements: 0. Positive control: a redstone block under the
+  first stand rail fails at gt 201 ("2,0,0: powered by a neighbour (it has no control line)", and
+  the two rails beside it through it).
+
+## The stand-fix options, in emulation (Nov 11; `queue-loop-run` on approach 5 + crest + C′, aligned frame `--shift 6,6`)
+
+None of these is built; each is a bench emulation (`queue-loop-run` flags on
+explore/farmopt-stand-faults) measured against the brief's fault rows.
+- **(a) the two-part release** (`--split X,Y,Z,B`: G2 shut behind pocket 3's departing cart until
+  REL goes off or B gt from its rise), with ironfarm's escapement tail (escG6L, 14 slots): after a
+  missed REL only B = 42 passes the hard lines (40 and 44 each fail a stagger), and the batches
+  wobble (groups of 0, 2, 3) to slot 18. Recorded as measured, not pursued. A missed REL absorbs its
+  own surplus: a skip request after it changes only its own log line, while the same request in a
+  normal run (the positive control) makes the 2-cart release it should.
+- **The interlock** (`--interlock 0`, ideal edge latches): on the gates' launches it keeps normal
+  timing but closes nothing; on the gates it cascades the release (departures 16..18 gt, divert
+  envelope +5/+11) and the stand stops capturing whole batches. On arrivals only, keyed on a resting
+  cart (the pocket past the gate occupied and the gate beyond it shut; `--interlock-arrivals`), it
+  leaves normal flow unchanged at 3 REL corners x staggers 2/3/4/6.
+- **The entry hold** (`--entry-hold X,Y,Z[,H]`: while pocket 3 holds a resting cart, a train is held
+  before the stand). On the flat top (-3,6,4) it fails: the carts behind the held one stall on the
+  climb's last slope and roll back onto the boosters. On the last descending slope (-3,3,1), against
+  the drop turn, the held train rests: front z 1.49, cart 2 z 2.29, cart 3 z 3.17 (below the flat
+  top), all at speed 0.00, in contact, pressed by gravity; 0 merges, 0 rider-ticks walking with a
+  reachable path, the HOME stamp never set; it restarts by gravity. Normal flow never meets it (slack
+  >= 21 gt at every corner and stagger). Opened as soon as pocket 3 clears, the held train runs
+  through the stand while REL still holds G0 open (4..6-cart bursts after a missed REL); an added
+  "shut for H gt after REL's rise" passes the missed-REL rows only at H = 15, a single
+  non-monotonic point, so it is no design.
+- **Ending REL on cart evidence** (`--rel-end-rear 1,-1,0,30,80`: 30 gt after pocket 3's departing
+  cart enters (1,-1,0), the one cell only it crosses while the release is open): normal flow 0
+  problems at every corner, a constant 43 gt open; with the gate, (i) and the downslope hold, ironspec's
+  fault set at all 12 corners (seed 1) leaves 12 hard failures outside the partial freezes, 7 with the
+  quiet-entry unset-pass and the pocket-1-evidence latch set. The partial freezes split trains, and
+  the stand's 3-cart logic then meets partial batches.
+- **Sensing at today's spacing** (arrivals 9..15 gt apart, departures 10..13; a detector re-checks
+  every 20 gt, so an on-edge is evidence only for the first cart after it was last off): D1, the rear
+  exit's edge, first-edge triggers and busy levels have real sensors; pocket 2/3 occupancy, a
+  pocket-1 evidence independent of D1, an in-gate guard at G2 (a powered slope) and the hold's
+  pocket-3 input do not. A pairwise sweep of the release gaps (G12 3..7 x G23 2..8, 3 corners) fails
+  the hard lines at 24 of 105 pairs on the full emulated stack.
+- **S1t** (metering the train at the hold, one cart per 12..14 gt, tripwire evidence): out. A tripwire
+  sees riders, not carts, and a riderless cart reaches the stand (main's bed stop leaves its napper
+  behind in 6 of 40 mid-nap reloads; dismounts, kills): its count breaks.
+- **Impacts off boosters:** a cart's stored speed builds to 2.0 on boosters while its movement per
+  tick stays capped at 0.4, and collisions use the stored speed, so a stopping point fed off a boosted
+  run (the pockets fed off T, any hold) takes much harder impacts than the visible speed shows
+  (ironspec; 1.33..1.36 b/t measured into a held train).
+
+## What did not work: S2, the comb stand
+
+Basis: explore/farmopt-s2 da8124a1d (`queue-loop --stand-comb 1 [--comb-gravity]`, designs s2c1 and
+s2c1g: approach 5, crest 3, shift 6,6), on the OLD 20 gt bench (REL 3 gt early): not validated.
+Each pocket on its own branch, reached through rail junctions (T at the climb's top, S_y after it)
+flipped by single-cart detector edges in a 3-state ring.
+
+- **The closing cause: flip windows.** A switch flips between consecutive carts, and each cart's box
+  holds the cell about 2.5 gt either side of its centre, so the window is the gap less about 5 gt;
+  2 gt each side needs ≥ 9 gt between carts and an exactly timed flip. On main's train (about 11 gt
+  at T) the margin was already 1 gt before the next cart (T, on D_P3's edge +2). Approach C's
+  arrivals reach T 4..5 gt apart: no window at all.
+- After a stand-chunk freeze (level 32, 40 gt at slot 1 +20..+25), bunched trains flipped T and S_y
+  with a cart in the cell (1..2 a row).
+- **False arrival edges from junction snaps:** a departing cart crossing J1 from its unconnected side
+  is snapped to J1's +z edge, inside the box of the detector on J1's +z neighbour (E1): a false
+  arrival edge, and G0 shut on a departing cart (a real detector triggers the same way). Now
+  ironspec's rule: no detector a junction-crossing cart can reach.
+- **Wrong-side entry at J1/J2:** with the gate slopes powered while open, entries ≥ 0.328 b/t and
+  exits ≥ 0.319 (18 crossings, 0 problems); with gravity pockets, 0.039 b/t at J1 against the 0.1
+  bar (departures stall: a 4-cart window, gates shut on carts, 31 problems in 6 slots), since each
+  pocket climbs a block back after two down.
+- Exit edges: the only strip cell between a gate slope and the next junction sits beside that
+  powered slope; a clean exit cell needs one more flat per pocket (stand area x −4..11).
+- Cycle line (stem-in S_y): batch at rest by +92..+94, 4..6 gt before the summon tick; arrival
+  detectors ≥ 2 cells from a junction would cost 2.5..5 gt more.
+
+What carried over (to S3(ii)):
+- **Gates shut on the next arrival's edge:** G_k opens at REL and shuts on its line's next arrival
+  edge E_k, a line gate GF_k upstream of E_k: 3 gt from the edge to the shut, ≥ 33 gt from the last
+  departure; at most 3 out per window by construction.
+- **The head-launch latch** (the head launches only once the stand emptied since its last launch)
+  never bound: slack 71..87 gt.
+- **Per-pocket occupancy from single-cart cells:** one latch per pocket, set on its arrival edge and
+  reset on its exit edge, drives the line gate's reopening and the head latch's "stand empty".
 
 ## What did not work
 

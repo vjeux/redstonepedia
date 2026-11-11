@@ -78,9 +78,10 @@ pub struct Horse {
     pub stand_anim_o: f32,
 }
 
-/// Is this a horse (`AbstractHorse`: horse, donkey, zombie or skeleton horse, a baby too)?
+/// Is this a horse (`AbstractHorse`: horse, donkey, zombie or skeleton horse, a baby too; a trader
+/// llama: mob-AI 2026-11-11)?
 pub fn is_horse(id: &str) -> bool {
-    matches!(adult_of(id), Some("horse" | "donkey" | "zombie_horse" | "skeleton_horse"))
+    matches!(adult_of(id), Some("horse" | "donkey" | "zombie_horse" | "skeleton_horse" | "trader_llama"))
 }
 
 /// `AbstractHorse.isImmobile`: eating or standing (dead: LivingEntity's, handled by the caller).
@@ -88,9 +89,12 @@ pub fn horse_immobile(w: &World, i: usize) -> bool {
     mob(w, i).ai.as_deref().and_then(|a| a.horse).is_some_and(|h| h.eating || h.stand_counter > 0)
 }
 
-/// `AbstractHorse.standIfPossible` (`canPerformRearing`: every horse here): `setStanding(20)`,
-/// which stops its eating.
+/// `AbstractHorse.standIfPossible` (`canPerformRearing`: every horse here but a llama):
+/// `setStanding(20)`, which stops its eating.
 pub fn stand_if_possible(w: &mut World, i: usize) {
+    if adult_of(mob(w, i).ty.def().id) == Some("trader_llama") {
+        return;
+    }
     if let Some(h) = mob_mut(w, i).ai.as_deref_mut().and_then(|a| a.horse.as_mut()) {
         h.eating = false;
         h.stand_counter = 20;
@@ -121,6 +125,10 @@ fn horse_after_ai_step(w: &mut World, i: usize) {
     }
     let vehicle = !w.entities.list[i].passengers.is_empty();
     let Some(h) = mob(w, i).ai.as_deref().and_then(|a| a.horse) else { return };
+    // canEatGrass: a llama's is false (no roll, no eating)
+    if adult_of(mob(w, i).ty.def().id) == Some("trader_llama") {
+        return;
+    }
     if !h.eating && !vehicle && own(w, i).next_int(300) == 0 {
         let below = w.entities.list[i].block_position().below();
         let grass = match w.get(below) {
@@ -195,8 +203,10 @@ pub fn adult_of(id: &str) -> Option<&'static str> {
         "skeleton_horse" => Some("skeleton_horse"),
         // (mob-AI 2026-11-10) the wolf (a TamableAnimal: an Animal; natural wolves are adults)
         "wolf" | "baby_wolf" => Some("wolf"),
-        // (mob-AI 2026-11-10) the cat (a TamableAnimal; the CatSpawner's are adults)
+        // (mob-AI 2026-11-10) a wild cat (a TamableAnimal; the CatSpawner's are adults)
         "cat" => Some("cat"),
+        // (mob-AI 2026-11-11) a trader llama (an AbstractChestedHorse; the spawner's are adults)
+        "trader_llama" => Some("trader_llama"),
         _ => None,
     }
 }

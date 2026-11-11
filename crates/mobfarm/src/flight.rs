@@ -81,6 +81,11 @@ impl RailWatch {
     /// `rider` its rider (seated at the landing), `when` the tick's name.
     pub fn observe(&mut self, w: &World, k: usize, id: u32, rider: Option<u32>, when: &str) {
         let Some(e) = w.entities.list.iter().find(|e| e.id == id && !e.removed) else { return };
+        // (a cart in a chunk that doesn't tick its entities (a partial unload) is frozen, flight
+        // and all: its off-rail stretch counts the ticks it moves, not the world's)
+        if !w.entity_ticks_at(e.pos.x, e.pos.z) {
+            return;
+        }
         if self.st.len() <= k {
             self.st.resize(k + 1, CartState::default());
         }

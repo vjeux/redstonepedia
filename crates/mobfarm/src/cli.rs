@@ -549,6 +549,27 @@ pub enum MobfarmCmd {
         /// the release run plain).
         #[arg(long)]
         approach_climb_boost: bool,
+        /// With --approach 5: C''', a plain hump after the run's --boost-first boosters, its flat
+        /// top this many blocks above the dip; the dip's plain flat across the line z 9|10, a plain
+        /// climb to T (6 high at z 4), T and approach 5's descent; the queue's head moves north
+        /// as far as the run needs.
+        #[arg(long, default_value_t = 0)]
+        hump: u32,
+        /// With --hump: the dip's height (2: z 9 flat, four slopes up to T).
+        #[arg(long, default_value_t = 2)]
+        dip_y: u32,
+        /// With --hump: the dip's flat cells, z 9 and north.
+        #[arg(long, default_value_t = 2)]
+        dip_flat: u32,
+        /// With --hump: the run's boosters as the hump's first slopes up (not flat).
+        #[arg(long)]
+        boost_slopes: bool,
+        /// With --hump: the hump's flat top this many cells long.
+        #[arg(long, default_value_t = 1)]
+        top_flat: u32,
+        /// With --hump: the top's flat cells boosters (backward carts never reach them).
+        #[arg(long)]
+        top_boost: bool,
         /// With --depart-crest: the dip past the line as plain flat rails (the boosted rise
         /// climbs alone).
         #[arg(long)]
@@ -622,6 +643,28 @@ pub enum MobfarmCmd {
         /// against G0 on it); P always on with it.
         #[arg(long)]
         adm_flatb: bool,
+        /// Admission control: R (the slope under G_P into slot 0) a powered rail pulsed at each
+        /// launch (tail-bench / queue-loop-run `--adm-rpulse`).
+        #[arg(long)]
+        adm_rboost: bool,
+        /// Admission control: P a sloped detector rail (senses its cart; the launch on gravity).
+        #[arg(long)]
+        adm_pdet: bool,
+        /// Admission control's entry-hold sensors: the plain landing flat and the third queue
+        /// slope as detector rails (the stand's REL waits while either is on).
+        #[arg(long)]
+        adm_sensors: bool,
+        /// The room detector's queue slope (0 = the top one, by the landing).
+        #[arg(long, default_value_t = 2)]
+        adm_room_k: u32,
+        /// The top queue slope a detector too: the landing latch's reset (the cart moved on).
+        #[arg(long)]
+        adm_latch_reset: bool,
+        /// Admission control's x-queue (ironspec's R1): N plain slopes down west along z 24, the
+        /// curve north and one flat transition cell, all upstream of the forced chunk border z
+        /// 25|26, then the --tail-esc slopes north into G0 and P.
+        #[arg(long, default_value_t = 0)]
+        adm_xq: u32,
         #[arg(long)]
         out: PathBuf,
     },
@@ -818,6 +861,18 @@ pub enum MobfarmCmd {
         /// (−1: as the others).
         #[arg(long, default_value_t = -1, allow_hyphen_values = true)]
         adm_k2: i64,
+        /// Admission control's R booster (`--adm-rboost` designs): R's control on for this many gt
+        /// from each G_P opening.
+        #[arg(long, default_value_t = 0)]
+        adm_rpulse: i64,
+        /// The rider-space check's positive control: stones at X,Y,Z;... (the design's frame)
+        /// placed before the check.
+        #[arg(long)]
+        rider_space_control: Option<String>,
+        /// Declared sight stretches added to the design's `sight:` (X0,Y0,Z0..X1,Y1,Z1;...): their
+        /// riders keep every zombie within 8 in sight.
+        #[arg(long)]
+        sight: Option<String>,
         /// Every cart's position each tick in the log.
         #[arg(long)]
         trace: bool,
@@ -834,6 +889,15 @@ pub enum MobfarmCmd {
         /// Write the bench's block changes as a drive for tick-exact's bridge.
         #[arg(long)]
         drive_out: Option<PathBuf>,
+        /// Replay a loop's arrival stream (queue-loop-run `--arrivals-out`): each cart spawned on
+        /// the return run where and when the loop's crossed x 8.5, at its speed (with `--pattern
+        /// 0*N` for N cycles).
+        #[arg(long)]
+        arrivals: Option<PathBuf>,
+        /// With `--scene-out`/`--drive-out`: the scene holds the tail's carts as at cycle C's
+        /// start (position, motion, facing, a villager riding) and the drive starts there.
+        #[arg(long)]
+        scene_at: Option<i64>,
         /// Write the design reduced to what the bench keeps (the tail's carts and the other
         /// entities) as a scene file for the bridge.
         #[arg(long)]
@@ -842,6 +906,16 @@ pub enum MobfarmCmd {
         /// check): `X,Y,Z>X,Y,Z|X,Y,Z@AIR; ...`.
         #[arg(long)]
         flights: Option<String>,
+    },
+    /// Two release traces (queue-loop-run with MCTAS_RELEASE_TRACE=path) compared tick by tick,
+    /// the bench-against-wired check: the release group's 3 rails' power and every cart on the
+    /// release run, the first difference of each, their counts and the largest position gap.
+    TraceDiff {
+        a: PathBuf,
+        b: PathBuf,
+        /// Positions closer than this (blocks, on every axis) count as equal.
+        #[arg(long, default_value_t = 0.0001)]
+        tol: f64,
     },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
@@ -854,13 +928,15 @@ pub enum MobfarmCmd {
         /// Run this many seeds from `--seed` on and print one line each plus the total.
         #[arg(long, default_value_t = 1)]
         seeds: i64,
-        /// The release group's slopes powered this long from the slot's start (day-1's release
-        /// controller: 34).
-        #[arg(long, default_value_t = 34)]
+        /// The release group's slopes powered this long from each one's own opening (day-1's
+        /// release controller: each slope 40 gt, front first at +4/+8/+12).
+        #[arg(long, default_value_t = 40)]
         release_for: i64,
         /// The queue's 3 advance pulses: the first this many gt after the slot's start, then
-        /// every `--advance-every`, each `--pulse` long (day-1's controller: 38, 20, 10).
-        #[arg(long, default_value_t = 38)]
+        /// every `--advance-every`, each `--pulse` long (main's wired controller: 41, 20, 10, with
+        /// slots 0-2 two later (`--skew 2,2,2`); the bench-against-wired check, Nov 11 07:00:
+        /// the old 38 ran the whole register 3 gt early).
+        #[arg(long, default_value_t = 41)]
         advance_at: i64,
         #[arg(long, default_value_t = 20)]
         advance_every: i64,
@@ -928,7 +1004,11 @@ pub enum MobfarmCmd {
         summon_at: Option<i64>,
         /// Fault injection: SLOT,DT,X,Y,Z,BLOCK[,FOR]: the block set at slot SLOT + DT gt; with
         /// FOR, the block it replaced put back FOR gt later (meanwhile the bench's own drive of
-        /// that cell, the wired stand's REL, leaves it). Repeat for more (up to 8).
+        /// that cell, the wired stand's REL, leaves it). SLOT,DT,unload,N[,ORDER] or
+        /// SLOT,DT,unload,X0,Z0,X1,Z1,N: the whole part (or a chunk box) away N gt. SLOT,DT,dismount,R
+        /// or SLOT,DT,swap,R1,R2: a rider off its cart, or two riders exchanging carts (R:
+        /// visit:SLOT, that visit's napper by its current number; visit:SLOT/J, the rider of that
+        /// visit's batch's J-th cart; or an entity number). Repeat for more (up to 8).
         #[arg(long, allow_hyphen_values = true)]
         act: Vec<String>,
         /// A diagnostic for the pocket stand: at this slot's start, a hand reset of the queue only
@@ -968,6 +1048,22 @@ pub enum MobfarmCmd {
         /// and the brake), the design's redstone the queue's 18.
         #[arg(long)]
         bench_stand: bool,
+        /// With `--wired`: the bench still drives the release group's 3 controls (the last 3
+        /// queue slots'): a design without its release controller, for the bench-against-wired
+        /// check (`trace-diff` on MCTAS_RELEASE_TRACE files).
+        #[arg(long)]
+        bench_release: bool,
+        /// Each release slope's off time, q15,q16,q17 (gt into the slot), overriding the computed
+        /// windows: day-1's new core at 24 gt closes q15 with A1's pulse (its +42, here 41:
+        /// --release-offs 41,47,43).
+        #[arg(long, value_delimiter = ',')]
+        release_offs: Vec<i64>,
+        /// The release group's first slope (the head) on this many gt into the slot: 3 is main's
+        /// wired controller (q17's rail powered at +3 here, its +4), found by the
+        /// bench-against-wired check (Nov 11 07:00, IDENTICAL with --release-stagger 4
+        /// --advance-at 41 --pulse 10 --skew 2,2,2).
+        #[arg(long, default_value_t = 3)]
+        release_start: i64,
         /// Added to the stand's departure times (with `--wired`, day-1's release starts 4 gt
         /// after the golem pulse: pass 4).
         #[arg(long, default_value_t = 0)]
@@ -1058,9 +1154,15 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         siding_box: Vec<i32>,
         /// With --release-stagger: each staggered slot's off delayed like its on (a repeater in
-        /// front of its control delays both edges), not all three off at --release-for.
+        /// front of its control delays both edges), not all three off at --release-for. The
+        /// default now (day-1's controller); --stagger-common-off restores the old common off.
         #[arg(long)]
         stagger_off: bool,
+        /// With --release-stagger: all three release slopes off together at --release-for (the
+        /// bench's old model; at stagger 5 and more it cuts the last cart off mid-run, which then
+        /// leaks into the release run a slot late).
+        #[arg(long)]
+        stagger_common_off: bool,
         /// Day-1's merge (b), the side drop: C,SLOT,D,V[,PARK]: at slot C, +4 (the queue at rest),
         /// the cart in queue slot PARK (default SLOT) leaves the loop, its hole then moving one
         /// slot per advance; at +D it rolls off a side rail (3 plain rails west of SLOT's slope at
@@ -1173,6 +1275,14 @@ pub enum MobfarmCmd {
         /// stay calm (the `cant-reach:` line's positive control).
         #[arg(long)]
         calm: bool,
+        /// A diagnostic: each exposed rider-tick also checks, on a copy of its navigation, for a
+        /// path from its cart to within 1 of its bed (the open bed top's counterfactual).
+        #[arg(long)]
+        reach_probe: bool,
+        /// Every exposed rider-tick written to this file (game time, slot, offset, rider, x y z,
+        /// streak, panicked within 20 gt, its PATH): the freeze-exposure map's raw data.
+        #[arg(long)]
+        exposure_out: Option<PathBuf>,
         /// Every villager's block position each tick written to this file (x y z per line), for
         /// the golem-spots check (`queue-loop-spots --positions`).
         #[arg(long)]
@@ -1203,9 +1313,58 @@ pub enum MobfarmCmd {
         /// Admission control: G0's delay for the third advance of each cycle (−1: as the others).
         #[arg(long, default_value_t = -1, allow_hyphen_values = true)]
         adm_k2: i64,
+        /// Admission control's R booster (`--adm-rboost` designs): R's control on for this many gt
+        /// from each G_P opening.
+        #[arg(long, default_value_t = 0)]
+        adm_rpulse: i64,
+        /// The rider-space check's positive control: stones at X,Y,Z;... placed before the check.
+        #[arg(long)]
+        rider_space_control: Option<String>,
+        /// Declared sight stretches added to the design's `sight:` (X0,Y0,Z0..X1,Y1,Z1;...).
+        #[arg(long)]
+        sight: Option<String>,
         /// Admission control: P always on from the first gate opening.
         #[arg(long)]
         p_always: bool,
+        /// Admission faults, SLOT,ADV,KIND[,OFF] (up to 8): KIND skip (G_P and G0 skipped: the
+        /// divert's hole), miss-g0, miss-gp, extra-g0 or extra-gp (a pulse OFF gt after G_P opens).
+        #[arg(long)]
+        adm_fault: Vec<String>,
+        /// The entry hold (`--adm-sensors` designs): the stand's release waits while either tail
+        /// detector (landing, room for 3) is on.
+        #[arg(long)]
+        entry_hold: bool,
+        /// The entry hold's landing input counts only after this many gt on without a break.
+        #[arg(long, default_value_t = 0)]
+        hold_landing_rest: i64,
+        /// The cart-evidence landing latch's strand threshold (gt set).
+        #[arg(long, default_value_t = 40)]
+        hold_strand_t: i64,
+        /// The entry hold's progress input: REL only if a cart left slot 0 forward since the
+        /// last release.
+        #[arg(long)]
+        hold_progress: bool,
+        /// The register's cart interlock, ideal sensors (bench-driven): an advance moves a cart
+        /// only into an empty slot, the head releases only into an empty stand, the tail launches
+        /// only into an empty slot 0 (the advance spacing is --advance-every).
+        #[arg(long)]
+        reg_interlock: bool,
+        /// A level-33 freeze of the tail's chunk: its controls delayed by the freeze (a pure
+        /// delay) instead of snapping to their schedule on the resume tick (the burst, default).
+        #[arg(long)]
+        l33_delay: bool,
+        /// Every tail arrival printed: the landed cart's free roll, the closing speed at its first
+        /// impact, the met cart's state and the queue's occupancy.
+        #[arg(long)]
+        arrival_log: bool,
+        /// The tail front metric's positive control: from slot C +DT for N gt the queue's second
+        /// cart behind G0 held where it is (C,DT,N).
+        #[arg(long, value_delimiter = ',')]
+        hold_back: Vec<i64>,
+        /// Admission control's skip requests, SLOT,DT (up to 8): each sets the latch; the next
+        /// G0 opening after it is skipped.
+        #[arg(long)]
+        adm_skip_req: Vec<String>,
         /// The queue's first slots' carts at each slot's start (a re-packing tail diagnostic).
         #[arg(long)]
         verbose_tail: bool,
@@ -1215,6 +1374,31 @@ pub enum MobfarmCmd {
         /// `--seeds` runs on this many threads (one process).
         #[arg(long, default_value_t = 1)]
         jobs: usize,
+        /// (ironspec's reload-order rule, farmopt 2026-11-11) The run again under each of these
+        /// load orders for every whole-part `--act ...,unload,N`: `all:N` = N orders (save,
+        /// reverse, then seed:1 .. seed:N-2); `all` = `all:40` (ironspec 2026-11-11 05:12:
+        /// wherever a sensor phase cannot be forced, a reload row runs at least 40 samples with 0
+        /// failures; each order is one sample of the game's random reload, tick-exact), or a list
+        /// (`save,reverse,seed:3`, ranges `seed:1-30`); on `--jobs` threads: one line each (its
+        /// problems and first problem, the visits, night 1, the lap order, and the visits spanning
+        /// the unload: each one's rest slot and tick), then the row's verdict (a failure under any
+        /// order fails it) with its miss rate and Wilson 95% interval.
+        #[arg(long, value_delimiter = ',')]
+        reload_orders: Vec<String>,
+        /// (tickexact 2026-11-11, ironspec's forced-phase mode) After each whole-part load
+        /// (`--act ...,unload,N`), these sensor delays forced on one villager:
+        /// `WHO@SENSOR=DELAY[,SENSOR=DELAY]` (WHO `visit:SLOT`, `visit:SLOT/J` or an entity number;
+        /// SENSOR an index or name of the villager's sensors, `living` and `hostiles` the two that
+        /// time a sleeper's wake); the load's own draws are still made, every other draw as sampled
+        #[arg(long)]
+        force_phase: Option<String>,
+        /// The run again for every delay of these sensors, `WHO@SENSOR[=VALUES][,SENSOR[=VALUES]]`
+        /// (VALUES `A..B`, `A` or `A/B/C`; all of 0 up to the scan rate when omitted), forced on WHO
+        /// after every whole-part load, on `--jobs` threads; with `--reload-orders`, under each of
+        /// those load orders too: per combination its problems and the villager's wake after the
+        /// load, then per order the table of outcomes and the failing share
+        #[arg(long)]
+        phase_sweep: Option<String>,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1224,10 +1408,23 @@ pub enum MobfarmCmd {
         /// line, say.
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         watch_cells: String,
+        /// A mob printed every gt over `--watch-mob-slots`: its place, pose, vehicle, activities,
+        /// behaviours, memories and target, and the hostiles within 16 blocks of it (distance, line
+        /// of sight from its eyes, target). R: visit:SLOT (that visit's napper, by its current
+        /// number), visit:SLOT/J or an entity number. Repeat for more (up to 4).
+        #[arg(long)]
+        watch_mob: Vec<String>,
+        /// The slots --watch-mob prints: S0,S1 (inclusive).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        watch_mob_slots: Vec<i64>,
         /// Write the run's drive log (every control change as `act <t> set x y z <state>`, each
         /// slot's cart positions as `expect <t> pos eN x y z`) for mobviewer's replay.
         #[arg(long)]
         drive_out: Option<PathBuf>,
+        /// Write the arrival stream (each cart crossing x 8.5 westward on the escapement tail's
+        /// return run: `arrival c<C> +<DT> x<X> v<V>`) for tail-bench `--arrivals`.
+        #[arg(long)]
+        arrivals_out: Option<PathBuf>,
         /// The approach's rest check instead of a run: a lone ridden cart set on each cell
         /// ("x,y,z;x,y,z", the loop's frame; `approach`: every cell from the queue head's slope up
         /// to pocket 3's rest slope) at each --rest-speeds speed; where it comes to rest.
@@ -1258,6 +1455,73 @@ pub enum MobfarmCmd {
         /// controller's REL has been on T gt (the timeout path).
         #[arg(long, value_delimiter = ',')]
         rel_gate: Vec<i64>,
+        /// Option (a)'s two-part release, emulated: X,Y,Z,W (a loop-frame cell after G2, W gt):
+        /// while the stand's REL cell is on, the first cart entering that cell shuts G2 behind it
+        /// until the REL cell goes off or W gt have passed.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        split: Vec<i64>,
+        /// ironspec's stand interlock, emulated: H (a sensor's hold after a cart leaves, gt): each
+        /// gate opens only when its signal says so and the space past it reads empty.
+        #[arg(long)]
+        interlock: Option<i64>,
+        /// With --interlock: hold the gates' slopes (the launches onto the space past each gate)
+        /// instead of the gates.
+        #[arg(long)]
+        interlock_launch: bool,
+        /// With --interlock: bind the gates only while the stand's REL is off (arrivals only).
+        #[arg(long)]
+        interlock_arrivals: bool,
+        /// The stand's entry hold, emulated: X,Y,Z[,H] (a loop-frame cell on the approach): while
+        /// pocket 3 reads occupied, a cart reaching it is kept at rest at its centre.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        stand_hold: Vec<i32>,
+        /// With --interlock: G0 also shuts for N gt after each cart crosses it (the departure
+        /// re-spacer).
+        #[arg(long, default_value_t = 0)]
+        depart_space: i64,
+        /// With --rel-gate: DELAY,TIMEOUT: REL_eff ends DELAY gt after the next train's first cart
+        /// enters C′'s detector cell (N), or TIMEOUT gt after its rise.
+        #[arg(long, value_delimiter = ',')]
+        rel_end_n: Vec<i64>,
+        /// With --rel-gate: K,TIMEOUT: REL_eff ends 4 gt after the K-th cart since its rise crosses
+        /// G0 (cart evidence: the batch out), or TIMEOUT gt after its rise.
+        #[arg(long, value_delimiter = ',')]
+        rel_end_count: Vec<i64>,
+        /// With --rel-gate: X,Y,Z,D,TIMEOUT: REL_eff ends D gt after the first cart since its rise
+        /// enters that loop-frame cell (the rearmost pocket's exit), or TIMEOUT gt after its rise.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        rel_end_rear: Vec<i64>,
+        /// With --rel-gate: the unset-pass also needs the entry quiet (no cart in flight from the
+        /// downslope hold to pocket 3's entry).
+        #[arg(long)]
+        unset_quiet: bool,
+        /// The latch's set needs pocket-1 evidence independent of D1 and C′ (emulated: its set
+        /// block glass while pocket 1 holds no cart and the latch is clear).
+        #[arg(long)]
+        q_needs_p1: bool,
+        /// Print where the carts are when today's chain fires each step (a gate slope's power
+        /// rising, REL at G0 falling), for the evidence chain's trigger cells.
+        #[arg(long)]
+        chain_study: bool,
+        /// The release group's two gaps, head first: G12,G23 (gt; cart 1 to 2, cart 2 to 3), instead
+        /// of --release-stagger's equal ones.
+        #[arg(long, value_delimiter = ',')]
+        release_gaps: Vec<i64>,
+        /// G1's and G2's lines delayed N gt, both edges (a repeater's worth, emulated).
+        #[arg(long, default_value_t = 0)]
+        gate_delay: i64,
+        /// With --interlock: G2's in-gate guard reads a tripwire over its cell at rider height (on
+        /// at a rider's touch, off at the first 10 gt re-check with none), armed by the latch.
+        #[arg(long)]
+        g2_tripwire: bool,
+        /// With --stand-hold: the hold passes at most one cart per N gt (S1t's metering).
+        #[arg(long, default_value_t = 0)]
+        stand_meter: i64,
+        /// The departure's take-off stand-in: the loop z on the x 9 column whose crossing gaps are
+        /// printed (R1's ledge sticks carts 4..6 gt apart; 11 is the last cell (c′)'s dip shares
+        /// with R1's rise).
+        #[arg(long, default_value_t = 11)]
+        takeoff_z: i32,
         /// The shared bed's head block X,Y,Z (loop frame): print the riders' closest approach to
         /// it, over the run and on the approach (farmopt's approach lab).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
@@ -1281,6 +1545,11 @@ pub enum MobfarmCmd {
         /// the first cart's edge, 3 = the last's).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         head_latch: Vec<i32>,
+        /// Riderless trains (cc767b78's flag): X,Y,Z[,S0,S1[,K]]: the riders of carts entering the
+        /// cell X,Y,Z (loop frame) in slots S0..=S1 removed; K > 0: only the K-th cart to enter it
+        /// in each slot.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        strip_riders: Vec<i64>,
         /// The pocket stand's fault table instead of a run (ironspec's faults at slot 5, the
         /// partial unloads too when the design is shifted), on --seeds seeds from --seed, --jobs
         /// threads; a value keeps only the cases whose name contains it ("D1|REL").
@@ -1292,6 +1561,10 @@ pub enum MobfarmCmd {
         /// With --fault-table: every case at REL nominal, early and late x staggers 2, 3, 4, 6.
         #[arg(long)]
         all_corners: bool,
+        /// With --fault-table: every case at each REL phase A..B gt around the given timing's (each
+        /// gt; the stagger and the rest as given), instead of --all-corners.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        rel_sweep: Vec<i64>,
         /// With --fault-table (a --cprime design): the table for each set of C''s delays
         /// "R1,R2,R3,R4,RIN,RS1;..." (redstone ticks), the design generated again with each.
         #[arg(long, default_value = "")]
@@ -2320,7 +2593,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, approach_climb_boost, crest_plain_dip, crest_descent, part_handoff, part_allowed, part_departure, cprime, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, approach_climb_boost, hump, dip_y, dip_flat, boost_slopes, top_flat, top_boost, crest_plain_dip, crest_descent, part_handoff, part_allowed, part_departure, cprime, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -2329,7 +2602,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (x, z) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--shift {s}: give X,Z"))?;
                     [x.trim().parse()?, z.trim().parse()?]
                 }
-            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, approach_climb_boost, crest_plain_dip, crest_descent, cprime: match cprime.as_slice() { [a, b, c, d, e, f] => Some([*a, *b, *c, *d, *e, *f]), [] => None, _ => anyhow::bail!("--cprime takes six delays") }, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb };
+            }, tail_fifo, tail_esc, climb_boost, approach, depart_crest, approach_boost, approach_climb_boost, hump, dip_y, dip_flat, boost_slopes, top_flat, top_boost, crest_plain_dip, crest_descent, cprime: match cprime.as_slice() { [a, b, c, d, e, f] => Some([*a, *b, *c, *d, *e, *f]), [] => None, _ => anyhow::bail!("--cprime takes six delays") }, tail_brake: tail_brake || tail_plain, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq };
+            // (C''''s flags: no unused or contradictory flag; the dip covers z 9 and 10, the line
+            // z 9|10 on its flat)
+            anyhow::ensure!(hump == 0 || approach == 4 || approach == 5, "--hump needs --approach 5 (T at (-3,6,4), approach 5's descent) or 4 (C''s T)");
+            anyhow::ensure!(hump > 0 || (dip_y == 2 && dip_flat == 2 && !boost_slopes && top_flat == 1 && !top_boost), "--dip-y, --dip-flat, --boost-slopes, --top-flat and --top-boost need --hump");
+            anyhow::ensure!(top_flat >= 1, "--top-flat takes 1 or more");
+            anyhow::ensure!(hump == 0 || !approach_boost, "--hump: drop --approach-boost");
+            anyhow::ensure!(hump == 0 || (dip_flat >= 1 && dip_y >= 1 && dip_y <= approach), "--dip-flat takes 1 or more, --dip-y 1..=approach (the climb to T)");
+            anyhow::ensure!(hump == 0 || (2 * approach as i64 - dip_y as i64 + 1 <= 9 && 2 * approach as i64 - dip_y as i64 + dip_flat as i64 >= 10), "--hump: the dip's flat must cover z 9 and 10 (the line z 9|10 on flat): the climb's foot is z {}, the flat z {}..{}", 2 * approach as i64 - dip_y as i64, 2 * approach as i64 - dip_y as i64 + 1, 2 * approach as i64 - dip_y as i64 + dip_flat as i64);
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             if let Some(pd) = &part_departure {
                 let ho = match part_handoff.as_slice() { [y, z] => Some((*y, *z)), [] => None, _ => anyhow::bail!("--part-handoff takes Y,Z") };
@@ -2347,6 +2628,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("stand S1 S2 S3: {}", fmt(&lay.stand));
             if let Some(r) = lay.stand_rel {
                 println!("wired pocket stand: REL input cell ({},{},{}): a redstone block opens the three gates and resets the latch, glass lets it count", r.x, r.y, r.z);
+            }
+            // (the approach's column from the head's peak to the snap turn, loop frame: z:y and the
+            // cell's kind (B a booster, D the detector, - plain))
+            if o.approach > 0 && o.stand_stop {
+                let head = lay.slot_cells.last().map_or(0, |c| c[2]);
+                let col: Vec<String> = lay.path.iter().filter(|(p, _)| p[0] == -o.row_gap + o.shift[0] && p[2] < head - 1).map(|(p, k)| format!("{}:{}{}", p[2] - o.shift[1], p[1], match k { crate::queue::Cell::Boost => "B", crate::queue::Cell::Detector => "D", _ => "" })).collect();
+                println!("approach column x {} (loop z:y, B booster, D detector), the head slot at z {}{}: {}", -o.row_gap, head - o.shift[1], if crate::queue::hump_pad(&o) > 0 { format!(" (moved north {} by the hump)", crate::queue::hump_pad(&o)) } else { String::new() }, col.join(" "));
             }
         }
         MobfarmCmd::CellDiff { a, b, shift } => {
@@ -2488,7 +2776,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, adm_k2, trace, shift, from_climb, unload, drive_out, scene_out, flights } => {
+        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, adm_k2, adm_rpulse, rider_space_control, sight, trace, shift, from_climb, unload, drive_out, scene_out, flights, arrivals, scene_at } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let pat = crate::tail_bench::parse_pattern(&pattern).map_err(|e| anyhow::anyhow!(e))?;
@@ -2499,7 +2787,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 unloads: unload.chunks(7).map(|u| (u[0], u[1], [u[2] as i32, u[3] as i32, u[4] as i32, u[5] as i32], u[6])).collect(),
                 drive_out: drive_out.clone(),
                 flights: match &flights { Some(s) => Some(crate::flight::parse(s).map_err(|e| anyhow::anyhow!(e))?), None => None },
-                hdr: crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?,
+                hdr: {
+                    let mut h = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+                    if let Some(s) = &rider_space_control {
+                        h.rider_space_control = crate::declared::parse_cells(s).map_err(|e| anyhow::anyhow!("--rider-space-control: {e}"))?;
+                    }
+                    if let Some(s) = &sight {
+                        h.sight.extend(crate::declared::parse_boxes(s).map_err(|e| anyhow::anyhow!("--sight: {e}"))?);
+                    }
+                    h
+                },
+                arrivals: match &arrivals {
+                    Some(f) => std::fs::read_to_string(f)?
+                        .lines()
+                        .filter_map(|l| l.strip_prefix("arrival c"))
+                        .map(|l| {
+                            let t: Vec<&str> = l.split_whitespace().collect();
+                            let num = |s: &str, p: &str| s.strip_prefix(p).ok_or_else(|| anyhow::anyhow!("--arrivals: {l}")).and_then(|v| v.parse::<f64>().map_err(|e| anyhow::anyhow!("--arrivals: {l}: {e}")));
+                            match t.as_slice() {
+                                [c, dt, x, v] => Ok((c.parse::<i64>()?, num(dt, "+")? as i64, num(x, "x")?, num(v, "v")?)),
+                                _ => anyhow::bail!("--arrivals: {l}"),
+                            }
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                    None => Vec::new(),
+                },
+                scene_at,
             };
             let tm = crate::queue::LoopTiming {
                 advance_at,
@@ -2513,6 +2826,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 p_always,
                 adm_g1_w,
                 adm_k2,
+                adm_rpulse,
                 ..Default::default()
             };
             // (`scene_out`: the design reduced to what the bench keeps: every entity line but the
@@ -2537,11 +2851,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     out.push('\n');
                 }
                 anyhow::ensure!(bo.shift == (0, 0), "--scene-out writes the unshifted design; drop --shift");
-                std::fs::write(sp, out)?;
-                println!("scene: {} ({kept} tail carts kept)", sp.display());
+                if bo.scene_at.is_none() {
+                    std::fs::write(sp, out)?;
+                    println!("scene: {} ({kept} tail carts kept)", sp.display());
+                }
             }
             match seeds {
-                None => print!("{}", crate::tail_bench::run_tail_bench(&spec, &o, &tm, &pat, extra, seed, trace, &bo).map_err(|e| anyhow::anyhow!(e))?),
+                None => {
+                    let r = crate::tail_bench::run_tail_bench(&spec, &o, &tm, &pat, extra, seed, trace, &bo).map_err(|e| anyhow::anyhow!(e))?;
+                    // (`--scene-at C`: the scene holds every entity line of the design but its
+                    // minecarts, and the tail's carts as the bench had them at cycle C's start)
+                    if let (Some(sp), Some(c0)) = (&scene_out, bo.scene_at) {
+                        let text = std::fs::read_to_string(&design)?;
+                        let mut out: String = text.lines().filter(|l| !l.starts_with("entity: minecraft:minecart ")).map(|l| format!("{l}\n")).collect();
+                        let lines: Vec<&str> = r.lines().filter_map(|l| l.strip_prefix("scene line: ")).collect();
+                        for l in &lines {
+                            out.push_str(l);
+                            out.push('\n');
+                        }
+                        std::fs::write(sp, out)?;
+                        println!("scene: {} ({} tail carts as at cycle {c0}'s start)", sp.display(), lines.len());
+                    }
+                    print!("{}", r.lines().filter(|l| !l.starts_with("scene line: ")).map(|l| format!("{l}\n")).collect::<String>());
+                }
                 Some(n) => {
                     // (the seeds in parallel, each its summary: every contract line on one row)
                     let out: Vec<(i64, Result<String, String>)> = std::thread::scope(|sc| {
@@ -2596,12 +2928,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, record_positions, golem_miss, no_inject, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, start_random, calm, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, bed_distance, approach_trace, rel_clear, head_wait, head_latch, fault_table, perfect_tail, all_corners, esc_adm, adm_k2, p_always, cprime_variants, corner_table } => {
+        MobfarmCmd::TraceDiff { a, b, tol } => {
+            println!("{}", crate::queue::trace_diff(&std::fs::read_to_string(&a)?, &std::fs::read_to_string(&b)?, tol));
+        }
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, takeoff_z, fault_table, perfect_tail, all_corners, rel_sweep, corner_table, exposure_out, hold_progress, rider_space_control, watch_mob, watch_mob_slots, bed_distance, approach_trace, rel_clear, head_wait, head_latch, strip_riders, cprime_variants, force_phase, phase_sweep, sight, reg_interlock, l33_delay, arrival_log, hold_back, bench_release, release_start, release_offs } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
             // turned as its blocks)
             let mut hdr = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            if let Some(s) = &rider_space_control {
+                hdr.rider_space_control = crate::declared::parse_cells(s).map_err(|e| anyhow::anyhow!("--rider-space-control: {e}"))?;
+            }
+            if let Some(s) = &sight {
+                hdr.sight.extend(crate::declared::parse_boxes(s).map_err(|e| anyhow::anyhow!("--sight: {e}"))?);
+            }
             if let Some(sf) = &siding {
                 // (a part pasted into the loop: farmopt's bed siding, inside its box)
                 let (pc, part) = load(version, sf)?;
@@ -2620,6 +2961,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for f in ph.flights {
                     hdr.flights.push(crate::flight::Flight { take_off: mv(f.take_off), landing: f.landing.iter().map(|l| mv(*l)).collect(), max_air: f.max_air });
                 }
+                for c in ph.rider_space_ok {
+                    hdr.rider_space_ok.push(mv(c));
+                }
                 let bx = match siding_box.as_slice() { [a, b, c, d, e, f] => ([*a, *b, *c], [*d, *e, *f]), [] => ([-7, -4, -3], [6, 4, 9]), _ => anyhow::bail!("--siding-box takes x0,y0,z0,x1,y1,z1 in the part's own frame") };
                 let n = crate::queue::paste_part(&mut spec, &part, at, siding_turn, bx).map_err(|e| anyhow::anyhow!(e))?;
                 eprintln!("pasted {n} blocks of {} at {:?}, turned {siding_turn}", sf.display(), at);
@@ -2636,7 +2980,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 [] => [None; 3],
                 _ => anyhow::bail!("--visit-release-cells takes 3 cells: carts 0, 1, 2 (9 numbers)"),
             };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, build_gap: placed_in_order.filter(|_| !placed_all && !build_gap_sweep).map(|g| if g == 0 { 20 } else { g }), build_priced: placed_in_order == Some(0), stagger_off, side_drop: match side_drop.as_slice() { [c, s, d, v] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *s as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [c, s, d, v, p] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *p as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [] => None, _ => anyhow::bail!("--side-drop takes C,SLOT,D,V[,PARK]") }, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, pocket_close_delay: gate_close_delay, rel_for, pocket_trigger: match pocket_trigger.as_slice() { [a, b, c, d] => Some([(*a, *b as i64), (*c, *d as i64)]), [] => None, _ => anyhow::bail!("--pocket-trigger takes X1,D1,X2,D2") }, no_summons, calm, visit: match (visit.as_slice(), visits_nightly.as_slice()) {
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, build_gap: placed_in_order.filter(|_| !placed_all && !build_gap_sweep).map(|g| if g == 0 { 20 } else { g }), build_priced: placed_in_order == Some(0), stagger_off: stagger_off || !stagger_common_off, side_drop: match side_drop.as_slice() { [c, s, d, v] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *s as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [c, s, d, v, p] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *p as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [] => None, _ => anyhow::bail!("--side-drop takes C,SLOT,D,V[,PARK]") }, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, pocket_close_delay: gate_close_delay, rel_for, pocket_trigger: match pocket_trigger.as_slice() { [a, b, c, d] => Some([(*a, *b as i64), (*c, *d as i64)]), [] => None, _ => anyhow::bail!("--pocket-trigger takes X1,D1,X2,D2") }, no_summons, calm, reach_probe, visit: match (visit.as_slice(), visits_nightly.as_slice()) {
                 ([s, k, r], []) => Some(crate::queue::Visit { slot: *s, k: *k as usize, divert_at: divert_at.unwrap_or(16), release_at: *r, divert: cell3(&divert_cell)?, t1: cell3(&t1_cell)?, t2: cell3(&t2_cell)?, release: cell3(&siding_release_cell)?, every: 0, from: 0, release_k: rel_k, release_cells: rel_cells, t_at_release: visit_t_at_release, t_at: 0, k_mod3: visit_k_mod3, observe: false, branch: redsim::pos::BlockPos::new(0, 0, 0) }),
                 ([], [e, r]) | ([], [e, r, _]) => Some(crate::queue::Visit { slot: -1, k: 0, divert_at: divert_at.unwrap_or(16), release_at: *r, divert: cell3(&divert_cell)?, t1: cell3(&t1_cell)?, t2: cell3(&t2_cell)?, release: cell3(&siding_release_cell)?, every: *e, from: visits_nightly.get(2).copied().unwrap_or(12500), release_k: rel_k, release_cells: rel_cells, t_at_release: visit_t_at_release, t_at: 0, k_mod3: visit_k_mod3, observe: false, branch: redsim::pos::BlockPos::new(0, 0, 0) }),
                 ([], []) if visits_observe => Some(crate::queue::Visit { slot: -1, k: 0, divert_at: divert_at.unwrap_or(16), release_at: 0, divert: cell3(&divert_cell)?, t1: cell3(&t1_cell)?, t2: cell3(&t2_cell)?, release: cell3(&siding_release_cell)?, every: 0, from: 0, release_k: rel_k, release_cells: rel_cells, t_at_release: false, t_at: 0, k_mod3: visit_k_mod3, observe: true, branch: match divert_branch.as_slice() { [x, y, z] => redsim::pos::BlockPos::new(*x, *y, *z), [] => { let d = cell3(&divert_cell)?; redsim::pos::BlockPos::new(d.x, d.y + 1, d.z - 1) } _ => anyhow::bail!("--divert-branch takes x,y,z") } }),
@@ -2676,7 +3020,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some([n[0], n[1], n[2]]);
                 }
                 v
-            }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, p_always, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,T,L") }, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), ..Default::default() };
+            }, watch_mob: {
+                anyhow::ensure!(watch_mob.len() <= 4, "--watch-mob: at most 4");
+                let mut v = [None; 4];
+                for (i, s) in watch_mob.iter().enumerate() {
+                    v[i] = Some(crate::queue::parse_rider("--watch-mob", s).map_err(|e| anyhow::anyhow!(e))?);
+                }
+                v
+            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] | [s, t, l, _] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,D,L[,U]") }, rel_gate_unset: rel_gate.get(3).copied().unwrap_or(0), split: match split.as_slice() { [x, y, z, w] => Some(([*x as i32, *y as i32, *z as i32], *w)), [] => None, _ => anyhow::bail!("--split takes X,Y,Z,W") }, interlock, interlock_launch, interlock_arrivals, stand_hold: match stand_hold.as_slice() { [x, y, z] => Some([*x, *y, *z]), [x, y, z, _] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--stand-hold takes X,Y,Z[,H]") }, stand_hold_after: stand_hold.get(3).map(|h| *h as i64).unwrap_or(0), depart_space, rel_end_n: match rel_end_n.as_slice() { [d, to] => Some((*d, *to)), [] => None, _ => anyhow::bail!("--rel-end-n takes DELAY,TIMEOUT") }, rel_end_count: match rel_end_count.as_slice() { [k, to] => Some((*k, *to)), [] => None, _ => anyhow::bail!("--rel-end-count takes K,TIMEOUT") }, rel_end_rear: match rel_end_rear.as_slice() { [x, y, z, d, to] => Some(([*x as i32, *y as i32, *z as i32], *d, *to)), [] => None, _ => anyhow::bail!("--rel-end-rear takes X,Y,Z,D,TIMEOUT") }, unset_quiet, q_needs_p1, chain_study, release_gaps: match release_gaps.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--release-gaps takes G12,G23") }, gate_delay, g2_tripwire, stand_meter, takeoff_z, arrivals: arrivals_out.is_some(), adm_k2, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, p_always, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, arrival_log, hold_back: match hold_back.as_slice() { [c, d, n] => Some([*c, *d, *n]), [] => None, _ => anyhow::bail!("--hold-back takes C,DT,N") }, adm_faults: {
+                anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
+                let mut a = [None; 8];
+                for (i, s) in adm_fault.iter().enumerate() {
+                    let f: Vec<&str> = s.split(',').collect();
+                    let (slot, adv) = match (f.first().and_then(|v| v.parse::<i64>().ok()), f.get(1).and_then(|v| v.parse::<i64>().ok())) { (Some(s), Some(k)) if (0..3).contains(&k) => (s, k), _ => anyhow::bail!("--adm-fault {s}: SLOT,ADV(0..2),KIND[,OFF]") };
+                    let kind = match f.get(2).copied() { Some("skip") => 0u8, Some("miss-g0") => 1, Some("miss-gp") => 2, Some("extra-g0") => 3, Some("extra-gp") => 4, _ => anyhow::bail!("--adm-fault {s}: KIND is skip, miss-g0, miss-gp, extra-g0 or extra-gp") };
+                    let off = f.get(3).map(|v| v.parse::<i64>()).transpose()?.unwrap_or(10);
+                    a[i] = Some((slot, adv, kind, off));
+                }
+                a
+            }, adm_skip_req: {
+                anyhow::ensure!(adm_skip_req.len() <= 8, "--adm-skip-req: at most 8");
+                let mut a = [None; 8];
+                for (i, s) in adm_skip_req.iter().enumerate() {
+                    a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
+                }
+                a
+            }, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, strip_riders: match strip_riders.as_slice() { [x, y, z] => Some(([*x as i32, *y as i32, *z as i32], 0, i64::MAX, 0)), [x, y, z, s0, s1] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, 0)), [x, y, z, s0, s1, k] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, *k as usize)), [] => None, _ => anyhow::bail!("--strip-riders takes X,Y,Z[,S0,S1[,K]]") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match release_offs.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, ..Default::default() };
             // (`--place-rest`: the approach's rest check instead of a run)
             if let Some(pr) = &place_rest {
                 let cells: Vec<[i32; 3]> = if pr == "approach" {
@@ -2725,7 +3094,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             (o2, s2)
                         }
                     };
-                    println!("{}", crate::approach::fault_table(&spec2, &o2, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners).map_err(|e| anyhow::anyhow!(e))?);
+                    println!("{}", crate::approach::fault_table(&spec2, &o2, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners, match rel_sweep.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--rel-sweep takes A,B") }).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 return Ok(());
             }
@@ -2753,6 +3122,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{}", crate::queue::loop_corners(&spec, &o, &tm, &lines, seed, seeds, cycles).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 return Ok(());
+            }
+            if let Some(f) = &force_phase {
+                tm.phase_force = Some(crate::queue::parse_phase_force(f).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            if let Some(sw) = &phase_sweep {
+                return phase_sweep_cmd(&spec, &o, &tm, &hdr, sw, &reload_orders, cycles, seed, jobs);
+            }
+            if !reload_orders.is_empty() {
+                return reload_orders_cmd(&spec, &o, &tm, &hdr, &reload_orders, cycles, seed, jobs);
             }
             if seeds > 1 || placed_both || placed_all || build_gap_sweep {
                 // one line per seed, then the total (the drive log, watch and verbose apply to
@@ -2798,7 +3176,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 let hurt = r.matches(" hurt at slot ").count();
                                 // (the faults' reach: which slots had a problem, and the lap order)
                                 let reach: String = r.lines().filter(|l| l.starts_with("problem slots: ") || l.starts_with("lap order: CHANGED")).map(|l| format!(" | {}", l.split(" (").next().unwrap_or(l))).collect();
-                                println!("{label}, seed {s}: {probs} {first}{}{reach}", if hurt > 0 { format!(" (riders hurt {hurt} times)") } else { String::new() });
+                                // (admission control's margins, compact: the fastest front at a G0
+                                // opening, the closest rider gap, the fewest rider ticks)
+                                let margins: String = r.lines().find_map(|l| l.strip_prefix("admission margins: ")).map(|l| {
+                                    let num_after = |key: &str| l.split(key).nth(1).and_then(|t| t.split_whitespace().next()).unwrap_or("-").to_string();
+                                    format!(" | G0 front vmax {} rider gap {} rider gt {}", num_after("opening "), num_after("at least "), l.split("reached P's end at least ").nth(1).and_then(|t| t.split_whitespace().next()).unwrap_or("-"))
+                                }).unwrap_or_default();
+                                println!("{label}, seed {s}: {probs} {first}{}{reach}{margins}", if hurt > 0 { format!(" (riders hurt {hurt} times)") } else { String::new() });
                                 use std::io::Write;
                                 let _ = std::io::stdout().flush();
                             }
@@ -2951,7 +3335,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
-            let tm = crate::queue::LoopTiming { record_positions: record_positions.is_some(), golem_miss: { anyhow::ensure!(golem_miss.len() <= 8, "--golem-miss takes up to 8 slots"); let mut a = [-1i64; 8]; for (i, s) in golem_miss.iter().enumerate() { a[i] = *s; } a }, ..tm };
+            let tm = crate::queue::LoopTiming { record_positions: record_positions.is_some(), exposure_log: exposure_out.is_some(), golem_miss: { anyhow::ensure!(golem_miss.len() <= 8, "--golem-miss takes up to 8 slots"); let mut a = [-1i64; 8]; for (i, s) in golem_miss.iter().enumerate() { a[i] = *s; } a }, ..tm };
             let s = crate::queue::run_loop_hdr(&spec, &o, &tm, &hdr, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }, drive_out.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             // (`--record-positions F`: the villager positions line written to F, x y z per line)
             if let Some(f) = &record_positions {
@@ -2961,7 +3345,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::fs::write(f, format!("# villager block positions over {} slots of queue-loop-run {} (seed {seed})\n{text}", cycles, design.display()))?;
                 eprintln!("wrote {} positions to {}", text.lines().count(), f.display());
             }
-            println!("{}", s.lines().filter(|l| !l.starts_with("villager positions (")).collect::<Vec<_>>().join("\n"));
+            println!("{}", s.lines().filter(|l| !l.starts_with("villager positions (") && !l.starts_with("arrival c") && !l.starts_with("exposure ")).collect::<Vec<_>>().join("\n"));
+            // (`--exposure-out F`: every exposed rider-tick)
+            if let Some(f) = &exposure_out {
+                let lines: Vec<&str> = s.lines().filter_map(|l| l.strip_prefix("exposure ")).collect();
+                std::fs::write(f, format!("# exposed rider-ticks of queue-loop-run {} (seed {seed}, {cycles} slots): game time, slot, offset, rider, x y z, streak, panicked within 20 gt, PATH\n{}\n", design.display(), lines.join("\n")))?;
+                eprintln!("wrote {} exposed rider-ticks to {}", lines.len(), f.display());
+            }
+            if let Some(f) = &arrivals_out {
+                let lines: Vec<&str> = s.lines().filter(|l| l.starts_with("arrival c")).collect();
+                std::fs::write(f, format!("# arrival stream of queue-loop-run {} (seed {seed}, {cycles} slots): each cart crossing x 8.5 westward on the return run\n{}\n", design.display(), lines.join("\n")))?;
+                eprintln!("wrote {} arrivals to {}", lines.len(), f.display());
+            }
         }
         MobfarmCmd::Queue { scene, carts, spacing, release, no_riders, sweep, out } => {
             let o = crate::queue::QueueOpts { scene, carts, spacing, release, riders: !no_riders, sweep };
@@ -4547,6 +4942,167 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             compare_cmd(version, &design, &opts, twin)?;
         }
     }
+    Ok(())
+}
+
+/// `queue-loop-run --phase-sweep WHO@S1[,S2]` (ironspec's forced-phase mode, tickexact
+/// 2026-11-11): the same run once per combination of the listed sensors' start delays (each over
+/// 0 up to its scan rate), forced on WHO after every whole-part load, on `jobs` threads; per
+/// combination one line (its problems, first problem, WHO's wake after the load), then the table
+/// (rows S1, columns S2: `.` clean, `X` a problem) and the failing share of the phase space.
+#[allow(clippy::too_many_arguments)]
+fn phase_sweep_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, sweep: &str, orders: &[String], cycles: i64, seed: i64, jobs: usize) -> Result<()> {
+    let (who, rest) = sweep.split_once('@').ok_or_else(|| anyhow::anyhow!("--phase-sweep {sweep}: WHO@SENSOR[=VALUES][,SENSOR[=VALUES]]"))?;
+    let who = crate::queue::parse_rider(sweep, who).map_err(|e| anyhow::anyhow!(e))?;
+    let rate = |k: usize| redsim::entity::mob::villager::SENSORS[k].1;
+    // (each sensor's values: all of 0 up to its scan rate, or `=A..B` / `=A` / `=A/B/C`)
+    let mut ks: Vec<usize> = Vec::new();
+    let mut vals: Vec<Vec<i64>> = Vec::new();
+    for t in rest.split(',') {
+        let (name, v) = t.split_once('=').map_or((t, None), |(n, v)| (n, Some(v)));
+        let k = crate::queue::sensor_index(name).ok_or_else(|| anyhow::anyhow!("--phase-sweep {sweep}: no sensor {name}"))?;
+        let list: Vec<i64> = match v {
+            None => (0..rate(k)).collect(),
+            Some(v) => match v.split_once("..") {
+                Some((a, b)) => (a.parse::<i64>()?..=b.parse::<i64>()?).collect(),
+                None => v.split('/').map(|x| x.parse::<i64>()).collect::<Result<_, _>>()?,
+            },
+        };
+        anyhow::ensure!(!list.is_empty() && list.iter().all(|x| (0..rate(k)).contains(x)), "--phase-sweep {sweep}: {name}'s delays are 0..{}", rate(k) - 1);
+        ks.push(k);
+        vals.push(list);
+    }
+    anyhow::ensure!((1..=2).contains(&ks.len()), "--phase-sweep {sweep}: one or two sensors");
+    anyhow::ensure!(tm.acts.iter().flatten().any(|a| a.unload == Some(None)), "--phase-sweep: no whole-part unload act (--act SLOT,DT,unload,N)");
+    let second: Vec<i64> = if ks.len() == 2 { vals[1].clone() } else { vec![0] };
+    // (ironspec 2026-11-11: phases x orders in one command) the load orders to sweep under
+    // (`--reload-orders`, `crate::queue::parse_reload_orders`; the acts' own when none is named)
+    let mut ords: Vec<Option<redsim::reload::Order>> = crate::queue::parse_reload_orders(orders).map_err(|e| anyhow::anyhow!(e))?.into_iter().map(Some).collect();
+    if ords.is_empty() {
+        ords.push(None);
+    }
+    let label = |o: Option<redsim::reload::Order>| o.map_or_else(|| "the acts' own".to_string(), |o| o.name());
+    let mut combos: Vec<(usize, i64, i64)> = Vec::new();
+    for oi in 0..ords.len() {
+        for &a in &vals[0] {
+            for &b in &second {
+                combos.push((oi, a, b));
+            }
+        }
+    }
+    let mut results: std::collections::BTreeMap<(usize, i64, i64), (bool, String)> = std::collections::BTreeMap::new();
+    for chunk in combos.chunks(jobs.max(1)) {
+        let got: Vec<((usize, i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|&(oi, a, b)| {
+                    let mut t = *tm;
+                    if let Some(ord) = ords[oi] {
+                        for act in t.acts.iter_mut().flatten() {
+                            if act.unload == Some(None) {
+                                act.order = ord;
+                            }
+                        }
+                    }
+                    let mut sensors = [None; 4];
+                    sensors[0] = Some((ks[0], a));
+                    if ks.len() == 2 {
+                        sensors[1] = Some((ks[1], b));
+                    }
+                    t.phase_force = Some(crate::queue::PhaseForce { who, sensors });
+                    sc.spawn(move || ((oi, a, b), crate::queue::run_loop_hdr(spec, o, &t, hdr, cycles, seed, false, None, None)))
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+        });
+        for ((oi, a, b), r) in got {
+            let r = r.map_err(|e| anyhow::anyhow!(e))?;
+            let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").trim_end_matches(':').to_string();
+            let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).map(|l| format!(" (first: {})", l.trim())).unwrap_or_default();
+            let forced = r.lines().find(|l| l.contains("phases forced on")).map(|l| l.split(": ").skip(1).collect::<Vec<_>>().join(": ")).unwrap_or_else(|| "not forced".into());
+            let woke = r.lines().find(|l| l.contains("(phases forced) woke at")).and_then(|l| l.split("woke at ").nth(1)).unwrap_or("not seen").to_string();
+            let ok = probs.starts_with("0 problems");
+            let names: Vec<String> = ks.iter().zip([a, b]).map(|(k, v)| format!("{}={v}", redsim::entity::mob::villager::SENSORS[*k].0)).collect();
+            println!("order {} phases {}: {probs}{first}; woke {woke}; {forced}", label(ords[oi]), names.join(" "));
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            results.insert((oi, a, b), (ok, woke));
+        }
+    }
+    for (oi, ord) in ords.iter().enumerate() {
+        let bad = results.iter().filter(|(k, (ok, _))| k.0 == oi && !ok).count();
+        let n = results.keys().filter(|k| k.0 == oi).count();
+        println!("order {}: table (rows {} {:?}, columns {}; . clean, X a problem):", label(*ord), redsim::entity::mob::villager::SENSORS[ks[0]].0, vals[0], if ks.len() == 2 { format!("{} {:?}", redsim::entity::mob::villager::SENSORS[ks[1]].0, second) } else { "-".into() });
+        for &a in &vals[0] {
+            let row: String = second.iter().map(|&b| if results.get(&(oi, a, b)).is_some_and(|r| r.0) { '.' } else { 'X' }).collect();
+            println!("  {a:>3} {row}");
+        }
+        println!("order {}: failing share of the phase space: {bad} of {n} ({:.1}%)", label(*ord), 100.0 * bad as f64 / n.max(1) as f64);
+    }
+    Ok(())
+}
+
+/// `queue-loop-run --reload-orders ...` (ironspec's reload-order rule; farmopt 2026-11-11, day-1's
+/// unload rows): the same run (`--seed`, `--cycles`) once per load order, every whole-part unload
+/// act loading in that order, on `jobs` threads; per order one line (its problems and first
+/// problem, the visits line, the lap order, and the visits spanning an unload: those started up to
+/// 6 slots before it, each one's rest slot and tick), then the row's verdict (a failure under any
+/// order fails the row).
+#[allow(clippy::too_many_arguments)]
+fn reload_orders_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, names: &[String], cycles: i64, seed: i64, jobs: usize) -> Result<()> {
+    use redsim::reload::Order;
+    let orders: Vec<Order> = crate::queue::parse_reload_orders(names).map_err(|e| anyhow::anyhow!(e))?;
+    let unloads: Vec<crate::queue::Act> = tm.acts.iter().flatten().filter(|a| a.unload == Some(None)).copied().collect();
+    anyhow::ensure!(!unloads.is_empty(), "--reload-orders: no whole-part unload act (--act SLOT,DT,unload,N)");
+    let spans = |l: &str| -> bool {
+        l.strip_prefix("visit slot ").and_then(|r| r.split(' ').next()).and_then(|s| s.parse::<i64>().ok()).is_some_and(|s| unloads.iter().any(|a| s <= a.slot && s >= a.slot - 6))
+    };
+    let mut failed: Vec<String> = Vec::new();
+    for chunk in orders.chunks(jobs.max(1)) {
+        let got: Vec<(Order, Result<String, String>)> = std::thread::scope(|sc| {
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|&ord| {
+                    let mut t = *tm;
+                    for a in t.acts.iter_mut().flatten() {
+                        if a.unload == Some(None) {
+                            a.order = ord;
+                        }
+                    }
+                    sc.spawn(move || (ord, crate::queue::run_loop_hdr(spec, o, &t, hdr, cycles, seed, false, None, None)))
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+        });
+        for (ord, r) in got {
+            let r = r.map_err(|e| anyhow::anyhow!(e))?;
+            let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").trim_end_matches(':').to_string();
+            let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).map(|l| format!(" (first: {})", l.trim())).unwrap_or_default();
+            let visits = r.lines().find_map(|l| l.strip_prefix("visits: ")).unwrap_or("-");
+            let lap = r.lines().find(|l| l.starts_with("lap order: ")).map(|l| l.split(" (").next().unwrap_or(l)).unwrap_or("lap order: -");
+            let around: Vec<String> = r
+                .lines()
+                .filter(|l| spans(l))
+                .map(|l| {
+                    let head = l.split(':').next().unwrap_or(l).trim_start_matches("visit slot ").to_string();
+                    let back = l.split("back at rest in slot ").nth(1).map(|t| format!("slot {t}")).unwrap_or_else(|| "never back at rest".into());
+                    format!("{head}: {back}")
+                })
+                .collect();
+            if !probs.starts_with("0 problems") {
+                failed.push(ord.name());
+            }
+            println!("order {}: {probs}{first}; visits: {visits}; {lap}; around the unload: {}", ord.name(), if around.is_empty() { "-".to_string() } else { around.join("; ") });
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+        }
+    }
+    let acts: Vec<String> = unloads.iter().map(|a| format!("{},{},unload,{}", a.slot, a.dt, a.hold.unwrap_or(1))).collect();
+    // (tick-exact 2026-11-11: each order is one sample of the game's random reload, so the row's
+    // miss rate with its Wilson 95% interval)
+    let (lo, hi) = crate::queue::wilson95(failed.len(), orders.len());
+    let rate = format!("{} of {} orders missed ({:.0}%, Wilson 95% {:.0}-{:.0}%)", failed.len(), orders.len(), 100.0 * failed.len() as f64 / orders.len().max(1) as f64, 100.0 * lo, 100.0 * hi);
+    println!("row {} (seed {seed}, {cycles} slots): {}; {rate}", acts.join(" + "), if failed.is_empty() { format!("PASS under all {} orders", orders.len()) } else { format!("FAIL under {}", failed.join(", ")) });
     Ok(())
 }
 

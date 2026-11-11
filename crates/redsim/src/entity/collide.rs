@@ -570,10 +570,26 @@ fn restitute(w: &mut World, i: usize, x_col: bool, z_col: bool, movement: Vec3) 
                 // beds (every colour): `bounceRestitution(0.75F)` (the mob-AI lane: a villager
                 // stepping off its bed's edge back onto it bounces)
                 Block::Bed { .. } => 0.75f32,
+                // (mob-AI 2026-11-10) a terrain block: a village's bed (#beds), slime, a shelf
+                // mushroom (dust-pulse-three-watchers village-edge build 2 t13730: an enderman
+                // landing on a house's bed)
+                Block::Terrain(id) => {
+                    let p = crate::terrain::blocks::props(id);
+                    match p.block_id() {
+                        "minecraft:slime_block" => 1.0f32,
+                        "minecraft:shelf_mushroom" => 0.75f32,
+                        _ if p.has_tag("minecraft:beds") => 0.75f32,
+                        _ => 0.0f32,
+                    }
+                }
                 _ => 0.0f32,
             };
             let block = if living { block } else { block * 0.8f32 };
-            let suppressed = matches!(effect, Block::Simple(crate::block::Simple::HoneyBlock));
+            let suppressed = match effect {
+                Block::Simple(crate::block::Simple::HoneyBlock) => true,
+                Block::Terrain(id) => crate::terrain::blocks::props(id).has_tag("minecraft:suppresses_bounce"),
+                _ => false,
+            };
             restitution = if !(-cur.y <= gravity) && !suppressed { restitution.max(block as f64) } else { 0.0 };
         }
         let (gravity_comp, drag) = if restitution > 0.0 {

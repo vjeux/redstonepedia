@@ -95,6 +95,12 @@ pub struct BenchOpts {
     /// The design file's own declared states and flights (`declared:`, `flights:`), checked on
     /// top of the derived ones.
     pub hdr: crate::queue::Headers,
+    /// A loop's arrival stream replayed: (cycle, dt, x, speed) of each cart crossing x 8.5
+    /// westward on the return run (queue-loop-run `--arrivals-out`), spawned there and then.
+    pub arrivals: Vec<(i64, i64, f64, f64)>,
+    /// Snapshot the tail's carts at this cycle's start for a bridge scene (printed as `scene
+    /// line:` entity lines; the drive then starts there).
+    pub scene_at: Option<i64>,
 }
 
 /// The design moved by (dx, dz): blocks, block entities, entities, its box.
@@ -131,6 +137,8 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let cycles = pattern.len() as i64 + extra;
     let ticks = 100 * cycles + 300;
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
+    // (the build's ground under the tail's ledge: a derail lands as it would)
+    let spec = &crate::queue::with_tail_ground(spec, o, dx, dz);
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
     // (a partial unload needs the forced chunk box: the design's, as an exact run mirrors it)
@@ -148,13 +156,28 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     // a mismatch fails the bench)
     let sh = |mut d: crate::declared::Decl| {
         d.cell = [d.cell[0] + dx, d.cell[1], d.cell[2] + dz];
+        d.ctl = d.ctl.map(|c| [c[0] + dx, c[1], c[2] + dz]);
         d
     };
     let (declared, mut bad) = crate::queue::merge_declared(crate::queue::declared_states(o).into_iter().map(sh).collect(), &bo.hdr.declared.iter().cloned().map(sh).collect::<Vec<_>>());
     bad.extend(crate::declared::check(&run.world, &declared, false));
+    // (the rider space: no block with a collision box in the two cells over a rail)
+    bad.extend(crate::queue::rider_space_check(&mut run.world, spec, &declared, &bo.hdr, o, dx, dz));
     if !bad.is_empty() {
         return Err(format!("declared states: {} mismatches ({})", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
     }
+    let mut runtime_bad: Vec<String> = Vec::new();
+    let mut walk_kinds = [0usize; 3];
+    let mut walk_touch = 0usize;
+    let mut touch_idle = 0usize;
+    let mut walk_touch_log: Vec<String> = Vec::new();
+    let mut walking_log: Vec<String> = Vec::new();
+    // (every detector rail of the design: its on-edges against the carts entering it)
+    let mut det_edges = crate::queue::DetectorEdges::new(lay.path.iter().filter(|(_, k)| matches!(k, crate::queue::Cell::Detector)).map(|(c, _)| BlockPos::new(c[0] + dx, c[1], c[2] + dz)).collect());
+    let land_det: Option<BlockPos> = if o.adm_sensors { lay.flights.first().and_then(|f| f.landing.get(1)).map(|l| BlockPos::new(l[0] + dx, l[1], l[2] + dz)) } else { None };
+    let mut land_since: Option<i64> = None;
+    let mut land_on_max: (i64, String) = (0, String::new());
+    let mut land_cycle_max: Vec<i64> = Vec::new();
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let off = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
     // the tail: x 0 from the entry curve (z 20) to slot 0; slot 0's rest cell; B's and P's rail
@@ -232,6 +255,13 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let mut g1_open: Option<i64> = None;
     // (`drive_out`: the cells the bench drives, watched for changes each tick)
     let mut watched: Vec<BlockPos> = vec![gate, p_ctl];
+    // (`adm_rboost`: R's rail and its control, beside it)
+    let r_cell: Option<[i32; 3]> = lay.esc_adm_a1.filter(|_| o.adm_rboost).map(|a| {
+        let r = crate::queue::adm_r_cell(a);
+        [r[0] + dx, r[1], r[2] + dz]
+    });
+    let r_ctl: Option<BlockPos> = r_cell.map(|r| BlockPos::new(r[0] + 1, r[1], r[2]));
+    watched.extend(r_ctl);
     watched.extend(b_ctl);
     watched.extend(gb);
     watched.extend(lay.esc_g0.map(m));
@@ -242,6 +272,9 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     }
     watched.extend(lay.slots.iter().take(4).map(|s| m(*s)));
     let mut watched_prev: Vec<Block> = watched.iter().map(|c| run.world.get(*c)).collect();
+    // (`scene_at`'s snapshot: the tail carts' entity lines and the driven cells' states)
+    let mut scene_snap: Vec<String> = Vec::new();
+    let mut scene_cells: Vec<String> = Vec::new();
     let mut drive: Vec<String> = Vec::new();
     // (the off-the-rails watch with the design's declared flights)
     let mut rails = crate::flight::RailWatch::new(bo.flights.clone().unwrap_or_else(|| crate::queue::merge_flights(lay.flights.iter().map(|f| f.shifted(dx, dz)).collect(), &bo.hdr.flights.iter().map(|f| f.shifted(dx, dz)).collect::<Vec<_>>())));
@@ -320,6 +353,10 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             spawns.push((t, p, b.speed));
         }
     }
+    // (a loop's arrival stream replayed: each cart where and when the loop's crossed x 8.5)
+    for (c, dt, x, v) in &bo.arrivals {
+        spawns.push((c * 100 + dt, [x + fx, ye as f64 + 0.0625, 20.5 + fz], *v));
+    }
     spawns.sort_by_key(|s| s.0);
     let mut next_spawn = 0;
     // (the unloads' acts: (tick, box, load) in time order)
@@ -372,6 +409,23 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
         let c = t.div_euclid(100);
         let dt = t.rem_euclid(100);
         let live = c < cycles;
+        // (`scene_at`: at cycle C's start, every tail cart as an entity line (position, motion,
+        // facing, a villager riding) and every driven cell's state, for a bridge scene)
+        if bo.scene_at == Some(c) && dt == 0 && scene_snap.is_empty() {
+            for id in &carts {
+                if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id)
+                    && in_tail(&e.pos)
+                {
+                    scene_snap.push(format!(
+                        "entity: minecraft:minecart {:.6} {:.6} {:.6} {{Rotation:[{:.4}f,0f],Motion:[{:.6}d,{:.6}d,{:.6}d],Passengers:[{{id:\"minecraft:villager\"}}]}}",
+                        e.pos.x - fx, e.pos.y, e.pos.z - fz, e.y_rot, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z
+                    ));
+                }
+            }
+            for c2 in &watched {
+                scene_cells.push(format!("act 0 set {} {} {} {}", c2.x, c2.y, c2.z, run.world.get(*c2)));
+            }
+        }
         // (spawns due now)
         while next_spawn < spawns.len() && spawns[next_spawn].0 == t {
             let (_, p, v) = spawns[next_spawn];
@@ -421,8 +475,22 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             // gate opens for its W gt
             if live && dt == a + d {
                 set_gate(&mut run.world, true);
-                set(&mut run.world, p_ctl, true);
+                if !o.adm_pdet {
+                    set(&mut run.world, p_ctl, true);
+                }
                 reload_open = Some(t);
+                // (`adm_rboost`: R's launch pulse from G_P's opening)
+                if let Some(rc) = r_ctl
+                    && tm.adm_rpulse > 0
+                {
+                    set(&mut run.world, rc, true);
+                }
+            }
+            if let Some(rc) = r_ctl
+                && tm.adm_rpulse > 0
+                && dt == a + d + tm.adm_rpulse
+            {
+                set(&mut run.world, rc, false);
             }
             if dt == a + d + w_gate {
                 set_gate(&mut run.world, false);
@@ -621,6 +689,58 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
         for (k, id) in carts.iter().enumerate() {
             rails.observe(&run.world, k, *id, riders.get(k).copied().flatten(), &format!("slot {c} +{dt}"));
         }
+        // (the declared states at runtime: a braked rail powered while its control is off)
+        for b in crate::declared::check_runtime(&run.world, &declared) {
+            if runtime_bad.len() < 6 && !runtime_bad.iter().any(|x: &String| x.starts_with(b.split(':').next().unwrap_or(""))) {
+                runtime_bad.push(format!("{b} (slot {c} +{dt})"));
+            }
+        }
+        // (riders in the buffer's pressed queue: walk targets by path (reaching, partial, none), and
+        // every rider whose box touches another cart's, walking or not: contact alone pushes)
+        for (k, id) in carts.iter().enumerate() {
+            if let (Some(p), Some(Some(r))) = (pos_of(&run.world, *id), riders.get(k))
+                && in_tail(&p)
+            {
+                let kind = crate::queue::rider_walk_kind(&run.world, *r);
+                let kname = kind.map_or("not walking", |kd| ["reaching", "partial", "no path"][kd as usize]);
+                if let Some(kd) = kind {
+                    walk_kinds[kd as usize] += 1;
+                    if walking_log.iter().filter(|l| l.ends_with(kname)).count() < 3 {
+                        walking_log.push(format!("slot {c} +{dt}: cart {k} at z {:.2} {kname}", p.z - fz));
+                    }
+                }
+                if let Some((tz, ov)) = crate::queue::rider_touch(&run.world, *r, *id) {
+                    walk_touch += 1;
+                    if kind.is_none() {
+                        touch_idle += 1;
+                    }
+                    if walk_touch_log.len() < 3 {
+                        walk_touch_log.push(format!("slot {c} +{dt}: cart {k} at z {:.2} ({kname}) touching a cart at z {:.3} by {ov:.3}", p.z - fz, tz - fz));
+                    }
+                }
+            }
+        }
+        det_edges.observe(&run.world, &carts);
+        // (the entry hold's landing detector: its unbroken on time, per cycle)
+        if let Some(p) = land_det {
+            let now = run.world.time as i64;
+            if run.world.get(p).to_string().contains("powered=true") {
+                land_since.get_or_insert(now);
+            } else {
+                land_since = None;
+            }
+            if let Some(s) = land_since {
+                let d = now - s + 1;
+                if d > land_on_max.0 {
+                    land_on_max = (d, format!("slot {c} +{dt}"));
+                }
+                let ci = c.max(0) as usize;
+                if land_cycle_max.len() <= ci {
+                    land_cycle_max.resize(ci + 1, 0);
+                }
+                land_cycle_max[ci] = land_cycle_max[ci].max(d);
+            }
+        }
         run.tick();
         // per tick: falls, backward motion on B/P/slot 0, the gate, rest gaps and drift, the
         // per-cart cycle, riders
@@ -687,7 +807,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
             // (backward on a powered rail: B, P or slot 0, split by the rail's state: boosted
             // backward while powered, or braked while unpowered; the flat escapement's X is always
             // powered)
-            let ctl = if b_ctl.is_some() && on_cell(&p, b_cell) { b_ctl } else if on_cell(&p, p_cell) { Some(p_ctl) } else if on_cell(&p, s0) { lay.slots.first().copied().map(m) } else { None };
+            let ctl = if b_ctl.is_some() && on_cell(&p, b_cell) { b_ctl } else if on_cell(&p, p_cell) { Some(p_ctl) } else if r_cell.is_some_and(|rc| on_cell(&p, rc)) { r_ctl } else if on_cell(&p, s0) { lay.slots.first().copied().map(m) } else { None };
             if (x_cell.is_some_and(|xc| on_cell(&p, xc)) || a_cell.is_some_and(|ac| on_cell(&p, ac)) || qb_cell.is_some_and(|qc| on_cell(&p, qc))) && v.z < -0.003 {
                 max_back = max_back.max(-v.z);
                 if backward.len() < 12 {
@@ -877,17 +997,43 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     s += &format!("the tail's most carts at once: {max_tail}\n");
     s += &format!("{}\n", merges.line());
     s += &format!("{}\n", rails.line());
+    s += &format!("riders in the buffer with a walk target, rider-ticks by path: reaching {}, partial {}, no path {}{}; riders whose box touches another cart's, walking or not (contact alone pushes; must be 0): {walk_touch} (not walking {touch_idle}){}\n", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }, if walk_touch_log.is_empty() { String::new() } else { format!(" ({})", walk_touch_log.join("; ")) });
+    s += &format!("{}\n", det_edges.line(dx, dz));
+    if land_det.is_some() {
+        s += &format!("landing detector (the entry hold's strand input by level): longest unbroken on {} gt ({}); per cycle {:?}\n", land_on_max.0, land_on_max.1, land_cycle_max);
+    }
+    if !runtime_bad.is_empty() {
+        return Err(format!("declared states at runtime (a driven block powered against its control): {}", runtime_bad.join("; ")));
+    }
     if let Some(path) = &bo.drive_out {
-        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {ticks}\n# mctas mobfarm tail-bench <design> --seed {seed} (pattern of {} cycles, extra {extra}), design shifted by {dx},{dz}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order; t0 = the time right after that spawn (the scene file holds only the tail's carts, as the bench keeps them); act t applied when the time is t0 + t, before the next tick\n", pattern.len());
-        if pattern.iter().any(|b| b.n > 0) {
+        // (with `scene_at` C the drive starts at cycle C: the driven cells' states then, and the
+        // acts from then on, re-based)
+        let t_base = bo.scene_at.map_or(0, |c| c * 100);
+        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# mctas mobfarm tail-bench <design> --seed {seed} (pattern of {} cycles, extra {extra}), design shifted by {dx},{dz}{}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order; t0 = the time right after that spawn (the scene file holds only the tail's carts, as the bench keeps them); act t applied when the time is t0 + t, before the next tick\n", ticks - t_base, pattern.len(), if t_base > 0 { format!(", from cycle {} (the scene holds the tail's carts as they were then)", t_base / 100) } else { String::new() });
+        if pattern.iter().enumerate().any(|(c, b)| b.n > 0 && c as i64 * 100 + b.dt >= t_base) {
             text.push_str("# NOTE: this pattern spawns carts on the return run; their spawns are not acts here (use a pattern of 0s for a bridge drive)\n");
         }
+        if t_base > 0 {
+            for l in &scene_cells {
+                text.push_str(l);
+                text.push('\n');
+            }
+        }
+        let mut n = 0;
         for l in &drive {
-            text.push_str(l);
+            let t: i64 = l.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+            if t < t_base {
+                continue;
+            }
+            text.push_str(&l.replacen(&format!("act {t} "), &format!("act {} ", t - t_base), 1));
             text.push('\n');
+            n += 1;
         }
         std::fs::write(path, text).map_err(|e| e.to_string())?;
-        s += &format!("drive log: {} ({} acts)\n", path.display(), drive.len());
+        s += &format!("drive log: {} ({} acts)\n", path.display(), n);
+    }
+    for l in &scene_snap {
+        s += &format!("scene line: {l}\n");
     }
     if adm_a1.is_some() {
         let f = |v: f64| if v == f64::MAX { "-".to_string() } else { format!("{v:.3}") };

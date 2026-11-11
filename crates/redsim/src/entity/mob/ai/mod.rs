@@ -17,6 +17,7 @@ pub mod brain;
 pub mod cube;
 pub mod squid;
 pub mod fish;
+pub mod phantom;
 pub mod control;
 pub mod goal;
 pub mod path;
@@ -98,6 +99,8 @@ pub struct MobAi {
     pub squid: Option<squid::SquidState>,
     /// A fish's school ([`fish`]).
     pub fish: Option<fish::FishState>,
+    /// (mob-AI 2026-11-10) A phantom's anchor, move target and circling ([`phantom`]).
+    pub phantom: Option<phantom::PhantomState>,
     /// A wolf's shake ([`goal::wolf`]).
     pub wolf: Option<goal::wolf::WolfState>,
     /// A cat's sprint and crouch ([`goal::cat`]).
@@ -121,6 +124,12 @@ pub struct MobAi {
     pub stabbed: Vec<(u32, i64)>,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
+    /// (mob-AI 2026-11-11) `Mob.homePosition` and `homeRadius` (`None`: -1, no home): a wandering
+    /// trader's (its spawner's reference, 16), a leashed mob's (`PathfinderMob.whenLeashedTo`: the
+    /// holder's block, 5, every tick). The random positions pull toward it and stay inside it.
+    pub home: Option<(crate::pos::BlockPos, i32)>,
+    /// (mob-AI 2026-11-11) A wandering trader's or a trader llama's own state.
+    pub trader: Option<goal::trader::TraderState>,
 }
 
 impl MobAi {
@@ -202,6 +211,7 @@ impl MobAi {
             cube: None,
             squid: None,
             fish: None,
+            phantom: None,
             wolf: None,
             cat: None,
             enderman: None,
@@ -212,6 +222,8 @@ impl MobAi {
             horse: None,
             stabbed: Vec::new(),
             age: 0,
+            home: None,
+            trader: None,
         };
         goal::register_goals(&mut ai, ty);
         if let Some(_) = cube::cube_size(d.id) {
@@ -222,6 +234,9 @@ impl MobAi {
         }
         if fish::is_fish_id(d.id) {
             fish::register(&mut ai, d.id);
+        }
+        if phantom::is_phantom_id(d.id) {
+            phantom::register(&mut ai);
         }
         ai
     }
@@ -410,6 +425,13 @@ pub struct AiWorld {
     /// A player's body has moved it at least once (natural spawning then filters the ticking
     /// chunks by its position each tick).
     pub player_moved: bool,
+    /// (mob-AI 2026-11-11) `PoiManager.DistanceTracker`'s memory: the sections it ever stored, i.e.
+    /// those within 5 of a village centre at one of its runs. Its levels are clamped to 0..6 and
+    /// `setLevel` keeps any level up to 6, so when the last centre near a section goes, the
+    /// increase path stores 6 there. The section reads 6, not the map's default 7, from then on
+    /// (until a centre comes within 5 again). Also the centres already counted.
+    pub village_seen: std::sync::Arc<std::collections::HashSet<(i32, i32, i32)>>,
+    pub village_noted: std::collections::HashSet<(i32, i32, i32)>,
 }
 
 /// A mob whose AI is not modeled: no goals and no targets (villagers have their brain, bats their
@@ -420,7 +442,7 @@ pub fn unmodeled(ty: MobType, a: &MobAi) -> bool {
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, projectile_motion: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, projectile_motion: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false, village_seen: Default::default(), village_noted: std::collections::HashSet::new() }
     }
 }
 
@@ -547,6 +569,10 @@ pub fn move_control_tick(w: &mut World, i: usize) {
     if ai(w, i).cube.is_some() {
         return cube::move_control_tick(w, i);
     }
+    // (mob-AI 2026-11-10) Phantom.PhantomMoveControl
+    if ai(w, i).phantom.is_some() {
+        return phantom::move_control_tick(w, i);
+    }
     // AbstractFish.FishMoveControl
     if ai(w, i).fish.is_some() {
         return fish::move_control_tick(w, i);
@@ -667,6 +693,10 @@ fn is_walkable(w: &World, i: usize, dx: f32, dz: f32) -> bool {
 
 /// `LookControl.tick()`.
 pub fn look_control_tick(w: &mut World, i: usize) {
+    // (mob-AI 2026-11-10) Phantom.PhantomLookControl.tick: nothing (no pitch reset either)
+    if ai(w, i).phantom.is_some() {
+        return;
+    }
     // resetXRotOnTick
     w.entities.list[i].x_rot = 0.0;
     let lc = ai(w, i).look;
@@ -730,6 +760,9 @@ pub fn jump_control_tick(w: &mut World, i: usize) {
 
 /// `BodyRotationControl.clientTick()` (`Mob.tickHeadTurn`).
 pub fn body_rotation_tick(w: &mut World, i: usize) {
+    if ai(w, i).phantom.is_some() {
+        return phantom::body_rotation_tick(w, i);
+    }
     let e = &w.entities.list[i];
     let xd = e.pos.x - e.xo;
     let zd = e.pos.z - e.zo;
@@ -972,8 +1005,9 @@ fn refuse_once(w: &mut World, why: &str) {
 /// `Monster.updateNoActionTime()` (first in `Monster.aiStep`): bright light at the eye counts
 /// double.
 pub fn update_no_action_time(w: &mut World, i: usize) {
-    // a Monster's (the cube mobs spawn as monsters but are AgeableMobs)
-    if !mob(w, i).ty.def().monster || ai(w, i).cube.is_some() {
+    // a Monster's (the cube mobs spawn as monsters but are AgeableMobs; the phantom is a Mob
+    // implementing Enemy, not a Monster: mob-AI 2026-11-11)
+    if !mob(w, i).ty.def().monster || ai(w, i).cube.is_some() || ai(w, i).phantom.is_some() {
         return;
     }
     // Raider.updateNoActionTime (a witch): +2 whatever the light

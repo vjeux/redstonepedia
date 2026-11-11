@@ -1,0 +1,59 @@
+# drive v1: mctas mobfarm siding-bench <design> --wired --launch --from 1 --to 1 --nights 1 --drive-out F (arrivals launched from rest on the bench's launcher; the release placed as a block: the loop's input)
+# caption carts launched in and released by the test bench; the siding's own redstone does the rest
+# seed 1
+# days 2
+# walk random
+# ai on
+# start Run::start(spec, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }); settle_tick until false; the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then
+# act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order)
+# t0 200
+# expect t: the event happened in the tick that brought the world's time to t0 + t (an act at t comes before the tick to t0 + t + 1)
+act 0 set 4 -2 0 minecraft:redstone_block
+act 14368 tp e1 -8.5 0.0625 0.5
+expect 14375 pos e1 -7.7384 0.0625 0.5000
+expect 14400 pos e1 1.5100 0.0625 1.2928
+expect 14425 pos e1 1.5000 0.0625 6.5100
+expect 14450 pos e1 1.5000 0.0625 6.5100
+expect 14475 pos e1 1.5000 0.0625 6.5100
+expect 14500 pos e1 1.5000 0.0625 6.5100
+act 14520 set -5 -3 -4 minecraft:redstone_block
+expect 14525 pos e1 1.5000 0.0625 6.5100
+act 14532 set -5 -3 -4 minecraft:air
+expect 14550 pos e1 1.5000 0.0625 3.5871
+act 14580 tp e1 -19.5 0.0625 -19.5
+act 14776 tp e2 -8.5 0.0625 0.5
+expect 14800 pos e2 -1.1579 0.0625 0.5000
+expect 14825 pos e2 1.5000 0.0625 6.5100
+expect 14850 pos e2 1.5000 0.0625 6.5100
+expect 14875 pos e2 1.5000 0.0625 6.5100
+expect 14900 pos e2 1.5000 0.0625 6.5100
+expect 14925 pos e2 1.5000 0.0625 6.5100
+act 14947 set -5 -3 -4 minecraft:redstone_block
+expect 14950 pos e2 1.5000 0.0625 6.5100
+act 14959 set -5 -3 -4 minecraft:air
+expect 14975 pos e2 1.5000 0.0625 4.0190
+act 15007 tp e2 -17.5 0.0625 -19.5
+act 15256 tp e3 -8.5 0.0625 0.5
+expect 15275 pos e3 -3.1579 0.0625 0.5000
+expect 15300 pos e3 1.5000 0.0625 6.0055
+expect 15325 pos e3 1.5000 0.0625 6.5100
+expect 15350 pos e3 1.5000 0.0625 6.5100
+expect 15375 pos e3 1.5000 0.0625 6.5100
+expect 15400 pos e3 1.5000 0.0625 6.5100
+act 15419 set -5 -3 -4 minecraft:redstone_block
+expect 15425 pos e3 1.5000 0.0625 6.5100
+act 15431 set -5 -3 -4 minecraft:air
+expect 15450 pos e3 1.5000 0.0625 3.3840
+act 15479 tp e3 -15.5 0.0625 -19.5
+act 15728 tp e4 -8.5 0.0625 0.5
+expect 15750 pos e4 -1.9579 0.0625 0.5000
+expect 15775 pos e4 1.5000 0.0625 6.4977
+expect 15800 pos e4 1.5000 0.0625 6.5100
+expect 15825 pos e4 1.5000 0.0625 6.5100
+expect 15850 pos e4 1.5000 0.0625 6.5100
+expect 15875 pos e4 1.5000 0.0625 6.5100
+act 15875 set -5 -3 -4 minecraft:redstone_block
+act 15887 set -5 -3 -4 minecraft:air
+expect 15900 pos e4 1.5000 0.0625 4.7367
+act 15935 tp e4 -13.5 0.0625 -19.5
+expect-end golems 0

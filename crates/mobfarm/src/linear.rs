@@ -183,12 +183,12 @@ pub fn design(pad: &PadOpts, o: &LinearOpts) -> Result<String> {
     // checked after the warm-up too); no flights: the bench moves the carts, none leaves a rail)
     let mut decl: Vec<crate::declared::Decl> = (0..RIDERS).map(|i| {
         let c = o.cell(i);
-        crate::declared::Decl::new([c.x, c.y, c.z], "powered_rail", &[("powered", "false")], true)
+        crate::declared::Decl::new([c.x, c.y, c.z], "powered_rail", &[("powered", "false")], true).bench_set()
     }).collect();
     for g in 0..BATCHES - 1 {
         let base = -6 + g * (RIDERS + 2);
         for dx in 0..RIDERS {
-            decl.push(crate::declared::Decl::new([base + dx, o.y, o.hold_z], "powered_rail", &[("powered", "false")], true));
+            decl.push(crate::declared::Decl::new([base + dx, o.y, o.hold_z], "powered_rail", &[("powered", "false")], true).bench_set());
         }
     }
     b.d.meta.insert("declared".into(), crate::declared::format(&decl));
@@ -567,6 +567,15 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
         }
         for (k, (cart, rider)) in carts_watched.iter().enumerate() {
             rail_watch.observe(&run.world, k, *cart, Some(*rider), &format!("gt {t}"));
+        }
+        // (the runtime check, `crate::declared::check_runtime`, every tick: a bench-set brake (no
+        // control line) powered by any neighbour, or a controlled rail powered while its control
+        // is off, fails the run; each cell reported once)
+        for b in crate::declared::check_runtime(&run.world, &bo.declared) {
+            if !rep.declared_bad.contains(&b) {
+                rep.declared_bad.push(b.clone());
+                violate(&mut rep, t, format!("runtime: {b}"));
+            }
         }
         let evs: Vec<MobEvent> = run.world.mob.events[ev_seen.min(run.world.mob.events.len())..].to_vec();
         ev_seen = run.world.mob.events.len();

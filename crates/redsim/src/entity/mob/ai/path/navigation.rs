@@ -111,6 +111,12 @@ pub struct Navigation {
     pub path_to_position: Option<BlockPos>,
     /// Searches run (for the benchmarks).
     pub searches: u64,
+    /// (mob-AI 2026-11-11) The last path object this navigation let go of, as it stood then.
+    /// Java's PATH memory and MoveToTargetSink hold the navigation's own Path object. When the
+    /// navigation replaces or drops it (a recomputation after a block update, `stop`, a `moveTo`
+    /// with another path), the memory keeps the old object, which no longer advances. The brain
+    /// re-syncs it only on its next tick (tickexact's contact6-unload t1100: a frozen villager).
+    pub retired: Option<Path>,
 }
 
 impl Navigation {
@@ -141,7 +147,27 @@ impl Navigation {
             can_path_to_targets_below_surface: false,
             path_to_position: None,
             searches: 0,
+            retired: None,
         }
+    }
+
+    /// The navigation lets go of its path object (kept as [`Navigation::retired`]).
+    fn retire_path(&mut self) {
+        if let Some(p) = self.path.take() {
+            self.retired = Some(p);
+        }
+    }
+
+    /// The Path object a holder of `copy` sees now: the navigation's live path when it is that
+    /// object, the retired one when it is that, else the copy as it was taken.
+    pub fn path_object<'a>(&'a self, copy: &'a Path) -> &'a Path {
+        if let Some(p) = self.path.as_ref().filter(|p| p.uid == copy.uid) {
+            return p;
+        }
+        if let Some(p) = self.retired.as_ref().filter(|p| p.uid == copy.uid) {
+            return p;
+        }
+        copy
     }
 
     /// `getMaxPathLength()`.
@@ -337,10 +363,11 @@ impl Navigation {
     /// `moveTo(path, speedModifier)`.
     pub fn move_to_path(&mut self, w: &World, m: &NavMob, new_path: Option<Path>, speed: f64) -> bool {
         let Some(np) = new_path else {
-            self.path = None;
+            self.retire_path();
             return false;
         };
         if !np.same_as(self.path.as_ref()) {
+            self.retire_path();
             self.path = Some(np);
         }
         if self.is_done() {
@@ -395,7 +422,7 @@ impl Navigation {
     }
 
     pub fn stop(&mut self) {
-        self.path = None;
+        self.retire_path();
     }
 
     fn reset_stuck_timeout(&mut self) {
@@ -440,7 +467,7 @@ impl Navigation {
         if m.game_time - self.time_last_recompute <= 20 || !self.can_update_path(m) {
             self.has_delayed_recomputation = true;
         } else if let Some(tp) = self.target_pos {
-            self.path = None;
+            self.retire_path();
             let reach = self.reach_range;
             self.path = self.create_path_pos(w, m, tp, reach, arena);
             self.time_last_recompute = m.game_time;

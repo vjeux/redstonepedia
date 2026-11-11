@@ -508,8 +508,7 @@ pub fn frame_memories(w: &World, i: usize) -> std::collections::BTreeMap<String,
         m.insert("look_target".into(), tracker(t));
     }
     if let Some(pa) = &e.path {
-        let live = mob(w, i).ai.as_deref().and_then(|a| a.nav.path.as_ref()).filter(|n| n.uid == pa.uid);
-        let q = live.unwrap_or(pa);
+        let q = mob(w, i).ai.as_deref().map(|a| a.nav.path_object(pa)).unwrap_or(pa);
         m.insert("path".into(), format!("path {} {} {} {}/{} {}", q.target.x, q.target.y, q.target.z, q.next_node_index, q.node_count(), if q.reached { "reach" } else { "partial" }));
     }
     if let Some(t) = e.cant_reach_since {

@@ -223,6 +223,10 @@ pub enum MobEvent {
     GolemTry { t: i64, villager: u32, willing: u32, golem: Option<u32>, at: Option<[i32; 3]> },
     /// A villager's golem sensor saw a golem (`golemDetected`).
     GolemSeen { t: i64, villager: u32 },
+    /// (tickexact 2026-11-11, ironspec's golem-lock line) A successful summon's
+    /// `nearbyVillagers.forEach(GolemSensor::golemDetected)`: `villager` (in the summoner's box
+    /// inflated by 10) got `GOLEM_DETECTED_RECENTLY` for 599 gt from `summoner`'s `golem`.
+    GolemLocked { t: i64, villager: u32, summoner: u32, golem: u32 },
     Hurt { t: i64, id: u32, ty: MobType, src: Damage, amount: f32 },
     Death { t: i64, id: u32, ty: MobType, src: Damage, pos: [f64; 3] },
     Drop { t: i64, from: u32, item: u32, what: &'static str, count: u32 },
@@ -311,6 +315,12 @@ pub struct MobState {
     pub last_crystal_tick: i32,
     /// `getSleepingPos()`: sleeping (pose SLEEPING) when set.
     pub sleeping_pos: Option<BlockPos>,
+    /// (tickexact 2026-11-11) The pose STANDING while the sleeping pos stays: `Entity.startRiding`
+    /// sets the pose STANDING (and `refreshDimensions`: the standing box) without `stopSleeping`,
+    /// so a sleeper a minecart picks up off its bed rides as tall as awake, its bed still occupied,
+    /// asleep for `isSleeping` until its WakeUp (or another stopSleeping) puts it back on its feet
+    /// by the bed. Cleared by start/stop sleeping; not saved (a sleeper loads with pose SLEEPING).
+    pub pose_standing: bool,
     /// `FOLLOW_RANGE` with `Mob.finalizeSpawn`'s random bonus.
     pub follow_range: f64,
     /// (tickexact 2026-11-10) A zombie's `SPAWN_REINFORCEMENTS_CHANCE`: `randomizeReinforcementsChance`
@@ -405,6 +415,7 @@ impl MobState {
             crystal_intensity: 0.0,
             last_crystal_tick: 0,
             sleeping_pos: None,
+            pose_standing: false,
             follow_range: d.follow_range * (1.0 + bonus),
             reinforcement_chance: 0.0,
             max_health_bonus: 0.0,
@@ -442,7 +453,7 @@ impl MobState {
 
     /// `getDimensions(pose)`: (width, height).
     pub fn dims(&self) -> (f32, f32) {
-        if self.sleeping_pos.is_some() {
+        if self.sleeping_pos.is_some() && !self.pose_standing {
             (types::SLEEPING.0, types::SLEEPING.1)
         } else {
             let d = self.ty.def();
@@ -456,7 +467,7 @@ impl MobState {
 
     /// `getEyeHeight()` in its pose.
     pub fn eye(&self) -> f32 {
-        if self.sleeping_pos.is_some() { types::SLEEPING.2 } else { self.ty.def().eye * self.scale }
+        if self.sleeping_pos.is_some() && !self.pose_standing { types::SLEEPING.2 } else { self.ty.def().eye * self.scale }
     }
 }
 
@@ -504,11 +515,32 @@ pub struct MobWorld {
     pub custom: Option<custom::Custom>,
     /// ---- mob AI (the mob-AI lane): on/off, difficulty, players, game rules ----
     pub ai: ai::AiWorld,
+    /// (tickexact 2026-11-11, ironspec's push rule: counted at the push itself) Every push a mob's
+    /// `pushEntities` gives a minecart (`AbstractMinecart.push(mob)` past its 0.01 threshold; never
+    /// the mob's own vehicle): `Some` logs them (whoever reads it drains it,
+    /// [`crate::entity::minecart::take_cart_pushes`]), `None` (the default) logs nothing.
+    pub cart_pushes: Option<Vec<CartPush>>,
+}
+
+/// One push of a minecart by a mob ([`MobWorld::cart_pushes`]): `AbstractMinecart.push(mob)`'s
+/// `this.push(-xa, 0, -za)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CartPush {
+    pub t: i64,
+    /// The pushing mob's id.
+    pub mob: u32,
+    /// The pushed cart's id.
+    pub cart: u32,
+    /// The motion added to the cart (x, z): 0.05 b/t away from the mob at 1 apart or more, 0.05 / d
+    /// nearer (`pow` = min(1, 1 / d) on the unit direction, then 0.1 and 0.5).
+    pub push: [f64; 2],
+    /// The horizontal distance between their centres.
+    pub dist: f64,
 }
 
 impl Default for MobWorld {
     fn default() -> MobWorld {
-        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default() }
+        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default(), cart_pushes: None }
     }
 }
 

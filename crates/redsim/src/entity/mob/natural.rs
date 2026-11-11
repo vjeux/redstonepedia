@@ -128,6 +128,14 @@ pub static DEFS: &[TypeDef] = &[
     // (mob-AI 2026-11-10) a baby zombie horse (AbstractHorse.finalizeSpawn: 1 in 5):
     // ZombieHorse.BABY_DIMENSIONS, the zombie horse's x 0.7 (its passenger seat: `rider_seat`)
     row(49, "baby_zombie_horse", "minecraft:zombie_horse", 1.3964844 * 0.7, 1.6 * 0.7, 1.52 * 0.7, 25.0, 0.2f32 as f64, false, true, 1.0),
+    // (mob-AI 2026-11-10) the phantom (size 0: EntityTypes.PHANTOM's 0.9 x 0.5, eye 0.175; Monster's
+    // attributes; no fall damage: its checkFallDamage does nothing; it burns in daylight)
+    TypeDef { fall_immune: true, ..row(50, "phantom", "minecraft:phantom", 0.9, 0.5, 0.175, 20.0, 0.7, true, true, 0.6) },
+    // (mob-AI 2026-11-11) the wandering trader (Mob.createMobAttributes: MOVEMENT_SPEED 0.7,
+    // MAX_HEALTH 20) and its trader llamas (createBaseChestedHorseAttributes: MOVEMENT_SPEED
+    // 0.175F, STEP_HEIGHT 1, MAX_HEALTH 53 until finalizeSpawn's 15 + nextInt(8) + nextInt(9))
+    row(51, "wandering_trader", "minecraft:wandering_trader", 0.6, 1.95, 1.62, 20.0, 0.7, false, false, 0.6),
+    row(52, "trader_llama", "minecraft:trader_llama", 0.9, 1.87, 1.7765, 53.0, 0.175f32 as f64, false, false, 1.0),
 ];
 
 // ------------------------------------------------------------------------- the categories
@@ -345,6 +353,12 @@ pub static KINDS: &[Kind] = &[
     kind("minecraft:skeleton_horse", MobType::Natural(46), C::Creature, P::OnGround, Rule::Always, 1, false, None, F::Unmodeled, false, W::Animal),
     kind("minecraft:zombified_piglin", MobType::Natural(47), C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(48)), F::Unmodeled, false, W::Monster),
     kind("minecraft:bee", MobType::Natural(43), C::Creature, P::NoRestrictions, Rule::Always, 4, false, None, F::Unmodeled, false, W::Animal),
+    // (mob-AI 2026-11-10) the phantom spawner's (`spawn_phantom`; never a biome's)
+    kind("minecraft:phantom", MobType::Natural(50), C::Monster, P::NoRestrictions, Rule::Always, 1, true, None, F::Unmodeled, false, W::None),
+    // (mob-AI 2026-11-11) the wandering trader spawner's (`goal::trader`; never a biome's): neither
+    // is removed when far (the trader leaves by its despawn delay, a llama with it)
+    kind("minecraft:wandering_trader", MobType::Natural(51), C::Creature, P::OnGround, Rule::Always, 1, false, None, F::Unmodeled, false, W::None),
+    kind("minecraft:trader_llama", MobType::Natural(52), C::Creature, P::NoRestrictions, Rule::Always, 1, false, None, F::Unmodeled, false, W::Animal),
 ];
 
 /// A spawnable type by its game id.
@@ -818,10 +832,10 @@ fn create_state(w: &World, nat: &Natural) -> State {
             continue;
         }
         let EntityKind::Mob(m) = &e.kind else { continue };
-        // isPersistenceRequired or requiresCustomPersistence: a passenger, an enderman carrying a
-        // block
+        // isPersistenceRequired or requiresCustomPersistence: a passenger, a leashed mob (a trader
+        // llama: mob-AI 2026-11-11), an enderman carrying a block
         let carrying = m.ai.as_deref().and_then(|a| a.enderman.as_ref()).is_some_and(|s| s.carried.is_some());
-        if m.persistence_required || e.vehicle.is_some() || carrying {
+        if m.persistence_required || e.vehicle.is_some() || e.leash.is_some() || carrying {
             continue;
         }
         let cat = category_of(m.ty);
@@ -1527,6 +1541,75 @@ pub fn spawn_cat(w: &mut World, at: BlockPos, persistent: bool) -> u32 {
         w.mob.natural = None;
     }
     id
+}
+
+/// (mob-AI 2026-11-10) The phantom spawner's phantom at cell `at`: `EntityTypes.PHANTOM.create`
+/// (a construction), `snapTo(spawnPos, 0, 0)` (the cell's bottom centre), `finalizeSpawn`
+/// (NATURAL: its anchor 5 above its block, size 0, then Mob's follow range triangle and
+/// left-handed roll from the level random), added. Returns its id.
+pub fn spawn_phantom(w: &mut World, at: BlockPos) -> u32 {
+    let temp = w.mob.natural.is_none();
+    if temp {
+        let players: Vec<Vec3> = w.afk.into_iter().collect();
+        w.mob.natural = Some(Natural::new(players, w.mob.ai.difficulty));
+    }
+    let _ctor = w.construct();
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.bonuses.clear();
+    }
+    mob_base(w);
+    let k = kind_of("minecraft:phantom").expect("a phantom row");
+    let f = Finalized { ty: k.ty, baby: false, jockey: Jockey::None, helmet: None, rider_helmet: None, breaks_doors: false, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None, hand: Hand::default(), rider_hand: Hand::default() };
+    let pos = Vec3::new(at.x as f64 + 0.5, at.y as f64, at.z as f64 + 0.5);
+    let id = spawn_mob(w, k, &f, pos, 0.0);
+    if let Some(i) = crate::entity::index_of(w, id)
+        && super::ai::phantom::is_phantom(w, i)
+    {
+        super::ai::phantom::set_anchor(w, i);
+    }
+    if temp {
+        w.mob.natural = None;
+    }
+    id
+}
+
+/// (mob-AI 2026-11-11) The level random (mirrored), for the custom spawners' mobs.
+pub fn level_rng(w: &mut World) -> &mut crate::rng::LegacyRandom {
+    rng(w)
+}
+
+/// (mob-AI 2026-11-11) `EntityType.spawn(level, at, EVENT)` of a kind: constructed, the cell's
+/// bottom centre with `wrapDegrees(level nextFloat * 360)` (the head and body too), its
+/// `finalizeSpawn` (`extra`: the type's own draws before Mob's, e.g. a trader llama's strength,
+/// variant and health), added. Returns its id and what `extra` drew.
+pub fn spawn_event_mob<T>(w: &mut World, k: &'static Kind, at: BlockPos, extra: impl FnOnce(&mut World) -> T) -> (u32, T) {
+    let temp = w.mob.natural.is_none();
+    if temp {
+        let players: Vec<Vec3> = w.afk.into_iter().collect();
+        w.mob.natural = Some(Natural::new(players, w.mob.ai.difficulty));
+    }
+    let _ctor = w.construct();
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.bonuses.clear();
+    }
+    let yaw = crate::entity::mth::wrap_degrees(rng(w).next_float() * 360.0f32);
+    let x = extra(w);
+    mob_base(w);
+    let f = Finalized { ty: k.ty, baby: false, jockey: Jockey::None, helmet: None, rider_helmet: None, breaks_doors: false, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None, hand: Hand::default(), rider_hand: Hand::default() };
+    let pos = Vec3::new(at.x as f64 + 0.5, at.y as f64, at.z as f64 + 0.5);
+    let id = spawn_mob(w, k, &f, pos, yaw);
+    // EntityType.create: the head and the body take the yaw (`yHeadRot = yBodyRot = getYRot()`)
+    if let Some(i) = crate::entity::index_of(w, id)
+        && super::ai::has_ai(w, i)
+    {
+        let a = super::ai::ai_mut(w, i);
+        a.y_head_rot = yaw;
+        a.y_body_rot = yaw;
+    }
+    if temp {
+        w.mob.natural = None;
+    }
+    (id, x)
 }
 
 /// `removeWhenFarAway(distSqr)` of mob `i`: its kind's, or a wild cat's past 2400 ticks
@@ -2374,25 +2457,20 @@ fn valid_position_for_mob(w: &mut World, k: &Kind, ty: MobType, pos: Vec3, d2: f
 /// `Zombie.finalizeSpawn`'s near chicken: the first chicken (entity order) in the zombie's box at
 /// `pos` inflated by (5, 3, 5) that nobody rides.
 fn near_chicken(w: &World, zombie: MobType, pos: Vec3, not: u32) -> Option<u32> {
-    let bb = entity_box(zombie, pos.x, pos.y, pos.z);
+    // (mob-AI 2026-11-11) getEntitiesOfClass(Chicken.class, box.inflate(5, 3, 5),
+    // ENTITY_NOT_BEING_RIDDEN): the boxes that intersect it, in the level's section order (each
+    // section's in the order they entered it), alive, neither ridden nor riding; the first
+    let bb = entity_box(zombie, pos.x, pos.y, pos.z).inflate(5.0, 3.0, 5.0);
     let riders: Vec<u32> = w.mob.natural.as_ref().map(|n| n.riders.iter().map(|r| r.1).collect()).unwrap_or_default();
-    w.entities
-        .list
-        .iter()
-        .find(|e| {
-            !e.removed
-                && e.id != not
-                && matches!(&e.kind, EntityKind::Mob(m) if m.ty.def().game_id == "minecraft:chicken")
-                && !riders.contains(&e.id)
-                && e.passengers.is_empty()
-                && e.pos.x > bb.min_x - 5.0
-                && e.pos.x < bb.max_x + 5.0
-                && e.pos.y > bb.min_y - 3.0
-                && e.pos.y < bb.max_y + 3.0
-                && e.pos.z > bb.min_z - 5.0
-                && e.pos.z < bb.max_z + 5.0
-        })
-        .map(|e| e.id)
+    w.get_entities(bb, |e| {
+        e.id != not
+            && matches!(&e.kind, EntityKind::Mob(m) if m.ty.def().game_id == "minecraft:chicken" && !m.dead && m.health > 0.0)
+            && !riders.contains(&e.id)
+            && e.passengers.is_empty()
+            && e.vehicle.is_none()
+    })
+    .first()
+    .map(|&i| w.entities.list[i].id)
 }
 
 /// `Chicken.setChickenJockey(true)`.
@@ -2735,8 +2813,8 @@ pub fn check_despawn(w: &mut World, i: usize) {
         discard(w, i, id, k, false);
         return;
     }
-    let passenger = w.entities.list[i].vehicle.is_some() || rider;
-    // requiresCustomPersistence: a passenger, an enderman carrying a block
+    let passenger = w.entities.list[i].vehicle.is_some() || rider || w.entities.list[i].leash.is_some();
+    // requiresCustomPersistence: a passenger, a leashed mob, an enderman carrying a block
     let carrying = super::ai::has_ai(w, i) && super::ai::ai(w, i).enderman.as_ref().is_some_and(|s| s.carried.is_some());
     let persistent = persistent || passenger || carrying;
     if let Some(d2) = nearest {
