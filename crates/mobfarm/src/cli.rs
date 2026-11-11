@@ -1510,6 +1510,13 @@ pub enum MobfarmCmd {
         /// comparator timer) or `none`.
         #[arg(long, default_value = "scheduler")]
         give_up: String,
+        /// Quarter turns about the siding's origin, 0..3 (`clock::rotate_pos`: one turn takes
+        /// (x, z) to (-z, x); day-1's (c) 2026-11-11 asked for 2, the entry from the east): the
+        /// design turned, a `turn: N` meta line for the bench and the check. A plain rail's T
+        /// picks its curve by a fixed direction order, so turns 2 and 3 invert the T's polarity:
+        /// their T is driven by H (powered during a visit) instead of not-H.
+        #[arg(long, default_value_t = 0)]
+        turn: u8,
         /// Write the cells as the judge's placement leaves them (the generator's own states), not
         /// settled (the default writes every cell as the bench finds it after the settle, comparator
         /// outputs as block entities: "settled as placed", mobfarm::placing::settle_design).
@@ -2956,14 +2963,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("golems touching no portal: {strays}; Nether: {deaths} dead, {alive} alive at the end, {back} back in the overworld");
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, give_up, unsettled } => {
+        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, give_up, unsettled, turn } => {
             let g = match (wired, give_up.as_str()) {
                 (false, _) | (_, "none") => crate::siding::GiveUp::None,
                 (true, "timer") => crate::siding::GiveUp::Timer,
                 (true, "scheduler") => crate::siding::GiveUp::Scheduler,
                 (_, other) => anyhow::bail!("--give-up {other}: scheduler, timer or none"),
             };
-            std::fs::write(&out, crate::siding::design_full(wired, alone, exit_brake, cage_only, g)?)?;
+            std::fs::write(&out, crate::siding::design_turned(wired, alone, exit_brake, cage_only, g, turn)?)?;
             if !unsettled {
                 let changes = crate::placing::settle_file(&out)?;
                 println!("settled: {} cells written as the settle leaves them", changes.len());
@@ -2974,14 +2981,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}", out.display());
         }
         MobfarmCmd::SidingCheck { design } => {
-            let (_c, spec) = load(version, &design)?;
-            for l in crate::siding::check(&spec).map_err(|e| anyhow::anyhow!(e))? {
+            let (c, spec) = load(version, &design)?;
+            let turn = c.clock.design.meta.get("turn").and_then(|t| t.parse().ok()).unwrap_or(0);
+            for l in crate::siding::check(&spec, turn).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
         }
         MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
+            // (a turned design (its `turn:` line, `siding --turn 2`): the bench's frame turns with
+            // it; the unload boxes are the unturned frame's, so not with a turn)
+            let turn: i32 = c.clock.design.meta.get("turn").and_then(|t| t.parse().ok()).unwrap_or(0);
+            anyhow::ensure!(turn == 0 || unload.is_none(), "--unload on a turned design: its chunk boxes are the unturned frame's");
             let two_i = |s: &str| -> Result<(i64, i64)> {
                 let v: Vec<i64> = s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 2, "two numbers a,b");
@@ -3046,7 +3058,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, unload: unload_one.clone(), divert_gate, v_reset });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -3104,7 +3116,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&(c, seed)) = work.get(j) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset });
                             out.lock().unwrap().push((c, seed, r));
                         });
                     }
