@@ -981,6 +981,11 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     // (the interface cells: a mob farm takes no input port)
     b.d.meta.insert("siding".into(), format!("v1{}{} entry={},{},{} exit={},{},{} release={},{},{}{}", if wired { " wired" } else { "" }, if alone { " alone" } else { "" }, s.entry.x, s.entry.y, s.entry.z, s.exit.x, s.exit.y, s.exit.z, s.release.x, s.release.y, s.release.z, if give_up == GiveUp::Scheduler { format!(" force={},{},{}", FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]) } else { String::new() }));
+    // (the brief's "No derails", ironspec 2026-11-11: the declared states of the siding's rails,
+    // the activator and the hatch at rest (the bench's launcher boosters and hold brakes too), and
+    // its flights: none, no cart leaves the rails on purpose)
+    b.d.meta.insert("declared".into(), crate::declared::format(&declared_of(&b, &s, wired)));
+    b.d.meta.insert("flights".into(), String::new());
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), at(s.bed_head));
     if turn != 0 {
@@ -998,6 +1003,44 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
         "The carousel's bed siding (bench): a napper's cart enters at the origin moving +x, a T sends it down the bed line (the free cell, the activator, the park rail),",
         "the napper naps in the one bed and is woken by the dorm zombie through the hatch, re-boards its cart, which waits on the exit slot until the release pulse.",
     ]))
+}
+
+/// The siding's declared states at rest (`declared:`, [`crate::declared`]): every rail of the
+/// siding by its id (the T a plain rail, the detectors detector rails), the always-on boosters
+/// powered (`!`), the park rail unpowered (the slot's braked rail by its id only: its power is the
+/// loop's release input, held or pulsed), the activator powered (the
+/// wired siding's rest: it drops arrivals), the hatch open; in the bench design also the
+/// launcher's boosters powered and the hold's brakes unpowered (both `!`).
+fn declared_of(b: &Builder, s: &Siding, wired: bool) -> Vec<crate::declared::Decl> {
+    use crate::declared::Decl;
+    let id_at = |c: BlockPos| b.d.blocks.get(&[c.x, c.y, c.z]).map(|st| st.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string());
+    let on: &[(&str, &str)] = &[("powered", "true")];
+    let off: &[(&str, &str)] = &[("powered", "false")];
+    let mut cells: Vec<(BlockPos, &[(&str, &str)], bool)> = vec![(s.entry, &[], false), (s.tee, &[], false), (s.boost, on, true)];
+    if id_at(s.free_cell).as_deref() == Some("powered_rail") {
+        cells.push((s.free_cell, on, true));
+    } else {
+        cells.push((s.free_cell, &[], false));
+    }
+    cells.push((s.activator_rail, if wired { on } else { &[] }, false));
+    for z in s.activator_rail.z + 1..s.park_rail.z {
+        cells.push((BlockPos::new(s.free_cell.x, 0, z), &[], false));
+    }
+    cells.extend([(s.park_rail, off, false), (BlockPos::new(2, 0, 0), &[][..], false), (BlockPos::new(3, 0, 0), &[][..], false), (s.slot_rails[0], &[][..], false), (s.slot_rails[1], &[][..], false), (s.exit, &[][..], false)]);
+    cells.push((s.hatch, &[("open", "true")], false));
+    let mut out: Vec<Decl> = cells.iter().filter_map(|(c, p, a)| id_at(*c).map(|id| Decl::new([c.x, c.y, c.z], &id, p, *a))).collect();
+    // (the bench's own: the launcher's boosters, the approach and run-out rails, the hold's brakes)
+    let mut extra: Vec<(BlockPos, String)> = b.d.blocks.iter().filter(|(c, st)| st.contains("rail") && !out.iter().any(|d| d.cell == **c)).map(|(c, st)| (BlockPos::new(c[0], c[1], c[2]), st.clone())).collect();
+    extra.sort_by_key(|(c, _)| (c.z, c.x, c.y));
+    for (c, st) in extra {
+        let id = st.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+        if id == "powered_rail" {
+            out.push(Decl::new([c.x, c.y, c.z], &id, if st.contains("powered=true") { on } else { off }, true));
+        } else {
+            out.push(Decl::new([c.x, c.y, c.z], &id, &[], false));
+        }
+    }
+    out
 }
 
 /// The static check: every rider and napper cell's golem search: any spot is a stray. `turn`: the
@@ -1128,6 +1171,16 @@ pub struct BenchOpts {
     /// path, an F visit). B (the bed occupied) and N (a nap since the arrival) ideal. With
     /// `v_reset`, the reset pulse is gated by B (VR and not-B: a napper asleep keeps H).
     pub b_emul: Option<i64>,
+    /// With `b_emul`: ironspec's two changes (02:05): no kick unless a villager stands on the free
+    /// cell (FC, ideal), and VR fired only while the siding holds no cart (at the park or the free
+    /// cell).
+    pub b_fc: bool,
+    /// The design's declared states (its `declared:` line, [`crate::declared`]), checked at the
+    /// start and, the always-on cells, at t0 + 20; and its declared flights (`flights:`), every
+    /// cart watched for off-rail stretches against them ([`crate::flight::RailWatch`]). In the
+    /// design's own coordinates (the bench shifts them with the world).
+    pub declared: Vec<crate::declared::Decl>,
+    pub flights: Vec<crate::flight::Flight>,
 }
 
 /// A partial unload of the bench's world ([`BenchOpts::unload`]): the forced chunk box (chunk
@@ -1145,6 +1198,9 @@ pub struct Unload {
     /// The whole part saved and unloaded (`reload::unload_all` / `load_all`: the entities back as
     /// new objects with new ids) in place of the partial unload's dropped chunks.
     pub whole: bool,
+    /// The whole load's entity order (tick-exact 76dae3d14: `reload::load_all_ordered`; save,
+    /// reverse or seed:K). A partial load comes back in save order only (`load_some`).
+    pub order: redsim::reload::Order,
 }
 
 /// The forced box and the dropped chunks of a partial unload at one of the loop's chunk lines, in
@@ -1283,6 +1339,16 @@ pub struct BenchReport {
     pub b_slow: u32,
     pub b_fast: u32,
     pub b_kick_in_bed: u32,
+    /// The VR pulses held back by the gating (`b_emul`: the bed occupied, or a cart inside).
+    pub v_resets_blocked: u32,
+    /// The declared states' mismatches (at the start, and the always-on cells at t0 + 20).
+    pub declared_bad: Vec<String>,
+    /// The off-the-rails watch's derails and its report line.
+    pub derails: Vec<String>,
+    pub rail_line: String,
+    /// The F pulses fired for slots the divert gate held back (day-1's scheduler fires F on
+    /// every slot).
+    pub held_f_fired: u32,
 }
 
 /// The napper-aboard sensor's measurement ([`BenchReport::seat`]).
@@ -1467,6 +1533,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let gate = fr.blk(FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2] + 1);
     let force = (bo.force.is_some() && matches!(run.world.get(gate), Block::Comparator { .. })).then(|| bo.force.unwrap_or((150, 170)));
     let mut force_off: Option<i64> = None;
+    // (the F pulses of the slots the divert gate held back)
+    let mut held_f: Vec<i64> = Vec::new();
     let mut reset_pending = false;
     let mut homes_seen: Vec<bool> = vec![true; pairs.len()];
     let mut home_now: Vec<bool> = pairs.iter().map(|(_, v, _)| index_of(&run.world, *v).is_some_and(|i| brain::brain(&run.world, i).home == Some(bed))).collect();
@@ -1494,6 +1562,18 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut seat_prev = false;
     // (ironspec's merged-carts hard line: ironfarm's shared tally, fed every tick)
     let mut merges = crate::merge::MergeTally::default();
+    // (the brief's "No derails" (ironspec 2026-11-11): the declared states at the start, the
+    // always-on ones again at t0 + 20, and every cart watched against the declared flights; in
+    // the shifted world, moved with it. Positive controls: MCTAS_DECLARED_CONTROL=1 declares the
+    // park rail powered (it rests unpowered: must fail); MCTAS_RAILWATCH_CONTROL=1 lifts the
+    // first visit's cart off its rails at its arrival (must count a derail))
+    let mut decls: Vec<crate::declared::Decl> = bo.declared.iter().map(|d| crate::declared::Decl { cell: [d.cell[0] + dx, d.cell[1], d.cell[2] + dz], ..d.clone() }).collect();
+    if std::env::var("MCTAS_DECLARED_CONTROL").is_ok_and(|v| v == "1") {
+        decls.push(crate::declared::Decl::new([s.park_rail.x, s.park_rail.y, s.park_rail.z], "powered_rail", &[("powered", "true")], true));
+    }
+    let railwatch_control = std::env::var("MCTAS_RAILWATCH_CONTROL").is_ok_and(|v| v == "1");
+    rep.declared_bad.extend(crate::declared::check(&run.world, &decls, false).into_iter().map(|b| format!("t0: {b}")));
+    let mut rail_watch = crate::flight::RailWatch::new(bo.flights.iter().map(|f| f.shifted(dx, dz)).collect());
     // (design (b) emulated: its state; the design's kick torch K taken out, the bench drives the
     // park support)
     #[derive(Default)]
@@ -1503,6 +1583,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         arr_prev: bool,
         kick: bool,
         h_prev: bool,
+        cart_seen: Option<i64>,
     }
     let mut be = BEmul::default();
     if bo.b_emul.is_some() {
@@ -1560,6 +1641,11 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 rep.held_back.push(now);
                 if let Some(at) = bo.v_reset {
                     vr_at.push(now + 30 + at);
+                }
+                // (day-1's scheduler fires F on every visit slot, a diverted one too (ironspec
+                // 02:05): the held-back slot's F at its would-be arrival plus the usual delay)
+                if let Some((fa, fb)) = force {
+                    held_f.push(now + 30 + fa + now.rem_euclid(fb - fa + 1));
                 }
                 let gap = bo.gap.0 + rng.next_int((bo.gap.1 - bo.gap.0 + 1) as i32) as i64;
                 next_visit = Some(now + gap);
@@ -1732,6 +1818,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     }
                 }
             }
+            if held_f.contains(&now) && force_off.is_none() {
+                set(&mut run.world, fc, "redstone_block");
+                drive.act(now, format!("set {} {} {} minecraft:redstone_block", fc.x, fc.y, fc.z));
+                force_off = Some(now + 12);
+                rep.held_f_fired += 1;
+            }
             if force_off == Some(now) {
                 set(&mut run.world, fc, "air");
                 drive.act(now, format!("set {} {} {} minecraft:air", fc.x, fc.y, fc.z));
@@ -1739,8 +1831,26 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
         }
         // (the divert gate's reset pulse VR: a redstone block at both ends of the R line for 4 gt;
-        // under design (b)'s emulation gated by B: not fired while the bed is occupied)
-        if vr_at.contains(&now) && !(bo.b_emul.is_some() && matches!(run.world.get(bed), Block::Bed { occupied: true, .. })) {
+        // under design (b)'s emulation gated by B (not fired while the bed is occupied) and, with
+        // `b_fc`, by the siding holding no cart (ironspec 02:05: a cart at the park or the free
+        // cell, carts sensed, never riders))
+        let cart_inside = || {
+            // (any cart from the entry over the T and down the bed line to the park: the wired
+            // sensor's detector rails at the free cell and the park hold 20 gt past a cart,
+            // covering the stretch between them)
+            run.world.entities.list.iter().any(|e| {
+                let p = fr.local(e.pos);
+                !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= 0.0 && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout().park_rail.z as f64 + 1.0))
+            })
+        };
+        if bo.b_fc && cart_inside() {
+            be.cart_seen = Some(now);
+        }
+        let vr_blocked = bo.b_emul.is_some() && (matches!(run.world.get(bed), Block::Bed { occupied: true, .. }) || (bo.b_fc && be.cart_seen.is_some_and(|c| now - c <= 20)));
+        if vr_at.contains(&now) && vr_blocked {
+            rep.v_resets_blocked += 1;
+        }
+        if vr_at.contains(&now) && !vr_blocked {
             set(&mut run.world, vr_db, "redstone_block");
             set(&mut run.world, vr_n2, "redstone_block");
             rep.v_resets.push(now);
@@ -1770,6 +1880,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         "nap" => v.slept,
                         "asleep" => v.slept.map(|x| x + 10),
                         "waking" => v.woken,
+                        // (inside design (b)'s after-wake delay: 30 gt after the wake)
+                        "delay" => v.woken.map(|x| x + 30),
                         "fpending" => force.map(|(fa, _)| v.arrived + fa - 10),
                         "kick" => kick_seen,
                         "reboard" => kick_seen.map(|x| x + 9),
@@ -1791,8 +1903,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 }
                 Some((from, None)) if now >= from + u.n => {
                     if u.whole {
-                        redsim::reload::load_all(&mut run.world);
-                        drive.act(now, "load".into());
+                        redsim::reload::load_all_ordered(&mut run.world, u.order);
+                        drive.act(now, if u.order == redsim::reload::Order::Save { "load".into() } else { format!("load order={}", u.order.name()) });
                         let w = &run.world;
                         let re = |id: u32| w.renumbered.get(&id).copied().unwrap_or(id);
                         for (&o, &n) in &w.renumbered {
@@ -1830,15 +1942,22 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
             be.arr_prev = arr;
             be.n |= b;
+            // (ironspec 2026-11-11 02:05: no kick unless the napper stands on the free cell: FC,
+            // ideal, a villager not riding in the free cell's column)
+            let fcell = layout().free_cell;
+            let fc = w.entities.list.iter().any(|e| {
+                let p = fr.local(e.pos);
+                !e.removed && e.vehicle.is_none() && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) && p.x >= fcell.x as f64 && p.x < fcell.x as f64 + 1.0 && p.z >= fcell.z as f64 && p.z < fcell.z as f64 + 1.0 && p.y > -0.5 && p.y < 1.0
+            });
             if h && !b {
                 be.since.get_or_insert(now);
             } else {
                 be.since = None;
             }
             let slow = be.since.is_some_and(|x| now - x >= d);
-            let kick = h && !l && !b && (slow || !be.n);
+            let kick = h && !l && !b && (fc || !bo.b_fc) && (slow || !be.n);
             if bo.trace && (h != be.h_prev || kick != be.kick) {
-                eprintln!("b-emul gt {}: H {h} L {l} B {b} N {} since {:?} kick {kick}", now - t0, be.n, be.since.map(|x| now - x));
+                eprintln!("b-emul gt {}: H {h} L {l} B {b} N {} FC {fc} since {:?} kick {kick}", now - t0, be.n, be.since.map(|x| now - x));
             }
             be.h_prev = h;
             if kick && !be.kick {
@@ -1858,9 +1977,25 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 rep.b_kick_in_bed += 1;
             }
         }
+        // (the off-the-rails watch's positive control: the first visit's cart lifted 3 blocks at
+        // its arrival + 2)
+        if railwatch_control
+            && let Some(v) = rep.visits.first()
+            && now == v.arrived + 2
+            && let Some(i) = run.world.entities.list.iter().position(|e| e.id == v.cart && !e.removed)
+        {
+            let (p, vel) = (run.world.entities.list[i].pos, run.world.entities.list[i].delta_movement);
+            teleport(&mut run.world, v.cart, Vec3::new(p.x, p.y + 3.0, p.z), vel);
+        }
         run.tick();
         let t = run.world.time;
         merges.observe(&run.world, &format!("t0+{}", t - t0));
+        if t == t0 + 20 {
+            rep.declared_bad.extend(crate::declared::check(&run.world, &decls, true).into_iter().map(|b| format!("t0+20: {b}")));
+        }
+        for (k, p) in pairs.iter().enumerate() {
+            rail_watch.observe(&run.world, k, p.0, Some(p.1), &format!("t0+{}", t - t0));
+        }
         if let Some(sl) = rep.seat.as_mut() {
             let w = &run.world;
             let on = w.get(seat_cell).to_string().contains("powered=true");
@@ -2240,6 +2375,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     rep.build = built.as_ref().map(|b| (b.steps, b.cells, t0 - b.start));
     rep.merged = merges.pairs.clone();
     rep.merged_first = merges.first.clone();
+    rep.derails = rail_watch.derails.clone();
+    rep.rail_line = rail_watch.line();
     if bo.drive {
         drive.expect_end("golems 0".into());
         let flag = match bo.placement {

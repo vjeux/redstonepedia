@@ -1669,6 +1669,17 @@ pub enum MobfarmCmd {
         /// With --v-reset, VR gated by B. Use on a short-nap-path file (MCTAS_SIDING_SLONG=0).
         #[arg(long)]
         b_emul: Option<i64>,
+        /// With --b-emul: ironspec's two changes (2026-11-11 02:05): no kick unless a villager
+        /// stands on the free cell (ideal), and VR only while no cart is at the park or the free
+        /// cell.
+        #[arg(long)]
+        b_fc: bool,
+        /// The whole unload's reload order (tick-exact's `reload::load_all_ordered`): `save`,
+        /// `reverse`, `seed:K`, a comma list, or `all` (save, reverse, seed:1..8). With more than
+        /// one, a single `--unload whole,...` runs once per order and the whole matrix gets a row
+        /// per config and order; a partial unload comes back in save order only.
+        #[arg(long, default_value = "save")]
+        reload_order: String,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -1833,6 +1844,13 @@ fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -
     // ironspec's hard line (2026-11-11): no merged carts (ironfarm's shared check)
     if !r.merged.is_empty() {
         return Some(format!("{} merged cart pairs (the game's push never separates them): {}", r.merged.len(), r.merged_first.join("; ")));
+    }
+    // the brief's "No derails": the declared states hold, no cart off the rails
+    if !r.declared_bad.is_empty() {
+        return Some(format!("{} declared-state mismatches: {}", r.declared_bad.len(), r.declared_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")));
+    }
+    if !r.derails.is_empty() {
+        return Some(r.rail_line.clone());
     }
     // ironspec's check: all 21 hold HOME = the bed at every dawn and midday (forced failures: the
     // others)
@@ -3082,12 +3100,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset, b_emul } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset, b_emul, b_fc, reload_order } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             // (a turned design (its `turn:` line, `siding --turn 2`): the bench's frame turns with
             // it; the unload boxes are the unturned frame's, so not with a turn)
             let turn: i32 = c.clock.design.meta.get("turn").and_then(|t| t.parse().ok()).unwrap_or(0);
+            // (the brief's "No derails": the design's declared states and flights, checked by the
+            // bench; a siding file without the lines declares nothing)
+            let declared = crate::declared::parse(c.clock.design.meta.get("declared").map(|s| s.as_str()).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
+            let flights = crate::flight::parse(c.clock.design.meta.get("flights").map(|s| s.as_str()).unwrap_or("")).map_err(|e| anyhow::anyhow!(e))?;
             anyhow::ensure!(turn == 0 || unload.is_none(), "--unload on a turned design: its chunk boxes are the unturned frame's");
             let two_i = |s: &str| -> Result<(i64, i64)> {
                 let v: Vec<i64> = s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
@@ -3105,23 +3127,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             // (the partial unload: one, or every line, side, level, state and N; `whole,STATE,N[,K]`:
             // the whole part saved and unloaded)
-            const STATES: [&str; 12] = ["sent", "arrival", "arriving", "drop", "nap", "asleep", "waking", "fpending", "kick", "reboard", "exit", "none"];
+            const STATES: [&str; 13] = ["sent", "arrival", "arriving", "drop", "nap", "asleep", "waking", "delay", "fpending", "kick", "reboard", "exit", "none"];
             let unload_one: Option<crate::siding::Unload> = match unload.as_deref() {
                 Some(u) if u.starts_with("whole,") => {
                     let p: Vec<&str> = u.split(',').map(|x| x.trim()).collect();
                     anyhow::ensure!(p.len() == 3 || p.len() == 4, "--unload whole,STATE,N[,K]");
                     anyhow::ensure!(STATES.contains(&p[1]), "--unload STATE: one of {STATES:?}");
-                    Some(crate::siding::Unload { forced: [0, 0, -1, -1], drop: [0, 0, -1, -1], state: p[1].to_string(), n: p[2].parse()?, visit: p.get(3).map(|k| k.parse()).transpose()?.unwrap_or(3), whole: true })
+                    Some(crate::siding::Unload { forced: [0, 0, -1, -1], drop: [0, 0, -1, -1], state: p[1].to_string(), n: p[2].parse()?, visit: p.get(3).map(|k| k.parse()).transpose()?.unwrap_or(3), whole: true, order: Default::default() })
                 }
                 Some(u) if !u.contains("matrix") => {
                     let p: Vec<&str> = u.split(',').map(|x| x.trim()).collect();
                     anyhow::ensure!(p.len() == 5 || p.len() == 6, "--unload LINE,SIDE,LEVEL,STATE,N[,K]");
                     let (forced, drop) = crate::siding::unload_boxes(p[0], p[1], p[2].parse()?).map_err(|e| anyhow::anyhow!(e))?;
                     anyhow::ensure!(STATES.contains(&p[3]), "--unload STATE: one of {STATES:?}");
-                    Some(crate::siding::Unload { forced, drop, state: p[3].to_string(), n: p[4].parse()?, visit: p.get(5).map(|k| k.parse()).transpose()?.unwrap_or(3), whole: false })
+                    Some(crate::siding::Unload { forced, drop, state: p[3].to_string(), n: p[4].parse()?, visit: p.get(5).map(|k| k.parse()).transpose()?.unwrap_or(3), whole: false, order: Default::default() })
                 }
                 _ => None,
             };
+            // (the whole load's orders: `--reload-order`)
+            let orders: Vec<redsim::reload::Order> = if reload_order == "all" {
+                let mut v = vec![redsim::reload::Order::Save, redsim::reload::Order::Reverse];
+                v.extend((1..=8).map(redsim::reload::Order::Seed));
+                v
+            } else {
+                reload_order.split(',').map(|o| redsim::reload::Order::parse(o.trim()).ok_or_else(|| anyhow::anyhow!("--reload-order {o}: save, reverse, seed:K or all"))).collect::<Result<_>>()?
+            };
+            let save_only = orders == [redsim::reload::Order::Save];
+            let mut unload_one = unload_one;
+            if let Some(u) = unload_one.as_mut() {
+                anyhow::ensure!(u.whole || save_only, "--reload-order: a partial unload comes back in save order only (reload::load_some has no order)");
+                u.order = orders[0];
+            }
+            anyhow::ensure!(save_only || !unload.as_deref().is_some_and(|u| u.starts_with("matrix") || u.starts_with("chunk-matrix")), "--reload-order: the partial matrices come back in save order only (reload::load_some has no order)");
             // (the world's shift: the split placement's lines x and z at (2, 0), the one-chunk
             // placement's w and e at (8, 3), none for the whole part; `--unload-shift` overrides)
             let shift_of = |u: &str| -> (i32, i32) {
@@ -3153,7 +3190,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone() });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -3165,34 +3202,54 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the partial unload matrix: every line, side, level, state and N on visit K, each
             // config over the seeds; one line each: the visits until a clean one, naps lost, jams)
             let matrix_mode = unload.as_deref().and_then(|u| {
-                for (p, m) in [("whole-matrix", 1u8), ("chunk-matrix", 2), ("matrix", 0)] {
+                for (p, m) in [("whole-matrix", 1u8), ("chunk-matrix", 2), ("accept-matrix", 4), ("chunk-accept-matrix", 5), ("matrix", 0)] {
                     if let Some(rest) = u.strip_prefix(p) {
                         return Some((m, rest.to_string()));
                     }
                 }
                 None
             });
+            // (one whole unload under several reload orders: a row per order, mode 3)
+            let matrix_mode = matrix_mode.or_else(|| unload_one.as_ref().filter(|u| u.whole && orders.len() > 1).map(|u| (3u8, format!(":{}", u.visit))));
             if let Some((mode, m)) = matrix_mode {
-                let whole = mode == 1;
+                let whole = mode == 1 || mode == 3 || mode == 4;
                 let k: usize = m.strip_prefix(':').map(|x| x.parse()).transpose()?.unwrap_or(3);
-                let ns: Vec<i64> = if mode == 2 { vec![3, 40, 240] } else { vec![3, 40, 240, 700] };
-                let control_forced = if mode == 2 { [-1, 0, 1, 0] } else { [-1, -1, 0, 0] };
-                let mut cfgs: Vec<(String, crate::siding::Unload)> = vec![(if whole { "control (nothing unloaded)" } else { "control (the forced box only)" }.into(), crate::siding::Unload { forced: control_forced, drop: [0, 0, -1, -1], state: "none".into(), n: 0, visit: k, whole })];
-                if whole {
-                    for state in ["arriving", "drop", "asleep", "waking", "fpending", "kick", "reboard", "exit"] {
+                let ns: Vec<i64> = match mode {
+                    2 => vec![3, 40, 240],
+                    // (ironspec's acceptance for design (b): 1, 3, 20 and 40 gt)
+                    4 | 5 => vec![1, 3, 20, 40],
+                    _ => vec![3, 40, 240, 700],
+                };
+                let control_forced = if mode == 2 || mode == 5 { [-1, 0, 1, 0] } else { [-1, -1, 0, 0] };
+                let mut cfgs: Vec<(String, crate::siding::Unload)> = vec![(if whole { "control (nothing unloaded)" } else { "control (the forced box only)" }.into(), crate::siding::Unload { forced: control_forced, drop: [0, 0, -1, -1], state: "none".into(), n: 0, visit: k, whole, order: Default::default() })];
+                if mode == 3 {
+                    // (the one whole unload, a row per reload order; no control row)
+                    let u = unload_one.clone().expect("mode 3: a whole unload");
+                    cfgs.clear();
+                    for &o in &orders {
+                        cfgs.push((format!("whole {} N={} order={}", u.state, u.n, o.name()), crate::siding::Unload { order: o, ..u.clone() }));
+                    }
+                } else if whole {
+                    // (the acceptance matrix's phases: the sleep onset, mid-nap, the wake, inside the
+                    // after-wake delay, the kick)
+                    let states: &[&str] = if mode == 4 { &["nap", "asleep", "waking", "delay", "kick"] } else { &["arriving", "drop", "asleep", "waking", "fpending", "kick", "reboard", "exit"] };
+                    for &state in states {
                         for &n in &ns {
-                            cfgs.push((format!("whole {state} N={n}"), crate::siding::Unload { forced: [0, 0, -1, -1], drop: [0, 0, -1, -1], state: state.into(), n, visit: k, whole }));
+                            for &o in &orders {
+                                let name = if save_only { format!("whole {state} N={n}") } else { format!("whole {state} N={n} order={}", o.name()) };
+                                cfgs.push((name, crate::siding::Unload { forced: [0, 0, -1, -1], drop: [0, 0, -1, -1], state: state.into(), n, visit: k, whole, order: o }));
+                            }
                         }
                     }
                 } else {
-                    let (lines, states): (&[&str], &[&str]) = if mode == 2 { (&["w", "e"], &["sent", "arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) } else { (&["x", "z"], &["arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) };
+                    let (lines, states): (&[&str], &[&str]) = if mode == 5 { (&["w", "e"], &["nap", "asleep", "waking", "delay", "kick"]) } else if mode == 2 { (&["w", "e"], &["sent", "arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) } else { (&["x", "z"], &["arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) };
                     for &line in lines {
                         for side in ["lo", "hi"] {
-                            for level in [32u8, 33] {
+                            for level in if mode == 5 { vec![32u8] } else { vec![32u8, 33] } {
                                 for &state in states {
                                     for &n in &ns {
                                         let Ok((forced, drop)) = crate::siding::unload_boxes(line, side, level) else { continue };
-                                        cfgs.push((format!("{line} {side} {level} {state} N={n}"), crate::siding::Unload { forced, drop, state: state.into(), n, visit: k, whole }));
+                                        cfgs.push((format!("{line} {side} {level} {state} N={n}"), crate::siding::Unload { forced, drop, state: state.into(), n, visit: k, whole, order: Default::default() }));
                                     }
                                 }
                             }
@@ -3201,7 +3258,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 let (mx, mz) = match &unload_shift {
                     Some(s) => two_i(s).map(|(a, b)| (a as i32, b as i32))?,
-                    None => [(2, 0), (0, 0), (8, 3)][mode as usize],
+                    None => [(2, 0), (0, 0), (8, 3), (0, 0), (0, 0), (8, 3)][mode as usize],
                 };
                 let work: Vec<(usize, i64)> = (0..cfgs.len()).flat_map(|c| seeds.iter().map(move |&s| (c, s))).collect();
                 let next = std::sync::atomic::AtomicUsize::new(0);
@@ -3211,7 +3268,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&(c, seed)) = work.get(j) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone() });
                             out.lock().unwrap().push((c, seed, r));
                         });
                     }
@@ -3437,6 +3494,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let n: usize = oks.iter().map(|r| r.merged.len()).sum();
                 let first: Vec<String> = rows.iter().filter_map(|(s, r)| r.as_ref().ok().and_then(|r| r.merged_first.first().map(|f| format!("seed {s}: {f}")))).take(3).collect();
                 println!("merged carts (horizontal distance under 0.01, boxes paired by the push; the game never separates them): {n} {}", first.join("; "));
+                // (the brief's "No derails": the declared states and the off-the-rails watch)
+                let nd: usize = oks.iter().map(|r| r.declared_bad.len()).sum();
+                let fd: Vec<String> = rows.iter().filter_map(|(s, r)| r.as_ref().ok().and_then(|r| r.declared_bad.first().map(|f| format!("seed {s}: {f}")))).take(3).collect();
+                let nr: usize = oks.iter().map(|r| r.derails.len()).sum();
+                let fr: Vec<String> = rows.iter().filter_map(|(s, r)| r.as_ref().ok().and_then(|r| r.derails.first().map(|f| format!("seed {s}: {f}")))).take(3).collect();
+                println!("declared states ({} cells declared): {nd} mismatches{}; carts off the rails: {nr}{} ({} flights declared)", declared.len(), if fd.is_empty() { String::new() } else { format!(" ({})", fd.join("; ")) }, if fr.is_empty() { String::new() } else { format!(" ({})", fr.join("; ")) }, flights.len());
                 // (the divert gate, emulated: the visits it held back and the resets VR fired)
                 if divert_gate {
                     let held: usize = oks.iter().map(|r| r.held_back.len()).sum();
@@ -3457,7 +3520,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 if let Some(d) = b_emul {
                     let (sl, fa, ib): (u32, u32, u32) = oks.iter().fold((0, 0, 0), |a, r| (a.0 + r.b_slow, a.1 + r.b_fast, a.2 + r.b_kick_in_bed));
-                    println!("design (b) emulated (the after-wake kick {d} gt after the last wake, or at once with no nap this visit): {sl} slow kicks, {fa} fast kicks; ticks kicking with the bed occupied: {ib}");
+                    let (vb, hf): (u32, u32) = oks.iter().fold((0, 0), |a, r| (a.0 + r.v_resets_blocked, a.1 + r.held_f_fired));
+                    println!("design (b) emulated (the after-wake kick {d} gt after the last wake, or at once with no nap this visit{}): {sl} slow kicks, {fa} fast kicks; ticks kicking with the bed occupied: {ib}; VR held back by its gating: {vb}; F fired for held-back slots: {hf}", if b_fc { "; only with a villager on the free cell, VR only with no cart inside" } else { "" });
                 }
             }
             // (the force input: when the bench pulsed it, and for the visits whose villager had
