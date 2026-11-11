@@ -288,7 +288,7 @@ fn turn2(s: &str) -> String {
 /// the module turned 180 degrees west of row B (frame: global = (-2 - x, y - 2, 10 - z)), its
 /// lines wired to the 18 queue controls head first, the tail windows (slots 1-2 ON at +88..+110,
 /// slot 0 +90..+116 from the departure) and the 21 control glass blocks replaced by stone.
-pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Option<&Path>, siding_ctl: Option<&Path>) -> Result<()> {
+pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Option<&Path>, siding_ctl: Option<&Path>, pad: Option<&Path>) -> Result<()> {
     // (farmopt's wired pocket stand, `stand_wired=1` in the base's `queue:` line: the release
     // staggered, see the release group below)
     let base_meta = Design::load(loop_file)?.meta;
@@ -650,6 +650,17 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             siding_cells.extend(more);
         }
     }
+    // (farmopt's portal pad, pasted at the origin, its golem pulse wired into the controller)
+    let mut pad_cells: std::collections::BTreeSet<P3> = Default::default();
+    if let Some(pp) = pad {
+        if siding_ctl.is_none() {
+            bail!("--pad needs --siding-ctl (the pad's farm is the wired farm)");
+        }
+        pad_cells = Design::load(pp)?.blocks.keys().copied().collect();
+        let cells = crate::sidinggen::wire_pad(&mut d, pp)?;
+        println!("the pad pasted at the origin ({} blocks) and its pulse (9,6,-2) wired into the controller's X: {} cells", pad_cells.len(), cells.len());
+        siding_cells.extend(cells);
+    }
     // ---- golem spawn cells (the brief, part 1: none off the pad wherever villagers ride who may
     // have slept): every block added here with a solid top and air over it gets a glass cover
     // (no golem spawns on glass, nor on a block under one; glass carries no power)
@@ -663,7 +674,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         let covers: Vec<P3> = d
             .blocks
             .iter()
-            .filter(|(p, s)| !base_cells.contains(*p) && !(siding.is_some() && in_siding(p)) && solid(s))
+            .filter(|(p, s)| !base_cells.contains(*p) && !pad_cells.contains(*p) && !(siding.is_some() && in_siding(p)) && solid(s))
             .map(|(p, _)| [p[0], p[1] + 1, p[2]])
             .filter(|up| d.blocks.get(up).is_none_or(|s| s.ends_with(":air")))
             .collect();
@@ -690,13 +701,15 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // the controller's at-rest state, settled with the whole loop's blocks around it (a booster's
     // redstone block beside a wire counts), written into the loop file and the probe
     let mut sd = Design::parse("name: carousel-release-loop-settle\n")?;
-    sd.blocks = d.blocks.clone();
+    // (a pad's nether portal cells are left out: the plain redstone world does not model them, and
+    // no redstone of the loop's touches them)
+    sd.blocks = d.blocks.iter().filter(|(_, s)| !s.starts_with("minecraft:nether_portal")).map(|(p, s)| (*p, s.clone())).collect();
     sd.block_entities = d.block_entities.clone();
     sd.ports.insert("input.golem".into(), golem);
     let settle_path = out.with_extension("settle.txt");
     sd.save(&settle_path)?;
     let mut cells: Vec<P3> = b.blocks.keys().copied().collect();
-    cells.extend(siding_cells.iter().copied());
+    cells.extend(siding_cells.iter().copied().filter(|p| sd.blocks.contains_key(p)));
     let settled = settle(&settle_path, &cells);
     let _ = std::fs::remove_file(&settle_path);
     let (states, outs) = settled?;
@@ -715,7 +728,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // forced (the daylight detector taken out), no entities, the controls and taps as ports)
     if siding_ctl.is_some() {
         let mut sp = Design::parse("name: carousel-siding-probe\n")?;
-        sp.blocks = d.blocks.clone();
+        sp.blocks = d.blocks.iter().filter(|(_, s)| !s.starts_with("minecraft:nether_portal")).map(|(p, s)| (*p, s.clone())).collect();
         sp.block_entities = d.block_entities.clone();
         let det = crate::sidinggen::DETECTOR;
         // (night forced: a redstone block for the inverted detector, 15 = night;
@@ -726,7 +739,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         }
         let m = |q: P3| [q[0] + crate::sidinggen::MODULE_AT[0], q[1] + crate::sidinggen::MODULE_AT[1], q[2] + crate::sidinggen::MODULE_AT[2]];
         sp.ports.insert("input.golem".into(), golem);
-        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", [20, -6, 9]), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-17, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-12, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", [-27, -1, 5]), ("fa_rel", [-25, -1, 4]), ("thr", [-56, 1, -19]), ("lock", [-55, 1, -20]), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", [18, -6, 10]), ("g2_loc", [20, -6, 9])] {
+        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", [20, -6, 9]), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-16, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-11, 1, 31]), ("hold12", [-12, 1, 34]), ("force", crate::sidinggen::FORCE), ("ns3_in", [-27, -1, 5]), ("fa_rel", [-25, -1, 4]), ("thr", [-56, 1, -19]), ("lock", [-55, 1, -20]), ("win", m([-2, 0, 1])), ("nv_mod", m([-4, 0, 3])), ("nv_loc", [18, -6, 10]), ("g2_loc", [20, -6, 9])] {
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {

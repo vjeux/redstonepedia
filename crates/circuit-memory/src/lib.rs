@@ -216,6 +216,10 @@ enum Cmd {
         /// siding control module: sidinggen.rs `wire_control`) instead of leaving them bench cells.
         #[arg(long)]
         siding_ctl: Option<PathBuf>,
+        /// (with `--siding-ctl`) Paste this portal pad (farmopt's carousel-station-pad.txt) at the
+        /// loop's origin and wire its golem pulse into the controller (no bench pulse).
+        #[arg(long)]
+        pad: Option<PathBuf>,
     },
     /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
     LoopGen {
@@ -460,8 +464,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::DropTest { speed, occupied, ticks, no_stop, staged } => {
             droptest::run(speed, occupied, ticks, !no_stop, staged)?;
         }
-        Cmd::ReleaseGen { out, offdelay, loop_file, siding, siding_ctl } => match loop_file {
-            Some(l) => releasegen::generate_loop(&out, &l, &offdelay, siding.as_deref(), siding_ctl.as_deref())?,
+        Cmd::ReleaseGen { out, offdelay, loop_file, siding, siding_ctl, pad } => match loop_file {
+            Some(l) => releasegen::generate_loop(&out, &l, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref())?,
             None => releasegen::generate(&out, &offdelay)?,
         },
         Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns, placed_raw } => {
