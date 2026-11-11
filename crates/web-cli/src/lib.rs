@@ -780,6 +780,9 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                             if !k.armor.is_empty() {
                                 s += &format!(" wearing {}", first(&k.armor));
                             }
+                            if !k.looks.is_empty() {
+                                s += &format!(" looking {}", first(&k.looks));
+                            }
                             s
                         };
                         let list: Vec<String> = kinds.iter().map(|k| format!("{}{} x{} (from tick {} at {:.1},{:.1},{:.1}){}", k.kind, if k.mob { " [mob]" } else { "" }, k.most, k.first, k.at[0], k.at[1], k.at[2], worn(k))).collect();

@@ -589,23 +589,10 @@ fn design_entity(b: &mut Builder, kind: &str, at: [f64; 3], nbt: Option<&str>) {
     }
 }
 
-/// A still's mob as placed (a design entity: standing, or seated as a passenger), drawn with the
-/// game's model like a mob farm's (None: not a mob the viewer models: its own stand-in), with the
-/// equipment its data gives it ([`still_equipment`]).
-pub fn still_mob(kind: &str, yaw: f32, riding: bool, nbt: Option<&str>) -> Option<crate::mesh::MobDraw> {
-    let ty = redsim::entity::mob::types::MobType::from_id(kind)?;
-    let def = ty.def();
-    let (held, armor) = still_equipment(nbt);
-    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, held, armor, ..Default::default() })
-}
-
-/// A design mob's equipment from its data (`equipment:{mainhand:{id:"minecraft:bow"},
-/// head:{id:"minecraft:golden_helmet"},...}`, the 26.3 entity format): its main hand's item and
-/// each armor slot's material (a piece of leather, copper, golden, chainmail, iron or diamond
-/// armor, in its own slot; anything else there is not drawn).
-pub fn still_equipment(nbt: Option<&str>) -> (Option<String>, [Option<u8>; 4]) {
-    // (its own data only: a jockey's rider's equipment is inside its `Passengers:[...]`)
-    let own: Option<String> = nbt.map(|s| match s.find("Passengers:[") {
+/// A design entity's own data: its `Passengers:[...]` cut out (a jockey's rider's equipment or
+/// handedness is not its mount's).
+fn own_data(nbt: Option<&str>) -> Option<String> {
+    nbt.map(|s| match s.find("Passengers:[") {
         Some(p) => {
             let mut depth = 0i32;
             let mut end = s.len();
@@ -625,7 +612,26 @@ pub fn still_equipment(nbt: Option<&str>) -> (Option<String>, [Option<u8>; 4]) {
             format!("{}{}", &s[..p], &s[end..])
         }
         None => s.to_string(),
-    });
+    })
+}
+
+/// A still's mob as placed (a design entity: standing, or seated as a passenger), drawn with the
+/// game's model like a mob farm's (None: not a mob the viewer models: its own stand-in), with the
+/// equipment its data gives it ([`still_equipment`]).
+pub fn still_mob(kind: &str, yaw: f32, riding: bool, nbt: Option<&str>) -> Option<crate::mesh::MobDraw> {
+    let ty = redsim::entity::mob::types::MobType::from_id(kind)?;
+    let def = ty.def();
+    let (held, armor) = still_equipment(nbt);
+    let left_handed = own_data(nbt).is_some_and(|s| s.contains("LeftHanded:1b") || s.contains("LeftHanded:true"));
+    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, held, armor, left_handed, ..Default::default() })
+}
+
+/// A design mob's equipment from its data (`equipment:{mainhand:{id:"minecraft:bow"},
+/// head:{id:"minecraft:golden_helmet"},...}`, the 26.3 entity format): its main hand's item and
+/// each armor slot's material (a piece of leather, copper, golden, chainmail, iron or diamond
+/// armor, in its own slot; anything else there is not drawn).
+pub fn still_equipment(nbt: Option<&str>) -> (Option<String>, [Option<u8>; 4]) {
+    let own = own_data(nbt);
     let Some(eq) = own.as_deref().and_then(|s| s.find("equipment:{").map(|i| &s[i + "equipment:{".len()..])) else { return (None, [None; 4]) };
     let id = |key: &str| -> Option<String> {
         let at = eq.find(&format!("{key}:{{"))?;

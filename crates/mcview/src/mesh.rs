@@ -100,6 +100,12 @@ pub struct MobDraw {
     /// piece's material (redsim's `Armor::material`: 0 leather, 1 copper, 2 golden, 3 chainmail,
     /// 4 iron, 5 diamond); the head's while its helmet holds.
     pub armor: [Option<u8>; 4],
+    /// Left-handed (`Mob.isLeftHanded`, redsim's spawn roll): its main hand is its left arm (the
+    /// item there, a skeleton's bow drawn with it).
+    pub left_handed: bool,
+    /// Its look from its biome (redsim's `variant`: a zombie villager's type, `plains` ..., a farm
+    /// animal's `warm`/`temperate`/`cold`); None: the default.
+    pub variant: Option<&'static str>,
     /// `isAggressive` (a skeleton drawing its bow at a target).
     pub aggressive: bool,
     /// A sheep's wool `DyeColor` id (0 white).

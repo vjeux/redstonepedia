@@ -656,12 +656,25 @@ each build's page.
   `scene::still_equipment`); one redsim refuses to place (only a main hand's item is modeled in
   a design's data) is drawn as placed in a still (`Session::unspawned`: the page's first
   picture had dropped it; test `a_still_draws_the_mobs_redsim_refuses`). Their textures took the game texture past WebGL2's 2048: a shelf
-  of entity textures that starts below the item atlas now starts at the left edge (1824 tall;
-  test `the_game_texture_fits_webgl2`). Tests `a_humanoid_wears_its_armor_and_holds_its_item`,
-  `a_design_mob_wears_its_equipment`. Not drawn yet: a baby's armor (`humanoid_baby`), an
-  enchanted item's or piece's glint, a drawn bow's pull, the witch's potion, the sulfur cube,
-  the zombie villager, the left-handed (redsim keeps the profession no longer, the handedness
-  and the variants since 18a5a8916). Lava is drawn as the game draws it: its
+  of entity textures that starts below the item atlas now starts at the left edge (1888 tall
+  with the zombie villagers'; test `the_game_texture_fits_webgl2`). Tests
+  `a_humanoid_wears_its_armor_and_holds_its_item`, `a_design_mob_wears_its_equipment`. A
+  left-handed mob (redsim's `left_handed`, the spawn roll's 5%; a design's `LeftHanded:1b`) holds
+  its item in its left hand: the left arm, the hand's offset the other way, its model's
+  `thirdperson_lefthand` (else the right's) with `ItemTransform`'s left-hand fix (the
+  translation's x and the rotation's y and z negated), a skeleton's bow aimed with its left arm
+  (`poseLeftArm`'s BOW_AND_ARROW). A zombie (or zombie villager) holding a spear does not raise
+  its arms (`animateZombieArms` skips a SPEAR arm pose): the humanoid walk swing, the spear's arm
+  held out along the look (`SpearAnimations.thirdPersonHandUse`, not in use). The zombie villager
+  and its baby (2026-11-11) draw with their own models (`ZombieVillagerModel`,
+  `BabyZombieVillagerModel`: a villager's head, nose, hat and robe, a zombie's arms) and
+  textures, their biome's type a layer over the whole model (`VillagerProfessionLayer`: redsim's
+  `variant`, plains when it gives none; a baby's own type textures), the adult's armor on its own
+  mesh (`ZombieVillagerModel.createBaseArmorMesh`). Tests
+  `a_left_handed_mob_holds_its_item_in_its_left_hand`, `a_zombie_villager_wears_its_biome`. Not
+  drawn yet: a baby's armor (`humanoid_baby`), an enchanted item's or piece's glint, a drawn
+  bow's pull, the witch's potion, the sulfur cube, a zombie villager's profession (redsim keeps
+  none), the farm animals' warm and cold variants (every terrain site is temperate). Lava is drawn as the game draws it: its
   `lava_still` texture, solid, lit by its own light 15 (it was water tinted orange). The time
   badge is the readout (`mobfarm::readout`): the game's day and clock, the golems so far and the
   iron in the farm's chests (`day 1, 13:23 · 2 golems, 9 iron`, two lines on a phone); the left
