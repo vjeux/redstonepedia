@@ -383,7 +383,37 @@ to the exit), then all clean: worst 2 visits to recover, 1 nap lost a seed.
   stops behind it: the same end state as the dropped-F jam. ironspec's possible requirement (a
   reload-proof re-board: no cart leaves without its napper; a napper left out re-boards, or goes
   back with its cart, within a stated number of visits; the loop stays in order) needs a design
-  change there. Not built.
+  change there. Not built. **On hold** (ironspec and farmopt 2026-11-10 22:58): tick-exact bridges
+  the three cases first (its own bridged whole-farm unloads mid-visit, +250/+280, 4,000 gt, matched
+  the game and every napper re-boarded). Their drives, in `faults/` (`siding-bench --launch
+  --unload ... --drive-out`, the unload acts as drive lines; `web drive-check` holds both
+  whole-part drives to the bench's run: 344 and 265 cart positions):
+  `whole-kick-3-seed4.drive.txt`, `whole-asleep-700-seed1.drive.txt`,
+  `partial-x-hi-32-nap-40-seed1.drive.txt` (the design's own coordinates, `--unload-shift 0,0`:
+  chunk x 0, z -1..0 dropped, forced box x -1..0, z -1..0 set at t0, written in its header).
+- **The bench as a fault runner** (farmopt's questions): it calls tick-exact's act itself
+  (`reload::unload_some` / `unload_all` between two ticks; the world ticks on), so the freeze takes
+  the bed's villager exactly as the act does (its chunk dropped). A whole-part unload pauses the
+  bench's arrivals while the part is away and sends the next as soon as it is back; a partial one
+  keeps them on schedule (none falls inside an absence of 240 gt or less: arrivals are 400-600 gt
+  apart and each waits for the last cart to leave the siding). Unlike the loop, in the partial
+  runs the bench's hold sits outside the forced box (its waiting riders frozen until sent).
+
+**The one-chunk placement** (ironspec and farmopt 2026-11-10 22:58: day-1 pastes the siding at ox
+in [-15,-13], oz in [13,16], inside one chunk; emulated with the bench's world shifted (8, 3), ox
+-14, oz 13; arrivals launched so they cross the approach's line). The only lines left are the
+junction tracks': `w` the approach's at the siding's x -9|-8, `e` the run-out's at 7|8.
+`--unload chunk-matrix:3`, 6 seeds x 10 visits, visit 3, every phase (sent, arrival, nap, waking,
+10 gt before F, kick, re-board, exit), N = 3, 40, 240; table `unload-chunk.txt`:
+- The junction chunks alone frozen (w lo 32: the approach; e hi 32: the run-out): clean at every
+  phase and N.
+- The siding's own chunk at 32 (the edge one chunk further in, from either side: w hi 32 = e hi
+  33, e lo 32 = w lo 33): clean at every phase except two. At the nap onset with N 40 or 240 it
+  jams for good (the frozen cooldown, above). At the arrival with N 240 it loses one nap and
+  recovers within a visit (F fires on time while the cart is frozen at the entry: the visit goes
+  out unnapped).
+- w hi 33 and e lo 33 would leave the far junction's chunk at 34 (its entities saved and
+  unloaded): not modeled, not run.
 
 ## The give-up's first version, its own timer (2026-11-10; `--give-up timer`, superseded)
 
