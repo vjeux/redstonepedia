@@ -212,6 +212,23 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             v
         }
+        // (tickexact 2026-11-11, ironspec's forced-phase mode) the sleeper's reload: HOME at t1,
+        // the whole sandbox away t200..t240, the zombie's wall gone at the load; `mobai
+        // reload-wake`'s pair (or MOBAI_SENSOR_FORCE=A,B) forces the two wake sensors' start delays
+        // right after the load
+        "reload-wake" => {
+            let mut at240 = vec![s([0, 0, 0], "load")];
+            let forced = RELOAD_WAKE_FORCE.lock().map(|g| *g).unwrap_or(None).or_else(|| {
+                std::env::var("MOBAI_SENSOR_FORCE").ok().and_then(|f| f.split_once(',').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?))))
+            });
+            if let Some((a, b)) = forced {
+                at240.push(s([8, 64, 9], &format!("sensor:0={a}")));
+                at240.push(s([8, 64, 9], &format!("sensor:5={b}")));
+            }
+            at240.push(s([11, 64, 9], "minecraft:air"));
+            at240.push(s([11, 65, 9], "minecraft:air"));
+            vec![(1, vec![s([8, 64, 9], "home:e0"), s([8, 64, 9], "poi-take")]), (200, vec![s([0, 0, 0], "unload")]), (240, at240)]
+        }
         // (tickexact 2026-11-11) the panes' neighbours changed
         "pane-connect" => vec![
             (10, vec![s([6, 64, 4], "minecraft:air")]),
@@ -280,9 +297,68 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     }
 }
 
+/// (tickexact 2026-11-11, `mobai reload-wake`) The forced start delays of scene reload-wake's
+/// sleeper (NearestLivingEntitySensor, VillagerHostilesSensor), and the villagers' poses each
+/// compare tick read back (game, redsim) while it is `Some`.
+static RELOAD_WAKE_FORCE: std::sync::Mutex<Option<(i64, i64)>> = std::sync::Mutex::new(None);
+static RELOAD_WAKE_POSES: std::sync::Mutex<Option<Vec<(i64, Option<String>, Option<String>)>>> = std::sync::Mutex::new(None);
+
+/// `mctas mobai reload-wake` (ironspec's forced-phase mode): scene reload-wake (a sleeper whose
+/// whole sandbox is unloaded and loaded again, a zombie shown at the load) once per pair of forced
+/// start delays of its NearestLivingEntitySensor and VillagerHostilesSensor and per sandbox seed,
+/// game against redsim tick for tick; per run the wake after the load on both sides against the
+/// sensors' rule (each fires first at max(1, delay) and every 20 after; the first hostile scan at
+/// or after the first living scan wakes it), then whether every run was exact and on the rule.
+pub fn reload_wake(version: &str, living: &[i64], hostiles: &[i64], seeds: &[i64]) -> Result<()> {
+    let all = scenes();
+    let s = all.iter().find(|s| s.name == "reload-wake").ok_or_else(|| anyhow!("no scene reload-wake"))?;
+    let rule = |a: i64, b: i64| -> i64 {
+        let (l, h) = (a.max(1), b.max(1));
+        if h >= l { h } else { h + 20 * ((l - h + 19) / 20) }
+    };
+    let (mut runs, mut exact, mut on_rule) = (0, 0, 0);
+    for &seed in seeds {
+        for &a in living {
+            for &b in hostiles {
+                *RELOAD_WAKE_FORCE.lock().map_err(|_| anyhow!("lock"))? = Some((a, b));
+                *RELOAD_WAKE_POSES.lock().map_err(|_| anyhow!("lock"))? = Some(Vec::new());
+                let c = compare(version, s, seed, 320, 100, false, false, None);
+                let poses = RELOAD_WAKE_POSES.lock().map_err(|_| anyhow!("lock"))?.take().unwrap_or_default();
+                *RELOAD_WAKE_FORCE.lock().map_err(|_| anyhow!("lock"))? = None;
+                let c = c?;
+                let wake = |game: bool| poses.iter().find(|(t, g, r)| *t > 240 && (if game { g } else { r }).as_deref() == Some("standing")).map(|(t, ..)| t - 240);
+                let (g, r) = (wake(true), wake(false));
+                let want = rule(a, b);
+                runs += 1;
+                exact += c.first.is_none() as usize;
+                on_rule += (g == Some(want) && r == Some(want)) as usize;
+                println!(
+                    "living {a:>2} hostiles {b:>2} seed {seed}: the game wakes {}, redsim {}, the rule +{want}; {} ticks compared, {}",
+                    g.map_or("never".to_string(), |w| format!("+{w}")),
+                    r.map_or("never".to_string(), |w| format!("+{w}")),
+                    c.ticks,
+                    c.first.as_ref().map_or("0 differences".to_string(), |d| format!("FIRST DIFFERENCE at {}: {}", d.t, d.what))
+                );
+            }
+        }
+    }
+    println!("{runs} runs: {exact} exact, {on_rule} woke on the sensors' rule on both sides");
+    Ok(())
+}
+
 /// The next scripted action at or after `done` ticks: (its tick, its blocks).
 fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<&(u32, Vec<([i32; 3], String)>)> {
     actions.iter().find(|(t, _)| *t as i64 >= done)
+}
+
+/// A `sensor:K=V` action's sensor index and delay (K below the villager's sensor count, V below
+/// that sensor's scan rate).
+fn sensor_kv(kv: &str) -> Result<(usize, i64)> {
+    let (k, v) = kv.split_once('=').ok_or_else(|| anyhow!("sensor:{kv}: K=V"))?;
+    let (k, v): (usize, i64) = (k.parse()?, v.parse()?);
+    let rates = redsim::entity::mob::villager::SENSORS;
+    anyhow::ensure!(k < rates.len() && (0..rates[k].1).contains(&v), "sensor:{kv}: sensor 0..{} and a delay below its scan rate", rates.len() - 1);
+    Ok((k, v))
 }
 
 /// redsim's side of an action: each block set with flags 3; a container's fill (`nbt:<snbt>`)
@@ -304,6 +380,29 @@ fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> R
         if let Some(o) = s.strip_prefix("load@") {
             let order = redsim::reload::Order::parse(o).ok_or_else(|| anyhow!("load@{o}: an order is save, reverse or seed:K"))?;
             redsim::reload::load_all_ordered(w, order);
+            continue;
+        }
+        // (tickexact 2026-11-11, ironspec's forced-phase mode) `sensor:K=V`: the villager nearest
+        // the action's cell (within 2) gets its K-th sensor's start delay set to V
+        if let Some(kv) = s.strip_prefix("sensor:") {
+            let (k, v) = sensor_kv(kv)?;
+            let c = redsim::entity::Vec3::new(p[0] as f64 + 0.5, p[1] as f64 + 0.5, p[2] as f64 + 0.5);
+            let best = w
+                .entities
+                .list
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager))
+                .map(|(i, e)| (i, (e.pos.x - c.x).powi(2) + (e.pos.y - c.y).powi(2) + (e.pos.z - c.z).powi(2)))
+                .filter(|(_, d)| *d < 4.0)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(i, _)| i)
+                .ok_or_else(|| anyhow!("sensor:{kv}: no villager within 2 of {p:?}"))?;
+            if let redsim::entity::EntityKind::Mob(m) = &mut w.entities.list[best].kind
+                && let Some(b) = m.brain.as_deref_mut()
+            {
+                b.sensors[k] = v;
+            }
             continue;
         }
         // (the partial form: a chunk box's forced tickets)
@@ -2682,6 +2781,40 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's forced-phase mode: the bridge for the sensors that time a
+    // reloaded sleeper's wake) a villager asleep in its bed, a zombie walled in stone 4 blocks east;
+    // the whole sandbox unloaded at t200, loaded at t240 and the zombie's west wall taken away at
+    // once, so the reloaded villager's first scans that see it wake it; with MOBAI_SENSOR_FORCE=A,B
+    // its NearestLivingEntitySensor and VillagerHostilesSensor start delays set to A and B right
+    // after the load (scene_actions: "reload-wake")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 63, stone);
+        b.push(([8, 64, 8], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([8, 64, 9], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        for y in 64..=65 {
+            for c in [[11, y, 9], [13, y, 9], [12, y, 8], [12, y, 10]] {
+                b.push((c, stone.to_string()));
+            }
+        }
+        b.push(([12, 66, 9], stone.to_string()));
+        v.push(Scene {
+            name: "reload-wake".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:villager".into(), [7.5, 64.0, 9.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombie".into(), [12.5, 64.0, 9.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 12600,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, d1u-drop-side run 25's refusal: a village window's pane lost its east
     // neighbour and turned to glass_pane[west=true], a state the natural table lacked) panes whose
     // connections change, every starting state one the table had: A between two stones, the east
@@ -3717,6 +3850,16 @@ impl GameScene {
                 self.unload_load(s)?;
                 continue;
             }
+            // (tickexact 2026-11-11, ironspec's forced-phase mode) a villager's sensor start delay
+            if let Some(kv) = s.strip_prefix("sensor:") {
+                if !run.is_empty() {
+                    self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+                    run.clear();
+                }
+                let (k, v) = sensor_kv(kv)?;
+                self.w.call(json!({"op": "sensor_delay", "sandbox": self.sb, "pos": p, "sensor": k, "value": v}))?;
+                continue;
+            }
             // (a Nether build act: the Nether sandbox's, placed like a player's)
             if s.starts_with("nether:") || s.starts_with("nether-nbt:") {
                 if !run.is_empty() {
@@ -4304,6 +4447,19 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                         }
                     }
                 }
+            }
+            // (tickexact probe: MOBAI_SHOW_WAKE: at every tick, each villager's pose in the game's
+            // frame and in redsim's (a reloaded sleeper's wake tick on both sides))
+            if let Ok(mut g) = RELOAD_WAKE_POSES.lock()
+                && let Some(v) = g.as_mut()
+            {
+                let pose = |es: &[redsim::exact::EntityFrame]| es.iter().find(|e| e.ty.ends_with("villager")).and_then(|e| e.pose.clone());
+                v.push((f.t, pose(&f.entities), pose(&o.entities)));
+            }
+            if std::env::var_os("MOBAI_SHOW_WAKE").is_some() {
+                let g: Vec<String> = f.entities.iter().filter(|e| e.ty.ends_with("villager")).map(|e| format!("#{} {}", e.n, e.pose.as_deref().unwrap_or("-"))).collect();
+                let r: Vec<String> = o.entities.iter().filter(|e| e.ty.ends_with("villager")).map(|e| format!("#{} {}", e.n, e.pose.as_deref().unwrap_or("-"))).collect();
+                eprintln!("t {} wake game {} | redsim {}", f.t, g.join(" "), r.join(" "));
             }
             // (tickexact probe: MOBAI_SHOW_RIDERS="T": at tick T, each of the game's villagers: its
             // position and what it rides)

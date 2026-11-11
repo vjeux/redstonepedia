@@ -223,6 +223,10 @@ pub enum MobEvent {
     GolemTry { t: i64, villager: u32, willing: u32, golem: Option<u32>, at: Option<[i32; 3]> },
     /// A villager's golem sensor saw a golem (`golemDetected`).
     GolemSeen { t: i64, villager: u32 },
+    /// (tickexact 2026-11-11, ironspec's golem-lock line) A successful summon's
+    /// `nearbyVillagers.forEach(GolemSensor::golemDetected)`: `villager` (in the summoner's box
+    /// inflated by 10) got `GOLEM_DETECTED_RECENTLY` for 599 gt from `summoner`'s `golem`.
+    GolemLocked { t: i64, villager: u32, summoner: u32, golem: u32 },
     Hurt { t: i64, id: u32, ty: MobType, src: Damage, amount: f32 },
     Death { t: i64, id: u32, ty: MobType, src: Damage, pos: [f64; 3] },
     Drop { t: i64, from: u32, item: u32, what: &'static str, count: u32 },

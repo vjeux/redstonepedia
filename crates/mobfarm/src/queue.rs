@@ -3025,6 +3025,9 @@ pub struct LoopTiming {
     /// the block it replaced that many gt later; while held, the bench's own drive of that cell
     /// (the wired stand's REL) leaves it.
     pub acts: [Option<Act>; 8],
+    /// (tickexact 2026-11-11, ironspec's forced-phase mode) After each whole-part load, these
+    /// sensor delays forced on one villager (`--force-phase`).
+    pub phase_force: Option<PhaseForce>,
     /// A diagnostic hand reset of the queue only, at this slot's start (see `run_loop`).
     pub reset_queue_at: Option<i64>,
     /// With `reset_queue_at`: the stand's stragglers (a cart in its region not at rest in a
@@ -3289,6 +3292,51 @@ pub fn wilson95(k: usize, n: usize) -> (f64, f64) {
     ((c - h).max(0.0), (c + h).min(1.0))
 }
 
+/// (tickexact 2026-11-11, ironspec's forced-phase mode) A whole-part reload's forced sensor phases:
+/// after each whole-part load, `who`'s listed sensors start at the given delays (the load's own
+/// draws are still made, so every other draw stays as sampled; a sensor's delay is its
+/// `timeToTick`, drawn `nextInt(scanRate)` from the villager's own random when its brain is built,
+/// `villager::SENSORS`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PhaseForce {
+    pub who: RiderRef,
+    /// (sensor index in `villager::SENSORS`, delay)
+    pub sensors: [Option<(usize, i64)>; 4],
+}
+
+/// A villager sensor by its index or name in `villager::SENSORS` (`nearest_living_entities`,
+/// `villager_hostiles`, ...; `living` and `hostiles` for the two that time a sleeper's wake).
+pub fn sensor_index(t: &str) -> Option<usize> {
+    let names = redsim::entity::mob::villager::SENSORS;
+    match t {
+        "living" => Some(0),
+        "hostiles" => Some(5),
+        _ => t.parse::<usize>().ok().filter(|k| *k < names.len()).or_else(|| names.iter().position(|(n, _)| *n == t)),
+    }
+}
+
+/// Parses `WHO@SENSOR=DELAY[,SENSOR=DELAY...]` (WHO as an act's rider: `visit:SLOT`, `visit:SLOT/J`
+/// or an entity number; at most 4 sensors; a delay below the sensor's scan rate).
+pub fn parse_phase_force(s: &str) -> Result<PhaseForce, String> {
+    let (who, rest) = s.split_once('@').ok_or_else(|| format!("--force-phase {s}: WHO@SENSOR=DELAY[,...]"))?;
+    let who = parse_rider(s, who)?;
+    let mut sensors = [None; 4];
+    for (n, kv) in rest.split(',').enumerate() {
+        anyhow_lite(n < 4, || format!("--force-phase {s}: at most 4 sensors"))?;
+        let (k, v) = kv.split_once('=').ok_or_else(|| format!("--force-phase {s}: SENSOR=DELAY"))?;
+        let k = sensor_index(k).ok_or_else(|| format!("--force-phase {s}: no sensor {k} (an index or a name of villager::SENSORS, living, hostiles)"))?;
+        let v: i64 = v.parse().map_err(|e| format!("--force-phase {s}: {e}"))?;
+        let rate = redsim::entity::mob::villager::SENSORS[k].1;
+        anyhow_lite((0..rate).contains(&v), || format!("--force-phase {s}: {} delays are 0..{}", redsim::entity::mob::villager::SENSORS[k].0, rate - 1))?;
+        sensors[n] = Some((k, v));
+    }
+    Ok(PhaseForce { who, sensors })
+}
+
+fn anyhow_lite(ok: bool, why: impl FnOnce() -> String) -> Result<(), String> {
+    if ok { Ok(()) } else { Err(why()) }
+}
+
 /// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets),
 /// `SLOT,DT,unload,N[,ORDER]` (the whole part away N gt, its load in ORDER: save, reverse or
 /// seed:K), `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box), `SLOT,DT,dismount,R` or
@@ -3349,7 +3397,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, start_random: false }
     }
 }
 
@@ -4160,6 +4208,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the stand's state per slot and the queue reset, `verbose` / `reset_queue_at`)
     let mut stand_log: Vec<String> = Vec::new();
     let mut unload_log: Vec<String> = Vec::new();
+    // (ironspec's forced-phase mode) the forced villager: (id, the load's game time, asleep at the
+    // load), until it wakes (its wake logged in `unload_log`)
+    let mut phase_watch: Option<(u32, i64, bool)> = None;
     // (carts back through a gate; departures from the stand: (gt, cart, touching the one before))
     let mut strip_x: Vec<Option<f64>> = vec![None; 64];
     let mut back_through: Vec<String> = Vec::new();
@@ -4327,6 +4378,16 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // cell, slot and offset), its crossing and death in the Nether, the pulse, the iron)
     let has_nether = run.world.nether.is_some();
     let mut ev_seen = run.world.mob.events.len();
+    // (ironspec's golem-lock line, tickexact 2026-11-11) GOLEM_DETECTED_RECENTLY set on a rider
+    // outside the summoning group (off the stand's cells and pockets at that tick): by a summon's
+    // 10-box (`GolemLocked`) or by its own golem sensor (`GolemSeen`), 599 gt; each rider's last
+    // such lock, and the stand turns it costs (the rider at the stand at a summon tick still
+    // locked by it)
+    let mut lock_ev_seen = run.world.mob.events.len();
+    let mut outside_n = [0u64; 2];
+    let mut outside_first: Vec<String> = Vec::new();
+    let mut last_outside: std::collections::HashMap<u32, (i64, String)> = std::collections::HashMap::new();
+    let mut turns_lost: Vec<String> = Vec::new();
     // (tickexact 2026-11-11, ironspec: the one-bed claim's second failure path) per rider, the
     // oldest CANT_REACH_WALK_TARGET_SINCE at a tick SetWalkTargetFromBlockMemory(HOME) can run
     // (REST, no WALK_TARGET, HOME held: past 1200 gt it releases HOME), and every POI release
@@ -4620,6 +4681,38 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                                 r(&mut g.3);
                             }
                             unload_log.push(format!("slot {c} +{dt}: the whole part away {n} gt, {} entities back under new numbers", m.len()));
+                            // (ironspec's forced-phase mode) the chosen villager's sensor delays
+                            // set after the load's own draws
+                            if let Some(pf) = tm.phase_force {
+                                let id = match pf.who {
+                                    RiderRef::Id(id) => Some(m.get(&id).copied().unwrap_or(id)),
+                                    RiderRef::Visit(s) => visits.iter().find(|vr| vr.slot == s).and_then(|vr| vr.rider),
+                                    RiderRef::Batch(s, j) => visits.iter().find(|vr| vr.slot == s).and_then(|vr| vr.batch.get(j).copied()).and_then(|cart| redsim::entity::index_of(&run.world, cart)).and_then(|i| run.world.entities.list[i].passengers.first().copied()),
+                                };
+                                let mut line = format!("slot {c} +{dt}: phases forced on {:?}: no such villager", pf.who);
+                                if let Some((id, i)) = id.and_then(|id| redsim::entity::index_of(&run.world, id).map(|i| (id, i)))
+                                    && let redsim::entity::EntityKind::Mob(mm) = &mut run.world.entities.list[i].kind
+                                    && let Some(b) = mm.brain.as_deref_mut()
+                                {
+                                    let drawn = b.sensors;
+                                    let mut set = Vec::new();
+                                    for (k, v) in pf.sensors.iter().flatten() {
+                                        b.sensors[*k] = *v;
+                                        set.push(format!("{} {v} (drawn {})", redsim::entity::mob::villager::SENSORS[*k].0, drawn[*k]));
+                                    }
+                                    line = format!("slot {c} +{dt}: phases forced on e{id} after the load: {}; asleep {}", set.join(", "), mm.sleeping_pos.is_some());
+                                    phase_watch = Some((id, run.world.time, mm.sleeping_pos.is_some()));
+                                }
+                                // (the tick order after the load: the villager's place in the
+                                // entity list against its visit's cart's)
+                                if let (Some(id), RiderRef::Visit(s)) = (id, pf.who)
+                                    && let Some(cart) = visits.iter().find(|vr| vr.slot == s).and_then(|vr| vr.cart)
+                                {
+                                    let (iv, ic) = (redsim::entity::index_of(&run.world, id), redsim::entity::index_of(&run.world, cart));
+                                    line.push_str(&format!("; tick order: the villager {iv:?}, its visit's cart e{cart} {ic:?}"));
+                                }
+                                unload_log.push(line);
+                            }
                         }
                         Some(b) => {
                             // (a bench world has no forced chunk box: the chunks its box meets)
@@ -6344,6 +6437,63 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // than 0.01) whether it walks or not; a walk only moves its box within the tick. By walk
         // state (reaching, partial, a walk target with no path, no walk target); within 0.2 too
         {
+            // (ironspec's golem-lock line) the locks set this tick on riders off the stand, and at
+            // the tick before each summon tick the riders at the stand still locked by one
+            let on_stand = |w: &redsim::World, id: u32| -> bool {
+                redsim::entity::index_of(w, id).is_some_and(|i| {
+                    let p = w.entities.list[i].pos;
+                    let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                    lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1)
+                })
+            };
+            let n_ev = run.world.mob.events.len();
+            let evs: Vec<redsim::entity::mob::MobEvent> = run.world.mob.events[lock_ev_seen.min(n_ev)..].to_vec();
+            lock_ev_seen = n_ev;
+            for ev in evs {
+                let (path, t_ev, v, golem, summoner) = match ev {
+                    redsim::entity::mob::MobEvent::GolemLocked { t, villager, summoner, golem } => (0usize, t, villager, Some(golem), Some(summoner)),
+                    redsim::entity::mob::MobEvent::GolemSeen { t, villager } => (1usize, t, villager, None, None),
+                    _ => continue,
+                };
+                let Some(k) = riders.iter().position(|r| *r == v) else { continue };
+                if on_stand(&run.world, v) {
+                    continue;
+                }
+                let Some(i) = redsim::entity::index_of(&run.world, v) else { continue };
+                let p = run.world.entities.list[i].pos;
+                let golems = match golem {
+                    Some(g) => format!("golem #{g} (summoner e#{})", summoner.unwrap_or(0)),
+                    None => format!("golems {:?} in its living list", redsim::entity::mob::villager::nearest_golems(&run.world, i)),
+                };
+                outside_n[path] += 1;
+                let desc = format!("e{k} at {:.2},{:.2},{:.2} slot {c} +{dt} (t {t_ev}): {} {golems}", p.x, p.y, p.z, ["a summon's 10-box", "its golem sensor"][path]);
+                if outside_first.len() < 8 {
+                    outside_first.push(desc.clone());
+                }
+                last_outside.insert(v, (t_ev + 599, desc));
+            }
+            if (run.world.time + 1).rem_euclid(100) == 0 {
+                let t_next = run.world.time + 1;
+                for (k, r) in riders.iter().enumerate() {
+                    if !on_stand(&run.world, *r) {
+                        continue;
+                    }
+                    let locked = redsim::entity::index_of(&run.world, *r).is_some_and(|i| matches!(&run.world.entities.list[i].kind, redsim::entity::EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.golem_detected.is_some())));
+                    if let (true, Some((end, desc))) = (locked, last_outside.get(r))
+                        && *end >= t_next
+                    {
+                        turns_lost.push(format!("slot {c} +{dt}: e{k} at the stand locked until t {end} by {desc}"));
+                    }
+                }
+            }
+            // (ironspec's forced-phase mode) the forced villager's wake after the load
+            if let Some((id, t_load, true)) = phase_watch {
+                let awake = redsim::entity::index_of(&run.world, id).is_none_or(|i| !matches!(&run.world.entities.list[i].kind, redsim::entity::EntityKind::Mob(mm) if mm.sleeping_pos.is_some()));
+                if awake {
+                    unload_log.push(format!("slot {c} +{dt}: e{id} (phases forced) woke at +{} after the load", run.world.time - t_load));
+                    phase_watch = None;
+                }
+            }
             // the pushes this tick, at the push (redsim's log)
             let now = redsim::entity::minecart::take_cart_pushes(&mut run.world);
             // (the push's harm, ironspec Nov 11 04:53: per pushed cart an episode from the push, its
@@ -7085,6 +7235,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             out.push(format!("reach probe: of {total} exposed rider-ticks, {reachable} ({:.1}%) had a path from the cart to within 1 of the bed (an open bed top would clear their stamps on the next HOME walk); the rest only panic coverage clears", if total > 0 { 100.0 * reachable as f64 / total as f64 } else { 0.0 }));
         }
         {
+            out.push(format!(
+                "golem locks outside the summoning group (GOLEM_DETECTED_RECENTLY, 599 gt, set on a rider off the stand: a summon's 10-box or its own golem sensor): {} (10-box {}, sensor {}); stand turns lost to them (a rider at the stand at a summon tick still so locked): {}{}{}",
+                outside_n[0] + outside_n[1], outside_n[0], outside_n[1], turns_lost.len(),
+                if outside_first.is_empty() { String::new() } else { format!("; the first locks: {}", outside_first.join("; ")) },
+                if turns_lost.is_empty() { String::new() } else { format!("; the turns lost: {}", turns_lost.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
+            ));
             let mut cells: Vec<([i32; 3], u64)> = touch_cells.into_iter().collect();
             cells.sort_by(|a, b| b.1.cmp(&a.1));
             let mut pcells: Vec<([i32; 3], u64)> = push_cells.into_iter().collect();

@@ -1284,6 +1284,20 @@ pub enum MobfarmCmd {
         /// order fails it) with its miss rate and Wilson 95% interval.
         #[arg(long, value_delimiter = ',')]
         reload_orders: Vec<String>,
+        /// (tickexact 2026-11-11, ironspec's forced-phase mode) After each whole-part load
+        /// (`--act ...,unload,N`), these sensor delays forced on one villager:
+        /// `WHO@SENSOR=DELAY[,SENSOR=DELAY]` (WHO `visit:SLOT`, `visit:SLOT/J` or an entity number;
+        /// SENSOR an index or name of the villager's sensors, `living` and `hostiles` the two that
+        /// time a sleeper's wake); the load's own draws are still made, every other draw as sampled
+        #[arg(long)]
+        force_phase: Option<String>,
+        /// The run again for every delay of these sensors, `WHO@SENSOR[=VALUES][,SENSOR[=VALUES]]`
+        /// (VALUES `A..B`, `A` or `A/B/C`; all of 0 up to the scan rate when omitted), forced on WHO
+        /// after every whole-part load, on `--jobs` threads; with `--reload-orders`, under each of
+        /// those load orders too: per combination its problems and the villager's wake after the
+        /// load, then per order the table of outcomes and the failing share
+        #[arg(long)]
+        phase_sweep: Option<String>,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -2620,7 +2634,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -2755,6 +2769,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{}", crate::queue::loop_corners(&spec, &o, &tm, &lines, seed, seeds, cycles).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 return Ok(());
+            }
+            if let Some(f) = &force_phase {
+                tm.phase_force = Some(crate::queue::parse_phase_force(f).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            if let Some(sw) = &phase_sweep {
+                return phase_sweep_cmd(&spec, &o, &tm, &hdr, sw, &reload_orders, cycles, seed, jobs);
             }
             if !reload_orders.is_empty() {
                 return reload_orders_cmd(&spec, &o, &tm, &hdr, &reload_orders, cycles, seed, jobs);
@@ -4568,6 +4588,103 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
+    }
+    Ok(())
+}
+
+/// `queue-loop-run --phase-sweep WHO@S1[,S2]` (ironspec's forced-phase mode, tickexact
+/// 2026-11-11): the same run once per combination of the listed sensors' start delays (each over
+/// 0 up to its scan rate), forced on WHO after every whole-part load, on `jobs` threads; per
+/// combination one line (its problems, first problem, WHO's wake after the load), then the table
+/// (rows S1, columns S2: `.` clean, `X` a problem) and the failing share of the phase space.
+#[allow(clippy::too_many_arguments)]
+fn phase_sweep_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, sweep: &str, orders: &[String], cycles: i64, seed: i64, jobs: usize) -> Result<()> {
+    let (who, rest) = sweep.split_once('@').ok_or_else(|| anyhow::anyhow!("--phase-sweep {sweep}: WHO@SENSOR[=VALUES][,SENSOR[=VALUES]]"))?;
+    let who = crate::queue::parse_rider(sweep, who).map_err(|e| anyhow::anyhow!(e))?;
+    let rate = |k: usize| redsim::entity::mob::villager::SENSORS[k].1;
+    // (each sensor's values: all of 0 up to its scan rate, or `=A..B` / `=A` / `=A/B/C`)
+    let mut ks: Vec<usize> = Vec::new();
+    let mut vals: Vec<Vec<i64>> = Vec::new();
+    for t in rest.split(',') {
+        let (name, v) = t.split_once('=').map_or((t, None), |(n, v)| (n, Some(v)));
+        let k = crate::queue::sensor_index(name).ok_or_else(|| anyhow::anyhow!("--phase-sweep {sweep}: no sensor {name}"))?;
+        let list: Vec<i64> = match v {
+            None => (0..rate(k)).collect(),
+            Some(v) => match v.split_once("..") {
+                Some((a, b)) => (a.parse::<i64>()?..=b.parse::<i64>()?).collect(),
+                None => v.split('/').map(|x| x.parse::<i64>()).collect::<Result<_, _>>()?,
+            },
+        };
+        anyhow::ensure!(!list.is_empty() && list.iter().all(|x| (0..rate(k)).contains(x)), "--phase-sweep {sweep}: {name}'s delays are 0..{}", rate(k) - 1);
+        ks.push(k);
+        vals.push(list);
+    }
+    anyhow::ensure!((1..=2).contains(&ks.len()), "--phase-sweep {sweep}: one or two sensors");
+    anyhow::ensure!(tm.acts.iter().flatten().any(|a| a.unload == Some(None)), "--phase-sweep: no whole-part unload act (--act SLOT,DT,unload,N)");
+    let second: Vec<i64> = if ks.len() == 2 { vals[1].clone() } else { vec![0] };
+    // (ironspec 2026-11-11: phases x orders in one command) the load orders to sweep under
+    // (`--reload-orders`, `crate::queue::parse_reload_orders`; the acts' own when none is named)
+    let mut ords: Vec<Option<redsim::reload::Order>> = crate::queue::parse_reload_orders(orders).map_err(|e| anyhow::anyhow!(e))?.into_iter().map(Some).collect();
+    if ords.is_empty() {
+        ords.push(None);
+    }
+    let label = |o: Option<redsim::reload::Order>| o.map_or_else(|| "the acts' own".to_string(), |o| o.name());
+    let mut combos: Vec<(usize, i64, i64)> = Vec::new();
+    for oi in 0..ords.len() {
+        for &a in &vals[0] {
+            for &b in &second {
+                combos.push((oi, a, b));
+            }
+        }
+    }
+    let mut results: std::collections::BTreeMap<(usize, i64, i64), (bool, String)> = std::collections::BTreeMap::new();
+    for chunk in combos.chunks(jobs.max(1)) {
+        let got: Vec<((usize, i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|&(oi, a, b)| {
+                    let mut t = *tm;
+                    if let Some(ord) = ords[oi] {
+                        for act in t.acts.iter_mut().flatten() {
+                            if act.unload == Some(None) {
+                                act.order = ord;
+                            }
+                        }
+                    }
+                    let mut sensors = [None; 4];
+                    sensors[0] = Some((ks[0], a));
+                    if ks.len() == 2 {
+                        sensors[1] = Some((ks[1], b));
+                    }
+                    t.phase_force = Some(crate::queue::PhaseForce { who, sensors });
+                    sc.spawn(move || ((oi, a, b), crate::queue::run_loop_hdr(spec, o, &t, hdr, cycles, seed, false, None, None)))
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+        });
+        for ((oi, a, b), r) in got {
+            let r = r.map_err(|e| anyhow::anyhow!(e))?;
+            let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").trim_end_matches(':').to_string();
+            let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).map(|l| format!(" (first: {})", l.trim())).unwrap_or_default();
+            let forced = r.lines().find(|l| l.contains("phases forced on")).map(|l| l.split(": ").skip(1).collect::<Vec<_>>().join(": ")).unwrap_or_else(|| "not forced".into());
+            let woke = r.lines().find(|l| l.contains("(phases forced) woke at")).and_then(|l| l.split("woke at ").nth(1)).unwrap_or("not seen").to_string();
+            let ok = probs.starts_with("0 problems");
+            let names: Vec<String> = ks.iter().zip([a, b]).map(|(k, v)| format!("{}={v}", redsim::entity::mob::villager::SENSORS[*k].0)).collect();
+            println!("order {} phases {}: {probs}{first}; woke {woke}; {forced}", label(ords[oi]), names.join(" "));
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            results.insert((oi, a, b), (ok, woke));
+        }
+    }
+    for (oi, ord) in ords.iter().enumerate() {
+        let bad = results.iter().filter(|(k, (ok, _))| k.0 == oi && !ok).count();
+        let n = results.keys().filter(|k| k.0 == oi).count();
+        println!("order {}: table (rows {} {:?}, columns {}; . clean, X a problem):", label(*ord), redsim::entity::mob::villager::SENSORS[ks[0]].0, vals[0], if ks.len() == 2 { format!("{} {:?}", redsim::entity::mob::villager::SENSORS[ks[1]].0, second) } else { "-".into() });
+        for &a in &vals[0] {
+            let row: String = second.iter().map(|&b| if results.get(&(oi, a, b)).is_some_and(|r| r.0) { '.' } else { 'X' }).collect();
+            println!("  {a:>3} {row}");
+        }
+        println!("order {}: failing share of the phase space: {bad} of {n} ({:.1}%)", label(*ord), 100.0 * bad as f64 / n.max(1) as f64);
     }
     Ok(())
 }

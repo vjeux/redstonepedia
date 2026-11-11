@@ -112,6 +112,19 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "designs/redsim/recorded/mobai")]
         dir: std::path::PathBuf,
     },
+    /// (tickexact 2026-11-11, ironspec's forced-phase mode) Scene reload-wake (a sleeper's sandbox
+    /// unloaded and loaded again, a zombie shown at the load) once per pair of forced start delays of
+    /// its NearestLivingEntitySensor and VillagerHostilesSensor (`--living` x `--hostiles`) and per
+    /// sandbox seed, game against redsim tick for tick: the wake after the load on both sides
+    /// against the sensors' rule.
+    ReloadWake {
+        #[arg(long, value_delimiter = ',')]
+        living: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        hostiles: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "1")]
+        seeds: Vec<i64>,
+    },
     /// (tickexact 2026-11-11) A whole-part unload at an event, in the game alone, over game seeds:
     /// for each seed the scene runs as it is (the event's game tick G: the first change of block
     /// `cell` to a state holding `state` after game time `after`; the cart's rider asleep at G or
@@ -274,6 +287,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
         MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
         MobaiCmd::SensorSweep { name, villager, reveal, dir } => crate::fixture::sensor_sweep(&name, villager, reveal, &dir),
+        MobaiCmd::ReloadWake { living, hostiles, seeds } => crate::fixture::reload_wake(version, &living, &hostiles, &seeds),
         MobaiCmd::UnloadRate { name, from, to, cell, state, after, cart, len, check } => {
             let [x, y, z] = cell[..] else { anyhow::bail!("--cell takes x,y,z") };
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
