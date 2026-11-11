@@ -120,6 +120,46 @@ fn arm_step(a: u8) -> [i32; 2] {
     [[0, -1], [1, 0], [0, 1], [-1, 0]][a as usize]
 }
 
+/// (tickexact 2026-11-11, farmopt's and ironspec's H rest-place contacts) scene h-contact's lanes:
+/// (x, dz, flat cells before the slope, the waiting carts (z, ridden), the arrival (stored speed,
+/// ridden), label). Each lane a closed gate at (x,64,3+dz), `flat` flat rails (0 sloped, 1 the
+/// hybrid: place 1 on a flat cell against the gate, place 2 on the last slope; 2 flat: places 1 and
+/// 2 flat), 3 slope rails rising south, then flat track; the waiting carts at H's rest places (place
+/// 1 against the gate z 4.115, place 2 0.79 behind a ridden front (its rider's box) or 0.98 behind
+/// an empty one, as scene queue-settle found them; on the slope y = 64.0625 + its height), the
+/// arrival set off down the slope from the top flat at 1.5 past its start. Waiting: place 1 ridden
+/// or empty; place 2 behind a ridden front ridden or empty, behind an empty front ridden. Arrivals
+/// ridden and empty at stored 0.2, 0.3, 0.4, 0.45, 0.5, 0.633, 0.8, 1.0, 1.12, 1.5, 2.014; and
+/// farmopt's (b) on the sloped approach.
+fn hcontact_lanes() -> Vec<(i32, i32, i32, Vec<(f64, bool)>, (f64, bool), String)> {
+    let speeds = [0.2, 0.3, 0.4, 0.45, 0.5, 0.633, 0.8, 1.0, 1.12, 1.5, 2.014];
+    let mut v = Vec::new();
+    let (p1, p2r, p2e) = (4.1150, 4.9050, 5.0950);
+    let mut add = |flat: i32, waits: Vec<(f64, bool)>, arrive_ridden: bool, label: &str| {
+        for sp in speeds {
+            let k = v.len() as i32;
+            v.push((1 + 2 * (k % 26), 12 * (k / 26), flat, waits.clone(), (sp, arrive_ridden), label.to_string()));
+        }
+    };
+    for flat in [0, 1, 2] {
+        let f = ["sloped", "hybrid", "flat"][flat as usize];
+        for ar in [true, false] {
+            let a = if ar { "R" } else { "E" };
+            add(flat, vec![(p1, true)], ar, &format!("{f} place 1: R waiting, {a} arriving"));
+            add(flat, vec![(p1, false)], ar, &format!("{f} place 1: E waiting, {a} arriving"));
+            add(flat, vec![(p1, true), (p2r, true)], ar, &format!("{f} place 2: R front, R waiting, {a} arriving"));
+            add(flat, vec![(p1, true), (p2r, false)], ar, &format!("{f} place 2: R front, E waiting, {a} arriving"));
+            add(flat, vec![(p1, false), (p2e, true)], ar, &format!("{f} place 2: E front, R waiting, {a} arriving"));
+        }
+    }
+    // (farmopt's (b): the 2nd cart pushed back by the front rider's jiggle, its gap to the arrival
+    // under the wall when the arrival comes: the 2nd 0.1 and 0.2 behind its rest)
+    for d in [0.1, 0.2] {
+        add(0, vec![(p1, true), (p2r + d, true)], true, &format!("sloped place 2: R front, R waiting {d} back, R arriving"));
+    }
+    v
+}
+
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
 /// during the freeze, and whether the cart is ridden.
@@ -4440,6 +4480,106 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, farmopt's and ironspec's H rest-place contacts: a ridden arrival into a
+    // ridden cart pressed at H's 2nd place, the riderless rows' empty waiting carts, and the flat
+    // last approach, and the hybrid) hcontact_lanes: 352 lanes, 26 to a row 2 apart, rows 12 apart
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 64, 0, 176, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let cart = |x: f64, y: f64, z: f64, v: f64, ridden: bool| {
+            let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+            ("minecraft:minecart".to_string(), [x, y, z], Some(format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", -v)))
+        };
+        for (x, dz, flat, waits, (sp, ar), _) in hcontact_lanes() {
+            b.push(([x, 64, 3 + dz], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+            for z in 4..4 + flat {
+                b.push(([x, 64, z + dz], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            for s in 0..3 {
+                for yy in 64..64 + s {
+                    b.push(([x, yy, 4 + flat + s + dz], stone.to_string()));
+                }
+                b.push(([x, 64 + s, 4 + flat + s + dz], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+            }
+            for z in (7 + flat)..=11 {
+                for yy in 64..67 {
+                    b.push(([x, yy, z + dz], stone.to_string()));
+                }
+                b.push(([x, 67, z + dz], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            b.push(([x, 67, 12 + dz], stone.to_string()));
+            let xf = x as f64 + 0.5;
+            // (a cart's y on this lane at z: flat 64.0625 before the slope, then 1 per block up it)
+            let y_at = |z: f64| 64.0625 + (z - 4.0 - flat as f64).clamp(0.0, 3.0);
+            for (z, r) in waits {
+                mobs.push(cart(xf, y_at(z), z + dz as f64, 0.0, r));
+            }
+            let za = 8.5 + flat as f64;
+            mobs.push(cart(xf, y_at(za), za + dz as f64, sp, ar));
+        }
+        v.push(Scene {
+            name: "h-contact".into(),
+            chunks: [0, 0, 3, 10],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [63, 72, 175]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, ironspec's grazing eye: blindness counted from the eye point inside a
+    // collision shape, as hasLineOfSight clips from the eye point, not from isInWall's eye box,
+    // ±0.24) seated riders in carts at rest on a rail along z (x 4, P = 64; rails z0-1 .. z0+2), each
+    // with its eye (P + 1.68) at z0 + e beside a shape at eye height: a closed oak fence gate facing
+    // north at (4,65,z0) (its box z0+0.375 .. z0+0.625) with e 0.10 (clear), 0.20, 0.30, 0.36 (the
+    // eye box overlaps it, the point outside), 0.40, 0.50 (the point inside); glass at (4,65,z0+1)
+    // (its face z0+1: not suffocating) with e 0.70 (clear), 0.80, 0.90, 0.98 (grazing), 1.02, 1.10
+    // (inside); a zombie in a boat 7 blocks +x at the eye's z (the sight ray runs along x, outside
+    // the shape unless it starts in it); lanes 10 apart in z (another lane's zombie over 12 away);
+    // a roof at y 72
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 128, 63, stone);
+        floor(&mut b, 0, 16, 0, 128, 72, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let gate = "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]";
+        let lanes: Vec<(bool, f64)> = [0.10, 0.20, 0.30, 0.36, 0.40, 0.50].iter().map(|e| (true, *e)).chain([0.70, 0.80, 0.90, 0.98, 1.02, 1.10].iter().map(|e| (false, *e))).collect();
+        for (k, (is_gate, e)) in lanes.into_iter().enumerate() {
+            let z0 = 4 + 10 * k as i32;
+            b.push(([4, 64, z0 - 2], stone.to_string()));
+            for z in z0 - 1..=z0 + 2 {
+                b.push(([4, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            b.push(([4, 64, z0 + 3], stone.to_string()));
+            if is_gate {
+                b.push(([4, 65, z0], gate.to_string()));
+            } else {
+                b.push(([4, 65, z0 + 1], "minecraft:glass".to_string()));
+            }
+            let z = z0 as f64 + e;
+            mobs.push(("minecraft:minecart".into(), [4.5, 64.0625, z], Some(rider.to_string())));
+            mobs.push(("minecraft:oak_boat".into(), [11.5, 64.0, z], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: "rider-eye-graze".into(),
+            chunks: [0, 0, 0, 7],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 72, 127]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
@@ -7458,6 +7598,103 @@ pub fn rec_junction(path: &std::path::Path) -> Result<()> {
             if *gap > 0 { format!(", a follower {gap} gt behind") } else { String::new() },
             ends.join("; ")
         );
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, farmopt's and ironspec's H rest-place contacts) `mctas mobai rec-hcontact
+/// <rec>`: per lane of scene h-contact the arrival's closest centre distance to the cart ahead of it
+/// (and the tick), the closest of any two of the lane's carts, a merge (centres within 0.05), how
+/// far back up the slope each waiting cart went (and whether one reached the top flat: T's cell), and
+/// where the arrival came to rest.
+pub fn rec_hcontact(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let carts = |f: &serde_json::Value| -> Vec<(u64, [f64; 3])> {
+        f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] == "minecart").map(|e| (e["n"].as_u64().unwrap_or(0), [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)])).collect()
+    };
+    let first = carts(&frames[0]);
+    let d3 = |a: [f64; 3], b: [f64; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    // (per lane kind: arrival merges, other pair merges, T's cell, closest without a merge, front offset)
+    #[allow(clippy::type_complexity)]
+    let mut summary: std::collections::BTreeMap<String, (Vec<f64>, Vec<f64>, Vec<f64>, f64, f64)> = std::collections::BTreeMap::new();
+    for (x, dz, flat, waits, (sp, _), label) in hcontact_lanes() {
+        let mut mine: Vec<(u64, f64)> = first.iter().filter(|(_, p)| p[0] >= x as f64 && p[0] < x as f64 + 1.0 && p[2] >= dz as f64 + 3.0 && p[2] < dz as f64 + 13.0).map(|(n, p)| (*n, p[2])).collect();
+        mine.sort_by(|a, b| a.1.total_cmp(&b.1));
+        if mine.len() != waits.len() + 1 {
+            println!("{label} at {sp}: {} carts found, expected {}", mine.len(), waits.len() + 1);
+            continue;
+        }
+        let ids: Vec<u64> = mine.iter().map(|(n, _)| *n).collect();
+        let arr = *ids.last().unwrap_or(&0);
+        let ahead = ids[ids.len() - 2];
+        let (mut close, mut close_t) = (f64::MAX, 0usize);
+        let (mut pair, mut pair_t, mut pair_ab) = (f64::MAX, 0usize, (0u64, 0u64));
+        let mut back: Vec<f64> = vec![f64::MIN; waits.len()];
+        let mut last = Vec::new();
+        for (t, f) in frames.iter().enumerate() {
+            let c = carts(f);
+            let at: Vec<Option<[f64; 3]>> = ids.iter().map(|n| c.iter().find(|(m, _)| m == n).map(|(_, p)| *p)).collect();
+            if let (Some(a), Some(b)) = (at[ids.len() - 1], at[ids.len() - 2]) {
+                let d = d3(a, b);
+                if d < close {
+                    (close, close_t) = (d, t);
+                }
+            }
+            for i in 0..ids.len() {
+                for j in i + 1..ids.len() {
+                    if let (Some(a), Some(b)) = (at[i], at[j]) {
+                        let d = d3(a, b);
+                        if d < pair {
+                            (pair, pair_t, pair_ab) = (d, t, (ids[i], ids[j]));
+                        }
+                    }
+                }
+            }
+            for (k, p) in at.iter().take(waits.len()).enumerate() {
+                if let Some(p) = p {
+                    back[k] = back[k].max(p[2] - dz as f64);
+                }
+            }
+            last = at;
+        }
+        let top = (7 + flat) as f64;
+        let backs: Vec<String> = back.iter().zip(&waits).map(|(m, (z0, _))| format!("{:+.3}{}", m - z0, if *m >= top { " (into T's cell)" } else { "" })).collect();
+        let into_t = back.iter().any(|m| *m >= top);
+        let rest = match (last.last().copied().flatten(), last[last.len() - 2]) {
+            (Some(a), Some(b)) => format!("{:.3}", d3(a, b)),
+            _ => "?".to_string(),
+        };
+        // (the front cart's distance from its place against the gate at the end)
+        let front_off = last[0].map(|p| p[2] - dz as f64 - 4.115).unwrap_or(f64::NAN);
+        println!(
+            "{label} at {sp}: arrival #{arr} closest {close:.3} to #{ahead} at t{close_t}{}; any pair {pair:.3} (#{} #{} t{pair_t}){}; waiting carts back {}; arrival rests {rest} behind; front ends {front_off:+.3} from the gate",
+            if close < 0.05 { " MERGED" } else { "" },
+            pair_ab.0,
+            pair_ab.1,
+            if pair < 0.05 && close >= 0.05 { " PAIR MERGED" } else { "" },
+            backs.join(", ")
+        );
+        let s = summary.entry(label.clone()).or_insert_with(|| (Vec::new(), Vec::new(), Vec::new(), f64::MAX, 0.0f64));
+        if close < 0.05 {
+            s.0.push(sp);
+        } else if pair < 0.05 {
+            s.1.push(sp);
+        }
+        if into_t {
+            s.2.push(sp);
+        }
+        if close >= 0.05 {
+            s.3 = s.3.min(close);
+        }
+        s.4 = s.4.max(front_off.abs());
+    }
+    println!("\nsummary (per lane kind: the arrival speeds that merge with the cart ahead, that merge two other carts, that put a cart into T's cell; the closest approach without a merge; the front's largest end offset from the gate):");
+    for (label, (m, pm, t, c, f)) in &summary {
+        let fmt = |v: &Vec<f64>| if v.is_empty() { "none".to_string() } else { v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(" ") };
+        println!("  {label}: merges at {}; other pair merges at {}; into T's cell at {}; closest without a merge {}; front off the gate up to {f:.3}", fmt(m), fmt(pm), fmt(t), if *c == f64::MAX { "-".to_string() } else { format!("{c:.3}") });
     }
     Ok(())
 }

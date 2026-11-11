@@ -204,6 +204,11 @@ pub enum MobaiCmd {
         #[arg(long)]
         xz: bool,
     },
+    /// (tickexact 2026-11-11, farmopt's and ironspec's H rest-place contacts) Scene h-contact's
+    /// recording: per lane the arrival's closest approach, any merge, and the waiting carts pushed back
+    RecHcontact {
+        path: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-11, ironspec's junction-settle) Scene junction-settle's recording: each lane's
     /// settled junction shape and each cart's route through it
     RecJunction {
@@ -372,6 +377,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
+        MobaiCmd::RecHcontact { path } => crate::fixture::rec_hcontact(&path),
         MobaiCmd::RecJunction { path } => crate::fixture::rec_junction(&path),
         MobaiCmd::HatchSweep { path } => crate::fixture::hatch_sweep(&path),
         MobaiCmd::RecSide { path, pairs } => {

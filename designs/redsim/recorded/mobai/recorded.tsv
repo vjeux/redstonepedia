@@ -58,6 +58,7 @@ gate-frozen.rec	3d8ad8052d7316e8		26.3	2026-11-11T19:00Z on 0046b0abb5	mctas mob
 gate-hold-w.rec	85faab5a8cb5f3c0		26.3	2026-11-11T20:25Z on 05abd782de	mctas mobai record gate-hold-w --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 golem-summon.rec	9211d49a03edc4b0		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record golem-summon --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+h-contact.rec	7e2f12c60b66f453		26.3	2026-11-11T22:15Z on 6742227352	mctas mobai record h-contact --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 home-reach-open.rec	f272ae2768c14aa9		26.3	2026-11-11T11:13Z on a7485adf5	mctas mobai record home-reach-open --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 horses.rec	0d4fd5510c0f2f5f		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 jobsite-memory.rec	897fc66aadcbc6cf		26.3	2026-11-11T18:13Z on d9186e31db	mctas mobai record jobsite-memory --seed 1 --ticks 24000 --dir designs/redsim/recorded/mobai
@@ -102,6 +103,7 @@ recover-shared.rec	ab8f7b683acc91d6		26.3	2026-11-11T10:50Z on ac495f13c	mctas m
 recover-single.rec	b3e69998f7c7bb39		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record recover-single --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 reload-wake.rec	f8568a9cc5f26122		26.3	2026-11-11T14:34Z on edd6bbe50	mctas mobai record reload-wake --seed 1 --ticks 320 --dir designs/redsim/recorded/mobai
 rider-eye-block.rec	1bfd51735215e944		26.3	2026-11-11T19:57Z on f3a5b75987	mctas mobai record rider-eye-block --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+rider-eye-graze.rec	f4bfc0bd61ee1277		26.3	2026-11-11T22:14Z on 6742227352	mctas mobai record rider-eye-graze --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 rider-push.rec	a1a9e3d0bfceaf94		26.3	2026-11-11T18:41Z on 1ccfb43c1e	mctas mobai record rider-push --seed 1 --ticks 900 --dir /tmp/rerec
 rider-sensors.rec	d6384499bd5e8371		26.3	2026-11-11T19:49Z on c0d3305d74	mctas mobai record rider-sensors --seed 1 --ticks 400 --dir designs/redsim/recorded/mobai
 rollback-booster.rec	0c0908cf503d265e		26.3	2026-11-11T20:21Z on 6ea194a67b	mctas mobai record rollback-booster --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
