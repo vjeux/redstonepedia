@@ -245,7 +245,10 @@ day-1's scheduler pulses 12 gt 118-150 gt after each arrival; the siding gates i
 lit from the arrival to the return and sets its visit latch, so a napper that cannot sleep still
 leaves), `--give-up timer` (its own arrival latch and 220 gt comparator timer) or `none`;
 `siding-bench` drives F as day-1's scheduler would (`--force-at 118,150`, `--no-force`) and prints
-the pulses, the visits not asleep by them and the pulse to ready;
+the pulses, the visits not asleep by them, the pulse to ready, the sleep onset after the arrival
+(the earliest F's bound) and the pulse to the cart past the exit (the latest F's);
+`--drop-force K` is the fault injection (visit K's napper cannot sleep and its F is dropped; it
+prints what the stuck cart and the next visits do);
 `siding-bench --day-visits` (every visit by day: no napper sleeps) and `--fail-no-home N` (the
 first N villagers' HOME erased before each of their visits) are its forced failures: every cart
 must still be on the slot with its villager within 500 gt of its arrival;

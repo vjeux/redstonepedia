@@ -179,6 +179,49 @@ after each arrival, every visit; redsim; arrivals and the release bench-driven):
   alone file); the drives recorded again with the force pulses as `set` acts (126 acts), web
   drive-check ok.
 
+**F's tolerance line** (ironspec 2026-11-10; F swept earlier and later to the first failure; release
+held, as day-1's loop runs it, unless said):
+- **Earliest F** (it must come after the latest sleep onset, or it sends an awake napper out):
+  sleep onset after the arrival p50 17, p99 39, **max 112 gt** (100 seeds x 6 nights, 12,600 naps).
+  F at a fixed time after the arrival, 24 seeds x 2 nights (1,008 visits) each: 100 and 80 gt cut
+  no nap; 60 and 50 gt cut one (1 in 1,008); 40 gt none cut but one villager not asleep by it; 30
+  gt fails (16 of 24 seeds: F lands before or at the drop). Day-1's F at 118-150 gt (118 at k = 2,
+  the arrival at +210): **6 gt over the slowest onset seen**; 0 cut in 25,200 visits at 118-150
+  (both release modes), and 0 in 12,600 each at 114-144 and 110-135.
+- **Latest F** (a stuck cart must be past the exit before the slot it must make): F to the cart
+  past the exit cell (6,-1,0) is **95-109 gt (median 96)** whatever F's time (118, 150 and 200 gt
+  after the arrival, every napper failing, 16 seeds each: 16 of 16 clean; at 300 gt, 2 of 16: the
+  next arrival, 400-500 gt later on the bench, meets the cart still inside). So **F at most D - 109
+  gt**, D the latest time the loop lets a cart pass the exit; with day-1's D = +420 (its estimate:
+  the hold kick at +470..482, exit to hold about 45 gt), F by +311; day-1's F at +328..+340 has a
+  stuck cart past the exit at +423..+449: **up to 29 gt late if D = +420** (asked of day-1: its
+  measured D).
+- **Corners:** k = 0..2 moves the arrival +190..+210 while F stays at +328..+340 in slot time: F
+  118-150 gt after the arrival, covered by the bench's spread; the release held and pulsed both
+  100 x 6 clean (a held release has napped carts on the slot 108-206 gt after the arrival, some
+  before F: their return has turned the bulb off, so F dies at the gate).
+
+**The fault line: F dropped** (ironspec 2026-11-10: `siding-bench --drop-force K`: on visit K the
+napper cannot sleep (its HOME erased and the bed's ticket taken, as R1's end state leaves it) and F
+is not pulsed; the next visits are sent on schedule, as the loop would). 6 seeds x 1 night, release
+held: **the siding jams.**
+- The stuck visit's cart parks on the park rail and is never kicked (no nap and no F: nothing sets
+  H); its villager stands on the free cell (1,0,2), on the bed line.
+- The next visit's cart stops behind that villager on the booster (1,0,1), its rider never dropped,
+  still there 2,000 gt later. After the fault no visit completed cleanly in any of the six seeds:
+  most next carts stayed stuck; a few went out at last with their rider never dropped (58-1,543 gt
+  after their arrival); one napper slept but its cart reached the slot without it.
+- The stuck cart came out with its villager after 2,726-4,800 gt (3 seeds; what freed it is not
+  traced) or stayed to the end of the run, 8,500-9,400 gt (3 seeds).
+- The bulb's phase inverts: the next arrival toggles it off with a visit under way, so the next
+  visits' F is blocked at the gate: a later F cannot clear the jam either.
+- Recovery by hand: break the stuck cart free or reset the siding (the visit latch H set by a
+  button on D2, an arrival through the entry to turn the bulb back) and re-run R1 for the villager
+  that lost HOME. (The timer version had no such dependency: its own 220 gt timer.)
+- Not built: a latch for V instead of the bulb (set by the arrival, reset by the return, about 12-16
+  blocks more) would keep the next visit's F passing; whether that F then clears the jam (its kick
+  pushing the stuck cart out with the villager) is not measured.
+
 ## The give-up's first version, its own timer (2026-11-10; `--give-up timer`, superseded)
 
 Without it a napper that cannot sleep parks its cart for good and the loop stalls. Built into the

@@ -758,6 +758,10 @@ pub struct BenchOpts {
     /// after each visit's arrival (spread over the range by the visit), every visit; only when the
     /// design has the scheduler give-up's gate.
     pub force: Option<(i64, i64)>,
+    /// Fault injection (ironspec 2026-11-10): on this visit (its index in the run) the napper
+    /// cannot sleep (its HOME erased) and the force input is not pulsed; the next visits are sent
+    /// on schedule all the same, as the loop would, with the dropped visit's cart still inside.
+    pub drop_force: Option<usize>,
 }
 
 /// One visit's record.
@@ -796,6 +800,15 @@ pub struct VisitRec {
     pub failed: bool,
     /// When the bench pulsed the force input for it (day-1's scheduler's place).
     pub forced: Option<i64>,
+    /// When its cart left past the exit cell (x past its east edge).
+    pub exited: Option<i64>,
+    /// The fault injection (`drop_force`): its napper cannot sleep and its F is dropped.
+    pub force_dropped: bool,
+    /// The scheduler give-up's bulb V at the visit's start (before its arrival): lit = the bulb's
+    /// phase inverted (a visit before it never returned).
+    pub v_before: Option<bool>,
+    /// The fault injection: when its cart, left behind in the siding, came onto the exit branch.
+    pub unstuck: Option<i64>,
 }
 
 /// What the bench measured.
@@ -923,6 +936,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut night_of_visit: Vec<i64> = vec![-1; pairs.len()];
     let mut active: Option<usize> = None; // the visit inside (not yet on the exit branch)
     let mut waiting: Vec<usize> = Vec::new(); // visits on the slot (not yet released)
+    let mut stuck: Vec<usize> = Vec::new(); // the fault injection's visits left inside
     let mut out: Vec<(usize, i64)> = Vec::new(); // visits on the run-out (released)
     let mut occupied = false;
     let mut kick_at: Option<i64> = None;
@@ -958,9 +972,14 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         {
             if !in_window {
                 next_visit = None;
-            } else if active.is_none() && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
+            } else if active.is_none_or(|a| rep.visits[a].force_dropped) && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
+                // (the fault injection: the dropped visit's cart left inside, the next sent as the
+                // loop would send it)
+                if let Some(a) = active.take() {
+                    stuck.push(a);
+                }
                 // the villager napped longest ago, not out already and not visited this night
-                let busy: Vec<u32> = waiting.iter().chain(out.iter().map(|(v, _)| v)).map(|&k| rep.visits[k].villager).collect();
+                let busy: Vec<u32> = waiting.iter().chain(out.iter().map(|(v, _)| v)).chain(stuck.iter()).map(|&k| rep.visits[k].villager).collect();
                 let pick = (0..pairs.len()).filter(|&k| !busy.contains(&pairs[k].1) && night_of_visit[k] != night_n).min_by_key(|&k| last_nap[k]);
                 if let Some(k) = pick {
                     let (cart, villager, _) = pairs[k];
@@ -976,11 +995,18 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     }
                     let eta = if bo.launch { 30 } else { ((-APPROACH_X - 0.0) / v).round() as i64 };
                     // (a forced failure: the villager cannot sleep, its HOME erased)
-                    let failed = (k as u32) < bo.fail_no_home || bo.day_visits;
-                    if (k as u32) < bo.fail_no_home && let Some(i) = index_of(&run.world, villager) {
+                    let dropped_f = bo.drop_force == Some(rep.visits.len());
+                    let failed = (k as u32) < bo.fail_no_home || bo.day_visits || dropped_f;
+                    if ((k as u32) < bo.fail_no_home || dropped_f) && let Some(i) = index_of(&run.world, villager) {
                         brain::brain_mut(&mut run.world, i).home = None;
                     }
-                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, failed, ..Default::default() });
+                    // (the fault injection's napper truly cannot sleep: the bed's ticket taken too,
+                    // as R1's end state leaves it, so it cannot claim the bed again either)
+                    if dropped_f {
+                        redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+                    }
+                    let v_before = force.is_some().then(|| matches!(run.world.get(BlockPos::new(0, -1, -1)), Block::Bulb { lit: true, .. }));
+                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, failed, force_dropped: dropped_f, v_before, ..Default::default() });
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
                     night_of_visit[k] = night_n;
@@ -1026,7 +1052,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
             let (arrived, villager, released, ready) = (rep.visits[k].arrived, rep.visits[k].villager, rep.visits[k].released, rep.visits[k].ready);
             let due = arrived + bo.release.0 + ((villager as i64 * 7919) % (bo.release.1 - bo.release.0 + 1));
-            if now >= due && released.is_none() {
+            // (a fault-injected visit's cart, out late, is released once ready on the slot)
+            if now >= due && released.is_none() && (ready.is_some() || !rep.visits[k].force_dropped) {
                 if ready.is_none() {
                     rep.visits[k].problem.get_or_insert(format!("not ready at its release (gt {})", due - arrived));
                 }
@@ -1052,7 +1079,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let n = rep.visits.len();
             for k in n.saturating_sub(2)..n {
                 let v = &rep.visits[k];
-                if v.forced.is_none() && (!bo.launch || v.entered) {
+                if v.forced.is_none() && !v.force_dropped && (!bo.launch || v.entered) {
                     let delay = fa + ((v.villager as i64 * 104_729 + v.arrived) % (fb - fa + 1));
                     if now >= v.arrived + delay {
                         set(&mut run.world, fc, "redstone_block");
@@ -1157,6 +1184,23 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 rep.visits[k].problem.get_or_insert("still inside 2000 gt after its arrival".into());
                 active = None;
             }
+        }
+        // (the fault injection: a dropped visit's cart left inside, onto the exit branch at last)
+        let mut freed: Vec<usize> = Vec::new();
+        for &k in &stuck {
+            if let Some(c) = w.entities.list.iter().find(|x| x.id == rep.visits[k].cart && !x.removed)
+                && c.pos.x >= 2.0
+                && c.pos.x < 3.0
+                && c.pos.z < 1.0
+                && c.delta_movement.x > 0.0
+            {
+                freed.push(k);
+            }
+        }
+        for k in freed {
+            stuck.retain(|&x| x != k);
+            rep.visits[k].unstuck = Some(t);
+            waiting.push(k);
         }
         // (traced, wired: the circuit's parts whenever one changes, for the first 3000 gt)
         if bo.trace && bo.wired && t - t0 >= bo.trace_window.0 && t - t0 < bo.trace_window.1 {
@@ -1310,6 +1354,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
             if rep.visits[k].leave_speed.is_none() && c.pos.x >= s.exit.x as f64 + 1.0 {
                 rep.visits[k].leave_speed = Some(c.delta_movement.x);
+                rep.visits[k].exited = Some(t);
             }
             if c.pos.x >= s.exit.x as f64 + 2.5 || t - rt > 400 {
                 if c.pos.x < s.exit.x as f64 + 2.5 {
