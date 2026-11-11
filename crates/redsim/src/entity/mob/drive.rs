@@ -170,6 +170,9 @@ impl Drive {
 /// The design's entity lines spawned in file order after the settle, as the benches do: each
 /// line's entity id (its vehicle's), and the run's own mobs set to all of them.
 pub fn spawn_lines(run: &mut Run, spec: &FarmSpec) -> Result<Vec<u32>, String> {
+    // (the daylight detectors first, as `Run::arrive` and the benches' starts place them: a
+    // night scheduler's inverted detector, day-1's siding junctions)
+    run.place_detectors();
     let first = run.world.entities.next_id;
     let mut lines = Vec::with_capacity(spec.entities.len());
     for (ty, pos, nbt) in &spec.entities {
