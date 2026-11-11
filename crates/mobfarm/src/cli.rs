@@ -469,6 +469,14 @@ pub enum MobfarmCmd {
         positions: Vec<PathBuf>,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         offset: Vec<i32>,
+        /// Only the positions inside this box (in the positions' own frame, before --offset):
+        /// x0,y0,z0,x1,y1,z1 (a part's own positions out of a whole assembly's recorded night).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        within: Vec<i32>,
+        /// Every rail cell of the design is a position too (a rider sits in its cart's cell: every
+        /// branch, a give-up path included).
+        #[arg(long)]
+        rails: bool,
         #[arg(long)]
         with_entities: bool,
         /// How many cells to list (default 40).
@@ -1445,14 +1453,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("wired pocket stand: REL input cell ({},{},{}): a redstone block opens the three gates and resets the latch, glass lets it count", r.x, r.y, r.z);
             }
         }
-        MobfarmCmd::QueueLoopSpots { design, positions, offset, with_entities, list } => {
+        MobfarmCmd::QueueLoopSpots { design, positions, offset, within, rails, with_entities, list } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta).ok();
             let off = match offset.as_slice() { [x, y, z] => [*x, *y, *z], [] => [0, 0, 0], _ => anyhow::bail!("--offset takes dx,dy,dz") };
+            let within_box = match within.as_slice() { [a, b, c, d, e, f] => Some(([*a, *b, *c], [*d, *e, *f])), [] => None, _ => anyhow::bail!("--within takes x0,y0,z0,x1,y1,z1") };
             let mut extra: Vec<redsim::pos::BlockPos> = Vec::new();
             let mut take = |t: &str| -> Result<()> {
                 let v: Vec<i32> = t.split([',', ' ']).filter(|s| !s.is_empty()).map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "a position takes x y z: {t}");
+                // (`--within`: positions outside the box, in their own frame, are not this part's)
+                if let Some((lo, hi)) = within_box {
+                    if (0..3).any(|i| v[i] < lo[i] || v[i] > hi[i]) {
+                        return Ok(());
+                    }
+                }
                 extra.push(redsim::pos::BlockPos::new(v[0] + off[0], v[1] + off[1], v[2] + off[2]));
                 Ok(())
             };
@@ -1466,7 +1481,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     take(t)?;
                 }
             }
-            anyhow::ensure!(o.is_some() || !extra.is_empty(), "not a loop scene and no positions: give --positions or a design `positions:` line");
+            anyhow::ensure!(o.is_some() || !extra.is_empty() || rails, "not a loop scene and no positions: give --positions, --rails or a design `positions:` line");
+            // (`--rails`: every rail cell of the design is a position: a rider sits in its cart's
+            // cell, on any branch, the give-up path included)
+            if rails {
+                for (p, b) in &spec.blocks {
+                    if matches!(b, redsim::block::Block::Rail { .. } | redsim::block::Block::PlainRail { .. } | redsim::block::Block::DetectorRail { .. }) {
+                        extra.push(*p);
+                    }
+                }
+            }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::StandLab { spec, speeds, skew, ai, reverse, gaps, start_x, depart_at, hold_at, release_at, meter, close_at, pockets, stand_open_at, stand_close_at, releases, ticks, out, trace } => {
@@ -1528,14 +1552,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let mut it = s.split_whitespace();
                     anyhow::ensure!(it.next() == Some("last"), "build: takes 'last x,y,z ...'");
                     let cells = it.map(|t| { let v: Vec<i32> = t.split(',').map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?; anyhow::ensure!(v.len() == 3, "build: last takes x,y,z cells"); Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2])) }).collect::<Result<Vec<_>>>()?;
-                    anyhow::ensure!(cells.len() <= 16, "build: last takes up to 16 cells");
-                    let mut a = [None; 16];
+                    anyhow::ensure!(cells.len() <= 64, "build: last takes up to 64 cells");
+                    let mut a = [None; 64];
                     for (i, p) in cells.into_iter().enumerate() {
                         a[i] = Some(p);
                     }
                     a
                 }
-                None => [None; 16],
+                None => [None; 64],
             }, watch_cells: {
                 let mut v = [None; 8];
                 for (i, c) in watch_cells.split(';').filter(|c| !c.trim().is_empty()).take(8).enumerate() {

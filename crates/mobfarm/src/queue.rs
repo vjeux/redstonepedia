@@ -1380,9 +1380,9 @@ pub struct LoopTiming {
     pub pocket_trigger: Option<[(f64, i64); 2]>,
     /// A nap visit to the bed siding (see `Visit`).
     pub visit: Option<Visit>,
-    /// A design's `build: last x,y,z ...` cells (up to 16), placed after every other in the
+    /// A design's `build: last x,y,z ...` cells (up to 64), placed after every other in the
     /// built-in-order mode.
-    pub build_last: [Option<BlockPos>; 16],
+    pub build_last: [Option<BlockPos>; 64],
     /// A diagnostic, never a design check: every rider holds GOLEM_DETECTED_RECENTLY, so none
     /// summons a golem (what a loop does once its off-pad golem cells are gone).
     pub no_summons: bool,
@@ -1459,7 +1459,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 16], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false }
     }
 }
 
