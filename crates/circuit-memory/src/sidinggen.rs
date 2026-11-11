@@ -533,6 +533,46 @@ fn seg_to(cells: &mut Vec<P3>, to: P3) {
     }
 }
 
+/// The wired pocket stand's REL (farmopt's gates, `queue-loop --stand-wired`: its input cell
+/// (8, -2, 2), on from the slot's +10 for 40 gt opens the three gates and resets the latch),
+/// driven from the release controller's REL (the core's dust (0, -1, 11), REL at golem +4..+16): a
+/// tap north (0, -1, 10) into block B0 (0, -1, 9), a delay line east along z 9 (B1 = B0 + 10 gt,
+/// B2 = + 20, B3 = + 28), each block tapped south into an OR line along z 7 (four 12-gt copies:
+/// golem +10..+50), down to (8, -2, 4) and a repeater north into the input cell (glass -> stone).
+pub(crate) fn stand_rel(d: &mut Design) -> Result<Vec<P3>> {
+    use crate::schedgen::{DUST, rep};
+    let cell: P3 = [8, -2, 2];
+    if d.blocks.get(&cell).map(|s| s.as_str()) != Some(GLASS) {
+        bail!("the pocket stand's REL cell {cell:?} is {:?}, not glass: the loop file changed", d.blocks.get(&cell));
+    }
+    let before: std::collections::BTreeSet<P3> = d.blocks.keys().copied().collect();
+    let mut b = B { blocks: d.blocks.clone(), ports: Default::default(), nbt: Default::default() };
+    b.on([0, -1, 10], &rep("south", 1))?;
+    b.put([0, -1, 9], STONE)?;
+    b.on([1, -1, 9], &rep("west", 4))?;
+    b.on([2, -1, 9], &rep("west", 1))?;
+    b.put([3, -1, 9], STONE)?;
+    b.on([4, -1, 9], &rep("west", 4))?;
+    b.on([5, -1, 9], &rep("west", 1))?;
+    b.put([6, -1, 9], STONE)?;
+    b.on([7, -1, 9], &rep("west", 4))?;
+    b.put([8, -1, 9], STONE)?;
+    for x in [0, 3, 6, 8] {
+        b.on([x, -1, 8], &rep("north", 1))?;
+    }
+    for x in 0..=8 {
+        b.on([x, -1, 7], DUST)?;
+    }
+    b.on([8, -1, 6], DUST)?;
+    b.on([8, -1, 5], DUST)?;
+    b.on([8, -2, 4], DUST)?;
+    b.on([8, -2, 3], &rep("south", 1))?;
+    b.blocks.insert(cell, STONE.into());
+    let added: Vec<P3> = b.blocks.keys().copied().filter(|p| !before.contains(p)).collect();
+    d.blocks = b.blocks;
+    Ok(added)
+}
+
 /// The R'' step line's repeater delay (the line has ~25 repeaters).
 fn step_delay() -> u8 {
     3
@@ -540,6 +580,8 @@ fn step_delay() -> u8 {
 
 /// The module's place in the loop (its frame's 0 0 0), under the ground west of the siding.
 pub(crate) const MODULE_AT: P3 = [-59, -4, 0];
+/// The night window's daylight detector, under the open sky north of the module.
+pub(crate) const DETECTOR: P3 = [-56, 1, -26];
 
 /// The divert unit, next to the departure corner (REL from the core reaches it in ~6 gt; the far
 /// module's own visit pulse comes ~30 gt after REL, too late for the corner): G2' = REL and not
@@ -668,9 +710,30 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     for (q, n) in &m.nbt {
         d.block_entities.insert(at(*q), n.clone());
     }
-    // night: the detector over the day line (module (2, -1, 1)), a dust under it, a repeater into
-    // the day block
-    b.put(at([2, -1, 1]), "minecraft:daylight_detector[inverted=false,power=0]")?;
+    // night: an INVERTED daylight detector under the open sky north of the module (DETECTOR, y 1:
+    // nothing of the farm over it; its output is 15 - (sky light - darkening): 0 by day, 3 from
+    // about day time 12,500 to 23,640), three dusts south (so the repeater after them needs 3 or
+    // more), a repeater into a block, a torch on the block's south face: the line is ON by day and
+    // also while the detector is missing (a runner places detectors after its settle: the module
+    // must not start a visit then), down a stair south to y -7, south along x -56, up into the day
+    // line's dust (module (2, -2, 1)) and its repeater into the day block (the detector had been
+    // under the module: no sky, the night window open all day; ironfarm 15:37)
+    b.put(DETECTOR, "minecraft:daylight_detector[inverted=true,power=0]")?;
+    for dz in 1..=3 {
+        b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + dz], DUST)?;
+    }
+    b.on([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 4], &rep("north", 1))?;
+    b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 5], STONE)?;
+    b.put([DETECTOR[0], DETECTOR[1], DETECTOR[2] + 6], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    let mut dl = vec![[DETECTOR[0], DETECTOR[1], DETECTOR[2] + 7]];
+    for k in 1..=8 {
+        dl.push([DETECTOR[0], DETECTOR[1] - k, DETECTOR[2] + 7 + k]);
+    }
+    // (at y -7 under the module's REL bus (module y -1, z -4), then up a stair into (3, -2, 1))
+    seg_to(&mut dl, at([3, -3, -1]));
+    dl.push(at([3, -2, 0]));
+    dl.push(at([3, -2, 1]));
+    route_d(&mut b, [DETECTOR[0], DETECTOR[1], DETECTOR[2] + 6], &dl, 6, 0, 1)?;
     b.on(at([2, -2, 1]), DUST)?;
     b.on(at([1, -2, 1]), &rep("east", 1))?;
     // REL in: a dust beside the REL stone, down east to y -6, north along x 4, west along z -10,

@@ -137,6 +137,13 @@ enum Cmd {
         #[arg(long, default_value = "designs/farms/iron/parts/carousel-scheduler/carousel-loop-scheduler-v0.txt")]
         sched: PathBuf,
     },
+    /// Print a design's non-air cells in a box, one per line (`x y z state`), z, then y, then x.
+    Cells {
+        file: PathBuf,
+        /// X0,Y0,Z0,X1,Y1,Z1 (inclusive)
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        r#box: Vec<i32>,
+    },
     /// The bed siding's rejoin as a side drop into an empty queue slot (crates/circuit-memory/src/droptest.rs).
     DropTest {
         #[arg(long, default_value_t = 0.2)]
@@ -441,6 +448,15 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
         Cmd::ReleaseTrace { design, at, det, ticks } => releasebench::trace(&design, &at, &det, ticks)?,
         Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,
+        Cmd::Cells { file, r#box } => {
+            let [x0, y0, z0, x1, y1, z1] = r#box[..] else { anyhow::bail!("--box takes X0,Y0,Z0,X1,Y1,Z1") };
+            let d = mctas::design::Design::load(&file)?;
+            let mut cells: Vec<(&[i32; 3], &String)> = d.blocks.iter().filter(|(p, s)| (x0..=x1).contains(&p[0]) && (y0..=y1).contains(&p[1]) && (z0..=z1).contains(&p[2]) && !s.ends_with(":air")).collect();
+            cells.sort_by_key(|(p, _)| (p[2], p[1], p[0]));
+            for (p, s) in cells {
+                println!("{} {} {} {}", p[0], p[1], p[2], s.trim_start_matches("minecraft:"));
+            }
+        }
         Cmd::DropTest { speed, occupied, ticks, no_stop, staged } => {
             droptest::run(speed, occupied, ticks, !no_stop, staged)?;
         }

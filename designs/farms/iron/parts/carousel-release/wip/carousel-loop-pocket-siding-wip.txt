@@ -27,7 +27,7 @@ entity: minecraft:minecart 3.885 -0.8225 0.5 {Rotation:[0f,0f],Passengers:[{id:"
 entity: minecraft:minecart -0.115 0.1775 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
 entity: minecraft:oak_boat 3.5 3 5.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 3.5 3 13.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
-entity: minecraft:oak_boat 3.5 3 21.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 23.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 3.5 3 29.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 3.5 3 37.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 3.5 3 45.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
@@ -499,9 +499,9 @@ layer 2:
   .
   .
   .
-  .......................g........g
+  .......................g
   .
-  .
+  ................................g
   .............................g
   .............................p
   .............................V
@@ -727,9 +727,9 @@ layer 6:
   .
   .
   .
-  .......................o........o
+  .......................o
   .
-  .
+  ................................o
   .
   .
   .
