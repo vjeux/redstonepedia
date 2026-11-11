@@ -72,6 +72,16 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-10) the natural doors' halves: the first copper door's upper half
+        // removed, the second's lower half, the floor under the third, the fourth's upper half
+        // swapped for an east-facing door's, the oak door's upper half removed
+        "door-halves" => vec![
+            (10, vec![s([4, 65, 4], "minecraft:air")]),
+            (20, vec![s([8, 64, 4], "minecraft:air")]),
+            (30, vec![s([12, 63, 4], "minecraft:air")]),
+            (40, vec![s([16, 65, 4], "minecraft:waxed_oxidized_copper_door[facing=east,half=upper,hinge=left,open=false,powered=false]")]),
+            (50, vec![s([20, 65, 4], "minecraft:air")]),
+        ],
         // (tickexact 2026-11-10) the contact queue: the stone at the slope's foot a rail for 12 gt
         // every 200 gt from t100; the unload variant adds the whole part away 30 gt at t250 (the
         // queue pressed), 5 gt at t702 (mid-release), N = 0 at t900, and the west chunk (the run
@@ -1902,6 +1912,33 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Hard,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-10, b8949c96's village door) natural doors' halves (DoorBlock.updateShape:
+    // waxed copper doors, natural rows; oak parses as redsim's modeled door): an upper half removed
+    // (a zombie's BreakDoorGoal: the lower half pops its loot), a lower half removed, the floor
+    // under a lower half removed, an upper half swapped for another door's (the lower half follows),
+    // and the modeled oak door's upper half removed (scene_actions: "door-halves")
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 63, stone);
+        let door = |name: &str, facing: &str, hinge: &str, half: &str| format!("minecraft:{name}[facing={facing},half={half},hinge={hinge},open=false,powered=false]");
+        for (x, name, facing, hinge) in [(4, "waxed_copper_door", "east", "left"), (8, "waxed_oxidized_copper_door", "north", "left"), (12, "waxed_oxidized_copper_door", "south", "right"), (16, "waxed_oxidized_copper_door", "west", "right"), (20, "oak_door", "north", "left")] {
+            b.push(([x, 64, 4], door(name, facing, hinge, "lower")));
+            b.push(([x, 65, 4], door(name, facing, hinge, "upper")));
+        }
+        v.push(Scene {
+            name: "door-halves".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 68, 15]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
