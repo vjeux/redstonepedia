@@ -1535,10 +1535,29 @@ pub struct Act {
     pub cell: [i32; 3],
     pub block: Block,
     pub hold: Option<i64>,
+    /// (tick-exact's unload/reload act) `Some(None)`: every chunk of the part unloaded
+    /// (`reload::unload_all`), loaded again `hold` gt later; `Some(Some([x0, z0, x1, z1]))`: the
+    /// forced tickets of that chunk box dropped (`reload::unload_some`, a partial unload: the
+    /// chunks next to a loaded one tick their blocks at level 32, entities frozen; level 33
+    /// nothing), back `hold` gt later. `cell` and `block` unused then.
+    pub unload: Option<Option<[i32; 4]>>,
 }
 
-/// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets).
+/// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets),
+/// `SLOT,DT,unload,N` (the whole part away N gt) or `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box).
 pub fn parse_act(s: &str) -> Result<Act, String> {
+    let f: Vec<&str> = s.split(',').map(|t| t.trim()).collect();
+    if f.len() >= 3 && f[2] == "unload" {
+        let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
+        let (slot, dt) = (num(f[0], "SLOT")?, num(f[1], "DT")?);
+        let (unload, n) = match f.len() {
+            4 => (None, num(f[3], "N")?),
+            8 => (Some([num(f[3], "X0")? as i32, num(f[4], "Z0")? as i32, num(f[5], "X1")? as i32, num(f[6], "Z1")? as i32]), num(f[7], "N")?),
+            _ => return Err(format!("--act {s}: give SLOT,DT,unload,N or SLOT,DT,unload,X0,Z0,X1,Z1,N (a chunk box)")),
+        };
+        let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
+        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload) });
+    }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
     let (slot, dt, x, y, z) = (num("SLOT")?, num("DT")?, num("X")?, num("Y")?, num("Z")?);
@@ -1550,7 +1569,7 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
     };
     let name = if block.contains(':') { block.to_string() } else { format!("minecraft:{block}") };
     let block = Block::parse(&name).map_err(|e| format!("--act {s}: {e}"))?;
-    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold })
+    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None })
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -2157,12 +2176,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         run.own = (first..run.world.entities.next_id).collect();
     }
-    let carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| e.id).collect();
+    let mut carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| e.id).collect();
     if carts.len() != 21 {
         return Err(format!("{} carts, not 21", carts.len()));
     }
     // (each cart's rider)
-    let riders: Vec<u32> = carts.iter().map(|c| run.world.entities.list.iter().find(|e| e.id == *c).and_then(|e| e.passengers.first().copied()).unwrap_or(0)).collect();
+    let mut riders: Vec<u32> = carts.iter().map(|c| run.world.entities.list.iter().find(|e| e.id == *c).and_then(|e| e.passengers.first().copied()).unwrap_or(0)).collect();
     let mut night_ticks = vec![0u64; riders.len()];
     let mut panic_ticks = vec![0u64; riders.len()];
     let mut calm_at: std::collections::BTreeMap<[i32; 3], u64> = std::collections::BTreeMap::new();
@@ -2262,16 +2281,19 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut rel_off_at: Option<i64> = None;
     // (`acts`' restores due: (gt, cell, the block the act replaced)); the bench's own REL state
     let mut act_restores: Vec<(i64, BlockPos, Block)> = Vec::new();
+    let mut pending_loads: Vec<(i64, Option<[i32; 4]>)> = Vec::new();
     let mut rel_want = false;
     // (the lap order: carts in the order they leave the pocket stand, up its departure climb)
     let mut laps: Vec<usize> = Vec::new();
     let mut on_climb: Vec<bool> = vec![false; 64];
     // (the stand's state per slot and the queue reset, `verbose` / `reset_queue_at`)
     let mut stand_log: Vec<String> = Vec::new();
+    let mut unload_log: Vec<String> = Vec::new();
     // (carts back through a gate; departures from the stand: (gt, cart, touching the one before))
     let mut strip_x: Vec<Option<f64>> = vec![None; 64];
     let mut back_through: Vec<String> = Vec::new();
     let mut departs: Vec<(i64, usize, bool)> = Vec::new();
+    let mut top_v: Vec<Option<f64>> = Vec::new();
     // (the slot-boundary order check: the last slot's queue, train and stand batch; clean slots)
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
     let mut order_dep2: Option<Vec<u32>> = None;
@@ -2419,10 +2441,76 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut tail_rest_at: Vec<i64> = Vec::new();
     for t in 0..cycles * 100 + 150 {
         let (c, dt) = (t / 100, t % 100);
+        // (`acts`, the unload/reload act: a load due now, before this gt's other acts; a whole
+        // part's entities come back under new numbers, every record of them renumbered)
+        let due: Vec<Option<[i32; 4]>> = pending_loads.iter().filter(|(at, _)| *at == t).map(|(_, u)| *u).collect();
+        pending_loads.retain(|(at, _)| *at != t);
+        for b in due.into_iter().flatten() {
+            redsim::reload::load_some(&mut run.world, b);
+            drive.borrow_mut().push(format!("act {} load {},{},{},{}", run.world.time - t_origin, b[0], b[1], b[2], b[3]));
+        }
         // (`acts`, fault injection: each block set at its slot offset, then the block it replaced
         // put back after its hold, before the bench's own controls this gt)
         for a in tm.acts.iter().flatten() {
             if a.slot == c && a.dt == dt {
+                if let Some(u) = a.unload {
+                    let n = a.hold.unwrap_or(1).max(1);
+                    match u {
+                        None => {
+                            // (the whole part away between two ticks: its redstone and carts
+                            // frozen with it, so no bench control either; the level's time runs
+                            // on; back after n ticks, its entities under new numbers, every record
+                            // of them renumbered; then this gt goes on)
+                            redsim::reload::unload_all(&mut run.world);
+                            drive.borrow_mut().push(format!("act {} unload", run.world.time - t_origin));
+                            for _ in 0..n {
+                                run.tick();
+                            }
+                            redsim::reload::load_all(&mut run.world);
+                            drive.borrow_mut().push(format!("act {} load", run.world.time - t_origin));
+                            let m = std::mem::take(&mut run.world.renumbered);
+                            let r = |id: &mut u32| {
+                                if let Some(n) = m.get(id) {
+                                    *id = *n;
+                                }
+                            };
+                            let rs = |s: &mut std::collections::HashSet<u32>| *s = s.iter().map(|id| m.get(id).copied().unwrap_or(*id)).collect();
+                            carts.iter_mut().for_each(r);
+                            riders.iter_mut().for_each(r);
+                            parked.iter_mut().for_each(r);
+                            pocket_seen.iter_mut().for_each(|v| v.iter_mut().for_each(r));
+                            if let Some((a, b, d)) = order_prev.as_mut() {
+                                a.iter_mut().flatten().for_each(r);
+                                b.iter_mut().for_each(r);
+                                d.iter_mut().for_each(r);
+                            }
+                            if let Some(d) = order_dep2.as_mut() {
+                                d.iter_mut().for_each(r);
+                            }
+                            dep_now.iter_mut().for_each(r);
+                            rs(&mut away);
+                            rs(&mut returned);
+                            rs(&mut golems_seen);
+                            if let Some((_, v, _)) = stand_train.as_mut() {
+                                v.iter_mut().for_each(r);
+                            }
+                            intake_trains.iter_mut().for_each(|(_, v, _)| v.iter_mut().for_each(r));
+                            unload_log.push(format!("slot {c} +{dt}: the whole part away {n} gt, {} entities back under new numbers", m.len()));
+                        }
+                        Some(b) => {
+                            // (a bench world has no forced chunk box: the chunks its box meets)
+                            if run.world.entity_chunks.is_none() {
+                                let (mn, sz) = (run.world.min, run.world.size);
+                                run.world.entity_chunks = Some([mn.x.div_euclid(16), mn.z.div_euclid(16), (mn.x + sz[0] - 1).div_euclid(16), (mn.z + sz[2] - 1).div_euclid(16)]);
+                            }
+                            redsim::reload::unload_some(&mut run.world, b);
+                            drive.borrow_mut().push(format!("act {} unload {},{},{},{}", run.world.time - t_origin, b[0], b[1], b[2], b[3]));
+                            pending_loads.push((t + n, u));
+                            unload_log.push(format!("slot {c} +{dt}: chunks {},{}..{},{} unforced {n} gt (the part's chunk box {:?})", b[0], b[1], b[2], b[3], run.world.entity_chunks));
+                        }
+                    }
+                    continue;
+                }
                 let p = BlockPos::new(a.cell[0], a.cell[1], a.cell[2]);
                 let was = run.world.get(p);
                 run.world.set_block(p, a.block, redsim::world::flags::ALL);
@@ -3034,9 +3122,21 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         // (contact: the cart before it, still within 1.05 of it along the track)
                         let touching = departs.last().and_then(|(_, kp, _)| pos_of(&run.world, carts[*kp])).zip(p).is_some_and(|(a, b)| ((a.x - b.x).powi(2) + (a.z - b.z).powi(2)).sqrt() < 1.05);
                         departs.push((t, k, touching));
+                        top_v.push(None);
                     }
                 }
                 strip_x[k] = now;
+            }
+            // (each departed cart's speed where the climb ends, on the run north's first cell)
+            let (run_x, run_y) = (-o.row_gap as f64 + 12.5, if o.tail_desc { 4.0 } else { 1.0 });
+            for (i, (t0, k, _)) in departs.iter().enumerate() {
+                if top_v[i].is_none() && t - t0 < 80 {
+                    if let Some(e) = run.world.entities.list.iter().find(|e| e.id == carts[*k]) {
+                        if (e.pos.x - run_x).abs() < 0.3 && e.pos.y > run_y - 0.1 && e.pos.z >= 8.0 {
+                            top_v[i] = Some(e.delta_movement.horizontal_distance());
+                        }
+                    }
+                }
             }
             let xd = (-o.row_gap + 12) as f64 + 0.5;
             for (k, id) in carts.iter().enumerate() {
@@ -3770,6 +3870,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     // (the stand's per-slot state and any hand reset)
     out.extend(stand_log);
+    out.extend(unload_log);
+    if !run.world.errors.is_empty() {
+        out.push(format!("model errors: {}", run.world.errors.join("; ")));
+    }
     // (the pocket stand's departures and backward crossings: one fixed-form line each, read back
     // by `--seeds`; the gaps per slot, a slot's own departures from its +0 to the next slot's +0)
     if o.stand_stop {
@@ -3782,6 +3886,35 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             out.push(format!("stand departures under 8 gt apart or touching: {}", small.join(", ")));
         }
         out.push(format!("back through a gate: {}{}", back_through.len(), if back_through.is_empty() { String::new() } else { format!(" ({})", back_through.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }));
+        // (bursts: departures under 30 gt apart; each burst's size, when it leaves in its slot,
+        // its gaps, the pairs in contact, and the speeds where the climb ends; the biggest first)
+        let mut bursts: Vec<Vec<usize>> = Vec::new();
+        for i in 0..departs.len() {
+            match bursts.last_mut() {
+                Some(b) if departs[i].0 - departs[*b.last().unwrap()].0 < 30 => b.push(i),
+                _ => bursts.push(vec![i]),
+            }
+        }
+        let fmt = |b: &Vec<usize>| {
+            let t0 = departs[b[0]].0;
+            let gaps: Vec<String> = b.windows(2).map(|w| format!("{}{}", departs[w[1]].0 - departs[w[0]].0, if departs[w[1]].2 { "t" } else { "" })).collect();
+            let vs: Vec<String> = b.iter().map(|i| top_v[*i].map_or("-".to_string(), |v| format!("{v:.2}"))).collect();
+            format!("{} carts (slot {} +{}..+{}, gaps {}, top {})", b.len(), t0.div_euclid(100), t0.rem_euclid(100), departs[*b.last().unwrap()].0 - t0.div_euclid(100) * 100, if gaps.is_empty() { "-".to_string() } else { gaps.join("/") }, vs.join("/"))
+        };
+        let mut sizes: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+        for b in &bursts {
+            *sizes.entry(b.len()).or_default() += 1;
+        }
+        let mut order: Vec<&Vec<usize>> = bursts.iter().collect();
+        order.sort_by_key(|b| std::cmp::Reverse((b.len(), b.windows(2).filter(|w| departs[w[1]].2).count())));
+        if let Some(b) = order.first() {
+            out.push(format!("stand bursts: {} (size x count); the biggest: {}", sizes.iter().map(|(s, n)| format!("{s}x{n}")).collect::<Vec<_>>().join(" "), fmt(b)));
+        }
+        if verbose {
+            for b in bursts.iter().filter(|b| b.len() != 3) {
+                out.push(format!("  burst: {}", fmt(b)));
+            }
+        }
     }
     // (which slots had a problem, and how many each: a fault's reach at a glance; a returning train
     // still missing from the tail is counted once, at its first report, not again every slot)
