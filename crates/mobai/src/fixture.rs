@@ -4209,6 +4209,49 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, 58f770cc's sleeper walking off its bed in redsim: a napper dropped
+    // beside its bed falls asleep, then walks off it 8 gt later in 8 of 168 visits) the siding's drop:
+    // a bed (head (x0, 64, 6), foot (x0, 64, 7)) beside a rail line along x0 + 1 running +z, a
+    // powered activator rail (on a redstone block) at (x0 + 1, 64, 6) beside the bed's head, the
+    // line on south to a stone at z 18; a villager remembering the bed as HOME rides a cart from z
+    // 1.5 + k/16 at stored 0.3, night (REST: its walk to HOME set while riding), ejected at the
+    // activator beside the bed; lanes x0 = 2 + 5k, k 0..15
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 80, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for k in 0..16 {
+            let x0 = 2 + 5 * k;
+            b.push(([x0, 64, 6], "minecraft:red_bed[facing=north,occupied=false,part=head]".to_string()));
+            b.push(([x0, 64, 7], "minecraft:red_bed[facing=north,occupied=false,part=foot]".to_string()));
+            b.push(([x0 + 1, 64, 0], stone.to_string()));
+            for z in 1..=17 {
+                if z == 6 {
+                    b.push(([x0 + 1, 63, z], "minecraft:redstone_block".to_string()));
+                    b.push(([x0 + 1, 64, z], "minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]".to_string()));
+                } else {
+                    b.push(([x0 + 1, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+                }
+            }
+            b.push(([x0 + 1, 64, 18], stone.to_string()));
+            let bed = [x0, 64, 6];
+            let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", bed[0], bed[1], bed[2]);
+            mobs.push(("minecraft:minecart".into(), [x0 as f64 + 1.5, 64.0625, 1.5 + k as f64 / 16.0], Some(format!("{{Motion:[0.0d,0.0d,0.3d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,{home}}}]}}"))));
+        }
+        v.push(Scene {
+            name: "sleep-drop".into(),
+            chunks: [0, 0, 4, 1],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [79, 68, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
