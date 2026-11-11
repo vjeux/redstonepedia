@@ -412,8 +412,24 @@ pub enum MobfarmCmd {
         /// The part's origin in the base (x,y,z).
         #[arg(long, default_value = "0,0,0", allow_hyphen_values = true)]
         at: String,
+        /// Only the part's blocks, block entities and entities inside this box of the part's own
+        /// frame (X0,Y0,Z0,X1,Y1,Z1, inclusive): a copy of one area of a design (a second stand
+        /// area pasted into its own design, say).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        r#box: Vec<i32>,
+        /// The part's overworld cells only: no ports, no Nether part, no build, station, declared
+        /// or flights lines (a copy that shares the base's controls and Nether side).
+        #[arg(long)]
+        overworld_only: bool,
         #[arg(long)]
         out: PathBuf,
+    },
+    /// A design's overworld box: its extents, volume, the chunk columns it crosses (X >> 4,
+    /// Z >> 4 of its cells as written) and its blocks by kind, within `--box` if given.
+    Box {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        r#box: Vec<i32>,
     },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
@@ -2345,11 +2361,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Paste { base, part, at, out } => {
+        MobfarmCmd::Paste { base, part, at, r#box, overworld_only, out } => {
             let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(o.len() == 3, "--at x,y,z");
+            anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
             let mut d = mctas::design::Design::parse(&std::fs::read_to_string(&base)?)?;
-            let p = mctas::design::Design::parse(&std::fs::read_to_string(&part)?)?;
+            let mut p = mctas::design::Design::parse(&std::fs::read_to_string(&part)?)?;
+            // (`--box`: only the part's cells and entities inside the box, its own frame)
+            if r#box.len() == 6 {
+                let b = r#box.clone();
+                let inside = |c: &[i32; 3]| (0..3).all(|k| c[k] >= b[k].min(b[k + 3]) && c[k] <= b[k].max(b[k + 3]));
+                p.blocks.retain(|c, _| inside(c));
+                p.block_entities.retain(|c, _| inside(c));
+                p.entities.retain(|e| inside(&[e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]));
+            }
+            // (`--overworld-only`: the copy shares the base's ports, controls and Nether side)
+            if overworld_only {
+                p.ports.clear();
+                p.nether_blocks.clear();
+                p.nether_block_entities.clear();
+                p.nether_ports.clear();
+                for k in ["build", "station", "declared", "flights"] {
+                    p.meta.remove(k);
+                }
+            }
             let mv = |c: &[i32; 3]| [c[0] + o[0], c[1] + o[1], c[2] + o[2]];
             let mut clashes = Vec::new();
             for (c, s) in &p.blocks {
@@ -2425,6 +2460,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let head: String = std::fs::read_to_string(&base)?.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
+        }
+        MobfarmCmd::Box { design, r#box } => {
+            anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
+            let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            let b = r#box.clone();
+            let inside = |c: &[i32; 3]| b.len() != 6 || (0..3).all(|k| c[k] >= b[k].min(b[k + 3]) && c[k] <= b[k].max(b[k + 3]));
+            let cells: Vec<(&[i32; 3], &String)> = d.blocks.iter().filter(|(c, s)| inside(c) && s.trim_start_matches("minecraft:") != "air").collect();
+            anyhow::ensure!(!cells.is_empty(), "no block in the box");
+            let lo = |k: usize| cells.iter().map(|(c, _)| c[k]).min().unwrap_or(0);
+            let hi = |k: usize| cells.iter().map(|(c, _)| c[k]).max().unwrap_or(0);
+            let ext = [hi(0) - lo(0) + 1, hi(1) - lo(1) + 1, hi(2) - lo(2) + 1];
+            let chunks: std::collections::BTreeSet<(i32, i32)> = cells.iter().map(|(c, _)| (c[0].div_euclid(16), c[2].div_euclid(16))).collect();
+            let (cx0, cx1) = (chunks.iter().map(|c| c.0).min().unwrap_or(0), chunks.iter().map(|c| c.0).max().unwrap_or(0));
+            let (cz0, cz1) = (chunks.iter().map(|c| c.1).min().unwrap_or(0), chunks.iter().map(|c| c.1).max().unwrap_or(0));
+            let mut kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            for (_, s) in &cells {
+                *kinds.entry(s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string()).or_default() += 1;
+            }
+            let ents = d.entities.iter().filter(|e| inside(&[e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32])).count();
+            println!("{}: {} overworld blocks{}, box x {}..{} y {}..{} z {}..{} = {}x{}x{} = {} volume; chunk columns X {}..{} Z {}..{} ({} with blocks of {} in the box); {} entities", design.display(), cells.len(), if b.len() == 6 { format!(" in the box {:?}", b) } else { String::new() }, lo(0), hi(0), lo(1), hi(1), lo(2), hi(2), ext[0], ext[1], ext[2], ext[0] as i64 * ext[1] as i64 * ext[2] as i64, cx0, cx1, cz0, cz1, chunks.len(), (cx1 - cx0 + 1) * (cz1 - cz0 + 1), ents);
+            let mut v: Vec<(String, usize)> = kinds.into_iter().collect();
+            v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            println!("  {}", v.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "));
         }
         MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, approach, depart_crest, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
