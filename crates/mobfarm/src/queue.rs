@@ -728,6 +728,10 @@ pub struct Headers {
     /// The rider-space check's positive control (`--rider-space-control`): stones placed at these
     /// cells before the check.
     pub rider_space_control: Vec<[i32; 3]>,
+    /// The declared sight stretches (`sight:`): riders on these rails keep every zombie within 8 in
+    /// sight; `sight_ok:` the blocks allowed to stop a line.
+    pub sight: Vec<([i32; 3], [i32; 3])>,
+    pub sight_ok: Vec<[i32; 3]>,
 }
 
 /// The design's `declared:`, `flights:` and `rider_space_ok:` headers.
@@ -737,6 +741,8 @@ pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<H
         flights: match meta.get("flights") { Some(s) => crate::flight::parse(s)?, None => Vec::new() },
         rider_space_ok: match meta.get("rider_space_ok") { Some(s) => crate::declared::parse_cells(s).map_err(|e| format!("rider_space_ok: {e}"))?, None => Vec::new() },
         rider_space_control: Vec::new(),
+        sight: match meta.get("sight") { Some(s) => crate::declared::parse_boxes(s).map_err(|e| format!("sight: {e}"))?, None => Vec::new() },
+        sight_ok: match meta.get("sight_ok") { Some(s) => crate::declared::parse_cells(s).map_err(|e| format!("sight_ok: {e}"))?, None => Vec::new() },
     })
 }
 
@@ -774,6 +780,18 @@ pub fn rider_space_check(w: &mut redsim::world::World, spec: &FarmSpec, declared
             if redsim::entity::mob::blocks::is_suffocating(&b) || !redsim::behavior::collision_boxes(&b).is_empty() {
                 bad.push(format!("zombie space: {},{},{}: {b} in the zombie at ({:.2},{:.2},{:.2})", c[0], c[1], c[2], p[0], p[1], p[2]));
             }
+        }
+    }
+    // (the sight lines: the declared stretches' riders against the declared zombies, ironspec Nov
+    // 11 04:31; day-1's release-gen check with its eye heights)
+    if !hdr.sight.is_empty() {
+        let in_box = |p: &BlockPos| hdr.sight.iter().any(|(a, b)| p.x >= a[0] + dx && p.x <= b[0] + dx && p.y >= a[1] && p.y <= b[1] && p.z >= a[2] + dz && p.z <= b[2] + dz);
+        let srails: Vec<[i32; 3]> = spec.blocks.iter().filter(|(p, b)| redsim::rails::is_rail(b) && in_box(p)).map(|(p, _)| [p.x, p.y, p.z]).collect();
+        let zombies: Vec<[f64; 3]> = spec.entities.iter().filter(|(ty, _, nbt)| ty.contains("zombie") && !ty.contains("minecart") || nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie"))).map(|(_, p, _)| *p).collect();
+        let sok: std::collections::HashSet<[i32; 3]> = hdr.sight_ok.iter().map(|c| [c[0] + dx, c[1], c[2] + dz]).collect();
+        let (n, cuts) = crate::declared::sight_cuts(w, &srails, &zombies, &sok);
+        if !cuts.is_empty() {
+            bad.push(format!("sight lines: {} of {n} cut ({})", cuts.len(), cuts.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
         }
     }
     bad

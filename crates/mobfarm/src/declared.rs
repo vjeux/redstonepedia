@@ -168,6 +168,57 @@ pub fn rider_space(w: &World, rails: &[[i32; 3]], allowed: &std::collections::Ha
     bad
 }
 
+/// The sight lines (day-1's release-gen check, ironspec Nov 11 04:31): every rider over a rail of a
+/// declared sight stretch against every declared zombie within 8 blocks feet to feet (the villagers'
+/// hostile range), the rider's eye at 1.4/1.7/2.0/2.3 over the rail's cell (slopes and stands vary
+/// it), the zombie's at 1.5/1.9 over its feet, through redsim's line of sight (collision shapes stop
+/// it, glass included). Returns the lines checked and every stopped one with the rail, the zombie
+/// and the block, unless that block is allowed (positive control: day-1's B1 golem-route stair cut
+/// 3 lines to the station zombie, where a rider lost its hostile in the judge run).
+pub fn sight_cuts(w: &World, rails: &[[i32; 3]], zombies: &[[f64; 3]], allowed: &std::collections::HashSet<[i32; 3]>) -> (usize, Vec<String>) {
+    let mut n = 0;
+    let mut bad = Vec::new();
+    for r in rails {
+        let feet = (r[0] as f64 + 0.5, r[1] as f64, r[2] as f64 + 0.5);
+        for z in zombies {
+            let d2 = (z[0] - feet.0).powi(2) + (z[1] - feet.1).powi(2) + (z[2] - feet.2).powi(2);
+            if d2 > 64.0 {
+                continue;
+            }
+            for re in [1.4, 1.7, 2.0, 2.3] {
+                for ze in [1.5, 1.9] {
+                    n += 1;
+                    let from = redsim::entity::Vec3::new(feet.0, feet.1 + re, feet.2);
+                    let to = redsim::entity::Vec3::new(z[0], z[1] + ze, z[2]);
+                    if let Some(h) = redsim::entity::mob::los::first_hit(w, from, to)
+                        && !allowed.contains(&[h.x, h.y, h.z])
+                    {
+                        bad.push(format!("{},{},{} (eye {re}) to the zombie at ({:.2},{:.2},{:.2}) (eye {ze}) cut by {},{},{} {}", r[0], r[1], r[2], z[0], z[1], z[2], h.x, h.y, h.z, w.get(h)));
+                    }
+                }
+            }
+        }
+    }
+    (n, bad)
+}
+
+/// A `sight:` header value: rail boxes `X0,Y0,Z0..X1,Y1,Z1; ...` (inclusive).
+pub fn parse_boxes(s: &str) -> Result<Vec<([i32; 3], [i32; 3])>, String> {
+    s.split(';')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            let (a, b) = t.split_once("..").ok_or_else(|| format!("{t}: give X0,Y0,Z0..X1,Y1,Z1"))?;
+            let c = parse_cells(a)?;
+            let d = parse_cells(b)?;
+            match (c.as_slice(), d.as_slice()) {
+                ([p], [q]) => Ok(([p[0].min(q[0]), p[1].min(q[1]), p[2].min(q[2])], [p[0].max(q[0]), p[1].max(q[1]), p[2].max(q[2])])),
+                _ => Err(format!("{t}: give X0,Y0,Z0..X1,Y1,Z1")),
+            }
+        })
+        .collect()
+}
+
 /// A `rider_space_ok:` header value (X,Y,Z; ...).
 pub fn parse_cells(s: &str) -> Result<Vec<[i32; 3]>, String> {
     s.split(';')
