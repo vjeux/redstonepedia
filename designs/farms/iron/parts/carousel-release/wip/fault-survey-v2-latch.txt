@@ -1,0 +1,21 @@
+# The night latch's edges and an unload/reload across them (ironspec 19:52, points 2 and 3), for
+# `mctas circuit memory fault-survey <siding-probe file> --spec this --pulses 60`.
+# Every run (the fault-free one too) has a day window: the probe's night stand-in at the detector
+# (-56,1,-32, a redstone block) taken away from t 2050 (dawn) to t 3570 (dusk). The latch: the
+# lock repeater (-55,1,-20, delay 4), held on by the wall torch (-54,1,-20) except while REL powers
+# the torch's block: the lock is off at golem +30..42 (measured, release-trace --watch), when the
+# threshold repeater follows the detector line (thr: night from the first unlock after dusk).
+# A missed unlock: the torch replaced by a redstone block over that window (the lock stays on); an
+# extra unlock: the torch taken away for 12 gt (the lock off out of turn, past its 8-gt delay).
+base | -56,1,-32@2050+1520=minecraft:air |
+dusk-unlock-missed | -54,1,-20@3624+24=minecraft:redstone_block |
+dawn-unlock-missed | -54,1,-20@2124+24=minecraft:redstone_block |
+extra-unlock-after-dusk | -54,1,-20@3576+12=minecraft:air |
+extra-unlock-after-dawn | -54,1,-20@2056+12=minecraft:air |
+extra-unlock-in-read-window | -54,1,-20@3592+12=minecraft:air |
+reload-across-dusk | reload@3500+200 |
+reload-across-dawn | reload@2000+200 |
+reload-long-across-dusk | reload@3000+1500 |
+reload-mid-release-pulse | reload@3605+5 |
+reload-mid-visit | reload@3640+40 |
+reload-zero-mid-pulse | reload@3606+1 |

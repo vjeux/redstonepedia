@@ -283,7 +283,15 @@ fn trace_run(c: &Circuit, at: &[u64], det: &[u64], ticks: u32, faults: &[String]
     let p = c.clock.design.ports.get("input.golem").ok_or_else(|| anyhow!("no input.golem"))?;
     let golem = redsim::pos::BlockPos::new(p[0], p[1], p[2]);
     let mut fs: Vec<(redsim::pos::BlockPos, u64, u64, redsim::Block, Option<redsim::Block>)> = Vec::new();
+    // (`reload@T+N`: every chunk unloaded at T and loaded again at T + N (tick-exact's act: a player
+    // leaving and coming back); no golem pulse and no other fault while away)
+    let mut reloads: Vec<(u64, u64)> = Vec::new();
     for f in faults {
+        if let Some(r) = f.strip_prefix("reload@") {
+            let (t, n) = r.split_once('+').ok_or_else(|| anyhow!("--fault {f}: reload@T+N"))?;
+            reloads.push((t.parse()?, n.parse()?));
+            continue;
+        }
         let (cell, rest) = f.split_once('@').ok_or_else(|| anyhow!("--fault {f}: x,y,z@T+N=BLOCK"))?;
         let (tn, blk) = rest.split_once('=').ok_or_else(|| anyhow!("--fault {f}: x,y,z@T+N=BLOCK"))?;
         let (t, n) = tn.split_once('+').ok_or_else(|| anyhow!("--fault {f}: x,y,z@T+N=BLOCK"))?;
@@ -312,6 +320,32 @@ fn trace_run(c: &Circuit, at: &[u64], det: &[u64], ticks: u32, faults: &[String]
     let base = at.first().copied().unwrap_or(0) as i64;
     let res = clock::sim::drive_live(&cc.clock, &[], ticks, from, to, |t, w| {
         let g = t as u64;
+        for &(rt, rn) in &reloads {
+            if g == rt {
+                redsim::reload::unload_all(w);
+            } else if g == rt + rn {
+                redsim::reload::load_all(w);
+            }
+        }
+        if reloads.iter().any(|&(rt, rn)| g >= rt && g < rt + rn) {
+            return true;
+        }
+        // (a fault's swap or put-back that fell while away happens now, at the load: the day window's
+        // detector stand-in is the sky, which changes while the player is away)
+        let back = reloads.iter().find(|&&(rt, rn)| g == rt + rn).copied();
+        if let Some((rt, _)) = back {
+            for f in fs.iter_mut() {
+                if f.1 >= rt && f.1 < g {
+                    f.4 = Some(w.get(f.0));
+                    w.set_block(f.0, f.3, redsim::world::flags::ALL);
+                }
+                if f.2 > 0 && f.1 + f.2 >= rt && f.1 + f.2 < g {
+                    if let Some(orig) = f.4.take() {
+                        w.set_block(f.0, orig, redsim::world::flags::ALL);
+                    }
+                }
+            }
+        }
         let high = at.iter().any(|&a| g >= a && g < a + 10);
         // the release run's detector rail (-3,1,4) stood in by a redstone block, 4 gt from each
         // `det` tick (the loop probe file has no rail)
@@ -382,20 +416,18 @@ pub fn fault_survey(design: &Path, spec: &Path, n: u64) -> Result<()> {
             })
             .collect()
     };
-    let base = parse(&trace_run(&c, &at0, &[], ticks, &[], &[])?);
-    let end = (100 * n) as i64 - 500;
-    let count = |v: &[Vec<(bool, i64)>], i: usize| v[i].iter().filter(|(on, t)| *on && *t > 0 && *t < end).count() as i64;
-    println!("{:24} {:>10} {:>26} {:>8} {:>8} {:>8}", "scenario", "departs", "recovered", "visits", "kicks", "F");
-    for line in std::fs::read_to_string(spec)?.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
+    let mut base_faults: Vec<String> = Vec::new();
+    let mut base_edits: Vec<String> = Vec::new();
+    let text = std::fs::read_to_string(spec)?;
+    // (`base | faults | edits`: applied to the fault-free run and to every scenario: a day window
+    // for the night latch's edges, say)
+    for line in text.lines().map(|l| l.trim()).filter(|l| l.starts_with("base")) {
         let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-        let name = parts[0];
-        let faults: Vec<String> = parts.get(1).map(|s| s.split(';').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect()).unwrap_or_default();
-        let mut at = at0.clone();
-        for ed in parts.get(2).map(|s| s.split_whitespace().collect::<Vec<_>>()).unwrap_or_default() {
+        base_faults = parts.get(1).map(|s| s.split(';').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect()).unwrap_or_default();
+        base_edits = parts.get(2).map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default();
+    }
+    let edit = |at: &mut Vec<u64>, eds: &[String]| -> Result<()> {
+        for ed in eds {
             let t: u64 = ed[1..].parse()?;
             if ed.starts_with('-') {
                 at.retain(|&a| a != t);
@@ -404,6 +436,25 @@ pub fn fault_survey(design: &Path, spec: &Path, n: u64) -> Result<()> {
             }
         }
         at.sort_unstable();
+        Ok(())
+    };
+    let mut at0 = at0;
+    edit(&mut at0, &base_edits)?;
+    let base = parse(&trace_run(&c, &at0, &[], ticks, &base_faults, &[])?);
+    let end = (100 * n) as i64 - 500;
+    let count = |v: &[Vec<(bool, i64)>], i: usize| v[i].iter().filter(|(on, t)| *on && *t > 0 && *t < end).count() as i64;
+    println!("{:28} {:>10} {:>26} {:>8} {:>8} {:>8}", "scenario", "departs", "recovered", "visits", "kicks", "F");
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with("base") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+        let name = parts[0];
+        let mut faults: Vec<String> = base_faults.clone();
+        faults.extend(parts.get(1).map(|s| s.split(';').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect::<Vec<_>>()).unwrap_or_default());
+        let mut at = at0.clone();
+        edit(&mut at, &parts.get(2).map(|s| s.split_whitespace().map(String::from).collect::<Vec<_>>()).unwrap_or_default())?;
         // (times stay relative to the first fault-free pulse, as `trace` prints them)
         let mut at_shift = at.clone();
         if at_shift.first() != Some(&100) {
@@ -442,7 +493,7 @@ pub fn fault_survey(design: &Path, spec: &Path, n: u64) -> Result<()> {
             }
         };
         println!(
-            "{:24} {:>10} {:>26} {:>+8} {:>+8} {:>+8}",
+            "{:28} {:>10} {:>26} {:>+8} {:>+8} {:>+8}",
             name,
             departs.map(|d| format!("+{d}")).unwrap_or_else(|| "-".into()),
             recovered,
