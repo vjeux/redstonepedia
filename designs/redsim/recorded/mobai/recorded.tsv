@@ -99,6 +99,7 @@ recover-shared.rec	ab8f7b683acc91d6		26.3	2026-11-11T10:50Z on ac495f13c	mctas m
 recover-single.rec	b3e69998f7c7bb39		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record recover-single --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 reload-wake.rec	f8568a9cc5f26122		26.3	2026-11-11T14:34Z on edd6bbe50	mctas mobai record reload-wake --seed 1 --ticks 320 --dir designs/redsim/recorded/mobai
 rider-push.rec	a1a9e3d0bfceaf94		26.3	2026-11-11T18:41Z on 1ccfb43c1e	mctas mobai record rider-push --seed 1 --ticks 900 --dir /tmp/rerec
+rider-sensors.rec	d6384499bd5e8371		26.3	2026-11-11T19:49Z on c0d3305d74	mctas mobai record rider-sensors --seed 1 --ticks 400 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 siding-fault-nap40.rec	f1df1678c77517e6		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record siding-fault-nap40 --seed 1 --ticks 3300 --dir designs/redsim/recorded/mobai

@@ -77,6 +77,14 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, ironspec's frozen-rider sensors) chunk (1,0) frozen at level 32 from
+        // t40 to t240; at t260 the two powered rails powered (a redstone block for the floor under
+        // each) to kick their carts on
+        "rider-sensors" => vec![
+            (40, vec![s([0, 0, 0], "unload:1,0,1,0")]),
+            (240, vec![s([0, 0, 0], "load:1,0,1,0")]),
+            (260, vec![s([20, 63, 16], "minecraft:redstone_block"), s([28, 63, 16], "minecraft:redstone_block")]),
+        ],
         // (tickexact 2026-11-11, G1's VillageBoundRandomStroll question) the bed's ticket taken
         "stroll-village-taken" => vec![(1, vec![s([8, 64, 3], "poi-take")])],
         // (tickexact 2026-11-11, farmopt's H retry on a frozen cart) the lanes' chunk (1,0) frozen
@@ -3579,6 +3587,88 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's frozen-rider sensors: the router interlock's tripwire at the
+    // hump top and the siding's SP plate) a tripwire at rider height (y 65, P + 1) across a track
+    // along z (P = 64): hooks at x0 -/+ 3 on stones at x0 -/+ 4, the string x0-2..x0+2 at z 16. In
+    // the forced chunks: seated riders moving +z at 0.1, 0.25, 0.4 and 0.5, one at rest under the
+    // string, a bare cart at 0.4, and a standing adult under it (held: glass at z 15 and 17, under
+    // and over the string beside it: the positive control). In chunk 1, frozen at level 32 from t40
+    // to t240 (scene_actions: "rider-sensors"): a seated rider at rest under a string (x0 20) and one
+    // under a stone plate at P + 2 on glass (x 28), each on a powered rail against a stone at its
+    // -z end, powered at t260 to kick it on +z
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 112, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let string = |b: &mut Vec<([i32; 3], String)>, x0: i32| {
+            b.push(([x0 - 4, 65, 16], stone.to_string()));
+            b.push(([x0 + 4, 65, 16], stone.to_string()));
+            b.push(([x0 - 3, 65, 16], "minecraft:tripwire_hook[attached=true,facing=east,powered=false]".to_string()));
+            b.push(([x0 + 3, 65, 16], "minecraft:tripwire_hook[attached=true,facing=west,powered=false]".to_string()));
+            for x in x0 - 2..=x0 + 2 {
+                b.push(([x, 65, 16], "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]".to_string()));
+            }
+        };
+        let track = |b: &mut Vec<([i32; 3], String)>, x0: i32| {
+            b.push(([x0, 64, 0], stone.to_string()));
+            b.push(([x0, 64, 31], stone.to_string()));
+            for z in 1..=30 {
+                b.push(([x0, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+        };
+        // the forced chunks' lanes
+        for (k, kind) in ["r0.1", "r0.25", "r0.4", "r0.5", "r0", "e0.4"].iter().enumerate() {
+            let x0 = 38 + 10 * k as i32;
+            string(&mut b, x0);
+            track(&mut b, x0);
+            let v: f64 = kind[1..].parse().unwrap_or(0.0);
+            let z0 = if v == 0.0 { 16.5 } else { 16.5 - (v * 10.0 + 2.5).round() };
+            let nbt = if kind.starts_with('r') { rider.replace("{Passengers", &format!("{{Motion:[0.0d,0.0d,{v:.2}d],Passengers")) } else { format!("{{Motion:[0.0d,0.0d,{v:.2}d]}}") };
+            mobs.push(("minecraft:minecart".into(), [x0 as f64 + 0.5, 64.0625, z0], Some(nbt)));
+        }
+        // the positive control: a standing adult under a string, held
+        {
+            let x0 = 98;
+            string(&mut b, x0);
+            for z in [15, 17] {
+                for y in 64..=65 {
+                    b.push(([x0, y, z], "minecraft:glass".to_string()));
+                }
+            }
+            for x in [x0 - 1, x0 + 1] {
+                b.push(([x, 64, 16], "minecraft:glass".to_string()));
+                b.push(([x, 66, 16], "minecraft:glass".to_string()));
+            }
+            mobs.push(("minecraft:villager".into(), [x0 as f64 + 0.5, 64.0, 16.5], Some("{PersistenceRequired:1b}".into())));
+        }
+        // the frozen chunk's lanes: a string (x0 20) and a stone plate (x 28)
+        for (x0, plate) in [(20, false), (28, true)] {
+            if plate {
+                b.push(([x0, 65, 16], "minecraft:glass".to_string()));
+                b.push(([x0, 66, 16], "minecraft:stone_pressure_plate[powered=false]".to_string()));
+            } else {
+                string(&mut b, x0);
+            }
+            track(&mut b, x0);
+            b.push(([x0, 64, 15], stone.to_string()));
+            b.push(([x0, 64, 16], "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]".to_string()));
+            mobs.push(("minecraft:minecart".into(), [x0 as f64 + 0.5, 64.0625, 16.5], Some(rider.to_string())));
+        }
+        v.push(Scene {
+            name: "rider-sensors".into(),
+            chunks: [0, 0, 6, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [111, 68, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
@@ -6373,8 +6463,14 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
 /// ticks the plate turns on and off.
 pub fn rec_plate(path: &std::path::Path, scene: &str) -> Result<()> {
     let s = scenes().into_iter().find(|s| s.name == scene).ok_or_else(|| anyhow!("no scene {scene}"))?;
-    let mut plates: Vec<([i32; 3], bool)> = scene_placed_blocks(&s).iter().filter(|(_, st)| st.contains("pressure_plate")).map(|(p, st)| (*p, st.contains("powered=true"))).collect();
+    // (a tripwire's string too: its box `TripWireBlock.SHAPE_ATTACHED`, y 1/16..2.5/16 of its cell,
+    // the whole cell across; any entity counts, a cart too)
+    let mut plates: Vec<([i32; 3], bool)> = scene_placed_blocks(&s).iter().filter(|(_, st)| st.contains("pressure_plate") || st.starts_with("minecraft:tripwire[")).map(|(p, st)| (*p, st.contains("powered=true"))).collect();
     plates.sort();
+    let wire: Vec<bool> = {
+        let placed = scene_placed_blocks(&s);
+        plates.iter().map(|(p, _)| placed.iter().any(|(q, st)| q == p && st.starts_with("minecraft:tripwire["))).collect()
+    };
     let text = mctas::recorded::read_text(path)?;
     let mut lines = text.lines();
     let _header = lines.next();
@@ -6395,14 +6491,23 @@ pub fn rec_plate(path: &std::path::Path, scene: &str) -> Result<()> {
                 }
             }
         }
-        for e in f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] != "minecart") {
+        for e in f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] != "boat") {
             let p = [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)];
             let baby = e["age"].as_i64().is_some_and(|a| a < 0);
-            let (h, hw) = if baby { (0.975, 0.15) } else { (1.95, 0.3) };
+            let cart = e["type"] == "minecart";
+            let (h, hw) = if cart { (0.7, 0.49) } else if baby { (0.975, 0.15) } else { (1.95, 0.3) };
             for (k, (q, _)) in plates.iter().enumerate() {
-                let (x0, z0) = (q[0] as f64 + 0.0625, q[2] as f64 + 0.0625);
-                if p[0] + hw > x0 && p[0] - hw < x0 + 0.875 && p[2] + hw > z0 && p[2] - hw < z0 + 0.875 {
-                    let reach = p[1] + h - q[1] as f64;
+                // (a plate's touch box is inset 1/16 and counts mobs only; a string's box is the
+                // whole cell across and counts any entity)
+                if cart && !wire[k] {
+                    continue;
+                }
+                let (inset, width) = if wire[k] { (0.0, 1.0) } else { (0.0625, 0.875) };
+                let (x0, z0) = (q[0] as f64 + inset, q[2] as f64 + inset);
+                if p[0] + hw > x0 && p[0] - hw < x0 + width && p[2] + hw > z0 && p[2] - hw < z0 + width {
+                    // (a plate: how far the top reaches into the cell; a string: the vertical
+                    // overlap with its box, y + 1/16 .. y + 2.5/16)
+                    let reach = if wire[k] { (p[1] + h).min(q[1] as f64 + 0.15625) - p[1].max(q[1] as f64 + 0.0625) } else { p[1] + h - q[1] as f64 };
                     let n = e["n"].as_u64().unwrap_or(0);
                     if least[k].is_none_or(|(r, _, _)| reach < r) {
                         least[k] = Some((reach, t, n));
