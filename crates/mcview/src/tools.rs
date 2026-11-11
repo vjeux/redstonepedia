@@ -146,11 +146,17 @@ impl Default for ShotOptions {
 
 /// Render a design: RGBA pixels and a one-line description of what was shown.
 pub fn shot(off: &mut Offscreen, atlas: &Atlas, text: &str, o: &ShotOptions) -> Result<(Vec<u8>, String), String> {
-    shot_frames(off, atlas, text, o, false).map(|(rgba, _, note)| (rgba, note))
+    shot_frames(off, atlas, text, o, false, &mut |_| {}).map(|(rgba, _, note)| (rgba, note))
+}
+
+/// [`shot`] of the design's session once `prepare` changed it (a test's scene: mobs spawned
+/// and leashed as redsim spawns them, which no design's data can say).
+pub fn shot_prepared(off: &mut Offscreen, atlas: &Atlas, text: &str, o: &ShotOptions, prepare: &mut dyn FnMut(&mut Session)) -> Result<(Vec<u8>, String), String> {
+    shot_frames(off, atlas, text, o, false, prepare).map(|(rgba, _, note)| (rgba, note))
 }
 
 /// [`shot`], and with `floor_only` the same frame with nothing on the floor too.
-fn shot_frames(off: &mut Offscreen, atlas: &Atlas, text: &str, o: &ShotOptions, floor_only: bool) -> Result<(Vec<u8>, Option<Vec<u8>>, String), String> {
+fn shot_frames(off: &mut Offscreen, atlas: &Atlas, text: &str, o: &ShotOptions, floor_only: bool, prepare: &mut dyn FnMut(&mut Session)) -> Result<(Vec<u8>, Option<Vec<u8>>, String), String> {
     let mut s = Session::new(text, &Options::default())?;
     let what = match o.tick {
         Some(t) => {
@@ -173,6 +179,9 @@ fn shot_frames(off: &mut Offscreen, atlas: &Atlas, text: &str, o: &ShotOptions, 
             }
         }
     }
+    // (the test's scene changes it as shown: after its still or tick, which start again from the
+    // placed world)
+    prepare(&mut s);
     let aspect = o.width as f32 / o.height as f32;
     let mut look = if o.picture { scene::default_look(&s) } else { scene::viewer_look(&s) };
     // a picture (`web compare`) draws no outlines; the viewer's thumbnail (the browser's: nothing
@@ -277,7 +286,7 @@ pub const PICTURE_FRAME: (u32, u32) = (1920, 1080);
 pub fn picture_frames(off: &mut Offscreen, atlas: &Atlas, text: &str, floor_margin: Option<f32>, still: bool) -> Result<(Vec<u8>, Vec<u8>, String), String> {
     let tick = still.then(|| if text.lines().any(|l| l.starts_with("entity:")) { 1 } else { 0 });
     let (w, h) = PICTURE_FRAME;
-    let (frame, floor, note) = shot_frames(off, atlas, text, &ShotOptions { width: w, height: h, picture: true, full_frame: true, floor_margin, tick, as_written: still, ..Default::default() }, true)?;
+    let (frame, floor, note) = shot_frames(off, atlas, text, &ShotOptions { width: w, height: h, picture: true, full_frame: true, floor_margin, tick, as_written: still, ..Default::default() }, true, &mut |_| {})?;
     let floor = floor.unwrap_or_else(|| frame.clone());
     Ok((frame, floor, note))
 }

@@ -63,6 +63,20 @@ pub struct EntityDraw {
     /// `getLightProbePosition`, its eye position: redsim's position and `eye_height`); None: its
     /// feet.
     pub probe: Option<[f32; 3]>,
+    /// The lead from it to its holder (a trader llama's to its wandering trader).
+    pub leash: Option<LeashDraw>,
+}
+
+/// A lead (`EntityRenderState.LeashState`, single-point): from the leashed entity's attach point
+/// (`Leashable.getLeashOffset`, turned by its body's yaw) to its holder's rope hold
+/// (`getRopeHoldPosition`), lit from the light at the one's eye to the light at the other's;
+/// slack (`LeashState.slack`'s default: a single lead's).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LeashDraw {
+    pub start: [f32; 3],
+    pub end: [f32; 3],
+    pub start_eye: [f32; 3],
+    pub end_eye: [f32; 3],
 }
 
 /// What `LivingEntityRenderer` draws a mob from (its render state, from redsim's state of the tick
@@ -104,8 +118,12 @@ pub struct MobDraw {
     /// item there, a skeleton's bow drawn with it).
     pub left_handed: bool,
     /// Its look from its biome (redsim's `variant`: a zombie villager's type, `plains` ..., a farm
-    /// animal's `warm`/`temperate`/`cold`); None: the default.
+    /// animal's `warm`/`temperate`/`cold`; a trader llama's `creamy`, `white`, `brown`, `gray`);
+    /// None: the default.
     pub variant: Option<&'static str>,
+    /// Invisible (`isInvisible`: a wandering trader after its night's potion, until its milk):
+    /// not drawn.
+    pub invisible: bool,
     /// `isAggressive` (a skeleton drawing its bow at a target).
     pub aggressive: bool,
     /// A sheep's wool `DyeColor` id (0 white).
@@ -956,6 +974,54 @@ impl<'a> Builder<'a> {
                     v.light = l;
                 }
             }
+        }
+        if let Some(lead) = &e.leash {
+            self.leash(lead);
+        }
+    }
+
+    /// A lead (`LeashFeatureRenderer`): 24 steps from its start to its end along a slack curve
+    /// (`y = dy p²` rising, `dy - dy (1 - p)²` falling), two ribbons 0.05 wide crossing (one
+    /// rising across its width, the other falling back), every other step 0.7 darker than the
+    /// lead's brown (0.5, 0.4, 0.3), each step lit by the block and sky light between the light at
+    /// the leashed one's eye and its holder's (`RenderTypes.leash`: no texture, no shading; drawn
+    /// from both sides).
+    fn leash(&mut self, l: &LeashDraw) {
+        let tile = self.atlas.tile("generic") as u32;
+        let cell = |p: [f32; 3]| [p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32];
+        let (s0, b0) = self.light_inside(cell(l.start_eye));
+        let (s1, b1) = self.light_inside(cell(l.end_eye));
+        let d = [l.end[0] - l.start[0], l.end[1] - l.start[1], l.end[2] - l.start[2]];
+        let f = 0.05 / 2.0 / (d[0] * d[0] + d[2] * d[2]).sqrt().max(1e-6);
+        let (dxo, dzo) = (d[2] * f, d[0] * f);
+        let vertex = |k: u32, fudge: f32, backwards: bool, second: bool| -> Vertex {
+            let p = k as f32 / 24.0;
+            let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * p) as i32 as f32;
+            let m = if k % 2 == if backwards { 1 } else { 0 } { 0.7 } else { 1.0 };
+            let color = [(0.5 * m * 255.0) as u8, (0.4 * m * 255.0) as u8, (0.3 * m * 255.0) as u8, 255];
+            let y = if d[1] > 0.0 { d[1] * p * p } else { d[1] - d[1] * (1.0 - p) * (1.0 - p) };
+            let (x, z) = (d[0] * p, d[2] * p);
+            let pos = if second { [x + dxo, y + 0.05 - fudge, z - dzo] } else { [x - dxo, y + fudge, z + dzo] };
+            Vertex { pos: [l.start[0] + pos[0], l.start[1] + pos[1], l.start[2] + pos[2]], uv: [0.5, 0.5], layer: tile, color, light: lit(lerp(s0, s1), lerp(b0, b1)) }
+        };
+        // the strip as the game sends it: 25 pairs out, 25 back
+        let mut strip = Vec::with_capacity(100);
+        for k in 0..=24 {
+            strip.push(vertex(k, 0.05, false, false));
+            strip.push(vertex(k, 0.05, false, true));
+        }
+        for k in (0..=24).rev() {
+            strip.push(vertex(k, 0.0, true, false));
+            strip.push(vertex(k, 0.0, true, true));
+        }
+        for w in strip.windows(3) {
+            for v in w {
+                for k in 0..3 {
+                    self.mesh.lo[k] = self.mesh.lo[k].min(v.pos[k]);
+                    self.mesh.hi[k] = self.mesh.hi[k].max(v.pos[k]);
+                }
+            }
+            self.mesh.solid.extend_from_slice(&[w[0], w[1], w[2], w[0], w[2], w[1]]);
         }
     }
 

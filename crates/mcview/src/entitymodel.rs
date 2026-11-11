@@ -430,6 +430,32 @@ fn iron_golem(d: &crate::mesh::MobDraw) -> Vec<EPart> {
     ]
 }
 
+/// `LlamaModel.createBodyLayer(g)` (texture 128 x 64; a trader llama's `TRADER_LLAMA` is the
+/// llama's body layer, its decor's `LLAMA_DECOR` the same grown 0.5): its head with its neck and
+/// ears, its body turned upright, four legs (no chests: a trader llama carries none), posed by
+/// `setupAnim`: the head's pitch and yaw, the legs swinging with the walk (the hind right and the
+/// front left together).
+fn llama(d: &crate::mesh::MobDraw, g: f32) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let swing = |phase: f32| [(pos * 0.6662 + phase).cos() * 1.4 * speed, 0.0, 0.0];
+    let leg = |x: f32, z: f32, r: [f32; 3]| part(vec![cube_grown(29.0, 29.0, [-2.0, 0.0, -2.0], [4.0, 14.0, 4.0], g)], [x, 10.0, z], r);
+    let head = vec![
+        cube_grown(0.0, 0.0, [-2.0, -14.0, -10.0], [4.0, 4.0, 9.0], g),
+        cube_grown(0.0, 14.0, [-4.0, -16.0, -6.0], [8.0, 18.0, 6.0], g),
+        cube_grown(17.0, 0.0, [-4.0, -19.0, -4.0], [3.0, 3.0, 2.0], g),
+        cube_grown(17.0, 0.0, [1.0, -19.0, -4.0], [3.0, 3.0, 2.0], g),
+    ];
+    vec![
+        part(head, [0.0, 7.0, -6.0], [hx, hy, 0.0]),
+        part(vec![cube_grown(29.0, 0.0, [-6.0, -10.0, -7.0], [12.0, 18.0, 10.0], g)], [0.0, 5.0, 2.0], [PI / 2.0, 0.0, 0.0]),
+        leg(-3.5, 6.0, swing(0.0)),
+        leg(3.5, 6.0, swing(PI)),
+        leg(-3.5, -5.0, swing(PI)),
+        leg(3.5, -5.0, swing(0.0)),
+    ]
+}
+
 /// `VillagerModel.createBodyModel` (texture 64 x 64) with the villagers' `MeshTransformer.scaling
 /// (0.9375)` (`LayerDefinitions`: the root part scaled, 1.501 px down), posed by `setupAnim`: the
 /// head's yaw and pitch, the legs swinging with the walk (never unhappy: no trades).
@@ -935,8 +961,9 @@ fn spider(d: &crate::mesh::MobDraw, scale: f32) -> Vec<EPart> {
 /// is packed, `Atlas::add_game_entities`): an iron golem's base under its crackiness
 /// (`IronGolemCrackinessLayer`), a villager's base under its plains type (`VillagerProfessionLayer`:
 /// no profession, so the type's layer covers the whole model, hat included), a zombie's own, a
-/// zombie villager's base (its type a layer over it: `mob_triangles`).
-pub fn mob_texture(kind: &str, crack: u8) -> Option<(String, [f32; 2])> {
+/// zombie villager's base (its type a layer over it: `mob_triangles`), a trader llama's of its
+/// variant (`LlamaRenderer.TEXTURES`, creamy by default).
+pub fn mob_texture(kind: &str, crack: u8, variant: Option<&str>) -> Option<(String, [f32; 2])> {
     match kind.strip_prefix("minecraft:").unwrap_or(kind) {
         "iron_golem" => Some((format!("mob/iron_golem/{}", crack.min(3)), [128.0, 128.0])),
         "villager" => Some(("mob/villager/plains".to_string(), [64.0, 64.0])),
@@ -946,6 +973,8 @@ pub fn mob_texture(kind: &str, crack: u8) -> Option<(String, [f32; 2])> {
         "baby_zombie_villager" => Some(("entity/zombie_villager/zombie_villager_baby".to_string(), [64.0, 64.0])),
         "sulfur_cube" => Some(("entity/sulfur_cube/sulfur_cube_outer_small".to_string(), [64.0, 64.0])),
         "sulfur_cube_2" | "sulfur_cube_4" => Some(("entity/sulfur_cube/sulfur_cube_outer".to_string(), [128.0, 128.0])),
+        "trader_llama" => Some((format!("entity/llama/llama_{}", variant.unwrap_or("creamy")), [128.0, 64.0])),
+        "wandering_trader" => Some(("entity/wandering_trader/wandering_trader".to_string(), [64.0, 64.0])),
         "spider" => Some(("entity/spider/spider".to_string(), [64.0, 32.0])),
         "cave_spider" => Some(("entity/spider/cave_spider".to_string(), [64.0, 32.0])),
         "creeper" => Some(("entity/creeper/creeper".to_string(), [64.0, 32.0])),
@@ -985,6 +1014,12 @@ pub const MOB_TEXTURES: &[&str] = &[
     "entity/sulfur_cube/sulfur_cube_outer",
     "entity/sulfur_cube/sulfur_cube_inner_small",
     "entity/sulfur_cube/sulfur_cube_outer_small",
+    "entity/llama/llama_creamy",
+    "entity/llama/llama_white",
+    "entity/llama/llama_brown",
+    "entity/llama/llama_gray",
+    "entity/equipment/llama_body/trader_llama",
+    "entity/wandering_trader/wandering_trader",
     "entity/spider/spider",
     "entity/spider/cave_spider",
     "entity/spider/spider_eyes",
@@ -1252,11 +1287,18 @@ fn held_transform(m: &M, arm_offset: [f32; 3], arm_rot: [f32; 3], baby: bool, le
 /// None: not a mob the viewer has, or its texture is not packed.
 pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> Option<Vec<Vertex>> {
     let k = kind.strip_prefix("minecraft:").unwrap_or(kind);
-    let (tex, size) = mob_texture(k, d.crack)?;
+    let (tex, size) = mob_texture(k, d.crack, d.variant)?;
     let r = rect(g, &tex)?;
+    // an invisible mob (`isInvisible`: a wandering trader after its potion) is not drawn
+    if d.invisible {
+        return Some(Vec::new());
+    }
     let parts = match k {
         "iron_golem" => iron_golem(d),
         "villager" => villager(d),
+        // `WanderingTraderRenderer`: the villagers' model (`WANDERING_TRADER`: `villagerBodyLayer`)
+        "wandering_trader" => villager(d),
+        "trader_llama" => llama(d, 0.0),
         "zombie" => zombie(d, false),
         "baby_zombie" => zombie(d, true),
         "spider" => spider(d, 1.0),
@@ -1296,6 +1338,9 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
             let baby = k == "baby_zombie_villager";
             vec![(zombie_villager(d, baby), format!("entity/zombie_villager/{}/{}", if baby { "baby" } else { "type" }, d.variant.unwrap_or("plains")), [255; 3])]
         }
+        // a trader llama's decor (`LlamaDecorLayer`: the `trader_llama` equipment asset's
+        // `llama_body` layer on the decor model, `LLAMA_DECOR`: grown 0.5)
+        "trader_llama" => vec![(llama(d, 0.5), "entity/equipment/llama_body/trader_llama".to_string(), [255; 3])],
         _ => Vec::new(),
     };
     for (lp, tex, tint) in layers {
@@ -1613,7 +1658,7 @@ mod tests {
                 // the model, then its type layer: the same parts again
                 assert_eq!(t.len() % 2, 0, "{kind}");
                 let (model, layer) = t.split_at(t.len() / 2);
-                let base = rect(&g, mob_texture(kind, 0).unwrap().0.as_str()).unwrap();
+                let base = rect(&g, mob_texture(kind, 0, None).unwrap().0.as_str()).unwrap();
                 let ty = rect(&g, &format!("entity/zombie_villager/{folder}/{}", variant.unwrap_or("plains"))).unwrap();
                 assert!(model.iter().all(|v| inside(v, base)) && layer.iter().all(|v| inside(v, ty)), "{kind} {variant:?}: its base, then its type");
             }
@@ -1638,6 +1683,23 @@ mod tests {
             assert!((hi[0] - lo[0] - outer * 0.999).abs() < 0.001 && lo[1] > 0.0 && lo[1] < 0.025, "{kind}: {lo:?}..{hi:?}");
             assert!(ilo[0] > lo[0] && ilo[1] > lo[1] && ihi[1] < hi[1], "{kind}: the inner body inside the outer");
         }
+    }
+
+    /// A wandering trader is the villagers' model (`WANDERING_TRADER`: `villagerBodyLayer`) with
+    /// its own texture, and an invisible one (after its night's potion: redsim's `invisible`) is
+    /// not drawn at all.
+    #[test]
+    fn a_wandering_trader_is_a_villager_and_hides() {
+        let g = browser_game();
+        let d = crate::mesh::MobDraw::default();
+        let trader = mob_triangles(&g, "minecraft:wandering_trader", [0.0; 3], &d).unwrap();
+        let villager = mob_triangles(&g, "minecraft:villager", [0.0; 3], &d).unwrap();
+        assert_eq!(trader.len(), villager.len());
+        assert!(trader.iter().zip(&villager).all(|(a, b)| a.pos == b.pos), "the villager's geometry");
+        let r = rect(&g, "entity/wandering_trader/wandering_trader").unwrap();
+        assert!(trader.iter().all(|v| v.uv[0] * g.width as f32 >= r[0] as f32 && v.uv[0] * g.width as f32 <= (r[0] + r[2]) as f32), "its own texture");
+        let hidden = crate::mesh::MobDraw { invisible: true, ..d };
+        assert!(mob_triangles(&g, "minecraft:wandering_trader", [0.0; 3], &hidden).unwrap().is_empty());
     }
 
     /// The browser's game texture (the blocks, the items, the entities, the particles: as
@@ -1686,6 +1748,9 @@ mod tests {
             // its wool's head (grown 0.6) over the model
             ("minecraft:sheep", 0.0, 22.6 / 16.0),
             ("minecraft:baby_zombie", 0.0, 15.15 / 16.0),
+            // its decor (`LLAMA_DECOR`, grown 0.5) over the model: half a pixel under its hooves
+            // and over its ears (the ears' tops 12 px over the 24 px of its legs and body)
+            ("minecraft:trader_llama", -0.5 / 16.0, 36.5 / 16.0),
         ] {
             let tris = mob_triangles(&g, kind, [0.0; 3], &d).unwrap_or_else(|| panic!("{kind}: no model"));
             let (lo, hi) = bounds(&tris);

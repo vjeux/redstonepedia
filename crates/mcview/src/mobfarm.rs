@@ -747,6 +747,8 @@ pub fn draw_mob(w: &World, v: &redsim::entity::mob::view::MobView, partial: f32,
         _ => None,
     };
     let alive = !v.dead && m.health > 0.0;
+    // a wandering trader's or a trader llama's own state (redsim's `TraderState`)
+    let trader = m.ai.as_ref().and_then(|a| a.trader.as_ref());
     crate::mesh::MobDraw {
         body_yaw: body,
         head_yaw: head,
@@ -766,7 +768,9 @@ pub fn draw_mob(w: &World, v: &redsim::entity::mob::view::MobView, partial: f32,
         held: m.mainhand.as_ref().map(|h| h.item.clone()),
         armor: std::array::from_fn(|s| (s < m.armor.pieces as usize && (s != 0 || m.helmet.is_some())).then_some(m.armor.material)),
         left_handed: m.left_handed,
-        variant: m.variant,
+        // a trader llama's `Llama.Variant` (CREAMY, WHITE, BROWN, GRAY: its spawn roll's order)
+        variant: m.variant.or_else(|| trader.filter(|t| t.llama).map(|t| ["creamy", "white", "brown", "gray"][t.variant.clamp(0, 3) as usize])),
+        invisible: trader.is_some_and(|t| t.invisible),
         aggressive: m.ai.as_ref().is_some_and(|a| a.aggressive),
         color: m.color,
         resting: m.bat_resting,

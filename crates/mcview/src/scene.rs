@@ -2002,6 +2002,69 @@ mod tests {
         }
     }
 
+    /// A wandering trader with its two trader llamas leashed to it, as redsim's
+    /// `WanderingTraderSpawner` makes them (`spawn_trader`, `spawn_llama`, `leash::attach_mob`):
+    /// no design's data can say a lead.
+    fn trader_scene(s: &mut Session) {
+        use redsim::entity::mob::ai::goal::trader::{spawn_llama, spawn_trader};
+        // (the mobs' AI on: a trader's and a llama's state live in it)
+        s.world.mob.ai.on = true;
+        let t = spawn_trader(&mut s.world, redsim::BlockPos::new(4, 1, 2)).expect("a trader");
+        for p in [redsim::BlockPos::new(1, 1, 4), redsim::BlockPos::new(6, 1, 4)] {
+            let l = spawn_llama(&mut s.world, p).expect("a llama");
+            redsim::entity::leash::attach_mob(&mut s.world, l, t);
+        }
+    }
+
+    const TRADER_GROUND: &str = "name: trader\npalette:\n  G minecraft:grass_block[snowy=false]\nlayer 0:\n  GGGGGGGG\n  GGGGGGGG\n  GGGGGGGG\n  GGGGGGGG\n  GGGGGGGG\n  GGGGGGGG\n";
+
+    /// A wandering trader leads its two trader llamas: each llama's lead runs from its attach
+    /// point (`Llama.getLeashOffset`: 0.75 of its eye height 1.7765 up, half its width 0.9 ahead,
+    /// turned by its body) to the trader's rope hold (`AbstractVillager.getRopeHoldPosition`: its
+    /// height 1.95 less one up, 0.2 ahead), and the mesh has the lead's brown and its every
+    /// other step's darker brown (`LeashFeatureRenderer`).
+    #[test]
+    fn a_trader_leads_its_llamas() {
+        let mut s = Session::new(TRADER_GROUND, &Options::default()).unwrap();
+        trader_scene(&mut s);
+        let e = s.entities(0.0);
+        let trader = e.iter().find(|d| d.kind.ends_with("wandering_trader")).expect("the trader");
+        let llamas: Vec<_> = e.iter().filter(|d| d.kind.ends_with("trader_llama")).collect();
+        assert_eq!(llamas.len(), 2);
+        let flat = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+        for d in &llamas {
+            let l = d.leash.as_ref().expect("its lead");
+            assert!((l.start[1] - d.pos[1] - 0.75 * 1.7765).abs() < 1e-3 && (flat(l.start, d.pos) - 0.45).abs() < 1e-3, "at the llama: {l:?} over {:?}", d.pos);
+            assert!((l.end[1] - trader.pos[1] - 0.95).abs() < 1e-3 && (flat(l.end, trader.pos) - 0.2).abs() < 1e-3, "at the trader: {l:?} over {:?}", trader.pos);
+        }
+        let m = build(&crate::atlas::Atlas::build(), &s, 0.0, &viewer_look(&s));
+        let shade = |c: [u8; 3]| m.solid.iter().filter(|v| v.color[..3] == c).count();
+        assert!(shade([127, 102, 76]) > 0 && shade([89, 71, 53]) > 0, "the lead's brown and its darker steps");
+    }
+
+    /// The trader scene drawn with the game's textures, to look at: `cargo test -p mcview
+    /// trader_scene_png -- --ignored` writes `/tmp/trader-scene.png`.
+    #[test]
+    #[ignore]
+    fn trader_scene_png() {
+        let mut atlas = crate::atlas::Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, w, h) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, w, h, &idx, &defs, &models).unwrap();
+        let ((ep, ei), (ip, ii)) = crate::tools::vanilla_entity_assets().unwrap();
+        let (er, ew, eh) = crate::tools::decode_png(&ep).unwrap();
+        let (ir, iw, ih) = crate::tools::decode_png(&ip).unwrap();
+        atlas.add_game_entities((&er, ew, eh, &ei), (&ir, iw, ih, &ii)).unwrap();
+        let mut off = crate::render::headless::Offscreen::new(&atlas).unwrap();
+        for (name, yaw) in [("trader-scene", 200.0), ("trader-scene-back", 20.0)] {
+            let o = crate::tools::ShotOptions { width: 1000, height: 600, yaw: Some(yaw), pitch: Some(25.0), live: true, ..Default::default() };
+            let (rgba, note) = crate::tools::shot_prepared(&mut off, &atlas, TRADER_GROUND, &o, &mut |s| trader_scene(s)).unwrap();
+            crate::render::headless::write_png(std::path::Path::new(&format!("/tmp/{name}.png")), 1000, 600, &rgba).unwrap();
+            eprintln!("{name}: {note}");
+        }
+    }
+
     #[test]
     fn a_mob_is_lit_at_its_eye() {
         let text = "name: lit-mobs\npalette:\n  S minecraft:stone\n  G minecraft:grass_block[snowy=false]\n\

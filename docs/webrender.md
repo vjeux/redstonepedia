@@ -656,8 +656,9 @@ each build's page.
   `scene::still_equipment`); one redsim refuses to place (only a main hand's item is modeled in
   a design's data) is drawn as placed in a still (`Session::unspawned`: the page's first
   picture had dropped it; test `a_still_draws_the_mobs_redsim_refuses`). Their textures took the game texture past WebGL2's 2048: a shelf
-  of entity textures that starts below the item atlas now starts at the left edge (1984 tall
-  with the zombie villagers' and the sulfur cube's; test `the_game_texture_fits_webgl2`). Tests
+  of entity textures that starts below the item atlas now starts at the left edge, and the
+  texture is twice the block atlas wide (2048 x 1488: the entity textures shelved beside the
+  block atlas first; test `the_game_texture_fits_webgl2`). Tests
   `a_humanoid_wears_its_armor_and_holds_its_item`, `a_design_mob_wears_its_equipment`. A
   left-handed mob (redsim's `left_handed`, the spawn roll's 5%; a design's `LeftHanded:1b`) holds
   its item in its left hand: the left arm, the hand's offset the other way, its model's
@@ -676,12 +677,22 @@ each build's page.
   inner body inside its outer (`SulfurCubeInnerLayer`, `SulfurCubeModel`; a baby's
   `SmallSulfurCubeModel`; `entityTranslucent`: quads sorted with the frame's other translucent
   faces, `entitymodel::mob_translucent`), sized and lifted by `SulfurCubeRenderer.scale` (test
-  `a_sulfur_cube_is_two_translucent_cubes`). Not
+  `a_sulfur_cube_is_two_translucent_cubes`). The wandering trader and its trader llamas
+  (2026-11-11; no terrain farm's run has one: `web kinds` over the 15) draw as
+  `WanderingTraderRenderer` (the villagers' model, its own texture; nothing while it is invisible
+  after its night's potion: redsim's `invisible`) and `LlamaRenderer` (`LlamaModel`, its
+  variant's texture from redsim's roll, the trader decor: `LlamaDecorLayer`'s `trader_llama`
+  asset on the model grown 0.5) do, each llama's lead (`LeashFeatureRenderer`: 24 steps of a
+  slack curve, two crossed brown ribbons, every other step darker, lit from end to end) from its
+  attach point to the trader's rope hold (`Session::leash_draw`). Tests
+  `a_trader_leads_its_llamas`, `a_wandering_trader_is_a_villager_and_hides`; `trader_scene_png`
+  (ignored) draws the scene (redsim's spawns: no design's data can say a lead). Not
   drawn yet: a baby's armor (`humanoid_baby`), an enchanted item's or piece's glint, a drawn
   bow's pull, the witch's potion, a zombie villager's profession (redsim keeps none), the farm
   animals' warm and cold variants (every terrain site is temperate), a cube mob's squish (redsim
-  keeps none), a sulfur cube's swallowed block (redsim refuses one) and the red overlay on
-  translucent faces (the translucent pass draws none). Lava is drawn as the game draws it: its
+  keeps none), a sulfur cube's swallowed block (redsim refuses one), the red overlay on
+  translucent faces (the translucent pass draws none), the trader's potion or milk while it
+  drinks (`CrossedArmsItemLayer`), a boat's lead, the cat (redsim keeps no variant). Lava is drawn as the game draws it: its
   `lava_still` texture, solid, lit by its own light 15 (it was water tinted orange). The time
   badge is the readout (`mobfarm::readout`): the game's day and clock, the golems so far and the
   iron in the farm's chests (`day 1, 13:23 · 2 golems, 9 iron`, two lines on a phone); the left
