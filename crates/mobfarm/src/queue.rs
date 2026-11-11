@@ -1587,6 +1587,36 @@ pub fn summon_align_wait(time: i64, k: i64) -> i64 {
     (-(time + k + 1)).rem_euclid(100)
 }
 
+/// Whether (`x`, `z`) lies in a chunk of the farm that isn't ticking entities: inside the
+/// design's box (`farm`: x0, z0, x1, z1, the world box) and frozen (a partial unload, or outside
+/// the entity-ticking box). The runner's parking lots outside the design's box stand for another
+/// part of the farm and aren't checked.
+pub fn frozen_farm_chunk(w: &redsim::world::World, farm: [i32; 4], x: f64, z: f64) -> bool {
+    let inside = x >= farm[0] as f64 && x < farm[2] as f64 + 1.0 && z >= farm[1] as f64 && z < farm[3] as f64 + 1.0;
+    inside && !w.entity_ticks_at(x, z)
+}
+
+/// (ironspec Nov 11 15:09, a runner default) An emulated neighbour's entity move: entity `i` set
+/// at `p` for something the file doesn't build (a lab place act, a reset, the startup batch, a
+/// side drop, a held cart, and any virtual neighbour: a virtual B's park and return, an emulated
+/// head or stand-in). Moving an entity out of or into a farm chunk that isn't ticking entities is
+/// a problem that fails the run: no real neighbour acts in a frozen chunk, whose entities stand
+/// still (a virtual B's timed return into a frozen stand chunk merged carts that way, 9fc3155f Nov
+/// 11). Emulated redstone stays allowed (level 32 runs redstone). The move is made either way;
+/// the problem, if any, is returned for the run's list.
+pub fn emulated_move(w: &mut redsim::world::World, farm: [i32; 4], i: usize, p: redsim::entity::Vec3, what: &str) -> Option<String> {
+    let from = w.entities.list[i].pos;
+    let side = if frozen_farm_chunk(w, farm, from.x, from.z) {
+        Some("out of")
+    } else if frozen_farm_chunk(w, farm, p.x, p.z) {
+        Some("into")
+    } else {
+        None
+    };
+    w.entities.set_pos(i, p);
+    side.map(|s| format!("an emulated neighbour ({what}) moved e{} {s} a farm chunk that isn't ticking entities at t {}: {:.2} {:.2} {:.2} to {:.2} {:.2} {:.2}", w.entities.list[i].id, w.time, from.x, from.y, from.z, p.x, p.y, p.z))
+}
+
 /// The signals a loop bench run emulates instead of the wired controller, each named validated or
 /// not (ironspec Nov 11 07:32: every emulated signal trace-diffed against the wired file, and a run
 /// on an unvalidated one labelled "bench, not yet validated"). Validated so far, at main's 20-gt
@@ -5455,6 +5485,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         ));
     }
     let mut problems = Vec::new();
+    // (every emulated neighbour's entity move is checked against the frozen chunks of the farm)
+    let farm_xz = [spec.lo.x, spec.lo.z, spec.hi.x, spec.hi.z];
     // (the static checks run once before the bench: each line, a failing one a problem)
     for (line, fails) in &hdr.static_checks {
         out.push(line.clone());
@@ -5542,11 +5574,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         k
                     };
                     if let Some(i) = carts.get(k).and_then(|id| redsim::entity::index_of(&run.world, *id)) {
-                        run.world.entities.set_pos(i, p);
+                        if let Some(b) = emulated_move(&mut run.world, farm_xz, i, p, "a place act") {
+                            problems.push(b);
+                        }
                         run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(vx, 0.0, vz);
                         for r in run.world.entities.list[i].passengers.clone() {
                             if let Some(j) = redsim::entity::index_of(&run.world, r) {
-                                run.world.entities.set_pos(j, p);
+                                if let Some(b) = emulated_move(&mut run.world, farm_xz, j, p, "a place act's rider") {
+                                    problems.push(b);
+                                }
                                 run.world.entities.list[j].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
                             }
                         }
@@ -5789,13 +5825,17 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             for ((_, id), p) in others.iter().zip(spots.iter()) {
                 let p = *p;
                 if let Some(i) = redsim::entity::index_of(&run.world, *id) {
-                    run.world.entities.set_pos(i, p);
+                    if let Some(b) = emulated_move(&mut run.world, farm_xz, i, p, "a reset") {
+                        problems.push(b);
+                    }
                     run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
                     // (its rider too: left behind for a tick, a rider overlaps whatever cart now
                     // sits where it was and pushes it)
                     for r in run.world.entities.list[i].passengers.clone() {
                         if let Some(j) = redsim::entity::index_of(&run.world, r) {
-                            run.world.entities.set_pos(j, p);
+                            if let Some(b) = emulated_move(&mut run.world, farm_xz, j, p, "a reset's rider") {
+                                problems.push(b);
+                            }
                             run.world.entities.list[j].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
                         }
                     }
@@ -6007,7 +6047,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 let off = 0.32;
                 let p = redsim::entity::Vec3::new(cell[0] as f64 + 0.5 + d[0] as f64 * (off - 0.5), cell[1] as f64 + 1.0 - off + 0.05, cell[2] as f64 + 0.5 + d[1] as f64 * (off - 0.5));
                 if let Some(i) = redsim::entity::index_of(&run.world, *id) {
-                    run.world.entities.set_pos(i, p);
+                    if let Some(b) = emulated_move(&mut run.world, farm_xz, i, p, "the startup batch") {
+                        problems.push(b);
+                    }
                     run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
                 }
                 drive.borrow_mut().push(format!("act {} tp e{} {:.3} {:.3} {:.3}", run.world.time - t_origin, carts.iter().position(|c| c == id).unwrap_or(0), p.x, p.y, p.z));
@@ -6030,7 +6072,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         let stone = Block::parse("minecraft:stone").map_err(|e| e.to_string())?;
                         run.world.set_block(BlockPos::new(70, -1, 70), stone, redsim::world::flags::ALL);
                         if let Some(i) = redsim::entity::index_of(&run.world, id) {
-                            run.world.entities.set_pos(i, redsim::entity::Vec3::new(70.5, 0.0, 70.5));
+                            if let Some(b) = emulated_move(&mut run.world, farm_xz, i, redsim::entity::Vec3::new(70.5, 0.0, 70.5), "a side drop's park") {
+                                problems.push(b);
+                            }
                             run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
                         }
                     }
@@ -6046,7 +6090,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // its middle cell, or on the upper rail's west cell when staged)
                 let p = if sd.staged { redsim::entity::Vec3::new(cell[0] as f64 - 2.5, cell[1] as f64 + 2.0625, cell[2] as f64 + 0.5) } else { redsim::entity::Vec3::new(cell[0] as f64 - 1.5, cell[1] as f64 + 1.0625, cell[2] as f64 + 0.5) };
                 if let Some(i) = redsim::entity::index_of(&run.world, id) {
-                    run.world.entities.set_pos(i, p);
+                    if let Some(b) = emulated_move(&mut run.world, farm_xz, i, p, "a side drop") {
+                        problems.push(b);
+                    }
                     run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(v, 0.0, 0.0);
                 }
             }
@@ -6847,7 +6893,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if let Some((id, p, until)) = held_back {
                 if t < until {
                     if let Some(i) = redsim::entity::index_of(&run.world, id) {
-                        run.world.entities.set_pos(i, p);
+                        if let Some(b) = emulated_move(&mut run.world, farm_xz, i, p, "a held-back cart") {
+                            problems.push(b);
+                        }
                         run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
                     }
                 } else {
@@ -8701,6 +8749,36 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the frame beside the verdict too, ironspec Nov 11 11:59)
     out.push(summon_frame_label(tm.summon_at));
     Ok(format!("{}\n{} problems{}", out.join("\n"), problems.len(), if problems.is_empty() { String::new() } else { format!(":\n  {}", problems.iter().take(if verbose { 2000 } else { 20 }).cloned().collect::<Vec<_>>().join("\n  ")) }))
+}
+
+#[cfg(test)]
+mod emulated_move_tests {
+    use super::*;
+
+    /// (ironspec Nov 11 15:09) An emulated neighbour's move into or out of a farm chunk that isn't
+    /// ticking entities is refused (the move made, the problem returned); within ticking chunks, or
+    /// to a parking lot outside the design's box, it passes.
+    #[test]
+    fn a_move_into_or_out_of_a_frozen_farm_chunk_is_a_problem() {
+        let mut w = redsim::world::World::new(BlockPos::new(-16, 0, -16), [64, 32, 64]);
+        let id = redsim::entity::spawn(&mut w, "minecraft:minecart", [8.5, 1.0, 8.5], None).unwrap();
+        let i = redsim::entity::index_of(&w, id).unwrap();
+        let farm = [-16, -16, 47, 47];
+        // every chunk ticking: no problem
+        assert!(emulated_move(&mut w, farm, i, redsim::entity::Vec3::new(24.5, 1.0, 8.5), "a test").is_none());
+        // only chunk (0, 0) ticks entities: back into it passes, into chunk (1, 0) fails
+        w.entity_chunks = Some([0, 0, 0, 0]);
+        let back = emulated_move(&mut w, farm, i, redsim::entity::Vec3::new(8.5, 1.0, 8.5), "a test");
+        assert!(back.as_deref().is_some_and(|b| b.contains("out of")), "{back:?}");
+        assert!(emulated_move(&mut w, farm, i, redsim::entity::Vec3::new(9.5, 1.0, 9.5), "a test").is_none());
+        let into = emulated_move(&mut w, farm, i, redsim::entity::Vec3::new(24.5, 1.0, 8.5), "a test");
+        assert!(into.as_deref().is_some_and(|b| b.contains("into") && b.contains("a test")), "{into:?}");
+        // a parking lot outside the design's box is not checked
+        let small = [-16, -16, 15, 15];
+        w.entities.set_pos(i, redsim::entity::Vec3::new(8.5, 1.0, 8.5));
+        assert!(emulated_move(&mut w, small, i, redsim::entity::Vec3::new(24.5, 1.0, 8.5), "a test").is_none());
+        assert!(emulated_move(&mut w, small, i, redsim::entity::Vec3::new(8.5, 1.0, 8.5), "a test").is_none());
+    }
 }
 
 #[cfg(test)]

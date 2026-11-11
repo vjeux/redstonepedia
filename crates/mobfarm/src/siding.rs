@@ -1203,9 +1203,16 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let index_of = |w: &World, id: u32| w.entities.list.iter().position(|e| e.id == id && !e.removed);
     let mut rng = redsim::rng::LegacyRandom::new(bo.seed ^ 0x7369_6469);
     let set = |w: &mut World, p: BlockPos, st: &str| w.set_block(p, block(st), redsim::world::flags::ALL);
+    // (ironspec Nov 11 15:09, a runner default: an emulated visit's move into or out of a farm
+    // chunk that isn't ticking entities is an error, which fails the run; `queue::emulated_move`)
+    let farm_xz = [spec.lo.x, spec.lo.z, spec.hi.x, spec.hi.z];
     let teleport = |w: &mut World, cart: u32, pos: Vec3, vel: Vec3| {
         let Some(i) = w.entities.list.iter().position(|e| e.id == cart && !e.removed) else { return };
-        w.entities.set_pos(i, pos);
+        if let Some(b) = crate::queue::emulated_move(w, farm_xz, i, pos, "a siding visit")
+            && !w.errors.contains(&b)
+        {
+            w.errors.push(b);
+        }
         w.entities.list[i].delta_movement = vel;
         let ps = w.entities.list[i].passengers.clone();
         for pid in ps {
