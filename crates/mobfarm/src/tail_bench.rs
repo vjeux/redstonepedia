@@ -220,6 +220,11 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     let mut adm_next_b: Option<i64> = None;
     let mut adm_count = 0usize;
     let mut adm_missed = 0usize;
+    let mut adm_missed2 = 0usize;
+    let mut adm_front: Option<u32> = None;
+    let mut adm_front_far = 0.0f64;
+    let mut adm_fol_near = f64::MAX;
+    let mut adm_fol_fast = 0.0f64;
     let mut adm_double = 0usize;
     let mut adm_follow_g0 = f64::MAX;
     let mut adm_ready: bool = false;
@@ -418,6 +423,21 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
                 // (a cart ready at G0: its front face at G0's near face)
                 adm_ready = g0.is_some_and(|g| carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| p.x > fx - 0.5 && p.x < fx + 1.5 && (p.z + 0.49 - (g.z as f64 + 0.375)).abs() < 0.03)));
                 adm_ready_t = t;
+                // (the queue's front and its follower when G0 opens: the front's distance to G0's
+                // near face, the follower's distance and speed; the race a long pulse loses)
+                if let Some(g) = g0 {
+                    let near = g.z as f64 + 0.375;
+                    let mut q: Vec<(f64, f64, u32)> = carts.iter().filter_map(|id| run.world.entities.list.iter().find(|e| e.id == *id && !e.removed)).filter(|e| e.pos.x > fx - 0.5 && e.pos.x < fx + 1.5 && e.pos.z > z_entry && e.pos.z + 0.49 <= near + 0.02).map(|e| (e.pos.z, e.delta_movement.horizontal_distance(), e.id)).collect();
+                    q.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                    adm_front = q.first().map(|f| f.2);
+                    if let Some(f) = q.first() {
+                        adm_front_far = adm_front_far.max(near - (f.0 + 0.49));
+                    }
+                    if let Some(f) = q.get(1) {
+                        adm_fol_near = adm_fol_near.min(near - (f.0 + 0.49));
+                        adm_fol_fast = adm_fol_fast.max(f.1);
+                    }
+                }
                 // (the next gate opening: the admitted cart must be at rest on P before it; a
                 // negative DELAY loads P for this advance's own gate)
                 let next_g = if tm.esc_adm.0 < 0 { c * 100 + a + d } else if k < 2 { c * 100 + adv(k + 1) + d } else { (c + 1) * 100 + adv(0) + d };
@@ -477,6 +497,14 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
                     }
                     if adm_ready && inside == 0 && t - adm_ready_t <= tm.esc_adm.1 + 1 {
                         adm_missed += 1;
+                    }
+                    // (the widened count: the front cart at G0's opening, wherever it was, not
+                    // admitted in the window, with P empty to take it)
+                    if let Some(fid) = adm_front.take()
+                        && pos_of(&run.world, fid).is_some_and(|p| p.z + 0.49 <= near + 1.0e-4)
+                        && !carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| on_cell(&p, p_cell)))
+                    {
+                        adm_missed2 += 1;
                     }
                 }
             }
@@ -777,7 +805,7 @@ pub fn run_tail_bench(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, pattern: &
     s += &format!("{}\n", merges.line());
     if adm_a1.is_some() {
         let f = |v: f64| if v == f64::MAX { "-".to_string() } else { format!("{v:.3}") };
-        s += &format!("admission (G0): missed {adm_missed} (a cart at G0 when it opened, none onto P after); doubles at G0's shut {adm_double}; the follower's front face at least {} short of G0's box when it shut; at G_P's shut, a cart already inside G_P's box behind the launched one {gp_run}; P's rest spread {:.3}..{:.3}, launch into slot 0 at {:.3}..{:.3} b/t\n", f(adm_follow_g0), if p_rest_lo == f64::MAX { f64::NAN } else { p_rest_lo }, if p_rest_hi == f64::MIN { f64::NAN } else { p_rest_hi }, if launch_lo == f64::MAX { f64::NAN } else { launch_lo }, if launch_hi == f64::MIN { f64::NAN } else { launch_hi });
+        s += &format!("admission (G0): missed {adm_missed} (a cart at G0 when it opened, none onto P after); front missed {adm_missed2} (the front cart at the opening, wherever it was, not admitted with P empty); the front at most {adm_front_far:.3} short of G0 at an opening; the follower at least {} short and at most {adm_fol_fast:.3} b/t at an opening; doubles at G0's shut {adm_double}; the follower's front face at least {} short of G0's box when it shut; at G_P's shut, a cart already inside G_P's box behind the launched one {gp_run}; P's rest spread {:.3}..{:.3}, launch into slot 0 at {:.3}..{:.3} b/t\n", f(adm_fol_near), f(adm_follow_g0), if p_rest_lo == f64::MAX { f64::NAN } else { p_rest_lo }, if p_rest_hi == f64::MIN { f64::NAN } else { p_rest_hi }, if launch_lo == f64::MAX { f64::NAN } else { launch_lo }, if launch_hi == f64::MIN { f64::NAN } else { launch_hi });
     }
     if adm_a1.is_some() {
         let f = |v: i64| if v == i64::MAX { "none".to_string() } else { v.to_string() };

@@ -31,6 +31,8 @@ pub struct DropCase {
     pub after: i64,
     /// The dropped cart's path for 60 gt in the report.
     pub trace: bool,
+    /// The ledge's last rail a powered rail kept on (the floor booster).
+    pub boost: bool,
 }
 
 /// Runs one drop case; the report's lines, the last one a one-line verdict.
@@ -99,6 +101,15 @@ pub fn run_slot_drop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, d: &DropCas
         let rail = Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").map_err(|e| e.to_string())?;
         run.world.set_block(*c, rail, redsim::world::flags::ALL);
     }
+    // (`boost`: the ledge's last rail a powered rail kept on by a redstone block under it, the floor
+    // that sends any moving cart off the edge at a stated speed)
+    if d.boost {
+        let c = ledge[0];
+        run.world.set_block(BlockPos::new(c.x, c.y - 1, c.z), on.clone(), redsim::world::flags::ALL);
+        let rail = Block::parse("minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]").map_err(|e| e.to_string())?;
+        run.world.set_block(c, rail, redsim::world::flags::ALL);
+    }
+    let mut edge_speed: Option<f64> = None;
     let adv = |k: i64| tm.advance_at + k * tm.advance_every;
     let t_drop = d.cycle * 100 + d.dt;
     let mut dropped: Option<u32> = None;
@@ -222,6 +233,10 @@ pub fn run_slot_drop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, d: &DropCas
             && let Some(e) = run.world.entities.list.iter().find(|e| e.id == id && !e.removed)
         {
             let p = e.pos;
+            // (the speed off the ledge: as the cart's centre passes the ledge's east end)
+            if edge_speed.is_none() && p.x >= s[0] as f64 && p.y > ly as f64 - 0.2 {
+                edge_speed = Some(e.delta_movement.horizontal_distance());
+            }
             if t - t_drop <= 60 && trace_lines.len() < 60 && (t - t_drop) % 2 == 0 {
                 trace_lines.push(format!("+{} {:.2},{:.2},{:.2} v{:.3}", t - t_drop, p.x, p.y, p.z, e.delta_movement.horizontal_distance()));
             }
@@ -248,6 +263,7 @@ pub fn run_slot_drop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, d: &DropCas
         next - t
     });
     lines.push(format!("slot drop: slot {} (cell {},{},{}), ledge {} above, {:.2} b/t east, start at cycle {} +{}, {}", d.slot, s[0], s[1], s[2], d.h, d.v, d.cycle, d.dt, if d.occupied { "the slot's own cart left in place" } else { "the slot emptied first" }));
+    lines.push(format!("speed off the ledge: {}", edge_speed.map_or("-".to_string(), |v| format!("{v:.3} b/t"))));
     lines.push(format!("landed: {}", landed.map_or("never".to_string(), |(dt, p)| format!("{dt} gt after the start at {:.2},{:.2},{:.2}", p.x, p.y, p.z))));
     lines.push(format!("at rest in a slot: {}", rest_at.map_or("never".to_string(), |(t, p)| format!("slot {} at {:.2},{:.2},{:.2}, {} gt before the next advance", slot_of(&p).map_or("-".to_string(), |k| k.to_string()), p.x, p.y, p.z, rest_margin.unwrap_or(-1)))));
     lines.push(format!("the dropped cart's slot at each advance: {}", slot_path.join(" ")));

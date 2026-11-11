@@ -663,6 +663,9 @@ pub enum MobfarmCmd {
         /// The dropped cart's path for 60 gt in the report.
         #[arg(long)]
         trace: bool,
+        /// The ledge's last rail a powered rail kept on (the floor booster).
+        #[arg(long)]
+        boost: bool,
     },
     /// The re-packing tail's arrival injector: a `queue-loop --tail-esc` design's tail benched
     /// alone, ridden carts spawned on the return run per `--pattern` (per cycle
@@ -2128,11 +2131,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let _ = std::fs::remove_file(&path);
             }
         }
-        MobfarmCmd::SlotDrop { design, slot, h, v, dt, occupied, after, seed, seeds, advance_at, advance_every, pulse, trace } => {
+        MobfarmCmd::SlotDrop { design, slot, h, v, dt, occupied, after, seed, seeds, advance_at, advance_every, pulse, trace, boost } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let tm = crate::queue::LoopTiming { advance_at, advance_every, pulse, ..Default::default() };
-            let case = crate::slot_drop::DropCase { slot, h, v, cycle: 1, dt, occupied, after, trace };
+            let case = crate::slot_drop::DropCase { slot, h, v, cycle: 1, dt, occupied, after, trace, boost };
             match seeds {
                 None => println!("{}", crate::slot_drop::run_slot_drop(&spec, &o, &tm, &case, seed).map_err(|e| anyhow::anyhow!(e))?),
                 Some(n) => {
@@ -2228,7 +2231,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                         String::new()
                                     } else {
                                         let grab = |pre: &str| a.split(pre).nth(1).and_then(|t| t.split(|c: char| c == ' ' || c == ';' || c == '(').next()).unwrap_or("?").to_string();
-                                        format!(" | adm-missed {} adm-doubles {} follow {} gp-run {}", grab("missed "), grab("doubles at G0's shut "), grab("front face at least "), grab("behind the launched one "))
+                                        format!(" | adm-missed {} front-missed {} front-far {} fol-near {} fol-fast {} adm-doubles {} follow {} gp-run {}", grab("missed "), grab("front missed "), grab("the front at most "), grab("the follower at least "), grab("short and at most "), grab("doubles at G0's shut "), grab("front face at least "), grab("behind the launched one "))
                                     }
                                 });
                             }
