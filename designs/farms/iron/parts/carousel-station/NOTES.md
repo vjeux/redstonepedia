@@ -424,6 +424,34 @@ before the z 9|10 line: next section.
   - gravity places (tick-exact's rollback rule: an unpowered powered rail holds a cart): every cell
     the approach rolls a cart by gravity is a plain rail (the falling face, the dip, T, the descent,
     the snap turn); every booster on the run and the climb is powered=true over a redstone block.
+- **h0, the one S3 file's approach (ironspec Nov 11 ~15:00, against hump 5).** `queue-loop ...
+  --approach 5 --approach-climb-boost --boost-first 3 --dip-run --top-flat N`: the hump's path with
+  no hump: the run's flat boosters, N plain flat cells at y 1 (S's), one slope up to the dip at y 2
+  across z 9|10, the boosted climb, T (-3,6,4). S (-3,1,12) on plain flat, DP's plain cell
+  (-3,1,14) (7b90c3f1's cross-track tripwire at y 2, anchors x -6 and -1).
+  - On cc767b78's head model (s2 266738512e: (i) the D_arr gate, (ii) the liveness-gated stale
+    clear, RETRY on D_arr, day-1's one-shot L_X; `--dep-x 14 --go-lead 2`) with ironfarm's validated
+    set (release start 4, stagger 4, offs 42,48,44, advance 32/24, pulse 10, pocket release 14,
+    `MCTAS_METER_G2_DELAY=4`, meter 12,12,0,0,10,0,40,-1,1,12,0,0,1): A's summon margin over S3's 27
+    corners 40..48 gt at h0 against 26..34 at hump 5 (day-1's S count 1 lower); router S flipped
+    1,260 times on each with no cart in its cell, ridden or empty (`--s-cell`); an empty cart
+    crosses S at stored >= 0.51 on h0, 0.05..0.45 over hump 5's top (riderless rows: hump 5 never
+    self-clear in 7-12 of 27 corners, h0 in 0-5).
+  - The head at z 22 (`--top-flat 5`, `wip/approach-c-dip-run-h0-z22.txt`): at z 20 (`--top-flat
+    3`) the chunk line z 25|26 fell inside a register slot (a plain slope | a powered slot) and a
+    200 gt freeze of chunk (0,1) stacked carts there (4 merges, 2 back over T, seed 1); at 19 or 22
+    the line falls between a powered slot and a flat peak (0 merges there). A 38 gt (seed 1).
+  - `mctas mobfarm borders <design>`: no head z puts plain unpowered cells on both sides of z
+    25|26 (the register is all peaks and slopes); the tail's crossings, approach 5's dip line (the
+    climb 1 cell past z 9|10; C'' passes, its climb 2 past) and A's departure crossing fail the rule
+    as written on every file. ironspec's call: the gate route (day-1's liveness gate, freeze rows at
+    every phase) or geometry.
+  - Bench artifacts found and fixed (all emulated entity moves into chunks not ticking entities,
+    farmopt's `queue::emulated_move` rule): the head model's EMP_X re-arm read the occupancy snapshot
+    of the last REL (a DEP_X crossing after the stand's SE held A: hump 5's 3 of 6 golems); virtual
+    B returned its parked carts into a frozen crest, or behind A's batch stalled at a frozen border
+    (every "freeze 200 stand" merge at the crest); the perfect-tail reset placed carts in a frozen
+    chunk (merges at the thaw). Left, real: a post-thaw merge on A's descent into H (H's 0.2 bar).
 
 ## Declared states and flights (the brief's "No derails", Nov 11)
 
