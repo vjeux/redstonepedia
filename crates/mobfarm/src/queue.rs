@@ -1583,9 +1583,9 @@ impl TailWatch {
             };
             let gaps: Vec<f64> = ci.windows(2).map(|p| p[1].0 - p[0].0).filter(|g| *g < 60.0).collect();
             out.push(format!(
-                "take-off speeds: stored ridden {}, empty {}; visible {}; gaps under 60 gt: {} (the least {}), under 9 gt: {}, in 4-6.75: {}",
+                "take-off speeds: stored ridden {}, empty {}; visible {}; gaps under 60 gt: {} (the least {:.2}), under 9 gt: {}, under 11 gt: {}, in 4-6.75: {}",
                 rng(&|x| x.4, &|x| x.2), rng(&|x| !x.4, &|x| x.2), rng(&|_| true, &|x| x.3), gaps.len(),
-                gaps.iter().cloned().fold(f64::INFINITY, f64::min), gaps.iter().filter(|g| **g < 9.0).count(), gaps.iter().filter(|g| **g >= 3.875 && **g < 6.875).count()
+                gaps.iter().cloned().fold(f64::INFINITY, f64::min), gaps.iter().filter(|g| **g < 9.0).count(), gaps.iter().filter(|g| **g < 11.0).count(), gaps.iter().filter(|g| **g >= 3.875 && **g < 6.875).count()
             ));
         }
         out
@@ -4085,9 +4085,6 @@ pub struct LoopTiming {
     pub g2_tripwire: bool,
     /// With `stand_hold`: the hold passes at most one cart per N gt (`--stand-meter N`, S1t).
     pub stand_meter: i64,
-    /// Print the arrival stream (`arrival c<C> +<DT> x<X> v<V>`: each cart crossing x 8.5
-    /// westward on the escapement tail's return run), for tail-bench `--arrivals`.
-    pub arrivals: bool,
     /// The shared bed's head block (loop frame): the riders' closest approach to it is printed.
     pub bed_at: Option<[i32; 3]>,
     /// Slots C0..=C1: every cart on the approach printed each tick (farmopt's approach lab); with
@@ -4101,6 +4098,10 @@ pub struct LoopTiming {
     /// The "train arrived since launch" latch: (K, the arrival cell); the head launches only
     /// once the K-th cart since its last launch has entered the cell.
     pub head_latch: Option<(usize, [i32; 3])>,
+    /// Riderless trains (cc767b78's flag, ported from explore/farmopt-c3): the riders of carts
+    /// entering this cell (loop frame) in slots S0..=S1 removed (an empty cart from there on); K >
+    /// 0: only the K-th cart to enter the cell in each slot (a single riderless cart in its train).
+    pub strip_riders: Option<([i32; 3], i64, i64, usize)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -5477,7 +5478,7 @@ impl LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, takeoff_log: false, hold_back: None, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, bed_at: None, approach_trace: None, rel_clear: None, head_wait: false, head_latch: None, chain_study: false, depart_space: 0, g2_tripwire: false, gate_delay: 0, interlock_arrivals: false, interlock_launch: false, interlock: None, meter: None, q_needs_p1: false, release_gaps: None, rel_end_count: None, rel_end_n: None, rel_end_rear: None, rel_gate_unset: 0, split: None, stand_hold_after: 0, stand_hold: None, stand_meter: 0, unset_quiet: false, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, bench_release: false, release_offs: None, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [(-1, -1); 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], phase_force: None, reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_evidence: None, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, arrival_log: false, takeoff_log: false, hold_back: None, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, bed_at: None, approach_trace: None, rel_clear: None, head_wait: false, head_latch: None, strip_riders: None, chain_study: false, depart_space: 0, g2_tripwire: false, gate_delay: 0, interlock_arrivals: false, interlock_launch: false, interlock: None, meter: None, q_needs_p1: false, release_gaps: None, rel_end_count: None, rel_end_n: None, rel_end_rear: None, rel_gate_unset: 0, split: None, stand_hold_after: 0, stand_hold: None, stand_meter: 0, unset_quiet: false, start_random: false }
     }
 }
 
@@ -6977,8 +6978,48 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         stand_b: true,
         ..MeterState::default()
     };
+    let (mut strip_seen, mut strip_now, mut stripped): (Vec<u32>, Vec<u32>, Vec<String>) = (Vec::new(), Vec::new(), Vec::new());
     for t in 0..cycles * 100 + 150 {
         let (c, dt) = (t / 100, t % 100);
+        // (`strip_riders`: the riders of carts entering the cell removed: riderless trains; with
+        // K, only the K-th cart to enter it in the slot (cc767b78's flag, ported from
+        // explore/farmopt-c3))
+        if dt == 0 {
+            strip_seen.clear();
+        }
+        if let Some((cell, s0, s1, k_only)) = tm.strip_riders
+            && c >= s0
+            && c <= s1
+        {
+            let inside: Vec<(u32, Vec<u32>)> = run
+                .world
+                .entities
+                .list
+                .iter()
+                .filter(|e| {
+                    let (lx, lz) = (e.pos.x - fx, e.pos.z - fz);
+                    !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && lx.floor() as i32 == cell[0] && (e.pos.y + 0.01).floor() as i32 == cell[1] && lz.floor() as i32 == cell[2]
+                })
+                .map(|e| (e.id, e.passengers.clone()))
+                .collect();
+            for (cart, ps) in inside {
+                if !strip_seen.contains(&cart) {
+                    strip_seen.push(cart);
+                    if k_only == 0 || strip_seen.len() == k_only {
+                        strip_now.push(cart);
+                    }
+                }
+                if strip_now.contains(&cart) {
+                    for p in ps {
+                        if let Some(pi) = redsim::entity::index_of(&run.world, p) {
+                            run.world.entities.list[pi].removed = true;
+                            redsim::entity::stop_riding(&mut run.world, pi);
+                            stripped.push(format!("slot {c} +{dt}: e{p} (cart {})", carts.iter().position(|x| *x == cart).map_or("?".to_string(), |k| k.to_string())));
+                        }
+                    }
+                }
+            }
+        }
         // (`acts`, the unload/reload act: a load due now, before this gt's other acts; a whole
         // part's entities come back under new numbers, every record of them renumbered)
         let due: Vec<Option<[i32; 4]>> = pending_loads.iter().filter(|(at, _)| *at == t).map(|(_, u)| *u).collect();
@@ -9532,7 +9573,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     }
                 }
                 // (off the rails, with the design's declared flights: `crate::flight`)
-                rail_watch.observe(&run.world, k, *id, Some(riders[k]), &format!("slot {c} +{dt}"));
+                // (a cart whose rider `--strip-riders` removed lands empty by construction: its
+                // landing is checked without a rider)
+                let rider_k = if strip_now.contains(id) { None } else { Some(riders[k]) };
+                rail_watch.observe(&run.world, k, *id, rider_k, &format!("slot {c} +{dt}"));
                 let seated = e.passengers.contains(&riders[k]);
                 if !seated && !unseated[k] {
                     unseat_log.push(format!("slot {c} +{dt}: cart {k}'s rider not seated (cart at {:.2},{:.2},{:.2})", e.pos.x - fx, e.pos.y, e.pos.z - fz));
@@ -11468,6 +11512,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         if verbose && !tail_in.is_empty() {
             out.push(format!("tail entry trace (slot +gt cart speed): {}", tail_in.iter().zip(tail_in_cart.iter()).map(|((t, touch, v), k)| format!("{}+{} c{k} {v:.2}{}", t.div_euclid(100), t.rem_euclid(100), if *touch { "t" } else { "" })).collect::<Vec<_>>().join(", ")));
         }
+    }
+    if tm.strip_riders.is_some() {
+        out.push(format!("riders removed (riderless trains): {}{}", stripped.len(), if stripped.is_empty() { String::new() } else { format!(" ({})", stripped.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) }));
     }
     // (which slots had a problem, and how many each: a fault's reach at a glance; a returning train
     // still missing from the tail is counted once, at its first report, not again every slot)

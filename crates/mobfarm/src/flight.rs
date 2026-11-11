@@ -150,7 +150,19 @@ impl RailWatch {
 
     /// The hard line.
     pub fn line(&self) -> String {
-        format!("carts off the rails: {}{} ({} declared flights landed as declared)", self.derails.len(), if self.derails.is_empty() { String::new() } else { format!(" ({})", self.derails.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }, self.landed)
+        // (every derail's block cell, tallied: where carts leave the rails, all of them, not only
+        // the first six listed (farmopt's rise child: a dead end apart from the flights))
+        let mut cells: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for d in &self.derails {
+            if let Some(p) = d.rsplit_once('(').map(|(_, p)| p.trim_end_matches(')')) {
+                let v: Vec<f64> = p.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                if v.len() == 3 {
+                    *cells.entry(format!("({},{},{})", v[0].floor(), v[1].floor(), v[2].floor())).or_default() += 1;
+                }
+            }
+        }
+        let by_cell = if cells.is_empty() { String::new() } else { format!("; off-rail cells {}", cells.iter().map(|(c, n)| format!("{c} x{n}")).collect::<Vec<_>>().join(", ")) };
+        format!("carts off the rails: {}{} ({} declared flights landed as declared{by_cell})", self.derails.len(), if self.derails.is_empty() { String::new() } else { format!(" ({})", self.derails.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }, self.landed)
     }
 }
 
