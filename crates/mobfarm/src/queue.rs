@@ -3398,6 +3398,9 @@ pub enum RideAct {
     /// (tickexact 2026-11-11, ironspec's long-homeless re-claim) the rider's HOME given up as the
     /// game's release does it (`releasePoi(HOME)`, the memory erased).
     Unhome(RiderRef),
+    /// (tickexact 2026-11-11, ironspec's ticket accounting) the rider's HOME erased with nothing
+    /// released (ValidateNearbyPoi's erasure near an occupied bed).
+    Forget(RiderRef),
 }
 
 pub fn parse_rider(s: &str, t: &str) -> Result<RiderRef, String> {
@@ -3502,14 +3505,15 @@ fn anyhow_lite(ok: bool, why: impl FnOnce() -> String) -> Result<(), String> {
 /// `SLOT,DT,swap,R1,R2` (R: `visit:SLOT` or an entity number).
 pub fn parse_act(s: &str) -> Result<Act, String> {
     let f: Vec<&str> = s.split(',').map(|t| t.trim()).collect();
-    if f.len() >= 3 && (f[2] == "dismount" || f[2] == "swap" || f[2] == "unhome") {
+    if f.len() >= 3 && (f[2] == "dismount" || f[2] == "swap" || f[2] == "unhome" || f[2] == "forget") {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let (slot, dt) = (num(f[0], "SLOT")?, num(f[1], "DT")?);
         let ride = match (f[2], f.len()) {
             ("dismount", 4) => RideAct::Dismount(parse_rider(s, f[3])?),
             ("swap", 5) => RideAct::Swap(parse_rider(s, f[3])?, parse_rider(s, f[4])?),
             ("unhome", 4) => RideAct::Unhome(parse_rider(s, f[3])?),
-            _ => return Err(format!("--act {s}: give SLOT,DT,dismount,R, SLOT,DT,swap,R1,R2 or SLOT,DT,unhome,R (R: visit:SLOT or an entity number)")),
+            ("forget", 4) => RideAct::Forget(parse_rider(s, f[3])?),
+            _ => return Err(format!("--act {s}: give SLOT,DT,dismount,R, SLOT,DT,swap,R1,R2, SLOT,DT,unhome,R or SLOT,DT,forget,R (R: visit:SLOT or an entity number)")),
         };
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
         return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: None, unload: None, order: redsim::reload::Order::Save, ride: Some(ride) });
@@ -4592,6 +4596,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut bed_free: Vec<Option<u32>> = bed_cells.iter().map(|p| redsim::entity::mob::ai::poi::free_tickets(&mut run.world, *p)).collect();
     let mut ticket_log: Vec<String> = bed_cells.iter().zip(&bed_free).map(|(p, f)| format!("{},{},{} {} at the start", p.x, p.y, p.z, f.map_or("gone".to_string(), |n| format!("{n} free")))).collect();
     let mut home_log: Vec<String> = Vec::new();
+    // (tickexact 2026-11-11, ironspec's ticket accounting) the game time up to which the bed's
+    // free tickets print every tick (an unhome or forget act, and HOME changes close after one)
+    let mut tickets_until: i64 = i64::MIN;
     let mut rel_seen = run.world.mob.events.len();
     if tm.calm {
         let zombies: Vec<u32> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Zombie)).map(|e| e.id).collect();
@@ -4762,13 +4769,22 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             }
                             None => format!("slot {c} +{dt}: act: dismount {r:?}: no such rider"),
                         },
-                        RideAct::Unhome(r) => match who(r).and_then(|id| redsim::entity::index_of(&run.world, id).map(|i| (id, i))) {
+                        RideAct::Unhome(r) | RideAct::Forget(r) => match who(r).and_then(|id| redsim::entity::index_of(&run.world, id).map(|i| (id, i))) {
                             Some((id, i)) if redsim::entity::mob::ai::brain::has_exact(&run.world, i) => {
                                 let had = redsim::entity::mob::ai::brain::brain(&run.world, i).home;
-                                redsim::entity::mob::ai::brain::run::release_home(&mut run.world, i);
-                                format!("slot {c} +{dt}: act: e{id} gave up its HOME ({had:?})")
+                                let bed_was: Vec<Option<u32>> = bed_cells.iter().map(|p| redsim::entity::mob::ai::poi::free_tickets(&mut run.world, *p)).collect();
+                                let how = if matches!(ra, RideAct::Forget(_)) {
+                                    redsim::entity::mob::ai::brain::run::erase_home(&mut run.world, i);
+                                    "forgot (erased, nothing released)"
+                                } else {
+                                    redsim::entity::mob::ai::brain::run::release_home(&mut run.world, i);
+                                    "gave up (released, then erased)"
+                                };
+                                let bed_now: Vec<Option<u32>> = bed_cells.iter().map(|p| redsim::entity::mob::ai::poi::free_tickets(&mut run.world, *p)).collect();
+                                tickets_until = tickets_until.max(run.world.time + 30);
+                                format!("slot {c} +{dt}: act: e{id} {how} its HOME ({had:?}); the bed's free tickets {bed_was:?} -> {bed_now:?}")
                             }
-                            _ => format!("slot {c} +{dt}: act: unhome {r:?}: no such villager with the AI's brain"),
+                            _ => format!("slot {c} +{dt}: act: unhome/forget {r:?}: no such villager with the AI's brain"),
                         },
                         RideAct::Swap(r1, r2) => match (who(r1), who(r2)) {
                             (Some(a1), Some(a2)) => match (vehicle_of(&run.world, a1), vehicle_of(&run.world, a2)) {
@@ -6408,6 +6424,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             None => format!("e{k} lost at slot {c} +{dt}"),
                             Some(p) => format!("e{k} {},{},{} at slot {c} +{dt}", p.x, p.y, p.z),
                         });
+                        if tickets_until >= run.world.time - 30 {
+                            tickets_until = tickets_until.max(run.world.time + 30);
+                        }
                     }
                 }
             }
@@ -6500,12 +6519,18 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if near.len() > near_max.0 {
                 near_max = (near.len(), format!("slot {c} +{dt}: {}", near.join(", ")));
             }
-            // (ironspec: the bed's free tickets at the start and at every change)
+            // (ironspec: the bed's free tickets at the start and at every change; around an unhome
+            // or forget act and every HOME change after one, every tick for 30 gt)
             for (bi, bp) in bed_cells.iter().enumerate() {
                 let f = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, *bp);
                 if f != bed_free[bi] {
                     ticket_log.push(format!("{},{},{} {} at slot {c} +{dt}", bp.x, bp.y, bp.z, f.map_or("gone".to_string(), |n| format!("{n} free"))));
                     bed_free[bi] = f;
+                }
+                if run.world.time <= tickets_until {
+                    let holders: Vec<String> = homes_now.iter().enumerate().filter(|(_, h)| **h == Some(*bp)).map(|(k, _)| format!("e{k}")).collect();
+                    let homeless: Vec<String> = homes_now.iter().enumerate().filter(|(_, h)| h.is_none()).map(|(k, _)| format!("e{k}")).collect();
+                    unload_log.push(format!("tickets slot {c} +{dt} (t {}): bed {},{},{} {} free; HOME there: {} riders; homeless: {}", run.world.time, bp.x, bp.y, bp.z, f.map_or("gone".to_string(), |n| n.to_string()), holders.len(), if homeless.is_empty() { "none".to_string() } else { homeless.join(" ") }));
                 }
             }
             if home_at_start.is_none() {

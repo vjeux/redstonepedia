@@ -1282,6 +1282,12 @@ pub fn release_home(w: &mut World, i: usize) {
     erase(w, i, M::Home);
 }
 
+/// (tickexact 2026-11-11, a bench's fault act) Villager `i`'s HOME erased with nothing released, as
+/// ValidateNearbyPoi erases it near an occupied bed (the record's tickets untouched).
+pub fn erase_home(w: &mut World, i: usize) {
+    erase(w, i, M::Home);
+}
+
 /// `Villager.releasePoi(memory)`: the memory's POI, still there and of the memory's kind, gives a
 /// ticket back (`PoiManager.release`: `PoiRecord.releaseTicket`, at most its max; a record shared
 /// by two claims after a replace gives back once per release). The memory itself stays.

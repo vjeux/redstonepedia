@@ -109,6 +109,17 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             vec![(300, open(6)), (1500, open(16)), (4000, open(26))]
         }
         "reclaim-backoff-1" => vec![(300, vec![s([5, 64, 6], "minecraft:air"), s([5, 65, 6], "minecraft:air")])],
+        // (tickexact 2026-11-11, ironspec's ticket accounting) A (e0) and B (e1) with HOME on the bed
+        // as data at t1 (the port's start state: its ticket free); A gives HOME up at t5 (a release
+        // with the ticket free: nothing to give back) and re-claims the free ticket; B gives HOME up
+        // at t200 (the release frees A's ticket: no holder is kept) and re-claims it; A's memory is
+        // erased at t400 with nothing released (the ticket stays taken: A stays homeless)
+        "ticket-release" => vec![
+            (1, vec![s([5, 64, 6], "home:e0"), s([5, 64, 6], "home:e1")]),
+            (5, vec![s([0, 0, 0], "unhome:e0")]),
+            (200, vec![s([0, 0, 0], "unhome:e1")]),
+            (400, vec![s([0, 0, 0], "forget:e0")]),
+        ],
         // (tickexact 2026-11-11) the recoverability scenes: HOME and tickets at t1-t3, the freeze
         // 900..2400, the pens opened at t2500
         "recover-single" | "recover-shared" | "recover-occupied" => {
@@ -436,7 +447,24 @@ fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)], ctx: &ActCtx) -> R
         }
         // a bench's entity act: redsim's drive replay (`drive::apply`)
         if let Some(act) = entity_act(*p, s)? {
+            // (ironspec's ticket accounting: the HOME record's free tickets around an unhome or
+            // forget, redsim's side; the game's from its `home_release`)
+            let home_of = |w: &World, act: &redsim::entity::mob::drive::Act| -> Option<BlockPos> {
+                let who = match act {
+                    redsim::entity::mob::drive::Act::Unhome(who) | redsim::entity::mob::drive::Act::Forget(who) => *who,
+                    _ => return None,
+                };
+                let n = ctx.number(who).ok()?;
+                let i = w.entities.list.iter().position(|e| !e.removed && e.id == n)?;
+                matches!(w.entities.list[i].kind, redsim::entity::EntityKind::Mob(_)).then(|| redsim::entity::mob::ai::brain::brain(w, i).home).flatten()
+            };
+            let home = home_of(w, &act);
+            let before = home.and_then(|h| redsim::entity::mob::ai::poi::free_tickets(w, h));
             redsim::entity::mob::drive::apply(w, &ctx.lines, ctx.g0, &act);
+            if let Some(h) = home {
+                let (t, after) = (w.time, redsim::entity::mob::ai::poi::free_tickets(w, h));
+                eprintln!("redsim {s} at t {t}: HOME {},{},{}; its free tickets {before:?} -> {after:?}", h.x, h.y, h.z);
+            }
             continue;
         }
         let b = Block::parse(s).or_else(|_| redsim::terrain::land::block_of(s)).map_err(|e| anyhow!("action block {s}: {e}"))?;
@@ -999,6 +1027,8 @@ fn entity_act(p: [i32; 3], s: &str) -> Result<Option<redsim::entity::mob::drive:
         "home" => Act::Home(parse_who(f.get(1).copied().unwrap_or(""))?, pos),
         "last-slept" => Act::LastSlept(parse_who(f.get(1).copied().unwrap_or(""))?, num(2)? as i64),
         "poi-take" => Act::PoiTake(pos),
+        "unhome" => Act::Unhome(parse_who(f.get(1).copied().unwrap_or(""))?),
+        "forget" => Act::Forget(parse_who(f.get(1).copied().unwrap_or(""))?),
         _ => return Ok(None),
     }))
 }
@@ -2526,6 +2556,42 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's ticket accounting) one bed (head (5,64,6)) in a glass-walled
+    // room (x 3..9, z 3..10) with A (e0) and B (e1) on foot beside it, day (AcquirePoi(HOME) runs in
+    // CORE all day): the acts give HOME up and erase it (see `actions`)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 63, stone);
+        b.push(([5, 64, 5], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([5, 64, 6], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        for y in 64..=65 {
+            for x in 2..=10 {
+                b.push(([x, y, 2], "minecraft:glass".to_string()));
+                b.push(([x, y, 11], "minecraft:glass".to_string()));
+            }
+            for z in 3..=10 {
+                b.push(([2, y, z], "minecraft:glass".to_string()));
+                b.push(([10, y, z], "minecraft:glass".to_string()));
+            }
+        }
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = vec![
+            ("minecraft:villager".to_string(), [7.5, 64.0, 6.5], Some("{PersistenceRequired:1b}".to_string())),
+            ("minecraft:villager".to_string(), [7.5, 64.0, 8.5], Some("{PersistenceRequired:1b}".to_string())),
+        ];
+        v.push(Scene {
+            name: "ticket-release".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs,
+            day_time: 1000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's recoverability) one bed (head (5,64,6)); villagers penned
     // in glass (a 1x1 cell, 2 high, roofed) so the path to the bed never reaches: their streak
     // builds in REST, a freeze of their chunk (900 for 1500 gt) releases HOME on the resume
@@ -4006,6 +4072,12 @@ impl GameScene {
             Act::Home(who, p) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "memories": {"home": [p.x, p.y, p.z]}}))?,
             Act::LastSlept(who, t) => self.w.call(json!({"op": "memory", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "memories": {"last_slept": ctx.g0 + t}}))?,
             Act::PoiTake(p) => self.w.call(json!({"op": "poi_take", "sandbox": sb, "pos": [p.x, p.y, p.z]}))?,
+            Act::Unhome(who) | Act::Forget(who) => {
+                let release = matches!(a, Act::Unhome(_));
+                let r = self.w.call(json!({"op": "home_release", "sandbox": sb, "entity": self.now(ctx.number(*who)?), "release": release}))?;
+                eprintln!("game {} e{}: the HOME record's free tickets {} -> {}", if release { "unhome" } else { "forget" }, ctx.number(*who)?, r["free_before"], r["free_after"]);
+                r
+            }
             Act::Unload => {
                 self.unload_load("unload")?;
                 json!({})

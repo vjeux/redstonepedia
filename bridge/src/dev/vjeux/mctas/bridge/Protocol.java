@@ -179,6 +179,7 @@ public final class Protocol {
             case "teleport" -> teleport(r);
             case "poi_take" -> poiTake(r);
             case "poi_free" -> poiFree(r);
+            case "home_release" -> homeRelease(r);
             case "sensor_delay" -> sensorDelay(r);
             case "golem_spots" -> golemSpots(r);
             case "trace" -> trace(r);
@@ -1111,6 +1112,40 @@ public final class Protocol {
         sb.level.getPoiManager().take(t -> true, (t, q) -> q.equals(pos), pos, 1)
                 .orElseThrow(() -> new IllegalArgumentException("poi_take: no free POI at " + pos.toShortString()));
         return new JsonObject();
+    }
+
+    /**
+     * (tickexact 2026-11-11, ironspec's ticket accounting: a bench's `unhome eN` / `forget eN`) The
+     * villager's HOME given up: {@code release} true as SetWalkTargetFromBlockMemory's release does
+     * it ({@code Villager.releasePoi(HOME)}: PoiManager.release, the record's ticket back when one is
+     * taken; then the memory erased), false the memory erased only (ValidateNearbyPoi near an
+     * occupied bed). {@code free_before} / {@code free_after}: the HOME record's free tickets.
+     */
+    private JsonObject homeRelease(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int n = r.get("entity").getAsInt();
+        Entity e = sb.level.getEntity(sb.entityIdBase() + n);
+        if (!(e instanceof net.minecraft.world.entity.npc.villager.Villager v)) {
+            throw new IllegalArgumentException("home_release: no villager #" + n);
+        }
+        boolean release = r.has("release") && r.get("release").getAsBoolean();
+        net.minecraft.world.entity.ai.memory.MemoryModuleType<net.minecraft.core.GlobalPos> home = net.minecraft.world.entity.ai.memory.MemoryModuleType.HOME;
+        java.util.Optional<net.minecraft.core.GlobalPos> had = v.getBrain().getMemory(home);
+        java.util.function.ToIntFunction<BlockPos> free = pos -> sb.level.getPoiManager()
+                .getInSquare(t -> true, pos, 0, net.minecraft.world.entity.ai.village.poi.PoiManager.Occupancy.ANY)
+                .filter(rec -> rec.getPos().equals(pos))
+                .findFirst()
+                .map(net.minecraft.world.entity.ai.village.poi.PoiRecord::getFreeTickets)
+                .orElse(-1);
+        int before = had.map(g -> free.applyAsInt(g.pos())).orElse(-1);
+        if (release) {
+            v.releasePoi(home);
+        }
+        v.getBrain().eraseMemory(home);
+        JsonObject o = new JsonObject();
+        o.addProperty("free_before", before);
+        o.addProperty("free_after", had.map(g -> free.applyAsInt(g.pos())).orElse(-1));
+        return o;
     }
 
     /** (tickexact 2026-11-11) The free tickets of the POI record at {@code pos} ({@code free}: -1 when there is none). */
