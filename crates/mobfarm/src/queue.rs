@@ -754,7 +754,29 @@ pub fn rider_space_check(w: &mut redsim::world::World, spec: &FarmSpec, declared
     let gates: Vec<[i32; 3]> = lay.pockets.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz]).chain(lay.stop_gate.map(|g| [g.x + dx, g.y, g.z + dz])).chain(lay.fifo.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz])).collect();
     let rails: Vec<[i32; 3]> = spec.blocks.iter().filter(|(_, b)| redsim::rails::is_rail(b)).map(|(p, _)| [p.x, p.y, p.z]).collect();
     let allowed: std::collections::HashSet<[i32; 3]> = declared.iter().map(|d| d.cell).chain(gates).chain(ok.iter().map(|c| [c[0] + dx, c[1], c[2] + dz])).collect();
-    crate::declared::rider_space(w, &rails, &allowed).into_iter().map(|b| format!("rider space: {b}")).collect()
+    let mut bad: Vec<String> = crate::declared::rider_space(w, &rails, &allowed).into_iter().map(|b| format!("rider space: {b}")).collect();
+    // (the declared zombies' own cells, ironspec Nov 11 04:47: no suffocating or collision block
+    // in a zombie's feet cell or its eye cell (eyes 1.74 over its feet), else it sees no rider and
+    // panics none (day-1's B2 route: a support stone in the station zombie's head, no panic, no
+    // golem); a zombie riding a boat or a cart sits at its vehicle's height)
+    for (ty, p, nbt) in &spec.entities {
+        let zombie = ty.contains("zombie") || nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie"));
+        if !zombie || ty.contains("minecart") && !nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie")) {
+            continue;
+        }
+        let (x, y, z) = (p[0].floor() as i32, p[1], p[2].floor() as i32);
+        for cy in [y.floor() as i32, (y + 1.74).floor() as i32] {
+            let c = [x, cy, z];
+            if allowed.contains(&c) {
+                continue;
+            }
+            let b = w.get(BlockPos::new(c[0], c[1], c[2]));
+            if redsim::entity::mob::blocks::is_suffocating(&b) || !redsim::behavior::collision_boxes(&b).is_empty() {
+                bad.push(format!("zombie space: {},{},{}: {b} in the zombie at ({:.2},{:.2},{:.2})", c[0], c[1], c[2], p[0], p[1], p[2]));
+            }
+        }
+    }
+    bad
 }
 
 /// The derived declared states with a header's added: an identical entry once, a cell declared two
@@ -2503,6 +2525,13 @@ pub struct LoopTiming {
     /// The entry hold's progress input: REL only if a cart left slot 0 forward since the last
     /// release.
     pub hold_progress: bool,
+    /// The register's cart interlock, ideal sensors, bench-driven (ironspec Nov 11 04:38): an
+    /// advance moves a slot's cart only into an empty slot (or one emptied in the same advance), the
+    /// head releases only into an empty stand, the tail launches only into an empty slot 0.
+    pub reg_interlock: bool,
+    /// A level-33 freeze of the tail's chunk: its controls delayed by the freeze (a pure delay)
+    /// instead of snapping to their schedule on the resume tick (the burst).
+    pub l33_delay: bool,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -2715,7 +2744,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, reg_interlock: false, l33_delay: false, start_random: false }
     }
 }
 
@@ -3547,6 +3576,23 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (admission control's skip-request latch)
     let mut skip_latch = false;
     let mut skip_active = false;
+    // (`reg_interlock`: the advance's allowed slots, the tail's launches held, the record)
+    let mut reg_allow: Vec<bool> = Vec::new();
+    let mut il_skip = [false; 3];
+    let mut il_delay: [Option<i64>; 3] = [None; 3];
+    let mut il_tempty: [Option<i64>; 3] = [None; 3];
+    let mut il_slack_min: (i64, String) = (i64::MAX, String::new());
+    let mut reg_held: Vec<String> = Vec::new();
+    let mut reg_stuck_total = 0usize;
+    let mut il_skips = 0usize;
+    // (the tail's chunk at level 33: the time it spent frozen, its controls' lag with `l33_delay`)
+    let mut tail_lag = 0i64;
+    // (launches into a full slot 0, interlock or not)
+    let mut gp_was_open = false;
+    let mut launch_into_full = 0usize;
+    let mut launch_full_log: Vec<String> = Vec::new();
+    // (the stand holds its batch back: a REL held or dropped by the entry hold, until one fires)
+    let mut stand_held = false;
     let mut base_prev = false;
     let mut skip_log: Vec<String> = Vec::new();
     // (the entry hold's detectors and their record)
@@ -4188,7 +4234,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
-        if c < cycles && dt == tm.release_start {
+        // (`reg_interlock`, ideal sensors, bench-driven (ironspec Nov 11 04:38): the head releases
+        // only into a stand that isn't holding a batch back (its last REL held or dropped by the
+        // entry hold); a held release leaves the head's carts in place, and the register's
+        // advances then stop behind them)
+        let stand_has_carts = tm.reg_interlock && stand_held;
+        if c < cycles && dt == tm.release_start && stand_has_carts {
+            reg_held.push(format!("slot {c}: release held (the stand holds carts)"));
+        }
+        if c < cycles && dt == tm.release_start && !stand_has_carts {
             set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
             // (`entry_speed`: a speed kick along each release cart's slope, the tolerance probe)
             if tm.entry_speed != 0.0 {
@@ -4499,6 +4553,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 let fire = if tm.entry_hold && !hold_cells.is_empty() {
                     if fire_nominal && sensors_on {
                         hold_pending = Some(t);
+                        stand_held = true;
                         false
                     } else if let (Some(t0), false) = (hold_pending, sensors_on) {
                         hold_pending = None;
@@ -4514,9 +4569,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 } else {
                     fire_nominal
                 };
-                // (the progress input counts from each release that fires)
+                // (the progress input counts from each release that fires; the stand no longer
+                // holds a batch back)
                 if fire {
                     prog_since_rel = 0;
+                    stand_held = false;
                 }
                 if fire && o.stand_wired {
                     // the wired stand: REL on (the design's latch and gates do the rest), off
@@ -4591,10 +4648,27 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     set(&mut run.world, &lay.tail_b, true);
                 }
                 // (each slot's pulse, `skew` gt late for slot s: day-1's wiring reaches the head
-                // first; a tail slot whose window has opened stays on through its pulse's end)
+                // first; a tail slot whose window has opened stays on through its pulse's end;
+                // with `reg_interlock` a slot's cart moves only into an empty slot or one whose
+                // cart moves in the same advance, the head never: decided at the advance's start)
+                if tm.reg_interlock && dt == a {
+                    let occ: Vec<bool> = lay.slot_cells.iter().take(q).map(|r| carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| p.x.floor() as i32 == r[0] && p.z.floor() as i32 == r[2] && p.y >= r[1] as f64 - 0.2 && p.y < r[1] as f64 + 1.2))).collect();
+                    let mut mv = vec![false; q];
+                    for s in (0..q.saturating_sub(1)).rev() {
+                        mv[s] = occ[s] && (!occ[s + 1] || mv[s + 1]);
+                    }
+                    reg_allow = (0..q).map(|s| !occ[s] || mv[s]).collect();
+                    let stuck = (0..q).filter(|s| occ[*s] && !mv[*s]).count();
+                    if stuck > 0 && stuck < q && reg_held.len() < 12 {
+                        reg_held.push(format!("slot {c} +{dt}: {stuck} carts held"));
+                    } else if stuck == q && reg_held.len() < 12 {
+                        reg_held.push(format!("slot {c} +{dt}: the register full and held"));
+                    }
+                    reg_stuck_total += stuck;
+                }
                 for s in 0..q {
                     let sk = tm.skew.get(s).copied().unwrap_or(0);
-                    if dt == a + sk {
+                    if dt == a + sk && (!tm.reg_interlock || reg_allow.get(s).copied().unwrap_or(true)) {
                         set(&mut run.world, &lay.slots[s..s + 1], true);
                     }
                     let open_at = a + w + if s == 0 { tm.tail0_late } else { 0 };
@@ -4617,8 +4691,17 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         // the re-packing tail's gates (bench-driven): each pocket's gate open while the next
         // pocket's detector rail is off, the last pocket's (the intake) open `fifo_intake` after
-        // each advance's start; an intake that finds its pocket empty leaves a hole in slot 0
-        if fifo_on {
+        // each advance's start; an intake that finds its pocket empty leaves a hole in slot 0.
+        // (A level-33 freeze of the tail's chunk stops its redstone (ironspec Nov 11 04:47): with
+        // `l33_delay` the tail's controls run on their own clock, behind by the time spent frozen
+        // (a pure delay); else they write nothing while frozen and snap to their schedule on the
+        // resume tick (every edge due during the freeze at once, the worst burst).)
+        let tail_frozen33 = lay.esc_g0.is_some_and(|g| run.world.chunk_level(g.x.div_euclid(16), g.z.div_euclid(16)) >= 33);
+        if tail_frozen33 {
+            tail_lag += 1;
+        }
+        if fifo_on && !tail_frozen33 {
+            let (c, dt) = if tm.l33_delay { let tt = t - tail_lag; (tt.div_euclid(100), tt.rem_euclid(100)) } else { (c, dt) };
             let nf = lay.fifo.len();
             // (a pocket is occupied while a cart's centre is over its rest cell; slot 0 while one
             // is over its braked slopes C and A or the slope up after them)
@@ -4634,16 +4717,72 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 } else {
                     let (d, w) = tm.fifo_intake;
                     let _ = (slot0_on, &slot0_full);
+                    // (`reg_interlock`: the launch waits for an empty slot 0 (the cart in it gone
+                    // from its cell since the advance's pulse), up to 10 gt, else that advance's
+                    // launch and its G0 are skipped, P keeping its cart; the whole admission (G_P
+                    // and G0) shifts by the wait; the slack (G_P's timed opening minus the tick
+                    // slot 0 read empty) is recorded)
+                    if tm.reg_interlock {
+                        if dt == 0 {
+                            il_skip = [false; 3];
+                            il_delay = [None; 3];
+                            il_tempty = [None; 3];
+                        }
+                        let s0 = lay.slot_cells[0];
+                        let s0_full = carts.iter().any(|id| pos_of(&run.world, *id).is_some_and(|p| (p.x - (s0[0] as f64 + 0.5)).abs() < 0.5 && p.z >= s0[2] as f64 && p.z < s0[2] as f64 + 1.0 && p.y >= s0[1] as f64 - 0.2 && p.y < s0[1] as f64 + 1.2));
+                        for k in 0..3usize {
+                            let a = tm.advance_at + k as i64 * tm.advance_every + tm.adv_shift[k];
+                            if dt > a && il_tempty[k].is_none() && !s0_full {
+                                il_tempty[k] = Some(dt);
+                            }
+                            if dt >= a + d && il_delay[k].is_none() && !il_skip[k] {
+                                if !s0_full {
+                                    il_delay[k] = Some(dt - (a + d));
+                                    let slack = (a + d) - il_tempty[k].unwrap_or(dt);
+                                    if slack < il_slack_min.0 {
+                                        il_slack_min = (slack, format!("slot {c} +{}", a + d));
+                                    }
+                                    if dt > a + d && reg_held.len() < 12 {
+                                        reg_held.push(format!("slot {c} +{}: launch waited {} gt (slot 0 full)", a + d, dt - (a + d)));
+                                    }
+                                } else if dt >= a + d + 10 {
+                                    il_skip[k] = true;
+                                    il_skips += 1;
+                                    if reg_held.len() < 12 {
+                                        reg_held.push(format!("slot {c} +{}: launch held (slot 0 still full at +10)", a + d));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let il_shift = |k: usize| if tm.reg_interlock { il_delay[k].unwrap_or(0) } else { 0 };
+                    let il_open = |k: usize| !tm.reg_interlock || il_delay[k].is_some();
                     // (admission faults, `adm_faults`: this advance's G_P pulse skipped or
                     // missed, or an extra one OFF gt after its opening)
                     let fault = |k: i64| tm.adm_faults.iter().flatten().find(|f| f.0 == c && f.1 == k).map(|f| (f.2, f.3));
                     c < cycles && (0..3).any(|k| {
-                        let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
-                        let base = dt >= a + d && dt < a + d + w && !matches!(fault(k), Some((0, _)) | Some((2, _)));
+                        let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize] + il_shift(k as usize);
+                        let base = dt >= a + d && dt < a + d + w && !matches!(fault(k), Some((0, _)) | Some((2, _))) && il_open(k as usize);
                         let extra = matches!(fault(k), Some((4, off)) if dt >= a + d + off && dt < a + d + off + w);
                         base || extra
                     })
                 };
+                // (every launch into a full slot 0, interlock or not: G_P opening while a cart rests
+                // on slot 0's cell, at rest (under 0.02 b/t), not the one leaving; the interlock's
+                // positive control)
+                if j + 1 == nf {
+                    if open && !gp_was_open {
+                        let s0 = lay.slot_cells[0];
+                        let full = run.world.entities.list.iter().any(|e| carts.contains(&e.id) && (e.pos.x - (s0[0] as f64 + 0.5)).abs() < 0.5 && e.pos.z >= s0[2] as f64 && e.pos.z < s0[2] as f64 + 1.0 && e.pos.y >= s0[1] as f64 - 0.2 && e.pos.y < s0[1] as f64 + 1.2 && e.delta_movement.horizontal_distance() < 0.02);
+                        if full {
+                            launch_into_full += 1;
+                            if launch_full_log.len() < 4 {
+                                launch_full_log.push(format!("slot {c} +{dt}"));
+                            }
+                        }
+                    }
+                    gp_was_open = open;
+                }
                 set_gate(&mut run.world, lay.fifo[j].0, "south", open);
             }
             // (admission control, `esc_adm`: G0 opened `esc_adm` D gt after the gate opens for its W
@@ -4656,9 +4795,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 // extra one OFF gt after G_P's opening)
                 let fault = |k: i64| tm.adm_faults.iter().flatten().find(|f| f.0 == c && f.1 == k).map(|f| (f.2, f.3));
                 let base_now = c < cycles && (0..3).any(|k| {
-                    let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                    let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize] + if tm.reg_interlock { il_delay[k as usize].unwrap_or(0) } else { 0 };
                     let dk = if k == 2 && tm.adm_k2 >= 0 { tm.adm_k2 } else { dl };
-                    dt >= a + d + dk && dt < a + d + dk + wl && !matches!(fault(k), Some((0, _)) | Some((1, _)))
+                    dt >= a + d + dk && dt < a + d + dk + wl && !matches!(fault(k), Some((0, _)) | Some((1, _))) && !(tm.reg_interlock && (il_skip[k as usize] || il_delay[k as usize].is_none()))
                 });
                 // (the skip request, `adm_skip_req`: a latch set by a request; the next G0 opening
                 // after it is skipped, which clears it)
@@ -6337,6 +6476,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         out.extend(arr_stream.iter().cloned());
         out.push(det_edges.line(fx as i32, fz as i32));
+        if lay.esc_adm_a1.is_some() {
+            out.push(format!("launches into a full slot 0 (G_P opening while a cart rests on slot 0's cell): {launch_into_full}{}", if launch_full_log.is_empty() { String::new() } else { format!(" ({})", launch_full_log.join(", ")) }));
+        }
+        if tm.reg_interlock {
+            out.push(format!("register interlock (ideal sensors, bench-driven, advances {} gt apart): carts held at advances {reg_stuck_total} (cart-advances), launches held {il_skips}; launch slack (G_P's timed opening minus slot 0 read empty) at least {} gt ({}){}", tm.advance_every, if il_slack_min.0 == i64::MAX { "-".to_string() } else { il_slack_min.0.to_string() }, il_slack_min.1, if reg_held.is_empty() { String::new() } else { format!(" ({})", reg_held.join("; ")) }));
+        }
         out.push(format!("declared states (rails, gates, boosters as the options declare them; tick 0 and boosters at t 20): {} mismatches{}", declared_bad.len(), if declared_bad.is_empty() { String::new() } else { format!(" ({})", declared_bad.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
         if !declared_bad.is_empty() {
             problems.push(format!("declared states: {} mismatches ({})", declared_bad.len(), declared_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")));
