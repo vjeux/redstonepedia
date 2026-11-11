@@ -260,6 +260,11 @@ pub enum MobfarmCmd {
         /// (a scan of the listed farms for runs whose world went wrong).
         #[arg(long)]
         sim_only: bool,
+        /// A test of the gate's event log only (ironspec 2026-11-11): at gt 2000 of each build, a
+        /// skeleton trap horse summoned on the farm and the first watched flammable block set to
+        /// air; the log prints both with their position and time, and the gate fails on both.
+        #[arg(long)]
+        inject_events: bool,
     },
     /// redsim's over the same length.
     WeatherStats {
@@ -4603,8 +4608,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
         }
         MobfarmCmd::Spots { design, terrain, repeat, panicking_only, caps } => spots_cmd(version, &design, &terrain, repeat, !panicking_only, caps)?,
-        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace, terrain, world, no_monsters, runs, sim_only } => {
-            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace, terrain, world, no_monsters, runs, sim_only })?
+        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace, terrain, world, no_monsters, runs, sim_only, inject_events } => {
+            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace, terrain, world, no_monsters, runs, sim_only, inject_events })?
         }
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,

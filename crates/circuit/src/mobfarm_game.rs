@@ -94,6 +94,11 @@ pub struct GateOpts {
     /// Only redsim's reference runs of the gate's schedule, no game (the parent 2026-11-08: a scan
     /// of the listed farms for runs whose world went wrong): the report's failures name them.
     pub sim_only: bool,
+    /// (ironspec 2026-11-11: the event log's own control, re-run whenever the logger changes; off
+    /// by default) at gt 2000 of each build's first window, a skeleton trap horse summoned on the
+    /// farm (no AI: it stays a trap) and the first watched flammable block set to air: the log must
+    /// print both with their position and time, and the gate fails on both.
+    pub inject_events: bool,
 }
 
 impl GateOpts {
@@ -101,7 +106,7 @@ impl GateOpts {
     /// many runs through `site variation --regate`; 8 servers at once).
     pub fn new(version: &str) -> GateOpts {
         let runs = std::env::var("MCTAS_GATE_RUNS").ok().and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
-        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true, runs, sim_only: false }
+        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true, runs, sim_only: false, inject_events: false }
     }
 }
 
@@ -172,6 +177,10 @@ pub struct BuildRun {
     pub witches_now: u32,
     pub vehicles_now: u32,
     pub traps_now: u32,
+    /// (ironspec 2026-11-11: "future gates should log each trap's position and time") each skeleton
+    /// trap horse counted on the farm (`gt T: a skeleton trap horse at x,y,z`) and each burned
+    /// block (`gt T: the B at x,y,z is now ...`), when first seen: [`GateReport::events`].
+    pub events: Vec<String>,
 }
 
 /// What block is at `p` now, among the ones a farm turns into when it breaks.
@@ -991,6 +1000,15 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
             let w = windows.last_mut().unwrap();
             w.ticks += 20;
             w.samples += 1;
+            // (ironspec 2026-11-11, `GateOpts::inject_events`, a test of the event log only) a trap
+            // horse on the farm and a watched flammable block gone at gt 2000
+            if o.inject_events && k == 0 && t == 2000 {
+                let (cx, cy, cz) = ((spec.lo.x + spec.hi.x) / 2, spec.hi.y + 1, (spec.lo.z + spec.hi.z) / 2);
+                s.cmd_ok(&format!("summon minecraft:skeleton_horse {cx} {cy} {cz} {{SkeletonTrap:1b,NoAI:1b}}"))?;
+                if let Some((p, _)) = watch.iter().find(|(_, id)| id != "minecraft:lava") {
+                    s.cmd_ok(&format!("setblock {} minecraft:air", xyz(*p)))?;
+                }
+            }
             sample(&mut s, &mut run, &mut golems, t, k, inner, &spec, villagers0, zombies0, &scope, &mut windows, &villager_spots, o.trace.then_some(label.as_str()))?;
             // the flammable blocks and the lava: burned away or flowed. A burned block is a
             // measured event (the parent, 2026-11-08: the card measures burns, so the gate checks
@@ -1009,6 +1027,7 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
                             run.fail(what);
                         } else {
                             run.burned += 1;
+                            run.events.push(what);
                         }
                     }
                 }
@@ -1170,6 +1189,7 @@ fn sample(
         run.broken.get_or_insert(window);
     }
     let mut traps = 0;
+    let mut trap_at: Vec<String> = Vec::new();
     // a trap horse a bolt left (`SkeletonTrap`: the horsemen a triggered trap spawns are not
     // traps; in a terrain sample they ride to the AFK player from wherever the bolt fell)
     for a in entity_answers(&s.cmd_long("execute as @e[type=minecraft:skeleton_horse,nbt={SkeletonTrap:1b}] run data get entity @s Pos")?) {
@@ -1183,10 +1203,13 @@ fn sample(
             && p[2] <= spec.hi.z as f64 + 3.0
         {
             traps += 1;
+            trap_at.push(format!("{:.1},{:.1},{:.1}", p[0], p[1], p[2]));
         }
     }
     if traps > run.traps_now {
         windows.last_mut().unwrap().traps += traps - run.traps_now;
+        // (the ones on the farm now, the new one among them: its position and time)
+        run.events.push(format!("gt {t}: a skeleton trap horse on the farm (now {traps} at {})", trap_at.join("; ")));
     }
     run.traps_now = traps;
     let checking = run.broken.is_none();
@@ -1507,6 +1530,12 @@ impl GateReport {
         self.failures.is_empty()
     }
 
+    /// (ironspec 2026-11-11) Each build's logged events, its trap horses and burned blocks with
+    /// their positions and times: `build K (rotation R, offset O, seed S): gt T: ...`.
+    pub fn events(&self) -> Vec<String> {
+        self.builds.iter().enumerate().flat_map(|(k, b)| b.events.iter().map(move |e| format!("build {k} (rotation {}, offset {:?}, seed {}): {e}", b.turns, b.offset, b.seed))).collect()
+    }
+
     /// One line for the card.
     pub fn line(&self) -> String {
         let iron: u32 = self.builds.iter().map(|b| b.iron()).sum();
@@ -1711,9 +1740,13 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
     }
     // the card's tradeoffs the game can show (vjeux 2026-11-08: "It's all about tradeoffs"):
     // lightning's breaks over the thunder the game's builds saw, against the card's rates
-    // (`lightning::measure_farm` over redsim's runs of the same schedule), 99% Poisson; rates the
-    // model cannot measure fail the gate (never a check silently skipped)
-    match redsim::weather::lightning::measure_farm(&spec, &sim_runs) {
+    // (`lightning::measure_farm_in` over redsim's runs of the same schedule, in the gate's terrain
+    // site as the card measures them (farmopt 2026-11-11: in the void the bolts fell on the farm's
+    // own column tops, so d1u-deep's gate expected 0.25 trap horses where its card's terrain rate,
+    // every 41 game days of thunder, expects 3.05 over the game's 124.9 thunder days: the game saw
+    // 3)), 99% Poisson; rates the model cannot measure fail the gate (never a check silently
+    // skipped)
+    match redsim::weather::lightning::measure_farm_in(&spec, &sim_runs, site) {
         Ok((m, _)) => {
             let thunder: f64 = rep.builds.iter().flat_map(|b| b.windows.iter()).map(|w| w.thunder_samples as f64 * 20.0).sum();
             let seen = |f: fn(&Window) -> u32| rep.builds.iter().flat_map(|b| b.windows.iter()).map(f).sum::<u32>();
