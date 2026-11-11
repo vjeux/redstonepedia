@@ -732,6 +732,37 @@ pub enum MobfarmCmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// The carousel brief's "The site (the placed farm)" (ironfarm's 7b8d9a006 and its amend;
+    /// ironspec and G1 2026-11-11): the five site conditions against the placed farm (lightning,
+    /// natural mobs, empty-handed zombies, no village POI within 8 sections, the farm's zombies
+    /// stay), one verdict each with its findings, then each condition's positive controls (a copy
+    /// of the placed farm with one change, which must fail). Exits 1 on a FAIL or on a control
+    /// that does not bite.
+    SiteCheck {
+        design: PathBuf,
+        /// Built into this terrain sample at the judge's cheapest spot (village-edge, plains,
+        /// forest); without it, the void.
+        #[arg(long)]
+        terrain: Option<String>,
+        /// More villager positions: files of `x y z` lines in design cells (`queue-loop-run
+        /// --record-positions` over a full bench night), as queue-loop-spots reads them.
+        #[arg(long, value_delimiter = ',')]
+        positions: Vec<PathBuf>,
+        /// Every rail cell of the design is a villager position too.
+        #[arg(long)]
+        rails: bool,
+        /// A lightning rod the site guide adds, at design column X,Z: a stone pillar from the
+        /// column's top to 1 above the farm's top, the rod on it (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        rod: Vec<String>,
+        /// The verdicts alone, no controls.
+        #[arg(long)]
+        no_controls: bool,
+        /// The AFK player's feet, design coordinates x,y,z (the site guide's spot; default the
+        /// site's, or on top of the farm's middle in the void).
+        #[arg(long, allow_hyphen_values = true)]
+        afk: Option<String>,
+    },
     /// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
     /// from every position a villager can occupy: a loop scene's rail cells, plus the positions
     /// in --positions files (x y z per line: `queue-loop-run --record-positions` over a full bench
@@ -2784,6 +2815,37 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("stand S1 S2 S3: {}", fmt(&lay.stand));
             if let Some(r) = lay.stand_rel {
                 println!("wired pocket stand: REL input cell ({},{},{}): a redstone block opens the three gates and resets the latch, glass lets it count", r.x, r.y, r.z);
+            }
+        }
+        MobfarmCmd::SiteCheck { design, terrain, positions, rails, rod, no_controls, afk } => {
+            let (c, spec) = load(version, &design)?;
+            let mut extra: Vec<redsim::pos::BlockPos> = Vec::new();
+            for f in &positions {
+                for line in std::fs::read_to_string(f)?.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                    let v: Vec<i32> = line.split([',', ' ']).filter(|s| !s.is_empty()).map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "{}: a position takes x y z: {line}", f.display());
+                    extra.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                }
+            }
+            let mut rods: Vec<(i32, i32)> = Vec::new();
+            for t in &rod {
+                let v: Vec<i32> = t.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 2, "--rod takes X,Z (a design column): {t}");
+                rods.push((v[0], v[1]));
+            }
+            let afk = match afk.as_deref() {
+                Some(t) => {
+                    let v: Vec<f64> = t.split(',').map(|n| n.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--afk takes x,y,z (design coordinates): {t}");
+                    Some([v[0], v[1], v[2]])
+                }
+                None => None,
+            };
+            let placed = crate::sitecheck::place(&c, &spec, terrain.as_deref(), &extra, rails, &rods, afk).map_err(|e| anyhow::anyhow!(e))?;
+            let (text, ok) = crate::sitecheck::report(&placed, !no_controls);
+            print!("{text}");
+            if !ok {
+                std::process::exit(1);
             }
         }
         MobfarmCmd::QueueLoopSpots { design, positions, offset, within, rails, with_entities, list, pad, stand } => {

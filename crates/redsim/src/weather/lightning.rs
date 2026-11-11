@@ -233,7 +233,7 @@ fn flammable_neighbour(w: &World, p: BlockPos) -> Option<(BlockPos, Block)> {
 }
 
 /// The lightning rods of the world whose rod tops its column (`findLightningRod`'s filter).
-fn rods(w: &World) -> Vec<BlockPos> {
+pub fn rods(w: &World) -> Vec<BlockPos> {
     let mut v = Vec::new();
     for (i, b) in w.cells.iter().enumerate() {
         if matches!(b, Block::LightningRod { .. }) {
