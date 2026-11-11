@@ -291,6 +291,38 @@ pub enum MobfarmCmd {
     /// mobinfra: bolts summoned in fixed scenarios (hits through roofs, the box's edge, a boat, a
     /// drop, a golem, the bolt's fire), the game's outcome beside redsim's.
     BoltCheck,
+    /// (tickexact 2026-11-11, ironspec's surroundings question) A design's terrain baked into a new
+    /// design file in the design's own coordinates (the judge's site in a sample: build K, the ground
+    /// line the design y at the ground layer, `margin` cells of terrain round the box, the box as the
+    /// site digs it), so every void-world runner runs it in its built surroundings unchanged
+    Ground {
+        design: PathBuf,
+        /// The sample (flat: the price tool's ground, no sample; village-edge, plains, forest; default
+        /// the design's `sample:`, else flat)
+        #[arg(long)]
+        sample: Option<String>,
+        /// The design y at the ground layer (default the design's `ground:`, else -1: the price tool's)
+        #[arg(long, allow_hyphen_values = true)]
+        ground: Option<i32>,
+        #[arg(long, default_value_t = 0)]
+        build: usize,
+        #[arg(long, default_value_t = 16)]
+        margin: i32,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// (tickexact 2026-11-11, ironspec's weather gap) A design's golems a game day, day by day, at the
+    /// judge's site under the card's windows probe, the headline's natural cycle and no weather
+    WeatherDays {
+        design: PathBuf,
+        #[arg(long, default_value_t = 16)]
+        runs: u32,
+        #[arg(long, default_value_t = 5)]
+        days: u32,
+        /// The judge's build (site) K (0: the cheapest, the card's)
+        #[arg(long, default_value_t = 0)]
+        build: u32,
+    },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
     /// 16/7 and stroll 2/2, IDLE's stroll 10/7 and walks to villagers within 8, job-site / bell walks,
@@ -303,6 +335,10 @@ pub enum MobfarmCmd {
         /// Unreached cells printed a place
         #[arg(long, default_value_t = 6)]
         show: usize,
+        /// More places a villager stands on foot: `x,y,z,x,y,z,...` (the rail cells within 1 of the
+        /// bed are tried on foot already: a dropped napper)
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        foot: Vec<i32>,
     },
     /// One judge run of a design on redsim: its table.
     Run {
@@ -3421,14 +3457,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot } => {
             let (_c, spec) = load(version, &design)?;
             // (the bed: --home, else the design's `port home:` line)
             let text = std::fs::read_to_string(&design)?;
             let port = text.lines().find_map(|l| l.strip_prefix("port home:")).map(|r| r.split_whitespace().filter_map(|t| t.parse::<i32>().ok()).collect::<Vec<_>>());
             let h = if home.len() == 3 { Some(home) } else { port.filter(|v| v.len() == 3) };
             let bed = h.map(|v| redsim::pos::BlockPos::new(v[0], v[1], v[2]));
-            let places = crate::fleecheck::check(&spec, bed).map_err(|e| anyhow::anyhow!(e))?;
+            let foot: Vec<redsim::pos::BlockPos> = foot.chunks(3).filter(|c| c.len() == 3).map(|c| redsim::pos::BlockPos::new(c[0], c[1], c[2])).collect();
+            let places = crate::fleecheck::check(&spec, bed, &foot).map_err(|e| anyhow::anyhow!(e))?;
             let jobs = crate::fleecheck::job_and_bell_blocks(&spec);
             for l in crate::fleecheck::report(&places, &jobs, show) {
                 println!("{l}");
@@ -4656,6 +4693,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
+        MobfarmCmd::Ground { design, sample, ground, build, margin, out } => {
+            let (c, spec) = load(version, &design)?;
+            let meta = &c.clock.design.meta;
+            let sample = sample.or_else(|| meta.get("sample").cloned()).unwrap_or_else(|| "flat".to_string());
+            let g = ground.or_else(|| meta.get("ground").and_then(|v| v.trim().parse().ok())).unwrap_or(-1);
+            let r = crate::ground::ground(&design, &spec, &sample, g, build, margin, &out)?;
+            println!(
+                "{}: {} grounded in {} build {build} (offset {:?}), ground line y {g}, box {:?}..{:?}, {} terrain blocks added within {margin}",
+                out.display(),
+                design.display(),
+                r.sample,
+                r.offset,
+                [r.box_lo.x, r.box_lo.y, r.box_lo.z],
+                [r.box_hi.x, r.box_hi.y, r.box_hi.z],
+                r.added
+            );
+        }
+        MobfarmCmd::WeatherDays { design, runs, days, build } => {
+            let (c, spec) = load(version, &design)?;
+            let sample = circuit::mobfarm::terrain_sample(&c).map_err(|e| anyhow::anyhow!(e))?.ok_or_else(|| anyhow::anyhow!("weather-days: the design is not judged in terrain"))?;
+            let sites = circuit::mobfarm::terrain_sites(&c, &spec, sample).map_err(|e| anyhow::anyhow!(e))?;
+            let site = *sites.get(build as usize).ok_or_else(|| anyhow::anyhow!("--build {build}: the judge has {} builds", sites.len()))?;
+            crate::weathercheck::weather_days_cmd(&spec, site, build, runs, days)?;
+        }
         MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, terrain, day0, scan, batch, build, run, no_spawning, only } => {
             let ticks = ticks.unwrap_or((days * 24000.0).round() as u32);
             let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at, terrain, day0, build: build.map(|k| (k, run)), no_spawning, only };

@@ -374,6 +374,39 @@ fn outcome(villagers: usize, witches: usize, boats: usize, zombie_hp: Option<f32
     v.join(", ")
 }
 
+/// (tickexact 2026-11-11, ironspec's weather gap: the card's "clear day" against the headline) The
+/// golems a game day, day by day, at the judge's site `build` of the design, under three weather
+/// plans with the judge's run options: the card's windows probe (`Windows`: a natural day, then a
+/// forced day of rain, then of thunder; its seeds), the headline's natural cycle (`Cycle`; the build
+/// runs' seeds, `days` long) and no weather (`Off`; the same seeds). Each day's golems an hour over
+/// the runs, with a 95% interval.
+pub fn weather_days_cmd(spec: &farm::FarmSpec, site: &'static redsim::entity::mob::site::Site, build: u32, runs: u32, days: u32) -> Result<()> {
+    let moved = site.spec(spec);
+    let seed0 = farm::JUDGE_SEED0;
+    let plans: Vec<(&str, Plan, Vec<i64>, u32)> = vec![
+        ("windows (the card's: day 1 natural, 2 rain, 3 thunder)", Plan::Windows { at: 24000, rain: 24000, thunder: 24000 }, (0..runs).map(|k| seed0 + 4242 + k as i64).collect(), 3),
+        ("cycle (the headline's)", Plan::Cycle, (0..runs).map(|k| seed0 + build as i64 * 1000 + k as i64).collect(), days),
+        ("off (no weather)", Plan::Off, (0..runs).map(|k| seed0 + build as i64 * 1000 + k as i64).collect(), days),
+    ];
+    for (name, plan, seeds, d) in plans {
+        let jobs: Vec<RunOpts> = seeds.iter().map(|s| farm::judge_opts_in(*s, d * 24000, WalkMode::Random, Some(site)).with_weather(plan)).collect();
+        let reports: Vec<farm::RunReport> = circuit::mobfarm::run_all(&moved, &jobs).into_iter().collect::<std::result::Result<_, _>>().map_err(|e| anyhow!(e))?;
+        let mut line = format!("{name}, {} runs x {d} days:", reports.len());
+        for day in 0..d as i64 {
+            let a = farm::SETTLE_TICKS + day * 24000;
+            let per: Vec<f64> = reports.iter().map(|r| r.spawn_times.iter().filter(|t| (a..a + 24000).contains(*t)).count() as f64 * 3.0).collect();
+            let n = per.len() as f64;
+            let mean = per.iter().sum::<f64>() / n;
+            let sd = (per.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0).max(1.0)).sqrt();
+            line.push_str(&format!(" day {} {mean:.1} golems/h (+-{:.1})", day + 1, 1.96 * sd / n.sqrt()));
+        }
+        let mean_all = reports.iter().map(|r| r.golems_per_hour()).sum::<f64>() / reports.len() as f64;
+        line.push_str(&format!("; whole runs {mean_all:.1} golems/h"));
+        println!("{line}");
+    }
+    Ok(())
+}
+
 /// `mctas mobfarm bolt-check`: bolts summoned in fixed scenarios (hits through roofs, the box's
 /// edge, a boat, a drop, a golem, the bolt's fire), the game's outcome beside redsim's.
 pub fn bolt_check_cmd(version: &str) -> Result<()> {

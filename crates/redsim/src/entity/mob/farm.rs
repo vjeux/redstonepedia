@@ -48,6 +48,11 @@ pub struct FarmSpec {
     pub rock: bool,
     /// (tickexact 2026-11-10, ironspec's portal pad) Its Nether part (`World::nether`), if any.
     pub nether: Option<NetherSpec>,
+    /// (tickexact 2026-11-11, ironspec's surroundings question) A design with its ground baked in
+    /// (`mobfarm ground`'s `grounded:` meta): the run's world is a terrain world (light engines,
+    /// [`crate::terrain::land::world_of_blocks`]) holding its blocks, so the light under the ground is
+    /// the game's rather than the void's.
+    pub land: bool,
 }
 
 /// A mob farm's Nether part as the runner builds it (`World::nether`): its blocks and its output
@@ -401,6 +406,7 @@ impl Run {
         let size = [spec.hi.x - spec.lo.x + 1, spec.hi.y - spec.lo.y + 1, spec.hi.z - spec.lo.z + 1];
         let mut w = match o.site {
             Some(s) => s.world_for(spec),
+            None if spec.land => crate::terrain::land::world_of_blocks(spec.lo, size, &spec.blocks)?,
             None => World::new(spec.lo, size),
         };
         w.mob.seed(o.seed, o.day0 - SETTLE_TICKS);

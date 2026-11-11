@@ -98,6 +98,56 @@ fn cells_of(t: &Terrain) -> Result<Vec<Block>, String> {
     Ok(t.cells.iter().map(|&c| palette[c as usize]).collect())
 }
 
+/// (tickexact 2026-11-11, ironspec's surroundings question) A terrain world of the box `lo`..`lo +
+/// size` holding `blocks` (a design with its ground baked in, `mobfarm ground`): its light computed
+/// by the light engines from the blocks (as [`build_world`] does for a terrain file without saved
+/// light), one biome (plains) and its heightmaps at the box's bottom (a bench: no weather, no
+/// natural spawning reads them).
+pub fn world_of_blocks(lo: BlockPos, size: [i32; 3], blocks: &[(BlockPos, Block)]) -> Result<World, String> {
+    let mut palette: Vec<String> = vec!["minecraft:air".to_string()];
+    let mut index: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
+    index.insert(palette[0].clone(), 0);
+    let n = (size[0] * size[1] * size[2]) as usize;
+    let mut cells = vec![0u16; n];
+    for (p, b) in blocks {
+        let (x, y, z) = (p.x - lo.x, p.y - lo.y, p.z - lo.z);
+        if x < 0 || y < 0 || z < 0 || x >= size[0] || y >= size[1] || z >= size[2] {
+            continue;
+        }
+        let s = b.to_string();
+        // (only the natural states go in the terrain box: the design's own blocks are placed by the
+        // run after it, the light engines settling round them)
+        if blocks::id_of(&s).is_none() {
+            continue;
+        }
+        let k = match index.get(&s) {
+            Some(k) => *k,
+            None => {
+                let k = palette.len() as u16;
+                palette.push(s.clone());
+                index.insert(s, k);
+                k
+            }
+        };
+        cells[((y * size[2] + z) * size[0] + x) as usize] = k;
+    }
+    let bsize = [(size[0] + 3) / 4 + 1, (size[1] + 3) / 4 + 1, (size[2] + 3) / 4 + 1];
+    let t = Terrain {
+        world_min_y: -64,
+        world_height: 384,
+        origin: [lo.x, lo.y, lo.z],
+        size,
+        palette,
+        cells,
+        biome_palette: vec!["minecraft:plains".to_string()],
+        biome_origin: [lo.x.div_euclid(4), lo.y.div_euclid(4), lo.z.div_euclid(4)],
+        biome_size: bsize,
+        biomes: vec![0; (bsize[0] * bsize[1] * bsize[2]) as usize],
+        ..Terrain::default()
+    };
+    build_world(&t)
+}
+
 /// A world holding a terrain file's whole box, its light, heightmaps and biomes.
 pub fn build_world(t: &Terrain) -> Result<World, String> {
     if !t.sky.is_empty() && !t.block.is_empty() {

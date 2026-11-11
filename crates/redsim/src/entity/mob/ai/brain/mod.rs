@@ -96,7 +96,7 @@ impl WalkTarget {
     }
 }
 
-fn walk_trace() -> Option<[i32; 3]> {
+pub(crate) fn walk_trace() -> Option<[i32; 3]> {
     static W: std::sync::OnceLock<Option<[i32; 3]>> = std::sync::OnceLock::new();
     *W.get_or_init(|| {
         let v: Vec<i32> = std::env::var("MCTAS_WALK_TRACE").ok()?.split(',').filter_map(|s| s.trim().parse().ok()).collect();

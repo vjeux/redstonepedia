@@ -82,7 +82,7 @@ pub fn spec(d: &Design) -> Result<FarmSpec, String> {
         entities.push((e.kind.clone(), e.pos, nbt));
     }
     let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
-    Ok(FarmSpec { blocks, entities, output: bp(out), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether: nether_spec(d)? })
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether: nether_spec(d)?, land: d.meta.contains_key("grounded") })
 }
 
 /// The judge's `port home` memory put into each villager passenger's own compound of a vehicle's

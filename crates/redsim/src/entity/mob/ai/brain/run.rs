@@ -1420,6 +1420,13 @@ fn walk_away_from(w: &mut World, i: usize, mem: M, speed: f32) -> bool {
     }
     for _ in 0..10 {
         if let Some(p) = stroll::land_pos_away(w, i, 0.0, 16.0, 7, avoid) {
+            // (tickexact probe: MCTAS_WALK_TRACE=x,y,z: the fleeing mob's and the hostile's
+            // positions when the flee picks that block)
+            if let Some(want) = super::walk_trace()
+                && want == [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32]
+            {
+                eprintln!("flee to {},{},{}: mob #{} at {:.3} {:.3} {:.3}, away from {:.3} {:.3} {:.3}, t{}", want[0], want[1], want[2], w.entities.list[i].id, me.x, me.y, me.z, avoid.x, avoid.y, avoid.z, w.time);
+            }
             ex_mut(w, i).mem.walk_target = Some(WalkTarget::at_point(p, speed, 0));
             break;
         }

@@ -51,6 +51,8 @@ impl Source {
 /// One rider place's result.
 pub struct Place {
     pub cell: BlockPos,
+    /// A villager standing there (a dropped napper), not a rider seated in a cart.
+    pub on_foot: bool,
     /// The hostiles within 6 (the flee's) and within 8 (PANIC), and how many it sees as placed.
     pub flee_from: usize,
     pub panic_from: usize,
@@ -87,99 +89,148 @@ pub fn job_and_bell_blocks(spec: &FarmSpec) -> Vec<(BlockPos, String)> {
         .collect()
 }
 
-/// The check over every rail cell of `spec` (its own world built and settled), the bed `home` for
-/// REST's walk.
-pub fn check(spec: &FarmSpec, home: Option<BlockPos>) -> Result<Vec<Place>, String> {
+/// The check over every rail cell of `spec` (its own world built and settled; a rider seated in a
+/// cart there, at three points along the rail's axis), and on foot at every rail cell within 1 of the
+/// bed `home` (a dropped napper stands there) and at each `foot` cell; the bed `home` for REST's walk.
+pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos]) -> Result<Vec<Place>, String> {
     use redsim::entity::mob::ai::goal::stroll;
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     while run.settle_tick() {}
     let w = &mut run.world;
     let foes = hostiles(spec);
-    let rails: Vec<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
+    let rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     let rider_at = |c: BlockPos| Vec3::new(c.x as f64 + 0.5, c.y as f64 + 0.0625, c.z as f64 + 0.5);
+    // the places: (cell, on foot, the points tried)
+    let mut places: Vec<(BlockPos, bool, Vec<Vec3>)> = Vec::new();
+    for (c, state) in &rails {
+        let along = |t: f64| {
+            if state.contains("shape=east_west") || state.contains("shape=ascending_east") || state.contains("shape=ascending_west") {
+                Vec3::new(c.x as f64 + t, c.y as f64 + 0.0625, c.z as f64 + 0.5)
+            } else if state.contains("shape=north_south") || state.contains("shape=ascending_north") || state.contains("shape=ascending_south") {
+                Vec3::new(c.x as f64 + 0.5, c.y as f64 + 0.0625, c.z as f64 + t)
+            } else {
+                rider_at(*c)
+            }
+        };
+        places.push((*c, false, vec![along(0.1), along(0.5), along(0.9)]));
+    }
+    for (c, _) in &rails {
+        if home.is_some_and(|h| (c.x - h.x).abs().max((c.z - h.z).abs()) <= 1 && (c.y - h.y).abs() <= 1) {
+            places.push((*c, true, vec![Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5)]));
+        }
+    }
+    for c in foot {
+        places.push((*c, true, vec![Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5)]));
+    }
     let mut out = Vec::new();
-    for &cell in &rails {
-        // a test rider: a villager seated in a cart on the rail (the bench's riders' pose)
-        let p0 = rider_at(cell);
-        let cart = redsim::entity::spawn(w, "minecraft:minecart", [p0.x, p0.y, p0.z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
-        let Some(ci) = redsim::entity::index_of(w, cart) else { continue };
-        let Some(&vid) = w.entities.list[ci].passengers.first() else { continue };
+    for (cell, on_foot, points) in places {
+        let p0 = points[points.len() / 2];
+        let (vid, cart) = if on_foot {
+            (redsim::entity::spawn(w, "minecraft:villager", [p0.x, p0.y, p0.z], Some("{PersistenceRequired:1b}"))?, None)
+        } else {
+            let cart = redsim::entity::spawn(w, "minecraft:minecart", [p0.x, p0.y, p0.z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
+            let Some(ci) = redsim::entity::index_of(w, cart) else { continue };
+            let Some(&vid) = w.entities.list[ci].passengers.first() else { continue };
+            (vid, Some(cart))
+        };
         let Some(i) = redsim::entity::index_of(w, vid) else { continue };
-        redsim::entity::position_rider(w, ci, i);
         if let Some(h) = home
             && let EntityKind::Mob(m) = &mut w.entities.list[i].kind
             && let Some(b) = m.brain.as_deref_mut()
         {
             b.home = Some(h);
         }
-        let me = w.entities.list[i].pos;
-        let eye = Vec3::new(me.x, me.y + 1.62, me.z);
-        let dist = |f: &Vec3| ((me.x - f.x).powi(2) + (me.y - f.y).powi(2) + (me.z - f.z).powi(2)).sqrt();
-        let near6: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) < 6.0).collect();
-        let near8: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) <= 8.0).collect();
-        let seen = near8.iter().filter(|f| redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.74, f.z))).count();
+        // (put the rider at point `p`: the cart there and the rider seated, or the villager standing)
+        let put = |w: &mut redsim::World, p: Vec3| {
+            match cart.and_then(|c| redsim::entity::index_of(w, c)) {
+                Some(ci) => {
+                    w.entities.list[ci].pos = p;
+                    redsim::entity::position_rider(w, ci, i);
+                }
+                None => w.entities.list[i].pos = p,
+            }
+            w.entities.list[i].pos
+        };
         let reaches = |w: &mut redsim::World, t: BlockPos| -> bool {
             redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
                 let mut copy = nav.clone();
                 copy.create_path_pos(w, nm, t, 0, arena).is_some_and(|p| p.reached)
             })
         };
-        let judge = |w: &mut redsim::World, shares: Vec<(BlockPos, f64)>| -> Source {
+        let merge = |into: &mut Vec<(BlockPos, f64)>, from: Vec<(BlockPos, f64)>| {
+            for (c, s) in from {
+                match into.iter_mut().find(|(x, _)| *x == c) {
+                    Some((_, t)) => *t = t.max(s),
+                    None => into.push((c, s)),
+                }
+            }
+        };
+        let (mut flee_s, mut panic_s, mut idle_s) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut flee_from, mut panic_from, mut seen, mut village) = (0, 0, 0, false);
+        for &p in &points {
+            let me = put(w, p);
+            let eye = Vec3::new(me.x, me.y + 1.62, me.z);
+            let dist = |f: &Vec3| ((me.x - f.x).powi(2) + (me.y - f.y).powi(2) + (me.z - f.z).powi(2)).sqrt();
+            let near6: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) < 6.0).collect();
+            let near8: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) <= 8.0).collect();
+            flee_from = flee_from.max(near6.len());
+            panic_from = panic_from.max(near8.len());
+            seen = seen.max(near8.iter().filter(|f| redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.74, f.z))).count());
+            // PANIC's flee: every hostile within 6 (the largest share over them and the points; the
+            // exact enumeration's cells a share of 0 misses kept at 0: an offset of exactly 16)
+            for f in &near6 {
+                merge(&mut flee_s, stroll::flee_pick_shares(w, i, 16.0, 7, *f));
+                let edge: Vec<(BlockPos, f64)> = stroll::flee_candidates(w, i, 16.0, 7, *f).into_iter().map(|c| (c, 0.0)).collect();
+                merge(&mut flee_s, edge);
+            }
+            // VillageBoundRandomStroll (PANIC's 2/2, IDLE's 10/7): in a village a land draw around;
+            // else DefaultRandomPos toward the section closest to the village within 2, or a land
+            // draw when that section is its own
+            let me_b = w.entities.list[i].block_position();
+            let v = redsim::entity::mob::ai::poi::is_village(w, me_b);
+            village |= v;
+            let s = (me_b.x.div_euclid(16), me_b.y.div_euclid(16), me_b.z.div_euclid(16));
+            let best = if v { s } else { redsim::entity::mob::ai::poi::section_closest_to_village(w, s, 2) };
+            let village_stroll = |w: &redsim::World, h: f64, vv: i32| {
+                if best != s {
+                    let c = ((best.0 * 16 + 8) as f64 + 0.5, (best.2 * 16 + 8) as f64 + 0.5);
+                    stroll::pick_shares(w, i, h, vv, Some((c.0 - me.x, c.1 - me.z)), false, 10)
+                } else {
+                    stroll::pick_shares(w, i, h, vv, None, true, 10)
+                }
+            };
+            if !near8.is_empty() {
+                merge(&mut panic_s, village_stroll(w, 2.0, 2));
+            }
+            merge(&mut idle_s, village_stroll(w, 10.0, 7));
+        }
+        let me = put(w, p0);
+        let mut judge = |w: &mut redsim::World, shares: Vec<(BlockPos, f64)>| -> Source {
             let cells = shares.len();
             let mut unreached: Vec<(BlockPos, f64)> = shares.into_iter().filter(|(c, _)| !reaches(w, *c)).collect();
             unreached.sort_by(|a, b| b.1.total_cmp(&a.1));
             Source { cells, unreached }
         };
-        // PANIC's flee: every hostile within 6 (the largest share over them; the exact enumeration's
-        // edge cells at 0)
-        let mut shares: Vec<(BlockPos, f64)> = Vec::new();
-        for f in &near6 {
-            for (c, s) in stroll::flee_pick_shares(w, i, 16.0, 7, *f) {
-                match shares.iter_mut().find(|(x, _)| *x == c) {
-                    Some((_, t)) => *t = t.max(s),
-                    None => shares.push((c, s)),
-                }
-            }
-            for c in stroll::flee_candidates(w, i, 16.0, 7, *f) {
-                if !shares.iter().any(|(x, _)| *x == c) {
-                    shares.push((c, 0.0));
-                }
-            }
-        }
-        let flee = judge(w, shares);
-        // VillageBoundRandomStroll (PANIC's 2/2, IDLE's 10/7): in a village a land draw around; else
-        // DefaultRandomPos toward the section closest to the village within 2, or a land draw when
-        // that section is its own
-        let me_b = w.entities.list[i].block_position();
-        let village = redsim::entity::mob::ai::poi::is_village(w, me_b);
-        let s = (me_b.x.div_euclid(16), me_b.y.div_euclid(16), me_b.z.div_euclid(16));
-        let best = if village { s } else { redsim::entity::mob::ai::poi::section_closest_to_village(w, s, 2) };
-        let village_stroll = |w: &redsim::World, h: f64, v: i32| {
-            if best != s {
-                let c = ((best.0 * 16 + 8) as f64 + 0.5, (best.2 * 16 + 8) as f64 + 0.5);
-                stroll::pick_shares(w, i, h, v, Some((c.0 - me.x, c.1 - me.z)), false, 10)
-            } else {
-                stroll::pick_shares(w, i, h, v, None, true, 10)
-            }
-        };
-        let panic_stroll = if near8.is_empty() { Source::default() } else { judge(w, village_stroll(w, 2.0, 2)) };
-        let calm_stroll = village_stroll(w, 10.0, 7);
-        let stroll_src = judge(w, calm_stroll);
+        let flee = judge(w, flee_s);
+        let panic_stroll = judge(w, panic_s);
+        let stroll_src = judge(w, idle_s);
         // IDLE's walks to another villager within 8 (InteractWith; SetWalkTargetFromLookTarget): every
         // other rider place within 8, its rider's cell
         let mut others: Vec<(BlockPos, f64)> = Vec::new();
-        for &o in &rails {
-            let q = rider_at(o);
-            if o != cell && dist(&q) <= 8.0 {
-                others.push((o, 1.0));
+        for (o, _) in &rails {
+            let q = rider_at(*o);
+            if *o != cell && ((me.x - q.x).powi(2) + (me.y - q.y).powi(2) + (me.z - q.z).powi(2)).sqrt() <= 8.0 {
+                others.push((*o, 1.0));
             }
         }
         let others = judge(w, others);
         let home_reached = home.map(|h| reaches(w, h));
-        out.push(Place { cell, flee_from: near6.len(), panic_from: near8.len(), seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached });
+        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached });
         let _ = redsim::entity::kill(w, vid);
-        let _ = redsim::entity::kill(w, cart);
+        if let Some(c) = cart {
+            let _ = redsim::entity::kill(w, c);
+        }
         w.entities.list.retain(|e| !e.removed);
     }
     Ok(out)
@@ -203,10 +254,11 @@ pub fn report(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec
         for p in &bad {
             let s = pick(p).expect("a source");
             lines.push(format!(
-                "  {name} {},{},{} ({} hostile(s) within 6, {} within 8, {} in sight as placed): {} cells, {} unreached{}: {}",
+                "  {name} {},{},{}{} ({} hostile(s) within 6, {} within 8, {} in sight as placed): {} cells, {} unreached{}: {}",
                 p.cell.x,
                 p.cell.y,
                 p.cell.z,
+                if p.on_foot { " on foot" } else { "" },
                 p.flee_from,
                 p.panic_from,
                 p.seen,

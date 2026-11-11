@@ -874,6 +874,8 @@ impl Site {
             rock: spec.rock,
             // the Nether part follows the anchor (its image moves by floor(anchor / 8))
             nether: spec.nether.as_ref().map(|n| NetherSpec { anchor: at(n.anchor), ..n.clone() }),
+            // (a site's world is a terrain world already)
+            land: false,
         }
     }
 
@@ -976,6 +978,7 @@ mod tests {
             block_entities: Vec::new(),
             rock: false,
             nether: None,
+            land: false,
         };
         let clears = clears_at(&w, &spec, [0, 0, 0], false);
         let got: Vec<([i32; 3], bool)> = clears.iter().map(|(p, b)| ([p.x, p.y, p.z], b.is_air())).collect();
@@ -1023,6 +1026,7 @@ mod tests {
             block_entities: Vec::new(),
             rock: false,
             nether: None,
+            land: false,
         };
         let got: Vec<([i32; 3], bool)> = seals_at(&w, &spec, [0, 0, 0], false).iter().map(|(p, dig)| ([p.x, p.y, p.z], *dig)).collect();
         assert_eq!(got, vec![([3, -1, 1], true), ([0, 0, 1], true), ([0, 1, 0], true)], "the gravels over free cells beside the dig, dug first; the gravels on gravel stay");
