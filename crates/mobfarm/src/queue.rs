@@ -2142,6 +2142,12 @@ pub struct LoopTiming {
     /// The stand's REL held at least this many gt from its rise (a pulse extender on REL,
     /// `--rel-min L`; 0: off).
     pub rel_min: i64,
+    /// The late-arrival hold, emulated (`--late-hold X,Y,Z,N`): a cart's centre entering that
+    /// loop-frame cell (the arrival detector before pocket 3) within the last N gt while the
+    /// controller's REL is on (the bench's own pulse, before `rel_min`'s extension, or an act
+    /// holding the REL cell) holds G2 shut, so a cart reaching the stand during a release rests
+    /// against G2 and leaves from rest instead of chasing the cart ahead.
+    pub late_hold: Option<([i32; 3], i64)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -2288,7 +2294,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0 }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: None }
     }
 }
 
@@ -3119,6 +3125,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut pocket_released_at: Option<i64> = None;
     // (the wired stand: when the bench turns REL off again)
     let mut rel_off_at: Option<i64> = None;
+    // (`late_hold`: the controller's own REL end (before `rel_min`'s extension), the last time a
+    // cart entered the arrival cell, and which carts are in it)
+    let mut raw_rel_off_at: Option<i64> = None;
+    let mut late_edge_at: Option<i64> = None;
+    let mut late_in: Vec<bool> = vec![false; 64];
     // (`acts`' restores due: (gt, cell, the block the act replaced)); the bench's own REL state
     let mut act_restores: Vec<(i64, BlockPos, Block)> = Vec::new();
     let mut pending_loads: Vec<(i64, Option<[i32; 4]>)> = Vec::new();
@@ -3132,6 +3143,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // (carts back through a gate; departures from the stand: (gt, cart, touching the one before))
     let mut strip_x: Vec<Option<f64>> = vec![None; 64];
     let mut back_through: Vec<String> = Vec::new();
+    // (each back-crossing's cause: the stand-and-climb track coordinate s of every cart over its
+    // last 80 gt (the strip's x, then 9.5 + the climb's z past the corner); a back-crossing looks
+    // back for the cart's furthest point (its reversal), the rail it was on there, and the
+    // nearest other cart then)
+    let mut s_hist: Vec<std::collections::VecDeque<(i64, f64, String, Option<(usize, f64)>)>> = vec![std::collections::VecDeque::new(); 64];
+    let mut back_causes: Vec<String> = Vec::new();
+    let mut back_kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     let mut departs: Vec<(i64, usize, bool)> = Vec::new();
     let mut top_v: Vec<Option<f64>> = Vec::new();
     // (the tail's entry: each cart reaching the return run's end, x 1 westward along z 20 at the
@@ -3899,6 +3917,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         // (`rel_on` moves the start alone: the end stays at the nominal start +
                         // `rel_for`)
                         rel_off_at = Some((t - tm.rel_on + tm.rel_for).max(t + 1));
+                        raw_rel_off_at = rel_off_at;
                         // (`rel_min` L: the stand's REL held at least L gt from its rise, a pulse
                         // extender on REL; no rise (REL held off by an act), no extension)
                         if tm.rel_min > 0 && !rel_held(r) {
@@ -4121,6 +4140,24 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         run.tick();
         merges.observe(&run.world, &format!("t {t}"));
+        // (`late_hold`, emulated: a cart entering the arrival cell within the last N gt while the
+        // controller's REL is on holds G2 shut; never shut on a cart inside the gate's block)
+        if let (Some((cell, n)), Some(g2)) = (tm.late_hold, lay.pockets.get(2).map(|p| p.0)) {
+            let (cx, cy, cz) = (cell[0] + o.shift[0], cell[1], cell[2] + o.shift[1]);
+            let ps: Vec<Option<redsim::entity::Vec3>> = carts.iter().map(|id| pos_of(&run.world, *id)).collect();
+            for (k, p) in ps.iter().enumerate().take(64) {
+                let inside = p.is_some_and(|p| p.x.floor() as i32 == cx && p.y.floor() as i32 == cy && p.z.floor() as i32 == cz);
+                if inside && !late_in[k] {
+                    late_edge_at = Some(t);
+                }
+                late_in[k] = inside;
+            }
+            let raw_on = raw_rel_off_at.is_some_and(|x| t < x) || rel_bench.is_some_and(|r| act_restores.iter().any(|(_, q, _)| *q == r));
+            let in_gate = ps.iter().flatten().any(|p| (p.x - (g2.x as f64 + 0.5)).abs() < 0.99 && (p.z - (g2.z as f64 + 0.5)).abs() < 0.99 && p.y > g2.y as f64 - 1.7 && p.y < g2.y as f64 + 1.0);
+            if raw_on && late_edge_at.is_some_and(|e| t - e < n) && !in_gate {
+                set_gate(&mut run.world, g2, "east", false);
+            }
+        }
         stop_brake(&mut run.world, &mut stop_arm);
         hold_day(&mut run.world);
         // (the lap order: each cart onto the pocket stand's departure climb, its first cell)
@@ -4217,6 +4254,35 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             }
             // the departure: each cart past x 9 (the curve) eastward, its gap to the one before)
             let gx = [-o.row_gap as f64 + 3.5, -o.row_gap as f64 + 7.5, -o.row_gap as f64 + 11.5];
+            {
+                let xd = -o.row_gap as f64 + 12.5;
+                let ps: Vec<Option<redsim::entity::Vec3>> = carts.iter().map(|id| pos_of(&run.world, *id)).collect();
+                for (k, p) in ps.iter().enumerate().take(64) {
+                    let s = p.and_then(|p| {
+                        let (x, z) = (p.x - fx, p.z - fz);
+                        if (z - 0.5).abs() < 0.6 && p.y < 1.5 && x > -o.row_gap as f64 - 1.0 && x < xd + 0.5 {
+                            Some(x)
+                        } else if (x - xd).abs() < 0.6 && z > 0.5 && z < 30.0 && p.y < 12.0 {
+                            Some(xd + (z - 0.5))
+                        } else {
+                            None
+                        }
+                    });
+                    let h = &mut s_hist[k];
+                    match (s, p) {
+                        (Some(s), Some(p)) => {
+                            let rail = run.world.get(BlockPos::new(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32)).to_string();
+                            let rail = rail.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string() + if rail.contains("powered=true") { "+" } else if rail.contains("powered=false") { "-" } else { "" };
+                            let near = ps.iter().enumerate().filter(|(j, q)| *j != k && q.is_some()).map(|(j, q)| (j, q.unwrap())).map(|(j, q)| (j, ((q.x - p.x).powi(2) + (q.y - p.y).powi(2) + (q.z - p.z).powi(2)).sqrt())).min_by(|a, b| a.1.total_cmp(&b.1)).filter(|(_, d)| *d < 1.3);
+                            h.push_back((t, s, rail, near));
+                            if h.len() > 80 {
+                                h.pop_front();
+                            }
+                        }
+                        _ => h.clear(),
+                    }
+                }
+            }
             for (k, id) in carts.iter().enumerate() {
                 let p = pos_of(&run.world, *id);
                 let now = p.filter(|p| (p.z - 0.5 - fz).abs() < 0.6 && p.y < 1.5).map(|p| p.x - fx);
@@ -4224,6 +4290,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     for (g, gxx) in gx.iter().enumerate() {
                         if x0 >= *gxx && x1 < *gxx {
                             back_through.push(format!("slot {c} +{dt}: cart {k} back through G{}", 2 - g));
+                            // (its cause: the furthest point over its history, the rail there, the
+                            // nearest cart then; the kind: reversed on the climb or in the strip)
+                            if let Some((ti, si, rail, near)) = s_hist[k].iter().max_by(|a, b| a.1.total_cmp(&b.1)).cloned() {
+                                let xd = -o.row_gap as f64 + 12.5;
+                                let kind = if si > xd + 0.6 { "climb" } else if si > *gxx + 1.0 { "strip" } else { "near the gate" };
+                                *back_kinds.entry(kind.to_string()).or_default() += 1;
+                                let at = if si > xd { format!("climb z {:.2}", si - xd + 0.5) } else { format!("strip x {si:.2}") };
+                                back_causes.push(format!("cart {k} through G{} at slot {c} +{dt}: reversed {} gt before at {at} on {rail}{}", 2 - g, t - ti, near.map(|(j, d)| format!(", cart {j} {d:.2} away")).unwrap_or_default()));
+                            }
                         }
                     }
                     let xd = -o.row_gap as f64 + 12.0;
@@ -5146,6 +5221,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             out.push(format!("stand departures under 8 gt apart or touching: {}", small.join(", ")));
         }
         out.push(format!("back through a gate: {}{}", back_through.len(), if back_through.is_empty() { String::new() } else { format!(" ({})", back_through.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }));
+        if !back_causes.is_empty() {
+            out.push(format!("back-crossing causes: {} ({})", back_kinds.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "), back_causes.iter().take(8).cloned().collect::<Vec<_>>().join("; ")));
+        }
         out.push(format!("carts off the rails: {}{}; riders not seated: {}{}", derails.len(), if derails.is_empty() { String::new() } else { format!(" ({})", derails.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }, unseat_log.len(), if unseat_log.is_empty() { String::new() } else { format!(" ({})", unseat_log.iter().take(6).cloned().collect::<Vec<_>>().join(", ")) }));
         if o.stand_wired && !latch_sets.is_empty() {
             out.push(format!("latch set (T2 out after +55): +{}..+{} over {} slots", latch_sets.iter().min().unwrap(), latch_sets.iter().max().unwrap(), latch_sets.len()));
