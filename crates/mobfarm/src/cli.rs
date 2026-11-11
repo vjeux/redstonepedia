@@ -787,6 +787,10 @@ pub enum MobfarmCmd {
         /// from each G_P opening.
         #[arg(long, default_value_t = 0)]
         adm_rpulse: i64,
+        /// The rider-space check's positive control: stones at X,Y,Z;... (the design's frame)
+        /// placed before the check.
+        #[arg(long)]
+        rider_space_control: Option<String>,
         /// Every cart's position each tick in the log.
         #[arg(long)]
         trace: bool,
@@ -1197,6 +1201,9 @@ pub enum MobfarmCmd {
         /// from each G_P opening.
         #[arg(long, default_value_t = 0)]
         adm_rpulse: i64,
+        /// The rider-space check's positive control: stones at X,Y,Z;... placed before the check.
+        #[arg(long)]
+        rider_space_control: Option<String>,
         /// Admission control: P always on from the first gate opening.
         #[arg(long)]
         p_always: bool,
@@ -1214,6 +1221,10 @@ pub enum MobfarmCmd {
         /// The cart-evidence landing latch's strand threshold (gt set).
         #[arg(long, default_value_t = 40)]
         hold_strand_t: i64,
+        /// The entry hold's progress input: REL only if a cart left slot 0 forward since the
+        /// last release.
+        #[arg(long)]
+        hold_progress: bool,
         /// Admission control's skip requests, SLOT,DT (up to 8): each sets the latch; the next
         /// G0 opening after it is skipped.
         #[arg(long)]
@@ -2419,7 +2430,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, adm_k2, adm_rpulse, trace, shift, from_climb, unload, drive_out, scene_out, flights, arrivals, scene_at } => {
+        MobfarmCmd::TailBench { design, pattern, extra, seed, seeds, advance_at, advance_every, pulse, fifo_intake, esc_b, esc_g0, esc_adm, adm_latch, p_always, adm_g1_w, adm_k2, adm_rpulse, rider_space_control, trace, shift, from_climb, unload, drive_out, scene_out, flights, arrivals, scene_at } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let pat = crate::tail_bench::parse_pattern(&pattern).map_err(|e| anyhow::anyhow!(e))?;
@@ -2430,7 +2441,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 unloads: unload.chunks(7).map(|u| (u[0], u[1], [u[2] as i32, u[3] as i32, u[4] as i32, u[5] as i32], u[6])).collect(),
                 drive_out: drive_out.clone(),
                 flights: match &flights { Some(s) => Some(crate::flight::parse(s).map_err(|e| anyhow::anyhow!(e))?), None => None },
-                hdr: crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?,
+                hdr: {
+                    let mut h = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+                    if let Some(s) = &rider_space_control {
+                        h.rider_space_control = crate::declared::parse_cells(s).map_err(|e| anyhow::anyhow!("--rider-space-control: {e}"))?;
+                    }
+                    h
+                },
                 arrivals: match &arrivals {
                     Some(f) => std::fs::read_to_string(f)?
                         .lines()
@@ -2562,12 +2579,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, rider_space_control, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, adm_skip_req, arrivals_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
             // turned as its blocks)
             let mut hdr = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            if let Some(s) = &rider_space_control {
+                hdr.rider_space_control = crate::declared::parse_cells(s).map_err(|e| anyhow::anyhow!("--rider-space-control: {e}"))?;
+            }
             if let Some(sf) = &siding {
                 // (a part pasted into the loop: farmopt's bed siding, inside its box)
                 let (pc, part) = load(version, sf)?;
@@ -2585,6 +2605,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 for f in ph.flights {
                     hdr.flights.push(crate::flight::Flight { take_off: mv(f.take_off), landing: f.landing.iter().map(|l| mv(*l)).collect(), max_air: f.max_air });
+                }
+                for c in ph.rider_space_ok {
+                    hdr.rider_space_ok.push(mv(c));
                 }
                 let bx = match siding_box.as_slice() { [a, b, c, d, e, f] => ([*a, *b, *c], [*d, *e, *f]), [] => ([-7, -4, -3], [6, 4, 9]), _ => anyhow::bail!("--siding-box takes x0,y0,z0,x1,y1,z1 in the part's own frame") };
                 let n = crate::queue::paste_part(&mut spec, &part, at, siding_turn, bx).map_err(|e| anyhow::anyhow!(e))?;
@@ -2649,7 +2672,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     v[i] = Some(crate::queue::parse_rider("--watch-mob", s).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 v
-            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, p_always, adm_faults: {
+            }, watch_mob_slots: match watch_mob_slots.as_slice() { [a, b] => (*a, *b), [] => (0, -1), _ => anyhow::bail!("--watch-mob-slots takes S0,S1") }, golem_jitter, golem_late, day_only, slept, summon_at, acts: { anyhow::ensure!(act.len() <= 8, "--act: at most 8"); let mut a = [None; 8]; for (i, s) in act.iter().enumerate() { a[i] = Some(crate::queue::parse_act(s).map_err(|e| anyhow::anyhow!(e))?); } a }, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, no_inject, start_random, fifo_intake: match fifo_intake.as_slice() { [d, w] => (*d, *w), [] => (2, 6), _ => anyhow::bail!("--fifo-intake takes D,W") }, esc_b: match esc_b.as_slice() { [k, w] => (*k, *w), [] => (6, 6), _ => anyhow::bail!("--esc-b takes K,W") }, esc_adm: match esc_adm.as_slice() { [d, w] => (*d, *w), [] => (2, 4), _ => anyhow::bail!("--esc-adm takes DELAY,W") }, adm_k2, adm_rpulse, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, p_always, adm_faults: {
                 anyhow::ensure!(adm_fault.len() <= 8, "--adm-fault: at most 8");
                 let mut a = [None; 8];
                 for (i, s) in adm_fault.iter().enumerate() {

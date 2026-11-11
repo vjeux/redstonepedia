@@ -596,6 +596,8 @@ struct SlotHold {
     next_edges: usize,
     /// Carts crossing the landing flat's centre forward.
     crossings: usize,
+    /// The progress input at REL: carts that left slot 0 forward since the last release.
+    progress: Option<usize>,
 }
 
 /// Admission control's R: the slope under G_P into slot 0, from P's rail cell (`esc_adm_a1`).
@@ -645,6 +647,19 @@ pub fn rider_walk_kind(w: &redsim::world::World, rider: u32) -> Option<u8> {
 /// A rider with a walk target whose path can reach it (`rider_walk_kind` 0).
 pub fn rider_walking(w: &redsim::world::World, rider: u32) -> bool {
     rider_walk_kind(w, rider) == Some(0)
+}
+
+/// Does the rider's box touch another cart's box (tick-exact Nov 11, scene rider-push: a walking
+/// rider moves a cart only through contact, whatever its path; pressed slope pairs sit 0.21
+/// short and never move)?
+pub fn rider_touches_cart(w: &redsim::world::World, rider: u32, own: u32) -> bool {
+    rider_touch(w, rider, own).is_some()
+}
+
+/// The cart a rider's box touches (`rider_touches_cart`): its z and the overlap along z.
+pub fn rider_touch(w: &redsim::world::World, rider: u32, own: u32) -> Option<(f64, f64)> {
+    let r = w.entities.list.iter().find(|e| e.id == rider)?;
+    w.entities.list.iter().find(|o| o.id != own && o.id != rider && !o.removed && matches!(o.kind, redsim::entity::EntityKind::Minecart(_)) && o.bb.intersects(r.bb)).map(|o| (o.pos.z, (o.bb.max_z.min(r.bb.max_z) - o.bb.min_z.max(r.bb.min_z))))
 }
 
 /// The detector rails' on-edges against the carts that entered each one's search box (the game's
@@ -708,14 +723,38 @@ impl DetectorEdges {
 pub struct Headers {
     pub declared: Vec<crate::declared::Decl>,
     pub flights: Vec<crate::flight::Flight>,
+    /// Cells over a rail the design allows a block in (`rider_space_ok:`).
+    pub rider_space_ok: Vec<[i32; 3]>,
+    /// The rider-space check's positive control (`--rider-space-control`): stones placed at these
+    /// cells before the check.
+    pub rider_space_control: Vec<[i32; 3]>,
 }
 
-/// The design's `declared:` and `flights:` headers.
+/// The design's `declared:`, `flights:` and `rider_space_ok:` headers.
 pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<Headers, String> {
     Ok(Headers {
         declared: match meta.get("declared") { Some(s) => crate::declared::parse(s)?, None => Vec::new() },
         flights: match meta.get("flights") { Some(s) => crate::flight::parse(s)?, None => Vec::new() },
+        rider_space_ok: match meta.get("rider_space_ok") { Some(s) => crate::declared::parse_cells(s).map_err(|e| format!("rider_space_ok: {e}"))?, None => Vec::new() },
+        rider_space_control: Vec::new(),
     })
+}
+
+/// The rider-space check on a run's world at tick 0: every rail block of the spec (moved by dx, dz),
+/// the declared cells, the generator's own gates (the stand's pockets, its stop gate, the tail's)
+/// and the header's `rider_space_ok:` allowed; the positive control's stones placed first.
+pub fn rider_space_check(w: &mut redsim::world::World, spec: &FarmSpec, declared: &[crate::declared::Decl], hdr: &Headers, o: &LoopOpts, dx: i32, dz: i32) -> Vec<String> {
+    if let Ok(stone) = Block::parse("minecraft:stone") {
+        for c in &hdr.rider_space_control {
+            w.set_block(BlockPos::new(c[0] + dx, c[1], c[2] + dz), stone.clone(), redsim::world::flags::ALL);
+        }
+    }
+    let ok = &hdr.rider_space_ok;
+    let lay = loop_layout(o);
+    let gates: Vec<[i32; 3]> = lay.pockets.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz]).chain(lay.stop_gate.map(|g| [g.x + dx, g.y, g.z + dz])).chain(lay.fifo.iter().map(|(g, _)| [g.x + dx, g.y, g.z + dz])).collect();
+    let rails: Vec<[i32; 3]> = spec.blocks.iter().filter(|(_, b)| redsim::rails::is_rail(b)).map(|(p, _)| [p.x, p.y, p.z]).collect();
+    let allowed: std::collections::HashSet<[i32; 3]> = declared.iter().map(|d| d.cell).chain(gates).chain(ok.iter().map(|c| [c[0] + dx, c[1], c[2] + dz])).collect();
+    crate::declared::rider_space(w, &rails, &allowed).into_iter().map(|b| format!("rider space: {b}")).collect()
 }
 
 /// The derived declared states with a header's added: an identical entry once, a cell declared two
@@ -2461,6 +2500,9 @@ pub struct LoopTiming {
     /// The cart-evidence landing latch (`adm_latch_reset` designs): a strand once it has stayed
     /// set this many gt.
     pub hold_strand_t: i64,
+    /// The entry hold's progress input: REL only if a cart left slot 0 forward since the last
+    /// release.
+    pub hold_progress: bool,
 }
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
@@ -2632,7 +2674,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, start_random: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], watch_mob: [None; 4], watch_mob_slots: (0, -1), pocket_trigger: None, no_summons: false, calm: false, reach_probe: false, exposure_log: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, arrivals: false, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, hold_progress: false, start_random: false }
     }
 }
 
@@ -3355,6 +3397,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut declared_bad: Vec<String> = declared_twice;
     if build_start.is_none() {
         declared_bad.extend(crate::declared::check(&run.world, &declared, false));
+        // (the rider space: no block with a collision box in the two cells over a rail)
+        declared_bad.extend(rider_space_check(&mut run.world, spec, &declared, hdr, o, 0, 0));
     }
     // (the drive log's times count from the build's start when the bench builds the design, from
     // the spawn otherwise)
@@ -3486,7 +3530,14 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut slot_hold = SlotHold::default();
     let mut slot_holds: Vec<SlotHold> = Vec::new();
     let mut land_prev_z = vec![f64::MIN; 21];
+    // (the progress input: carts leaving slot 0 forward since the last release; the first
+    // release is free)
+    let mut prog_prev_z = vec![f64::MIN; 21];
+    let mut prog_since_rel = 1usize;
     let mut walk_kinds = [0usize; 3];
+    let mut walk_touch = 0usize;
+    let mut touch_idle = 0usize;
+    let mut walk_touch_log: Vec<String> = Vec::new();
     let mut walking_log: Vec<String> = Vec::new();
     // (every detector rail of the loop: its on-edges against the carts entering it)
     let mut det_edges = DetectorEdges::new(lay.path.iter().filter(|(_, k)| matches!(k, Cell::Detector)).map(|(c, _)| BlockPos::new(c[0] + fx as i32, c[1], c[2] + fz as i32)).collect());
@@ -4354,17 +4405,32 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     slot_hold.land_on_max = slot_hold.land_on_max.max(t - s + 1);
                 }
                 let landing_on = if hold_cells.len() > 2 { latch_set.is_some_and(|s| t - s >= tm.hold_strand_t) } else { landing_raw && landing_since.is_some_and(|s| t - s >= tm.hold_landing_rest) };
-                let sensors_on = landing_on || room_on;
+                // (`hold_progress`, ironspec Nov 11 04:16: a fourth input, tail progress: REL only if
+                // a cart has left slot 0 forward (crossed z 34.5: the register took the escapement's
+                // launch) since the last REL; it sees a frozen tail or register from the first
+                // stalled slot, which the room read can't)
+                let progress_stalled = tm.hold_progress && !hold_cells.is_empty() && prog_since_rel == 0;
+                let sensors_on = landing_on || room_on || progress_stalled;
                 if sensors_on {
                     hold_last_on = Some(t);
                 }
                 if fire_nominal && !hold_cells.is_empty() {
                     slot_hold.room_slack = Some(if room_on { -1 } else { room_last_on.map_or(i64::MAX, |r| t - r) });
+                    slot_hold.progress = Some(prog_since_rel);
                     if sensors_on {
                         hold_blocked += 1;
                         if hold_log.len() < 6 {
-                            let which = match (landing_on, room_on) { (true, true) => "landing+room", (true, false) => "landing", _ => "room" };
-                            hold_log.push(format!("slot {c} +{dt} {which}"));
+                            let mut which: Vec<&str> = Vec::new();
+                            if landing_on {
+                                which.push("landing");
+                            }
+                            if room_on {
+                                which.push("room");
+                            }
+                            if progress_stalled {
+                                which.push("no progress");
+                            }
+                            hold_log.push(format!("slot {c} +{dt} {}", which.join("+")));
                         }
                     } else if let Some(lo) = hold_last_on {
                         if t - lo < hold_slack_min.0 {
@@ -4394,6 +4460,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 } else {
                     fire_nominal
                 };
+                // (the progress input counts from each release that fires)
+                if fire {
+                    prog_since_rel = 0;
+                }
                 if fire && o.stand_wired {
                     // the wired stand: REL on (the design's latch and gates do the rest), off
                     // `rel_for` gt later; a file whose REL cell is not glass drives it itself; an
@@ -4756,18 +4826,41 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         }
                         land_prev_z[k] = z;
                     }
-                    // (riders in the pressed queue, the landing to P, with a walk target: by its
-                    // path (reaching, partial, none); the brief's print: reaching ones must be 0)
+                    // (the progress input: a cart leaving slot 0 forward, across z 34.5)
+                    if let Some(a1) = lay.esc_adm_a1 {
+                        let pz = a1[2] as f64 + 3.5;
+                        if (x - 0.5).abs() < 0.4 && prog_prev_z[k] < pz && z >= pz && prog_prev_z[k] > pz - 1.0 {
+                            prog_since_rel += 1;
+                        }
+                        prog_prev_z[k] = z;
+                    }
+                    // (riders in the pressed queue, the landing to P: walk targets by path
+                    // (reaching, partial, none), and every rider whose box touches another cart's,
+                    // walking or not (tick-exact Nov 11: LivingEntity.pushEntities runs every tick;
+                    // contact alone pushes, bridged in gate-escg6l-v3 to 500 ticks); the brief's
+                    // print: touching must be 0)
                     if let (Some(a1), Some(r)) = (lay.esc_adm_a1, e.passengers.first())
                         && (x - 0.5).abs() < 0.4
                         && z > 24.0
                         && z < a1[2] as f64 + 1.0
                         && y < esc_ye(o) as f64 - 0.5
-                        && let Some(kind) = rider_walk_kind(&run.world, *r)
                     {
-                        walk_kinds[kind as usize] += 1;
-                        if walking_log.iter().filter(|l| l.ends_with(["reaching", "partial", "no path"][kind as usize])).count() < 3 {
-                            walking_log.push(format!("slot {c} +{dt}: cart {k} at z {z:.2} {}", ["reaching", "partial", "no path"][kind as usize]));
+                        let kind = rider_walk_kind(&run.world, *r);
+                        let kname = kind.map_or("not walking", |kd| ["reaching", "partial", "no path"][kd as usize]);
+                        if let Some(kd) = kind {
+                            walk_kinds[kd as usize] += 1;
+                            if walking_log.iter().filter(|l| l.ends_with(kname)).count() < 3 {
+                                walking_log.push(format!("slot {c} +{dt}: cart {k} at z {z:.2} {kname}"));
+                            }
+                        }
+                        if let Some((tz, ov)) = rider_touch(&run.world, *r, *id) {
+                            walk_touch += 1;
+                            if kind.is_none() {
+                                touch_idle += 1;
+                            }
+                            if walk_touch_log.len() < 3 {
+                                walk_touch_log.push(format!("slot {c} +{dt}: cart {k} at z {z:.2} ({kname}) touching a cart at z {:.3} by {ov:.3}", tz - fz));
+                            }
                         }
                     }
                     if let Some(a1) = lay.esc_adm_a1
@@ -6092,7 +6185,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         out.push(merges.line());
         if lay.esc_adm_a1.is_some() {
-            out.push(format!("riders in the pressed queue (landing to P) with a walk target, rider-ticks by path: reaching {} (must be 0), partial {}, no path {}{}", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }));
+            out.push(format!("riders in the pressed queue (landing to P) with a walk target, rider-ticks by path: reaching {}, partial {}, no path {}{}; riders whose box touches another cart's, walking or not (contact alone pushes: LivingEntity.pushEntities, bridged in gate-escg6l-v3; must be 0): {walk_touch} (not walking {touch_idle}){}", walk_kinds[0], walk_kinds[1], walk_kinds[2], if walking_log.is_empty() { String::new() } else { format!(" ({})", walking_log.join("; ")) }, if walk_touch_log.is_empty() { String::new() } else { format!(" ({})", walk_touch_log.join("; ")) }));
             if !hold_cells.is_empty() {
                 let latch = hold_cells.len() > 2;
                 let worst_latch = slot_holds.iter().map(|s| s.latch_max).max().unwrap_or(0);
@@ -6109,8 +6202,8 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     if merged.is_empty() { String::new() } else { format!(" (slot edges:carts {})", merged.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }
                 ));
                 out.push(format!(
-                    "entry hold slots (latch/landing-on/room-slack gt, edges:carts): {}",
-                    slot_holds.iter().enumerate().map(|(i, s)| format!("{i} {}/{}/{} {}:{}", s.latch_max, s.land_on_max, s.room_slack.map_or("-".to_string(), |v| if v == i64::MAX { "n".to_string() } else { v.to_string() }), s.land_edges, s.crossings)).collect::<Vec<_>>().join(", ")
+                    "entry hold slots (latch/landing-on/room-slack gt, edges:carts, progress at REL): {}",
+                    slot_holds.iter().enumerate().map(|(i, s)| format!("{i} {}/{}/{} {}:{} p{}", s.latch_max, s.land_on_max, s.room_slack.map_or("-".to_string(), |v| if v == i64::MAX { "n".to_string() } else { v.to_string() }), s.land_edges, s.crossings, s.progress.map_or("-".to_string(), |p| p.to_string()))).collect::<Vec<_>>().join(", ")
                 ));
                 out.push(format!(
                     "entry hold (the tail's landing and room detectors at REL{}): on at {hold_blocked} of {hold_rels} releases{}; slack from both off to REL at least {} gt ({}){}",

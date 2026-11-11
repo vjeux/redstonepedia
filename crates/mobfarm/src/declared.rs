@@ -141,6 +141,48 @@ pub fn check_runtime(w: &World, ds: &[Decl]) -> Vec<String> {
     bad
 }
 
+/// The rider space (day-1's release-gen rule, ironspec Nov 11 04:16): no suffocating block in the
+/// two cells over a rail (it suffocates a passing rider; positive control: day-1's first B golem
+/// route, support stones over the loop's return track, three riders lost), and no block with a
+/// collision box in the cell over an ascending rail (the cart rides up into it), unless the design
+/// declares the cell (a gate in `declared:`, the generator's own gates, or the header
+/// `rider_space_ok: X,Y,Z; ...`). Glass, gates and other non-suffocating blocks over a flat rail
+/// pass: a passenger has no collision of its own.
+pub fn rider_space(w: &World, rails: &[[i32; 3]], allowed: &std::collections::HashSet<[i32; 3]>) -> Vec<String> {
+    let mut bad = Vec::new();
+    for r in rails {
+        let ascending = w.get(BlockPos::new(r[0], r[1], r[2])).to_string().contains("ascending");
+        for dy in 1..=2 {
+            let c = [r[0], r[1] + dy, r[2]];
+            if allowed.contains(&c) {
+                continue;
+            }
+            let b = w.get(BlockPos::new(c[0], c[1], c[2]));
+            let suffocates = redsim::entity::mob::blocks::is_suffocating(&b);
+            let blocks_cart = dy == 1 && ascending && !redsim::behavior::collision_boxes(&b).is_empty();
+            if suffocates || blocks_cart {
+                bad.push(format!("{},{},{}: {b} over the rail at {},{},{} ({})", c[0], c[1], c[2], r[0], r[1], r[2], if suffocates { "suffocates the rider" } else { "in the cart's way up the slope" }));
+            }
+        }
+    }
+    bad
+}
+
+/// A `rider_space_ok:` header value (X,Y,Z; ...).
+pub fn parse_cells(s: &str) -> Result<Vec<[i32; 3]>, String> {
+    s.split(';')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            let v: Vec<i32> = t.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("{t}: {e}"))).collect::<Result<_, _>>()?;
+            match v.as_slice() {
+                [x, y, z] => Ok([*x, *y, *z]),
+                _ => Err(format!("{t}: give X,Y,Z")),
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
