@@ -255,12 +255,21 @@ fn opt(v: Option<i64>) -> String {
 /// seed, `tm`'s own acts kept (C' emulated with T3 removed, say); `perfect`: the queue reset at
 /// every slot from 6.
 #[allow(clippy::too_many_arguments)]
-pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool) -> Result<String, String> {
+pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64], cycles: i64, threads: usize, perfect: bool, filter: Option<&str>, all_corners: bool, rel_sweep: Option<(i64, i64)>) -> Result<String, String> {
     let partial = o.shift != [0, 0];
     let cases0: Vec<(String, Vec<String>)> = fault_cases(o, partial).into_iter().filter(|(n, _)| filter.is_none_or(|f| f.split('|').any(|p| n.contains(p)))).collect();
-    // (`all_corners`: every case at REL nominal, early and late x staggers 2, 3, 4, 6)
+    // (`all_corners`: every case at REL nominal, early and late x staggers 2, 3, 4, 6; `rel_sweep`
+    // A..B: every case at the REL phases A..=B gt around the timing's own (each gt), the stagger
+    // and the rest as given)
     let mut variants: Vec<(String, LoopTiming)> = vec![(String::new(), *tm)];
-    if all_corners {
+    if let Some((a, b)) = rel_sweep {
+        variants.clear();
+        for on in a..=b {
+            let mut t = *tm;
+            t.rel_on += on;
+            variants.push((format!("REL {:+} st {}: ", on, tm.release_stagger), t));
+        }
+    } else if all_corners {
         variants.clear();
         for (cn, on, for_) in [("REL 10..50", 0, 0), ("REL 0..44", -10, -6), ("REL 16..76", 6, 26)] {
             for st in [2, 3, 4, 6] {

@@ -54,7 +54,7 @@ pub fn target_can_continue(w: &mut World, i: usize, b: &mut TargetBase) -> bool 
 }
 
 /// `TargetGoal.start()`.
-fn target_start(b: &mut TargetBase) {
+pub fn target_start(b: &mut TargetBase) {
     b.reach_cache = 0;
     b.reach_cache_time = 0;
     b.unseen_ticks = 0;
@@ -67,11 +67,17 @@ pub fn target_stop(w: &mut World, i: usize, b: &mut TargetBase) {
 }
 
 /// `TargetGoal.canAttack(target, conditions)`.
-fn can_attack(w: &mut World, i: usize, b: &mut TargetBase, t: Who, cond: &Conditions) -> bool {
+pub fn can_attack(w: &mut World, i: usize, b: &mut TargetBase, t: Who, cond: &Conditions) -> bool {
     if !cond.test(w, i, t) {
         return false;
     }
-    // isWithinHome: no home
+    // isWithinHome(target's block) (mob-AI 2026-11-11: a leashed llama's home, 5 around its
+    // trader)
+    let tp = target::pos_of(w, t);
+    let tb = crate::pos::BlockPos::new(mth::floor(tp.x), mth::floor(tp.y), mth::floor(tp.z));
+    if !super::stroll::within_home(w, i, tb) {
+        return false;
+    }
     if b.must_reach {
         b.reach_cache_time -= 1;
         if b.reach_cache_time <= 0 {
@@ -131,6 +137,13 @@ pub enum TargetType {
     Skeleton,
     /// `Rabbit` (the cat's prey).
     Rabbit,
+    /// (mob-AI 2026-11-11) `Zombie` (its subclasses: husks, drowned, zombie villagers) but not a
+    /// zombified piglin: a trader llama's.
+    ZombieNotPiglin,
+    /// `Wolf`, not tame: `LlamaAttackWolfGoal` (its follow distance a quarter).
+    LlamaWolf,
+    /// `AbstractIllager` (pillagers, vindicators, evokers, illusioners: none modeled, never found).
+    Illager,
 }
 
 /// `NearestAttackableTargetGoal`.
@@ -174,13 +187,15 @@ pub fn non_tame_can_continue(w: &mut World, i: usize, g: &mut NearestAttackableT
 /// the player kinds are found among the players.
 fn selects(t: TargetType, ty: MobType) -> bool {
     match t {
-        TargetType::Villager => ty == MobType::Villager,
+        TargetType::Villager => ty == MobType::Villager || ty.def().id == "wandering_trader",
         TargetType::IronGolem | TargetType::SpiderIronGolem => ty == MobType::IronGolem,
-        TargetType::BabyTurtle | TargetType::Endermite | TargetType::Axolotl => false,
+        TargetType::BabyTurtle | TargetType::Endermite | TargetType::Axolotl | TargetType::Illager => false,
         TargetType::EnemyNotCreeper => is_enemy(ty),
         TargetType::WolfPrey => matches!(ty.game_id(), "minecraft:sheep" | "minecraft:rabbit" | "minecraft:fox"),
         TargetType::Skeleton => matches!(ty.game_id(), "minecraft:skeleton" | "minecraft:stray" | "minecraft:bogged" | "minecraft:parched" | "minecraft:wither_skeleton"),
         TargetType::Rabbit => ty.game_id() == "minecraft:rabbit",
+        TargetType::ZombieNotPiglin => matches!(ty.game_id(), "minecraft:zombie" | "minecraft:husk" | "minecraft:drowned" | "minecraft:zombie_villager"),
+        TargetType::LlamaWolf => ty.game_id() == "minecraft:wolf",
         TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer | TargetType::SlimePlayer => false,
     }
 }
@@ -204,7 +219,8 @@ pub fn nearest_can_use(w: &mut World, i: usize, g: &mut NearestAttackableTarget)
 
 /// `findTarget()`.
 fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
-    let d = follow_range(w, i);
+    // getFollowDistance (LlamaAttackWolfGoal's: a quarter of it)
+    let d = if g.target_type == TargetType::LlamaWolf { follow_range(w, i) * 0.25 } else { follow_range(w, i) };
     let cond = Conditions::combat().range(d);
     let at = super::super::eye_pos(w, i);
     let list: Vec<Who> = match g.target_type {

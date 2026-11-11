@@ -127,10 +127,59 @@ pub fn random_direction(w: &mut World, i: usize, h: i32, v: i32) -> BlockPos {
     BlockPos::new(x, y, z)
 }
 
-/// `RandomPos.generateRandomPosTowardDirection` (no home: no pull toward it).
-fn toward_direction(w: &World, i: usize, d: BlockPos) -> BlockPos {
+/// `RandomPos.generateRandomPosTowardDirection(mob, xzDist, random, direction)`: with a home and
+/// `xzDist` over 1, x and z pulled toward it by `nextDouble() * xzDist / 2` each (mob-AI
+/// 2026-11-11).
+fn toward_direction(w: &mut World, i: usize, h: f64, d: BlockPos) -> BlockPos {
+    let (mut xt, mut zt) = (d.x as f64, d.z as f64);
+    if let Some((c, _)) = home(w, i)
+        && h > 1.0
+    {
+        let p = w.entities.list[i].pos;
+        let a = rnd(w, i).next_double() * h / 2.0;
+        if p.x > c.x as f64 {
+            xt -= a;
+        } else {
+            xt += a;
+        }
+        let b = rnd(w, i).next_double() * h / 2.0;
+        if p.z > c.z as f64 {
+            zt -= b;
+        } else {
+            zt += b;
+        }
+    }
     let e = &w.entities.list[i];
-    BlockPos::new(mth::floor(d.x as f64 + e.pos.x), mth::floor(d.y as f64 + e.pos.y), mth::floor(d.z as f64 + e.pos.z))
+    BlockPos::new(mth::floor(xt + e.pos.x), mth::floor(d.y as f64 + e.pos.y), mth::floor(zt + e.pos.z))
+}
+
+/// (mob-AI 2026-11-11) `Mob.homePosition` and `homeRadius` of mob `i` (`None`: no home).
+pub fn home(w: &World, i: usize) -> Option<(BlockPos, i32)> {
+    if super::super::has_ai(w, i) { super::super::ai(w, i).home } else { None }
+}
+
+/// `GoalUtils.mobRestricted(mob, h)`: a home whose centre is within its radius + h + 1.
+fn mob_restricted(w: &World, i: usize, h: f64) -> bool {
+    match home(w, i) {
+        Some((c, r)) => {
+            let p = w.entities.list[i].pos;
+            let (dx, dy, dz) = (c.x as f64 + 0.5 - p.x, c.y as f64 + 0.5 - p.y, c.z as f64 + 0.5 - p.z);
+            let d = r as f64 + h + 1.0;
+            dx * dx + dy * dy + dz * dz < d * d
+        }
+        None => false,
+    }
+}
+
+/// `Mob.isWithinHome(pos)`: no home, or the squared block distance under the radius squared.
+pub fn within_home(w: &World, i: usize, p: BlockPos) -> bool {
+    match home(w, i) {
+        None => true,
+        Some((c, r)) => {
+            let (dx, dy, dz) = ((c.x - p.x) as f64, (c.y - p.y) as f64, (c.z - p.z) as f64);
+            dx * dx + dy * dy + dz * dz < (r * r) as f64
+        }
+    }
 }
 
 /// `Level.isOutsideBuildHeight(y)` (the level's own height: the Nether's 0..255).
@@ -291,13 +340,14 @@ fn best_of_ten_by(w: &mut World, _i: usize, mut supplier: impl FnMut(&mut World)
 
 /// `LandRandomPos.getPos(mob, h, v, positionWeight)`.
 pub fn land_random_pos_by(w: &mut World, i: usize, h: i32, v: i32, weight: impl FnMut(&mut World, BlockPos) -> f64) -> Option<Vec3> {
+    let restrict = mob_restricted(w, i, h as f64);
     best_of_ten_by(
         w,
         i,
         |w| {
             let d = random_direction(w, i, h, v);
-            let p = toward_direction(w, i, d);
-            if outside_build_height(w, p.y) || !stable_for(w, i, p) {
+            let p = toward_direction(w, i, h as f64, d);
+            if outside_build_height(w, p.y) || (restrict && !within_home(w, i, p)) || !stable_for(w, i, p) {
                 return None;
             }
             move_up_out_of_solid(w, i, p)
@@ -308,19 +358,21 @@ pub fn land_random_pos_by(w: &mut World, i: usize, h: i32, v: i32, weight: impl 
 
 /// `DefaultRandomPos.getPos(mob, h, v)`.
 pub fn default_random_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> {
+    let restrict = mob_restricted(w, i, h as f64);
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
-        let p = toward_direction(w, i, d);
-        (!outside_build_height(w, p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+        let p = toward_direction(w, i, h as f64, d);
+        (!outside_build_height(w, p.y) && !(restrict && !within_home(w, i, p)) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
 /// `LandRandomPos.getPos(mob, h, v)`.
 pub fn land_random_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> {
+    let restrict = mob_restricted(w, i, h as f64);
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
-        let p = toward_direction(w, i, d);
-        if outside_build_height(w, p.y) || !stable_for(w, i, p) {
+        let p = toward_direction(w, i, h as f64, d);
+        if outside_build_height(w, p.y) || (restrict && !within_home(w, i, p)) || !stable_for(w, i, p) {
             return None;
         }
         move_up_out_of_solid(w, i, p)
@@ -358,38 +410,42 @@ pub fn land_pos_away(w: &mut World, i: usize, min_h: f64, max_h: f64, v: i32, av
     land_pos_in_direction(w, i, min_h, max_h, v, dir)
 }
 
-/// `LandRandomPos.getPosInDirection(mob, minH, maxH, v, dir, restrict)` (no home: no restriction).
+/// `LandRandomPos.getPosInDirection(mob, minH, maxH, v, dir, restrict)` (`restrict`:
+/// `mobRestricted(mob, maxH)`, as both its callers take it).
 pub fn land_pos_in_direction(w: &mut World, i: usize, min_h: f64, max_h: f64, v: i32, dir: Vec3) -> Option<Vec3> {
+    let restrict = mob_restricted(w, i, max_h);
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, min_h, max_h, v, 0, dir.x, dir.z, (std::f64::consts::PI / 2.0) as f32 as f64)?;
-        let p = toward_direction(w, i, d);
-        if outside_build_height(w, p.y) || !stable_for(w, i, p) {
+        let p = toward_direction(w, i, max_h, d);
+        if outside_build_height(w, p.y) || (restrict && !within_home(w, i, p)) || !stable_for(w, i, p) {
             return None;
         }
         move_up_out_of_solid(w, i, p)
     })
 }
 
-/// `DefaultRandomPos.getPos(mob, h, v)` (no home: no restriction): ten random directions, each
-/// cell inside the world, stable and without malus, the best by walk-target value.
+/// `DefaultRandomPos.getPos(mob, h, v)`: ten random directions, each cell inside the world,
+/// inside the home when restricted, stable and without malus, the best by walk-target value.
 pub fn default_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> {
+    let restrict = mob_restricted(w, i, h as f64);
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
-        let p = toward_direction(w, i, d);
-        (!outside_build_height(w, p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+        let p = toward_direction(w, i, h as f64, d);
+        (!outside_build_height(w, p.y) && !(restrict && !within_home(w, i, p)) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
-/// `DefaultRandomPos.getPosAway(mob, h, v, avoidPos)` (no home: no restriction): ten random
-/// directions within a quarter turn of the way away from it, each cell inside the world, stable
-/// and without malus, the best by walk-target value.
+/// `DefaultRandomPos.getPosAway(mob, h, v, avoidPos)`: ten random directions within a quarter
+/// turn of the way away from it, each cell inside the world, inside the home when restricted,
+/// stable and without malus, the best by walk-target value.
 pub fn default_pos_away(w: &mut World, i: usize, h: i32, v: i32, avoid: Vec3) -> Option<Vec3> {
     let p = w.entities.list[i].pos;
     let dir = Vec3::new(p.x - avoid.x, p.y - avoid.y, p.z - avoid.z);
+    let restrict = mob_restricted(w, i, h as f64);
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, 0.0, h as f64, v, 0, dir.x, dir.z, (std::f64::consts::PI / 2.0) as f32 as f64)?;
-        let p = toward_direction(w, i, d);
-        (!outside_build_height(w, p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+        let p = toward_direction(w, i, h as f64, d);
+        (!outside_build_height(w, p.y) && !(restrict && !within_home(w, i, p)) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
@@ -397,10 +453,11 @@ pub fn default_pos_away(w: &mut World, i: usize, h: i32, v: i32, avoid: Vec3) ->
 pub fn default_pos_towards(w: &mut World, i: usize, h: i32, v: i32, towards: Vec3, max_rad: f64) -> Option<Vec3> {
     let p = w.entities.list[i].pos;
     let dir = Vec3::new(towards.x - p.x, towards.y - p.y, towards.z - p.z);
+    let restrict = mob_restricted(w, i, h as f64);
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, 0.0, h as f64, v, 0, dir.x, dir.z, max_rad)?;
-        let p = toward_direction(w, i, d);
-        (!outside_build_height(w, p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
+        let p = toward_direction(w, i, h as f64, d);
+        (!outside_build_height(w, p.y) && !(restrict && !within_home(w, i, p)) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
