@@ -845,11 +845,15 @@ pub struct StandPanic {
     counts: [usize; 4],
     /// The slots with fewer than 3 (slot, panicking), the first few.
     short: Vec<(i64, usize)>,
+    /// Per villager (its entity id): slot ticks it sat at rest in the pocket row, and how many of
+    /// them it was panicking (the forced-phase sweep reads the forced villager's: its id after the
+    /// load is a new number, so a rider is any seated villager, not the start's rider list).
+    per: std::collections::BTreeMap<u32, (u32, u32)>,
 }
 
 impl StandPanic {
     pub fn new(fx: i32, fz: i32) -> StandPanic {
-        StandPanic { fx: fx as f64, fz: fz as f64, counts: [0; 4], short: Vec::new() }
+        StandPanic { fx: fx as f64, fz: fz as f64, counts: [0; 4], short: Vec::new(), per: Default::default() }
     }
 
     pub fn observe(&mut self, w: &redsim::world::World, riders: &[u32], slot: i64, dt: i64) {
@@ -859,13 +863,17 @@ impl StandPanic {
         }
         let mut at = Vec::new();
         for (i, e) in w.entities.list.iter().enumerate() {
-            if e.removed || !riders.contains(&e.id) {
+            if e.removed || !(riders.contains(&e.id) || e.vehicle.is_some()) {
                 continue;
             }
+            let Some(p) = crate::timeline::panicking(w, i) else { continue };
             let (x, y, z) = (e.pos.x - self.fx, e.pos.y, e.pos.z - self.fz);
             let still = e.delta_movement.x.abs() + e.delta_movement.z.abs() < 0.01;
             if still && (z - 0.5).abs() < 0.3 && y < 1.0 && x > -1.0 && x < 9.0 {
-                at.push(crate::timeline::panicking(w, i).unwrap_or(false));
+                at.push(p);
+                let s = self.per.entry(e.id).or_default();
+                s.0 += 1;
+                s.1 += p as u32;
             }
         }
         if at.len() == 3 {
@@ -880,12 +888,13 @@ impl StandPanic {
     pub fn line(&self) -> String {
         let n: usize = self.counts.iter().sum();
         format!(
-            "stand batch panicking on the slot tick (3 at rest): 3 in {}, 2 in {}, 1 in {}, 0 in {} of {n} slots{}",
+            "stand batch panicking on the slot tick (3 at rest): 3 in {}, 2 in {}, 1 in {}, 0 in {} of {n} slots{}; per villager (panicking of slot ticks at the stand): {}",
             self.counts[3],
             self.counts[2],
             self.counts[1],
             self.counts[0],
-            if self.short.is_empty() { String::new() } else { format!(" (short: {})", self.short.iter().map(|(s, p)| format!("slot {s} {p}")).collect::<Vec<_>>().join(", ")) }
+            if self.short.is_empty() { String::new() } else { format!(" (short: {})", self.short.iter().map(|(s, p)| format!("slot {s} {p}")).collect::<Vec<_>>().join(", ")) },
+            if self.per.is_empty() { "-".to_string() } else { self.per.iter().map(|(id, (seen, p))| format!("e{id} {p}/{seen}")).collect::<Vec<_>>().join(" ") }
         )
     }
 }
