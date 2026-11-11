@@ -190,6 +190,17 @@ pub fn combine(base: &Design, departure: &Design, tail: &Design, remove: &[Bx], 
             q.push((k.to_string(), v.clone()));
         }
     }
+    // (a departure part's own options (its `departure:` line: the crest, descent, dip and rise it
+    // was built with) replace the base's, so the runner lays the part's departure)
+    if let Some(dl) = departure.meta.get("departure") {
+        for (k, v) in queue_tokens(dl) {
+            match q.iter_mut().find(|(x, _)| *x == k) {
+                Some(e) => e.1 = v,
+                None => q.push((k, v)),
+            }
+        }
+        lines.push(format!("the departure's options: {dl}"));
+    }
     let line = q.iter().map(|(k, v)| if v.is_empty() { k.clone() } else { format!("{k}={v}") }).collect::<Vec<_>>().join(" ");
     lines.push(format!("queue: {line}"));
     out.meta.insert("queue".into(), line);
