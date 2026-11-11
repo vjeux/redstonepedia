@@ -75,8 +75,8 @@ pub enum MobfarmCmd {
     /// The built farm (water settled) along a row: each cell's block from x0 to x1 at y, z.
     /// `--terrain`: built into its terrain sample at the judge's cheapest spot (design
     /// coordinates). `--flammable`: instead of a row, every flammable block inside the farm's box
-    /// (`weather::lightning::flammable`, the cells the lightning measure's fire check reads:
-    /// natural terrain included), with whether it sees the sky.
+    /// (`weather::lightning::flammable`: the fuel the fire rules' spread can pass through, natural
+    /// terrain included), with whether it sees the sky.
     Probe {
         design: PathBuf,
         #[arg(long, allow_hyphen_values = true, num_args = 4)]
@@ -4931,8 +4931,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let w = redsim::entity::mob::farm::build(&moved, &o).map_err(|e| anyhow::anyhow!(e))?;
             let at = |x: i32, y: i32, z: i32| redsim::BlockPos::new(x + off[0], y + off[1], z + off[2]);
             if flammable {
-                // (farmopt 2026-11-11: what the card's "a fire beside a flammable block" counts:
-                // `lightning::fire_danger` reads every flammable block inside the farm's box)
+                // (farmopt 2026-11-11: the flammable blocks in and around the farm, natural or
+                // the design's, with their sky: the fire rules' fuel (`lightning::FireReach`))
                 let mut n = 0;
                 for y in spec.lo.y..=spec.hi.y {
                     for z in spec.lo.z..=spec.hi.z {

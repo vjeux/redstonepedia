@@ -1088,7 +1088,17 @@ pub fn lightning_line(m: &redsim::weather::lightning::Measure) -> String {
             k => format!("villagers turned into witches {} (one strike can take up to {k})", every(m.witch * per_day)),
         },
         format!("the zombie's boat broken {}", every(m.vehicle * per_day)),
-        format!("a fire beside a flammable block {}", every(m.fire * per_day)),
+        // (ironspec 2026-11-11, the fire rules: a fire counts against the farm only when the
+        // game's spread can carry it to the farm's flammable blocks, mobs or drop path; the rest
+        // is the site's, a note; a strike on the AFK player is its own line, not the farm
+        // breaking) (no ", " inside a part: the site splits a card's metrics there)
+        format!("a fire that can reach the farm (its flammable blocks or mobs or drop path) {}", every(m.fire * per_day)),
+        format!("site note: a fire on the site that cannot reach the farm {}", every(m.site_fire * per_day)),
+        format!("AFK spot struck: {} (a 7 x 7 opaque non-flammable roof over the player's column with its block 4 above the player's feet prevents it: a single block over its column does not)", every(m.afk_struck * per_day)),
+        // (ironspec's rule 5) natural flammables a fire reaching the farm passes through: none
+        // comes back on its own once cleared, so clearing them at the build closes that way (the
+        // count above still includes them)
+        if m.natural_in_reach > 0 { format!("{} natural flammable blocks lie on a fire's way to the farm (counted above: they do not grow back so clearing them at the build closes that way)", m.natural_in_reach) } else { "no natural flammable block lies on a fire's way to the farm".to_string() },
         // (iteration 23: per game day of thunder too, and the part that prevents it)
         if m.trap > 0.0 {
             format!("a skeleton trap horse on the farm {} (every {} game days of thunder; a lightning rod topping its column within 128 blocks prevents it)", every(m.trap * per_day), days(1.0 / (m.trap * 24000.0)))
@@ -1101,7 +1111,7 @@ pub fn lightning_line(m: &redsim::weather::lightning::Measure) -> String {
         format!("a skeleton trap horse that triggers (within 10 blocks of the AFK spot) {} (a lightning rod within 128 blocks, topping its column, takes the bolts: none then)", every(m.trap_player * per_day)),
     ];
     if m.breaks > 0.0 {
-        let first = [(m.witch, "a villager made a witch"), (m.vehicle, "the zombie's boat broken"), (m.fire, "a fire")].into_iter().max_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1).unwrap_or("");
+        let first = [(m.witch, "a villager made a witch"), (m.vehicle, "the zombie's boat broken"), (m.fire, "a fire reaching the farm")].into_iter().max_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1).unwrap_or("");
         v.push(format!("the farm breaks in about {} game days ({first} first)", days(1.0 / (m.breaks * per_day))));
     } else {
         v.push("lightning never breaks the farm".to_string());

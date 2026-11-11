@@ -900,9 +900,21 @@ pub struct Measure {
     pub witch_max: u32,
     /// The chance a bolt breaks the zombie's vehicle (its box meets the vehicle or the zombie in it).
     pub vehicle: f64,
-    /// The chance a bolt's fires (`spawnFire`: its block, then 4 of the 27 around it) light one
-    /// beside a flammable block or in a villager's or the zombie's cell.
+    /// (ironspec 2026-11-11, the fire rules) The chance a bolt's fires (`spawnFire`: its block,
+    /// then 4 of the 27 around it) light one that can reach something the farm depends on: its own
+    /// flammable blocks, its mobs (villagers, the zombie, the golems' cells) or its drop path, by
+    /// the game's spread in the storm that brings the bolt ([`FireReach`]).
     pub fire: f64,
+    /// The chance a bolt lights a fire on the site that burns something (a flammable block beside
+    /// it, natural or built) and can reach none of those: a site note, not the farm breaking.
+    pub site_fire: f64,
+    /// (ironspec 2026-11-11) The chance a bolt strikes the AFK player (its damage box meets the
+    /// player where it stands): not the farm breaking, its own line; an opaque roof keeping the
+    /// player's box out of every bolt's damage box removes it.
+    pub afk_struck: f64,
+    /// The natural flammable blocks a fire that reaches the farm passes through (each counted
+    /// once): ironspec's rule 5 (they come back, or the build clears them).
+    pub natural_in_reach: u32,
     /// The chance a bolt brings a skeleton trap horse onto the farm (Hard, `spawn_mobs`, no rod
     /// under it; the effective difficulty's mean over the moon's phases).
     pub trap: f64,
@@ -922,42 +934,146 @@ pub fn trap_chance(s: &Settings) -> f64 {
     (0..8).map(|d| (effective_difficulty(s, d * 24000) * 0.01f32) as f64).sum::<f64>() / 8.0
 }
 
-/// A fire cell's danger: air, a fire can stay there, and a flammable block of the farm beside it
-/// (inside its box `farm`: its own blocks and the natural ones its walls are made of; a terrain
-/// sample's grass outside it burns the world, not the farm) (not soul fire: it burns nothing), or
-/// a protected box in it (a fire's cell burns whoever is inside).
-fn fire_danger(w: &World, p: BlockPos, protect: &[Aabb], farm: (BlockPos, BlockPos)) -> bool {
-    if !w.get(p).is_air() {
-        return false;
-    }
-    let fire = super::fire::state_at(w, p);
-    if !super::fire::can_survive(w, &fire, p) {
-        return false;
-    }
-    let soul = matches!(fire, Block::Fire { soul: true, .. });
-    let (lo, hi) = farm;
-    let of_farm = |q: BlockPos| (lo.x..=hi.x).contains(&q.x) && (lo.y..=hi.y).contains(&q.y) && (lo.z..=hi.z).contains(&q.z);
-    let beside = Dir::ALL.iter().map(|d| p.rel(*d)).any(|q| of_farm(q) && flammable(&w.get(q)).is_some());
-    (!soul && beside) || protect.iter().any(|bb| Aabb::of_block(p).intersects(*bb))
+/// (ironspec 2026-11-11, the fire rules) Where a bolt's fire can go in the storm that brings it,
+/// by `FireBlock.tick`'s own neighbourhoods: each fire burns its six sides (`checkBurnOut`: a block
+/// with burn odds; it turns to fire only out of the rain, `!isRainingAt`, else it is removed) and
+/// lights an air cell with a flammable side in x and z -1..1, y -1..4 around it, never one near
+/// rain (`!isRaining || !isNearRain`: a bolt falls only in rain). A fire reaches the farm when it
+/// burns one of the farm's own flammable blocks or stands in a cell the farm depends on: its mobs'
+/// (villagers, the zombie, the golems' cells) or its drop path (an item in a fire burns). Natural
+/// and built flammables carry it alike. Soul fire spreads nothing.
+struct FireReach<'a> {
+    w: &'a World,
+    own: std::collections::HashSet<BlockPos>,
+    occupied: std::collections::HashSet<BlockPos>,
+    reach: std::collections::HashMap<BlockPos, bool>,
+    rained: std::cell::RefCell<std::collections::HashMap<BlockPos, bool>>,
+    natural: std::collections::HashSet<BlockPos>,
 }
 
-/// The chance a bolt at `b` lights a dangerous fire (Normal and Hard: `spawnFire(4)` on its first
-/// tick: its block, then 4 cells drawn uniformly from the 27 around it).
-fn fire_chance(w: &World, b: BlockPos, protect: &[Aabb], farm: (BlockPos, BlockPos)) -> f64 {
-    if fire_danger(w, b, protect, farm) {
-        return 1.0;
+impl<'a> FireReach<'a> {
+    fn rained(&self, p: BlockPos) -> bool {
+        if let Some(r) = self.rained.borrow().get(&p) {
+            return *r;
+        }
+        let r = motion_blocking_height(self.w, p.x, p.z) <= p.y && can_see_sky(self.w, p).unwrap_or(false);
+        self.rained.borrow_mut().insert(p, r);
+        r
     }
-    let mut d = 0;
-    for dy in -1..=1 {
-        for dz in -1..=1 {
-            for dx in -1..=1 {
-                if fire_danger(w, b.offset(dx, dy, dz), protect, farm) {
-                    d += 1;
+
+    fn near_rain(&self, p: BlockPos) -> bool {
+        self.rained(p) || [Dir::West, Dir::East, Dir::North, Dir::South].iter().any(|d| self.rained(p.rel(*d)))
+    }
+
+    /// Whether a fire at `p` can reach the farm through the chain (memoized).
+    fn reaches(&mut self, p: BlockPos) -> bool {
+        if let Some(r) = self.reach.get(&p) {
+            return *r;
+        }
+        let w = self.w;
+        let mut seen: std::collections::HashSet<BlockPos> = std::collections::HashSet::from([p]);
+        let mut queue = std::collections::VecDeque::from([p]);
+        let mut passed: Vec<BlockPos> = Vec::new();
+        let mut found = false;
+        'bfs: while let Some(f) = queue.pop_front() {
+            if self.occupied.contains(&f) {
+                found = true;
+                break;
+            }
+            for d in Dir::ALL {
+                let n = f.rel(d);
+                if !w.contains(n) || super::fire::burn_odds(&w.get(n)) <= 0 {
+                    continue;
+                }
+                if self.own.contains(&n) {
+                    found = true;
+                    break 'bfs;
+                }
+                // (a burnt block turns to fire only out of the rain: then it carries the fire on)
+                if !self.rained(n) && seen.insert(n) {
+                    passed.push(n);
+                    queue.push_back(n);
+                }
+            }
+            for dy in -1..=4 {
+                for dz in -1..=1 {
+                    for dx in -1..=1 {
+                        let g = f.offset(dx, dy, dz);
+                        if (dx, dy, dz) == (0, 0, 0) || !w.contains(g) || seen.contains(&g) || !w.get(g).is_air() {
+                            continue;
+                        }
+                        let fuel: Vec<BlockPos> = Dir::ALL.iter().map(|d| g.rel(*d)).filter(|q| super::fire::ignite_odds(&w.get(*q)) > 0).collect();
+                        if fuel.is_empty() || self.near_rain(g) {
+                            continue;
+                        }
+                        passed.extend(fuel.iter().filter(|q| !self.own.contains(q)));
+                        seen.insert(g);
+                        queue.push_back(g);
+                    }
                 }
             }
         }
+        if found {
+            self.natural.extend(passed);
+        }
+        self.reach.insert(p, found);
+        found
     }
-    1.0 - (1.0 - d as f64 / 27.0).powi(4)
+
+    /// A bolt's fire at `p`: (whether it reaches the farm, whether it burns anything at all).
+    fn start(&mut self, p: BlockPos) -> (bool, bool) {
+        let w = self.w;
+        if !w.contains(p) || !w.get(p).is_air() {
+            return (false, false);
+        }
+        let fire = super::fire::state_at(w, p);
+        if !super::fire::can_survive(w, &fire, p) {
+            return (false, false);
+        }
+        let soul = matches!(fire, Block::Fire { soul: true, .. });
+        let harm = self.occupied.contains(&p) || (!soul && self.reaches(p));
+        let burns = harm || (!soul && Dir::ALL.iter().any(|d| super::fire::burn_odds(&w.get(p.rel(*d))) > 0));
+        (harm, burns)
+    }
+
+    /// A bolt at `b`: the chance its fires reach the farm, and that they burn anything (its block,
+    /// then 4 cells drawn uniformly from the 27 around it: `spawnFire(4)` on Normal and Hard).
+    fn chances(&mut self, b: BlockPos) -> (f64, f64) {
+        let (h0, b0) = self.start(b);
+        let (mut dh, mut db) = (0, 0);
+        for dy in -1..=1 {
+            for dz in -1..=1 {
+                for dx in -1..=1 {
+                    let (h, bu) = self.start(b.offset(dx, dy, dz));
+                    dh += h as i32;
+                    db += bu as i32;
+                }
+            }
+        }
+        let p = |d: i32| 1.0 - (1.0 - d as f64 / 27.0).powi(4);
+        (if h0 { 1.0 } else { p(dh) }, if b0 { 1.0 } else { p(db) })
+    }
+}
+
+/// The block cells a box meets.
+fn cells_of(bb: Aabb) -> impl Iterator<Item = BlockPos> {
+    let (x0, y0, z0) = (bb.min_x.floor() as i32, bb.min_y.floor() as i32, bb.min_z.floor() as i32);
+    let (x1, y1, z1) = ((bb.max_x - 1e-7).floor() as i32, (bb.max_y - 1e-7).floor() as i32, (bb.max_z - 1e-7).floor() as i32);
+    (y0..=y1).flat_map(move |y| (z0..=z1).flat_map(move |z| (x0..=x1).map(move |x| BlockPos::new(x, y, z))))
+}
+
+/// Whether a fire lit at `start` (in a thunderstorm's rain) can reach one of `own`'s flammable
+/// blocks or stand in one of `occupied` ([`FireReach`]'s rules; a diagnostic and its tests).
+pub fn fire_can_reach(w: &World, own: &[BlockPos], occupied: &[BlockPos], start: BlockPos) -> bool {
+    let mut r = FireReach {
+        w,
+        own: own.iter().copied().filter(|p| w.contains(*p) && super::fire::burn_odds(&w.get(*p)) > 0).collect(),
+        occupied: occupied.iter().copied().collect(),
+        reach: Default::default(),
+        rained: Default::default(),
+        natural: Default::default(),
+    };
+    r.start(start).0
 }
 
 /// [`Measure`] of a built farm: `golems` the blocks a living golem is in with the chance it is
@@ -971,6 +1087,18 @@ pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], 
 /// [`measure`] with the AFK player's feet (`player`: the trap horses that trigger, landing within
 /// 10 blocks of it).
 pub fn measure_at(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb, farm: (BlockPos, BlockPos), player: Option<Vec3>) -> Result<Measure, String> {
+    // (every block in the box the farm's own: a void build's box holds only its blocks)
+    let (lo, hi) = farm;
+    let own: Vec<BlockPos> = (lo.y..=hi.y).flat_map(|y| (lo.z..=hi.z).flat_map(move |z| (lo.x..=hi.x).map(move |x| BlockPos::new(x, y, z)))).filter(|p| w.contains(*p) && !w.get(*p).is_air()).collect();
+    measure_own(w, golems, iron, inner, player, None, &own)
+}
+
+/// [`measure_at`] with the farm's own blocks named (`own`: a terrain build's design cells; its
+/// box's natural blocks are the site's, not the farm's: ironspec 2026-11-11's fire rules) and the
+/// spot the AFK player really stands at (`afk`: a terrain site's, where the gate's player stands; a
+/// void build's player is the judge's convention, 60 blocks under the farm in its runs, so `None`):
+/// a lightning target, and its own "struck" line.
+pub fn measure_own(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb, player: Option<Vec3>, afk: Option<Vec3>, own: &[BlockPos]) -> Result<Measure, String> {
     use crate::entity::mob::types::MobType;
     let sky = |p: BlockPos| can_see_sky(w, p).map_err(|e| format!("lightning: the sky at {p}: {e}"));
     let q = CHUNK_STRIKE / 256.0;
@@ -998,7 +1126,43 @@ pub fn measure_at(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)
             _ => {}
         }
     }
+    // (ironspec 2026-11-11) the AFK player: a living entity that sees the sky is a target
+    // (`findLightningTargetAround`: any `LivingEntity` alive that sees the sky within 3 of the
+    // column), so a strike near the AFK spot lands on it and lights its cell. It stands on the
+    // first block with a collision under its spot (a spot over air or grass drops it there).
+    let afk_cell = afk.map(|p| {
+        let mut c = BlockPos::new(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+        for _ in 0..8 {
+            if !w.contains(c.below()) || crate::behavior::collides(&w.get(c.below())) {
+                break;
+            }
+            c = c.below();
+        }
+        c
+    });
+    if let (Some(p), Some(c)) = (afk, afk_cell)
+        && w.contains(c)
+        && sky(c)?
+    {
+        statics.push((c, Aabb::new(p.x - 0.3, c.y as f64, p.z - 0.3, p.x + 0.3, c.y as f64 + 1.8, p.z + 0.3)));
+    }
     let protect: Vec<Aabb> = villagers.iter().chain(zombie.iter()).copied().collect();
+    // (ironspec 2026-11-11, the fire rules) what a fire must not reach: the farm's own flammable
+    // blocks; its mobs' cells (villagers, the zombie, every cell a golem is seen in) and its drop
+    // path (every cell a drop is seen in). A strike on the AFK player is not the farm breaking
+    // (ironspec's ruling): its own line (`afk_struck`, the bolt's damage box meeting the player)
+    let mut reach = FireReach {
+        w,
+        own: own.iter().copied().filter(|p| w.contains(*p) && super::fire::burn_odds(&w.get(*p)) > 0).collect(),
+        occupied: protect.iter().flat_map(|bb| cells_of(*bb)).chain(golems.iter().filter(|(_, p)| *p > 0.0).map(|(c, _)| *c)).chain(iron.iter().map(|(c, _)| *c)).collect(),
+        reach: Default::default(),
+        rained: Default::default(),
+        natural: Default::default(),
+    };
+    let player_box: Option<Aabb> = match (afk, afk_cell) {
+        (Some(p), Some(c)) => Some(Aabb::new(p.x - 0.3, c.y as f64, p.z - 0.3, p.x + 0.3, c.y as f64 + 1.8, p.z + 0.3)),
+        _ => None,
+    };
     let mut golem_boxes: Vec<(BlockPos, Aabb, f64)> = Vec::new();
     for (c, p) in golems {
         if sky(*c)? {
@@ -1085,14 +1249,19 @@ pub fn measure_at(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)
             // fire; iteration 23's G1): only the other bolts harm (every bolt on a rod)
             let harm = if rod { wgt } else { wgt * (1.0 - trap) };
             let struck = villagers.iter().filter(|v| hit.intersects(**v)).count() as u32;
+            // (ironspec 2026-11-11) the AFK player in the bolt's damage box: struck (its own line)
+            if player_box.is_some_and(|pb| hit.intersects(pb)) {
+                m.afk_struck += harm;
+            }
             let witch = struck > 0;
             m.witch_max = m.witch_max.max(struck);
             let broke = vehicle.iter().any(|v| hit.intersects(*v));
             m.witch += if witch { harm } else { 0.0 };
             m.vehicle += if broke { harm } else { 0.0 };
             m.iron += harm * iron.iter().filter(|(c, _)| hit.intersects(Aabb::of_block(*c))).map(|(_, n)| n).sum::<f64>();
-            let fire = fire_chance(w, b, &protect, farm);
+            let (fire, any) = reach.chances(b);
             m.fire += harm * fire;
+            m.site_fire += harm * (any - fire).max(0.0);
             m.breaks += harm * if witch || broke { 1.0 } else { fire };
             let (hx, hy, hz) = (b.x as f64, b.y as f64, b.z as f64);
             if !rod {
@@ -1106,6 +1275,7 @@ pub fn measure_at(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)
             }
         }
     }
+    m.natural_in_reach = reach.natural.iter().filter(|p| !reach.own.contains(p)).count() as u32;
     Ok(m)
 }
 
@@ -1152,5 +1322,10 @@ pub fn measure_farm_in(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate:
         Some(s) => s.afk,
         None => Vec3::new((spec.lo.x + spec.hi.x) as f64 / 2.0 + 0.5, spec.hi.y as f64 + 1.0, (spec.lo.z + spec.hi.z) as f64 / 2.0 + 0.5),
     };
-    Ok((measure_at(w, &golems, &iron, spec.inner(), (spec.lo, spec.hi), Some(player))?, sky))
+    // (the farm's own blocks: the design's cells, moved; a terrain build's box holds the site's
+    // natural blocks too, which are not the farm's: ironspec 2026-11-11's fire rules)
+    let own: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).collect();
+    // (the AFK player a lightning target only where it really stands: a terrain site's spot, the
+    // gate's player's; a void build's runs keep it 60 blocks under the farm)
+    Ok((measure_own(w, &golems, &iron, spec.inner(), Some(player), site.map(|s| s.afk), &own)?, sky))
 }
