@@ -29,6 +29,9 @@ pub struct Summary {
     /// Latch sets before +55 (out of turn) and slots with more than one set.
     pub latch_early: usize,
     pub latch_doubles: usize,
+    /// Carts off the rails (the flight watch's derails) and declared-state mismatches.
+    pub derails: usize,
+    pub declared_bad: usize,
 }
 
 fn num_after(l: &str, key: &str) -> Option<i64> {
@@ -72,6 +75,10 @@ pub fn summarize(out: &str) -> Summary {
         } else if l.starts_with("latch sets: ") {
             s.latch_early = num_after(l, "out of turn (REL off, before +55) ").unwrap_or(0) as usize;
             s.latch_doubles = num_after(l, "more than one with REL off in a slot ").unwrap_or(0) as usize;
+        } else if let Some(r) = l.strip_prefix("carts off the rails: ") {
+            s.derails = r.split(|c: char| !c.is_ascii_digit()).next().and_then(|t| t.parse().ok()).unwrap_or(0);
+        } else if l.starts_with("declared states") {
+            s.declared_bad = l.split("): ").nth(1).and_then(|t| t.split(' ').next()).and_then(|t| t.parse().ok()).unwrap_or(0);
         }
     }
     // (the first slot from which every later start is clean)
@@ -112,9 +119,12 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
     for t in [66, 79, 92] {
         v.push((format!("REL glitch 2 +{t}"), vec![format!("5,{t},{rel},redstone_block,2")]));
     }
+    // (whole unloads under the reload-order rule: the save order, its reverse and 8 seeded orders)
     for n in [40, 240] {
         for t in [66, 79, 92, 12, 30, 48] {
-            v.push((format!("unload all {n} +{t}"), vec![format!("5,{t},unload,{n}")]));
+            for ord in ["save", "reverse", "seed:1", "seed:2", "seed:3", "seed:4", "seed:5", "seed:6", "seed:7", "seed:8"] {
+                v.push((format!("unload all {n} +{t} {ord}"), vec![format!("5,{t},unload,{n},{ord}")]));
+            }
         }
     }
     // (C' wired: its detector D missed for the slot (a plain rail in its place), an extra edge (D
@@ -227,8 +237,10 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         let probs: Vec<String> = ss.iter().map(|s| s.problems.to_string()).collect();
         let merges: usize = ss.iter().map(|s| s.merges).sum();
         let early: usize = ss.iter().map(|s| s.latch_early).sum();
-        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 { " <--" } else { "" };
-        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
+        let derails: usize = ss.iter().map(|s| s.derails).sum();
+        let dbad: usize = ss.iter().map(|s| s.declared_bad).sum();
+        let flag = if clean.is_none() || back > 0 || tail.is_some_and(|g| g < 5) || group > 5 || merges > 0 || derails > 0 || dbad > 0 { " <--" } else { "" };
+        out.push(format!("{name:24} clean from {:>2} | back {back} | merges {merges} | latch early {early} | dep min {} ({contact}) | tail min {} ({touch}) group {group} | derails {derails} | declared {dbad} | problems {}{flag}", opt(clean), opt(dep), opt(tail), probs.join("/")));
     }
     Ok(out.join("\n"))
 }

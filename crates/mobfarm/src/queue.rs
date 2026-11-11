@@ -564,6 +564,8 @@ pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
             c(p);
         });
         lay.stand_rel.iter_mut().for_each(b);
+        lay.shape_over.iter_mut().for_each(|(p, _)| c(p));
+        lay.extra.iter_mut().for_each(|(p, _)| c(p));
         lay.fifo.iter_mut().for_each(|(g, p)| {
             b(g);
             c(p);
@@ -642,7 +644,20 @@ pub fn declared_states(o: &LoopOpts) -> Vec<crate::declared::Decl> {
             Cell::Detector => Decl::new(*c, "detector_rail", &[], false),
         });
     }
+    // (an explicit rail shape that must hold: the approach's snap turn, an east-west slope under
+    // the north-south run's end)
+    for (c, s) in &lay.shape_over {
+        if let Some(d) = ds.iter_mut().find(|d| d.cell == *c) {
+            d.props.push(("shape".into(), s.to_string()));
+        }
+    }
     let gate = |p: BlockPos, open: bool| Decl::new([p.x, p.y, p.z], "oak_fence_gate", &[("open", if open { "true" } else { "false" })], false);
+    // (the pocket stand's gates G0, G1, G2: shut at tick 0, the batch held in its pockets)
+    if o.stand_stop {
+        for (g, _) in &lay.pockets {
+            ds.push(gate(*g, false));
+        }
+    }
     for (g, _) in &lay.fifo {
         ds.push(gate(*g, false));
     }
@@ -2495,7 +2510,10 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let fl = |t: &str, what: &str| t.parse::<f64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
-        return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: None, unload: None, place: Some((num(f[3], "K")? as usize, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?])), order: redsim::reload::Order::Save });
+        // (K `head`: the cart nearest the queue's head slot when the act fires, so the next
+        // release group is one short and the placed cart is the one it misses, in order)
+        let k = if f[3] == "head" { usize::MAX } else { num(f[3], "K")? as usize };
+        return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: None, unload: None, place: Some((k, [fl(f[4], "X")?, fl(f[5], "Y")?, fl(f[6], "Z")?])), order: redsim::reload::Order::Save });
     }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
@@ -3664,6 +3682,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 if let Some((k, [x, y, z])) = a.place {
                     // (a lab act: cart k and its rider set at a loop-frame point, at rest)
                     let p = redsim::entity::Vec3::new(x + fx, y, z + fz);
+                    let k = if k == usize::MAX {
+                        // (`head`: the cart nearest the queue's head slot)
+                        let h = lay.slot_cells[lay.slot_cells.len() - 1];
+                        let hp = redsim::entity::Vec3::new(h[0] as f64 + 0.5 + fx, h[1] as f64, h[2] as f64 + 0.5 + fz);
+                        let d = |id: &u32| redsim::entity::index_of(&run.world, *id).map(|i| { let q = run.world.entities.list[i].pos; (q.x - hp.x).powi(2) + (q.y - hp.y).powi(2) + (q.z - hp.z).powi(2) }).unwrap_or(f64::MAX);
+                        (0..carts.len()).min_by(|a, b| d(&carts[*a]).total_cmp(&d(&carts[*b]))).unwrap_or(0)
+                    } else {
+                        k
+                    };
                     if let Some(i) = carts.get(k).and_then(|id| redsim::entity::index_of(&run.world, *id)) {
                         run.world.entities.set_pos(i, p);
                         run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
