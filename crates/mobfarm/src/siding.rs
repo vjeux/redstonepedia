@@ -566,7 +566,51 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
         // (stone, not glass: dust on glass never powers down a step)
         put(b, [2, 0, -1], "stone")?;
         put(b, [2, 1, -1], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-        on(b, [2, 0, -2], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        // (the corner re-layout, ironspec 13:45: R runs north at y 1 to z -3 and west along z -4,
+        // freeing z -2..-3 at y 0 for not-FC into the T; a branch (-1,0,-3) on (-1,-1,-3) fires
+        // DB; stone at (1,1,-2) and (-1,1,-3) cuts the diagonals between R and not-FC)
+        on(b, [2, 1, -2], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        on(b, [2, 1, -3], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        for x in -4..=2 {
+            on(b, [x, 0, -4], dust)?;
+        }
+        on(b, [-5, -1, -4], dust)?;
+        on(b, [-6, -2, -4], dust)?;
+        on(b, [-7, -3, -4], dust)?;
+        on(b, [-7, -3, -3], dust)?;
+        on(b, [-7, -3, -2], &rep("north", 1))?;
+        on(b, [-1, 0, -3], dust)?;
+        put(b, [1, 1, -2], "stone")?;
+        put(b, [-1, 1, -3], "stone")?;
+        // (glass caps on those two stones' tops: golem spots otherwise)
+        put(b, [1, 2, -2], "glass")?;
+        put(b, [-1, 2, -3], "glass")?;
+        // (the T's FC term: not-FC from the torch (-2,1,2) up through the stone over it (-2,2,2),
+        // dust north along y 3 over the entry (-2,3,2..-4), east (-1,3,-4), down (0,2,-4), (0,1,-3),
+        // (0,0,-2) on glass, east (1,0,-2) into a repeater (1,0,-1) facing the T: the T powered
+        // (entry-bed line) unless H and FC, so a departing cart goes to the exit only with its
+        // rider; an empty one goes back out the entry)
+        put(b, [-2, 2, 2], "stone")?;
+        for z in -4..=2 {
+            if z != 2 {
+                put(b, [-2, 2, z], "stone")?;
+            }
+            put(b, [-2, 3, z], dust)?;
+        }
+        on(b, [-1, 3, -4], dust)?;
+        on(b, [0, 2, -4], dust)?;
+        on(b, [0, 1, -3], dust)?;
+        put(b, [0, -1, -2], "glass")?;
+        put(b, [0, 0, -2], dust)?;
+        on(b, [1, 0, -2], dust)?;
+        // (not on the half-turned copy yet: its T is driven through the inverter, where the FC term
+        // has to reach W's block (1,-2,1) instead; until then the turned copy has no re-board)
+        // (MCTAS_SIDING_TFC=0: left out, the forced-empty rows' positive control)
+        if !b.d.meta.get("turn").is_some_and(|t| t == "2" || t == "3") && std::env::var("MCTAS_SIDING_TFC").map_or(true, |v| v != "0") {
+            on(b, [1, 0, -1], &rep("north", 1))?;
+        } else if std::env::var("MCTAS_SIDING_TFC").is_ok_and(|v| v == "0") {
+            b.d.meta.insert("no-tfc".into(), "1 (--no-tfc: the T has no FC term, the forced-empty rows' positive control)".into());
+        }
     } else {
         swap(b, [3, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
         on(b, [3, 0, -1], &rep("south", rd))?;
@@ -576,6 +620,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     // repeaters: R resets H up to 16 gt later, so the wake's echo down a longer nap path reaches N1
     // while H is still set)
     let rx: usize = std::env::var("MCTAS_SIDING_REXTRA").ok().and_then(|v| v.parse().ok()).unwrap_or(if slong { 2 } else { 0 });
+    if !fc() {
     for x in -4..=3 {
         let r = (x == 2 && rx >= 1) || (x == 1 && rx >= 2);
         on(b, [x, 0, -3], &if r { rep("east", 4) } else { dust.to_string() })?;
@@ -584,6 +629,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     on(b, [-6, -2, -3], dust)?;
     on(b, [-7, -3, -3], dust)?;
     on(b, [-7, -3, -2], &rep("north", 1))?;
+    }
     // L: the tripwire across the slot's slope (hooks north on stone, south on the dorm zombie's
     // glass: a stone top there would be a golem spot, a cap would cut the bed's sight of the zombie)
     put(b, [4, 0, 0], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
@@ -1856,6 +1902,28 @@ pub struct VisitRec {
     pub early_wake: Option<i64>,
     pub sleep_at: Option<[f64; 3]>,
     pub sleep_drift: f64,
+    /// (ironspec 14:05) Collision changes in the box while this visit ran: tick, local cell, the
+    /// napper holding a path, its delayed recompute flag, the cell in its path's recompute reach.
+    pub coll: Vec<(i64, [i32; 3], bool, bool, bool)>,
+    /// (ironspec's forced-empty rows) Each time the visit's cart entered the T: tick, the T's shape,
+    /// FC (its west hook powered), a rider aboard; its passes west of the entry; its first tick on
+    /// the slot with a rider aboard and L powered; ticks it sat on the slot empty.
+    pub t_dec: Vec<(i64, String, bool, bool)>,
+    pub in_t: bool,
+    pub west_passes: u32,
+    /// The westward pass: the least local x reached after the drop, and the speed (b/t) as it
+    /// first crossed x -0.5 going west (the ARR detector's centre).
+    pub west_min_x: Option<f64>,
+    pub west_speed: Option<f64>,
+    pub in_west: bool,
+    pub slot_first: Option<(i64, bool, bool)>,
+    pub slot_empty_ticks: u32,
+    /// The visit the fault injection acted on.
+    pub faulted: bool,
+    /// Gt from the last collision change in the box (any visit's) to this napper's lie-down.
+    pub coll_gap: Option<i64>,
+    /// FC's first rise after F (the napper standing on its free cell).
+    pub fc_after_f: Option<i64>,
 }
 
 /// What the bench measured.
@@ -1904,6 +1972,10 @@ pub struct BenchReport {
     pub b_kick_in_bed: u32,
     /// The VR pulses held back by the gating (`b_emul`: the bed occupied, or a cart inside).
     pub v_resets_blocked: u32,
+    /// (the forced-empty fault) When the napper was set off its cart.
+    pub empty_set: Option<i64>,
+    /// Ticks the T changed shape with a cart's centre in its cell.
+    pub t_flips_under_cart: Vec<i64>,
     /// The declared states' mismatches (at the start, and the always-on cells at t0 + 20).
     pub declared_bad: Vec<String>,
     /// ironspec's invariant (2026-11-11 02:41): the windows a villager is calm in REST with the
@@ -2153,7 +2225,44 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     // (the divert gate's reset pulses VR, emulated: when they fire; and their cells, the R line's
     // two ends as R pulses them: DB beside its dropper, the H latch's reset input)
     let mut vr_at: Vec<i64> = Vec::new();
-    let (vr_db, vr_n2) = (if bo.fc { fr.blk(0, -1, -2) } else { fr.blk(1, -1, -2) }, fr.blk(-8, -3, -1));
+    let (vr_db, vr_n2) = (if bo.fc { fr.blk(-1, -1, -3) } else { fr.blk(1, -1, -2) }, fr.blk(-8, -3, -1));
+    // (tick-exact 14:04: VR set into air changed a collision shape, which re-paths a rider still
+    // following its flee path; after it lies down the delayed recompute walks it off the bed. VR now
+    // swaps a solid block for a redstone block and back: on the FC build the R line's support
+    // beside DB, (-1,-1,-3), whose block powers the R line into N2 too; N2's cell gets a stone at
+    // the start. Every set goes to the drive)
+    let vr_rest: Vec<(BlockPos, String)> = [vr_db, vr_n2].iter().map(|&c| (c, run.world.get(c).to_string())).collect();
+    // (F's pulse the same way: a stone at the force cell from the start, swapped for a redstone
+    // block and back; the gate's comparator and the F tap read an unpowered stone as 0)
+    if run.world.get(force_cell).to_string() == "minecraft:air" {
+        set(&mut run.world, force_cell, "stone");
+        drive.act(t0, format!("set {} {} {} minecraft:stone", force_cell.x, force_cell.y, force_cell.z));
+    }
+    // (ironspec 14:05 item 4: every block in the siding's box whose collision shape changes with its
+    // state (trapdoors, doors, gates, pistons), with its last collision-relevant state)
+    let coll_key = |s: &str| -> String { s.split(['[', ',', ']']).filter(|p| p.starts_with("open=") || p.starts_with("extended=") || p.starts_with("half=")).collect::<Vec<_>>().join(",") };
+    let mut coll_cells: Vec<(BlockPos, String)> = Vec::new();
+    // (the last tick any of them changed, for the gap to each lie-down whatever visit it fell in)
+    let mut coll_last: i64 = i64::MIN / 2;
+    // (ironspec: the T never flips with a cart in its cell; its shape last tick)
+    let mut t_shape_prev = run.world.get(fr.blk(1, 0, 0)).to_string();
+    for x in -7..=6 {
+        for y in -7..=10 {
+            for z in -4..=9 {
+                let c = fr.blk(x, y, z);
+                let st = run.world.get(c).to_string();
+                if ["trapdoor", "_door", "fence_gate", "piston"].iter().any(|k| st.contains(k)) {
+                    coll_cells.push((c, coll_key(&st)));
+                }
+            }
+        }
+    }
+    for (c, b) in &vr_rest {
+        if b == "minecraft:air" {
+            set(&mut run.world, *c, "stone");
+            drive.act(t0, format!("set {} {} {} minecraft:stone", c.x, c.y, c.z));
+        }
+    }
     // (the napper-aboard sensor, when the design has it: the string's band, or the plate's touch
     // box, and its last state)
     let seat_cell = fr.blk(1, 2, 1);
@@ -2205,6 +2314,26 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut b_wrong_since: Option<i64> = None;
     while run.world.time < end {
         let now = run.world.time;
+        // (the collision changes since the last tick)
+        let mut coll_now: Vec<BlockPos> = Vec::new();
+        for (c, last) in coll_cells.iter_mut() {
+            let k = coll_key(&run.world.get(*c).to_string());
+            if k != *last {
+                *last = k;
+                coll_now.push(*c);
+                coll_last = now;
+            }
+        }
+        let t_shape = run.world.get(fr.blk(1, 0, 0)).to_string();
+        if t_shape != t_shape_prev {
+            if run.world.entities.list.iter().any(|e| {
+                let p = fr.local(e.pos);
+                !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (1.0..2.0).contains(&p.x) && (0.0..1.0).contains(&p.z)
+            }) {
+                rep.t_flips_under_cart.push(now);
+            }
+            t_shape_prev = t_shape;
+        }
         let day = run.world.day_time().rem_euclid(24000);
         let night = !(10..12000).contains(&day);
         // (the night a visit belongs to: the day count at its night's dusk)
@@ -2378,7 +2507,14 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         if let Some((kind, fk)) = &bo.fault
             && let Some(v) = rep.visits.get(*fk)
         {
-            let rb = |w: &mut World, c: [i32; 3], on: bool| w.set_block(fr.blk(c[0], c[1], c[2]), block(if on { "redstone_block" } else { "air" }), redsim::world::flags::ALL);
+            // (redstone block on, stone off: a fault cell stays solid after its first pulse; every set
+            // goes to the drive)
+            let rb = |w: &mut World, c: [i32; 3], on: bool| {
+                let p = fr.blk(c[0], c[1], c[2]);
+                let b = if on { "redstone_block" } else { "stone" };
+                w.set_block(p, block(b), redsim::world::flags::ALL);
+                drive.act(now, format!("set {} {} {} minecraft:{b}", p.x, p.y, p.z));
+            };
             let (da, db, n1, n2) = ([1, -1, -1], [1, -1, -2], [-6, -3, 2], [-8, -3, -1]);
             let mut pulse = |w: &mut World, cells: &[[i32; 3]], at: i64| {
                 if now == at {
@@ -2393,6 +2529,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 }
             };
             let entered = !bo.launch || v.entered;
+            let mut empty_now = false;
             match kind.as_str() {
                 "arr-miss" if entered => pulse(&mut run.world, &[db], v.arrived + 15),
                 "arr-extra" if entered => pulse(&mut run.world, &[da], v.arrived + 60),
@@ -2405,14 +2542,49 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     }
                 }
                 "f-lost" | "f-early" => {}
+                // (ironspec's forced-empty rows: `empty@P`, P gt after FC's first rise after F (the napper
+                // standing on its free cell, the kick's trigger) the napper is
+                // taken off its cart if riding and set on the bed's top, beside its free cell: before
+                // the kick it holds the kick (FC off), between the kick and the pickup the cart
+                // passes the free cell empty, after the pickup the cart goes on without it)
+                k if k.starts_with("empty@") => {
+                    let (p, hold): (i64, i64) = match k["empty@".len()..].split_once('+') { Some((a, b)) => (a.parse().unwrap_or(0), b.parse().unwrap_or(1)), None => (k["empty@".len()..].parse().unwrap_or(0), 1) };
+                    if let Some(f) = v.fc_after_f
+                        && now >= f + p
+                        && now < f + p + hold
+                        && let Some(i) = index_of(&run.world, v.villager)
+                    {
+                        if run.world.entities.list[i].vehicle.is_some() {
+                            redsim::entity::stop_riding(&mut run.world, i);
+                        }
+                        // (one tick: set on the bed's top; a hold: kept in the air above the box for the
+                        // hold, then set back standing on its free cell, so it is absent at the pickup and
+                        // back for the re-board)
+                        let to = if hold <= 1 {
+                            fr.pt(0.5, 0.5625, 2.5)
+                        } else if now + 1 < f + p + hold {
+                            fr.pt(-6.5, 14.0, 6.5)
+                        } else {
+                            fr.pt(1.5, 0.0, 2.5)
+                        };
+                        run.world.entities.set_pos(i, to);
+                        run.world.entities.list[i].delta_movement = Vec3::ZERO;
+                        if now == f + p || now + 1 == f + p + hold {
+                            drive.act(now, format!("tp {} {} {} {}", drive.name(v.villager), to.x, to.y, to.z));
+                        }
+                        empty_now = true;
+                    }
+                }
                 "f-double" => {
                     if let Some(f) = v.forced {
                         let fc = force_cell;
                         if now == f + 30 {
                             set(&mut run.world, fc, "redstone_block");
+                            drive.act(now, format!("set {} {} {} minecraft:redstone_block", fc.x, fc.y, fc.z));
                         }
                         if now == f + 42 {
-                            set(&mut run.world, fc, "air");
+                            set(&mut run.world, fc, "stone");
+                            drive.act(now, format!("set {} {} {} minecraft:stone", fc.x, fc.y, fc.z));
                         }
                     }
                 }
@@ -2468,6 +2640,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     }
                 }
                 _ => {}
+            }
+            if empty_now {
+                rep.empty_set = Some(now);
+                rep.visits[*fk].faulted = true;
             }
         }
         // (ironspec 07:00 item 1(a): design (b)'s bulb against the bed, a run of disagreement over
@@ -2541,8 +2717,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 rep.held_f_fired += 1;
             }
             if force_off == Some(now) {
-                set(&mut run.world, fc, "air");
-                drive.act(now, format!("set {} {} {} minecraft:air", fc.x, fc.y, fc.z));
+                set(&mut run.world, fc, "stone");
+                drive.act(now, format!("set {} {} {} minecraft:stone", fc.x, fc.y, fc.z));
                 force_off = None;
             }
         }
@@ -2556,7 +2732,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             // covering the stretch between them)
             run.world.entities.list.iter().any(|e| {
                 let p = fr.local(e.pos);
-                !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= 0.0 && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout().park_rail.z as f64 + 1.0))
+                !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= if bo.fc { -10.0 } else { 0.0 } && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout().park_rail.z as f64 + 1.0))
             })
         };
         if (bo.b_fc || bo.resync.is_some() || bo.fc) && (cart_inside() || run.world.get(if bo.fc { fr.blk(-1, 0, 0) } else { s.entry }).to_string().contains("powered=true")) {
@@ -2591,13 +2767,18 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             rep.v_resets_blocked += 1;
         }
         if vr_at.contains(&now) && !vr_blocked {
-            set(&mut run.world, vr_db, "redstone_block");
-            set(&mut run.world, vr_n2, "redstone_block");
+            for c in [vr_db, vr_n2] {
+                set(&mut run.world, c, "redstone_block");
+                drive.act(now, format!("set {} {} {} minecraft:redstone_block", c.x, c.y, c.z));
+            }
             rep.v_resets.push(now);
         }
         if rep.v_resets.last() == Some(&(now - 4)) {
-            set(&mut run.world, vr_db, "air");
-            set(&mut run.world, vr_n2, "air");
+            for (c, b) in &vr_rest {
+                let back = if b == "minecraft:air" { "stone" } else { b.strip_prefix("minecraft:").unwrap_or(b) };
+                set(&mut run.world, *c, back);
+                drive.act(now, format!("set {} {} {} minecraft:{back}", c.x, c.y, c.z));
+            }
         }
         // (the partial unload: the chunks dropped when visit K reaches the state, back N gt later;
         // or the whole part saved and unloaded, back as new entities whose ids the bench follows;
@@ -2996,12 +3177,65 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 if (t - t0) % 25 == 0 {
                     drive.expect(t, format!("pos {} {:.4} {:.4} {:.4}", drive.name(cart), c.pos.x, c.pos.y, c.pos.z));
                 }
+                // (the forced-empty rows' prints: the T's decisions, the passes west, the slot; and FC's
+                // first rise after F, the fault's phase origin: the napper standing, the kick's trigger)
+                if rep.visits[k].forced.is_some() && rep.visits[k].fc_after_f.is_none() && w.get(fr.blk(0, 1, 2)).to_string().contains("powered=true") {
+                    rep.visits[k].fc_after_f = Some(t);
+                }
+                let lp = fr.local(c.pos);
+                let aboard = w.entities.list.iter().any(|x| x.vehicle == Some(cart) && !x.removed);
+                let vr = &mut rep.visits[k];
+                let in_t = (1.0..2.0).contains(&lp.x) && (0.0..1.0).contains(&lp.z);
+                if in_t && !vr.in_t {
+                    let ts = w.get(fr.blk(1, 0, 0)).to_string();
+                    let shape = ts.split(['[', ',', ']']).find(|p| p.starts_with("shape=")).unwrap_or("?").trim_start_matches("shape=").to_string();
+                    vr.t_dec.push((t, shape, w.get(fr.blk(0, 1, 2)).to_string().contains("powered=true"), aboard));
+                }
+                vr.in_t = in_t;
+                let in_west = lp.x < 0.0 && vr.dropped.is_some();
+                if lp.x < -0.5 && vr.dropped.is_some() {
+                    vr.west_min_x = Some(vr.west_min_x.map_or(lp.x, |m| m.min(lp.x)));
+                    vr.west_speed.get_or_insert(c.delta_movement.x.hypot(c.delta_movement.z));
+                }
+                if in_west && !vr.in_west {
+                    vr.west_passes += 1;
+                }
+                vr.in_west = in_west;
+                if (4.0..5.0).contains(&lp.x) && (0.0..1.0).contains(&lp.z) {
+                    let l = w.get(fr.blk(4, 0, -1)).to_string().contains("powered=true");
+                    vr.slot_first.get_or_insert((t, aboard, l));
+                    if !aboard {
+                        vr.slot_empty_ticks += 1;
+                    }
+                }
             }
             if let Some(i) = index_of(w, villager) {
                 let e = &w.entities.list[i];
                 let riding = e.vehicle;
                 let asleep = redsim::entity::mob::mob(w, i).sleeping_pos.is_some();
                 let vr = &mut rep.visits[k];
+                // (each collision change this tick against the napper's navigation: a path, the
+                // delayed recompute flag, and whether the cell is in the path's recompute reach)
+                for &c in &coll_now {
+                    let (path, delayed, reach) = if redsim::entity::mob::ai::has_ai(w, i) {
+                        let nv = redsim::entity::mob::ai::nav_of(w, i);
+                        let reach = nv.path.as_ref().is_some_and(|p| {
+                            !p.is_done()
+                                && p.node_count() != 0
+                                && p.end_node().is_some_and(|n| {
+                                    let mid = ((n.x as f64 + e.pos.x) / 2.0, (n.y as f64 + e.pos.y) / 2.0, (n.z as f64 + e.pos.z) / 2.0);
+                                    let d = (p.node_count() - p.next_node_index) as f64;
+                                    let (dx, dy, dz) = (c.x as f64 + 0.5 - mid.0, c.y as f64 + 0.5 - mid.1, c.z as f64 + 0.5 - mid.2);
+                                    dx * dx + dy * dy + dz * dz < d * d
+                                })
+                        });
+                        (nv.path.is_some(), nv.has_delayed_recomputation, reach)
+                    } else {
+                        (false, false, false)
+                    };
+                    let l = fr.local(Vec3::new(c.x as f64 + 0.5, c.y as f64 + 0.5, c.z as f64 + 0.5));
+                    vr.coll.push((t, [l.x.floor() as i32, l.y.floor() as i32, l.z.floor() as i32], path, delayed, reach));
+                }
                 if vr.dropped.is_none() && riding.is_none() {
                     vr.dropped = Some(t);
                     // (the bed taken by another: occupied with the napper not in it)
@@ -3011,6 +3245,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 }
                 if vr.dropped.is_some() && vr.slept.is_none() && asleep {
                     vr.slept = Some(t);
+                    vr.coll_gap = Some(t - coll_last);
                 }
                 if vr.slept.is_some() && vr.woken.is_none() && !asleep {
                     vr.woken = Some(t);

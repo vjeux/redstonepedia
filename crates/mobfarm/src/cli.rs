@@ -1929,6 +1929,10 @@ pub enum MobfarmCmd {
         /// outputs as block entities: "settled as placed", mobfarm::placing::settle_design).
         #[arg(long)]
         unsettled: bool,
+        /// (the FC build) Leave out the T's FC term, the forced-empty rows' positive control: an empty
+        /// departure then goes to the exit instead of back out the entry (a `no-tfc` meta line says so).
+        #[arg(long)]
+        no_tfc: bool,
     },
     /// The bed siding's static check: every rider and napper cell's golem search (any spot is a
     /// stray).
@@ -3721,7 +3725,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("golems touching no portal: {strays}; Nether: {deaths} dead, {alive} alive at the end, {back} back in the overworld");
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, give_up, unsettled, turn } => {
+        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, give_up, unsettled, turn, no_tfc } => {
+            if no_tfc {
+                // (read by the generator's wire: MCTAS_SIDING_TFC=0)
+                unsafe { std::env::set_var("MCTAS_SIDING_TFC", "0") };
+            }
             let g = match (wired, give_up.as_str()) {
                 (false, _) | (_, "none") => crate::siding::GiveUp::None,
                 (true, "timer") => crate::siding::GiveUp::Timer,
@@ -3823,7 +3831,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let fault_opt: Option<(String, usize)> = match &fault {
                 Some(f) => {
                     let (k, n) = f.split_once(':').ok_or_else(|| anyhow::anyhow!("--fault KIND:K"))?;
-                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double", "f-lost", "f-early", "no-drop", "bed-taken", "b-sleep", "b-wake", "b-extra", "b-nap", "b-delay"].contains(&k), "--fault: arr-miss, arr-extra, r-miss, r-extra, f-double, no-drop, bed-taken, or B's bulb flipped: b-sleep, b-wake (a missed pulse), b-extra, b-nap, b-delay (an extra pulse)");
+                    anyhow::ensure!(["arr-miss", "arr-extra", "r-miss", "r-extra", "f-double", "f-lost", "f-early", "no-drop", "bed-taken", "b-sleep", "b-wake", "b-extra", "b-nap", "b-delay"].contains(&k) || k.starts_with("empty@"), "--fault: arr-miss, arr-extra, r-miss, r-extra, f-double, no-drop, bed-taken, or B's bulb flipped: b-sleep, b-wake (a missed pulse), b-extra, b-nap, b-delay (an extra pulse)");
                     Some((k.to_string(), n.parse()?))
                 }
                 None => None,
@@ -4269,6 +4277,42 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let early = vs.iter().filter(|v| v.early_wake.is_some()).count();
                     let drift = vs.iter().map(|v| v.sleep_drift).fold(0.0f64, f64::max);
                     println!("sleepers (ironspec 13:09): woke before F {early} of {} napped{}; largest drift while asleep {drift:.2}", vs.iter().filter(|v| v.slept.is_some()).count(), if early > 0 { " (FAIL)" } else { "" });
+                    // (ironspec 14:05: collision changes from 20 gt before each lie-down to its wake, against the
+                    // napper's navigation; and every change's time relative to the lie-down)
+                    let mut bad: Vec<String> = Vec::new();
+                    let mut rel: std::collections::BTreeMap<[i32; 3], Vec<i64>> = Default::default();
+                    for v in vs.iter() {
+                        let Some(s) = v.slept else { continue };
+                        let until = v.woken.unwrap_or(i64::MAX);
+                        for &(t, c, path, delayed, reach) in &v.coll {
+                            rel.entry(c).or_default().push(t - s);
+                            if t >= s - 20 && t <= until && ((path && reach) || delayed) {
+                                bad.push(format!("villager {} cell {:?} at lie-down {:+} (path {path}, in reach {reach}, delayed {delayed})", v.villager, c, t - s));
+                            }
+                        }
+                    }
+                    println!("collision changes near a pathing napper (ironspec 14:05, lie-down -20 to the wake): {}{}", bad.len(), if bad.is_empty() { String::new() } else { format!(" (FAIL; {})", bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) });
+                    let gap = vs.iter().filter_map(|v| v.coll_gap).min();
+                    println!("  the nearest collision change before any lie-down, any visit's: {}", gap.map_or("none".into(), |g| if g > 1_000_000 { "none".into() } else { format!("{g} gt{}", if g <= 20 { " (within 20: check its napper's path)" } else { "" }) }));
+                    // (ironspec's forced-empty rows: the faulted visits' T decisions, passes west, slot)
+                    let empty_slot: u32 = vs.iter().map(|v| v.slot_empty_ticks).sum();
+                    println!("empty carts on the slot: {empty_slot} cart-ticks{}", if empty_slot > 0 { " (FAIL)" } else { "" });
+                    let tf: usize = oks.iter().map(|r| r.t_flips_under_cart.len()).sum();
+                    println!("the T flipped with a cart in its cell: {tf}{}", if tf > 0 { " (FAIL)" } else { "" });
+                    if let Some((kind, _)) = &fault_opt {
+                        if kind.starts_with("empty@") {
+                            for v in vs.iter().filter(|v| v.faulted) {
+                                let f = v.fc_after_f.or(v.forced).unwrap_or(v.arrived);
+                                let td: Vec<String> = v.t_dec.iter().map(|(t, sh, fc, ab)| format!("S{:+} {sh} FC {} {}", t - f, if *fc { "on" } else { "off" }, if *ab { "ridden" } else { "empty" })).collect();
+                                println!("  {kind} villager {}: T decisions [{}]; passes west {} (to local x {}, speed at x -0.5 {}); slot first {}; re-boarded {} (own {}); released {}", v.villager, td.join("; "), v.west_passes, v.west_min_x.map_or("-".into(), |x| format!("{x:.2}")), v.west_speed.map_or("-".into(), |s| format!("{s:.3}")), v.slot_first.map_or("never".into(), |(t, ab, l)| format!("S{:+} {} L {}", t - f, if ab { "ridden" } else { "EMPTY" }, if l { "high" } else { "low" })), v.reboarded.map_or("no".into(), |t| format!("S{:+}", t - f)), v.own_cart, v.released.map_or("no".into(), |t| format!("S{:+}", t - f)));
+                            }
+                        }
+                    }
+                    for (c, ts) in &rel {
+                        let before = ts.iter().filter(|&&d| d < 0).max();
+                        let after = ts.iter().filter(|&&d| d >= 0).min();
+                        println!("  collision cell {:?}: {} changes during visits; nearest before a lie-down {}, first after {}", c, ts.len(), before.map_or("none".into(), |d| format!("{d} gt")), after.map_or("none".into(), |d| format!("+{d} gt")));
+                    }
                     wb.sort();
                     let pts: Vec<[f64; 3]> = vs.iter().flat_map(|v| v.bump_at.iter().copied()).collect();
                     let rng = |k: usize| pts.iter().map(|p| p[k]).fold((f64::INFINITY, f64::NEG_INFINITY), |a, x| (a.0.min(x), a.1.max(x)));
