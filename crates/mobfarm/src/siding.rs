@@ -73,13 +73,13 @@ pub const APPROACH_X: f64 = -4.5;
 pub const LAUNCH_X: f64 = -8.5;
 
 pub fn layout() -> Siding {
-    layout_at(0)
+    layout_at(0, 0)
 }
 
-/// [`layout`] moved `dx` east (the bench's world shifted so the loop's chunk lines fall on the
-/// siding as day-1 pastes it: `BenchOpts::shift_x`).
-pub fn layout_at(dx: i32) -> Siding {
-    let p = |x: i32, y: i32, z: i32| BlockPos::new(x + dx, y, z);
+/// [`layout`] moved `dx` east and `dz` south (the bench's world shifted so the loop's chunk lines
+/// fall on the siding as day-1 pastes it: `BenchOpts::shift_x`, `shift_z`).
+pub fn layout_at(dx: i32, dz: i32) -> Siding {
+    let p = |x: i32, y: i32, z: i32| BlockPos::new(x + dx, y, z + dz);
     Siding {
         entry: p(0, 0, 0),
         tee: p(1, 0, 0),
@@ -95,7 +95,7 @@ pub fn layout_at(dx: i32) -> Siding {
         bed_foot: p(0, 0, 3),
         hatch: p(2, 1, 2),
         hatch_ctrl: p(2, 0, 2),
-        zombie: [4.5 + dx as f64, 1.0, 2.5],
+        zombie: [4.5 + dx as f64, 1.0, 2.5 + dz as f64],
         slot_rails: [p(4, -1, 0), p(5, -1, 0)],
         release: p(4, -2, 0),
         exit: p(6, -1, 0),
@@ -850,6 +850,9 @@ pub struct BenchOpts {
     /// X & 15 = 6, Z & 15 = 6 at the loop's cell 0, 0) fall on the siding as day-1 pastes it (the
     /// siding's (−5,−3,−4) at the loop's (−25,−1,6)): siding x −3|−2 and z −1|0.
     pub shift_x: i32,
+    /// The world moved this many blocks south (with `shift_x`; the one-chunk placement's 3 puts
+    /// the siding's z -3..9 inside one chunk).
+    pub shift_z: i32,
     /// A partial unload (tick-exact's `reload::unload_some` / `load_some`; farmopt and ironspec
     /// 2026-11-10): the forced chunk box set at the start, the chunks dropped when visit K reaches
     /// the state, back N gt later.
@@ -879,6 +882,25 @@ pub struct Unload {
 /// z −1 and 0 (its z −1|0). `side` is the side dropped (`lo`: west or north), `level` its level:
 /// 32 (the other side forced) or 33 (the other side at 32, the forced box one chunk beyond it).
 pub fn unload_boxes(line: &str, side: &str, level: u8) -> Result<([i32; 4], [i32; 4]), String> {
+    // (the one-chunk placement, ironspec and farmopt 2026-11-10 22:58: day-1 pastes the siding at
+    // ox in [-15,-13], oz in [13,16], inside one chunk; on the bench shifted (8, 3) the siding is
+    // chunk (0, 0) and the lines left are the junction tracks': `w` between chunk x -1 and 0 (the
+    // approach, the bench's launcher), `e` between 0 and 1 (the run-out); the forced row z 0)
+    if line == "w" || line == "e" {
+        let (forced, drop) = match (line, side, level) {
+            ("w", "lo", 32) => ((-1, 1), (-1, -1)),
+            ("w", "lo", 33) => ((-1, 1), (-1, 0)),
+            ("w", "hi", 32) => ((-1, 1), (0, 1)),
+            ("e", "lo", 32) => ((-1, 1), (-1, 0)),
+            ("e", "hi", 32) => ((-1, 1), (1, 1)),
+            ("e", "hi", 33) => ((-1, 1), (0, 1)),
+            // (w hi 33 and e lo 33 put the siding's chunk at 33 and the far junction's at 34: its
+            // entities saved and unloaded, which redsim does not model)
+            ("w", "hi", 33) | ("e", "lo", 33) => return Err(format!("{line} {side} 33 leaves the far junction's chunk at 34 (not modeled)")),
+            _ => return Err(format!("side lo or hi and level 32 or 33, not {side} {level}")),
+        };
+        return Ok(([forced.0, 0, forced.1, 0], [drop.0, 0, drop.1, 0]));
+    }
     let (forced, drop) = match (side, level) {
         ("lo", 32) => ((-1, 0), (-1, -1)),
         ("lo", 33) => ((-1, 1), (-1, 0)),
@@ -940,6 +962,8 @@ pub struct VisitRec {
     pub unstuck: Option<i64>,
     /// When its cart came onto the exit branch (x past the T's east edge, moving east).
     pub branch: Option<i64>,
+    /// When the bench sent its cart (onto the launcher or the approach).
+    pub sent: i64,
     /// The siding's T rail: when it turned to bed-exit after the arrival, and back to entry-bed
     /// after the cart left (and the cart's x then).
     pub tee_out: Option<i64>,
@@ -998,8 +1022,8 @@ fn short_state(s: &str) -> String {
 
 /// A farm spec moved `dx` east (blocks, block entities, entities, its box and output; the
 /// villagers' loaded HOME memory, `pos:[I;x,y,z]` in their SNBT, too).
-fn shift_spec(spec: &FarmSpec, dx: i32) -> FarmSpec {
-    let mv = |p: BlockPos| BlockPos::new(p.x + dx, p.y, p.z);
+fn shift_spec(spec: &FarmSpec, dx: i32, dz: i32) -> FarmSpec {
+    let mv = |p: BlockPos| BlockPos::new(p.x + dx, p.y, p.z + dz);
     let mv_nbt = |s: &str| -> String {
         let mut out = String::new();
         let mut rest = s;
@@ -1009,7 +1033,7 @@ fn shift_spec(spec: &FarmSpec, dx: i32) -> FarmSpec {
             let end = tail.find(']').unwrap_or(tail.len());
             let v: Vec<i64> = tail[..end].split(',').filter_map(|x| x.trim().parse().ok()).collect();
             if v.len() == 3 {
-                out.push_str(&format!("{},{},{}", v[0] + dx as i64, v[1], v[2]));
+                out.push_str(&format!("{},{},{}", v[0] + dx as i64, v[1], v[2] + dz as i64));
             } else {
                 out.push_str(&tail[..end]);
             }
@@ -1021,7 +1045,7 @@ fn shift_spec(spec: &FarmSpec, dx: i32) -> FarmSpec {
     let mut o = spec.clone();
     o.blocks = spec.blocks.iter().map(|(p, b)| (mv(*p), *b)).collect();
     o.block_entities = spec.block_entities.iter().map(|(p, s)| (mv(*p), s.clone())).collect();
-    o.entities = spec.entities.iter().map(|(t, p, n)| (t.clone(), [p[0] + dx as f64, p[1], p[2]], n.as_deref().map(mv_nbt))).collect();
+    o.entities = spec.entities.iter().map(|(t, p, n)| (t.clone(), [p[0] + dx as f64, p[1], p[2] + dz as f64], n.as_deref().map(mv_nbt))).collect();
     o.output = mv(spec.output);
     o.lo = mv(spec.lo);
     o.hi = mv(spec.hi);
@@ -1033,24 +1057,26 @@ fn shift_spec(spec: &FarmSpec, dx: i32) -> FarmSpec {
 /// the approach moving +x at `speed`; the controls driven ideally (the module's doc); the release
 /// `release` after the arrival; the cart back to its hold cell once out past the exit.
 pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
-    let dx = bo.shift_x;
-    let s = layout_at(dx);
-    // (the world moved dx east: the loop's chunk lines on the siding as day-1 pastes it)
+    let (dx, dz) = (bo.shift_x, bo.shift_z);
+    let s = layout_at(dx, dz);
+    // (the world moved dx east and dz south: the loop's chunk lines on the siding as day-1 pastes
+    // it)
     let moved;
-    let spec = if dx != 0 {
+    let spec = if dx != 0 || dz != 0 {
         if bo.drive {
             return Err("a shifted bench writes no drive (its coordinates are not the design's)".into());
         }
-        moved = shift_spec(spec, dx);
+        moved = shift_spec(spec, dx, dz);
         &moved
     } else {
         spec
     };
     let hold_at = |h: i32| {
         let c = hold_cell(h);
-        BlockPos::new(c.x + dx, c.y, c.z)
+        BlockPos::new(c.x + dx, c.y, c.z + dz)
     };
-    let force_cell = BlockPos::new(FORCE_CELL[0] + dx, FORCE_CELL[1], FORCE_CELL[2]);
+    let force_cell = BlockPos::new(FORCE_CELL[0] + dx, FORCE_CELL[1], FORCE_CELL[2] + dz);
+    let zf = dz as f64;
     let ro = RunOpts { ai: true, ..RunOpts::steady(bo.seed, bo.nights * 24000 + 24000, WalkMode::Random) };
     // (the judge's placement and the settle; the raw paste; or built in order)
     let (mut run, built) = crate::placing::start(spec, &ro, bo.placement, &bo.plan)?;
@@ -1190,11 +1216,11 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     if bo.launch {
                         // (at rest on the launcher's first booster, against its glass stop: the
                         // drive's `tp` moves a cart at rest)
-                        let p = Vec3::new(LAUNCH_X + dx as f64, 0.0625, 0.5);
+                        let p = Vec3::new(LAUNCH_X + dx as f64, 0.0625, 0.5 + zf);
                         teleport(&mut run.world, cart, p, Vec3::new(0.0, 0.0, 0.0));
                         drive.act(now, format!("tp {} {} {} {}", drive.name(cart), p.x, p.y, p.z));
                     } else {
-                        teleport(&mut run.world, cart, Vec3::new(APPROACH_X + dx as f64, 0.0625, 0.5), Vec3::new(v, 0.0, 0.0));
+                        teleport(&mut run.world, cart, Vec3::new(APPROACH_X + dx as f64, 0.0625, 0.5 + zf), Vec3::new(v, 0.0, 0.0));
                     }
                     let eta = if bo.launch { 30 } else { ((-APPROACH_X - 0.0) / v).round() as i64 };
                     // (a forced failure: the villager cannot sleep, its HOME erased)
@@ -1210,11 +1236,11 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     }
                     // (V before the arrival: the bulb lit, or the dropper latch's DA empty, its
                     // comparator at (-1,-1,-1) off)
-                    let v_before = force.is_some().then(|| match run.world.get(BlockPos::new(dx, -1, -1)) {
+                    let v_before = force.is_some().then(|| match run.world.get(BlockPos::new(dx, -1, dz - 1)) {
                         Block::Bulb { lit, .. } => lit,
-                        _ => matches!(run.world.get(BlockPos::new(dx - 1, -1, -1)), Block::Comparator { powered: false, .. }),
+                        _ => matches!(run.world.get(BlockPos::new(dx - 1, -1, dz - 1)), Block::Comparator { powered: false, .. }),
                     });
-                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, failed, force_dropped: dropped_f, v_before, ..Default::default() });
+                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, sent: now, night: night_n, failed, force_dropped: dropped_f, v_before, ..Default::default() });
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
                     night_of_visit[k] = night_n;
@@ -1287,7 +1313,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             && let Some(v) = rep.visits.get(*fk)
         {
             let rb = |w: &mut World, c: [i32; 3], on: bool| w.set_block(BlockPos::new(c[0], c[1], c[2]), block(if on { "redstone_block" } else { "air" }), redsim::world::flags::ALL);
-            let (da, db, n1, n2) = ([1 + dx, -1, -1], [1 + dx, -1, -2], [-6 + dx, -3, 2], [-8 + dx, -3, -1]);
+            let (da, db, n1, n2) = ([1 + dx, -1, dz - 1], [1 + dx, -1, dz - 2], [-6 + dx, -3, dz + 2], [-8 + dx, -3, dz - 1]);
             let mut pulse = |w: &mut World, cells: &[[i32; 3]], at: i64| {
                 if now == at {
                     for &c in cells {
@@ -1346,17 +1372,20 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             }
         }
         // (the partial unload: the chunks dropped when visit K reaches the state, back N gt later;
-        // or the whole part saved and unloaded, back as new entities whose ids the bench follows)
+        // or the whole part saved and unloaded, back as new entities whose ids the bench follows;
+        // both written to the drive as tick-exact's acts)
         if let Some(u) = &bo.unload
             && let Some(v) = rep.visits.get(u.visit)
-            && (!bo.launch || v.entered)
+            && (!bo.launch || v.entered || u.state == "sent")
         {
-            if kick_seen.is_none() && now > v.arrived && run.world.away.is_none() && run.world.get(s.park_rail).to_string().contains("powered=true") {
+            if kick_seen.is_none() && now > v.arrived && v.entered | !bo.launch && run.world.away.is_none() && run.world.get(s.park_rail).to_string().contains("powered=true") {
                 kick_seen = Some(now);
             }
+            let bx = |b: [i32; 4]| format!("{},{},{},{}", b[0], b[1], b[2], b[3]);
             match rep.unload {
                 None => {
                     let at = match u.state.as_str() {
+                        "sent" => Some(v.sent + 10),
                         "arrival" => Some(v.arrived),
                         "arriving" => Some(v.arrived + 8),
                         "drop" => v.dropped,
@@ -1374,8 +1403,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     {
                         if u.whole {
                             redsim::reload::unload_all(&mut run.world);
+                            drive.act(now, "unload".into());
                         } else {
                             redsim::reload::unload_some(&mut run.world, u.drop);
+                            drive.act(now, format!("unload {}", bx(u.drop)));
                         }
                         rep.unload = Some((now, None));
                     }
@@ -1383,8 +1414,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 Some((from, None)) if now >= from + u.n => {
                     if u.whole {
                         redsim::reload::load_all(&mut run.world);
+                        drive.act(now, "load".into());
                         let w = &run.world;
                         let re = |id: u32| w.renumbered.get(&id).copied().unwrap_or(id);
+                        for (&o, &n) in &w.renumbered {
+                            drive.renamed(o, n);
+                        }
                         for p in pairs.iter_mut() {
                             (p.0, p.1) = (re(p.0), re(p.1));
                         }
@@ -1394,6 +1429,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         run.own = run.own.iter().map(|&i| re(i)).collect();
                     } else {
                         redsim::reload::load_some(&mut run.world, u.drop);
+                        drive.act(now, format!("load {}", bx(u.drop)));
                     }
                     rep.unload = Some((from, Some(now)));
                 }
@@ -1493,7 +1529,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             if let Some(c) = w.entities.list.iter().find(|x| x.id == cart && !x.removed)
                 && c.pos.x >= s.tee.x as f64 + 1.0
                 && c.pos.x < s.tee.x as f64 + 2.0
-                && c.pos.z < 1.0
+                && c.pos.z < 1.0 + zf
                 && c.delta_movement.x > 0.0
             {
                 reset_pending = true;
@@ -1529,7 +1565,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             if let Some(c) = w.entities.list.iter().find(|x| x.id == rep.visits[k].cart && !x.removed)
                 && c.pos.x >= s.tee.x as f64 + 1.0
                 && c.pos.x < s.tee.x as f64 + 2.0
-                && c.pos.z < 1.0
+                && c.pos.z < 1.0 + zf
                 && c.delta_movement.x > 0.0
             {
                 freed.push(k);
@@ -1581,7 +1617,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("gate", [-5, -3, -3]),
                 ("D2r", [-5, -3, -2]),
             ];
-            let now_s: Vec<String> = probes.iter().map(|(n, c)| format!("{n}={}", short_state(&w.get(BlockPos::new(c[0] + dx, c[1], c[2])).to_string()))).collect();
+            let now_s: Vec<String> = probes.iter().map(|(n, c)| format!("{n}={}", short_state(&w.get(BlockPos::new(c[0] + dx, c[1], c[2] + dz)).to_string()))).collect();
             if now_s != probe_last {
                 eprintln!("wire gt {}: {}", t - t0, now_s.join(" "));
                 probe_last = now_s;
@@ -1623,13 +1659,13 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let (villager, cart) = (rep.visits[k].villager, rep.visits[k].cart);
             let Some(ci) = w.entities.list.iter().position(|x| x.id == cart && !x.removed) else { continue };
             let c = &w.entities.list[ci];
-            let on_slot = c.pos.x >= s.slot_rails[0].x as f64 && c.pos.x < s.exit.x as f64 && c.pos.z < 1.0;
+            let on_slot = c.pos.x >= s.slot_rails[0].x as f64 && c.pos.x < s.exit.x as f64 && c.pos.z < 1.0 + zf;
             let rest = c.delta_movement.x.abs() < 1e-3 && c.delta_movement.z.abs() < 1e-3;
             let with = c.passengers.contains(&villager);
             // (the release held: the cart runs over the slot without stopping, ready and released
             // as it reaches the slot with its villager)
             if bo.release_held {
-                if c.pos.x >= s.slot_rails[0].x as f64 && c.pos.z < 1.0 {
+                if c.pos.x >= s.slot_rails[0].x as f64 && c.pos.z < 1.0 + zf {
                     if with {
                         rep.visits[k].ready = Some(t);
                         rep.visits[k].released = Some(t);
@@ -1741,6 +1777,17 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             format!("t0 {}", t0),
         ];
         header.extend(crate::placing::header(bo.placement, built.as_ref(), t0, &bo.plan));
+        // (an unload case: the bench's args and, for a partial one, the forced chunk box its world
+        // had from the start: chunks outside it sit at 31 plus their distance to it)
+        if let Some(u) = &bo.unload {
+            header.push(format!(
+                "unload case: {} on visit {} for {} gt{}",
+                if u.whole { format!("whole part, phase {}", u.state) } else { format!("chunks {:?} dropped, phase {}", u.drop, u.state) },
+                u.visit,
+                u.n,
+                if u.whole { String::new() } else { format!("; forced chunk box {:?} (World::entity_chunks) set at t0", u.forced) }
+            ));
+        }
         rep.drive = Some(drive.text(&header));
     }
     Ok(rep)

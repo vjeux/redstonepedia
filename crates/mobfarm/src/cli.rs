@@ -1470,6 +1470,11 @@ pub enum MobfarmCmd {
         /// `matrix[:K]`: every line, side, level and state at N = 3, 40, 240 and 700, one line each.
         #[arg(long)]
         unload: Option<String>,
+        /// The bench world's shift DX,DZ for `--unload` (default: 2,0 for the split placement's
+        /// x/z lines, 8,3 for the one-chunk placement's w/e lines, 0,0 for the whole part); 0,0
+        /// lets a partial case write a drive in the design's own coordinates.
+        #[arg(long)]
+        unload_shift: Option<String>,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -2711,7 +2716,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             let two_i = |s: &str| -> Result<(i64, i64)> {
@@ -2730,7 +2735,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             // (the partial unload: one, or every line, side, level, state and N; `whole,STATE,N[,K]`:
             // the whole part saved and unloaded)
-            const STATES: [&str; 11] = ["arrival", "arriving", "drop", "nap", "asleep", "waking", "fpending", "kick", "reboard", "exit", "none"];
+            const STATES: [&str; 12] = ["sent", "arrival", "arriving", "drop", "nap", "asleep", "waking", "fpending", "kick", "reboard", "exit", "none"];
             let unload_one: Option<crate::siding::Unload> = match unload.as_deref() {
                 Some(u) if u.starts_with("whole,") => {
                     let p: Vec<&str> = u.split(',').map(|x| x.trim()).collect();
@@ -2738,7 +2743,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(STATES.contains(&p[1]), "--unload STATE: one of {STATES:?}");
                     Some(crate::siding::Unload { forced: [0, 0, -1, -1], drop: [0, 0, -1, -1], state: p[1].to_string(), n: p[2].parse()?, visit: p.get(3).map(|k| k.parse()).transpose()?.unwrap_or(3), whole: true })
                 }
-                Some(u) if !u.starts_with("matrix") && !u.starts_with("whole-matrix") => {
+                Some(u) if !u.contains("matrix") => {
                     let p: Vec<&str> = u.split(',').map(|x| x.trim()).collect();
                     anyhow::ensure!(p.len() == 5 || p.len() == 6, "--unload LINE,SIDE,LEVEL,STATE,N[,K]");
                     let (forced, drop) = crate::siding::unload_boxes(p[0], p[1], p[2].parse()?).map_err(|e| anyhow::anyhow!(e))?;
@@ -2747,7 +2752,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 _ => None,
             };
-            let shift_x = if unload.as_deref().is_some_and(|u| !u.starts_with("whole")) { 2 } else { 0 };
+            // (the world's shift: the split placement's lines x and z at (2, 0), the one-chunk
+            // placement's w and e at (8, 3), none for the whole part; `--unload-shift` overrides)
+            let shift_of = |u: &str| -> (i32, i32) {
+                if u.starts_with("whole") {
+                    (0, 0)
+                } else if u.starts_with("chunk-matrix") || u.starts_with("w,") || u.starts_with("e,") {
+                    (8, 3)
+                } else {
+                    (2, 0)
+                }
+            };
+            let (shift_x, shift_z) = match (&unload_shift, unload.as_deref()) {
+                (Some(s), _) => two_i(s).map(|(a, b)| (a as i32, b as i32))?,
+                (None, Some(u)) => shift_of(u),
+                (None, None) => (0, 0),
+            };
             let sp: Vec<f64> = speed.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(sp.len() == 2, "--speed a,b");
             let (gap, release) = (two_i(&gap)?, two_i(&release)?);
@@ -2763,7 +2783,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, unload: unload_one.clone() });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, unload: unload_one.clone() });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -2774,23 +2794,34 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             // (the partial unload matrix: every line, side, level, state and N on visit K, each
             // config over the seeds; one line each: the visits until a clean one, naps lost, jams)
-            if let Some((whole, m)) = unload.as_deref().and_then(|u| u.strip_prefix("whole-matrix").map(|m| (true, m)).or_else(|| u.strip_prefix("matrix").map(|m| (false, m)))) {
+            let matrix_mode = unload.as_deref().and_then(|u| {
+                for (p, m) in [("whole-matrix", 1u8), ("chunk-matrix", 2), ("matrix", 0)] {
+                    if let Some(rest) = u.strip_prefix(p) {
+                        return Some((m, rest.to_string()));
+                    }
+                }
+                None
+            });
+            if let Some((mode, m)) = matrix_mode {
+                let whole = mode == 1;
                 let k: usize = m.strip_prefix(':').map(|x| x.parse()).transpose()?.unwrap_or(3);
-                let ns = [3i64, 40, 240, 700];
-                let mut cfgs: Vec<(String, crate::siding::Unload)> = vec![(if whole { "control (nothing unloaded)" } else { "control (the forced box only)" }.into(), crate::siding::Unload { forced: [-1, -1, 0, 0], drop: [0, 0, -1, -1], state: "none".into(), n: 0, visit: k, whole })];
+                let ns: Vec<i64> = if mode == 2 { vec![3, 40, 240] } else { vec![3, 40, 240, 700] };
+                let control_forced = if mode == 2 { [-1, 0, 1, 0] } else { [-1, -1, 0, 0] };
+                let mut cfgs: Vec<(String, crate::siding::Unload)> = vec![(if whole { "control (nothing unloaded)" } else { "control (the forced box only)" }.into(), crate::siding::Unload { forced: control_forced, drop: [0, 0, -1, -1], state: "none".into(), n: 0, visit: k, whole })];
                 if whole {
                     for state in ["arriving", "drop", "asleep", "waking", "fpending", "kick", "reboard", "exit"] {
-                        for n in ns {
+                        for &n in &ns {
                             cfgs.push((format!("whole {state} N={n}"), crate::siding::Unload { forced: [0, 0, -1, -1], drop: [0, 0, -1, -1], state: state.into(), n, visit: k, whole }));
                         }
                     }
                 } else {
-                    for line in ["x", "z"] {
+                    let (lines, states): (&[&str], &[&str]) = if mode == 2 { (&["w", "e"], &["sent", "arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) } else { (&["x", "z"], &["arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"]) };
+                    for &line in lines {
                         for side in ["lo", "hi"] {
                             for level in [32u8, 33] {
-                                for state in ["arrival", "nap", "waking", "fpending", "kick", "reboard", "exit"] {
-                                    for n in ns {
-                                        let (forced, drop) = crate::siding::unload_boxes(line, side, level).map_err(|e| anyhow::anyhow!(e))?;
+                                for &state in states {
+                                    for &n in &ns {
+                                        let Ok((forced, drop)) = crate::siding::unload_boxes(line, side, level) else { continue };
                                         cfgs.push((format!("{line} {side} {level} {state} N={n}"), crate::siding::Unload { forced, drop, state: state.into(), n, visit: k, whole }));
                                     }
                                 }
@@ -2798,6 +2829,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                 }
+                let (mx, mz) = match &unload_shift {
+                    Some(s) => two_i(s).map(|(a, b)| (a as i32, b as i32))?,
+                    None => [(2, 0), (0, 0), (8, 3)][mode as usize],
+                };
                 let work: Vec<(usize, i64)> = (0..cfgs.len()).flat_map(|c| seeds.iter().map(move |&s| (c, s))).collect();
                 let next = std::sync::atomic::AtomicUsize::new(0);
                 let out: std::sync::Mutex<Vec<(usize, i64, Result<crate::siding::BenchReport, String>)>> = std::sync::Mutex::new(Vec::new());
@@ -2806,14 +2841,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&(c, seed)) = work.get(j) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: if whole { 0 } else { 2 }, unload: Some(cfgs[c].1.clone()) });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, unload: Some(cfgs[c].1.clone()) });
                             out.lock().unwrap().push((c, seed, r));
                         });
                     }
                 });
                 let out = out.into_inner().unwrap();
                 let clean = |v: &crate::siding::VisitRec| v.slept.is_some() && v.own_cart && v.released.is_some() && v.problem.is_none();
-                println!("{} on visit {k}, {} seeds each; per config: the visits until a clean one (the worst seed; 0 = the visit itself clean), naps lost in the window (the visit and the 5 after it), carts out without their napper (napped, out past the exit, never re-boarded), jams (a cart still inside 2000 gt or not out 400 gt after its release), unclean visits after the window, when the unload hit (gt after the arrival), model errors", if whole { "whole-part unload (every chunk saved and unloaded, back as new entities)" } else { "partial unload, the world shifted 2 east (the loop's chunk lines at the siding's x -3|-2 and z -1|0)" }, seeds.len());
+                println!("{} on visit {k}, {} seeds each; per config: the visits until a clean one (the worst seed; 0 = the visit itself clean), naps lost in the window (the visit and the 5 after it), carts out without their napper (napped, out past the exit, never re-boarded), jams (a cart still inside 2000 gt or not out 400 gt after its release), unclean visits after the window, when the unload hit (gt after the arrival), model errors", if whole { "whole-part unload (every chunk saved and unloaded, back as new entities)".to_string() } else if mode == 2 { format!("partial unload at the one-chunk placement's junction lines (the world shifted {mx},{mz}: the siding in chunk 0,0; w the approach's line at the siding's x -9|-8, e the run-out's at 7|8)") } else { format!("partial unload, the world shifted {mx},{mz} (the loop's chunk lines at the siding's x -3|-2 and z -1|0)") }, seeds.len());
                 for (c, (name, u)) in cfgs.iter().enumerate() {
                     let (mut worst, mut lost, mut jams, mut later, mut missed, mut left_without) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
                     let mut hit: Vec<i64> = Vec::new();
