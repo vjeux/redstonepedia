@@ -2394,13 +2394,56 @@ pub struct Act {
     /// (tickexact 2026-11-11, the reload-order rule) A whole-part unload's load order
     /// (`SLOT,DT,unload,N,ORDER`: `save`, `reverse` or `seed:K`; `reload::load_all_ordered`).
     pub order: redsim::reload::Order,
+    /// (farmopt 2026-11-11, day-1's positive control for the unload id-remap check) a rider moved:
+    /// `SLOT,DT,dismount,R` (R off its cart, to the cart's dismount spot) or `SLOT,DT,swap,R1,R2`
+    /// (the two riders exchange carts). `cell` and `block` unused then.
+    pub ride: Option<RideAct>,
+}
+
+/// A rider named by an act: a visit's napper (`visit:SLOT`, the visit that started at that slot,
+/// by its current number: renumbered at a whole-part unload), the rider of that visit's batch's
+/// J-th cart (`visit:SLOT/J`), or an entity by its current number.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RiderRef {
+    Visit(i64),
+    Batch(i64, usize),
+    Id(u32),
+}
+
+/// A rider act (`Act::ride`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RideAct {
+    Dismount(RiderRef),
+    Swap(RiderRef, RiderRef),
+}
+
+fn parse_rider(s: &str, t: &str) -> Result<RiderRef, String> {
+    match t.strip_prefix("visit:") {
+        Some(v) => match v.split_once('/') {
+            Some((slot, j)) => Ok(RiderRef::Batch(slot.parse::<i64>().map_err(|e| format!("--act {s}: visit:SLOT/J: {e}"))?, j.parse::<usize>().map_err(|e| format!("--act {s}: visit:SLOT/J: {e}"))?)),
+            None => v.parse::<i64>().map(RiderRef::Visit).map_err(|e| format!("--act {s}: visit:SLOT: {e}")),
+        },
+        None => t.parse::<u32>().map(RiderRef::Id).map_err(|e| format!("--act {s}: a rider is visit:SLOT, visit:SLOT/J or an entity number: {e}")),
+    }
 }
 
 /// Parses `SLOT,DT,X,Y,Z,BLOCK[,FOR]` (the block state may hold commas inside its brackets),
 /// `SLOT,DT,unload,N[,ORDER]` (the whole part away N gt, its load in ORDER: save, reverse or
-/// seed:K) or `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box).
+/// seed:K), `SLOT,DT,unload,X0,Z0,X1,Z1,N` (a chunk box), `SLOT,DT,dismount,R` or
+/// `SLOT,DT,swap,R1,R2` (R: `visit:SLOT` or an entity number).
 pub fn parse_act(s: &str) -> Result<Act, String> {
     let f: Vec<&str> = s.split(',').map(|t| t.trim()).collect();
+    if f.len() >= 3 && (f[2] == "dismount" || f[2] == "swap") {
+        let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
+        let (slot, dt) = (num(f[0], "SLOT")?, num(f[1], "DT")?);
+        let ride = match (f[2], f.len()) {
+            ("dismount", 4) => RideAct::Dismount(parse_rider(s, f[3])?),
+            ("swap", 5) => RideAct::Swap(parse_rider(s, f[3])?, parse_rider(s, f[4])?),
+            _ => return Err(format!("--act {s}: give SLOT,DT,dismount,R or SLOT,DT,swap,R1,R2 (R: visit:SLOT or an entity number)")),
+        };
+        let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
+        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: None, unload: None, order: redsim::reload::Order::Save, ride: Some(ride) });
+    }
     if f.len() >= 3 && f[2] == "unload" {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let (slot, dt) = (num(f[0], "SLOT")?, num(f[1], "DT")?);
@@ -2411,7 +2454,7 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
             _ => return Err(format!("--act {s}: give SLOT,DT,unload,N[,ORDER] or SLOT,DT,unload,X0,Z0,X1,Z1,N (a chunk box)")),
         };
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
-        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload), order });
+        return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: Some(n.max(1)), unload: Some(unload), order, ride: None });
     }
     let mut parts = s.splitn(6, ',');
     let mut num = |what: &str| -> Result<i64, String> { parts.next().ok_or(format!("--act {s}: no {what}"))?.trim().parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}")) };
@@ -2424,7 +2467,7 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
     };
     let name = if block.contains(':') { block.to_string() } else { format!("minecraft:{block}") };
     let block = Block::parse(&name).map_err(|e| format!("--act {s}: {e}"))?;
-    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None, order: redsim::reload::Order::Save })
+    Ok(Act { slot, dt, cell: [x as i32, y as i32, z as i32], block, hold, unload: None, order: redsim::reload::Order::Save, ride: None })
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -3486,6 +3529,46 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // put back after its hold, before the bench's own controls this gt)
         for a in tm.acts.iter().flatten() {
             if a.slot == c && a.dt == dt {
+                // (a rider act: the napper of a visit, or an entity, by its current number)
+                if let Some(ra) = a.ride {
+                    let who = |r: RiderRef| -> Option<u32> {
+                        match r {
+                            RiderRef::Id(id) => Some(id),
+                            RiderRef::Visit(s) => visits.iter().find(|vr| vr.slot == s).and_then(|vr| vr.rider),
+                            RiderRef::Batch(s, j) => visits.iter().find(|vr| vr.slot == s).and_then(|vr| vr.batch.get(j).copied()).and_then(|cart| redsim::entity::index_of(&run.world, cart)).and_then(|i| run.world.entities.list[i].passengers.first().copied()),
+                        }
+                    };
+                    let vehicle_of = |w: &redsim::World, id: u32| redsim::entity::index_of(w, id).and_then(|i| w.entities.list[i].vehicle);
+                    let line = match ra {
+                        RideAct::Dismount(r) => match who(r).and_then(|id| redsim::entity::index_of(&run.world, id).map(|i| (id, i))) {
+                            Some((id, i)) => {
+                                let v = run.world.entities.list[i].vehicle;
+                                redsim::entity::stop_riding(&mut run.world, i);
+                                format!("slot {c} +{dt}: act: e{id} dismounted (it rode {})", v.map(|v| format!("cart e{v}")).unwrap_or_else(|| "nothing".into()))
+                            }
+                            None => format!("slot {c} +{dt}: act: dismount {r:?}: no such rider"),
+                        },
+                        RideAct::Swap(r1, r2) => match (who(r1), who(r2)) {
+                            (Some(a1), Some(a2)) => match (vehicle_of(&run.world, a1), vehicle_of(&run.world, a2)) {
+                                (Some(v1), Some(v2)) => {
+                                    for id in [a1, a2] {
+                                        if let Some(i) = redsim::entity::index_of(&run.world, id) {
+                                            redsim::entity::stop_riding(&mut run.world, i);
+                                        }
+                                    }
+                                    let m1 = redsim::entity::mob::mount(&mut run.world, a1, v2);
+                                    let m2 = redsim::entity::mob::mount(&mut run.world, a2, v1);
+                                    format!("slot {c} +{dt}: act: e{a1} (was in cart e{v1}) and e{a2} (was in cart e{v2}) swapped{}", match (m1, m2) { (Ok(()), Ok(())) => String::new(), (a, b) => format!(" (mount: {a:?}, {b:?})") })
+                                }
+                                (v1, v2) => format!("slot {c} +{dt}: act: swap e{a1}, e{a2}: not both riding ({v1:?}, {v2:?})"),
+                            },
+                            _ => format!("slot {c} +{dt}: act: swap {r1:?}, {r2:?}: no such rider"),
+                        },
+                    };
+                    drive.borrow_mut().push(format!("# {line}"));
+                    unload_log.push(line);
+                    continue;
+                }
                 if let Some(u) = a.unload {
                     let n = a.hold.unwrap_or(1).max(1);
                     match u {
@@ -4973,9 +5056,21 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     if at != want {
                         problems.push(format!("visit (slot {}, cart {}): the batch at slots {at:?} at slot {c}'s +{dt}, not {want:?}", vr.slot, vr.k));
                     }
-                    let aboard = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied()) == vr.rider;
+                    let aboard_now = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied());
+                    let aboard = aboard_now == vr.rider;
                     if !aboard {
-                        problems.push(format!("visit (slot {}, cart {}): the napper is not back in its own cart", vr.slot, vr.k));
+                        // (farmopt 2026-11-11: the ids as the bench holds them now, renumbered at a
+                        // whole-part unload, and where the napper is)
+                        let napper_in = vr.rider.and_then(|r| redsim::entity::index_of(&run.world, r)).and_then(|i| run.world.entities.list[i].vehicle);
+                        let e = |x: Option<u32>| x.map(|v| format!("e{v}")).unwrap_or_else(|| "nobody".into());
+                        problems.push(format!(
+                            "visit (slot {}, cart {}): the napper is not back in its own cart (cart e{id} holds {}; napper {} rides {})",
+                            vr.slot,
+                            vr.k,
+                            e(aboard_now),
+                            e(vr.rider),
+                            napper_in.map(|v| format!("cart e{v}")).unwrap_or_else(|| "nothing".into())
+                        ));
                     }
                 }
             }
@@ -5755,6 +5850,22 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
 #[cfg(test)]
 mod paste_tests {
     use super::*;
+
+    /// The rider acts parse (farmopt 2026-11-11: day-1's positive control for the unload id-remap
+    /// check): a visit's napper or an entity number, dismount or swap; the old forms unchanged.
+    #[test]
+    fn rider_acts_parse() {
+        let a = parse_act("302,10,dismount,visit:298").unwrap();
+        assert_eq!((a.slot, a.dt, a.ride, a.unload.is_none()), (302, 10, Some(RideAct::Dismount(RiderRef::Visit(298))), true));
+        let a = parse_act("302,10,swap,visit:298,1042").unwrap();
+        assert_eq!(a.ride, Some(RideAct::Swap(RiderRef::Visit(298), RiderRef::Id(1042))));
+        assert_eq!(parse_act("303,25,swap,visit:298,visit:298/0").unwrap().ride, Some(RideAct::Swap(RiderRef::Visit(298), RiderRef::Batch(298, 0))));
+        assert!(parse_act("302,10,swap,visit:298").is_err() && parse_act("302,10,dismount,cart:3").is_err());
+        let u = parse_act("300,80,unload,4000,seed:3").unwrap();
+        assert!(u.ride.is_none() && u.unload == Some(None) && u.hold == Some(4000));
+        let b = parse_act("5,10,1,2,3,minecraft:stone,4").unwrap();
+        assert!(b.ride.is_none() && b.unload.is_none() && b.hold == Some(4));
+    }
 
     /// Every checked-in loop design regenerates without a requested booster placed plain (the
     /// generator refuses one: the qboost hazard, ironspec Nov 11 01:04), and its layout's declared

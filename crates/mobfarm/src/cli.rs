@@ -896,7 +896,11 @@ pub enum MobfarmCmd {
         summon_at: Option<i64>,
         /// Fault injection: SLOT,DT,X,Y,Z,BLOCK[,FOR]: the block set at slot SLOT + DT gt; with
         /// FOR, the block it replaced put back FOR gt later (meanwhile the bench's own drive of
-        /// that cell, the wired stand's REL, leaves it). Repeat for more (up to 8).
+        /// that cell, the wired stand's REL, leaves it). SLOT,DT,unload,N[,ORDER] or
+        /// SLOT,DT,unload,X0,Z0,X1,Z1,N: the whole part (or a chunk box) away N gt. SLOT,DT,dismount,R
+        /// or SLOT,DT,swap,R1,R2: a rider off its cart, or two riders exchanging carts (R:
+        /// visit:SLOT, that visit's napper by its current number; visit:SLOT/J, the rider of that
+        /// visit's batch's J-th cart; or an entity number). Repeat for more (up to 8).
         #[arg(long, allow_hyphen_values = true)]
         act: Vec<String>,
         /// A diagnostic for the pocket stand: at this slot's start, a hand reset of the queue only
@@ -1199,6 +1203,14 @@ pub enum MobfarmCmd {
         /// `--seeds` runs on this many threads (one process).
         #[arg(long, default_value_t = 1)]
         jobs: usize,
+        /// (ironspec's reload-order rule, farmopt 2026-11-11) The run again under each of these
+        /// load orders for every whole-part `--act ...,unload,N` (`all` = save, reverse, seed:1 ..
+        /// seed:8; or a list: `save,reverse,seed:3`), on `--jobs` threads: one line each (its
+        /// problems and first problem, the visits, night 1, the lap order, and the visits spanning
+        /// the unload: each one's rest slot and tick), then the row's verdict: a failure under any
+        /// order fails it.
+        #[arg(long, value_delimiter = ',')]
+        reload_orders: Vec<String>,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -2517,7 +2529,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, adm_skip_req, arrivals_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, adm_skip_req, arrivals_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
@@ -2636,6 +2648,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{}", crate::queue::loop_corners(&spec, &o, &tm, &lines, seed, seeds, cycles).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 return Ok(());
+            }
+            if !reload_orders.is_empty() {
+                return reload_orders_cmd(&spec, &o, &tm, &hdr, &reload_orders, cycles, seed, jobs);
             }
             if seeds > 1 || placed_both || placed_all || build_gap_sweep {
                 // one line per seed, then the total (the drive log, watch and verbose apply to
@@ -4441,6 +4456,74 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             compare_cmd(version, &design, &opts, twin)?;
         }
     }
+    Ok(())
+}
+
+/// `queue-loop-run --reload-orders ...` (ironspec's reload-order rule; farmopt 2026-11-11, day-1's
+/// unload rows): the same run (`--seed`, `--cycles`) once per load order, every whole-part unload
+/// act loading in that order, on `jobs` threads; per order one line (its problems and first
+/// problem, the visits line, the lap order, and the visits spanning an unload: those started up to
+/// 6 slots before it, each one's rest slot and tick), then the row's verdict (a failure under any
+/// order fails the row).
+#[allow(clippy::too_many_arguments)]
+fn reload_orders_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue::LoopOpts, tm: &crate::queue::LoopTiming, hdr: &crate::queue::Headers, names: &[String], cycles: i64, seed: i64, jobs: usize) -> Result<()> {
+    use redsim::reload::Order;
+    let mut orders: Vec<Order> = Vec::new();
+    for n in names {
+        if n == "all" {
+            orders.extend([Order::Save, Order::Reverse]);
+            orders.extend((1..=8).map(Order::Seed));
+        } else {
+            orders.push(Order::parse(n).ok_or_else(|| anyhow::anyhow!("--reload-orders {n}: save, reverse, seed:K (K < 1000) or all"))?);
+        }
+    }
+    let unloads: Vec<crate::queue::Act> = tm.acts.iter().flatten().filter(|a| a.unload == Some(None)).copied().collect();
+    anyhow::ensure!(!unloads.is_empty(), "--reload-orders: no whole-part unload act (--act SLOT,DT,unload,N)");
+    let spans = |l: &str| -> bool {
+        l.strip_prefix("visit slot ").and_then(|r| r.split(' ').next()).and_then(|s| s.parse::<i64>().ok()).is_some_and(|s| unloads.iter().any(|a| s <= a.slot && s >= a.slot - 6))
+    };
+    let mut failed: Vec<String> = Vec::new();
+    for chunk in orders.chunks(jobs.max(1)) {
+        let got: Vec<(Order, Result<String, String>)> = std::thread::scope(|sc| {
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|&ord| {
+                    let mut t = *tm;
+                    for a in t.acts.iter_mut().flatten() {
+                        if a.unload == Some(None) {
+                            a.order = ord;
+                        }
+                    }
+                    sc.spawn(move || (ord, crate::queue::run_loop_hdr(spec, o, &t, hdr, cycles, seed, false, None, None)))
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+        });
+        for (ord, r) in got {
+            let r = r.map_err(|e| anyhow::anyhow!(e))?;
+            let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").trim_end_matches(':').to_string();
+            let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).map(|l| format!(" (first: {})", l.trim())).unwrap_or_default();
+            let visits = r.lines().find_map(|l| l.strip_prefix("visits: ")).unwrap_or("-");
+            let lap = r.lines().find(|l| l.starts_with("lap order: ")).map(|l| l.split(" (").next().unwrap_or(l)).unwrap_or("lap order: -");
+            let around: Vec<String> = r
+                .lines()
+                .filter(|l| spans(l))
+                .map(|l| {
+                    let head = l.split(':').next().unwrap_or(l).trim_start_matches("visit slot ").to_string();
+                    let back = l.split("back at rest in slot ").nth(1).map(|t| format!("slot {t}")).unwrap_or_else(|| "never back at rest".into());
+                    format!("{head}: {back}")
+                })
+                .collect();
+            if !probs.starts_with("0 problems") {
+                failed.push(ord.name());
+            }
+            println!("order {}: {probs}{first}; visits: {visits}; {lap}; around the unload: {}", ord.name(), if around.is_empty() { "-".to_string() } else { around.join("; ") });
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+        }
+    }
+    let acts: Vec<String> = unloads.iter().map(|a| format!("{},{},unload,{}", a.slot, a.dt, a.hold.unwrap_or(1))).collect();
+    println!("row {} (seed {seed}, {cycles} slots): {}", acts.join(" + "), if failed.is_empty() { format!("PASS under all {} orders", orders.len()) } else { format!("FAIL under {}", failed.join(", ")) });
     Ok(())
 }
 
