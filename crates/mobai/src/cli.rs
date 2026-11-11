@@ -201,6 +201,13 @@ pub enum MobaiCmd {
         #[arg(long)]
         summary: bool,
     },
+    /// (tickexact 2026-11-11, 58f770cc's plate question) A recorded scene's pressure plates tick by
+    /// tick: their on/off ticks and how far each mob in a plate's column reaches into its cell
+    RecPlate {
+        path: std::path::PathBuf,
+        #[arg(long)]
+        scene: String,
+    },
     /// (tickexact 2026-11-11, ironspec's raw-placement audit) The scenes (default: every scene
     /// placed raw) whose written block states one update pass would change (a powered rail on its
     /// redstone block written unpowered, a rail shape, a gate, dust...): FAIL on any
@@ -343,6 +350,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecCarts { path, every, band, summary } => crate::fixture::rec_carts(&path, every, band, summary),
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
+        MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
         MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger, make_pad, piglins, ticket } => match (nether, overworld, nether_design) {

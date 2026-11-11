@@ -77,6 +77,8 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, G1's VillageBoundRandomStroll question) the bed's ticket taken
+        "stroll-village-taken" => vec![(1, vec![s([8, 64, 3], "poi-take")])],
         // (tickexact 2026-11-11, farmopt's H retry on a frozen cart) the lanes' chunk (1,0) frozen
         // (its ticket dropped: level 32 beside the forced chunk 0,0) from the summon; every gate shut
         // at t7; the retry lanes' gates opened at t30 and shut at t42; the chunk back at t80
@@ -685,12 +687,12 @@ fn slope_lane_at(b: &mut Vec<([i32; 3], String)>, x: i32, dz: i32, n: i32, stone
 /// before a closed gate (slope_lane's), its front and middle ridden and its back empty, at rest
 /// where scene queue-settle found them (z 4.1150 / 4.9050 / 5.6950, y 64.1775 / 64.9675 / 65.7575:
 /// each 0.79 behind the one ahead, its rider's box), and an arrival set off from the flat just
-/// behind the slope's top (z 4.5 + n) at stored 0.02 k (101 lanes, 0 to 2.0, 26 to a row 2 apart,
+/// behind the slope's top (z 4.5 + n, at least 7.5: 1.8 behind the back cart) at stored 0.02 k (101 lanes, 0 to 2.0, 26 to a row 2 apart,
 /// rows 12 apart), ridden or empty.
 fn queue_back_scene(name: &str, n: i32, arrive_ridden: bool) -> Scene {
     let stone = "minecraft:stone";
     let mut b = Vec::new();
-    floor(&mut b, 0, 64, 0, 48, 63, stone);
+    floor(&mut b, 0, 64, 0, 64, 63, stone);
     let mut mobs = Vec::new();
     let cart = |x: f64, y: f64, z: f64, v: f64, ridden: bool| {
         let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
@@ -704,17 +706,17 @@ fn queue_back_scene(name: &str, n: i32, arrive_ridden: bool) -> Scene {
         mobs.push(cart(xf, 64.1775, 4.1150 + dz as f64, 0.0, true));
         mobs.push(cart(xf, 64.9675, 4.9050 + dz as f64, 0.0, true));
         mobs.push(cart(xf, 65.7575, 5.6950 + dz as f64, 0.0, false));
-        mobs.push(cart(xf, (64 + n) as f64, 4.5 + n as f64 + dz as f64, 0.02 * k as f64, arrive_ridden));
+        mobs.push(cart(xf, (64 + n) as f64, (4.5 + n as f64).max(7.5) + dz as f64, 0.02 * k as f64, arrive_ridden));
     }
     Scene {
         name: name.to_string(),
-        chunks: [0, 0, 3, 2],
+        chunks: [0, 0, 3, 3],
         blocks: b,
         mobs,
         day_time: 6000,
         difficulty: Difficulty::Normal,
         mob_griefing: true,
-        watch: ([0, 62, 0], [63, 72, 47]),
+        watch: ([0, 62, 0], [63, 72, 63]),
         player: None,
         player_creative: false,
         random_tick_speed: 0,
@@ -3577,6 +3579,44 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
+    // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
+    // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
+    // as JOB_SITE, a bell 30 and 60 east as MEETING_POINT, each walled in stone (no path reaches it)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 96, 0, 32, 63, stone);
+        let mem = |key: &str, p: [i32; 3]| format!("\"minecraft:{key}\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}", p[0], p[1], p[2]);
+        let mut mobs = Vec::new();
+        for (z, key, poi, state) in [
+            (4, "job_site", [38, 64, 4], "minecraft:composter[level=0]"),
+            (10, "job_site", [68, 64, 10], "minecraft:composter[level=0]"),
+            (16, "meeting_point", [38, 64, 16], "minecraft:bell[attachment=floor,facing=north,powered=false]"),
+            (22, "meeting_point", [68, 64, 22], "minecraft:bell[attachment=floor,facing=north,powered=false]"),
+        ] {
+            b.push(([8, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([8, 64, z - 1], stone.to_string()));
+            b.push(([8, 64, z + 1], stone.to_string()));
+            b.push((poi, state.to_string()));
+            for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]] {
+                b.push(([poi[0] + d[0], poi[1] + d[1], poi[2] + d[2]], stone.to_string()));
+            }
+            mobs.push(("minecraft:minecart".to_string(), [8.5, 64.0, z as f64 + 0.5], Some(format!("{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{{}}}}}}}]}}", mem(key, poi)))));
+        }
+        v.push(Scene {
+            name: "jobsite-near".into(),
+            chunks: [0, 0, 5, 1],
+            blocks: b,
+            mobs,
+            day_time: 0,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [95, 66, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's job-site rows: a villager brought in still remembering a job
     // site or a meeting point) three riders in carts held between stones, through a day from day
     // time 0: A remembers a composter 30 blocks east as its JOB_SITE (WORK, 2000..9000: the walk to
@@ -3771,6 +3811,125 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [31, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, 58f770cc's plate question: does a stone pressure plate see a seated
+    // villager passing under it?) the siding's plate: a stone pressure plate at y 66 on glass, over
+    // a flat rail at y 64 (P = 64), at z 15 of each lane (lanes 3 apart in x, rails z 1..30 between
+    // stones): seated villagers in carts moving +z at 0.1, 0.25 and 0.4 (from 3.5, 4.5 and 5.5
+    // blocks before the plate) and one at rest under it; bare carts at the same speeds; standing
+    // under the plate in a glass cell, an adult (its top at P + 1.95), a baby, and an adult on a
+    // bottom slab (its top at P + 2.45: the positive control); a seated baby at rest under it (the
+    // babies in plate-rider-baby, run in the game alone: redsim refuses a baby villager)
+    for (name, kinds) in [("plate-rider", &["r0.1", "r0.25", "r0.4", "r0", "e0.1", "e0.25", "e0.4", "stand", "slab"][..]), ("plate-rider-baby", &["baby", "rbaby0", "stand", "slab"][..])] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let baby_rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b,Age:-2147483000}]}";
+        // (lane, its kind)
+        for (k, kind) in kinds.iter().enumerate() {
+            let x = 2 + 3 * k as i32;
+            b.push(([x, 65, 15], "minecraft:glass".to_string()));
+            b.push(([x, 66, 15], "minecraft:stone_pressure_plate[powered=false]".to_string()));
+            let xf = x as f64 + 0.5;
+            let cart_lane = kind.starts_with('r') || kind.starts_with('e');
+            if cart_lane {
+                b.push(([x, 64, 0], stone.to_string()));
+                b.push(([x, 64, 31], stone.to_string()));
+                for z in 1..=30 {
+                    b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+                }
+                let v: f64 = kind[1..].parse().unwrap_or(0.0);
+                let z0 = if v == 0.0 { 15.5 } else { 15.5 - (v * 10.0 + 2.5).round() };
+                let nbt = match *kind {
+                    "rbaby0" => baby_rider.to_string(),
+                    k if k.starts_with('r') => rider.replace("{Passengers", &format!("{{Motion:[0.0d,0.0d,{v:.2}d],Passengers")),
+                    _ => format!("{{Motion:[0.0d,0.0d,{v:.2}d]}}"),
+                };
+                mobs.push(("minecraft:minecart".into(), [xf, 64.0625, z0], Some(nbt)));
+            } else {
+                // a glass cell around the plate's column (the plate's glass over the mob's head)
+                for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    for y in 64..=65 {
+                        b.push(([x + dx, y, 15 + dz], "minecraft:glass".to_string()));
+                    }
+                }
+                let (y, nbt) = match *kind {
+                    "slab" => {
+                        b.push(([x, 64, 15], "minecraft:stone_slab[type=bottom,waterlogged=false]".to_string()));
+                        (64.5, "{PersistenceRequired:1b}")
+                    }
+                    "baby" => (64.0, "{PersistenceRequired:1b,Age:-2147483000}"),
+                    _ => (64.0, "{PersistenceRequired:1b}"),
+                };
+                mobs.push(("minecraft:villager".into(), [xf, y, 15.5], Some(nbt.to_string())));
+            }
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 2, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [47, 68, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-11, G1's VillageBoundRandomStroll question: the panic stroll (2/2) picks
+    // with LandRandomPos where `isVillage` holds (an occupied village POI's section within 1) or no
+    // section within 2 is closer to one, and with DefaultRandomPos.getPosTowards (a half-plane toward
+    // the closer section's centre) otherwise; the shared bed is a village POI only while its ticket
+    // is taken) a bed at (8,64,2..3) in section (0,4,0), and riders in carts held on one rail cell
+    // between stones at section distances 0 (x 4, 12), 1 (x 20, 28) and 2 (x 36, 44), z 8, each
+    // panicking at a zombie in a boat 7 blocks away (+z: panic, no flee); open stone floor around;
+    // stroll-village with the bed's ticket free, stroll-village-taken with it taken at t1
+    // (scene_actions)
+    for name in ["stroll-village", "stroll-village-taken"] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 32, 63, stone);
+        // (a roof, so the zombies do not burn: flee-distance's)
+        floor(&mut b, 0, 48, 0, 32, 72, stone);
+        b.push(([8, 64, 2], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        b.push(([8, 64, 3], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        // (the bed walled in, so no rider's AcquirePoi reaches it: its ticket stays free unless the
+        // scene takes it)
+        for x in 7..=9 {
+            for z in 1..=4 {
+                if !(x == 8 && (z == 2 || z == 3)) {
+                    for y in 64..=65 {
+                        b.push(([x, y, z], stone.to_string()));
+                    }
+                }
+            }
+        }
+        b.push(([8, 65, 2], stone.to_string()));
+        b.push(([8, 65, 3], stone.to_string()));
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        for x in [4, 12, 20, 28, 36, 44] {
+            b.push(([x, 64, 7], stone.to_string()));
+            b.push(([x, 64, 8], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([x, 64, 9], stone.to_string()));
+            mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, 64.0625, 8.5], Some(rider.to_string())));
+            mobs.push(("minecraft:oak_boat".into(), [x as f64 + 0.5, 64.0, 15.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 2, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [47, 70, 31]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
@@ -5981,6 +6140,8 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
     let actions = scene_actions(&s.name);
     let mut last: std::collections::BTreeMap<(u64, &'static str), String> = Default::default();
     let mut mem_last: std::collections::BTreeMap<String, String> = Default::default();
+    let mut walks: std::collections::BTreeMap<u64, Vec<(i64, i64, i64)>> = Default::default();
+    let mut stamps: std::collections::BTreeMap<u64, usize> = Default::default();
     let mut left = ticks;
     let mut done: i64 = 0;
     while left > 0 {
@@ -5990,7 +6151,12 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
         }
         for f in game.trace_raw(n, false)? {
             let t = f["t"].as_i64().unwrap_or(0);
-            for (p, b) in f["blocks"].as_array().into_iter().flatten().filter_map(|x| Some((x.get(0)?, x.get(1)?.as_str()?))) {
+            // (a change is [x, y, z, state], or [pos, state])
+            for x in f["blocks"].as_array().into_iter().flatten() {
+                let (p, b) = match x.as_array().map(|a| a.len()) {
+                    Some(4) => (format!("[{},{},{}]", x[0], x[1], x[2]), x[3].as_str().unwrap_or("?").to_string()),
+                    _ => (x.get(0).map_or("?".to_string(), |p| p.to_string()), x.get(1).and_then(|b| b.as_str()).unwrap_or("?").to_string()),
+                };
                 println!("t {t} block {p}: {b}");
             }
             for e in f["entities"].as_array().into_iter().flatten() {
@@ -6014,6 +6180,18 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
                     let key = format!("{n} {m}");
                     if mem_last.insert(key, now.clone()).as_ref() != Some(&now) {
                         println!("t {t} #{n} {ty} at {at} memory {m}: {now}");
+                        // (with `also` walk_target: the pick's offset from the mob's block, for the
+                        // summary at the end)
+                        if m == "walk_target" {
+                            let c: Vec<i64> = now.trim_matches('"').strip_prefix("walk block ").map(|r| r.split(' ').take(3).filter_map(|s| s.parse().ok()).collect()).unwrap_or_default();
+                            let p: Vec<f64> = e["pos"].as_array().map(|a| a.iter().map(|c| c.as_f64().unwrap_or(0.0)).collect()).unwrap_or_default();
+                            if c.len() == 3 && p.len() == 3 {
+                                walks.entry(n).or_default().push((c[0] - p[0].floor() as i64, c[1] - p[1].floor() as i64, c[2] - p[2].floor() as i64));
+                            }
+                        }
+                        if m == "cant_reach_walk_target_since" {
+                            *stamps.entry(n).or_default() += 1;
+                        }
                     }
                 }
                 let keys: Vec<String> = e["memories"].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
@@ -6030,6 +6208,20 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
             println!("(scene action after {done} ticks: {b:?})");
             game.apply(b, &ActCtx::default())?;
         }
+    }
+    // (with `also` walk_target: each mob's picks by their offset from its block (a pick repeated at
+    // once counts once), and its can't-reach stamps)
+    for (n, w) in &walks {
+        let hist = |f: fn(&(i64, i64, i64)) -> i64| {
+            let mut h: std::collections::BTreeMap<i64, usize> = Default::default();
+            for x in w {
+                *h.entry(f(x)).or_default() += 1;
+            }
+            h.iter().map(|(k, c)| format!("{k:+}:{c}")).collect::<Vec<_>>().join(" ")
+        };
+        let neg = w.iter().filter(|x| x.0 < 0).count();
+        let pos = w.iter().filter(|x| x.0 > 0).count();
+        println!("walk picks #{n}: {} picks, dx<0 {neg}, dx=0 {}, dx>0 {pos}; dx {}; dz {}; stamps {}", w.len(), w.len() - neg - pos, hist(|x| x.0), hist(|x| x.2), stamps.get(n).copied().unwrap_or(0));
     }
     Ok(())
 }
@@ -6049,6 +6241,9 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
     // per lane x: per tick, (n, pos, motion, ridden)
     type Cart = (u64, [f64; 3], [f64; 3], bool);
     let mut lanes: std::collections::BTreeMap<(i64, i64), Vec<(usize, Vec<Cart>)>> = std::collections::BTreeMap::new();
+    // (each cart stays in the lane it starts in, its x and z band at its first frame: a cart that
+    // bounces across a band's edge is not counted as a lane of its own)
+    let mut lane_of: std::collections::HashMap<u64, (i64, i64)> = std::collections::HashMap::new();
     for (t, l) in lines.enumerate() {
         let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
         let ents = f["entities"].as_array().cloned().unwrap_or_default();
@@ -6059,7 +6254,8 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             let n = e["n"].as_u64().unwrap_or(0);
             let p = v3(&e["pos"]);
             let zb = if band > 0 { (p[2].floor() as i64).div_euclid(band as i64) } else { 0 };
-            by_lane.entry((p[0].floor() as i64, zb)).or_default().push((n, p, v3(&e["motion"]), ridden.contains(&n)));
+            let key = *lane_of.entry(n).or_insert((p[0].floor() as i64, zb));
+            by_lane.entry(key).or_default().push((n, p, v3(&e["motion"]), ridden.contains(&n)));
         }
         for (x, mut cs) in by_lane {
             cs.sort_by(|a, b| a.1[2].total_cmp(&b.1[2]));
@@ -6078,16 +6274,20 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
         let mut closest: Option<(f64, usize, u64, u64)> = None;
         let mut was_merged = false;
         let mut merged_at: Option<usize> = None;
+        let mut merged_pair: Option<(Cart, Cart)> = None;
         // (the first contact: neighbours whose boxes, inflated 0.2 sideways as pushAndPickupEntities
         // reads them, overlap: horizontal centres under 1.18 and heights under 0.7 apart; the
-        // arriving cart's (the faster one's) stored speed the tick before)
+        // arriving cart's (the faster one's) stored speed the tick before; a pair already touching
+        // at the lane's first frame (a pressed queue) is not a contact)
+        let touching = |a: &Cart, b: &Cart| ((a.1[0] - b.1[0]).powi(2) + (a.1[2] - b.1[2]).powi(2)).sqrt() < 1.18 && (a.1[1] - b.1[1]).abs() < 0.7;
+        let start_pairs: std::collections::HashSet<(u64, u64)> = ticks.first().map(|(_, cs)| cs.windows(2).filter(|w| touching(&w[0], &w[1])).map(|w| (w[0].0.min(w[1].0), w[0].0.max(w[1].0))).collect()).unwrap_or_default();
         let mut contact: Option<(usize, f64, f64)> = None;
         let mut prev: Option<&Vec<Cart>> = None;
         for (t, cs) in ticks {
             if contact.is_none() {
                 for w in cs.windows(2) {
                     let h = ((w[0].1[0] - w[1].1[0]).powi(2) + (w[0].1[2] - w[1].1[2]).powi(2)).sqrt();
-                    if h < 1.18 && (w[0].1[1] - w[1].1[1]).abs() < 0.7 {
+                    if touching(&w[0], &w[1]) && !start_pairs.contains(&(w[0].0.min(w[1].0), w[0].0.max(w[1].0))) {
                         let speed = |n: u64| prev.and_then(|p| p.iter().find(|c| c.0 == n)).map_or(f64::NAN, |c| c.2[0].hypot(c.2[2]));
                         contact = Some((*t, speed(w[0].0).max(speed(w[1].0)), h));
                         break;
@@ -6105,6 +6305,9 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             let merged = gaps.iter().any(|g| *g < 0.01);
             if merged && merged_at.is_none() {
                 merged_at = Some(*t);
+                if let Some(k) = gaps.iter().position(|g| *g < 0.01) {
+                    merged_pair = Some((cs[k], cs[k + 1]));
+                }
             }
             if !summary && ((every > 0 && *t as u32 % every == 0) || merged != was_merged || *t + 1 == ticks.len()) {
                 let parts: Vec<String> = cs.iter().map(cart).collect();
@@ -6121,8 +6324,9 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             let end_merged = ticks.last().is_some_and(|(_, cs)| cs.windows(2).any(|w| gap(&w[0], &w[1]) < 0.01));
             let c = contact.map_or("no contact".to_string(), |(t, s, h)| format!("contact t{t} at {s:.4} (centres {h:.3})"));
             let g = closest.map_or(f64::NAN, |c| c.0);
+            let pair = merged_pair.map_or(String::new(), |(a, b)| format!(" #{}{} with #{}{}", a.0, if a.3 { "R" } else { "E" }, b.0, if b.3 { "R" } else { "E" }));
             println!("x {x} z band {zb}: {} | {c} | closest {g:.4}{}", carts.join(" "), match merged_at {
-                Some(t) => format!(" | MERGED t{t}{}", if end_merged { " to the end" } else { ", parted" }),
+                Some(t) => format!(" | MERGED t{t}{pair}{}", if end_merged { " to the end" } else { ", parted" }),
                 None => String::new(),
             });
             let start = first.iter().map(|c| c.2[0].hypot(c.2[2])).fold(0.0f64, f64::max);
@@ -6157,6 +6361,64 @@ pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool) -
             );
             k = j + 1;
         }
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, 58f770cc's plate question) A recorded scene's pressure plates tick by tick:
+/// each plate's powered state (the scene's, then the recording's block changes) and every mob whose
+/// box overlaps the plate's touch box (`BasePressurePlateBlock.TOUCH_AABB`: x and z 1/16..15/16, y
+/// 0..4/16 of its cell) in x and z, with how far its top reaches into the cell (an adult villager
+/// 1.95 tall, a baby (age < 0) 0.975); the least such reach while a mob is in the column, and the
+/// ticks the plate turns on and off.
+pub fn rec_plate(path: &std::path::Path, scene: &str) -> Result<()> {
+    let s = scenes().into_iter().find(|s| s.name == scene).ok_or_else(|| anyhow!("no scene {scene}"))?;
+    let mut plates: Vec<([i32; 3], bool)> = scene_placed_blocks(&s).iter().filter(|(_, st)| st.contains("pressure_plate")).map(|(p, st)| (*p, st.contains("powered=true"))).collect();
+    plates.sort();
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    // per plate: (the least reach while in the column, its tick), the on/off ticks, the first tick
+    // a mob's top is in the cell
+    let mut least: Vec<Option<(f64, usize, u64)>> = vec![None; plates.len()];
+    let mut first_in: Vec<Option<usize>> = vec![None; plates.len()];
+    let mut edges: Vec<Vec<(usize, bool)>> = vec![Vec::new(); plates.len()];
+    for (t, l) in lines.enumerate() {
+        let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
+        for c in f["blocks"].as_array().into_iter().flatten() {
+            let p = [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32, c[2].as_i64().unwrap_or(0) as i32];
+            if let Some(k) = plates.iter().position(|(q, _)| *q == p) {
+                let on = c[3].as_str().unwrap_or("").contains("powered=true");
+                if on != plates[k].1 {
+                    plates[k].1 = on;
+                    edges[k].push((t, on));
+                }
+            }
+        }
+        for e in f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] != "minecart") {
+            let p = [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)];
+            let baby = e["age"].as_i64().is_some_and(|a| a < 0);
+            let (h, hw) = if baby { (0.975, 0.15) } else { (1.95, 0.3) };
+            for (k, (q, _)) in plates.iter().enumerate() {
+                let (x0, z0) = (q[0] as f64 + 0.0625, q[2] as f64 + 0.0625);
+                if p[0] + hw > x0 && p[0] - hw < x0 + 0.875 && p[2] + hw > z0 && p[2] - hw < z0 + 0.875 {
+                    let reach = p[1] + h - q[1] as f64;
+                    let n = e["n"].as_u64().unwrap_or(0);
+                    if least[k].is_none_or(|(r, _, _)| reach < r) {
+                        least[k] = Some((reach, t, n));
+                    }
+                    if reach > 0.0 && first_in[k].is_none() {
+                        first_in[k] = Some(t);
+                    }
+                }
+            }
+        }
+    }
+    for (k, (q, _)) in plates.iter().enumerate() {
+        let l = least[k].map_or("no mob in its column".to_string(), |(r, t, n)| format!("least reach into the cell {r:+.4} (#{n} at t{t})"));
+        let fi = first_in[k].map_or(String::new(), |t| format!(", a top first in the cell at t{t}"));
+        let ed: Vec<String> = edges[k].iter().map(|(t, on)| format!("{} t{t}", if *on { "on" } else { "off" })).collect();
+        println!("plate {},{},{}: {l}{fi}; {}", q[0], q[1], q[2], if ed.is_empty() { "never powered".to_string() } else { ed.join(", ") });
     }
     Ok(())
 }
