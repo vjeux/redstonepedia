@@ -208,12 +208,19 @@ pub fn part_for(text: &str, d: &Design) -> Result<Option<Rc<TerrainFarm>>, Strin
 }
 
 /// A part's world in its terrain: the site's world (its seals) with the part's cells written raw
-/// (a dug cell: air), in the world's coordinates.
-pub fn part_world(t: &TerrainFarm, spec: &FarmSpec) -> World {
+/// (a dug cell: air), then its `ghost:` cells (its reference farm's blocks of other parts inside
+/// its box: the chamber's fence gates in the drop's column), in the world's coordinates.
+pub fn part_world(t: &TerrainFarm, spec: &FarmSpec, ghosts: &[(crate::design::Pos, String)]) -> Result<World, String> {
     let moved = t.site.spec(spec);
     let mut w = t.site.world_for(&moved);
     w.place_raw(&moved.blocks);
-    w
+    let o = t.offset();
+    let mut placed = Vec::with_capacity(ghosts.len());
+    for (p, s) in ghosts {
+        placed.push((BlockPos::new(p[0] + o[0], p[1] + o[1], p[2] + o[2]), crate::mobfarm::farm_block(s).map_err(|e| format!("its ghost at {p:?}: not modeled by redsim: {e}"))?));
+    }
+    w.place_raw(&placed);
+    Ok(w)
 }
 
 /// Whether a design's terrain farm is made already (or it needs none): a live view makes it over
@@ -496,6 +503,23 @@ mod tests {
         assert!(card.terrain.is_none());
     }
 
+    /// tick-exact 2026-11-10: in a terrain sample the village's and the natural mobs take the
+    /// first entity ids, so the design's entities are counted from its first
+    /// (`Session::design_base`): cross-4-underground's boat 17 was drawn as the zombie the
+    /// design's list held at index 17 ("drawn differs from redsim: entity 17 (a boat) drawn as
+    /// minecraft:zombie").
+    #[test]
+    fn a_terrain_farms_entities_are_drawn_as_their_kinds() {
+        let text = String::from_utf8(read("designs/farms/iron/middle/cross-4-underground.txt")).unwrap();
+        for o in [crate::session::Options::still(), crate::session::Options::live()] {
+            let s = crate::session::Session::new(&text, &o).unwrap();
+            // (its run: the judge's settle spawns natural mobs before the design's arrive)
+            assert!(s.terrain.is_some() && (o.simulate == (s.design_base > 0)), "the settle's mobs come first in a run: {}", s.design_base);
+            s.drawn_matches_simulation().unwrap();
+            assert!(s.entities(0.0).iter().any(|e| e.kind.ends_with("_boat")), "its zombies' boats drawn as boats");
+        }
+    }
+
     /// A terrain view draws the mobs in the landscape it draws only (`TerrainFarm::draws`, the
     /// blocks' rule): an item a plant dropped past the landscape's reach floated in the sky
     /// (a67650c84's plants popping off their supports, cross-4-underground's run).
@@ -544,6 +568,18 @@ mod tests {
             let blocks = s.render_blocks(0.0);
             assert!(blocks.iter().filter(|b| b.state.starts_with("minecraft:grass_block")).count() > 100, "the landscape's grass");
             assert!(!blocks.iter().any(|b| d.blocks.contains_key(&b.cell)), "nothing drawn in the shaft");
+            // its reference farm's blocks of other parts inside its box (`ghost:` lines: the
+            // chamber's fence gates and walls), placed as the farm has them and drawn see-through
+            // (ironspec 2026-11-10: "not ... natural ground, or the shaft reads as blocked")
+            assert!(d.ghosts.iter().filter(|(_, st)| st.starts_with("minecraft:oak_fence_gate")).count() >= 8, "{:?}", d.ghosts.len());
+            let look = crate::scene::viewer_look(&s);
+            for (p, st) in &d.ghosts {
+                let q = BlockPos::new(p[0] - 345, p[1] + 65, p[2] + 246);
+                assert_eq!(s.world.get(q), crate::mobfarm::farm_block(st).unwrap(), "{p:?}");
+                if st.as_str() != "minecraft:air" {
+                    assert!(look.ghost.contains(p) && blocks.iter().any(|b| b.cell == *p && b.state == *st), "{p:?} {st} drawn see-through");
+                }
+            }
         }
         // a void design with `site:` but no `terrain:` stays void; a mob farm never takes this path
         assert!(!is_part_in_terrain(&Design::parse("name: x\nsite: 1,2,3\npalette:\n  S stone\nlayer 0:\n  S\n").unwrap()));

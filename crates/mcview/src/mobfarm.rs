@@ -375,6 +375,16 @@ impl MobRun {
         self.run.settle_tick()
     }
 
+    /// The id of the design's first entity once it arrived (its entity lines, each followed by
+    /// its passengers): a drive's first line, else `Run::own`'s first (what the world held before,
+    /// a terrain sample's village and natural mobs, took the ids before it).
+    pub fn first_design_id(&self) -> Option<u32> {
+        match &self.drive {
+            Some(dv) => dv.lines.first().copied(),
+            None => self.run.own.first().copied(),
+        }
+    }
+
     /// The mobs arrive (the design's entities, their beds, the steady state's last sleep); a
     /// driven run's arrive as its bench's: the entity lines spawned in file order, the start
     /// time checked against the bench's `t0`.

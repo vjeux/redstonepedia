@@ -295,6 +295,8 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
             if placed == 0 && dug == 0 {
                 continue;
             }
+            // (a dug-only member's `ghost:` lines: below)
+            let mut ghosts = String::new();
             // a dug-only part (nothing placed: an open drop dug into the ground): its dug cells as
             // air and its reference farm's terrain lines and site (ironspec 2026-11-10: "its file
             // carrying the terrain sample and its dug cells as air, so the view shows the shaft dug
@@ -312,6 +314,18 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
                 }
                 if let Some(o) = farm_site(&d)? {
                     out.meta.insert("site".into(), format!("{},{},{}", o[0], o[1], o[2]));
+                }
+                // inside its box, its reference farm's cells of other parts, each a `ghost:` line
+                // (ironspec 2026-11-10: "cells that belong to another part of the same farm must
+                // not be drawn as natural ground ... draw them as their real blocks, ghosted, so
+                // drop-shaft-11 reads as one open shaft with the chamber's fence gates visible
+                // where they sit"; the view draws them see-through): context, never its build
+                let lo: [i32; 3] = std::array::from_fn(|k| out.blocks.keys().map(|p| p[k]).min().unwrap_or(0));
+                let hi: [i32; 3] = std::array::from_fn(|k| out.blocks.keys().map(|p| p[k]).max().unwrap_or(0));
+                for (p, s) in &d.blocks {
+                    if (0..3).all(|k| p[k] >= lo[k] && p[k] <= hi[k]) && roles.get(p).is_some_and(|r| *r != part) {
+                        ghosts.push_str(&format!("ghost: {} {} {} {s}\n", p[0], p[1], p[2]));
+                    }
                 }
             }
             let (name, extra) = match part {
@@ -350,7 +364,7 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
             let catalog = std::fs::read_to_string(dir.join(part).join("members.tsv")).unwrap_or_default();
             let mine = matches!(part, "storage" | "access" | "transport");
             if mine || !catalog.lines().any(|l| l.split('\t').next() == Some(format!("{stem}.txt").as_str())) {
-                std::fs::write(dir.join(part).join(format!("{stem}.txt")), out.to_text())?;
+                std::fs::write(dir.join(part).join(format!("{stem}.txt")), format!("{}{ghosts}", out.to_text()))?;
             }
             by_part.entry(part).or_default().push((stem, name, stage.to_string(), format!("{metrics}\t{}", users.join(" "))));
         }

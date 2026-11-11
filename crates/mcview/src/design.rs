@@ -47,6 +47,10 @@ pub struct Design {
     /// `stop: x y z <state>` lines (circuits: environment blocks placed before the build, like a
     /// flying machine's stop wall), in file order.
     pub stops: Vec<(Pos, String)>,
+    /// `ghost: x y z <state>` lines (a part in its terrain: its reference farm's blocks of other
+    /// parts inside its box, drawn see-through where they sit; never part of the build), in file
+    /// order.
+    pub ghosts: Vec<(Pos, String)>,
     /// A mob farm's Nether part (`nether layer Y:` sections from `nether-origin:`, sharing the
     /// palette, as `mctas::design` reads them), in the file's coordinates: the judge's runner's
     /// `World::nether` ([`crate::mobfarm::spec`]), a page's Nether view its second scene.
@@ -292,13 +296,14 @@ impl Design {
                         "name" => d.name = v.to_string(),
                         "origin" => origin = parse_pos(v).map_err(|e| err(&e))?,
                         "nether-origin" => nether_origin = parse_pos(v).map_err(|e| err(&e))?,
-                        "stop" => {
+                        "stop" | "ghost" => {
                             let words: Vec<&str> = v.split_whitespace().collect();
                             if words.len() != 4 {
-                                return Err(err("expected 'stop: x y z <state>'"));
+                                return Err(err(&format!("expected '{k}: x y z <state>'")));
                             }
                             let p = parse_pos(&words[..3].join(" ")).map_err(|e| err(&e))?;
-                            d.stops.push((p, normalize_state(words[3]).map_err(|e| err(&e))?));
+                            let s = normalize_state(words[3]).map_err(|e| err(&e))?;
+                            if k == "stop" { d.stops.push((p, s)) } else { d.ghosts.push((p, s)) }
                         }
                         _ => {
                             d.meta.insert(k.to_string(), v.to_string());

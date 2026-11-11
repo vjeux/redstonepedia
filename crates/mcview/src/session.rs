@@ -379,6 +379,11 @@ pub struct Session {
     /// the farm built in at the site's offset; the view draws the design's coordinates (the
     /// world's minus the offset: [`Session::view_offset`]) and the landscape around the farm.
     pub terrain: Option<std::rc::Rc<crate::terrain::TerrainFarm>>,
+    /// The id of the design's first entity (its entity lines, each followed by its passengers, in
+    /// file order): 0 in a world of its own; in a terrain sample the village's and the natural
+    /// mobs took the ids before it (tick-exact 2026-11-10: cross-4-underground's boat 17 was
+    /// drawn as the zombie the design's list held at index 17).
+    pub design_base: u32,
 }
 
 /// The run's mutable state, for the timelapse ([`crate::player::Player::step_back`]): everything
@@ -861,6 +866,7 @@ impl Session {
             changed_cells: None,
             drawn: HashMap::new(),
             terrain: None,
+            design_base: 0,
         };
         // a farm judged in its terrain sample (`crate::terrain`; vjeux 2026-11-08: "The day 1 farm
         // needs to run in a real looking terrain, not a void world"): the judge's site, made once
@@ -890,7 +896,7 @@ impl Session {
         // reference farm's site, the landscape around it; no farm runs (played, the world ticks)
         if let Some(t) = terrain.clone().filter(|_| crate::terrain::is_part_in_terrain(&s.design)) {
             let spec = crate::terrain::part_spec(&s.design)?;
-            s.world = crate::terrain::part_world(&t, &spec);
+            s.world = crate::terrain::part_world(&t, &spec, &s.design.ghosts)?;
             s.world.errors.clear();
             // (a cell the world changes when played is drawn: `take_writes`)
             s.world.log_writes = true;
@@ -911,6 +917,7 @@ impl Session {
                     Ok(mut m) => {
                         let mut w = m.take_world();
                         let off = t.offset();
+                        s.design_base = w.entities.next_id;
                         for e in &s.design.entities {
                             let pos = [e.pos[0] + off[0] as f64, e.pos[1] + off[1] as f64, e.pos[2] + off[2] as f64];
                             let _ = redsim::entity::spawn(&mut w, &e.kind, pos, e.nbt.as_deref());
@@ -987,6 +994,7 @@ impl Session {
             match started {
                 Ok(mut m) => {
                     s.world = m.take_world();
+                    s.design_base = m.first_design_id().unwrap_or(0);
                     // its blocks change seldom: the world logs the cells it changes, so the view
                     // keeps its blocks' mesh until one does (no effect on the run)
                     s.world.log_writes = true;
@@ -2337,8 +2345,9 @@ impl Session {
             .filter(|e| !e.removed)
             .map(|e| {
                 // a mob: its own type (redsim's); anything else: the design's own type id (its
-                // wood, ...) for the entities it summons, else the kind's
-                let kind = match (&e.kind, design_kinds.get(e.id as usize)) {
+                // wood, ...) for the entities it summons (counted from its first: `design_base`),
+                // else the kind's
+                let kind = match (&e.kind, e.id.checked_sub(self.design_base).and_then(|i| design_kinds.get(i as usize))) {
                     (EntityKind::Mob(m), _) => format!("minecraft:{}", m.ty.def().id),
                     (_, Some(k)) => k.clone(),
                     (_, None) => match &e.kind {
@@ -3070,6 +3079,7 @@ impl Session {
             changed_cells: None,
             drawn: HashMap::new(),
             terrain: self.terrain.clone(),
+            design_base: self.design_base,
         };
         // the world as placed: its ground intact
         if let Some(f) = s.floor.as_mut() {

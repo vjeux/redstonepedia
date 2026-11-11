@@ -83,3 +83,47 @@ layer -4:
   AAAAAA
   AAAAAA
   AAAAAA
+ghost: -1 -7 2 minecraft:cobblestone
+ghost: -1 -7 3 minecraft:cobblestone
+ghost: -1 -7 4 minecraft:cobblestone
+ghost: -1 -7 5 minecraft:cobblestone
+ghost: -1 -7 6 minecraft:cobblestone
+ghost: -1 -7 7 minecraft:cobblestone
+ghost: -1 -6 2 minecraft:water[level=0]
+ghost: -1 -6 7 minecraft:water[level=0]
+ghost: 0 -7 2 minecraft:cobblestone
+ghost: 0 -7 3 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 0 -7 4 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 0 -7 5 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 0 -7 6 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 0 -7 7 minecraft:cobblestone
+ghost: 0 -4 2 minecraft:air
+ghost: 1 -7 2 minecraft:cobblestone
+ghost: 1 -7 3 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 1 -7 6 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 1 -7 7 minecraft:cobblestone
+ghost: 1 -6 4 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 1 -6 5 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 1 -4 2 minecraft:air
+ghost: 2 -7 2 minecraft:cobblestone
+ghost: 2 -7 3 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 2 -7 6 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 2 -7 7 minecraft:cobblestone
+ghost: 2 -6 4 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 2 -6 5 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 2 -4 2 minecraft:air
+ghost: 3 -7 2 minecraft:cobblestone
+ghost: 3 -7 3 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 3 -7 4 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 3 -7 5 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 3 -7 6 minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+ghost: 3 -7 7 minecraft:cobblestone
+ghost: 3 -4 2 minecraft:air
+ghost: 4 -7 2 minecraft:cobblestone
+ghost: 4 -7 3 minecraft:cobblestone
+ghost: 4 -7 4 minecraft:cobblestone
+ghost: 4 -7 5 minecraft:cobblestone
+ghost: 4 -7 6 minecraft:cobblestone
+ghost: 4 -7 7 minecraft:cobblestone
+ghost: 4 -6 2 minecraft:water[level=0]
+ghost: 4 -6 7 minecraft:water[level=0]

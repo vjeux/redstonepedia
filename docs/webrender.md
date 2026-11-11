@@ -37,7 +37,10 @@ each build's page.
   `terrain:` and `site: x,y,z`; ironspec 2026-11-10 on the dug-only drop shaft drop-shaft-11) is
   its cells cut into the sample's world at that site (its reference farm's: the farm optimizer
   writes it, the farm page's own `data-site`), the landscape around it as a farm's; no farm runs
-  (played, the world ticks). Its page's `data-site` is that `site:` (`site_of`).
+  (played, the world ticks). Its page's `data-site` is that `site:` (`site_of`). Its `ghost: x y z
+  <state>` lines (its reference farm's blocks of other parts inside its box: drop-shaft-11's
+  chamber walls and fence gates) are placed as the farm has them and drawn see-through (the look's
+  ghost cells), never natural ground where the farm has a block (ironspec 2026-11-10).
 * `data-still` (thumbnails): the still frame found ahead, `mcview::tools::still_attr(text)` at
   build time (`mctas web still <designs>` prints it): `<tick>`, then ` out=x,y,z` (the clock
   judge's output it adds when the design declares none) and ` box=x0,y0,z0,x1,y1,z1` (the picture

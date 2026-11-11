@@ -181,8 +181,10 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   `members.tsv` (`file`, `name`, `stage`, `metrics` as `key value, key value`, `used_by` = the full
   farms' stems, space-separated), best first, written by the farm optimizer. A dug-only member
   (nothing placed: drop-shaft-11, an open drop) carries its dug cells as air, its reference farm's
-  `terrain:`, `ground:` and `afk:` lines and that farm's site (`site: x,y,z`, the judge's spot): its
-  view shows it dug into that farm's ground ([webrender.md](webrender.md), a part in its terrain).
+  `terrain:`, `ground:` and `afk:` lines and that farm's site (`site: x,y,z`, the judge's spot), and
+  inside its box the farm's cells of its other parts as `ghost: x y z <state>` lines (context drawn
+  see-through, never its build): its view shows it dug into that farm's ground
+  ([webrender.md](webrender.md), a part in its terrain).
   A member whose file
   is not in the part's folder is a judged design of its stage (`designs/farms/<farm>/<stage>/`,
   gated like a variation): a farm module (ironspec 2026-11-08: the unit the bigger farms copy), its
