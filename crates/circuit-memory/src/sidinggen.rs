@@ -407,11 +407,9 @@ fn far_tree(b: &mut B) -> Result<()> {
         b.put([-5, 2, z], "minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
         b.put(HOLDS[i], GLASS)?;
         lay(b, [-4, 2, z], &rail("east_west"), true)?;
-        // (the backstop: glass beyond the slot, so a cart off the ledge too fast stops against it
-        // and falls onto the slot: the first night rolled off at 0.44 b/t and landed at x -2.7, off
-        // the rails; the side-fed drop ends had their stop glass here too)
-        b.put([-2, 1, z], GLASS)?;
-        b.put([-2, 2, z], GLASS)?;
+        // (no backstop beyond the slot: a cart off the ledge at 0.22 b/t hit glass at x -2 before
+        // it fell and rolled back onto the hold; ironfarm's slot_drop has none: from this ledge
+        // (its h 3: the slot cell at y -1) 0.20..0.30 b/t lands on the slot)
     }
     Ok(())
 }
@@ -873,7 +871,9 @@ fn step_delay() -> u8 {
 /// z under the strip between the siding and the queue (x -20..-7, z 14..55), below every other
 /// part (y -17..-9), its REL input on the west side.
 pub(crate) const MOD_TURNS: u8 = 3;
-pub(crate) const MODULE_AT: P3 = [-15, -13, 42];
+/// (column 3 (c): under the loop at x -6..7, below the divert unit (y -7..-4) and the release core
+/// (y -2..-1); the side-by-side fold: west of the loop at x -20..-7)
+pub(crate) const MODULE_AT: P3 = if FAR { [-1, -13, 42] } else { [-15, -13, 42] };
 
 /// A module cell's place in the loop frame.
 pub(crate) fn module_at(q: P3) -> P3 {
@@ -1216,8 +1216,22 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // (from the port's next cell up two stairs north, a stair up east, east into the divert unit's
     // NV feed (unit (16, -6, 10)))
     let n0 = at([28, 4, 4]);
-    let mut nv = vec![n0, [n0[0], n0[1] + 1, n0[2] - 1], [n0[0], n0[1] + 2, n0[2] - 2], [n0[0] + 1, n0[1] + 3, n0[2] - 2]];
-    seg_to(&mut nv, unit_at([16, -6, 10]));
+    let mut nv = if FAR {
+        // (column 3 (c): the module under the unit: from the port's next cell north along y -9 (the
+        // module's top layer, north of it) to z 9, west along z 9 to the feed's x, up a stair south
+        // into the feed)
+        let feed = unit_at([16, -6, 10]);
+        let mut v = vec![n0];
+        seg_to(&mut v, [n0[0], n0[1], feed[2] - 3]);
+        seg_to(&mut v, [feed[0], n0[1], feed[2] - 3]);
+        seg_to(&mut v, feed);
+        v
+    } else {
+        vec![n0, [n0[0], n0[1] + 1, n0[2] - 1], [n0[0], n0[1] + 2, n0[2] - 2], [n0[0] + 1, n0[1] + 3, n0[2] - 2]]
+    };
+    if !FAR {
+        seg_to(&mut nv, unit_at([16, -6, 10]));
+    }
     route(&mut b, nv_port, &nv, 6)?;
     let (t1_row, t2_row) = divert_unit(&mut b)?;
     b.blocks.insert(DIVERT, STONE.into());
