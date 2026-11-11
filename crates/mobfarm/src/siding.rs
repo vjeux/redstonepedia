@@ -727,12 +727,17 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     for z in 2..=4 {
         on(b, [1, -6, z], dust)?;
     }
+    // (F's line keeps to z >= -4, the force cell's own row: with any block at z -5 or beyond,
+    // the bench's riders came to the siding with CANT_REACH stamps of ~19,000 gt and released
+    // HOME on the approach, 30-40 HOME changes over 16 seeds against 0, a single stone anywhere
+    // on z -5 enough (y -4 or -8, x -10 or 3) and a world shift not: a bench effect of the
+    // design's extent, under investigation)
     on(b, [-4, -3, -4], &rep("west", 1))?;
     on(b, [-3, -3, -4], &rep("west", 1))?;
     on(b, [-2, -3, -4], dust)?;
-    on(b, [-2, -4, -5], dust)?;
-    on(b, [-3, -5, -5], dust)?;
-    for z in -4..=4 {
+    on(b, [-2, -4, -3], dust)?;
+    on(b, [-2, -5, -2], dust)?;
+    for z in -2..=4 {
         on(b, [-3, -5, z], &if z == 0 { rep("north", 1) } else { dust.to_string() })?;
     }
     for x in -3..=0 {
@@ -2726,8 +2731,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("D1n", [-7, -3, 0]),
                 ("Dr", [-3, -3, 4]),
                 ("CN", [-3, -3, 5]),
-                ("FA", [-1, -6, 7]),
-                ("Fs", [-1, -6, 8]),
+                ("FA", [0, -6, 6]),
+                ("Fs", [1, -6, 6]),
                 ("B2", [0, -1, 5]),
                 ("C2", [0, -1, 6]),
                 ("e28", [2, -2, 8]),
