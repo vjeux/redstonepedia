@@ -10025,8 +10025,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         front_prev[k] = front;
                     }
                 }
-                // (off the rails, with the design's declared flights: `crate::flight`)
-                rail_watch.observe(&run.world, k, *id, Some(riders[k]), &format!("slot {c} +{dt}"));
+                // (off the rails, with the design's declared flights: `crate::flight`; a cart the
+                // virtual stand B parked off the world (y 120) is not on the farm's rails)
+                if e.pos.y < 100.0 {
+                    rail_watch.observe(&run.world, k, *id, Some(riders[k]), &format!("slot {c} +{dt}"));
+                }
                 let seated = e.passengers.contains(&riders[k]);
                 if !seated && !unseated[k] {
                     unseat_log.push(format!("slot {c} +{dt}: cart {k}'s rider not seated (cart at {:.2},{:.2},{:.2})", e.pos.x - fx, e.pos.y, e.pos.z - fz));
@@ -11934,7 +11937,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                         let k = xs[..i].iter().filter(|(_, s2, _)| s2 == s).count();
                         pos.push((k, p, *rel));
                     }
-                    let code = match *name { "boosters' end" => "boost", "hump top" => "top", "line z 9|10" => "line", "climb foot" => "foot", "T" => "T", "T's exit" => "Texit", _ => "snap" };
+                    let code = match *name { "boosters' end" => "boost", "hump top" | "S's flat" => "top", "line z 9|10" => "line", "climb foot" => "foot", "T" => "T", "T's exit" => "Texit", _ => "snap" };
                     let by: Vec<String> = (0..3)
                         .filter_map(|j| {
                             let ys: Vec<(&P, i64)> = pos.iter().filter(|(q, ..)| *q == j).map(|(_, p, r)| (*p, *r)).collect();

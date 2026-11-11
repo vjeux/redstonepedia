@@ -94,6 +94,10 @@ pub struct Summary {
     pub hp: Option<(usize, usize, f64)>,
     /// cc767b78's run-derived summon margins: the least margin and the fills under the bar.
     pub sm: Option<(Option<i64>, usize)>,
+    /// The head model's recovery: A-cycles from the fault's slot to clean (None: never within
+    /// the run), and the golems the run's A ticks made (each summon margin entry marked golem).
+    pub hclean: Option<Option<i64>>,
+    pub golems: Option<usize>,
 }
 
 /// "name a/b/c/d/e/f when x/y/z; ..." (the runner's cause lines), the first N parts.
@@ -175,6 +179,9 @@ pub fn summarize(out: &str) -> Summary {
             let least = r.rsplit_once("least margin ").and_then(|(_, v)| v.split(" gt").next()).and_then(|v| v.trim().parse().ok());
             let under = r.rsplit_once("fills under the bar: ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
             s.sm = Some((least, under));
+            s.golems = Some(r.matches(", golem)").count());
+        } else if let Some(r) = l.strip_prefix("head-perm cycles-to-clean ") {
+            s.hclean = Some(r.rsplit_once("; clean from slot ").and_then(|(_, v)| v.split_once(" (")).and_then(|(_, v)| v.split(' ').next()).and_then(|v| v.parse().ok()));
         } else if let Some(r) = l.strip_prefix("head-perm day-1 latches ") {
             let n = r.split_once("launches for A with carts stopped at H: ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
             let most = r.split_once("the most carts stopped on the descent at once ").and_then(|(_, v)| v.split(|c: char| !c.is_ascii_digit()).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -662,6 +669,10 @@ pub fn fault_table(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, seeds: &[i64]
         };
         let sms: Vec<(Option<i64>, usize)> = ss.iter().filter_map(|s| s.sm).collect();
         let pad = if sms.is_empty() { pad } else { format!("{pad} | summon margin least {}, fills under the bar {}", sms.iter().filter_map(|m| m.0).min().map_or("-".into(), |v| v.to_string()), sms.iter().map(|m| m.1).sum::<usize>()) };
+        // (the head model's recovery, the worst seed's A-cycles from the fault to clean, and the
+        // golems over the seeds: ironspec's "recovery and golems lost printed")
+        let hcs: Vec<Option<i64>> = ss.iter().filter_map(|s| s.hclean).collect();
+        let pad = if hcs.is_empty() { pad } else { format!("{pad} | recovery {} A-cycles, golems {}", if hcs.iter().any(|h| h.is_none()) { "never".to_string() } else { hcs.iter().flatten().max().map_or("-".into(), |v| v.to_string()) }, ss.iter().filter_map(|s| s.golems).sum::<usize>()) };
         let pad = if o.depart_crest > 0 {
             let dm: usize = ss.iter().map(|s| s.d_meet).sum();
             let dr: usize = ss.iter().map(|s| s.d_rev).sum();
