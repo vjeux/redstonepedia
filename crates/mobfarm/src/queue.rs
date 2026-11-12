@@ -3820,6 +3820,9 @@ pub struct LoopTiming {
     pub retry_over_pending: bool,
     /// (cc767b78) a candidate rule (iii): GO toward A held while any branch chunk is frozen.
     pub live_go: bool,
+    /// (cc767b78) every first contact anywhere between a moving cart and one at rest, with the
+    /// mover's stored speed (the gravity column's bar: none over 0.2).
+    pub contacts_all: bool,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -5750,6 +5753,17 @@ pub fn parse_act(s: &str) -> Result<Act, String> {
         let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
         return Ok(Act { slot, dt, cell: [0; 3], block: air, hold: None, unload: None, place: None, order: redsim::reload::Order::Save, ride: Some(ride) });
     }
+    if f.len() >= 3 && f[2] == "freeze32" {
+        // (cc767b78: `SLOT,DT,freeze32,N`: the whole part at simulation level 32 for N gt, its
+        // redstone running and its entities frozen (the player just outside the farm's chunks): a
+        // forced ring of chunks kept around the part; the sentinel box [i32::MIN, ..] names it)
+        let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
+        if f.len() != 4 {
+            return Err(format!("--act {s}: give SLOT,DT,freeze32,N"));
+        }
+        let air = Block::parse("minecraft:air").map_err(|e| format!("--act {s}: {e}"))?;
+        return Ok(Act { slot: num(f[0], "SLOT")?, dt: num(f[1], "DT")?, cell: [0; 3], block: air, hold: Some(num(f[3], "N")?.max(1)), unload: Some(Some([i32::MIN, 0, 0, 0])), place: None, order: redsim::reload::Order::Save, ride: None });
+    }
     if f.len() >= 3 && f[2] == "unload" {
         let num = |t: &str, what: &str| t.parse::<i64>().map_err(|e| format!("--act {s}: {what}: {e}"));
         let (slot, dt) = (num(f[0], "SLOT")?, num(f[1], "DT")?);
@@ -5805,7 +5819,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, t_watch: None, p2_stuck: None, retry_over_pending: false, live_go: false, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, t_watch: None, p2_stuck: None, retry_over_pending: false, live_go: false, contacts_all: false, meter: None }
     }
 }
 
@@ -6663,8 +6677,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut stalls: Vec<(bool, String)> = Vec::new();
     let mut prev_v: std::collections::HashMap<u32, (f64, f64)> = std::collections::HashMap::new();
     let mut t_end_run: i64 = 0;
+    let mut contact_seen: std::collections::HashMap<(u32, u32), i64> = std::collections::HashMap::new();
+    let mut contacts_any: Vec<(f64, String)> = Vec::new();
     let mut t_watch_log: Vec<(i64, String, String, Option<(f64, u32, bool, f64)>)> = Vec::new();
-    if tm.trace_pair.is_some() || tm.meter.is_some() || n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) {
+    if tm.trace_pair.is_some() || tm.meter.is_some() || n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) || tm.contacts_all {
         redsim::entity::minecart::log_cart_cart_pushes(&mut run.world);
     }
     let mut pushes = [0u64; 4];
@@ -6901,6 +6917,9 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (`acts`' restores due: (gt, cell, the block the act replaced)); the bench's own REL state
     let mut act_restores: Vec<(i64, BlockPos, Block)> = Vec::new();
     let mut pending_loads: Vec<(i64, Option<[i32; 4]>)> = Vec::new();
+    // (cc767b78: `freeze32`'s ring to drop at the reload; each freeze's start, length, whole-part)
+    let mut freeze32_restore: Vec<(i64, [i32; 4])> = Vec::new();
+    let mut freeze_starts: Vec<(i64, i64, bool)> = Vec::new();
     let mut rel_want = false;
     // (the lap order: carts in the order they leave the pocket stand, up its departure climb)
     let mut laps: Vec<usize> = Vec::new();
@@ -7432,6 +7451,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             redsim::reload::load_some(&mut run.world, b);
             drive.borrow_mut().push(format!("act {} load {},{},{},{}", run.world.time - t_origin, b[0], b[1], b[2], b[3]));
         }
+        // (`freeze32`: the part's own chunk box back as the forced box once it reloads)
+        if let Some(k) = freeze32_restore.iter().position(|(at, _)| *at == t) {
+            let (_, pb) = freeze32_restore.remove(k);
+            if run.world.unforced.is_empty() {
+                run.world.entity_chunks = Some(pb);
+            }
+        }
         // (`acts`, fault injection: each block set at its slot offset, then the block it replaced
         // put back after its hold, before the bench's own controls this gt)
         for a in tm.acts.iter().flatten() {
@@ -7614,10 +7640,25 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                                 let (mn, sz) = (run.world.min, run.world.size);
                                 run.world.entity_chunks = Some([mn.x.div_euclid(16), mn.z.div_euclid(16), (mn.x + sz[0] - 1).div_euclid(16), (mn.z + sz[2] - 1).div_euclid(16)]);
                             }
+                            // (`freeze32`: the whole part at level 32: a forced ring around its box,
+                            // the part's chunks unforced; the ring dropped again at the reload)
+                            let (b, ring) = if b[0] == i32::MIN {
+                                let pb = run.world.entity_chunks.unwrap_or([0; 4]);
+                                run.world.entity_chunks = Some([pb[0] - 1, pb[1] - 1, pb[2] + 1, pb[3] + 1]);
+                                freeze32_restore.push((t + n, pb));
+                                (pb, true)
+                            } else {
+                                (b, false)
+                            };
                             redsim::reload::unload_some(&mut run.world, b);
+                            // (the levels the freeze gives the part's chunks: 32 next to the ring,
+                            // 33 a chunk further in, no redstone there)
+                            let lv: Vec<i32> = (b[0]..=b[2]).flat_map(|x| (b[1]..=b[3]).map(move |z| (x, z))).map(|(x, z)| run.world.chunk_level(x, z)).collect();
+                            let lv_txt = format!("levels {}..{}", lv.iter().min().unwrap_or(&0), lv.iter().max().unwrap_or(&0));
                             drive.borrow_mut().push(format!("act {} unload {},{},{},{}", run.world.time - t_origin, b[0], b[1], b[2], b[3]));
-                            pending_loads.push((t + n, u));
-                            unload_log.push(format!("slot {c} +{dt}: chunks {},{}..{},{} unforced {n} gt (the part's chunk box {:?})", b[0], b[1], b[2], b[3], run.world.entity_chunks));
+                            pending_loads.push((t + n, Some(b)));
+                            freeze_starts.push((t, n, ring));
+                            unload_log.push(format!("slot {c} +{dt}: chunks {},{}..{},{} unforced {n} gt, {lv_txt}{} (the part's chunk box {:?})", b[0], b[1], b[2], b[3], if ring { ", the whole part frozen inside a forced ring (level 32: redstone runs, entities frozen; 33: nothing)" } else { "" }, run.world.entity_chunks));
                         }
                     }
                     continue;
@@ -11270,7 +11311,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // (`trace_pair`: the two carts per tick, their gap, stored and visible motion, and every
             // push on either (a mob's on a cart; a cart's on a cart with the alignment test): the
             // riderless merge, for tick-exact's bridge)
-            let cc = if tm.trace_pair.is_some() || tm.meter.is_some() || n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) { redsim::entity::minecart::take_cart_cart_pushes(&mut run.world) } else { Vec::new() };
+            let cc = if tm.trace_pair.is_some() || tm.meter.is_some() || n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) || tm.contacts_all { redsim::entity::minecart::take_cart_cart_pushes(&mut run.world) } else { Vec::new() };
             if let Some((a, b, t0, t1)) = tm.trace_pair {
                 if t >= t0 && t <= t1 {
                     let get = |id: u32| redsim::entity::index_of(&run.world, id).map(|i| {
@@ -11329,7 +11370,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     }
                 }
             }
-            if n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) {
+            if n_cells > 0 || tm.stall_box.iter().any(|b| b.is_some()) || tm.contacts_all {
                 t_end_run = t;
                 let cells: Vec<[i32; 3]> = tm.cell_log.iter().flatten().copied().collect();
                 let boxes: Vec<(f64, f64, f64, f64)> = tm.stall_box.iter().flatten().copied().collect();
@@ -11341,6 +11382,42 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     .filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)))
                     .map(|e| (e.id, e.pos.x - fx, e.pos.y, e.pos.z - fz, e.delta_movement.x, e.delta_movement.z, e.delta_movement.x.hypot(e.delta_movement.z), !e.passengers.is_empty()))
                     .collect();
+                // (`contacts_all`: every first contact anywhere between a moving cart and one at
+                // rest: a cart-cart push this tick (the mover's stored speed before it), or a dead
+                // stop (a cart that moved at 0.05+ last tick now under 0.01 within 1.2 of a cart at
+                // rest: a rider's box as a wall); one per pair within 20 gt)
+                if tm.contacts_all {
+                    let at_rest = |id: u32| carts_now.iter().find(|c| c.0 == id).is_some_and(|c| c.6 < 0.01);
+                    let mut found: Vec<(u32, u32, f64, &'static str)> = Vec::new();
+                    for p in cc.iter() {
+                        let (va, vb) = (p.before[0].hypot(p.before[1]), p.before[2].hypot(p.before[3]));
+                        let (m, wt, vm, vw) = if va >= vb { (p.this, p.other, va, vb) } else { (p.other, p.this, vb, va) };
+                        if vw < 0.01 && vm >= 0.01 {
+                            found.push((m, wt, vm, "a push"));
+                        }
+                    }
+                    for c1 in carts_now.iter() {
+                        let pv = prev_v.get(&c1.0).map_or(0.0, |v| v.0.hypot(v.1));
+                        if pv >= 0.05 && c1.6 < 0.01 {
+                            if let Some(c2) = carts_now.iter().filter(|c2| c2.0 != c1.0 && c2.6 < 0.01 && ((c2.1 - c1.1).powi(2) + (c2.2 - c1.2).powi(2) + (c2.3 - c1.3).powi(2)).sqrt() < 1.2).min_by(|a, b| ((a.1 - c1.1).powi(2) + (a.3 - c1.3).powi(2)).total_cmp(&((b.1 - c1.1).powi(2) + (b.3 - c1.3).powi(2)))) {
+                                if !found.iter().any(|f| f.0 == c1.0) {
+                                    found.push((c1.0, c2.0, pv, "a dead stop"));
+                                }
+                            }
+                        }
+                    }
+                    let _ = at_rest;
+                    for (m, wt, vm, how) in found {
+                        let key = if m < wt { (m, wt) } else { (wt, m) };
+                        if contact_seen.get(&key).is_some_and(|t0| t - t0 < 20) {
+                            continue;
+                        }
+                        contact_seen.insert(key, t);
+                        let pm = carts_now.iter().find(|c| c.0 == m).map(|c| (c.1, c.2, c.3, c.7)).unwrap_or((0.0, 0.0, 0.0, false));
+                        let pw_ridden = carts_now.iter().find(|c| c.0 == wt).is_some_and(|c| c.7);
+                        contacts_any.push((vm, format!("t {t} (slot {c} +{dt}): e{m} {} onto e{wt} {} at loop {:.2},{:.2},{:.2}, {how}, stored {vm:.3}", if pm.3 { "ridden" } else { "empty" }, if pw_ridden { "ridden" } else { "empty" }, pm.0, pm.1, pm.2)));
+                    }
+                }
                 for &(id, lx, ly, lz, vx, vz, v, ridden) in &carts_now {
                     for (ci, cell) in cells.iter().enumerate() {
                         let inside = (lx - (cell[0] as f64 + 0.5)).abs() < 0.99 && (lz - (cell[2] as f64 + 0.5)).abs() < 0.99 && ly < cell[1] as f64 + 1.0 && ly + 0.7 > cell[1] as f64;
@@ -12367,6 +12444,34 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the stand's per-slot state and any hand reset)
     out.extend(stand_log);
     out.extend(unload_log);
+    // (cc767b78: each freeze: its start, length, the whole part at level 32 or a chunk box; per
+    // liveness clock probe: its period before the freeze, its last edge before it, the detection
+    // latency of a gate timing out at the period + 2 gt with no edge, and when its edges came back
+    // after the thaw)
+    for (tf, n, ring) in &freeze_starts {
+        let mut clocks: Vec<String> = Vec::new();
+        for (i, e) in meter_state.clock_edges.iter().enumerate() {
+            let before: Vec<i64> = e.iter().map(|x| x.0).filter(|x| x <= tf).collect();
+            let mut gaps: Vec<i64> = before.windows(2).map(|w| w[1] - w[0]).collect();
+            gaps.sort();
+            let period = gaps.get(gaps.len() / 2).copied();
+            let last = before.last().copied();
+            let again = e.iter().map(|x| x.0).find(|x| *x > tf + n);
+            let lat = match (period, last) {
+                (Some(p), Some(l)) => Some((l + p + 2 - tf).max(0)),
+                _ => None,
+            };
+            clocks.push(format!("clock {}: period {}, its last edge {} gt before, detection latency {} gt, edges again {}", i + 1, period.map_or("-".to_string(), |p| p.to_string()), last.map_or("-".to_string(), |l| (tf - l).to_string()), lat.map_or("-".to_string(), |x| x.to_string()), again.map_or("never".to_string(), |a| format!("{} gt after the thaw", a - (tf + n)))));
+        }
+        let s_rel = tm.summon_at.map_or(String::new(), |sa| format!(", S+{}", (tf.rem_euclid(100) - sa as i64).rem_euclid(100)));
+        out.push(format!("freeze at t {tf} (slot {} +{}{s_rel}) for {n} gt ({}): {}", tf.div_euclid(100), tf.rem_euclid(100), if *ring { "the whole part at level 32, redstone running" } else { "a chunk box" }, if clocks.is_empty() { "no clock probes (MCTAS_CLOCK_PROBES): the emulated liveness gates read the chunk level, latency 0".to_string() } else { clocks.join("; ") }));
+    }
+    if tm.contacts_all {
+        let over = contacts_any.iter().filter(|c| c.0 > 0.2).count();
+        let mut worst = contacts_any.clone();
+        worst.sort_by(|a, b| b.0.total_cmp(&a.0));
+        out.push(format!("contacts anywhere (a moving cart's first contact with a cart at rest: a push, or a dead stop at a rider's box; the mover's stored speed before): {} contacts, {over} over 0.2{}", contacts_any.len(), if worst.is_empty() { String::new() } else { format!("; the worst: {}", worst.iter().take(4).map(|w| w.1.clone()).collect::<Vec<_>>().join(" | ")) }));
+    }
     if !run.world.errors.is_empty() {
         out.push(format!("model errors: {}", run.world.errors.join("; ")));
     }
