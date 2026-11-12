@@ -1273,6 +1273,19 @@ pub enum MobfarmCmd {
         recv_feed: i64,
         #[arg(long, default_value_t = 40)]
         recv_timeout: i64,
+        /// (7b90c3f1) The receiver alone: a cart fed into Tail(3) leaves at once and comes back at
+        /// the next hold release + ret + OFFS[j] (an ideal downstream; use with --carts 3).
+        #[arg(long)]
+        recv_ideal: bool,
+        /// (7b90c3f1) The receiver's flying feed: the front stays open through the advances, each
+        /// cart behind flying through from the middle's face (its feed spacing printed).
+        #[arg(long)]
+        recv_fly: bool,
+        /// (7b90c3f1) The receiver's middle and rear shuts keyed on the front pocket's P (Tail(2)'s)
+        /// rising edge (crossed only by the batch's first cart while the receiver is idle) plus
+        /// D_MID,D_REAR live gt, instead of --receiver's timers from the hold release.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        receiver_p: Vec<i64>,
     },
     TraceDiff {
         a: PathBuf,
@@ -3642,7 +3655,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive_gate, freeze32, freeze_matrix, jobs, receiver, ret_offs, recv_settle, recv_feed, recv_timeout } => {
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive_gate, freeze32, freeze_matrix, jobs, receiver, ret_offs, recv_settle, recv_feed, recv_timeout, recv_ideal, recv_fly, receiver_p } => {
             let pairs = |v: &[String], what: &str| -> anyhow::Result<Vec<(i64, i64)>> {
                 v.iter()
                     .map(|s| {
@@ -3653,7 +3666,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let fr = pairs(&freeze, "freeze")?;
             let fr32 = pairs(&freeze32, "freeze32")?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive: alive_gate, freeze32: fr32, receiver: match receiver.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--receiver takes T_MID,T_REAR") }, ret_offs, recv_settle, recv_feed, recv_timeout };
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive: alive_gate, freeze32: fr32, receiver: match receiver.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--receiver takes T_MID,T_REAR") }, ret_offs, recv_settle, recv_feed, recv_timeout, recv_ideal, recv_fly, receiver_p: match receiver_p.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--receiver-p takes D_MID,D_REAR") } };
             if !freeze_matrix.is_empty() {
                 let parts: Vec<&str> = freeze_matrix.split(';').collect();
                 let sv: Vec<i64> = parts.first().unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();
