@@ -1492,6 +1492,50 @@ pub enum MobfarmCmd {
         #[arg(long)]
         stopper: Option<i32>,
     },
+    /// (cc767b78, the L1 rule) The freeze-matrix judge of the lift bench: the L1 load window as the
+    /// bench's own level-32 freeze of D gt (`--ds`, 1..4) at every 1-gt start `--starts A,B`, at every
+    /// corner `--spacings` x `--speeds`; the pass: no NEVER / DISMOUNTED, hurt 0, eye-in-block 0, no
+    /// WRONG LANE, the fastest branch speed <= 0.30, the hardest contact <= 0.2. `--threshold-spacings`
+    /// runs the same matrix at smaller spacings (the launch spacing's threshold under the window).
+    LiftJudge {
+        #[arg(long, default_value_t = 23)]
+        height: i32,
+        #[arg(long, default_value_t = 16)]
+        entry_len: i32,
+        #[arg(long, default_value_t = 1)]
+        entry_h: i32,
+        #[arg(long, default_value_t = 9)]
+        carts: usize,
+        #[arg(long, default_value_t = 550)]
+        ticks: i64,
+        #[arg(long, default_value = "current")]
+        exit: String,
+        #[arg(long, default_value_t = 2)]
+        ceiling: i32,
+        #[arg(long, default_value_t = 1)]
+        exit_slope: i32,
+        #[arg(long)]
+        no_merge3: bool,
+        #[arg(long)]
+        no_split3: bool,
+        #[arg(long)]
+        pane_walls: bool,
+        #[arg(long, default_value_t = 11.95)]
+        reach_dy: f64,
+        #[arg(long, value_delimiter = ',', default_value = "12,14,16")]
+        spacings: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "0.3,0.4")]
+        speeds: Vec<f64>,
+        #[arg(long, value_delimiter = ',', default_value = "0,300")]
+        starts: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        ds: Vec<i64>,
+        /// Smaller launch spacings to run the same matrix at (the threshold under the window).
+        #[arg(long, value_delimiter = ',')]
+        threshold_spacings: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+    },
     ClimbBench {
         #[arg(long, default_value_t = 14)]
         cells: i32,
@@ -4968,6 +5012,34 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::LiftJudge { height, entry_len, entry_h, carts, ticks, exit, ceiling, exit_slope, no_merge3, no_split3, pane_walls, reach_dy, spacings, speeds, starts, ds, threshold_spacings, jobs } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            let base = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed: 0.4, carts, spacing: 14, ticks, exit, trace: None, ceiling, freeze: None, exit_slope, merge3: !no_merge3, split3: !no_split3, pane_walls, reach_dy, detector_at: None, napper_at: None, stopper: None };
+            println!(
+                "lift judge (cc767b78, bench: the L1 load window as the bench's level-32 freeze of D gt {ds:?} at every start {}..{}; corners spacing {spacings:?} x speed {speeds:?}): height {height}, entry {entry_len}, exit {} ceiling {ceiling} slope {exit_slope}, {carts} carts{}{}, {ticks} ticks",
+                starts[0],
+                starts[1],
+                base.exit,
+                if base.merge3 { ", merge3" } else { "" },
+                if base.split3 { ", split3" } else { "" }
+            );
+            let o = crate::liftjudge::LiftJudgeOpts { spacings, speeds: speeds.clone(), starts: (starts[0], starts[1]), ds: ds.clone(), jobs };
+            let (lines, fails) = crate::liftjudge::judge(&base, &o).map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            println!("over the matrix: {fails} failing runs (controls included)");
+            if !threshold_spacings.is_empty() {
+                for s in threshold_spacings {
+                    let o = crate::liftjudge::LiftJudgeOpts { spacings: vec![s], speeds: speeds.clone(), starts: (starts[0], starts[1]), ds: ds.clone(), jobs };
+                    let (lines, fails) = crate::liftjudge::judge(&base, &o).map_err(|e| anyhow::anyhow!(e))?;
+                    println!("threshold row, spacing {s}: {fails} failing runs");
+                    for l in lines {
+                        println!("  {l}");
+                    }
+                }
+            }
         }
         MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper } => {
             let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper };
