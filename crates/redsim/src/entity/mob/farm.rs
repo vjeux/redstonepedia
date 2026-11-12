@@ -481,7 +481,9 @@ impl Run {
                 let now = w.get(*p);
                 if now.is_air() {
                     bad.push(format!("{p} {b} (popped at placement)"));
-                } else if !crate::behavior::can_survive(&w, &now, *p) {
+                } else if !crate::behavior::can_survive(&w, &now, *p) || crate::rails::would_pop(&w, *p) {
+                    // (G1 on 5ff842746: an ascending rail without its high-side block, as
+                    // `rails::would_pop` reads `BaseRailBlock.shouldBeRemoved`)
                     bad.push(format!("{p} {now} (no support: it pops at its first update)"));
                 }
             }
@@ -1509,6 +1511,33 @@ fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
     for e in &w.errors {
         if !rep.errors.contains(e) && rep.errors.len() < 8 {
             rep.errors.push(e.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod start_refusal_tests {
+    use super::*;
+
+    /// (G1 on 59922584e) An ascending rail without the block on its high side pops at its first
+    /// update: `Run::start` refuses the design, pasted raw or placed with updates; with the block
+    /// it builds.
+    #[test]
+    fn a_slope_without_its_high_side_fails_the_run() {
+        let rail = Block::parse("minecraft:rail[shape=ascending_east,waterlogged=false]").unwrap();
+        let stone = Block::parse("minecraft:stone").unwrap();
+        let spec = |high: bool| {
+            let mut blocks = vec![(BlockPos::new(0, 0, 0), stone.clone()), (BlockPos::new(0, 1, 0), rail.clone())];
+            if high {
+                blocks.push((BlockPos::new(1, 1, 0), stone.clone()));
+            }
+            FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(-2, 1, 0), lo: BlockPos::new(-4, -2, -4), hi: BlockPos::new(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        for raw in [true, false] {
+            let o = RunOpts { raw, ..RunOpts::steady(1, 0, WalkMode::Random) };
+            let e = Run::start(&spec(false), &o).err().unwrap_or_else(|| panic!("raw {raw}: a slope without its high side built"));
+            assert!(e.contains("no support") || e.contains("popped at placement"), "raw {raw}: {e}");
+            assert!(Run::start(&spec(true), &o).is_ok(), "raw {raw}: the slope with its high side refused");
         }
     }
 }
