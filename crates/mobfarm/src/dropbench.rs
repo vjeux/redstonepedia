@@ -49,6 +49,10 @@ pub struct DropOpts {
     pub r_boost: bool,
     pub floor_bottom: bool,
     pub riders: bool,
+    /// (cc767b78, the L1 judge) Real level-32 freezes T,D: the whole bench from tick T for D gt,
+    /// entities frozen, redstone and the bench's controller running (the load window: block events
+    /// up to 3 gt ahead of the entities).
+    pub freeze32: Vec<(i64, i64)>,
 }
 
 fn cart_state(w: &redsim::world::World, id: u32) -> Option<(f64, f64, f64, f64)> {
@@ -220,7 +224,20 @@ pub fn drop_bench(o: &DropOpts) -> Result<String, String> {
     let set_gate = |w: &mut redsim::world::World, p: BlockPos, open: bool| {
         w.set_block(p, if open { open_b.clone() } else { shut_b.clone() }, redsim::world::flags::ALL);
     };
+    let mut frozen32: Option<[i32; 4]> = None;
     for t in 0..ticks {
+        // (cc767b78: a real level-32 freeze, the bench's controller running on)
+        for (a, d) in &o.freeze32 {
+            if t == *a && frozen32.is_none() {
+                frozen32 = Some(crate::liveness::freeze32(&mut run.world));
+            }
+            if t == a + d
+                && let Some(pb) = frozen32.take()
+            {
+                crate::liveness::thaw32(&mut run.world, pb);
+            }
+        }
+        let real_frozen = frozen32.is_some();
         // (the strings: the hook's power, and how long it has held)
         let mut hs = vec![false; nl];
         let mut hd = vec![false; nl];
@@ -319,7 +336,7 @@ pub fn drop_bench(o: &DropOpts) -> Result<String, String> {
             let l = carts[k].0;
             let x = 1.5;
             let clear = carts.iter().filter(|(ll, _)| *ll == l).all(|(_, id)| id.and_then(|id| cart_state(&run.world, id)).is_none_or(|(cx, _, _, _)| cx > x + 1.2));
-            if clear {
+            if clear && !real_frozen {
                 let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x, slope_y(x), lanes[l].z as f64 + 0.5], Some(&nbt))?;
                 carts[k].1 = Some(id);
                 pending.retain(|p| p.1 != k);

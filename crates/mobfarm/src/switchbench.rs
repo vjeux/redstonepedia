@@ -166,7 +166,7 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     let mut eye_r: std::collections::BTreeMap<String, usize> = Default::default();
     let mut frozen32: Option<[i32; 4]> = None;
     for t in 0..ticks {
-        for (a, d) in &o.login {
+        for (a, d) in o.login.iter().chain(o.freeze32.iter()) {
             if t == *a && frozen32.is_none() {
                 frozen32 = Some(crate::liveness::freeze32(&mut run.world));
             }
@@ -346,7 +346,7 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
         if o.login.is_empty() { String::new() } else { format!(", logins {:?}", o.login) }
     )];
     lines.push(format!(
-        "carts per D per release (exactly 1): {}; D not settled at a release: {}; R-line retries: {}",
+        "carts per D per release (exactly 1): {}; cells not settled (string held) at a release: {}; R-line retries: {}",
         per_release.iter().map(|(a, b)| format!("{a}: {b}")).collect::<Vec<_>>().join(", "),
         unsettled,
         retries

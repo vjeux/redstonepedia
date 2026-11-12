@@ -45,6 +45,7 @@ pub mod switchbench;
 pub mod brigadebench;
 pub mod dropbench;
 pub mod lanesbench;
+pub mod lanesjudge;
 pub mod stringbench;
 pub mod pocketbench;
 pub mod gqbench;
