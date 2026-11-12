@@ -872,6 +872,103 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         stand: String,
     },
+    /// One-chunk (b), the climb bench (ironspec and farmopt 2026-11-11, paper v0): one batch of 3
+    /// ridden carts from rest at the foot hold H up a straight powered climb of `--cells` boosters
+    /// to today's approach top, the snap turn and today's 3 pockets (the S3 file's cells; gates
+    /// bench-driven), H opened at T + `--h-open` (T a world time multiple of 100); each cart's rest
+    /// tick and margin before T+100, arrival speeds into waiting carts, riders' damage, dismounts,
+    /// eye point inside a block, the golem box gap, and a freeze span; at every H-open corner and
+    /// seed.
+    ClimbBench {
+        #[arg(long, default_value_t = 14)]
+        cells: i32,
+        /// T's height (today's approach top 5; 3, the lowest with today's snap turn).
+        #[arg(long, default_value_t = 5)]
+        crest: i32,
+        /// H's opening, gt after T, each corner ("1,2,3,4,5").
+        #[arg(long, default_value = "1,2,3,4,5")]
+        h_open: String,
+        /// H shuts again this many gt after it opened (0: never).
+        #[arg(long, default_value_t = 0)]
+        h_for: i64,
+        /// The per-gate hold's release spacing emulated (gt; 0: the batch queued back to back at
+        /// H): cart k set at rest at Ga at T + h-open + k * this, each corner ("15,23").
+        #[arg(long, default_value = "0")]
+        h_every: String,
+        /// The climb's pattern from its foot (`B` booster, `P` plain; empty: all boosters).
+        #[arg(long, default_value = "")]
+        pattern: String,
+        /// onechunk's cornered route instead of the straight climb: H_RAILS,L1 (Ga's hand-off at
+        /// rails H_RAILS, leg 1 of L1 slopes south, leg 2 west up to 3, the approach's flats north
+        /// to T at 3); the carts handed off at Ga's B at 0.5 b/t, `--h-every` gt apart.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        route: Vec<i32>,
+        /// onechunk's folded (b) route: Dh, a flat curve west, leg 1 (11 boosters), a curve north,
+        /// leg 2 (9 boosters) to T at 3; the carts handed off at Dh at 0.5 b/t, `--h-every` gt
+        /// apart (default 13: the pocket stand's gates send them 12..14 apart).
+        #[arg(long)]
+        folded: bool,
+        /// The gravity queue's descent (hold → stand) instead of a climb: `--cells` slopes down
+        /// north to the crest at +3 (`--pattern` B/P from the bottom); the carts handed off at the
+        /// top at `--speed` b/t heading north, `--h-every` gt apart (0: back to back, 3 gt).
+        #[arg(long)]
+        gravity: bool,
+        /// With --gravity: onechunk's skeleton v3 descent (Ga's exit at (13,24,7), leg A south, a
+        /// curve, leg B west, a curve, leg C north into the committed crest (3,6,10)); `--cells`
+        /// ignored. `--plain-c`: leg C's three slopes plain.
+        #[arg(long)]
+        v3: bool,
+        #[arg(long)]
+        plain_c: bool,
+        /// The hand-off speed (b/t) for --gravity.
+        #[arg(long, default_value_t = 0.4)]
+        speed: f64,
+        /// The stand's gates on timers from the hold's release (live time, paused while frozen):
+        /// G2 shuts at release + A, G1 at release + B (instead of position triggers).
+        #[arg(long, value_delimiter = ',')]
+        gate_shut: Vec<i64>,
+        /// The batch's carts: 3, or 2 (the third stays parked).
+        #[arg(long, default_value_t = 3)]
+        carts: usize,
+        #[arg(long, default_value_t = 1.29)]
+        close_at: f64,
+        #[arg(long, default_value_t = 160)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 3)]
+        seeds: i64,
+        /// Which carts carry a rider, front first ("1,1,1"; "0,1,1": the front cart empty).
+        #[arg(long, default_value = "1,1,1")]
+        riders: String,
+        /// The golem's box (design frame) while a golem exists (T..T+2): x0,y0,z0,x1,y1,z1.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        golem_box: Vec<f64>,
+        /// The freeze: the bench's chunks at level 32 from T + FROM for LEN gt ("FROM,LEN").
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        freeze: Vec<i64>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        trace: bool,
+        /// (cc767b78) Day-1's liveness gate instead of the paused live clock: the hold's release
+        /// and the stand's gate timers ANDed with ALIVE at their rise, the unfired remainder
+        /// dropped, the cycle restarting at the next golem event (crate::liveness).
+        #[arg(long)]
+        alive_gate: bool,
+        /// (cc767b78) With --alive-gate: the stand's fill timers pause while ALIVE is low and
+        /// resume on its return (a live clock counted on ALIVE, detection latency included)
+        /// instead of the unfired remainder dropping.
+        #[arg(long)]
+        alive_pause: bool,
+        /// (cc767b78) The freeze matrix: "F0,F1,STEP;L1,L2,..": one run per freeze start (T + F0
+        /// .. T + F1 every STEP gt) and length, every H-open corner and seed, in parallel
+        /// (--jobs); one line per run with the bars.
+        #[arg(long, default_value = "")]
+        freeze_matrix: String,
+        #[arg(long, default_value_t = 1)]
+        jobs: usize,
+    },
     /// The stop-based stand's lab (farmopt): a run, the stand's cells from a spec (`mobfarm::
     /// standlab`), three ridden carts moving +x at each speed of a sweep: where they rest, when,
     /// whether they stay put; then the departure (the spec's `c` cells powered) and how they leave.
@@ -3316,6 +3413,162 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, freeze_matrix, jobs } => {
+            anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
+            anyhow::ensure!(gate_shut.is_empty() || gate_shut.len() == 2, "--gate-shut A,B");
+            // (7b90c3f1's meter timer fill, MCTAS_TIMER_FILL=T1,T2: G1 stays open T1 and G2 T2
+            // live gt after the hold's release; the bench drives its gates the same way)
+            let gate_shut: Vec<i64> = match (gate_shut.is_empty(), std::env::var("MCTAS_TIMER_FILL")) {
+                (true, Ok(v)) => {
+                    let t: Vec<i64> = v.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(t.len() == 2, "MCTAS_TIMER_FILL=T1,T2");
+                    println!("the stand's gates on MCTAS_TIMER_FILL={v}: G1 open {} gt and G2 {} gt (live) after the hold's release (bench-driven gates)", t[0], t[1]);
+                    vec![t[1], t[0]]
+                }
+                _ => gate_shut,
+            };
+            anyhow::ensure!(carts == 2 || carts == 3, "--carts 2 or 3");
+            let rd: Vec<bool> = riders.split(',').map(|s| s.trim() != "0").collect();
+            anyhow::ensure!(rd.len() == 3, "--riders takes three 0/1");
+            let everys: Vec<i64> = h_every.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+            let spaced = everys.iter().any(|e| *e > 0) && !gravity;
+            anyhow::ensure!(gravity || !spaced || everys.iter().all(|e| *e > 0), "--h-every: all spaced (> 0) or 0");
+            anyhow::ensure!(pattern.is_empty() || pattern.len() == cells as usize, "--pattern: one letter per climb cell");
+            anyhow::ensure!(route.is_empty() || route.len() == 2, "--route H_RAILS,L1");
+            let text = if gravity && v3 {
+                crate::climb::design_gravity_v3([rd[0], rd[1], rd[2]], plain_c)
+            } else if gravity {
+                crate::climb::design_gravity(cells, &pattern, [rd[0], rd[1], rd[2]])
+            } else if folded {
+                crate::climb::design_folded([rd[0], rd[1], rd[2]])
+            } else if route.len() == 2 {
+                crate::climb::design_route(route[0], route[1], [rd[0], rd[1], rd[2]]).map_err(|e| anyhow::anyhow!(e))?
+            } else {
+                crate::climb::design_with(cells, crest, &pattern, [rd[0], rd[1], rd[2]], spaced)
+            };
+            // (the hand-off point and velocity (the gravity descent's top, Ga's B, or the folded
+            // route's Dh) and the freeze's chunk box)
+            use redsim::entity::Vec3 as V3;
+            let route_geo = if gravity && v3 {
+                Some((V3::new(13.5, 24.0625, 4.5), V3::new(0.0, 0.0, speed), [0, 0, 0, 0]))
+            } else if gravity {
+                Some((V3::new(3.5, (3 + cells) as f64 + 0.0625, (8 + cells) as f64 + 0.5), V3::new(0.0, 0.0, -speed), [0, 0, 0, (9 + cells).div_euclid(16)]))
+            } else if folded {
+                Some((V3::new(15.5, -17.0 + 0.0625, 16.5), V3::new(0.0, 0.0, 0.5), [0, 0, 0, 1]))
+            } else {
+                (route.len() == 2).then(|| {
+                    let (h, l1) = (route[0], route[1]);
+                    let l2 = 3 - h - l1;
+                    let (lx, fz) = (4 + l2, 13 - l1 + 1);
+                    (V3::new(lx as f64 + 0.5, h as f64 + 0.0625, (fz - 3) as f64 + 0.5), V3::new(0.0, 0.0, 0.5), [0, (fz - 5).div_euclid(16), lx.div_euclid(16), 0])
+                })
+            };
+            let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("climb-bench-{}.txt", std::process::id())));
+            std::fs::write(&path, &text)?;
+            let (_c, fspec) = load(version, &path)?;
+            anyhow::ensure!(golem_box.is_empty() || golem_box.len() == 6, "--golem-box x0,y0,z0,x1,y1,z1");
+            anyhow::ensure!(freeze.is_empty() || freeze.len() == 2, "--freeze FROM,LEN");
+            let opens: Vec<i64> = h_open.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+            println!("climb bench: {} cells{}{}, the design {}", cells, if gravity { " (the gravity descent)" } else { "" }, if pattern.is_empty() { String::new() } else { format!(" ({pattern})") }, path.display());
+            let mk = |e: i64, h: i64, s: i64, fr: Option<(i64, i64)>| crate::climb::ClimbOpts {
+                cells,
+                crest: if gravity && v3 { 6 } else if route.len() == 2 || folded || gravity { 3 } else { crest },
+                h_open: h,
+                h_for,
+                h_every: if gravity { 0 } else { e },
+                close_at,
+                ticks,
+                seed: s,
+                golem_box: (golem_box.len() == 6).then(|| [golem_box[0], golem_box[1], golem_box[2], golem_box[3], golem_box[4], golem_box[5]]),
+                freeze: fr,
+                hand_off: route_geo.map(|(p, v, c)| (p, v, if e > 0 { e } else if gravity { 3 } else if folded { 13 } else { 10 }, c)),
+                gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
+                n_carts: carts,
+                trace,
+                alive: alive_gate,
+                alive_pause,
+            };
+            // (cc767b78, `--freeze-matrix F0,F1,STEP;L1,..`: every freeze start and length at every
+            // corner and seed, in parallel; one line per run with the bars)
+            if !freeze_matrix.is_empty() {
+                let (fs, ls) = freeze_matrix.split_once(';').ok_or_else(|| anyhow::anyhow!("--freeze-matrix takes F0,F1,STEP;L1,L2,.."))?;
+                let fv: Vec<i64> = fs.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                let [f0, f1, st] = fv.as_slice() else { anyhow::bail!("--freeze-matrix takes F0,F1,STEP;L1,L2,..") };
+                let lv: Vec<i64> = ls.split(',').filter(|x| !x.trim().is_empty()).map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                let mut runs: Vec<(i64, i64, i64, i64, i64)> = Vec::new();
+                for f in (*f0..=*f1).step_by((*st).max(1) as usize) {
+                    for l in &lv {
+                        for e in &everys {
+                            for h in &opens {
+                                for s in seed..seed + seeds {
+                                    runs.push((f, *l, *e, *h, s));
+                                }
+                            }
+                        }
+                    }
+                }
+                println!("climb-bench freeze matrix: freezes from T+{f0}..T+{f1} every {st} gt for {lv:?} gt, H open {opens:?}, every {everys:?}, seeds {seed}..{} ({} runs; {})", seed + seeds - 1, runs.len(), if alive_gate { "day-1's liveness gate" } else { "the paused live clock" });
+                for chunk in runs.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64, i64, i64, i64), Result<Vec<String>, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(f, l, e, h, s)| {
+                                let o = mk(e, h, s, Some((f, l)));
+                                let fspec = &fspec;
+                                sc.spawn(move || ((f, l, e, h, s), crate::climb::bench(fspec, &o)))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((f, l, e, h, s), r) in got {
+                        let lines = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let find = |p: &str| lines.iter().find(|x| x.starts_with(p)).cloned().unwrap_or_default();
+                        let pockets = find("pockets: ").trim_start_matches("pockets: ").to_string();
+                        let batch = find("batch at rest: ");
+                        let at_rest = batch.split(';').next().unwrap_or("").trim_start_matches("batch at rest: ").to_string();
+                        let arr = batch.split("arrivals into a waiting cart: ").nth(1).map(|x| x.split(" (").take(2).collect::<Vec<_>>().join(" (") + ")").unwrap_or_default();
+                        let entry = find("entry into each gate's cell");
+                        let edges = entry.split("gate edges on a cart: ").nth(1).map(|x| x.split(|c: char| c == ';' || c == ' ').next().unwrap_or("").to_string()).unwrap_or_default();
+                        let merges = entry.split("merges: ").nth(1).map(|x| x.split(' ').next().unwrap_or("").to_string()).unwrap_or_default();
+                        let gate = find("day-1's gate (cc767b78").trim_start_matches("day-1's gate (cc767b78, emulated): ").to_string();
+                        let lat = lines.iter().find_map(|x| x.split("detection latency ").nth(1)).unwrap_or("-").to_string();
+                        let into = lines.iter().find_map(|x| x.split("must be 0): ").nth(1)).map(|x| x.split(' ').next().unwrap_or("").to_string()).unwrap_or("-".to_string());
+                        let lost = lines.iter().find_map(|x| x.strip_prefix("releases lost (armed at a golem event, refused at their rise with ALIVE low; a consequence row): ")).unwrap_or("-").to_string();
+                        let gaps = lines
+                            .iter()
+                            .find_map(|x| x.strip_prefix("timed edges (the liveness latency must stay under each least gap): "))
+                            .map(|x| {
+                                x.split("; ")
+                                    .map(|g| {
+                                        let name = g.split(' ').next().unwrap_or("");
+                                        let gap = g.split("into its cell ").nth(1).map(|y| y.split(" (").next().unwrap_or("").to_string()).unwrap_or_else(|| g.to_string());
+                                        format!("{name} {gap}")
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            })
+                            .unwrap_or("-".to_string());
+                        println!("freeze T+{f} for {l}, H T+{h}, every {e}, seed {s}: pockets {pockets} | batch at rest {at_rest} | arrivals into a waiting cart {arr} | gate edges on a cart {edges} | merges {merges} | gate: {gate} | latency {lat} | fired into a frozen cart {into} | releases lost {lost} | least entry-to-timed-edge gap {gaps}");
+                    }
+                }
+                if out.is_none() {
+                    let _ = std::fs::remove_file(&path);
+                }
+                return Ok(());
+            }
+            for e in &everys {
+                for h in &opens {
+                    for s in seed..seed + seeds {
+                        let o = mk(*e, *h, s, (freeze.len() == 2).then(|| (freeze[0], freeze[1])));
+                        let lines = crate::climb::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                        println!("== H open T+{h}, every {e} gt, seed {s}");
+                        for l in lines {
+                            println!("{l}");
+                        }
+                    }
+                }
+            }
+        }
         MobfarmCmd::StandLab { spec, speeds, skew, ai, reverse, gaps, start_x, depart_at, hold_at, release_at, meter, close_at, pockets, stand_open_at, stand_close_at, releases, ticks, out, trace } => {
             let text = crate::standlab::design(&spec)?;
             let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("stand-lab-{}.txt", std::process::id())));
@@ -3648,7 +3901,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let lat = after("detection latency ").map(|x| x.to_string()).unwrap_or("-".to_string());
                         let into = after("must be 0): ").map(|x| num(&x)).unwrap_or("-".to_string());
                         let dropped = after("sequences dropped ").map(|x| num(&x)).unwrap_or("-".to_string());
-                        println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped}");
+                        let lost = after("a consequence row): ").map(|x| x.to_string()).unwrap_or("-".to_string());
+                        println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped} | releases lost {lost}");
                     }
                 }
                 return Ok(());
