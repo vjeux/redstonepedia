@@ -446,8 +446,10 @@ fn daylight_detector_follows_the_day() {
 }
 
 /// (9fc3155f, ironspec Nov 12 04:32) A pillager is modeled only seated: on its own its spawn is
-/// refused; seated in a boat it rides, villagers beyond its crossbow's 8 change nothing, and a
-/// villager it sees inside 8 is a model error (its AI would charge and shoot).
+/// refused; seated in an oak boat it rides at the boat's y + 0.1875 (AbstractBoat's attachment,
+/// its height / 3) - 0.6 (its riding offset), with the namespaced id as a design writes it;
+/// villagers beyond its crossbow's 8 change nothing, and a villager it sees inside 8 is a model
+/// error (its AI would charge and shoot); added unseated it is an error too.
 #[test]
 fn seated_pillager() {
     let mut w = world(1);
@@ -455,18 +457,59 @@ fn seated_pillager() {
     for x in -3..=14 {
         put(&mut w, x, -1, 0, "minecraft:glass");
     }
-    let boat = crate::entity::spawn(&mut w, "minecraft:oak_boat", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b}]}"));
-    assert!(boat.is_ok(), "{boat:?}");
-    let seated = w.entities.list.iter().any(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Pillager) && e.vehicle.is_some());
-    assert!(seated, "the pillager rides its boat");
+    // (the namespaced id straight into the passenger hook, as G1 asked: no raft seat for a boat)
+    let boat = super::spawn_hook(&mut w, "minecraft:oak_boat", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b}]}"));
+    assert!(matches!(boat, Some(Ok(_))), "{boat:?}");
+    let by = w.entities.list.iter().find(|e| matches!(&e.kind, EntityKind::Boat(_))).map(|e| e.pos.y).expect("the boat");
+    let p = w.entities.list.iter().find(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Pillager)).expect("the pillager");
+    assert!(p.vehicle.is_some(), "the pillager rides its boat");
+    assert!((p.pos.y - (by + 0.1875 - 0.6)).abs() < 1e-6, "seat: pillager y {} on a boat at {by} (expected boat y - 0.4125)", p.pos.y);
     add(&mut w, MobType::Villager, Vec3::new(10.5, 0.0, 0.5), true);
     for _ in 0..40 {
         w.tick();
     }
-    assert!(!w.errors.iter().any(|e| e.contains("seated pillager")), "a villager 10 off: {:?}", w.errors);
+    assert!(!w.errors.iter().any(|e| e.contains("pillager")), "a villager 10 off: {:?}", w.errors);
     add(&mut w, MobType::Villager, Vec3::new(5.5, 0.0, 0.5), true);
     for _ in 0..5 {
         w.tick();
     }
     assert!(w.errors.iter().any(|e| e.contains("seated pillager")), "a villager 5 off: {:?}", w.errors);
+    // (an unseated one, added past the spawn's refusal: an error at its first tick)
+    let mut w2 = world(2);
+    put(&mut w2, 0, -1, 0, "minecraft:glass");
+    add(&mut w2, MobType::Pillager, Vec3::new(0.5, 0.0, 0.5), true);
+    w2.tick();
+    assert!(w2.errors.iter().any(|e| e.contains("rides no vehicle")), "unseated: {:?}", w2.errors);
+}
+
+/// (9fc3155f, G1 on ff000679f) An iron golem targets a seated pillager it sees within its 16
+/// (IronGolem's NearestAttackableTargetGoal on `Mob` with `Enemy && !Creeper`: the pillager's
+/// monster row), the farm's scarer posts' golem question.
+#[test]
+fn golem_targets_seated_pillager() {
+    use super::ai::goal::targets::is_enemy;
+    assert!(is_enemy(MobType::Pillager));
+    let mut w = world(3);
+    w.mob.ai.on = true;
+    for x in -3..=14 {
+        for z in -3..=3 {
+            put(&mut w, x, -1, z, "minecraft:stone");
+        }
+    }
+    let boat = crate::entity::spawn(&mut w, "minecraft:oak_boat", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b}]}"));
+    assert!(boat.is_ok(), "{boat:?}");
+    let pid = w.entities.list.iter().find(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Pillager)).map(|e| e.id).expect("the pillager");
+    let g = add(&mut w, MobType::IronGolem, Vec3::new(12.5, 0.0, 0.5), true);
+    let mut targeted = None;
+    for t in 0..200 {
+        w.tick();
+        let gi = crate::entity::index_of(&w, g).expect("the golem");
+        if let EntityKind::Mob(m) = &w.entities.list[gi].kind
+            && m.ai.as_deref().and_then(|a| a.target) == Some(pid)
+        {
+            targeted = Some(t);
+            break;
+        }
+    }
+    assert!(targeted.is_some(), "a golem 12 off never targeted the seated pillager in 200 gt");
 }

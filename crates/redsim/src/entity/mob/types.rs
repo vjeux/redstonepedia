@@ -15,10 +15,11 @@ pub enum MobType {
     Witch,
     /// (9fc3155f, ironspec Nov 12 04:32) A pillager seated in a vehicle (a farm's scarer post):
     /// its dimensions, attributes and seat only. Its AI (Pillager.registerGoals: the crossbow,
-    /// its targets) is not modeled: one standing on its own is refused at its spawn, and a
-    /// villager, an iron golem or a player it sees within its crossbow's 8
-    /// (RangedCrossbowAttackGoal's attack radius) is a model error (it would charge and shoot).
-    /// Villagers sense it as a hostile (VillagerHostilesSensor: 15) and golems as an Enemy.
+    /// its targets) is not modeled: one standing on its own is refused at its spawn and is an error
+    /// whenever it rides nothing, and a villager or an iron golem it sees within its crossbow's 8
+    /// (RangedCrossbowAttackGoal's attack radius) is a model error (it would charge and shoot; no
+    /// player in a run). Villagers sense it as a hostile (VillagerHostilesSensor: 15) and golems
+    /// as an Enemy (its monster row: `is_enemy`).
     Pillager,
     /// A natural mob of the terrain mode (NaturalSpawner's): its row in
     /// [`super::natural::DEFS`] (the terrain track's table), by index.

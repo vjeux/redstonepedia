@@ -521,6 +521,15 @@ fn server_ai_step(w: &mut World, i: usize) {
 /// out only turns its head and its navigation (a boat's passenger: it can't move), both unmodeled
 /// and changing nothing.
 fn pillager_check(w: &mut World, i: usize) {
+    // (G1 on ff000679f: a pillager off its vehicle, added unseated or dismounted from a broken
+    // boat, has no goals: an error whenever it rides nothing)
+    if w.entities.list[i].vehicle.is_none() {
+        let why = format!("gt {}: the pillager #{} rides no vehicle: an unseated pillager's AI is not modeled", w.time, w.entities.list[i].id);
+        if !w.errors.contains(&why) {
+            w.errors.push(why);
+        }
+        return;
+    }
     let (p, eye) = {
         let e = &w.entities.list[i];
         (e.pos, Vec3::new(e.pos.x, e.pos.y + mob(w, i).eye() as f64, e.pos.z))
