@@ -2362,6 +2362,8 @@ pub struct SidingRow {
     pub v_rest_occ: Option<usize>,
     /// Carts holding V 20 gt from the steady state (slot 8; a failure).
     pub v_holds: usize,
+    /// V holds in the start's transient (before the steady state; the full-lane start's only).
+    pub v_holds_start: usize,
     pub drop_stamp_max: i64,
     /// The branch returns' merge-entry stored speed (min, max; -1 none); the nappers' rest z (min,
     /// max; -1 none); --k-row: through-carts slowed, lost, ticks in push range of the waiting napper,
@@ -2453,6 +2455,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
         } else if l.starts_with("the lane's top cell V") {
             r.stacked = req(l, "carts resting on another cart's top (the overflow; the bar: 0): ")? as usize;
             r.v_holds = req(l, "carts holding V 20 gt (V held as a queue slot: slot 8; the bar: 0): ")? as usize;
+            r.v_holds_start = req(l, "V held before the steady state (the start's transient) ")? as usize;
             r.v_rest_occ = l.split(", the first at the lane's occupancy ").nth(1).and_then(|s| s.split(';').next()).and_then(|s| s.trim().parse().ok());
         } else if l.starts_with("the nappers' launches from the rest") {
             r.launch_stuck = req(l, "stuck (still on the rest 40 gt after its release; the bar: 0): ")? as usize + req(l, "launches after the pulse ended (R unpowered at the departure tick; the bar: 0): ")? as usize;

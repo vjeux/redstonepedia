@@ -8451,26 +8451,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let mut fails: std::collections::BTreeMap<String, Vec<String>> = Default::default();
                     let mut worst = 0.0f64;
                     let (mut occ_hi, mut occ8_total) = (0usize, 0usize);
+                    let mut late_runs = 0usize;
                     for (i, row) in res.into_iter().enumerate() {
                         let (r, p) = grid[i];
                         let row = row.map_err(|e| anyhow::anyhow!(e))?;
                         worst = worst.max(row.arrival_max);
                         occ_hi = occ_hi.max(row.occ_max);
                         occ8_total += row.occ8;
+                        late_runs += row.late_naps;
                         let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds;
                         if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                             fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} popped {} stray power {} over 0.46 {} (control {}); through-carts in push range {} lost {}, lane carts in push contact {} on the siding {}, detector false {}, releases at occupancy 8 {}{}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.popped, row.stray_power, row.arrivals_over, ctl.arrivals_over, row.th_push, row.th_lost, row.lane_push, row.lane_on_siding, row.flat_false, row.occ8, if row.stuck { " napper stuck" } else { "" }));
                         }
                     }
-                    print!("{label}");
+                    print!("{label}[late_latch {}, start_steady {}] ", so.late_latch, so.start_steady);
                     println!(
-                        "siding restart matrix (ironspec's L1‴ rows: save, reverse and seed:1..8 at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; the hardest arrival {worst:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (releases at 8: {occ8_total}); control: lost {} over 0.46 {} (max {:.3})",
+                        "siding restart matrix (ironspec's L1‴ rows: save, reverse and seed:1..8 at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; the hardest arrival {worst:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (releases at 8: {occ8_total}); control: lost {} over 0.46 {} (max {:.3}); the variant's own figures: late nappers over the runs {late_runs}, the control's {} and its V holds in the start's transient {}",
                         phase_step.max(1),
                         grid.len(),
                         fails.values().map(|v| v.len()).sum::<usize>(),
                         ctl.empty_releases,
                         ctl.arrivals_over,
-                        ctl.arrival_max
+                        ctl.arrival_max,
+                        ctl.late_naps,
+                        ctl.v_holds_start
                     );
                     for (k, v) in &fails {
                         println!("  {k}: {} failing: {}", v.len(), v.iter().take(4).cloned().collect::<Vec<_>>().join(" | "));
@@ -8517,6 +8521,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let mut zgap_lo = f64::MAX;
                     let (mut stacked_total, mut v_occ_lo) = (0usize, usize::MAX);
                     let mut v_holds_total = 0usize;
+                    let (mut v_start_total, mut late_total) = (0usize, 0usize);
                     let mut by_v: std::collections::BTreeMap<String, (usize, usize, f64, f64)> = Default::default();
                     for (i, res) in res.into_iter().enumerate() {
                         let (r, v, nr, c, kk) = rows[i];
@@ -8585,6 +8590,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         zgap_lo = zgap_lo.min(row.th_zgap);
                         stacked_total += row.stacked;
                         v_holds_total += row.v_holds;
+                        v_start_total += row.v_holds_start;
+                        late_total += row.late_naps;
                         if let Some(vo) = row.v_rest_occ {
                             v_occ_lo = v_occ_lo.min(vo);
                         }
@@ -8596,7 +8603,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             e.3 = e.3.max(row.merge_v_max);
                         }
                     }
-                    print!("{label}");
+                    print!("{label}[late_latch {}, start_steady {}; the variant's own figures: late nappers {late_total}, V held in the start's transient {v_start_total}] ", so.late_latch, so.start_steady);
                     println!(
                         "siding matrix: {} rows, {fails} with a failing count; the hardest arrival by q over all rows: {}; the hardest napper {worst_nap:.3}; the merge-entry speed over all rows {:.3}..{:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (releases at 8, the top cell at rest: {occ8_total}); the least z gap between a through-cart's box and the waiting napper's push box over all rows: {}; carts holding the lane's top cell V 20 gt from the steady state (slot 8; the bar: 0) {v_holds_total}, the lowest occupancy at a hold {} (lowest over the rows), carts resting on another cart's top (the overflow; the bar: 0) {stacked_total} cart-ticks; failing rows by v_in (stored at spawn: merge entry): {}",
                         rows.len(),
