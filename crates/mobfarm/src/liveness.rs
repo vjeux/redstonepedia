@@ -363,28 +363,25 @@ pub fn levels(w: &World, b: [i32; 4]) -> (i32, i32) {
 /// (cc767b78; ironspec's L1‴ rows, farmopt 2026-11-12 00:39: the farm never freezes in normal
 /// operation and a restart loads its chunks before its first tick) How a restart brings a bench's
 /// world back. Every bench wires it as `--restart T,ORDER` (between ticks T - 1 and T) and calls
-/// [`restart`]; the judges drive it at every phase in each of [`Restart::rows`].
+/// [`restart`]; the judges drive it at every phase in each of [`Restart::rows`]. The cold start is not
+/// a restart (G1 2026-11-12 01:05): it is its own row set, the design loaded fresh (blocks as written,
+/// entities as the build guide places them, the controller initial) and started at each phase of the
+/// cycle, which only the bench can build (e.g. dfb89499's `--dep-riders`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Restart {
     /// A save/stop/start between two ticks: every chunk of the part saved and unloaded
     /// (`redsim::reload::unload_all`) and loaded again (`load_all_ordered`) in this entity order
-    /// before the next tick (no game time passes): the scheduled ticks back with their delays, the
-    /// block entities registered again, every entity back as a new object under a new id, its
-    /// stamps and sensor phases reset as redsim's load models them.
+    /// before the next tick (no game time passes): the scheduled block and fluid ticks back with their
+    /// remaining delays, the block entities registered again, every entity back as a new object under
+    /// a new id with its motion, passengers and codec'd memories, its uncodec'd memories lost and its
+    /// sensor timers redrawn, as redsim's bridged load models them. (Block events never cross a tick
+    /// boundary: none is pending between two ticks.)
     Load(redsim::reload::Order),
-    /// The cold start: a save/stop/start in the save order with nothing in flight surviving (the
-    /// pending scheduled ticks and block events dropped): the farm as built, started at this phase.
-    /// The bench starts its own controller (a bench-driven gate's timers and latches) again at its
-    /// initial state.
-    Cold,
 }
 
 impl Restart {
-    /// `save`, `reverse`, `seed:K` (K < 1000) or `cold`.
+    /// `save`, `reverse` or `seed:K` (K < 1000).
     pub fn parse(s: &str) -> Option<Restart> {
-        if s.trim() == "cold" {
-            return Some(Restart::Cold);
-        }
         redsim::reload::Order::parse(s.trim()).map(Restart::Load)
     }
 
@@ -393,25 +390,23 @@ impl Restart {
             Restart::Load(redsim::reload::Order::Save) => "save".into(),
             Restart::Load(redsim::reload::Order::Reverse) => "reverse".into(),
             Restart::Load(redsim::reload::Order::Seed(k)) => format!("seed:{k}"),
-            Restart::Cold => "cold".into(),
         }
     }
 
-    /// The rows a judge runs at every phase: the save order, its reverse, 8 seeded orders
-    /// (ironspec's reload-order rule) and the cold start.
+    /// The rows a judge runs at every phase: the save order, its reverse and 8 seeded orders
+    /// (ironspec's reload-order rule).
     pub fn rows() -> Vec<Restart> {
         let mut v = vec![Restart::Load(redsim::reload::Order::Save), Restart::Load(redsim::reload::Order::Reverse)];
         v.extend((1..=8).map(|k| Restart::Load(redsim::reload::Order::Seed(k))));
-        v.push(Restart::Cold);
         v
     }
 }
 
 /// `--restart T,ORDER` (repeatable in a bench's CLI): the tick and the [`Restart`].
 pub fn parse_restart(s: &str) -> Result<(i64, Restart), String> {
-    let (t, how) = s.split_once(',').ok_or(format!("--restart {s}: T,ORDER (ORDER save, reverse, seed:K or cold)"))?;
+    let (t, how) = s.split_once(',').ok_or(format!("--restart {s}: T,ORDER (ORDER save, reverse or seed:K)"))?;
     let t = t.trim().parse::<i64>().map_err(|e| format!("--restart {s}: {e}"))?;
-    let how = Restart::parse(how).ok_or(format!("--restart {s}: ORDER is save, reverse, seed:K or cold"))?;
+    let how = Restart::parse(how).ok_or(format!("--restart {s}: ORDER is save, reverse or seed:K"))?;
     Ok((t, how))
 }
 
@@ -421,18 +416,8 @@ pub fn parse_restart(s: &str) -> Result<(i64, Restart), String> {
 pub fn restart(w: &mut World, how: Restart) -> Result<std::collections::HashMap<u32, u32>, String> {
     let errors = w.errors.len();
     let before: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
+    let Restart::Load(order) = how;
     redsim::reload::unload_all(w);
-    if how == Restart::Cold {
-        if let Some(a) = w.away.as_mut() {
-            a.ticks.clear();
-            a.fluid_ticks.clear();
-        }
-        w.events = Default::default();
-    }
-    let order = match how {
-        Restart::Load(o) => o,
-        Restart::Cold => redsim::reload::Order::Save,
-    };
     redsim::reload::load_all_ordered(w, order);
     if w.errors.len() > errors {
         return Err(format!("restart {}: {}", how.label(), w.errors[errors..].join("; ")));
@@ -510,9 +495,9 @@ mod tests {
         }
     }
 
-    /// A restart between two ticks: the cart back under a new id that `follow` finds, the rows' orders
-    /// parsed back from their labels; a save/stop/start keeps a pending scheduled tick, the cold start
-    /// drops it.
+    /// A restart between two ticks: the cart back under a new id that `follow` finds (from its first
+    /// id and from any since) through two restarts, a pending scheduled tick kept across both, the
+    /// rows' orders parsed back from their labels.
     #[test]
     fn restart_rows() {
         let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
@@ -525,20 +510,25 @@ mod tests {
         w.schedule_tick(BlockPos::new(2, 0, 2), rep.kind(), 4, redsim::ticks::Priority::Normal);
         let n0 = w.ticks.count();
         assert!(n0 >= 1);
+        let live_cart = |w: &World, id: u32| w.entities.list.iter().any(|e| e.id == id && !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)));
         let ids = restart(&mut w, Restart::Load(redsim::reload::Order::Reverse)).unwrap();
         let now = follow(&w, cart);
         assert_ne!(now, cart);
         assert_eq!(ids.get(&cart), Some(&now));
-        assert!(w.entities.list.iter().any(|e| e.id == now && !e.removed));
+        assert!(live_cart(&w, now));
         assert_eq!(w.ticks.count(), n0, "a save/stop/start keeps the pending tick");
-        restart(&mut w, Restart::Cold).unwrap();
-        assert_eq!(w.ticks.count(), 0, "the cold start drops it");
-        assert_ne!(follow(&w, cart), now, "a second restart renumbers again; the first id follows");
+        restart(&mut w, Restart::Load(redsim::reload::Order::Seed(2))).unwrap();
+        let again = follow(&w, cart);
+        assert_ne!(again, now, "a second restart renumbers again");
+        assert!(live_cart(&w, again), "the first id follows to a live minecart");
+        assert_eq!(follow(&w, now), again, "the id between follows to the same one");
+        assert_eq!(w.ticks.count(), n0);
         let rows = Restart::rows();
-        assert_eq!(rows.len(), 11);
+        assert_eq!(rows.len(), 10);
         for r in rows {
             assert_eq!(Restart::parse(&r.label()), Some(r));
         }
         assert_eq!(parse_restart("120,seed:3"), Ok((120, Restart::Load(redsim::reload::Order::Seed(3)))));
+        assert!(parse_restart("120,cold").is_err());
     }
 }
