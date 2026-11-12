@@ -31,6 +31,93 @@ fn placements(n: usize, mirror: bool) -> Result<Vec<(i32, i32, bool)>, String> {
     }
 }
 
+/// (ironspec Nov 12 10:50, the east re-lay's tiling check) Every copy's cells at the budget's
+/// pitch, with the loader's: any cell two of them claim, any copy's cell inside another copy's
+/// keep-out box (`keep_out`: boxes in the module's frame, carried with each copy), and the chunks
+/// each copy uses (a gap chunk is free when only its own copy's re-lay uses it); the least distance
+/// from each copy's cells outside its own chunk to any other copy's cells.
+pub fn overlap_report(module: &Design, loader: &Design, n: usize, mirror: bool, keep_out: &[([i32; 3], [i32; 3])]) -> Result<(String, bool), String> {
+    let chunk = |v: i32| v.div_euclid(16);
+    let place = |p: [i32; 3], dx: i32, dz: i32, m: bool| [p[0] + dx, p[1], if m { dz - p[2] } else { p[2] + dz }];
+    let mut owner: std::collections::HashMap<[i32; 3], String> = std::collections::HashMap::new();
+    let mut clashes: Vec<String> = Vec::new();
+    let mut chunks: std::collections::BTreeMap<(i32, i32), std::collections::BTreeSet<String>> = std::collections::BTreeMap::new();
+    let copies = placements(n, mirror)?;
+    for (k, (dx, dz, m)) in copies.iter().enumerate() {
+        let name = format!("module {}", k + 1);
+        for p in module.blocks.keys() {
+            let w = place(*p, *dx, *dz, *m);
+            chunks.entry((chunk(w[0]), chunk(w[2]))).or_default().insert(name.clone());
+            if let Some(o) = owner.insert(w, name.clone())
+                && o != name
+            {
+                clashes.push(format!("({},{},{}) {o} and {name}", w[0], w[1], w[2]));
+            }
+        }
+    }
+    for p in loader.blocks.keys() {
+        let w = [p[0] + 17, p[1], p[2] + 17];
+        chunks.entry((chunk(w[0]), chunk(w[2]))).or_default().insert("the loader".to_string());
+        if let Some(o) = owner.insert(w, "the loader".to_string()) {
+            clashes.push(format!("({},{},{}) {o} and the loader", w[0], w[1], w[2]));
+        }
+    }
+    // (each copy's keep-out boxes against every other copy's and the loader's cells)
+    let mut inside: Vec<String> = Vec::new();
+    for (k, (dx, dz, m)) in copies.iter().enumerate() {
+        let name = format!("module {}", k + 1);
+        for (lo, hi) in keep_out {
+            let (a, b) = (place(*lo, *dx, *dz, *m), place(*hi, *dx, *dz, *m));
+            let (l, h) = ([a[0].min(b[0]), a[1].min(b[1]), a[2].min(b[2])], [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])]);
+            for (c, o) in &owner {
+                if *o != name && (0..3).all(|i| c[i] >= l[i] && c[i] <= h[i]) {
+                    inside.push(format!("({},{},{}) of {o} inside {name}'s keep-out {:?}..{:?}", c[0], c[1], c[2], lo, hi));
+                }
+            }
+        }
+    }
+    // (the least distance from a copy's cells outside its home chunk to another copy's cells)
+    let mut least: Vec<String> = Vec::new();
+    for (k, (dx, dz, m)) in copies.iter().enumerate() {
+        let name = format!("module {}", k + 1);
+        let home = (chunk(dx - 6 + 6), chunk(if *m { dz - 9 } else { dz - 6 + 6 }));
+        let out: Vec<[i32; 3]> = module.blocks.keys().map(|p| place(*p, *dx, *dz, *m)).filter(|w| (chunk(w[0]), chunk(w[2])) != home).collect();
+        if out.is_empty() {
+            continue;
+        }
+        let mut best: Option<(f64, [i32; 3], [i32; 3], String)> = None;
+        for w in &out {
+            for (c, o) in &owner {
+                if *o == name {
+                    continue;
+                }
+                let d = (((w[0] - c[0]).pow(2) + (w[1] - c[1]).pow(2) + (w[2] - c[2]).pow(2)) as f64).sqrt();
+                if best.as_ref().is_none_or(|b| d < b.0) {
+                    best = Some((d, *w, *c, o.clone()));
+                }
+            }
+        }
+        if let Some((d, w, c, o)) = best {
+            least.push(format!("{name}: {} cells outside its chunk {:?}; the nearest other cell {d:.1} away ({},{},{} to {o}'s {},{},{})", out.len(), home, w[0], w[1], w[2], c[0], c[1], c[2]));
+        }
+    }
+    let shared: Vec<String> = chunks.iter().filter(|(_, v)| v.len() > 1).map(|((x, z), v)| format!("({x},{z}): {}", v.iter().cloned().collect::<Vec<_>>().join(" + "))).collect();
+    let ok = clashes.is_empty() && inside.is_empty();
+    let s = format!(
+        "the tiling's cells (N = {n}{}): {} cells claimed twice{}; {} cells inside another copy's keep-out{}; chunks used: {}; chunks used by more than one: {}; {}; {}\n",
+        if mirror && n == 4 { ", the southern copies mirrored" } else { "" },
+        clashes.len(),
+        if clashes.is_empty() { String::new() } else { format!(" (FAIL): {}", clashes.iter().take(20).cloned().collect::<Vec<_>>().join("; ")) },
+        inside.len(),
+        if inside.is_empty() { String::new() } else { format!(" (FAIL): {}", inside.iter().take(20).cloned().collect::<Vec<_>>().join("; ")) },
+        chunks.iter().map(|((x, z), v)| format!("({x},{z}) {}", v.iter().cloned().collect::<Vec<_>>().join("+"))).collect::<Vec<_>>().join(", "),
+        if shared.is_empty() { "none".to_string() } else { shared.join("; ") },
+        if least.is_empty() { "every copy inside its own chunk".to_string() } else { least.join("; ") },
+        if ok { "PASS" } else { "FAIL" }
+    );
+    Ok((s, ok))
+}
+
 /// (ironspec's pad-row piglins, Nov 12) The pad portals' random-tick zombified piglins per copy:
 /// 26.3's `NetherPortalBlock.randomTick` spawns one at the bottom of the ticked block's portal column
 /// (inside the bottom row, its portal cooldown set) when `random.nextInt(2000) < difficulty id` and a

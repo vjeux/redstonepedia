@@ -1049,10 +1049,18 @@ pub fn placement_order(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec
 /// lacks or holds differently. Then the census of the file's entities (each passenger counted).
 pub fn assembly_check(composed: &Design, committed: &Design, keep: &[(String, [i32; 3], [i32; 3])]) -> (String, bool) {
     let mut s = String::new();
-    // (ironspec 09:31) the keep-clear boxes: no block of the committed file inside
+    // (ironspec 09:31) the keep-clear boxes: no block of the committed file inside (a name ending
+    // in "+glass": glass or air only, the daylight detector's roof skylight, ironspec 11:13)
     let mut kept_ok = true;
     for (name, lo, hi) in keep {
-        let inside: Vec<String> = committed.blocks.iter().filter(|(p, _)| (0..3).all(|k| p[k] >= lo[k] && p[k] <= hi[k])).map(|(p, b)| format!("({},{},{}) {b}", p[0], p[1], p[2])).collect();
+        let allow_glass = name.ends_with("+glass");
+        let inside: Vec<String> = committed
+            .blocks
+            .iter()
+            .filter(|(p, _)| (0..3).all(|k| p[k] >= lo[k] && p[k] <= hi[k]))
+            .filter(|(_, b)| !(allow_glass && b.trim_start_matches("minecraft:").split('[').next() == Some("glass")))
+            .map(|(p, b)| format!("({},{},{}) {b}", p[0], p[1], p[2]))
+            .collect();
         kept_ok &= inside.is_empty();
         s.push_str(&format!(
             "keep-clear {name} x {}..{} y {}..{} z {}..{}: {}\n",
@@ -1131,6 +1139,243 @@ pub fn assembly_check(composed: &Design, committed: &Design, keep: &[(String, [i
     let ok = kept_ok && leftover.is_empty() && missing.is_empty() && differ.is_empty() && ent_left.is_empty() && ent_missing.is_empty();
     s.push_str(&format!("assembly: {}\n", if ok { "every cell and entity declared by a part (PASS)" } else { "FAIL" }));
     (s, ok)
+}
+
+/// (ironspec 10:20 / 10:24) The 6.05 flee bar, sight-gated with robust hiding, on the composed
+/// design: every rider position every 0.1 along every rail of the composition (the cart's path:
+/// along the rail's axis, a slope at its height, a curve along its chord) and along the two
+/// bubble-column lifts (the shared lift x -5 z 7 and napper A's lift x 6 z 4), the rider's eye at
+/// the cart's position + 1.62, against every zombie seated in a boat (its feet at the boat's y +
+/// 0.1875 - 0.7, its eye 1.74 over them). A position within 6.05 of a zombie (feet to feet, the
+/// flee's own test) is IN SIGHT (a failure) unless a full-collider block (`isCollisionShapeFullBlock`)
+/// sits on the eye-to-eye ray (sampled every 0.025, the two end cells left out): then HIDDEN, listed
+/// with the blocking cell. Beyond 6.05: clear.
+pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64, f64, f64)]) -> (String, bool) {
+    use redsim::entity::Vec3;
+    let zombies: Vec<Vec3> = d
+        .entities
+        .iter()
+        .filter(|e| e.kind.ends_with("boat") && e.nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie\"")))
+        .map(|e| Vec3::new(e.pos[0], e.pos[1] + (0.5625f32 / 3.0f32) as f64 - 0.7, e.pos[2]))
+        .collect();
+    let mut points: Vec<(String, Vec3)> = Vec::new();
+    for (p, s) in &d.blocks {
+        if !s.contains("rail") || s.contains("trail") {
+            continue;
+        }
+        let c = redsim::pos::BlockPos::new(p[0], p[1], p[2]);
+        let curve = ["north_east", "north_west", "south_east", "south_west"].iter().any(|k| s.contains(&format!("shape={k}")));
+        for k in 0..=10 {
+            let t = k as f64 / 10.0;
+            let q = if curve {
+                match crate::fleecheck::rail_segment(c, s) {
+                    Some((a, b)) => Vec3::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t),
+                    None => continue,
+                }
+            } else {
+                crate::fleecheck::along_rail(c, s, t)
+            };
+            points.push((format!("({},{},{})", p[0], p[1], p[2]), q));
+        }
+    }
+    // (the lifts: the cart rising in the bubble column, its centre on the column's axis; and any
+    // further vertical path the caller names: a fall shaft, `extra`: name, x, z, y0, y1)
+    let mut paths: Vec<(String, f64, f64, f64, f64)> = lift_paths(d);
+    paths.extend(extra.iter().cloned());
+    for (name, x, z, y0, y1) in paths {
+        let (lo, hi) = (y0.min(y1), y0.max(y1));
+        let mut y = lo;
+        while y <= hi + 1e-9 {
+            points.push((name.clone(), Vec3::new(x, y, z)));
+            y += 0.1;
+        }
+    }
+    let solid = |c: [i32; 3]| -> Option<String> {
+        let s = d.blocks.get(&c)?;
+        let b = redsim::block::Block::parse(s).ok()?;
+        redsim::behavior::full_cube(&b).then(|| s.clone())
+    };
+    let mut in_sight: Vec<String> = Vec::new();
+    let mut hidden: Vec<String> = Vec::new();
+    let mut waker: Vec<String> = Vec::new();
+    let mut clear = 0usize;
+    for (place, p) in &points {
+        let mut near = false;
+        // (ironspec 11:01, ruling (a)) a declared waker place (the stop part's `waker-places:`):
+        // its in-sight positions are the waker's, printed as their own class, never failures
+        let declared_place = declared.iter().any(|c| *place == format!("({},{},{})", c[0], c[1], c[2]));
+        for z in &zombies {
+            let dist = ((p.x - z.x).powi(2) + (p.y - z.y).powi(2) + (p.z - z.z).powi(2)).sqrt();
+            if dist >= 6.05 {
+                continue;
+            }
+            near = true;
+            let (a, b) = (Vec3::new(p.x, p.y + 1.62, p.z), Vec3::new(z.x, z.y + 1.74, z.z));
+            let cell = |q: Vec3| [q.x.floor() as i32, q.y.floor() as i32, q.z.floor() as i32];
+            let (ca, cb) = (cell(a), cell(b));
+            let len = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt();
+            let n = ((len * 40.0).ceil() as usize).max(1);
+            let mut block: Option<([i32; 3], String)> = None;
+            for i in 0..=n {
+                let t = i as f64 / n as f64;
+                let c = cell(Vec3::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t));
+                if c == ca || c == cb {
+                    continue;
+                }
+                if let Some(s) = solid(c) {
+                    block = Some((c, s));
+                    break;
+                }
+            }
+            let row = format!("{place} at ({:.2},{:.2},{:.2}), the zombie at ({:.2},{:.2},{:.2}) {dist:.2} away", p.x, p.y, p.z, z.x, z.y, z.z);
+            match block {
+                Some((c, s)) => hidden.push(format!("{row}: hidden by ({},{},{}) {s}", c[0], c[1], c[2])),
+                None if declared_place => waker.push(row),
+                None => in_sight.push(row),
+            }
+        }
+        if !near {
+            clear += 1;
+        }
+    }
+    let list = |v: &[String]| v.iter().take(30).cloned().collect::<Vec<_>>().join("; ");
+    let ok = in_sight.is_empty();
+    let s = format!(
+        "the 6.05 flee bar, sight-gated ({} rider positions every 0.1 along every rail and both lifts, {} zombies; the eye at the cart + 1.62, the zombie's at its feet + 1.74; hidden: a full-collider block on the eye-to-eye ray; {} declared waker places): IN SIGHT within 6.05 {}{}; the waker's declared places in sight within 6.05 {}{}; hidden within 6.05 {}{}; clear {}; {}\n",
+        points.len(),
+        zombies.len(),
+        declared.len(),
+        in_sight.len(),
+        if in_sight.is_empty() { String::new() } else { format!(" (FAIL): {}", list(&in_sight)) },
+        waker.len(),
+        if waker.is_empty() { String::new() } else { format!(" (declared, not failures): {}", list(&waker)) },
+        hidden.len(),
+        if hidden.is_empty() { String::new() } else { format!(": {}", list(&hidden)) },
+        clear,
+        if ok { "PASS" } else { "FAIL" }
+    );
+    (s, ok)
+}
+
+/// The two bubble-column lifts' rider paths: the shared lift (x -5, z 7, y 0..23) and napper A's
+/// lift (x 6, z 4, from R's level to y -3; R at y -19 in rev 3, moving with the stop: the `home`
+/// port's y + 18 below that).
+fn lift_paths(d: &Design) -> Vec<(String, f64, f64, f64, f64)> {
+    let dy = d.ports.get("home").map_or(0, |h| h[1] + 18) as f64;
+    vec![("the shared lift".to_string(), -4.5, 7.5, 0.0, 23.0), ("napper A's lift".to_string(), 6.5, 4.5, -19.0 + dy, -3.0)]
+}
+
+/// (ironspec 12:14, G1 on tick-exact's dad9c1a38) Golem detection across the tiling, per axis: a
+/// golem (box 1.4 x 2.7 x 1.4 at its feet) is detected by a villager (0.6 x 1.95 x 0.6) iff the
+/// boxes' gap is under 16 on every axis (the villager's box inflated by 16 overlaps it). The
+/// neighbours' golems: this module's pad spawn cells (feet over its cobblestone at y -7) moved to
+/// each neighbour (east +32 and west -32, the southern copies mirrored in z: z' = 35 - z, at x 0 and
+/// +-32); the riders: every rider position of [`flee_sight`] (every rail every 0.1, the lifts, the
+/// extra vertical paths). Per path class (a rail cell's part of the module, a lift or a path), the
+/// worst pair with its per-axis gaps and the result.
+pub fn golem_tiling(d: &Design, extra: &[(String, f64, f64, f64, f64)]) -> String {
+    use redsim::entity::Vec3;
+    let pad: Vec<Vec3> = d.blocks.iter().filter(|(p, s)| p[1] == -7 && s.trim_start_matches("minecraft:").split('[').next() == Some("cobblestone") && !d.blocks.contains_key(&[p[0], -6, p[2]])).map(|(p, _)| Vec3::new(p[0] as f64 + 0.5, -6.0, p[2] as f64 + 0.5)).collect();
+    // (the rider positions: rails every 0.1, the lifts, the extra paths)
+    let mut riders: Vec<(String, Vec3)> = Vec::new();
+    for (p, s) in &d.blocks {
+        if !s.contains("rail") || s.contains("trail") {
+            continue;
+        }
+        let c = redsim::pos::BlockPos::new(p[0], p[1], p[2]);
+        let curve = ["north_east", "north_west", "south_east", "south_west"].iter().any(|k| s.contains(&format!("shape={k}")));
+        let class = if p[1] <= -14 {
+            "the stop and the napper's way"
+        } else if p[1] >= 16 && p[1] <= 22 && p[2] <= 6 {
+            "the lanes"
+        } else if p[1] >= 23 {
+            "the split row and the sidings"
+        } else {
+            "the station and the merge row"
+        };
+        for k in 0..=10 {
+            let t = k as f64 / 10.0;
+            let q = if curve {
+                match crate::fleecheck::rail_segment(c, s) {
+                    Some((a, b)) => Vec3::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t),
+                    None => continue,
+                }
+            } else {
+                crate::fleecheck::along_rail(c, s, t)
+            };
+            riders.push((class.to_string(), q));
+        }
+    }
+    let mut paths: Vec<(String, f64, f64, f64, f64)> = lift_paths(d);
+    paths.extend(extra.iter().cloned());
+    for (name, x, z, y0, y1) in paths {
+        let (lo, hi) = (y0.min(y1), y0.max(y1));
+        let mut y = lo;
+        while y <= hi + 1e-9 {
+            riders.push((name.clone(), Vec3::new(x, y, z)));
+            y += 0.1;
+        }
+    }
+    // (the gap between two intervals; the per-axis gaps between a golem and a villager)
+    let gap = |a0: f64, a1: f64, b0: f64, b1: f64| (b0 - a1).max(a0 - b1).max(0.0);
+    let gaps = |g: Vec3, v: Vec3| [gap(g.x - 0.7, g.x + 0.7, v.x - 0.3, v.x + 0.3), gap(g.y, g.y + 2.7, v.y, v.y + 1.95), gap(g.z - 0.7, g.z + 0.7, v.z - 0.3, v.z + 0.3)];
+    let neighbours: [(&str, f64, bool); 6] = [("east (+32)", 32.0, false), ("west (-32)", -32.0, false), ("south, mirrored", 0.0, true), ("south-east, mirrored", 32.0, true), ("south-west, mirrored", -32.0, true), ("", 0.0, false)];
+    let mut s = format!("golem detection across the tiling (per axis: detected iff every box gap < 16; {} pad spawn cells moved to each neighbour):\n", pad.len());
+    for (name, dx, m) in neighbours.iter().filter(|n| !n.0.is_empty()) {
+        let golems: Vec<Vec3> = pad.iter().map(|g| Vec3::new(g.x + dx, g.y, if *m { 35.0 - g.z + 1.0 } else { g.z })).collect();
+        let mut classes: BTreeMap<String, (f64, [f64; 3], Vec3, Vec3, usize)> = BTreeMap::new();
+        for (class, v) in &riders {
+            for g in &golems {
+                let gp = gaps(*g, *v);
+                // (the margin: the largest per-axis gap - 16; negative on every axis = detected)
+                let margin = gp.iter().cloned().fold(f64::MIN, f64::max) - 16.0;
+                let e = classes.entry(class.clone()).or_insert((f64::MAX, [0.0; 3], *g, *v, 0));
+                if margin < 0.0 {
+                    e.4 += 1;
+                }
+                if margin < e.0 {
+                    *e = (margin, gp, *g, *v, e.4);
+                }
+            }
+        }
+        s.push_str(&format!("  {name}:"));
+        for (class, (m, gp, g, v, n)) in &classes {
+            s.push_str(&format!(
+                " {class}: {} (gaps x {:.2} y {:.2} z {:.2}, {:+.2}; golem ({:.1},{:.1},{:.1}), rider ({:.2},{:.2},{:.2}){});",
+                if *m < 0.0 { "DETECTED" } else { "clear" },
+                gp[0],
+                gp[1],
+                gp[2],
+                m,
+                g.x,
+                g.y,
+                g.z,
+                v.x,
+                v.y,
+                v.z,
+                if *n > 0 { format!(", {n} detecting pairs") } else { String::new() }
+            ));
+        }
+        s.push('\n');
+    }
+    s
+}
+
+/// The cells of a design file's `waker-places: x,y,z+x,y,z+...=REASON` line (ironspec 11:01: the
+/// stop part's header, copied into the module's in the loop frame).
+pub fn waker_places(text: &str) -> Vec<[i32; 3]> {
+    let mut v = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.split_once("waker-places:").map(|(_, r)| r) else { continue };
+        let cells = rest.split('=').next().unwrap_or("");
+        for c in cells.split('+') {
+            let n: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            if n.len() == 3 {
+                v.push([n[0], n[1], n[2]]);
+            }
+        }
+    }
+    v
 }
 
 pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool, unlit_control: bool) -> Result<(String, bool), String> {

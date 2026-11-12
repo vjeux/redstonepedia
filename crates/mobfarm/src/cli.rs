@@ -1757,10 +1757,15 @@ pub enum MobfarmCmd {
         #[arg(long)]
         verify: Option<PathBuf>,
         /// With --verify: a keep-clear box, NAME=x0,y0,z0,x1,y1,z1 (inclusive), that must hold no
-        /// block in the committed file (ironspec 09:31: the bed stop's column over the bed).
+        /// block in the committed file (ironspec 09:31: the bed stop's column over the bed); a NAME
+        /// ending in "+glass" allows glass (the daylight detector's roof skylight: glass or air).
         /// Repeatable.
         #[arg(long = "keep-clear", allow_hyphen_values = true)]
         keep_clear: Vec<String>,
+        /// With --verify: a further vertical rider path for the sight classes (a fall shaft):
+        /// NAME=x,z,y0,y1 (the cart's centre, every 0.1 in y). Repeatable.
+        #[arg(long = "sight-path", allow_hyphen_values = true)]
+        sight_path: Vec<String>,
     },
     /// A design's overworld box: its extents, volume, the chunk columns it crosses (X >> 4,
     /// Z >> 4 of its cells as written) and its blocks by kind, within `--box` if given.
@@ -1808,12 +1813,18 @@ pub enum MobfarmCmd {
     /// it off the hold for good, against the controller's pulse.
     HoldCheck {
         design: PathBuf,
-        /// A hold, NAME=x,y,z:PULSE (the controller's pulse in gt). Repeatable.
+        /// A hold, NAME=x,y,z:PULSE[@a1,a2,...] (the controller's pulse in gt; the rests along the
+        /// rail's axis). Repeatable.
         #[arg(long = "hold")]
         holds: Vec<String>,
         /// The longest pulse tried (gt).
         #[arg(long, default_value_t = 40)]
         max: i64,
+        /// (ironfarm's convention-free test) Pulse lengths N to try (`6,7,8,9,10`): the rail
+        /// powered exactly N gt then unpowered, each rest's exit speed, the least N at full speed
+        /// (within 1% of N = 30's) from every rest.
+        #[arg(long, value_delimiter = ',')]
+        n_pulse: Vec<i64>,
     },
     TicketCheck {
         #[arg(long)]
@@ -1838,6 +1849,10 @@ pub enum MobfarmCmd {
         /// The twin's lowest portal row in the Nether group (its portal blocks at or above it).
         #[arg(long, default_value_t = 110)]
         twin_y: i32,
+        /// (the tiling's cells) A keep-out box in the module's frame, carried with each copy
+        /// (`x0,y0,z0,x1,y1,z1`, repeatable): another copy's or the loader's cell inside it fails.
+        #[arg(long = "keep-out", allow_hyphen_values = true)]
+        keep_out: Vec<String>,
     },
     /// (onechunk Nov 12; ironspec's deciding test for every rider's bed) The assembled F1 + Q2
     /// module run with REAL brains: every villager's stamp at each calm REST tick with no walk
@@ -1869,14 +1884,37 @@ pub enum MobfarmCmd {
         /// table v6 at s 12: the golem pulse starts a cycle, REL = golem + 4).
         #[arg(long)]
         drive: bool,
-        /// Riders a lane at the start with --lane-carts, the pocket and the hold included (8: R_1
-        /// and 5 slopes; 7: ironspec's steady start, the top slope empty).
-        #[arg(long, default_value_t = 7)]
+        /// Riders a lane at the start with --lane-carts, the pocket and the hold included (8:
+        /// the pocket, the hold, R_1 and all 5 slopes, ironspec's 07:57 steady start: 7 in each
+        /// lane and 3 in the pockets, 24; 7: the top slope empty).
+        #[arg(long, default_value_t = 8)]
         per_lane: usize,
         /// tick-exact's official lane x 3 scene (the night held at 18,000; 7 riders entering lane
         /// x 3; every 100 gt the cart on H out and a rider in at the top; R_1 pulsed 12 gt).
         #[arg(long)]
         official_lane3: bool,
+        /// Phase 3a: a napper seeded each night at the stop's entry, its lane rotating -1 / 3 / 7;
+        /// the stop, the hold's pulse, K and the siding driven (EMULATED, day-1's events).
+        #[arg(long)]
+        napper: bool,
+        /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
+        /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
+        /// Repeatable.
+        #[arg(long = "seat", allow_hyphen_values = true)]
+        seats: Vec<String>,
+        /// (ironfarm 11:19) The napper's per-tick trace over FROM,TO (ticks from the start): its
+        /// cart's position and velocity, its lane's R powered or not, every cart within 1.5.
+        #[arg(long, value_delimiter = ',')]
+        nap_trace: Vec<i64>,
+        /// (ironspec 11:29) A neighbour copy's offset (`32,0,0` the east one): its pad golems
+        /// EMULATED as ours moved by it, setting GOLEM_DETECTED_RECENTLY on riders within their
+        /// 16-block box; and its pad's detection box against the riders' next stand arrivals.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        neighbour_golems: Vec<i32>,
+        /// (ironfarm 11:40) A cart's cells over FROM..TO (`ID,FROM,TO`, ticks from the start), with
+        /// every lane's H..V occupancy at each release in that window and the ticks V held a cart.
+        #[arg(long, value_delimiter = ',')]
+        cart_trace: Vec<i64>,
         /// tick-exact's per-draw log of the official lane run: its per-block tally printed beside
         /// redsim's.
         #[arg(long)]
@@ -6530,7 +6568,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear } => {
+        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
             let mut notes = notes;
             if let Some(nf) = &notes_file {
                 notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
@@ -6698,7 +6736,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let keep: Vec<(String, [i32; 3], [i32; 3])> = keep.iter().map(|r| (r.name.clone(), r.b.0, r.b.1)).collect();
                 let (rep, ok) = crate::column::assembly_check(&d, &committed, &keep);
                 print!("assembly check against {}: {rep}", vf.display());
-                if !ok {
+                // (ironspec 10:24) the 6.05 flee bar's sight classes, on the committed file; the
+                // waker's declared places (its `waker-places:` line, ironspec 11:01) their own class
+                let declared = crate::column::waker_places(&std::fs::read_to_string(vf)?);
+                let extra: Vec<(String, f64, f64, f64, f64)> = sight_path
+                    .iter()
+                    .map(|s| {
+                        let (name, rest) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--sight-path {s}: NAME=x,z,y0,y1"))?;
+                        let v: Vec<f64> = rest.split(',').map(|x| x.trim().parse::<f64>()).collect::<std::result::Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 4, "--sight-path {s}: NAME=x,z,y0,y1");
+                        Ok((name.to_string(), v[0], v[1], v[2], v[3]))
+                    })
+                    .collect::<Result<_>>()?;
+                let (frep, fok) = crate::column::flee_sight(&committed, &declared, &extra);
+                print!("{frep}");
+                // (ironspec 12:14) golem detection across the tiling, per axis (printed; the
+                // route-aware bar is f1q2-run's)
+                print!("{}", crate::column::golem_tiling(&committed, &extra));
+                if !ok || !fok {
                     std::process::exit(1);
                 }
             }
@@ -6718,20 +6773,36 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::HoldCheck { design, holds, max } => {
+        MobfarmCmd::HoldCheck { design, holds, max, n_pulse } => {
             let (_c, spec) = load(version, &design)?;
             let hs: Vec<crate::holdcheck::Hold> = holds.iter().map(|s| crate::holdcheck::Hold::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            if !n_pulse.is_empty() {
+                print!("{}: {}", design.display(), crate::holdcheck::n_pulse_report(&spec, &hs, &n_pulse, max).map_err(|e| anyhow::anyhow!(e))?);
+                return Ok(());
+            }
             let (rep, ok) = crate::holdcheck::report(&spec, &hs, max).map_err(|e| anyhow::anyhow!(e))?;
             print!("{}: {rep}", design.display());
             if !ok {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::TicketCheck { module, loader, tiling, no_mirror, piglins, difficulty, nether_group, twin_y } => {
+        MobfarmCmd::TicketCheck { module, loader, tiling, no_mirror, piglins, difficulty, nether_group, twin_y, keep_out } => {
             let m = mctas::design::Design::parse(&std::fs::read_to_string(&module)?)?;
             let l = mctas::design::Design::parse(&std::fs::read_to_string(&loader)?)?;
             let (rep, mut ok) = crate::ticketcheck::report(&m, &l, tiling, !no_mirror).map_err(|e| anyhow::anyhow!(e))?;
             print!("{}: {rep}", module.display());
+            // (the tiling's cells: clashes between copies and the loader, keep-outs, chunks used)
+            let boxes: Vec<([i32; 3], [i32; 3])> = keep_out
+                .iter()
+                .map(|b| {
+                    let v: Vec<i32> = b.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    anyhow::ensure!(v.len() == 6, "--keep-out {b}: x0,y0,z0,x1,y1,z1");
+                    Ok(([v[0], v[1], v[2]], [v[3], v[4], v[5]]))
+                })
+                .collect::<Result<_>>()?;
+            let (orep, ook) = crate::ticketcheck::overlap_report(&m, &l, tiling, !no_mirror, &boxes).map_err(|e| anyhow::anyhow!(e))?;
+            print!("{orep}");
+            ok &= ook;
             if let Some(g) = nether_group {
                 let gd = mctas::design::Design::parse(&std::fs::read_to_string(&g)?)?;
                 let (nrep, nok) = crate::ticketcheck::nether_report(&gd, twin_y).map_err(|e| anyhow::anyhow!(e))?;
@@ -6745,12 +6816,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
+            // (the seats: NAME=x,y,z:cx,cy,cz+...)
+            let seats: Vec<(String, [i32; 3], Vec<[i32; 3]>)> = seats
+                .iter()
+                .map(|s| {
+                    let (name, rest) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--seat {s}: NAME=x,y,z:cx,cy,cz+..."))?;
+                    let (seat, cands) = rest.split_once(':').ok_or_else(|| anyhow::anyhow!("--seat {s}: NAME=x,y,z:cx,cy,cz+..."))?;
+                    let three = |t: &str| -> Result<[i32; 3]> {
+                        let v: Vec<i32> = t.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "--seat {s}: {t} is not x,y,z");
+                        Ok([v[0], v[1], v[2]])
+                    };
+                    Ok((name.to_string(), three(seat)?, cands.split('+').map(three).collect::<Result<Vec<_>>>()?))
+                })
+                .collect::<Result<_>>()?;
             let restart = crate::liveness::Restart::parse(&restart_order).ok_or_else(|| anyhow::anyhow!("--restart-order {restart_order}: save, reverse or seed:K"))?;
             let restarts: Vec<i64> = if restart_every > 0 { (1..).map(|k| k * restart_every).take_while(|t| *t < ticks).collect() } else { Vec::new() };
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, restarts, restart, control_rider, trace, bed, drive };
+            anyhow::ensure!(nap_trace.is_empty() || nap_trace.len() == 2, "--nap-trace FROM,TO");
+            let nap_trace = (nap_trace.len() == 2).then(|| (nap_trace[0], nap_trace[1]));
+            anyhow::ensure!(neighbour_golems.is_empty() || neighbour_golems.len() == 3, "--neighbour-golems dx,dy,dz");
+            let neighbour = (neighbour_golems.len() == 3).then(|| [neighbour_golems[0], neighbour_golems[1], neighbour_golems[2]]);
+            anyhow::ensure!(cart_trace.is_empty() || cart_trace.len() == 3, "--cart-trace ID,FROM,TO");
+            let cart_trace = (cart_trace.len() == 3).then(|| (cart_trace[0] as u32, cart_trace[1], cart_trace[2]));
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive };
             print!("{}", crate::f1q2run::run(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::CreeperCheck { design, glass, unlit_control } => {
