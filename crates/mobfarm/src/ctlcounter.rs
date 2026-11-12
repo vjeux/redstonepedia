@@ -32,6 +32,9 @@ pub struct CounterOpts {
     /// The launch step (lanes A/B/C leave at REL + 0 / s / 2s): a pick's napper reaches the bed stop its
     /// lane's offset later (s 12, adopted Nov 12 06:05).
     pub launch_step: i64,
+    /// The gt from a DAY change at the detector to the queue's hatch following it (the NOT-DAY gate's
+    /// comparator 2 + the DAY line's delay to the queue, b8949c96's route).
+    pub hatch_lag: i64,
     /// A release held while the FF is busy is stepped after it (false: absorbed).
     pub pend: bool,
     /// The window: C in [open, close).
@@ -77,6 +80,7 @@ impl Default for CounterOpts {
             variant: Variant::Ff,
             ff_period: 18,
             launch_step: 12,
+            hatch_lag: 2,
             pend: true,
             window: (141, 221),
             gate: (136, 15),
@@ -147,12 +151,18 @@ pub struct RunOut {
     pub day_off: Vec<i64>,
     /// The absolute day time at the run's end (for the complete nights).
     pub end_day: i64,
-    /// The latest bed-stop arrival the queue's hatch opens for (not inhibited, and DAY low when it
-    /// arrives: the NOT-DAY gate), as a night day time: 12,000..23,999, or 24,000 + t past midnight
-    /// (ironspec Nov 12 06:50: bar <= 23,900, a dawn wake with the hatch open seats the napper in the
-    /// stop's zombie boat). Arrivals with DAY high wait at the shut hatch until dusk (held nappers) and
-    /// are not counted. i64::MIN: none.
+    /// The latest bed-stop arrival the queue's hatch opens for (not inhibited, and the DAY the hatch sees
+    /// low when it arrives: the NOT-DAY gate), as a night day time: 12,000..23,999, or 24,000 + t past the
+    /// wrap (ironspec Nov 12 06:50: bar <= 23,900, a dawn wake with the hatch open seats the napper in the
+    /// stop's zombie boat). Its day time is the clock's at the arrival (a skip in transit included).
+    /// Arrivals with DAY high wait at the shut hatch (held nappers) and are not counted. i64::MIN: none.
     pub latest_arrival: i64,
+    /// Hatch-open arrivals at a day time before 12,000: the post-skip stale window (DAY still low until
+    /// the detector's first update after the skip and the gate's lag).
+    pub stale_opens: u32,
+    /// Per skip: the gt from the skip to the first detector update reading DAY high (58f770cc's
+    /// `--day-on`, before the DAY_LV comparator, the DAY out repeater and any line).
+    pub skip_lags: Vec<i64>,
 }
 
 /// One run: `days` days from day time `d0` at game time 0, releases at game times = `phase` mod 100,
@@ -171,7 +181,11 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
     let mut day_hi = false; // level >= the inhibit's L, as last updated
     let mut day_changed_t = -1_000i64;
     let mut diverts: Vec<(i64, i64)> = Vec::new(); // pending divert decisions (game time, the lane's launch offset)
-    let mut arrivals: Vec<(i64, i64)> = Vec::new(); // pending bed-stop arrivals (game time, absolute day time)
+    let mut arrivals: Vec<i64> = Vec::new(); // pending bed-stop arrivals (game times)
+    let mut skip_pending: Option<i64> = None; // a skip whose DAY rise is not yet seen
+    // (DAY's level changes as (update tick, level): the hatch sees an update at tick u from u + 1 (the
+    // detector updates in the block-entity phase, after entities move) plus the gate's lag)
+    let mut day_hist: Vec<(i64, bool)> = vec![(i64::MIN / 2, false)];
     let mut check_at: Option<i64> = None; // the count check at the end of the FF's busy span
     let mut armed_until = -1i64;
     let mut arm_latch = false;
@@ -219,6 +233,7 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 out.cut_nights.insert(day.div_euclid(24_000) - 1);
             }
             last_skip_t = t;
+            skip_pending = Some(t);
             day = (day.div_euclid(24_000) + 1) * 24_000 + 1;
             // (vanilla resets the weather on waking only if isRaining(): the rain level > 0.2)
             if rain_lv > 0.2 {
@@ -242,9 +257,14 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             }
             if let Some(l) = o.day_inhibit {
                 let hi_now = level_int >= l;
+                // (58f770cc: the gt from a skip to the first detector update reading DAY high)
+                if hi_now && let Some(ts) = skip_pending.take() {
+                    out.skip_lags.push(t - ts);
+                }
                 if hi_now != day_hi {
                     day_hi = hi_now;
                     day_changed_t = t;
+                    day_hist.push((t, hi_now));
                     if !hi_now {
                         out.day_off.push(dm);
                     }
@@ -361,21 +381,27 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             if !inhibited && dm_a >= o.bed_clear - o.early_tol && dm_a < o.night_end {
                 *out.night_picks.entry(arrive_abs.div_euclid(24_000)).or_default() += 1;
             }
-            // (the bed-stop arrival, its lane's launch offset added, judged when it happens: the hatch
-            // opens for it only while DAY is low)
+            // (the bed-stop arrival, its lane's launch offset added: judged at its own tick, below)
             if !inhibited {
-                arrivals.push((t + (o.to_bed - o.to_divert) + lane_off, arrive_abs + lane_off));
+                arrivals.push(t + (o.to_bed - o.to_divert) + lane_off);
             }
         }
-        // the arrivals due now: with DAY low (or no inhibit) the queue's hatch opens for the napper, so
-        // its day time counts against the dawn bar (a night day time; past midnight as 24,000 + t); with
-        // DAY high it waits at the shut hatch until dusk (a held napper)
-        while let Some(i) = arrivals.iter().position(|a| a.0 == t) {
-            let (_, abs) = arrivals.remove(i);
-            if o.day_inhibit.is_none() || !day_hi {
-                let dm_l = abs.rem_euclid(24_000);
-                let night_dt = if dm_l >= 12_000 { dm_l } else { dm_l + 24_000 };
+        // the arrivals due now: the hatch opens for the napper if the DAY it sees is low (or there is no
+        // inhibit): the level as of an update at least `hatch_lag` + 1 gt ago (the gate's comparator and
+        // its line; an update in this tick lands after entities move). Its day time is the running clock's
+        // now, a skip since the decision included (G1 on 5a1f0cd74): a night day time, past the wrap as
+        // 24,000 + t. A hatch-open arrival before 12,000 is one in the post-skip stale window (DAY still
+        // low before the detector's first update after the skip, or before the gate passes it).
+        while let Some(i) = arrivals.iter().position(|&a| a == t) {
+            arrivals.remove(i);
+            let seen_hi = day_hist.iter().rev().find(|(u, _)| *u + 1 + o.hatch_lag <= t).is_some_and(|(_, hi)| *hi);
+            if o.day_inhibit.is_none() || !seen_hi {
+                let dm_now = day.rem_euclid(24_000);
+                let night_dt = if dm_now >= 12_000 { dm_now } else { dm_now + 24_000 };
                 out.latest_arrival = out.latest_arrival.max(night_dt);
+                if dm_now < 12_000 {
+                    out.stale_opens += 1;
+                }
             }
         }
         // the release
@@ -501,6 +527,10 @@ pub struct ScenOut {
     pub day_off_margin: i64,
     /// The latest bed-stop arrival over the runs (RunOut::latest_arrival; i64::MIN: none).
     pub latest_arrival: i64,
+    /// Hatch-open arrivals in the post-skip stale window, over the runs.
+    pub stale_opens: u32,
+    /// The skip -> DAY-high lags over the runs: (min, max); (i64::MAX, i64::MIN) when no skip.
+    pub skip_lag: (i64, i64),
 }
 
 /// A scenario over release phases (every `phase_step`), the given detector phases and every units
@@ -510,13 +540,17 @@ pub fn scenario(o: &CounterOpts, evs: &[(i64, Ev)]) -> ScenOut {
 }
 
 pub fn scenario_with(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_phases: &[i64]) -> ScenOut {
-    let mut s = ScenOut { open_min: i64::MAX, open_max: i64::MIN, hi: (0, i64::MAX), lo: (0, i64::MAX), rej: (0, i64::MAX), min_spacing: i64::MAX, edge_gap: i64::MAX, min_night: u32::MAX, day_off_margin: i64::MAX, latest_arrival: i64::MIN, ..Default::default() };
+    let mut s = ScenOut { open_min: i64::MAX, open_max: i64::MIN, hi: (0, i64::MAX), lo: (0, i64::MAX), rej: (0, i64::MAX), min_spacing: i64::MAX, edge_gap: i64::MAX, min_night: u32::MAX, day_off_margin: i64::MAX, latest_arrival: i64::MIN, skip_lag: (i64::MAX, i64::MIN), ..Default::default() };
     for phase in (0..100).step_by(phase_step) {
         for &det_phase in det_phases {
             for c0 in 100i64..110 {
                 s.runs += 1;
                 let r = run(o, 3, 20_000, phase, det_phase, c0, evs);
                 s.latest_arrival = s.latest_arrival.max(r.latest_arrival);
+                s.stale_opens += r.stale_opens;
+                for &lag in &r.skip_lags {
+                    s.skip_lag = (s.skip_lag.0.min(lag), s.skip_lag.1.max(lag));
+                }
                 s.edge_gap = s.edge_gap.min(r.inhibit_edge_gap);
                 s.false_arms += r.false_arms;
                 s.arm_accepts += r.arm_accepts;
@@ -887,12 +921,18 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
         let mut false_total = 0u32;
         let mut worst_coupling = i64::MAX;
         let mut daylight_held = 0u32;
-        // (ironspec 06:50: the latest bed-stop arrival over every scenario, bar <= 23,900)
+        // (ironspec 06:50: the latest bed-stop arrival over every scenario, bar <= 23,900; G1 on
+        // 5a1f0cd74: the hatch-open arrivals in the post-skip stale window)
         let mut worst_arrival = i64::MIN;
+        let mut stale_total = 0u32;
+        let mut lag_all = (i64::MAX, i64::MIN);
         let arr = |x: i64| if x == i64::MIN { "-".to_string() } else { x.to_string() };
+        let lag = |l: (i64, i64)| if l.1 == i64::MIN { "-".to_string() } else { format!("{}..{}", l.0, l.1) };
         for (label, evs) in &scen {
             let s = scenario(o, evs);
             worst_arrival = worst_arrival.max(s.latest_arrival);
+            stale_total += s.stale_opens;
+            lag_all = (lag_all.0.min(s.skip_lag.0), lag_all.1.max(s.skip_lag.1));
             let m = |x: i64| if x == i64::MAX { "-".to_string() } else { x.to_string() };
             let (night, early) = if s.open_min == i64::MAX {
                 (f64::NAN, i64::MAX)
@@ -911,14 +951,14 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
             worst_spacing = worst_spacing.min(s.min_spacing);
             bad_counts += s.cerr_bad;
             lines.push(format!(
-                "  {label}: the window opens at day {}..{} (night margin at the worst trip {:.1}%; the first napper {} gt {} the bar); naps a night (complete nights no skip cut) least {} of 24; picks whose napper reaches the bed before the stop takes it {} (of {} runs); trigger 2 accepted high {} (least {} gt inside), accepted low {} (least {} gt inside), rejected {} (least {} gt outside); FF longest {} gt ({} steps, {} held), overflows {}, absorbed {}; ring pulses at least {} gt apart; count errors {} of {}; arm accepts {} (false {}), latch sets {} (false {}); DAY off {} gt before the window opens; the latest bed-stop arrival {}",
+                "  {label}: the window opens at day {}..{} (night margin at the worst trip {:.1}%; the first napper {} gt {} the bar); naps a night (complete nights no skip cut) least {} of 24; picks whose napper reaches the bed before the stop takes it {} (of {} runs); trigger 2 accepted high {} (least {} gt inside), accepted low {} (least {} gt inside), rejected {} (least {} gt outside); FF longest {} gt ({} steps, {} held), overflows {}, absorbed {}; ring pulses at least {} gt apart; count errors {} of {}; arm accepts {} (false {}), latch sets {} (false {}); DAY off {} gt before the window opens; the latest bed-stop arrival {} (hatch-open arrivals after a skip, in its stale window: {}); a skip to DAY high at the detector {} gt",
                 m(s.open_min), if s.open_max == i64::MIN { "-".to_string() } else { s.open_max.to_string() },
                 night, early.abs(), if early >= 0 { "inside" } else { "BEFORE" },
                 if s.min_night == u32::MAX { "-".to_string() } else { s.min_night.to_string() },
                 s.daylight, s.runs,
                 s.hi.0, m(s.hi.1), s.lo.0, m(s.lo.1), s.rej.0, m(s.rej.1),
                 s.ff_max, s.ff_steps_max, s.held_max, s.ovf, s.absorbed, m(s.min_spacing), s.cerr_bad, s.cerr_n,
-                s.arm_accepts, s.false_arms, s.latch_sets, s.false_latches, m(s.day_off_margin), arr(s.latest_arrival)
+                s.arm_accepts, s.false_arms, s.latch_sets, s.false_latches, m(s.day_off_margin), arr(s.latest_arrival), s.stale_opens, lag(s.skip_lag)
             ));
             daylight_total += s.daylight;
             night_inh_total += s.night_inh;
@@ -939,6 +979,8 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
                 let mut gate_min = i64::MAX;
                 let mut fa = 0u32;
                 let mut arr_max = i64::MIN;
+                let mut stale = 0u32;
+                let mut lag_w = (i64::MAX, i64::MIN);
                 for skip_day in (12_500..=20_500).step_by(250) {
                     // the weather from day 11,500 until the skip (a skip clears it)
                     let mut evs = Vec::new();
@@ -948,6 +990,8 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
                     evs.push((4_000 + skip_day, Ev::Skip));
                     let s = scenario_with(o, &evs, 5, &[0, 13]);
                     arr_max = arr_max.max(s.latest_arrival);
+                    stale += s.stale_opens;
+                    lag_w = (lag_w.0.min(s.skip_lag.0), lag_w.1.max(s.skip_lag.1));
                     dl += s.daylight;
                     ni += s.night_inh;
                     eg = eg.min(s.edge_gap);
@@ -964,12 +1008,14 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
                 false_total += fa;
                 worst_gate = worst_gate.min(gate_min);
                 worst_arrival = worst_arrival.max(arr_max);
+                stale_total += stale;
+                lag_all = (lag_all.0.min(lag_w.0), lag_all.1.max(lag_w.1));
                 let night = (o.night_end - (omax + o.last_nap)) as f64 / o.night_len as f64 * 100.0;
                 worst_night = worst_night.min(night);
                 lines.push(format!(
-                    "  a skip at every 250 gt of the window (12,500..20,500), {wname} from day 11,500 until the skip ({runs} runs: 20 release phases x 2 detector phases x 10 units phases x 33 skip times): picks reaching the bed early {dl} ({:.1}%; each held at the queue's NOT-DAY gate until dusk, ironspec 02:28: +10..21 golems a held napper); night picks inhibited {ni}; the least gap from a divert to the inhibit's last change {} (a divert in the skip's own update: the held case); the window opens at day {}..{} (night margin {:.1}%); gate margins least {} gt; false arms + latches {fa}; the latest bed-stop arrival {}",
+                    "  a skip at every 250 gt of the window (12,500..20,500), {wname} from day 11,500 until the skip ({runs} runs: 20 release phases x 2 detector phases x 10 units phases x 33 skip times): picks reaching the bed early {dl} ({:.1}%; each held at the queue's NOT-DAY gate until dusk, ironspec 02:28: +10..21 golems a held napper); night picks inhibited {ni}; the least gap from a divert to the inhibit's last change {} (a divert in the skip's own update: the held case); the window opens at day {}..{} (night margin {:.1}%); gate margins least {} gt; false arms + latches {fa}; the latest bed-stop arrival {} (hatch-open arrivals in a skip's stale window: {stale}); a skip to DAY high at the detector {} gt",
                     dl as f64 / runs.max(1) as f64 * 100.0,
-                    if eg == i64::MAX { "-".to_string() } else { eg.to_string() }, omin, omax, night, gate_min, arr(arr_max)
+                    if eg == i64::MAX { "-".to_string() } else { eg.to_string() }, omin, omax, night, gate_min, arr(arr_max), lag(lag_w)
                 ));
             }
             // a daytime thunderstorm skip (a day skip happens only in thunder): with no arm the gate
@@ -977,9 +1023,11 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
             let evs = vec![(4_000 + 3_000, wx(true, true)), (4_000 + 6_000, Ev::Skip)];
             let s = scenario_with(o, &evs, 5, &[0, 13]);
             worst_arrival = worst_arrival.max(s.latest_arrival);
+            stale_total += s.stale_opens;
+            lag_all = (lag_all.0.min(s.skip_lag.0), lag_all.1.max(s.skip_lag.1));
             lines.push(format!(
-                "  a daytime thunderstorm skip (6,000; the storm from 3,000): picks reaching the bed early {}; night picks inhibited {}; the window opens at day {}..{}; arm accepts {} (false {}), latch sets {} (false {}); the latest bed-stop arrival {}",
-                s.daylight, s.night_inh, s.open_min, s.open_max, s.arm_accepts, s.false_arms, s.latch_sets, s.false_latches, arr(s.latest_arrival)
+                "  a daytime thunderstorm skip (6,000; the storm from 3,000): picks reaching the bed early {}; night picks inhibited {}; the window opens at day {}..{}; arm accepts {} (false {}), latch sets {} (false {}); the latest bed-stop arrival {} (stale-window opens {}); a skip to DAY high at the detector {} gt",
+                s.daylight, s.night_inh, s.open_min, s.open_max, s.arm_accepts, s.false_arms, s.latch_sets, s.false_latches, arr(s.latest_arrival), s.stale_opens, lag(s.skip_lag)
             ));
             daylight_total += s.daylight;
         }
@@ -1010,10 +1058,18 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
             if false_total == 0 { "pass" } else { "FAIL" }
         ));
         lines.push(format!(
-            "  => the latest bed-stop arrival the hatch opens for (DAY low at the arrival) over every scenario above (normal days, the scripted skips and weather, a skip at every 250 gt of the window in clear / rain / a thunderstorm, the daytime storm skip; the napper's lane offset 0 / {} / {} added; arrivals with DAY high wait at the shut hatch until dusk: the held nappers) {} (bar <= 23,900, ironspec 06:50: {})",
+            "  => the latest bed-stop arrival the hatch opens for (the DAY the hatch sees low: an update >= {} + 1 gt before; the day time the clock's at the arrival, a skip in transit included) over every scenario above (normal days, the scripted skips and weather, a skip at every 250 gt of the window in clear / rain / a thunderstorm, the daytime storm skip; the napper's lane offset 0 / {} / {} added; arrivals with DAY high wait at the shut hatch: the held nappers) {} (bar <= 23,900, ironspec 06:50: {}); hatch-open arrivals in a skip's stale window {} ({})",
+            o.hatch_lag,
             o.launch_step, 2 * o.launch_step,
             arr(worst_arrival),
-            if worst_arrival <= 23_900 { "pass" } else { "FAIL" }
+            if worst_arrival <= 23_900 { "pass" } else { "FAIL" },
+            stale_total,
+            if stale_total == 0 { "none" } else { "each a napper through the hatch after the skip, before DAY reached the gate" }
+        ));
+        lines.push(format!(
+            "  => after a skip, DAY high at the detector {} gt later (every skip of every scenario and sweep above; the detector updates every {} gt, the weather's levels ramping down 0.01/gt after a rain or storm skip); at the box's DAY out (-5,14,6) add the DAY_LV comparator and the output repeater (4 gt), at the queue's hatch the line to it",
+            lag(lag_all),
+            o.det_period
         ));
     }
     lines

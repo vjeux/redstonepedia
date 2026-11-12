@@ -187,6 +187,10 @@ pub enum MobfarmCmd {
         weather_sweep: bool,
         #[arg(long, default_value_t = 100)]
         sweep_step: i64,
+        /// The gt from a DAY change at the detector to the queue's hatch following it: the NOT-DAY gate's
+        /// comparator (2) plus the DAY line's delay to the queue.
+        #[arg(long, default_value_t = 2)]
+        hatch_lag: i64,
     },
     /// The daylight detector's exact curve (redsim's updateSignalStrength) per weather, and the
     /// largest one-update drop from weather ramps (`ctlcounter.rs::daylight_table`).
@@ -8382,7 +8386,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step } => {
+        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag } => {
             let o = crate::ctlcounter::CounterOpts {
                 ff_period,
                 pend: !no_pend,
@@ -8396,6 +8400,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 day_inhibit: (day_inhibit > 0).then_some(day_inhibit),
                 drop_min,
                 arm,
+                hatch_lag,
                 ..Default::default()
             };
             let lines = if weather_sweep { crate::ctlcounter::weather_sweep(&o, sweep_step) } else { crate::ctlcounter::bench(&o) };
