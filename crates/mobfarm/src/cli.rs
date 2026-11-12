@@ -2002,6 +2002,226 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "-2,-5,20", allow_hyphen_values = true)]
         wired: String,
     },
+    /// The rider-height string bench (ironfarm; ironspec 2026-11-11 21:27): a generic pocket cell
+    /// with a tripwire string in the cell above its rest slope; one cart launched down a descent comes
+    /// to rest at the pocket's gate under the string (the gate opens `--hold` gt after it stops) or
+    /// passes it (`--pass`); prints the hook's powered ticks against the rider's box over the cell.
+    StringBench {
+        #[arg(long, default_value_t = 3)]
+        descent: i32,
+        #[arg(long, default_value_t = 0.0)]
+        v0: f64,
+        #[arg(long)]
+        pass: bool,
+        #[arg(long, default_value_t = 40)]
+        hold: i64,
+        #[arg(long, default_value_t = 200)]
+        ticks: i64,
+        /// An empty cart (default ridden).
+        #[arg(long)]
+        empty: bool,
+    },
+    /// The shared-release lanes bench (ironfarm, Q2): parallel pressed lanes, one release line
+    /// opening every front gate together; per opening and lane the carts through (exactly 1), gate
+    /// shuts onto a cart, the batch's spread across lanes, arrivals at the backs, the pressed spacing.
+    LanesBench {
+        #[arg(long, default_value_t = 3)]
+        lanes: usize,
+        #[arg(long, default_value_t = 2)]
+        spacing: i32,
+        #[arg(long, default_value_t = 8)]
+        run: i32,
+        #[arg(long, default_value_t = 7)]
+        per_lane: usize,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 12)]
+        width: i64,
+        #[arg(long, default_value_t = 20)]
+        cycles: i64,
+        #[arg(long, default_value_t = 150)]
+        ret: i64,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        corner: i64,
+        #[arg(long, default_value_t = 0)]
+        ring_q: i64,
+        /// Emulated freezes T,D (repeatable).
+        #[arg(long)]
+        freeze: Vec<String>,
+        /// Real level-32 freezes T,D (repeatable).
+        #[arg(long)]
+        freeze32: Vec<String>,
+        #[arg(long)]
+        empty: bool,
+    },
+    /// The per-lane escapement into the drop cell (ironfarm; explore/ironfarm's `drop-bench`): pressed
+    /// lanes into an off-rail drop cell (a bottom-half trapdoor one block below the rail end, glass on
+    /// three sides, a rider string above). With `--r-pulse` the switched-R lane (brake and rider,
+    /// ironspec 22:32): R, a switched powered slope as the lane's last rail; cart 2 braked on R against
+    /// cart 1's rider in D; one trapdoor line drops, then one R line restages. Without it the G0/G_P
+    /// escapement (superseded: G0 splitting the pressed lane has a 13..14-gt band); `--pockets` the
+    /// bucket brigade (the priced fallback).
+    EscapeBench {
+        #[arg(long, default_value_t = 3)]
+        lanes: usize,
+        #[arg(long, default_value_t = 4)]
+        spacing: i32,
+        #[arg(long, default_value_t = 10)]
+        run: i32,
+        #[arg(long, default_value_t = 8)]
+        per_lane: usize,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 20)]
+        cycles: i64,
+        #[arg(long, default_value_t = 80)]
+        ret: i64,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        corner: i64,
+        #[arg(long, default_value_t = 13)]
+        w0: i64,
+        #[arg(long, default_value_t = 12)]
+        wp: i64,
+        #[arg(long, default_value_t = 12)]
+        drop_w: i64,
+        #[arg(long, default_value_t = 0)]
+        entry: i32,
+        #[arg(long, default_value_t = 20)]
+        hold_n: i64,
+        #[arg(long)]
+        front_boost: bool,
+        /// The bucket-brigade lane: this many pockets (0: the pressed lane).
+        #[arg(long, default_value_t = 0)]
+        pockets: usize,
+        /// The brigade's strings: cells above each pocket's rail block.
+        #[arg(long, default_value_t = 2)]
+        string_dy: i32,
+        /// The switched-R lane: the R line's pulse in gt (0: the G0/G_P lane).
+        #[arg(long, default_value_t = 0)]
+        r_pulse: i64,
+        /// The switched-R lane: retry the R line this long after a pulse if a D hasn't settled.
+        #[arg(long, default_value_t = 40)]
+        retry: i64,
+        /// Logins T,D: the entities frozen for D gt while the redstone runs (repeatable).
+        #[arg(long)]
+        login: Vec<String>,
+        /// The login matrix: a login of 1..=3 gt at every phase of a cycle (one run per phase and
+        /// length), printing the rows that fail.
+        #[arg(long)]
+        login_matrix: bool,
+        /// The switched-R lane: the flat intake and the split's flat branch above the run.
+        #[arg(long)]
+        intake_flat: bool,
+        /// The returns' speed on the split's flat branch (with --intake-flat).
+        #[arg(long, default_value_t = 0.2)]
+        v_in: f64,
+        #[arg(long)]
+        r_boost: bool,
+        #[arg(long)]
+        floor_bottom: bool,
+        #[arg(long)]
+        empty: bool,
+        /// (cc767b78) Real level-32 freezes T,D (repeatable): entities frozen, redstone and the
+        /// controller running.
+        #[arg(long)]
+        freeze32: Vec<String>,
+    },
+    /// (cc767b78; farmopt 2026-11-11 22:03, the L1 rule) The freeze-matrix judge of the lanes
+    /// bench: the L1 load window (block events up to 3 gt ahead of the entities, at most 1 scheduled
+    /// tick while they are frozen) as a real level-32 freeze of D gt (`--ds`, 1..4) at every 1-gt
+    /// start `--starts A,B` gt from opening `--k`, at every `--corners`, in each `--modes` (gt:W
+    /// game-tick widths, ringQ:W ring-edge widths); the bars: exactly 1 cart per lane per opening,
+    /// 0 gate shuts onto a cart; the failing starts per corner and D.
+    LanesJudge {
+        #[arg(long, default_value_t = 3)]
+        lanes: usize,
+        #[arg(long, default_value_t = 2)]
+        spacing: i32,
+        #[arg(long, default_value_t = 8)]
+        run: i32,
+        #[arg(long, default_value_t = 7)]
+        per_lane: usize,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 8)]
+        cycles: i64,
+        #[arg(long, default_value_t = 150)]
+        ret: i64,
+        #[arg(long, value_delimiter = ',', default_value = "gt:14,ring34:14")]
+        modes: Vec<String>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-10,89")]
+        starts: Vec<i64>,
+        #[arg(long, default_value_t = 3)]
+        k: i64,
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        ds: Vec<i64>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-2,-1,0,1,2")]
+        corners: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+        #[arg(long)]
+        empty: bool,
+    },
+    /// (cc767b78, the L1 rule; explore/farmopt-cc-judge's `drop-judge`) The freeze-matrix judge of
+    /// the escape bench: the L1 load window as a real level-32 freeze of D gt (`--ds`) at every 1-gt
+    /// start `--starts A,B` gt from release `--k`, at every `--corners`; a run fails when worse than
+    /// its corner's unfrozen control on its exactly-1 counts, cells not settled, shuts onto a cart.
+    EscapeJudge {
+        #[arg(long, default_value_t = 3)]
+        lanes: usize,
+        #[arg(long, default_value_t = 4)]
+        spacing: i32,
+        #[arg(long, default_value_t = 10)]
+        run: i32,
+        #[arg(long, default_value_t = 8)]
+        per_lane: usize,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 8)]
+        cycles: i64,
+        #[arg(long, default_value_t = 80)]
+        ret: i64,
+        #[arg(long, default_value_t = 13)]
+        w0: i64,
+        #[arg(long, default_value_t = 12)]
+        wp: i64,
+        #[arg(long, default_value_t = 12)]
+        drop_w: i64,
+        #[arg(long, default_value_t = 0)]
+        entry: i32,
+        #[arg(long, default_value_t = 20)]
+        hold_n: i64,
+        #[arg(long)]
+        front_boost: bool,
+        #[arg(long)]
+        r_boost: bool,
+        #[arg(long)]
+        floor_bottom: bool,
+        #[arg(long)]
+        empty: bool,
+        /// (ironfarm) The switched-R lane (brake and rider): the R line's pulse (0: the G0/G_P lane).
+        #[arg(long, default_value_t = 0)]
+        r_pulse: i64,
+        /// (ironfarm) The switched-R lane: the R-line retry after a pulse.
+        #[arg(long, default_value_t = 40)]
+        retry: i64,
+        /// (ironfarm) The switched-R lane: the flat intake and the split's flat branch.
+        #[arg(long)]
+        intake_flat: bool,
+        /// (ironfarm) The returns' speed on the split's branch (with --intake-flat).
+        #[arg(long, default_value_t = 0.2)]
+        v_in: f64,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-10,89")]
+        starts: Vec<i64>,
+        #[arg(long, default_value_t = 3)]
+        k: i64,
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        ds: Vec<i64>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-2,-1,0,1,2")]
+        corners: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+    },
     /// Two release traces (queue-loop-run with MCTAS_RELEASE_TRACE=path) compared tick by tick,
     /// the bench-against-wired check: the release group's 3 rails' power and every cart on the
     /// release run, the first difference of each, their counts and the largest position gap.
@@ -5643,6 +5863,101 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !ok {
                 anyhow::bail!("frame-check failed");
             }
+        }
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, r_boost, floor_bottom, empty, freeze32 } => {
+            let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
+                let mut it = s.split(',');
+                let a = it.next().unwrap_or("").trim().parse::<i64>()?;
+                let d = it.next().unwrap_or("").trim().parse::<i64>()?;
+                Ok((a, d))
+            };
+            let login: Vec<(i64, i64)> = login.iter().map(pair).collect::<anyhow::Result<_>>()?;
+            let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32 };
+            if login_matrix {
+                // (a login of 1..=3 gt landing at every phase of the third cycle)
+                let base = 300 + 2 * period;
+                let mut bad: Vec<String> = Vec::new();
+                let mut rows = 0usize;
+                for d in 1..=3i64 {
+                    for p in 0..period {
+                        let mut oo = o.clone();
+                        oo.cycles = cycles.max(5);
+                        oo.login = vec![(base + p, d)];
+                        let r = crate::switchbench::switch_bench(&oo).map_err(|e| anyhow::anyhow!(e))?;
+                        rows += 1;
+                        let ok = r.per_release.keys().all(|k| *k == 1) && r.shuts == 0 && r.hanging == 0 && r.unsettled == 0;
+                        if !ok {
+                            bad.push(format!("login {d} gt at phase {p}: per release {:?}, shuts {}, unsettled {}, hanging {}, retries {}", r.per_release, r.shuts, r.unsettled, r.hanging, r.retries));
+                        }
+                    }
+                }
+                println!("login matrix: {rows} rows (1..3 gt at every phase of a {period}-gt cycle), {} failing{}", bad.len(), if bad.is_empty() { String::new() } else { format!(":\n{}", bad.iter().take(20).cloned().collect::<Vec<_>>().join("\n")) });
+                return Ok(());
+            }
+            println!("{}", crate::dropbench::drop_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
+            return Ok(());
+        }
+        MobfarmCmd::LanesBench { lanes, spacing, run, per_lane, period, width, cycles, ret, corner, ring_q, freeze, freeze32, empty } => {
+            let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
+                let mut it = s.split(',');
+                let a = it.next().unwrap_or("").trim().parse::<i64>()?;
+                let d = it.next().unwrap_or("").trim().parse::<i64>()?;
+                Ok((a, d))
+            };
+            let freeze: Vec<(i64, i64)> = freeze.iter().map(pair).collect::<anyhow::Result<_>>()?;
+            let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
+            let o = crate::lanesbench::LanesOpts { lanes, spacing, run, per_lane, period, width, cycles, ret, corner, ring_q, freeze, freeze32, riders: !empty };
+            println!("{}", crate::lanesbench::lanes_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
+            return Ok(());
+        }
+        MobfarmCmd::LanesJudge { lanes, spacing, run, per_lane, period, cycles, ret, modes, starts, k, ds, corners, jobs, empty } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            let modes = modes.iter().map(|m| crate::lanesjudge::Mode::parse(m)).collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let base = crate::lanesbench::LanesOpts { lanes, spacing, run, per_lane, period, width: 0, cycles, ret, corner: 0, ring_q: 0, freeze: Vec::new(), freeze32: Vec::new(), riders: !empty };
+            let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
+            let title = format!("lanes ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, period {period}, {cycles} cycles)");
+            // (lanesbench's warm-up: 100 gt)
+            let lines = crate::lanesjudge::judge(&title, 100, period, &o, |m, c, fr| {
+                let mut lo = base.clone();
+                lo.ring_q = m.ring_q;
+                lo.width = m.width;
+                lo.corner = c;
+                lo.freeze32 = fr;
+                crate::lanesbench::lanes_bench(&lo)
+            })
+            .map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            return Ok(());
+        }
+        MobfarmCmd::EscapeJudge { lanes, spacing, run, per_lane, period, cycles, ret, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, empty, r_pulse, retry, intake_flat, v_in, starts, k, ds, corners, jobs } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, pockets: 0, string_dy: 2, r_pulse, retry, login: Vec::new(), intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32: Vec::new() };
+            let modes = vec![crate::lanesjudge::Mode::parse("gt").map_err(|e| anyhow::anyhow!(e))?];
+            let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
+            let title = if r_pulse > 0 {
+                format!("escape, the switched-R lane ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, the R line {r_pulse} gt, the trapdoors {drop_w} gt every {period}, hold {hold_n}, {cycles} cycles{})", if intake_flat { format!(", the flat intake at {v_in:.2} b/t") } else { String::new() })
+            } else {
+                format!("escape ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, G0 {w0} gt, G_P {wp} gt, the trapdoors {drop_w} gt every {period}, hold {hold_n}, {cycles} cycles)")
+            };
+            // (the escape bench's warm-up: 300 gt)
+            let lines = crate::lanesjudge::judge(&title, 300, period, &o, |_, c, fr| {
+                let mut lo = base.clone();
+                lo.corner = c;
+                lo.freeze32 = fr;
+                crate::dropbench::drop_bench(&lo)
+            })
+            .map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            return Ok(());
+        }
+        MobfarmCmd::StringBench { descent, v0, pass, hold, ticks, empty } => {
+            println!("{}", crate::stringbench::string_bench(descent, v0, pass, hold, ticks, !empty).map_err(|e| anyhow::anyhow!(e))?);
+            return Ok(());
         }
         MobfarmCmd::BrakeBench { speeds, empty, riders, descent, post, flats, gap, ticks, no_brake, window } => {
             if window {
