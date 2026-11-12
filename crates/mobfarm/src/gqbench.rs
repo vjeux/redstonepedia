@@ -366,6 +366,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut exit_cross: Vec<(i64, usize)> = Vec::new();
     let mut hold_rest: Vec<(i64, usize)> = Vec::new();
     let mut spacing_samples: Vec<f64> = Vec::new();
+    let mut merged_pairs: std::collections::BTreeSet<(usize, usize)> = Default::default();
+    let mut merge_log: Vec<String> = Vec::new();
     let mut run_min: (usize, i64) = (usize::MAX, 0);
     let mut hold_at_release: Vec<(i64, usize)> = Vec::new();
     let mut tail_max = 0usize;
@@ -853,6 +855,17 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 next_at_front.get_or_insert(t);
             }
         }
+        // (merges: two carts' centres within 0.5 of each other (one cart pushed onto another's spot))
+        for a in 0..o.carts {
+            for b in (a + 1)..o.carts {
+                if let (Some((xa, ya, _)), Some((xb, yb, _))) = (now[a], now[b])
+                    && ((xa - xb).powi(2) + (ya - yb).powi(2)).sqrt() < 0.5
+                    && merged_pairs.insert((a, b))
+                {
+                    merge_log.push(format!("t {t}: carts {a} ({}) and {b} ({}) at {xa:.2},{ya:.2}", if ridden_k(a) { "R" } else { "E" }, if ridden_k(b) { "R" } else { "E" }));
+                }
+            }
+        }
         if t >= warm + 100 && in_run_now < run_min.0 {
             run_min = (in_run_now, t);
         }
@@ -879,6 +892,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     l.push(format!("carts per opening (exactly 1): G_P {}; G0 {}", h(&gp_hist), h(&g0_hist)));
     l.push(format!("gate shuts onto a cart (the gate's box inside a cart's; the bar: 0): {}{}", edges_on_cart.len(), if edges_on_cart.is_empty() { String::new() } else { format!(" ({})", edges_on_cart.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
     let _ = (&above, worst);
+    l.push(format!("merges (two carts' centres within 0.5): {}{}", merge_log.len(), if merge_log.is_empty() { String::new() } else { format!(" ({})", merge_log.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
     l.push(format!("the pressed run's fill (carts on its slopes) at its emptiest after the first cycle: {} (t {}); the tail chain's most carts: {tail_max}", if run_min.0 == usize::MAX { 0 } else { run_min.0 }, run_min.1));
     l.push(format!(
         "the pressed spacing (x between successive carts at rest in the run, sampled at each G0 opening edge): {}",
