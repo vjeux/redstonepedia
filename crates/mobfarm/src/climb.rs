@@ -57,6 +57,278 @@ fn foot(cells: i32, crest: i32) -> (i32, i32) {
     (crest - cells, crest_z(crest) + cells)
 }
 
+/// The cornered route (onechunk's skeleton v1, loop frame + (6,0,6) here): Ga's hand-off cells B
+/// (a flat always-on booster on a redstone block), S (a flat plain spacer) and Dh (a flat
+/// detector rail) at rails `h_rails` along x 14 heading south, then leg 1 south along x 14 (its
+/// first slope plain, the rest boosters) up to the first corner (14, h_rails + l1, 14), leg 2 west
+/// along z 14 (all boosters) up to the second corner (3, 3, 14), `l1 + l2` = 3 - h_rails, then the
+/// approach's flats north along x 3 to T (3,3,7) and today's snap turn and pockets. The 3 carts
+/// parked off the track for the bench to hand off at B.
+pub fn design_route(h_rails: i32, l1: i32, with_riders: [bool; 3]) -> Result<String, String> {
+    let l2 = 3 - h_rails - l1;
+    if l1 < 2 || l2 < 1 {
+        return Err(format!("the route: leg 1 {l1} slopes, leg 2 {l2} (from rails {h_rails} to 3)"));
+    }
+    let mut b = Builder::new("climb-route-bench");
+    for (x, y, s) in STRIP {
+        b.set(x, y, SZ, s);
+        b.set(x, y - 1, SZ, "glass");
+    }
+    b.set(GATES[0].0, GATES[0].1, SZ, GATE_OPEN);
+    b.set(GATES[1].0, GATES[1].1, SZ, GATE_OPEN);
+    b.set(GATES[2].0, GATES[2].1, SZ, GATE_SHUT);
+    b.set(6, -2, SZ, "redstone_block");
+    b.set(10, -3, SZ, "redstone_block");
+    b.set(14, -3, SZ + 1, "stone");
+    b.set(AX - 1, 2, SZ, "glass");
+    b.set(AX - 1, 3, SZ, "glass");
+    // T (crest 3) and the approach's flats north along x 3 from the second corner
+    b.set(AX, 3, 7, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, 2, 7, "glass");
+    for z in 8..14 {
+        b.set(AX, 3, z, "rail[shape=north_south,waterlogged=false]");
+        b.set(AX, 2, z, "glass");
+    }
+    // the second corner (from leg 2 heading west, turning north)
+    b.set(AX, 3, 14, "rail[shape=north_east,waterlogged=false]");
+    b.set(AX, 2, 14, "glass");
+    // leg 2: boosters west along z 14, x 13..4, the top one at x 4 rising to 3
+    for i in 0..l2 {
+        let (x, y) = (4 + i, 2 - i);
+        b.set(x, y, 14, "powered_rail[powered=true,shape=ascending_west,waterlogged=false]");
+        b.set(x, y - 1, 14, "redstone_block");
+    }
+    // the first corner (from leg 1 heading south, turning west)
+    let cy = 3 - l2;
+    b.set(4 + l2, cy, 14, "rail[shape=north_west,waterlogged=false]");
+    b.set(4 + l2, cy - 1, 14, "glass");
+    let lx = 4 + l2;
+    // leg 1: slopes south along x lx up to the corner, the first plain
+    for i in 0..l1 {
+        let (y, z) = (cy - 1 - i, 13 - i);
+        if i == l1 - 1 {
+            b.set(lx, y, z, "rail[shape=ascending_south,waterlogged=false]");
+            b.set(lx, y - 1, z, "glass");
+        } else {
+            b.set(lx, y, z, "powered_rail[powered=true,shape=ascending_south,waterlogged=false]");
+            b.set(lx, y - 1, z, "redstone_block");
+        }
+    }
+    // Ga's hand-off: Dh, S, B north of leg 1's foot
+    let fz = 13 - l1 + 1;
+    b.set(lx, h_rails, fz - 1, "detector_rail[powered=false,shape=north_south,waterlogged=false]");
+    b.set(lx, h_rails - 1, fz - 1, "glass");
+    b.set(lx, h_rails, fz - 2, "rail[shape=north_south,waterlogged=false]");
+    b.set(lx, h_rails - 1, fz - 2, "glass");
+    b.set(lx, h_rails, fz - 3, "powered_rail[powered=true,shape=north_south,waterlogged=false]");
+    b.set(lx, h_rails - 1, fz - 3, "redstone_block");
+    b.set(lx, h_rails, fz - 4, "rail[shape=north_south,waterlogged=false]");
+    b.set(lx, h_rails - 1, fz - 4, "glass");
+    b.set(lx, h_rails, fz - 5, "stone");
+    // the carts parked off the track (the spare chunk)
+    for k in 0..3usize {
+        let nbt = if with_riders[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        let ki = k as i32;
+        b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+        b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+        b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
+    }
+    b.set(-8, 0, SZ, "glass");
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [-6, 1, SZ]);
+    b.d.meta.insert("climb_route".into(), format!("h_rails={h_rails} l1={l1} l2={l2} leg1_x={lx} b_z={}", fz - 3));
+    Ok(b.text(&["One-chunk (b): the climb on onechunk's cornered route: Ga's hand-off (B, S, Dh), leg 1 south, a corner, leg 2 west, a corner, the approach's flats north to T, today's 3 pockets (gates bench-driven)."]))
+}
+
+/// The folded route (onechunk's skeleton (b), farmopt 16:36; here with today's strip where the S3
+/// file lays it, so two blocks south of onechunk's): Dh (a flat detector rail) at (15,-17,16), a
+/// flat curve (15,-17,17) turning west, leg 1 west along z 17 (11 boosters, x 14..4, rising -17 to
+/// -6), a curve (3,-6,17) turning north, leg 2 north along x 3 (9 boosters, z 16..8, rising to 3),
+/// T (3,3,7), today's snap turn and pockets. The carts parked for the bench to hand off at Dh.
+pub fn design_folded(with_riders: [bool; 3]) -> String {
+    let (l1, l2) = (11, 9);
+    let mut b = Builder::new("climb-folded-bench");
+    for (x, y, s) in STRIP {
+        b.set(x, y, SZ, s);
+        b.set(x, y - 1, SZ, "glass");
+    }
+    b.set(GATES[0].0, GATES[0].1, SZ, GATE_OPEN);
+    b.set(GATES[1].0, GATES[1].1, SZ, GATE_OPEN);
+    b.set(GATES[2].0, GATES[2].1, SZ, GATE_SHUT);
+    b.set(6, -2, SZ, "redstone_block");
+    b.set(10, -3, SZ, "redstone_block");
+    b.set(14, -3, SZ + 1, "stone");
+    b.set(AX - 1, 2, SZ, "glass");
+    b.set(AX - 1, 3, SZ, "glass");
+    b.set(AX, 3, 7, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, 2, 7, "glass");
+    // leg 2: boosters north along x 3, z 8..16, the top one at z 8 rising to 3
+    for i in 0..l2 {
+        let (y, z) = (2 - i, 8 + i);
+        b.set(AX, y, z, "powered_rail[powered=true,shape=ascending_north,waterlogged=false]");
+        b.set(AX, y - 1, z, "redstone_block");
+    }
+    let zl = 8 + l2;
+    let cy = 3 - l2;
+    b.set(AX, cy, zl, "rail[shape=north_east,waterlogged=false]");
+    b.set(AX, cy - 1, zl, "glass");
+    // leg 1: boosters west along z 17, x 4..14, the top one at x 4 rising to the corner's level
+    for i in 0..l1 {
+        let (x, y) = (4 + i, cy - 1 - i);
+        b.set(x, y, zl, "powered_rail[powered=true,shape=ascending_west,waterlogged=false]");
+        b.set(x, y - 1, zl, "redstone_block");
+    }
+    let (dx, dy) = (4 + l1, cy - l1);
+    b.set(dx, dy, zl, "rail[shape=north_west,waterlogged=false]");
+    b.set(dx, dy - 1, zl, "glass");
+    b.set(dx, dy, zl - 1, "detector_rail[powered=false,shape=north_south,waterlogged=false]");
+    b.set(dx, dy - 1, zl - 1, "glass");
+    b.set(dx, dy, zl - 2, "rail[shape=north_south,waterlogged=false]");
+    b.set(dx, dy - 1, zl - 2, "glass");
+    b.set(dx, dy, zl - 3, "stone");
+    for k in 0..3usize {
+        let nbt = if with_riders[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        let ki = k as i32;
+        b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+        b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+        b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
+    }
+    b.set(-8, 0, SZ, "glass");
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [-6, 1, SZ]);
+    b.d.meta.insert("climb_route".into(), format!("folded: Dh ({dx},{dy},{}) curve ({dx},{dy},{zl}) leg1 x {}..4 z {zl} curve (3,{cy},{zl}) leg2 x 3 z {}..8 T (3,3,7)", zl - 1, 4 + l1 - 1, zl - 1));
+    b.text(&["One-chunk (b) folded: Dh, a flat curve west, leg 1 (11 boosters), a curve north, leg 2 (9 boosters) to T at 3, today's snap turn and pockets."])
+}
+
+/// The gravity queue's descent (vjeux's gravity queue, paper v0 2098083320824660; ironspec and
+/// farmopt 16:40): the hold above the golem zone hands its carts off at the top of a straight
+/// descent of `cells` slopes down north along x 3 (each `B` of `pattern` a booster on a redstone
+/// block, `P` a plain slope on glass; empty: all boosters) to T (3,3,7), the crest at +3, then
+/// today's snap turn and pockets (the S3 file's cells). The hand-off flat at the top
+/// (3, 3 + cells, 8 + cells), a stop past it; the carts parked off the track for the bench to hand
+/// off there.
+pub fn design_gravity(cells: i32, pattern: &str, with_riders: [bool; 3]) -> String {
+    let mut b = Builder::new("gravity-descent-bench");
+    for (x, y, s) in STRIP {
+        b.set(x, y, SZ, s);
+        b.set(x, y - 1, SZ, "glass");
+    }
+    b.set(GATES[0].0, GATES[0].1, SZ, GATE_OPEN);
+    b.set(GATES[1].0, GATES[1].1, SZ, GATE_OPEN);
+    b.set(GATES[2].0, GATES[2].1, SZ, GATE_SHUT);
+    b.set(6, -2, SZ, "redstone_block");
+    b.set(10, -3, SZ, "redstone_block");
+    b.set(14, -3, SZ + 1, "stone");
+    b.set(AX - 1, 2, SZ, "glass");
+    b.set(AX - 1, 3, SZ, "glass");
+    b.set(AX, 3, 7, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, 2, 7, "glass");
+    for i in 0..cells {
+        let (y, z) = (3 + i, 8 + i);
+        if pattern.chars().nth(i as usize) == Some('P') {
+            b.set(AX, y, z, "rail[shape=ascending_south,waterlogged=false]");
+            b.set(AX, y - 1, z, "glass");
+        } else {
+            b.set(AX, y, z, "powered_rail[powered=true,shape=ascending_south,waterlogged=false]");
+            b.set(AX, y - 1, z, "redstone_block");
+        }
+    }
+    let (ty, tz) = (3 + cells, 8 + cells);
+    b.set(AX, ty, tz, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, ty - 1, tz, "glass");
+    b.set(AX, ty, tz + 1, "stone");
+    for k in 0..3usize {
+        let nbt = if with_riders[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        let ki = k as i32;
+        b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+        b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+        b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
+    }
+    b.set(-8, 0, SZ, "glass");
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [-6, 1, SZ]);
+    b.d.meta.insert("gravity_descent".into(), format!("hand-off ({AX},{ty},{tz}) heading -z; {cells} slopes x {AX} z {}..8; T ({AX},3,7)", tz - 1));
+    b.text(&["The gravity queue's descent bench: the hold's hand-off at the top, a straight boosted descent down north to the crest at +3, today's snap turn and 3 pockets (gates bench-driven)."])
+}
+
+/// The gravity queue's descent on onechunk's skeleton v3 (explore/farmopt-onechunk 63270bb35,
+/// farmopt 17:10; loop frame + (6,0,6) here): the hand-off where the hold's last gate Ga lets go,
+/// a flat at (13,24,7) heading south (riders' feet at 24.06); the entry slope (13,23,8) and leg A
+/// south along x 13 (z 9..13, rails 22..18); a flat curve (13,18,14) turning west; leg B west along
+/// z 14 (x 12..4, rails 17..9); a flat curve (3,9,14) turning north; leg C north along x 3 (z
+/// 13..11, rails 8..6) into the committed crest (3,6,10) and the one S3 file's approach down to the
+/// snap turn ((3,5,9), (3,4,8), (3,3,7), plain) and today's pockets. Every slope a booster on a
+/// redstone block (`plain_legs`: leg C plain, as the committed approach's slopes are), the curves
+/// plain on glass. (The skeleton's curve heights, 19 and 10, leave leg C one level short of the
+/// crest at 6; the entry cell here is a slope, so the curves sit at 18 and 9.)
+pub fn design_gravity_v3(with_riders: [bool; 3], plain_c: bool) -> String {
+    let mut b = Builder::new("gravity-descent-v3-bench");
+    for (x, y, s) in STRIP {
+        b.set(x, y, SZ, s);
+        b.set(x, y - 1, SZ, "glass");
+    }
+    b.set(GATES[0].0, GATES[0].1, SZ, GATE_OPEN);
+    b.set(GATES[1].0, GATES[1].1, SZ, GATE_OPEN);
+    b.set(GATES[2].0, GATES[2].1, SZ, GATE_SHUT);
+    b.set(6, -2, SZ, "redstone_block");
+    b.set(10, -3, SZ, "redstone_block");
+    b.set(14, -3, SZ + 1, "stone");
+    b.set(AX - 1, 2, SZ, "glass");
+    b.set(AX - 1, 3, SZ, "glass");
+    // the committed approach from the crest down to the snap turn
+    b.set(AX, 6, 10, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, 5, 10, "glass");
+    for (y, z) in [(5, 9), (4, 8), (3, 7)] {
+        b.set(AX, y, z, "rail[shape=ascending_south,waterlogged=false]");
+        b.set(AX, y - 1, z, "glass");
+    }
+    let boost = |b: &mut Builder, x: i32, y: i32, z: i32, shape: &str, plain: bool| {
+        if plain {
+            b.set(x, y, z, &format!("rail[shape={shape},waterlogged=false]"));
+            b.set(x, y - 1, z, "glass");
+        } else {
+            b.set(x, y, z, &format!("powered_rail[powered=true,shape={shape},waterlogged=false]"));
+            b.set(x, y - 1, z, "redstone_block");
+        }
+    };
+    // leg C: north along x 3, z 13..11, rails 8..6
+    for (i, z) in (11..=13).enumerate() {
+        boost(&mut b, AX, 6 + i as i32, z, "ascending_south", plain_c);
+    }
+    b.set(AX, 9, 14, "rail[shape=north_east,waterlogged=false]");
+    b.set(AX, 8, 14, "glass");
+    // leg B: west along z 14, x 4..12, rails 9..17
+    for (i, x) in (4..=12).enumerate() {
+        boost(&mut b, x, 9 + i as i32, 14, "ascending_east", false);
+    }
+    b.set(13, 18, 14, "rail[shape=north_west,waterlogged=false]");
+    b.set(13, 17, 14, "glass");
+    // leg A and the entry slope: south along x 13, z 8..13, rails 23..18
+    for (i, z) in (8..=13).enumerate() {
+        boost(&mut b, 13, 23 - i as i32, z, "ascending_north", false);
+    }
+    // the hand-off flat (Ga's exit, 9fc3155f's hold moved 3 cells north: Ga (13,24,4)), three
+    // flat boosters (13,24,5..7) to the entry slope, a stop north of Ga
+    b.set(13, 24, 4, "rail[shape=north_south,waterlogged=false]");
+    b.set(13, 23, 4, "glass");
+    for z in 5..=7 {
+        b.set(13, 24, z, "powered_rail[powered=true,shape=north_south,waterlogged=false]");
+        b.set(13, 23, z, "redstone_block");
+    }
+    b.set(13, 24, 3, "stone");
+    for k in 0..3usize {
+        let nbt = if with_riders[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        let ki = k as i32;
+        b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+        b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+        b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
+    }
+    b.set(-8, 0, SZ, "glass");
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [-6, 1, SZ]);
+    b.text(&["The gravity queue's descent on skeleton v3: Ga's exit, leg A south, a curve, leg B west, a curve, leg C north into the committed crest (3,6,10), the approach down to the snap turn, today's 3 pockets (gates bench-driven)."])
+}
+
 /// The bench's design: H's queue (3 slopes down north), H's slope and gate, the climb, T, the
 /// approach's two slopes down, the snap turn, the strip and its gates; a marker block in the chunk
 /// west of the bench (the forced box's spare chunk, so a freeze leaves the bench at level 32).
@@ -122,9 +394,9 @@ pub fn design_with(cells: i32, crest: i32, pattern: &str, with_riders: [bool; 3]
         let ki = k as i32;
         if spaced && k > 0 {
             // (parked: a flat rail on glass in the spare chunk, far from the bench)
-            b.set(-6, 0, SZ + 3 * ki, "rail[shape=north_south,waterlogged=false]");
-            b.set(-6, -1, SZ + 3 * ki, "glass");
-            b.entity("minecart", [-5.5, 0.0625, (SZ + 3 * ki) as f64 + 0.5], Some(nbt));
+            b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+            b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+            b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
         } else {
             b.entity("minecart", [AX as f64 + 0.5, (fy + 1 + ki) as f64 + 0.6, (fz + 2 + ki) as f64 + 0.5], Some(nbt));
         }
@@ -158,6 +430,14 @@ pub struct ClimbOpts {
     pub golem_box: Option<[f64; 6]>,
     /// The freeze: the bench's chunks at level 32 from T + FROM for LEN gt.
     pub freeze: Option<(i64, i64)>,
+    /// The hand-off (design_route, design_folded, design_gravity): cart k set at this point with
+    /// this velocity at T + h_open + k * spacing; the freeze's chunk box.
+    pub hand_off: Option<(Vec3, Vec3, i64, [i32; 4])>,
+    /// The stand's gates on timers from the hold's release (T + h_open) instead of position
+    /// triggers: G2 shuts at release + .0, G1 at release + .1 (live time: paused while frozen).
+    pub gate_shut: Option<(i64, i64)>,
+    /// The batch's carts (3, or 2: the third stays parked).
+    pub n_carts: usize,
     pub trace: bool,
 }
 
@@ -228,15 +508,41 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     let mut least_gap = [f64::INFINITY; 2];
     let h_feet: Option<f64> = riders[0].and_then(|r| run.world.entities.list.iter().find(|e| e.id == r).map(|e| e.pos.y));
     let mut froze: Vec<String> = Vec::new();
+    let mut eye_where: Vec<String> = Vec::new();
     let mut freeze_pos: Vec<[Option<Vec3>; 3]> = Vec::new();
-    let chunks = {
-        let xs: Vec<i32> = [2i32, 16].iter().map(|x| x >> 4).collect();
-        let zs: Vec<i32> = [SZ - 1, fz + 6].iter().map(|z| z >> 4).collect();
-        [xs[0], zs[0], xs[1].max(xs[0]), zs[1].max(zs[0])]
+    let mut frozen_ticks = 0i64;
+    let mut handed = [false; 3];
+    let mut gate_edges: Vec<String> = Vec::new();
+    // (each cart's entry into each gate's cell, G2, G1, G0: the tick and its stored speed)
+    let mut gate_entry: [[Option<(i64, f64)>; 3]; 3] = [[None; 3]; 3];
+    let mut merges: Vec<String> = Vec::new();
+    let chunks = match o.hand_off {
+        Some((_, _, _, c)) => c,
+        None => {
+            let xs: Vec<i32> = [2i32, 16].iter().map(|x| x >> 4).collect();
+            let zs: Vec<i32> = [SZ - 1, fz + 6].iter().map(|z| z >> 4).collect();
+            [xs[0], zs[0], xs[1].max(xs[0]), zs[1].max(zs[0])]
+        }
     };
     for dt in 0..o.ticks {
+        // the hand-off: cart k at the hand-off point with the hand-off velocity, in live time
+        // (the hold's release waits out a freeze: its clock paused, nothing handed off while the
+        // column is frozen)
+        let frozen_now = o.freeze.is_some_and(|(f, l)| dt >= f && dt < f + l);
+        if let Some((p, v, sp, _)) = o.hand_off {
+            let live = dt - frozen_ticks;
+            for k in 0..o.n_carts.min(3) {
+                if !frozen_now && !handed[k] && live >= o.h_open + k as i64 * sp {
+                    handed[k] = true;
+                    place_at(&mut run.world, carts[k], p);
+                    if let Some(i) = run.world.entities.list.iter().position(|e| e.id == carts[k]) {
+                        run.world.entities.list[i].delta_movement = v;
+                    }
+                }
+            }
+        }
         // H: opened at T + h_open, shut again after h_for
-        if dt == o.h_open {
+        if dt == o.h_open && o.hand_off.is_none() {
             run.world.set_block(h_cell, h_open.clone(), redsim::world::flags::ALL);
         }
         if o.h_for > 0 && dt == o.h_open + o.h_for {
@@ -254,6 +560,9 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         }
         // the freeze: the bench's chunks unforced (level 32: blocks tick, entities don't)
         if let Some((from, len)) = o.freeze {
+            if dt >= from && dt < from + len {
+                frozen_ticks += 1;
+            }
             if dt == from {
                 // (a bench world has no forced chunk box: the chunks its box meets, the marker's
                 // spare chunk west of the bench among them)
@@ -269,15 +578,22 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 freeze_pos.push(std::array::from_fn(|k| pos(&run.world, carts[k]).map(|p| p.0)));
             }
         }
-        // the pockets' gates (bench position triggers)
+        // the pockets' gates: on timers from the release (live time, paused while frozen), or
+        // bench position triggers
+        if let Some((a, b)) = o.gate_shut {
+            let live = dt - frozen_ticks;
+            open[0] = live < o.h_open + a;
+            open[1] = live < o.h_open + b;
+        }
         for (k, (gx, _)) in GATES.iter().rev().enumerate() {
-            if k == 0 || !open[2 - k] {
+            if k == 0 || !open[2 - k] || o.gate_shut.is_some() {
                 continue;
             }
             let edge = *gx as f64 + o.close_at;
             for (n, id) in carts.iter().enumerate() {
                 if let Some((p, _)) = pos(&run.world, *id)
                     && (p.z - (SZ as f64 + 0.5)).abs() < 0.6
+                    && p.y < 3.0
                     && p.x >= edge
                     && !seen[k][n]
                 {
@@ -297,6 +613,18 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 if !open[i] && i < 2 {
                     let src = if i == 0 { BlockPos::new(6, -2, SZ) } else { BlockPos::new(10, -3, SZ) };
                     run.world.set_block(src, stone.clone(), redsim::world::flags::ALL);
+                    // (a gate edge on a cart: a cart's box meeting the gate's cell as it shuts)
+                    for (n, id) in carts.iter().enumerate() {
+                        if let Some((cp, _)) = pos(&run.world, *id)
+                            && cp.x + 0.49 > *gx as f64
+                            && cp.x - 0.49 < *gx as f64 + 1.0
+                            && cp.y + 0.7 > *gy as f64
+                            && cp.y < *gy as f64 + 1.5
+                            && (cp.z - (SZ as f64 + 0.5)).abs() < 0.99
+                        {
+                            gate_edges.push(format!("T+{dt}: {} shut on cart {n} at {:.2},{:.2},{:.2}", ["G2", "G1", "G0"][i], cp.x, cp.y, cp.z));
+                        }
+                    }
                 }
             }
         }
@@ -307,10 +635,17 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             let Some((p, v)) = st[k] else { continue };
             let s = (v.x * v.x + v.z * v.z).sqrt();
             top_v[k] = top_v[k].max(s);
+            if (p.z - (SZ as f64 + 0.5)).abs() < 0.6 && p.y < 3.0 {
+                for (g, (gx, _)) in GATES.iter().enumerate() {
+                    if gate_entry[k][g].is_none() && p.x + 0.49 >= *gx as f64 && p.x < *gx as f64 + 1.0 {
+                        gate_entry[k][g] = Some((dt, prev_v[k].max(s)));
+                    }
+                }
+            }
             if crest_at[k].is_none() && (p.x - (AX as f64 + 0.5)).abs() < 0.6 && p.z < zt as f64 + 0.5 && p.y > o.crest as f64 - 0.1 {
                 crest_at[k] = Some(dt);
             }
-            if s < 1e-3 && (p.z - (SZ as f64 + 0.5)).abs() < 0.6 {
+            if s < 1e-3 && (p.z - (SZ as f64 + 0.5)).abs() < 0.6 && p.y < 3.0 {
                 rest_since[k].get_or_insert(dt);
             } else {
                 rest_since[k] = None;
@@ -318,9 +653,8 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         }
         for k in 0..2 {
             if let (Some((pa, _)), Some((pb, _))) = (st[k], st[k + 1])
-                && (pb.z - (SZ as f64 + 0.5)).abs() > 0.6
-                && pb.x < AX as f64 + 1.0
-                && pb.z < fz as f64 + 1.0
+                && ((pb.z - (SZ as f64 + 0.5)).abs() > 0.6 || pb.y >= 3.0)
+                && (o.hand_off.is_some() || (pb.x < AX as f64 + 1.0 && pb.z < fz as f64 + 1.0))
             {
                 let d = ((pa.x - pb.x).powi(2) + (pa.y - pb.y).powi(2) + (pa.z - pb.z).powi(2)).sqrt();
                 least_gap[k] = least_gap[k].min(d);
@@ -336,11 +670,16 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 let (Some((pa, va)), Some((pc, vc))) = (st[a], st[c]) else { continue };
                 let d = ((pa.x - pc.x).powi(2) + (pa.y - pc.y).powi(2) + (pa.z - pc.z).powi(2)).sqrt();
                 let sc = (vc.x * vc.x + vc.z * vc.z).sqrt();
-                let now = d < 1.0;
+                // (the boxes, 0.98 wide and 0.7 tall, touching: a slope puts the two centres up
+                // to 1 block apart in y as well, so the centres within 1.25)
+                let now = d < 1.25;
                 if now && !touching[a][c] && sc < 0.05 {
                     let sa = prev_v[a].max((va.x * va.x + va.z * va.z).sqrt());
                     contact_max = contact_max.max(sa);
                     contacts.push(format!("T+{dt}: cart {a} into waiting cart {c} at {sa:.3}"));
+                }
+                if a < c && d < 0.6 && !merges.iter().any(|m| m.contains(&format!("carts {a} and {c}"))) {
+                    merges.push(format!("T+{dt}: carts {a} and {c} {d:.2} apart at {:.2},{:.2},{:.2}", pa.x, pa.y, pa.z));
                 }
                 touching[a][c] = now;
             }
@@ -385,6 +724,9 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             }
             if blind {
                 eye_ticks[k] += 1;
+                if eye_where.len() < 4 {
+                    eye_where.push(format!("T+{dt} cart {k} eye {ex:.2},{ey:.2},{ez:.2}"));
+                }
             }
             if let Some(g) = o.golem_box
                 && dt <= 2
@@ -409,7 +751,7 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         }
     }
     let st: Vec<Option<(Vec3, Vec3)>> = carts.iter().map(|id| pos(&run.world, *id)).collect();
-    let rest: Vec<String> = (0..3)
+    let rest: Vec<String> = (0..o.n_carts.min(3))
         .map(|k| {
             let p = st[k].map_or("gone".to_string(), |(p, _)| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z));
             match rest_since[k] {
@@ -433,7 +775,20 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         if least_gap[1].is_finite() { format!("{:.2}", least_gap[1]) } else { "-".into() },
         match (crest_at[0], crest_at[1], crest_at[2]) { (Some(a), Some(b), Some(c)) => format!("{}, {} gt", b - a, c - b), _ => "-".into() }
     ));
-    let last = rest_since.iter().map(|r| r.unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
+    let n = o.n_carts.min(3);
+    // (each cart in its own pocket: cart 0 at P1's rest spot, cart 1 at P2's, cart 2 at P3's)
+    let wrong: Vec<String> = (0..n)
+        .filter_map(|k| {
+            let want = [13.885, 9.885, 5.885][k];
+            match st[k] {
+                Some((p, _)) if (p.x - want).abs() < 0.3 && (p.z - (SZ as f64 + 0.5)).abs() < 0.3 => None,
+                Some((p, _)) => Some(format!("cart {k} at {:.2},{:.2},{:.2} (P{} expected)", p.x, p.y, p.z, k + 1)),
+                None => Some(format!("cart {k} gone")),
+            }
+        })
+        .collect();
+    out.push(format!("pockets: {}", if wrong.is_empty() { "every cart at its own pocket's rest spot".to_string() } else { format!("WRONG POCKET: {}", wrong.join("; ")) }));
+    let last = rest_since.iter().take(n).map(|r| r.unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
     out.push(format!(
         "batch at rest: {}; arrivals into a waiting cart: {} (the fastest {:.3}; bar 0.2){}",
         if last == i64::MAX { "NO".to_string() } else { format!("T+{last}, margin {} gt before T+100", 100 - last) },
@@ -442,12 +797,28 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         if contacts.is_empty() { String::new() } else { format!(" ({})", contacts.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
     ));
     out.push(format!(
-        "riders: hurt {}{}; dismounts {}{}; eye point inside a collision shape (ticks per cart) {:?}{}",
+        "entry into each gate's cell (G2 x 6, G1 x 10, G0 x 14), tick and stored speed: {}; gate edges on a cart: {}{}; merges: {}{}",
+        (0..n)
+            .map(|k| format!(
+                "cart {k}{} {}",
+                if riders[k].is_some() { "" } else { " (EMPTY)" },
+                (0..3).map(|g| gate_entry[k][g].map_or("-".to_string(), |(t, v)| format!("{} T+{t} {v:.3}", ["G2", "G1", "G0"][g]))).collect::<Vec<_>>().join(", ")
+            ))
+            .collect::<Vec<_>>()
+            .join("; "),
+        gate_edges.len(),
+        if gate_edges.is_empty() { String::new() } else { format!(" ({})", gate_edges.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
+        merges.len(),
+        if merges.is_empty() { String::new() } else { format!(" ({})", merges.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) }
+    ));
+    out.push(format!(
+        "riders: hurt {}{}; dismounts {}{}; eye point inside a collision shape (ticks per cart) {:?}{}{}",
         hurt.len(),
         if hurt.is_empty() { String::new() } else { format!(" ({})", hurt.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
         dismount.len(),
         if dismount.is_empty() { String::new() } else { format!(" ({})", dismount.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
         eye_ticks,
+        if eye_where.is_empty() { String::new() } else { format!(" ({})", eye_where.join("; ")) },
         if o.golem_box.is_some() { format!("; the least box gap to the golem box while it exists (T..T+2), per rider: {}", golem_gap.iter().map(|g| if g.is_finite() { format!("{g:.2}") } else { "-".into() }).collect::<Vec<_>>().join(", ")) } else { String::new() }
     ));
     if let Some((from, len)) = o.freeze {
@@ -630,7 +1001,9 @@ pub fn descent_bench(spec: &FarmSpec, o: &DescentOpts) -> Result<Vec<String>, St
                 let (Some((pa, va)), Some((pc, vc))) = (st[a], st[c]) else { continue };
                 let d = ((pa.x - pc.x).powi(2) + (pa.y - pc.y).powi(2) + (pa.z - pc.z).powi(2)).sqrt();
                 let sc = (vc.x * vc.x + vc.z * vc.z).sqrt();
-                let now = d < 1.0;
+                // (the boxes, 0.98 wide and 0.7 tall, touching: a slope puts the two centres up
+                // to 1 block apart in y as well, so the centres within 1.25)
+                let now = d < 1.25;
                 if now && !touching[a][c] && sc < 0.05 {
                     let sa = prev_v[a].max((va.x * va.x + va.z * va.z).sqrt());
                     contact_max = contact_max.max(sa);

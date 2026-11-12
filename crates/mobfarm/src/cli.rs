@@ -900,6 +900,38 @@ pub enum MobfarmCmd {
         /// The climb's pattern from its foot (`B` booster, `P` plain; empty: all boosters).
         #[arg(long, default_value = "")]
         pattern: String,
+        /// onechunk's cornered route instead of the straight climb: H_RAILS,L1 (Ga's hand-off at
+        /// rails H_RAILS, leg 1 of L1 slopes south, leg 2 west up to 3, the approach's flats north
+        /// to T at 3); the carts handed off at Ga's B at 0.5 b/t, `--h-every` gt apart.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        route: Vec<i32>,
+        /// onechunk's folded (b) route: Dh, a flat curve west, leg 1 (11 boosters), a curve north,
+        /// leg 2 (9 boosters) to T at 3; the carts handed off at Dh at 0.5 b/t, `--h-every` gt
+        /// apart (default 13: the pocket stand's gates send them 12..14 apart).
+        #[arg(long)]
+        folded: bool,
+        /// The gravity queue's descent (hold → stand) instead of a climb: `--cells` slopes down
+        /// north to the crest at +3 (`--pattern` B/P from the bottom); the carts handed off at the
+        /// top at `--speed` b/t heading north, `--h-every` gt apart (0: back to back, 3 gt).
+        #[arg(long)]
+        gravity: bool,
+        /// With --gravity: onechunk's skeleton v3 descent (Ga's exit at (13,24,7), leg A south, a
+        /// curve, leg B west, a curve, leg C north into the committed crest (3,6,10)); `--cells`
+        /// ignored. `--plain-c`: leg C's three slopes plain.
+        #[arg(long)]
+        v3: bool,
+        #[arg(long)]
+        plain_c: bool,
+        /// The hand-off speed (b/t) for --gravity.
+        #[arg(long, default_value_t = 0.4)]
+        speed: f64,
+        /// The stand's gates on timers from the hold's release (live time, paused while frozen):
+        /// G2 shuts at release + A, G1 at release + B (instead of position triggers).
+        #[arg(long, value_delimiter = ',')]
+        gate_shut: Vec<i64>,
+        /// The batch's carts: 3, or 2 (the third stays parked).
+        #[arg(long, default_value_t = 3)]
+        carts: usize,
         #[arg(long, default_value_t = 1.29)]
         close_at: f64,
         #[arg(long, default_value_t = 160)]
@@ -3377,36 +3409,80 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
             anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
+            anyhow::ensure!(gate_shut.is_empty() || gate_shut.len() == 2, "--gate-shut A,B");
+            // (7b90c3f1's meter timer fill, MCTAS_TIMER_FILL=T1,T2: G1 stays open T1 and G2 T2
+            // live gt after the hold's release; the bench drives its gates the same way)
+            let gate_shut: Vec<i64> = match (gate_shut.is_empty(), std::env::var("MCTAS_TIMER_FILL")) {
+                (true, Ok(v)) => {
+                    let t: Vec<i64> = v.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(t.len() == 2, "MCTAS_TIMER_FILL=T1,T2");
+                    println!("the stand's gates on MCTAS_TIMER_FILL={v}: G1 open {} gt and G2 {} gt (live) after the hold's release (bench-driven gates)", t[0], t[1]);
+                    vec![t[1], t[0]]
+                }
+                _ => gate_shut,
+            };
+            anyhow::ensure!(carts == 2 || carts == 3, "--carts 2 or 3");
             let rd: Vec<bool> = riders.split(',').map(|s| s.trim() != "0").collect();
             anyhow::ensure!(rd.len() == 3, "--riders takes three 0/1");
             let everys: Vec<i64> = h_every.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
-            let spaced = everys.iter().any(|e| *e > 0);
-            anyhow::ensure!(!spaced || everys.iter().all(|e| *e > 0), "--h-every: all spaced (> 0) or 0");
+            let spaced = everys.iter().any(|e| *e > 0) && !gravity;
+            anyhow::ensure!(gravity || !spaced || everys.iter().all(|e| *e > 0), "--h-every: all spaced (> 0) or 0");
             anyhow::ensure!(pattern.is_empty() || pattern.len() == cells as usize, "--pattern: one letter per climb cell");
-            let text = crate::climb::design_with(cells, crest, &pattern, [rd[0], rd[1], rd[2]], spaced);
+            anyhow::ensure!(route.is_empty() || route.len() == 2, "--route H_RAILS,L1");
+            let text = if gravity && v3 {
+                crate::climb::design_gravity_v3([rd[0], rd[1], rd[2]], plain_c)
+            } else if gravity {
+                crate::climb::design_gravity(cells, &pattern, [rd[0], rd[1], rd[2]])
+            } else if folded {
+                crate::climb::design_folded([rd[0], rd[1], rd[2]])
+            } else if route.len() == 2 {
+                crate::climb::design_route(route[0], route[1], [rd[0], rd[1], rd[2]]).map_err(|e| anyhow::anyhow!(e))?
+            } else {
+                crate::climb::design_with(cells, crest, &pattern, [rd[0], rd[1], rd[2]], spaced)
+            };
+            // (the hand-off point and velocity (the gravity descent's top, Ga's B, or the folded
+            // route's Dh) and the freeze's chunk box)
+            use redsim::entity::Vec3 as V3;
+            let route_geo = if gravity && v3 {
+                Some((V3::new(13.5, 24.0625, 4.5), V3::new(0.0, 0.0, speed), [0, 0, 0, 0]))
+            } else if gravity {
+                Some((V3::new(3.5, (3 + cells) as f64 + 0.0625, (8 + cells) as f64 + 0.5), V3::new(0.0, 0.0, -speed), [0, 0, 0, (9 + cells).div_euclid(16)]))
+            } else if folded {
+                Some((V3::new(15.5, -17.0 + 0.0625, 16.5), V3::new(0.0, 0.0, 0.5), [0, 0, 0, 1]))
+            } else {
+                (route.len() == 2).then(|| {
+                    let (h, l1) = (route[0], route[1]);
+                    let l2 = 3 - h - l1;
+                    let (lx, fz) = (4 + l2, 13 - l1 + 1);
+                    (V3::new(lx as f64 + 0.5, h as f64 + 0.0625, (fz - 3) as f64 + 0.5), V3::new(0.0, 0.0, 0.5), [0, (fz - 5).div_euclid(16), lx.div_euclid(16), 0])
+                })
+            };
             let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("climb-bench-{}.txt", std::process::id())));
             std::fs::write(&path, &text)?;
             let (_c, fspec) = load(version, &path)?;
             anyhow::ensure!(golem_box.is_empty() || golem_box.len() == 6, "--golem-box x0,y0,z0,x1,y1,z1");
             anyhow::ensure!(freeze.is_empty() || freeze.len() == 2, "--freeze FROM,LEN");
             let opens: Vec<i64> = h_open.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
-            println!("climb bench: {} cells{}, the design {}", cells, if pattern.is_empty() { String::new() } else { format!(" ({pattern})") }, path.display());
+            println!("climb bench: {} cells{}{}, the design {}", cells, if gravity { " (the gravity descent)" } else { "" }, if pattern.is_empty() { String::new() } else { format!(" ({pattern})") }, path.display());
             for e in &everys {
                 for h in &opens {
                     for s in seed..seed + seeds {
                         let o = crate::climb::ClimbOpts {
                             cells,
-                            crest,
+                            crest: if gravity && v3 { 6 } else if route.len() == 2 || folded || gravity { 3 } else { crest },
                             h_open: *h,
                             h_for,
-                            h_every: *e,
+                            h_every: if gravity { 0 } else { *e },
                             close_at,
                             ticks,
                             seed: s,
                             golem_box: (golem_box.len() == 6).then(|| [golem_box[0], golem_box[1], golem_box[2], golem_box[3], golem_box[4], golem_box[5]]),
                             freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])),
+                            hand_off: route_geo.map(|(p, v, c)| (p, v, if *e > 0 { *e } else if gravity { 3 } else if folded { 13 } else { 10 }, c)),
+                            gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
+                            n_carts: carts,
                             trace,
                         };
                         let lines = crate::climb::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
