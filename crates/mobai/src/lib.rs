@@ -37,6 +37,8 @@ pub mod napperride;
 pub mod reboard;
 pub mod alldaywait;
 pub mod queueroll;
+pub mod railkick;
+pub mod sideslope;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

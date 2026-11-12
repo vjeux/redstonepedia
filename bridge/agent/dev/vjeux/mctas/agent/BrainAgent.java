@@ -182,12 +182,17 @@ public final class BrainAgent {
                 Object target = v.getClass().getMethod("getTarget").invoke(v);
                 Object nodes = v.getClass().getMethod("getNodeCount").invoke(v);
                 Object reach = v.getClass().getMethod("canReach").invoke(v);
+                String start = "";
+                if (((Integer) nodes) > 0) {
+                    Object first = v.getClass().getMethod("getNode", int.class).invoke(v, 0);
+                    start = " start (" + first.getClass().getField("x").get(first) + ", " + first.getClass().getField("y").get(first) + ", " + first.getClass().getField("z").get(first) + ")";
+                }
                 String end = "";
                 Object node = v.getClass().getMethod("getEndNode").invoke(v);
                 if (node != null) {
                     end = " end (" + node.getClass().getField("x").get(node) + ", " + node.getClass().getField("y").get(node) + ", " + node.getClass().getField("z").get(node) + ")";
                 }
-                return "path to " + target + " nodes " + nodes + " reach " + reach + end;
+                return "path to " + target + " nodes " + nodes + " reach " + reach + start + end;
             }
         } catch (ReflectiveOperationException e) {
             return String.valueOf(v);

@@ -427,6 +427,40 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec: dfb89499's lane 7 hold) The braked side slope into the
+    /// shared lift under a wall sign (dry or waterlogged): water states, rest, air, entry, exit
+    SideSlope {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, default_value = "0.2,0.3,0.4")]
+        speeds: String,
+        #[arg(long)]
+        waterlogged: bool,
+        #[arg(long, default_value_t = 100)]
+        release_at: u32,
+        /// Restart rows at these ticks, a,b
+        #[arg(long, default_value = "")]
+        restarts: String,
+        #[arg(long, default_value_t = 260)]
+        max_ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec: the pocket backs) A cart at rest on a north_south powered
+    /// rail powered with a block at its north end: the first tick's velocity, whether it leaves
+    RailKick {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "slime_block,glass,stone")]
+        blocks: String,
+        #[arg(long, default_value_t = 60)]
+        power_at: u32,
+        #[arg(long, default_value_t = 20)]
+        watch: u32,
+        /// Restart rows at these ticks (before the power), a,b
+        #[arg(long, default_value = "")]
+        restarts: String,
+    },
     /// (tickexact 2026-11-12, G1 on b8949c96's way-in) The queue's release, the second fall and the
     /// roll into A6's entry: the entry tick and speed, the rider's health, restarts mid-ride
     QueueRoll {
@@ -442,6 +476,10 @@ pub enum MobaiCmd {
         release_at: u32,
         #[arg(long, default_value_t = 10)]
         release_len: u32,
+        /// The release block stays until this departure detector powers (onechunk's emulation of
+        /// the gate) instead of `--release-len` gt
+        #[arg(long, allow_hyphen_values = true)]
+        until_departure: Option<String>,
         #[arg(long, allow_hyphen_values = true, default_value = "3,-25,-5")]
         entry: String,
         /// Restart rows at these ticks after the release, a,b,c
@@ -468,12 +506,25 @@ pub enum MobaiCmd {
         /// The cart's start x,y,z (it rides to the seat); unset: held at the seat
         #[arg(long, allow_hyphen_values = true)]
         start: Option<String>,
-        /// `--start`'s motion vx,vy,vz
-        #[arg(long, allow_hyphen_values = true, default_value = "0,0,0")]
-        motion: String,
+        /// `--start`'s motion vx,vy,vz (else `--speeds` along +x, one per trial in turn)
+        #[arg(long, allow_hyphen_values = true)]
+        motion: Option<String>,
+        #[arg(long, default_value = "0.2")]
+        speeds: String,
+        #[arg(long, default_value_t = 1)]
+        trials: u32,
         /// Cells laid over the module, "x,y,z=STATE;..."
         #[arg(long, allow_hyphen_values = true, default_value = "")]
         set: String,
+        /// Release the cart this many gt after its arrival (to A6's entry, the eject, the ledge)
+        #[arg(long)]
+        release_after: Option<u32>,
+        #[arg(long, allow_hyphen_values = true, default_value = "8,-14,-4")]
+        release_cell: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "9,-15,-3")]
+        departure: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "3,-25,-5")]
+        entry: String,
     },
     /// (tickexact 2026-11-12, ironspec 12:44: A6's restart re-board) A ridden cart onto A6's
     /// activator, a restart at every tick from the eject to eject + W (chest landing or `--glass`)
@@ -513,15 +564,19 @@ pub enum MobaiCmd {
         /// A restart row at every tick from each speed's detector rise to its rest, with the maximum
         #[arg(long)]
         every_tick: bool,
-        /// `--every-tick` starts this many gt before the detector's rise (the lift's top)
-        #[arg(long, default_value_t = 0)]
-        before: u32,
+        /// `--every-tick` narrowed to start this many gt before the detector's rise (default: from
+        /// the summon at R, the whole climb)
+        #[arg(long)]
+        before: Option<u32>,
         /// `--every-tick --before N`: only the ticks before the rise
         #[arg(long)]
         only_before: bool,
         /// FROM,TO: at each speed's worst restart tick, the player joining FROM..=TO gt after the start
         #[arg(long)]
         join: Option<String>,
+        /// Cells laid over the module, "x,y,z=STATE;..." (the hold's slime stop as built)
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        set: String,
         #[arg(long, default_value_t = 400)]
         max_ticks: u32,
     },
@@ -1234,7 +1289,17 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
-        MobaiCmd::QueueRoll { version, module, start, release_cell, release_at, release_len, entry, restarts, max_ticks } => {
+        MobaiCmd::SideSlope { version, module, speeds, waterlogged, release_at, restarts, max_ticks } => {
+            let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::sideslope::side_slope(&version, &module, &speeds, waterlogged, release_at, &restarts, max_ticks)
+        }
+        MobaiCmd::RailKick { version, blocks, power_at, watch, restarts } => {
+            let blocks: Vec<String> = blocks.split(',').map(|b| b.trim().to_string()).filter(|b| !b.is_empty()).collect();
+            let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::railkick::rail_kick(&version, &blocks, power_at, watch, &restarts)
+        }
+        MobaiCmd::QueueRoll { version, module, start, release_cell, release_at, release_len, until_departure, entry, restarts, max_ticks } => {
             let f3 = |s: &str| -> anyhow::Result<[f64; 3]> {
                 let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
@@ -1246,35 +1311,46 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 Ok([v[0], v[1], v[2]])
             };
             let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            crate::queueroll::queue_roll(&version, &module, f3(&start)?, i3(&release_cell)?, release_at, release_len, i3(&entry)?, &restarts, max_ticks)
+            crate::queueroll::queue_roll(&version, &module, f3(&start)?, i3(&release_cell)?, release_at, release_len, until_departure.as_deref().map(i3).transpose()?, i3(&entry)?, &restarts, max_ticks)
         }
-        MobaiCmd::AllDayWait { version, module, seat, home, from, ticks, start, motion, set } => {
-            let s: Vec<f64> = seat.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            let h: Vec<i32> = home.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            anyhow::ensure!(s.len() == 3 && h.len() == 3, "--seat x,y,z --home x,y,z");
-            let start = match start {
-                Some(st) => {
-                    let p: Vec<f64> = st.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-                    let m: Vec<f64> = motion.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-                    anyhow::ensure!(p.len() == 3 && m.len() == 3, "--start x,y,z --motion vx,vy,vz");
-                    Some(([p[0], p[1], p[2]], [m[0], m[1], m[2]]))
-                }
-                None => None,
+        MobaiCmd::AllDayWait { version, module, seat, home, from, ticks, start, motion, speeds, trials, set, release_after, release_cell, departure, entry } => {
+            let f3 = |s: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let i3 = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
             };
             let mut cells = Vec::new();
             for e in set.split(';').filter(|e| !e.trim().is_empty()) {
                 let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=STATE, got {e}"))?;
-                let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-                anyhow::ensure!(v.len() == 3, "--set x,y,z=STATE, got {e}");
-                cells.push(([v[0], v[1], v[2]], st.trim().to_string()));
+                cells.push((i3(p)?, st.trim().to_string()));
             }
-            crate::alldaywait::all_day_wait(&version, &module, [s[0], s[1], s[2]], [h[0], h[1], h[2]], from, ticks, start, &cells)
+            let w = crate::alldaywait::Wait {
+                seat: f3(&seat)?,
+                home: i3(&home)?,
+                from,
+                ticks,
+                start: start.as_deref().map(f3).transpose()?,
+                motion: motion.as_deref().map(f3).transpose()?,
+                speeds: speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?,
+                trials,
+                set: cells,
+                release: match release_after {
+                    Some(n) => Some((n, i3(&release_cell)?, i3(&departure)?, i3(&entry)?)),
+                    None => None,
+                },
+            };
+            crate::alldaywait::all_day_wait(&version, &module, &w)
         }
         MobaiCmd::Reboard { version, file, speeds, window, glass } => {
             let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             crate::reboard::reboard(&version, &file, &speeds, window, glass)
         }
-        MobaiCmd::NapperRide { version, module, depth, speeds, detector, t, hold, restart_at, every_tick, before, only_before, join, max_ticks } => {
+        MobaiCmd::NapperRide { version, module, depth, speeds, detector, t, hold, restart_at, every_tick, before, only_before, join, set, max_ticks } => {
             let p3 = |s: &str| -> anyhow::Result<[i32; 3]> {
                 let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
@@ -1290,7 +1366,12 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 }
                 None => None,
             };
-            let cells = crate::napperride::Cells { detector: p3(&detector)?, t_cell: p3(&t)?, hold: p3(&hold)? };
+            let mut cells_set = Vec::new();
+            for e in set.split(';').filter(|e| !e.trim().is_empty()) {
+                let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=STATE, got {e}"))?;
+                cells_set.push((p3(p)?, st.trim().to_string()));
+            }
+            let cells = crate::napperride::Cells { detector: p3(&detector)?, t_cell: p3(&t)?, hold: p3(&hold)?, set: cells_set };
             crate::napperride::napper_ride(&version, &module, depth, &speeds, &cells, &restarts, every_tick, before, only_before, join, max_ticks)
         }
         MobaiCmd::NapWake { version, file, trials, flip_after, ticks, rest_end, yaws } => {

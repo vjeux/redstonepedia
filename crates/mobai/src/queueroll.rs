@@ -20,9 +20,9 @@ fn opts(version: &str, world: Option<std::path::PathBuf>) -> VanillaOptions {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn queue_roll(version: &str, module: &std::path::Path, start: [f64; 3], release_cell: [i32; 3], release_at: u32, release_len: u32, entry: [i32; 3], restarts: &[u32], max_ticks: u32) -> Result<()> {
+pub fn queue_roll(version: &str, module: &std::path::Path, start: [f64; 3], release_cell: [i32; 3], release_at: u32, release_len: u32, departure: Option<[i32; 3]>, entry: [i32; 3], restarts: &[u32], max_ticks: u32) -> Result<()> {
     println!(
-        "== queue-roll on the official {version} server: {} (its entities summoned, force-loaded); a ridden cart at rest at ({},{},{}), a redstone block at ({},{},{}) from t{release_at} for {release_len} gt; the entry ({},{},{}); restarts at release + {restarts:?}",
+        "== queue-roll on the official {version} server: {} (its entities summoned, force-loaded); a ridden cart at rest at ({},{},{}), a redstone block at ({},{},{}) from t{release_at} {}; the entry ({},{},{}); restarts at release + {restarts:?}",
         module.display(),
         start[0],
         start[1],
@@ -30,6 +30,7 @@ pub fn queue_roll(version: &str, module: &std::path::Path, start: [f64; 3], rele
         release_cell[0],
         release_cell[1],
         release_cell[2],
+        departure.map(|d| format!("until the departure detector ({},{},{}) powers (onechunk's emulation of the gate)", d[0], d[1], d[2])).unwrap_or_else(|| format!("for {release_len} gt")),
         entry[0],
         entry[1],
         entry[2]
@@ -54,14 +55,24 @@ pub fn queue_roll(version: &str, module: &std::path::Path, start: [f64; 3], rele
         let before = srv.cmd_long(&format!("execute if block {} {} {} minecraft:air", release_cell[0], release_cell[1] + DY, release_cell[2]))?.contains("passed");
         let (mut ent, mut least, mut hurts, mut restarted) = (None::<(u32, f64)>, f64::MAX, Vec::new(), None::<u32>);
         let mut path = Vec::new();
+        let mut removed: Option<u32> = None;
         for t in 1..=max_ticks {
             if t == release_at {
                 srv.cmd_ok(&format!("setblock {} {} {} minecraft:redstone_block", release_cell[0], release_cell[1] + DY, release_cell[2]))?;
             }
-            if t == release_at + release_len {
+            if departure.is_none() && t == release_at + release_len {
                 srv.cmd_ok(&format!("setblock {} {} {} minecraft:air", release_cell[0], release_cell[1] + DY, release_cell[2]))?;
+                removed = Some(t);
             }
             srv.step(1)?;
+            if let Some(d) = departure
+                && t >= release_at
+                && removed.is_none()
+                && srv.cmd_long(&format!("execute if block {} {} {} minecraft:detector_rail[powered=true]", d[0], d[1] + DY, d[2]))?.contains("passed")
+            {
+                srv.cmd_ok(&format!("setblock {} {} {} minecraft:air", release_cell[0], release_cell[1] + DY, release_cell[2]))?;
+                removed = Some(t);
+            }
             let p = nums(&srv.cmd_long("data get entity @e[tag=qrc,limit=1] Pos")?);
             let m = nums(&srv.cmd_long("data get entity @e[tag=qrc,limit=1] Motion")?);
             let h = nums(&srv.cmd_long("data get entity @e[tag=qrv,limit=1] Health")?).first().copied().unwrap_or(f64::NAN);
@@ -103,9 +114,10 @@ pub fn queue_roll(version: &str, module: &std::path::Path, start: [f64; 3], rele
             }
         }
         println!(
-            "  {}: the release cell {}; the entry ({},{},{}) at {}; the rider's least health {least}; hurt at {}",
+            "  {}: the release cell {}; the release block removed at {}; the entry ({},{},{}) at {}; the rider's least health {least}; hurt at {}",
             restart.map(|r| format!("restart at release + {r}")).unwrap_or_else(|| "no restart".into()),
             if before { "air before" } else { "NOT air before" },
+            removed.map(|t| format!("release + {}", t as i64 - release_at as i64)).unwrap_or_else(|| "never".into()),
             entry[0],
             entry[1],
             entry[2],

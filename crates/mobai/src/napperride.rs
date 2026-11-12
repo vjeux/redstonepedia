@@ -8,11 +8,13 @@
 //! T's), and the tick it comes to rest on the hold (`--hold`, (9,0,8): its cell, horizontal speed
 //! under 0.005). Restart rows (a save, stop and start, the cart and its rider reloaded):
 //! `--restart-at` at the first tick the cart reaches a climb height; `--every-tick` at every tick
-//! from the speed's own detector rise to its rest (each a row), printing each row's detector ->
-//! rest and the maximum with its restart tick; `--join FROM,TO` the player joining FROM..=TO gt after
-//! the start at the worst restart tick (the single-player case: the restart and the login
-//! coincide). Ticks after a start at which the cart, not yet at rest, did not move are printed as
-//! entity freezes.
+//! from the summon at R (the whole climb; `--before N` narrows it to N gt before the speed's own
+//! detector rise, `--only-before` to the ticks before the rise) to its rest (each a row), printing
+//! each row's detector -> rest and the maximum with its restart tick; `--join FROM,TO` the player
+//! joining FROM..=TO gt after the start at the worst restart tick (the single-player case: the
+//! restart and the login coincide). Ticks after a start at which the cart, not yet at rest, did not
+//! move are printed as entity freezes. With MCTAS_NAPPER_RIDE_PATH the nominal ride's path, and
+//! every tick from 8 before the detector's rise to 2 after it.
 
 use anyhow::Result;
 use mctas::vanilla::{VanillaOptions, VanillaServer};
@@ -38,6 +40,8 @@ pub struct Cells {
     pub detector: [i32; 3],
     pub t_cell: [i32; 3],
     pub hold: [i32; 3],
+    /// cells laid over the module (`--set`: e.g. the hold's slime stop (9,0,9) as built)
+    pub set: Vec<([i32; 3], String)>,
 }
 
 #[derive(Default)]
@@ -48,6 +52,8 @@ struct Ride {
     restart_tick: Option<u32>,
     freezes: Vec<u32>,
     path: Vec<String>,
+    /// every tick: (t, the cart's position, its motion)
+    trace: Vec<(u32, [f64; 3], [f64; 3])>,
 }
 
 fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, restart: Restart, join: Option<u32>, max_ticks: u32) -> Result<Ride> {
@@ -59,6 +65,9 @@ fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, 
     srv.cmd_ok(&format!("setworldspawn 0 {} 0", 30 + DY))?;
     srv.step(40)?;
     crate::seatclear::place_part(&mut srv, module)?;
+    for (p, s) in &c.set {
+        srv.cmd(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
+    }
     let d = c.detector;
     if srv.cmd_long(&format!("execute if block {} {} {} minecraft:rail[shape=east_west]", d[0], d[1] + DY, d[2]))?.contains("passed") {
         srv.cmd_ok(&format!("setblock {} {} {} minecraft:detector_rail[shape=east_west,powered=false]", d[0], d[1] + DY, d[2]))?;
@@ -99,6 +108,9 @@ fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, 
         }
         if t % 5 == 0 || t <= 3 {
             r.path.push(format!("t{t} ({:.3},{:.3},{:.3}) v {speed:.3}", pos[0], pos[1], pos[2]));
+        }
+        if m.len() == 3 {
+            r.trace.push((t, pos, [m[0], m[1], m[2]]));
         }
         last = pos;
         let now = match restart {
@@ -155,10 +167,11 @@ fn line(v: f64, label: &str, c: &Cells, r: &Ride) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: &[f64], c: &Cells, restarts: &[f64], every_tick: bool, before: u32, only_before: bool, join: Option<(u32, u32)>, max_ticks: u32) -> Result<()> {
+pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: &[f64], c: &Cells, restarts: &[f64], every_tick: bool, before: Option<u32>, only_before: bool, join: Option<(u32, u32)>, max_ticks: u32) -> Result<()> {
     println!(
-        "== napper-ride on the official {version} server: {} (its entities summoned, force-loaded); the napper from R ({},{},4) east at {speeds:?}; the detector ({},{},{}), the T ({},{},{}), the hold ({},{},{}); restarts at cart y {restarts:?}{}{}",
+        "== napper-ride on the official {version} server: {} (its entities summoned, force-loaded{}); the napper from R ({},{},4) east at {speeds:?}; the detector ({},{},{}), the T ({},{},{}), the hold ({},{},{}); restarts at cart y {restarts:?}{}{}",
         module.display(),
+        if c.set.is_empty() { String::new() } else { format!("; laid over it: {}", c.set.iter().map(|(p, s)| format!("({},{},{}) {s}", p[0], p[1], p[2])).collect::<Vec<_>>().join(", ")) },
         4,
         -19 - depth,
         c.detector[0],
@@ -170,7 +183,14 @@ pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: 
         c.hold[0],
         c.hold[1],
         c.hold[2],
-        if every_tick { format!("; a restart at every tick from {before} gt before the detector's rise to the rest") } else { String::new() },
+        if every_tick {
+            match before {
+                None => "; a restart at every tick from the summon at R (the whole climb) to the rest".to_string(),
+                Some(n) => format!("; a restart at every tick from {n} gt before the detector's rise to {}", if only_before { "the rise" } else { "the rest" }),
+            }
+        } else {
+            String::new()
+        },
         join.map(|(a, b)| format!("; the player joining {a}..={b} gt after the start at the worst restart tick")).unwrap_or_default()
     );
     let mut overall: Option<(u32, f64, u32)> = None;
@@ -179,15 +199,34 @@ pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: 
         println!("{}", line(v, "", c, &nominal));
         if std::env::var_os("MCTAS_NAPPER_RIDE_PATH").is_some() {
             println!("    {}", nominal.path.join("; "));
+            if let Some(a0) = nominal.rise {
+                // every tick around the rise: the lift's top exit, the exit rail, the detector
+                // (MCTAS_NAPPER_RIDE_TRACE: every tick of the ride)
+                let all = std::env::var_os("MCTAS_NAPPER_RIDE_TRACE").is_some();
+                for (t, p, m) in nominal.trace.iter().filter(|(t, _, _)| all || (*t + 8 >= a0 && *t <= a0 + 2)) {
+                    println!(
+                        "    t{t}{}: ({:.4},{:.4},{:.4}) motion ({:+.4},{:+.4},{:+.4}) horizontal {:.4}",
+                        if *t == a0 { " (the rise)" } else { "" },
+                        p[0],
+                        p[1],
+                        p[2],
+                        m[0],
+                        m[1],
+                        m[2],
+                        m[0].hypot(m[2])
+                    );
+                }
+            }
         }
         for &y in restarts {
             let r = ride(version, module, depth, v, c, Restart::AtY(y), None, max_ticks)?;
             println!("{}", line(v, &format!(", restart at y >= {y} (t{})", r.restart_tick.unwrap_or(0)), c, &r));
         }
         if every_tick && let (Some(a0), Some(b)) = (nominal.rise, nominal.rest) {
-            // (the approach: from `before` gt ahead of the detector's rise; a restart at the lift's
-            // top, before the rise, moved the rest 4 gt later on f52f712d7)
-            let a = a0.saturating_sub(before).max(1);
+            // (G1 on 02e012c7f: R_max is over a restart at every tick of the approach, the whole
+            // climb from R; a restart at the lift's top, before the rise, moved the rest 4 gt later
+            // on f52f712d7) `--before N` narrows the window to N gt before the rise
+            let a = before.map(|n| a0.saturating_sub(n)).unwrap_or(1).max(1);
             let b = if only_before { a0.saturating_sub(1).max(a) } else { b };
             let mut worst: Option<(u32, u32)> = None;
             for k in a..=b {

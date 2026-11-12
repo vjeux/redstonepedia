@@ -129,7 +129,9 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
         } else {
             levers(&mut srv, false)?;
         }
-        let (mut hostile, mut wake, mut stand, mut wyaw) = (None::<u32>, None::<u32>, String::new(), f64::NAN);
+        // (G1 on 02e012c7f: stopSleeping picks the stand-up side with the yaw the villager has
+        // asleep, then turns it to face the bed: the yaw on the last tick asleep picks the side)
+        let (mut hostile, mut wake, mut stand, mut wyaw, mut asleep_yaw) = (None::<u32>, None::<u32>, String::new(), f64::NAN, f64::NAN);
         for t in 1..=ticks {
             srv.step(1)?;
             for l in drain(&srv)? {
@@ -147,6 +149,7 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
                 }
                 break;
             }
+            asleep_yaw = nums(&srv.cmd_long(&format!("data get entity {sel} Rotation"))?).first().copied().unwrap_or(f64::NAN);
         }
         if hostile.is_some() {
             seen += 1;
@@ -159,7 +162,7 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             yaw.map(|y| format!("yaw {y} at the summon; ")).unwrap_or_default(),
             if rest_end { format!("the day time set to 23950 at lie-down + {flip_after} (levers on)") } else { format!("levers off at lie-down + {flip_after}") },
             hostile.map(|t| format!("set at F + {t}")).unwrap_or_else(|| "never set".into()),
-            wake.map(|t| format!("woke at F + {t} (lie-down + {}) with yaw {wyaw:.1}, stood up at {stand}", t + flip_after)).unwrap_or_else(|| format!("asleep after {ticks} gt")),
+            wake.map(|t| format!("woke at F + {t} (lie-down + {}), the yaw on the last tick asleep {asleep_yaw:.1} (after the wake {wyaw:.1}), stood up at {stand}", t + flip_after)).unwrap_or_else(|| format!("asleep after {ticks} gt")),
         );
         srv.cmd(&format!("kill {sel}"))?;
         srv.step(25)?;
