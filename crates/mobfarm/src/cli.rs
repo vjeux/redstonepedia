@@ -768,6 +768,11 @@ pub enum MobfarmCmd {
         /// written frame, `--out-shift`); exit 1 under the bar.
         #[arg(long, allow_hyphen_values = true)]
         sentinel: Option<String>,
+        /// Print condition (a) over every villager position (riders and rail cells): per y phase,
+        /// how many lie more than 1 section (Chebyshev) from every bed's section (the shared bed,
+        /// `--bed`, and the sentinel's room, `--sentinel`), in the written frame (`--out-shift`).
+        #[arg(long)]
+        sections: bool,
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -3999,7 +4004,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
             println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
-        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, out } => {
+        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, sections, out } => {
             let clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let reserves: Vec<crate::column::Reserve> = reserves.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
@@ -4038,6 +4043,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let (text, d, bed_ok) = crate::column::run_full(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
+            if sections {
+                let mut beds: Vec<[i32; 3]> = bed_cell.into_iter().collect();
+                if let Some(sb) = sentinel_box {
+                    beds.push(sb.0);
+                }
+                anyhow::ensure!(!beds.is_empty(), "--sections needs --bed (and --sentinel)");
+                print!("{}", crate::column::section_report(&d, &beds, shift_w));
+            }
             if let Some(pf) = &positions_out {
                 let sh: [i32; 3] = match out_shift.as_deref() {
                     None => [0, 0, 0],

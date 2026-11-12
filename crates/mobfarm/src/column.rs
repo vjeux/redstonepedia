@@ -750,6 +750,47 @@ pub fn bed_radius(parts: &[Part], reserves: &[Reserve], bed: P, exempt: &[String
     (s, ok)
 }
 
+/// Condition (a) extended to every villager position (ironspec Nov 11 18:54, for b8949c96's rule):
+/// how many villager positions (every ridden cart's cell and every rail cell of `d`) lie more than
+/// 1 section (Chebyshev, in section coordinates, y included) from every bed's section (`beds`: the
+/// shared bed's head and the sentinel's bed, the column's frame). x and z sections come from the
+/// written frame (`shift`); the y sections depend on where the site puts the design's y, so every
+/// one of the 16 phases is printed (a phase p: design y + p is the world y modulo 16).
+pub fn section_report(d: &Design, beds: &[P], shift: P) -> String {
+    let mut cells: std::collections::BTreeSet<P> = std::collections::BTreeSet::new();
+    for e in d.entities.iter().filter(|e| e.kind.ends_with("minecart") && e.nbt.as_deref().is_some_and(|t| t.contains("villager"))) {
+        cells.insert(e.cell());
+    }
+    for (c, s) in &d.blocks {
+        if rail_shape_of(s).is_some() {
+            cells.insert(*c);
+        }
+    }
+    let sec = |c: P, p: i32| [(c[0] + shift[0]).div_euclid(16), (c[1] + p).div_euclid(16), (c[2] + shift[2]).div_euclid(16)];
+    let mut s = format!("sections (condition (a) over every villager position: {} cells, riders and rails; more than 1 section, Chebyshev, from every bed's section; beds {}), per y phase p (world y = design y + p, mod 16):\n", cells.len(), beds.iter().map(|b| format!("({},{},{})", b[0], b[1], b[2])).collect::<Vec<_>>().join(" "));
+    for p in 0..16 {
+        let mut far = 0usize;
+        let mut worst = 0i32;
+        let mut example: Option<P> = None;
+        for c in &cells {
+            let cs = sec(*c, p);
+            let dmin = beds.iter().map(|b| {
+                let bs = sec(*b, p);
+                (cs[0] - bs[0]).abs().max((cs[1] - bs[1]).abs()).max((cs[2] - bs[2]).abs())
+            }).min().unwrap_or(0);
+            if dmin > 1 {
+                far += 1;
+                if dmin > worst || example.is_none() {
+                    example = Some(*c);
+                }
+            }
+            worst = worst.max(dmin);
+        }
+        s.push_str(&format!("  p {p:>2}: {far} of {} beyond 1 section (the farthest {worst} sections){}\n", cells.len(), example.map(|c| format!(", e.g. ({},{},{})", c[0], c[1], c[2])).unwrap_or_default()));
+    }
+    s
+}
+
 /// The sentinel villager's room (b8949c96's rule (c), Nov 11): its box `s` (cells, inclusive) must
 /// stay out of every villager position's box grown by 10 (`Villager.spawnGolemIfNeeded`'s
 /// `inflate(10)`), so some axis gap of at least 10, ironspec's bar 11.7. Every rail cell of every
@@ -802,6 +843,18 @@ pub fn sentinel(parts: &[Part], s: (P, P), bed: Option<P>, shift: P) -> (String,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sections_per_phase() {
+        // a rail at y 0 and a bed at y 40 in the same column: 2 or 3 sections apart by the phase
+        let mut d = Design::default();
+        d.blocks.insert([0, 0, 0], "minecraft:rail[shape=north_south,waterlogged=false]".into());
+        let rep = section_report(&d, &[[0, 40, 0]], [0, 0, 0]);
+        assert!(rep.contains("p  0: 1 of 1 beyond 1 section (the farthest 2 sections)"), "{rep}");
+        assert!(rep.contains("p  8: 1 of 1 beyond 1 section (the farthest 3 sections)"), "{rep}");
+        let near = section_report(&d, &[[0, 40, 0], [0, 10, 0]], [0, 0, 0]);
+        assert!(near.contains("p  0: 0 of 1"), "{near}");
+    }
 
     #[test]
     fn sentinel_gap() {
