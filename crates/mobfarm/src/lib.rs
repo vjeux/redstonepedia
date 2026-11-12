@@ -57,6 +57,7 @@ pub mod siting;
 pub mod fleecheck;
 pub mod envelope;
 pub mod tile;
+pub mod pushscan;
 pub mod ground;
 pub mod ledge_sweep;
 pub mod contact_scene;

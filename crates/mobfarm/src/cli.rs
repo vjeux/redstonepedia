@@ -766,9 +766,6 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 0)]
         bins: u32,
     },
-    /// (ironspec 2026-11-11 12:50) The rail-junction check: every plain rail joined to three or four
-    /// rails, its stored shape against the game's settle order for its signal at rest (both power
-    /// states printed); exit status 1 when a stored shape would re-settle at its first update.
     /// (9fc3155f, ironspec Nov 11 21:24: the smallest one-bed farm) The rules-only envelope of each
     /// layout family (F1 stack, F2 side, F3 inverted stack, F5 close) with each queue (Q1 one lane
     /// of N waiting carts, Q2 L lanes x P): the station (v4's 3 summoners and 44 golem cells), the
@@ -789,6 +786,9 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',')]
         villagers: Vec<usize>,
     },
+    /// (ironspec 2026-11-11 12:50) The rail-junction check: every plain rail joined to three or four
+    /// rails, its stored shape against the game's settle order for its signal at rest (both power
+    /// states printed); exit status 1 when a stored shape would re-settle at its first update.
     JunctionCheck {
         design: PathBuf,
     },
@@ -800,6 +800,23 @@ pub enum MobfarmCmd {
         design: PathBuf,
         #[arg(long, allow_hyphen_values = true)]
         at: Vec<String>,
+    },
+    /// (9fc3155f, ironspec Nov 12 00:11) The static push-range scan: every cell where a cart rests
+    /// or creeps (--rest cells, and every unpowered powered rail and detector rail unless --no-auto)
+    /// against every rail cell of another track within push range (boxes 0.98 wide and 0.7 tall,
+    /// the resting one inflated 0.2 in x and z, y ranges overlapping; a slope's box spans its rise).
+    PushScan {
+        design: PathBuf,
+        /// A rest or creep cell x,y,z (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        rest: Vec<String>,
+        /// Only the --rest cells.
+        #[arg(long)]
+        no_auto: bool,
+        /// The rail-T scan's declared switch x,y,z (repeatable): a signal source meant to flip
+        /// the T beside it; every other source beside a T is undeclared.
+        #[arg(long, allow_hyphen_values = true)]
+        switch: Vec<String>,
     },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
@@ -8401,6 +8418,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
+        MobfarmCmd::PushScan { design, rest, no_auto, switch } => {
+            let (_c, spec) = load(version, &design)?;
+            let mut rests = Vec::new();
+            for r in &rest {
+                let v: Vec<i32> = r.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--rest x,y,z");
+                rests.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            }
+            let mut switches = Vec::new();
+            for r in &switch {
+                let v: Vec<i32> = r.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--switch x,y,z");
+                switches.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            }
+            let (lines, n, tracks) = crate::pushscan::scan(&spec, &rests, !no_auto);
+            let flagged = lines.iter().filter(|l| l.contains("PUSH")).count();
+            println!("push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z): {flagged} pairs within push range");
+            for l in &lines {
+                println!("{l}");
+            }
+            let (tl, undeclared) = crate::pushscan::tees(&spec, &switches);
+            println!("rail-T scan (plain rails with 3+ potential connections; the signal sources beside each must be declared switches): {} Ts, {undeclared} undeclared sources", tl.len());
+            for l in &tl {
+                println!("{l}");
+            }
+        }
         MobfarmCmd::TileMargins { design, at } => {
             let (_c, spec) = load(version, &design)?;
             let s = crate::tile::sets(&spec).map_err(|e| anyhow::anyhow!(e))?;
@@ -8554,6 +8597,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (wx, wz) = (crate::envelope::pitch(&lay, &st, 0, false), crate::envelope::pitch(&lay, &st, 2, false));
                     let (mp, mper) = crate::envelope::pitch_mirror_z(&lay, &st, true);
                     println!("  pitch with the waiting riders only (the departing batch lingers by rule): x {wx}, z {wz}; the strict pitch below takes every rider position");
+                    for (axis, name) in [(0usize, "x"), (2usize, "z")] {
+                        if let Some((rule, m, r, s)) = crate::envelope::pitch_worst(&lay, &st, axis, true, 32) {
+                            println!("  the strict pitch's worst pair at {name} 32: {rule} {m:+.2}, the rider at {:.2},{:.2},{:.2} against {:.2},{:.2},{:.2}", r.x, r.y, r.z, s.x, s.y, s.z);
+                        }
+                    }
+                    // (the roof over the highest part, ironspec Nov 12 01:55: bottom slabs whose
+                    // underside clears every rider's box (feet + 1.95), so no rider's head is in it)
+                    let ytop = lay.riders.iter().chain(lay.transit.iter()).chain(st.holds.iter()).map(|r| r.y).fold(f64::MIN, f64::max);
+                    let roof = (ytop + 1.95).ceil() as i32;
+                    println!("  the roof: bottom slabs at y {roof} (the highest rider's feet {ytop:.2}, its box's top {:.2} under the slab's underside); the rod at the roof's corner at y {}, the daylight detector's column up to the roof", ytop + 1.95, roof + 1);
                     let al = |p: i32| ((p + 15) / 16) * 16;
                     println!(
                         "{} with {}{}: envelope {} x {} x {} (x {}..{}, y {}..{}, z {}..{}) = {} blocks^3; binding x: {}; y: {}; z: {}; pitch x {} ({} chunk-aligned), z {} ({})",
@@ -8629,6 +8682,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (_c, spec) = load(version, &design)?;
             let (text, failed) = crate::queue::junction_gate(&spec, &std::fs::read_to_string(&design)?);
             println!("{text}");
+            // (ironspec Nov 12 02:46: placement-order shapes are accepted: each T's placement order
+            // for the build guide, and the signal-source updates that can reach it)
+            let (tl, undeclared) = crate::pushscan::tees(&spec, &[]);
+            println!("placement order (a T keeps its placed shape while no signal source's update reaches it; {undeclared} reaching sources, none declared here):");
+            for l in &tl {
+                println!("{l}");
+            }
             if failed {
                 std::process::exit(1);
             }

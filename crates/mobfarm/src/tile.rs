@@ -79,11 +79,13 @@ pub fn sets(spec: &FarmSpec) -> Result<Sets, String> {
     }
     let zombies = crate::fleecheck::zombies_seated(w, spec);
     let beds: Vec<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("_bed[") && b.to_string().contains("part=head")).map(|(p, _)| *p).collect();
-    // (the napper on foot, G1's review: its sleep point (the bed head, the sleeping villager at the
-    // bed's height) and its stand-up cells (the head's four sides at floor level) as rider positions)
+    // (the napper on foot, G1's review: its sleep point (the bed head, a sleeping villager at the
+    // bed's y + 0.6875, `setPosToBed`) and its stand-up cells (the head's four sides at floor level;
+    // `BedBlock.findStandUpPosition` also tries the cells round the foot and one up, which this
+    // module's bed stop walls off) as rider positions)
     let mut napper = Vec::new();
     for b in &beds {
-        napper.push(Vec3::new(b.x as f64 + 0.5, b.y as f64 + 0.5625, b.z as f64 + 0.5));
+        napper.push(Vec3::new(b.x as f64 + 0.5, b.y as f64 + 0.6875, b.z as f64 + 0.5));
         for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
             let c = BlockPos::new(b.x + dx, b.y, b.z + dz);
             if w.get(c).is_air() && w.get(BlockPos::new(c.x, c.y + 1, c.z)).is_air() {
