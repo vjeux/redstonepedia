@@ -487,6 +487,10 @@ pub struct ReturnJudgeOpts {
     /// The late-arrival rows: the napper leaving R at every tick in this range at each nominal corner
     /// (lead rows: its departure only at a scheduled pulse, never with a batch; ironspec 10:02).
     pub late: Option<(i64, i64)>,
+    /// Whether the bench's K/J(-1) taps follow the napper's actual departure (7b90c3f1's `--day1-taps
+    /// --dep-keyed`); when not, the late family's verdict names the bench's emulation as the cause of
+    /// its failures (G1's note on 1a962db4a), so they are not read as the design's.
+    pub taps_follow_departure: bool,
     pub bars: ReturnBars,
     /// Every gt bar's margin at the nominal corners.
     pub margin: i64,
@@ -781,7 +785,20 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
                 least(&rs, |r| r.shaft, o.bars.shaft_min),
                 margins(&rs.iter().flat_map(|r| r.merge.clone()).collect::<Vec<_>>(), o.bars.branch_band),
                 napper_text(&rs),
-                if bad.is_empty() { String::new() } else { format!(" — failing: {} ({})", which.join(" "), kinds.into_iter().collect::<Vec<_>>().join(", ")) }
+                if bad.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " — failing: {} ({}){}",
+                        which.join(" "),
+                        kinds.into_iter().collect::<Vec<_>>().join(", "),
+                        if fam.starts_with("late") && !o.taps_follow_departure {
+                            " — CAUSE: the bench's emulated K/J(-1) taps fire on the schedule, not following a late napper's actual departure (7b90c3f1's --day1-taps --dep-keyed keys them to it); these failures are the bench's emulation, not the design's"
+                        } else {
+                            ""
+                        }
+                    )
+                }
             ));
         }
         for how in &orders {
