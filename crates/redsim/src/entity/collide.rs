@@ -64,11 +64,11 @@ fn find_bits(min: f64, max: f64) -> i32 {
 /// `CubeVoxelShape`'s every 1/2^bits line when the box fits that grid on all three axes
 /// (`Shapes.create`), else its two edges (`ArrayVoxelShape`); an entity's box: its edges
 /// (tickexact 2026-11-11, cart-pole: a piston head's platform puts a line at 0.5 through its arm).
-fn shape_grid(cell: Option<BlockPos>, boxes: &[Aabb], a: usize) -> Vec<f64> {
+/// The grid is the block's own, from `origin` (its cell corner, moved with a moved shape).
+fn shape_grid(origin: Option<[f64; 3]>, boxes: &[Aabb], a: usize) -> Vec<f64> {
     let mut v: Vec<f64> = Vec::new();
     for bx in boxes {
-        let cube = cell.and_then(|c| {
-            let o = [c.x as f64, c.y as f64, c.z as f64];
+        let cube = origin.and_then(|o| {
             let bits = [find_bits(bx.min(0) - o[0], bx.max(0) - o[0]), find_bits(bx.min(1) - o[1], bx.max(1) - o[1]), find_bits(bx.min(2) - o[2], bx.max(2) - o[2])];
             bits.iter().all(|b| *b >= 0).then_some((o[a], bits[a]))
         });
@@ -94,7 +94,7 @@ fn shape_grid(cell: Option<BlockPos>, boxes: &[Aabb], a: usize) -> Vec<f64> {
 /// first full voxel past the moving face's own voxel): what [`shape_collide`] does when a face
 /// of the moving box starts inside one of the shape's boxes, where a grid line inside that box
 /// still stops it.
-fn shape_collide_voxels(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &[Aabb], mut distance: f64) -> f64 {
+fn shape_collide_voxels(a: usize, moving: Aabb, cell: Option<[f64; 3]>, shape: &[Aabb], mut distance: f64) -> f64 {
     let (b, c) = others(a);
     let (ga, gb, gc) = (shape_grid(cell, shape, a), shape_grid(cell, shape, b), shape_grid(cell, shape, c));
     // `findIndex`: the last line at or below `v` (-1 below the first)
@@ -155,7 +155,7 @@ pub fn set_voxel_trace(on: bool) {
 }
 
 /// `VoxelShape.collideX` of one block's shape (its boxes, moved to the block) along `a`.
-fn shape_collide(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &[Aabb], mut distance: f64) -> f64 {
+fn shape_collide(a: usize, moving: Aabb, cell: Option<[f64; 3]>, shape: &[Aabb], mut distance: f64) -> f64 {
     if shape.is_empty() {
         return distance;
     }
@@ -184,7 +184,7 @@ fn shape_collide(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &[Aabb],
         if (boxed - v).abs() > 1.0e-9 {
             VOXEL_STOPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if VOXEL_TRACE.load(std::sync::atomic::Ordering::Relaxed) {
-                eprintln!("voxel-stop: cell {:?} axis {} moving box ({:.4} {:.4} {:.4})..({:.4} {:.4} {:.4}): the old box test {boxed:.5}, the voxel grid {v:.5}", cell.map(|c| (c.x, c.y, c.z)), ["x", "y", "z"][a], moving.min_x, moving.min_y, moving.min_z, moving.max_x, moving.max_y, moving.max_z);
+                eprintln!("voxel-stop: grid origin {:?} axis {} moving box ({:.4} {:.4} {:.4})..({:.4} {:.4} {:.4}): the old box test {boxed:.5}, the voxel grid {v:.5}", cell, ["x", "y", "z"][a], moving.min_x, moving.min_y, moving.min_z, moving.max_x, moving.max_y, moving.max_z);
             }
         }
         return v;
@@ -207,8 +207,9 @@ fn shape_collide(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &[Aabb],
     distance
 }
 
-/// A collider: a block shape with its cell (its voxel grid: [`shape_grid`]), or an entity's box.
-pub type Collider = (Option<BlockPos>, Vec<Aabb>);
+/// A collider: a block shape with its voxel grid's origin (its cell corner, moved by the block's
+/// offset for a speleothem: [`shape_grid`]), or an entity's box.
+pub type Collider = (Option<[f64; 3]>, Vec<Aabb>);
 
 /// `Shapes.collide(axis, moving, shapes, distance)`.
 fn shapes_collide(a: usize, moving: Aabb, shapes: &[Collider], mut distance: f64) -> f64 {
@@ -358,6 +359,29 @@ pub fn block_collisions(w: &World, bb: Aabb) -> Vec<(BlockPos, Vec<Aabb>)> {
     for_each_block_collision(w, bb, |p, s| {
         if let Some(boxes) = boxes_meeting(w, &s, p, bb) {
             out.push((p, boxes));
+        }
+        true
+    });
+    out
+}
+
+/// [`block_collisions`] as colliders: each shape with its voxel grid's origin, the block's cell
+/// corner moved by the block's offset where its shape is moved by one (a speleothem: the game's
+/// `shape.move(offset)` keeps the centred shape's grid, shifted; tickexact 2026-11-11, mob-AI's
+/// sulfur cube stopped on a frustum's moved quarter line).
+fn block_colliders(w: &World, bb: Aabb) -> Vec<Collider> {
+    let mut out = Vec::new();
+    for_each_block_collision(w, bb, |p, s| {
+        if let Some(boxes) = boxes_meeting(w, &s, p, bb) {
+            let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
+            let origin = match s {
+                Block::Terrain(id) if speleothem(id) => {
+                    let (ox, oz) = crate::bamboo::offset_max(p, 0.125);
+                    [x + ox, y, z + oz]
+                }
+                _ => [x, y, z],
+            };
+            out.push((Some(origin), boxes));
         }
         true
     });
@@ -569,7 +593,7 @@ pub fn collide(w: &World, i: usize, movement: Vec3) -> Vec3 {
         movement
     } else {
         let mut colliders = entity_colliders.clone();
-        colliders.extend(block_collisions(w, bb.expand_towards(movement.x, movement.y, movement.z)).into_iter().map(|(p, s)| (Some(p), s)));
+        colliders.extend(block_colliders(w, bb.expand_towards(movement.x, movement.y, movement.z)));
         collide_with_shapes(movement, bb, &colliders)
     };
     let x_col = movement.x != step.x;
@@ -583,7 +607,7 @@ pub fn collide(w: &World, i: usize, movement: Vec3) -> Vec3 {
             step_up = step_up.expand_towards(0.0, -1.0e-5f32 as f64, 0.0);
         }
         let mut colliders = entity_colliders.clone();
-        colliders.extend(block_collisions(w, step_up).into_iter().map(|(p, s)| (Some(p), s)));
+        colliders.extend(block_colliders(w, step_up));
         let skip = step.y as f32;
         for h in candidate_step_up_heights(grounded, &colliders, max_up, skip) {
             let from_ground = collide_with_shapes(Vec3::new(movement.x, h as f64, movement.z), grounded, &colliders);
@@ -791,7 +815,7 @@ pub fn collide_box(w: &World, bb: Aabb, movement: Vec3) -> Vec3 {
     if movement.length_sqr() == 0.0 {
         return movement;
     }
-    let colliders: Vec<Collider> = block_collisions(w, bb.expand_towards(movement.x, movement.y, movement.z)).into_iter().map(|(p, s)| (Some(p), s)).collect();
+    let colliders: Vec<Collider> = block_colliders(w, bb.expand_towards(movement.x, movement.y, movement.z));
     collide_with_shapes(movement, bb, &colliders)
 }
 
