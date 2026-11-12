@@ -1400,6 +1400,11 @@ pub enum MobfarmCmd {
         /// (tail-v5: G3, flat, curve, four flats, U into P4: about 6).
         #[arg(long, default_value_t = 0)]
         recv_run: i32,
+        /// (7b90c3f1) With --recv-run 2+ and --recv-fly: the ripple keyed on the receiver's exit
+        /// detector (the second flat past its front gate): the next advance D live gt after each
+        /// leaving cart's exit edge.
+        #[arg(long)]
+        recv_exit_d: Option<i64>,
     },
     TraceDiff {
         a: PathBuf,
@@ -4132,7 +4137,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive_gate, freeze32, freeze_matrix, jobs, receiver, ret_offs, recv_settle, recv_feed, recv_timeout, recv_ideal, recv_fly, receiver_p, recv_run } => {
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive_gate, freeze32, freeze_matrix, jobs, receiver, ret_offs, recv_settle, recv_feed, recv_timeout, recv_ideal, recv_fly, receiver_p, recv_run, recv_exit_d } => {
             let pairs = |v: &[String], what: &str| -> anyhow::Result<Vec<(i64, i64)>> {
                 v.iter()
                     .map(|s| {
@@ -4143,7 +4148,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let fr = pairs(&freeze, "freeze")?;
             let fr32 = pairs(&freeze32, "freeze32")?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive: alive_gate, freeze32: fr32, receiver: match receiver.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--receiver takes T_MID,T_REAR") }, ret_offs, recv_settle, recv_feed, recv_timeout, recv_ideal, recv_fly, receiver_p: match receiver_p.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--receiver-p takes D_MID,D_REAR") }, recv_run };
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive: alive_gate, freeze32: fr32, receiver: match receiver.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--receiver takes T_MID,T_REAR") }, ret_offs, recv_settle, recv_feed, recv_timeout, recv_ideal, recv_fly, receiver_p: match receiver_p.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--receiver-p takes D_MID,D_REAR") }, recv_run, recv_exit_d };
             if !freeze_matrix.is_empty() {
                 let parts: Vec<&str> = freeze_matrix.split(';').collect();
                 let sv: Vec<i64> = parts.first().unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();

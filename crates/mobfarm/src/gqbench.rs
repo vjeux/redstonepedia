@@ -94,6 +94,9 @@ pub struct GqOpts {
     pub receiver_p: Option<(i64, i64)>,
     /// (7b90c3f1) Flats between the receiver's front gate (Tail(2)'s G) and the U into Tail(3).
     pub recv_run: i32,
+    /// (7b90c3f1) The flying ripple keyed on the receiver's exit detector: the next advance this many
+    /// live gt after the leaving cart's exit edge (needs recv_run >= 2).
+    pub recv_exit_d: Option<i64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -115,6 +118,8 @@ struct Geo {
     sink_x: f64,
     run_cells: Vec<(i32, i32)>,
     run_sensor: (i32, i32),
+    /// (7b90c3f1) The receiver's exit detector: the second flat past its front gate (--recv-run 2+).
+    recv_exit: Option<(i32, i32)>,
 }
 
 fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
@@ -133,7 +138,7 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     // (the track: x the next cell, lv the rail's height at its west edge)
     let top = 2 * (o.tail as i32 + 6) + o.run + 8;
     let (mut x, mut lv) = (0i32, top);
-    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0) };
+    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0), recv_exit: None };
     let mut put = |blocks: &mut Vec<(BlockPos, Block)>, x: i32, y: i32, b: &Block| {
         blocks.push((BlockPos::new(x, y, 0), b.clone()));
         blocks.push((BlockPos::new(x, y - 1, 0), glass.clone()));
@@ -180,6 +185,11 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
         let last = j + 1 == ntail;
         let rf = if j == 2 && o.receiver_p.or(o.receiver).is_some() { o.recv_run } else { 0 };
         let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, last, rf);
+        if rf >= 2 {
+            // (the receiver's exit detector: the second flat past the front gate's slope, sharing no
+            // face with a powered rail; crossed only by carts leaving the receiver)
+            g.recv_exit = Some((gg.0 + 2, gg.1));
+        }
         g.tail_p.push(p);
         g.gates.push((Role::Tail(j), gc.0, gc.1, if last { None } else { Some(gg) }));
     }
@@ -231,6 +241,9 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     }
     g.sink_x = (x + 4) as f64;
     blocks.extend(extra);
+    if let Some((ex, ey)) = g.recv_exit {
+        blocks.push((BlockPos::new(ex, ey, 0), det.clone()));
+    }
     for (_, gx, gy, _) in &g.gates {
         blocks.push((BlockPos::new(*gx, *gy, 0), gate.clone()));
     }
@@ -418,6 +431,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut recv_max = (0usize, 0i64);
     let recv_on = (o.receiver.is_some() || o.receiver_p.is_some()) && !o.ideal_tail && o.tail >= 4;
     let mut recv_p_edges = 0usize;
+    let mut recv_exit_was = false;
+    let mut recv_exit_edges: Vec<i64> = Vec::new();
+    let mut recv_fly_wait: Option<i64> = None;
+    let mut recv_last_feed_start: i64 = i64::MIN / 2;
     for t in 0..ticks {
         // (7b90c3f1, --recv-ideal: the receiver alone: every cart starts in the recycle pool (the
         // run and the tail empty), three come back after each hold release)
@@ -631,17 +648,26 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     if recv_on {
                         if si == 3 {
                             last_rise_t3 = t;
-                            if recv_feeding {
+                            // (in exit mode a cart reaches Tail(3) after the front has shut behind it:
+                            // every Tail(3) edge is a feed there)
+                            if recv_feeding || (o.recv_exit_d.is_some() && g.recv_exit.is_some()) {
+                                // (`--recv-exit-d`: the window, the front pocket's flag and the
+                                // advances run on the exit detector's edges instead; here only the
+                                // feed is counted (and recycled with --recv-ideal))
+                                let exit_mode = o.recv_exit_d.is_some() && g.recv_exit.is_some();
                                 // (`--recv-fly`: the front stays open through the advances, each cart
                                 // behind flying through from the middle's face; its window renewed at
                                 // every feed edge, ended by its own timeout once the receiver is empty)
-                                if o.recv_fly && (recv_hold[1] || recv_hold[0] || recv_adv_mid.is_some() || recv_adv_rear.is_some()) {
+                                if exit_mode {
+                                } else if o.recv_fly && (recv_hold[1] || recv_hold[0] || recv_adv_mid.is_some() || recv_adv_rear.is_some()) {
                                     recv_feed_until = t + o.recv_feed;
                                 } else {
                                     recv_feeding = false;
                                     recv_feed_until = t;
                                 }
-                                recv_hold[2] = false;
+                                if !exit_mode {
+                                    recv_hold[2] = false;
+                                }
                                 recv_feeds.push(t);
                                 // (the ideal downstream: the fed cart leaves at once and is recycled
                                 // at the next hold release)
@@ -663,11 +689,11 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                                 // (ironspec 18:32, (2): the middle and the rear advance together, each
                                 // gate shut on its own cart's distinct P edge: the middle's cart into
                                 // the front pocket (Tail(2)'s P), the rear's into the middle (Tail(1)'s))
-                                if recv_hold[1] {
+                                if recv_hold[1] && !exit_mode {
                                     recv_adv_mid = Some(0);
                                     recv_hold[1] = false;
                                 }
-                                if recv_hold[0] {
+                                if recv_hold[0] && !exit_mode {
                                     recv_adv_rear = Some(0);
                                     recv_hold[0] = false;
                                 }
@@ -676,9 +702,14 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         // (an advance's cart has left its pocket at the advance's start (its flag
                         // cleared then); its arrival edge fills the pocket ahead)
                         // (`--receiver-p`: the batch's shuts keyed on the front pocket's P (Tail(2)'s),
-                        // crossed only by the batch's first cart while the receiver is idle: its
+                        // crossed only by the batch's first cart while the receiver is idle (or, with
+                        // the early reopen, once every cart of the batch before is past it): its
                         // rising edge starts the middle's and rear's short delays)
-                        if si == 2 && o.receiver_p.is_some() && recv_live.is_none() && recv_adv_mid.is_none() && !recv_feeding {
+                        let past_p = recv_settled && !recv_hold[0] && !recv_hold[1] && recv_adv_mid.is_none() && recv_adv_rear.is_none() && recv_fly_wait.is_none();
+                        if si == 2 && std::env::var("MCTAS_GQ_RECV_DEBUG").is_ok() {
+                            eprintln!("t {t}: Tail(2) P rise; live {recv_live:?} settled {recv_settled} hold {recv_hold:?} feeding {recv_feeding} adv {recv_adv_mid:?}/{recv_adv_rear:?} wait {recv_fly_wait:?}");
+                        }
+                        if si == 2 && o.receiver_p.is_some() && (recv_live.is_none() && !recv_feeding || past_p && !recv_hold[2]) && recv_adv_mid.is_none() {
                             recv_live = Some(0);
                             recv_mid_shut = false;
                             recv_rear_shut = false;
@@ -694,9 +725,14 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                             recv_hold[1] = true;
                             // (the flying feed: a cart reaching the middle while the front is still
                             // open flies on through, the middle opening ahead of it)
-                            if o.recv_fly && recv_feeding && recv_adv_mid.is_none() && !recv_hold[2] {
+                            if o.recv_fly && o.recv_exit_d.is_none() && recv_feeding && recv_adv_mid.is_none() && !recv_hold[2] {
                                 recv_hold[1] = false;
                                 recv_adv_mid = Some(0);
+                            }
+                            // (exit mode: a cart reaching the middle after the ripple's wait already
+                            // ran out (the front empty and still open) starts its own wait)
+                            if o.recv_exit_d.is_some() && recv_feeding && recv_adv_mid.is_none() && !recv_hold[2] && recv_fly_wait.is_none() {
+                                recv_fly_wait = Some(0);
                             }
                         }
                     }
@@ -712,6 +748,37 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 }
             }
             was_on[si] = on;
+        }
+        // (7b90c3f1, `--recv-exit-d D`: the receiver's exit detector (the second flat past its front
+        // gate, crossed only by leaving carts): each rising edge empties the front pocket, keeps the
+        // front open while carts remain and starts the next advance D live gt later (the flying
+        // ripple keyed on the leaving cart's own evidence); the front shuts on the last one's edge)
+        if recv_on
+            && let (Some(_), Some((ex, ey))) = (o.recv_exit_d, g.recv_exit)
+        {
+            let on = matches!(run.world.get(BlockPos::new(ex, ey, 0)), Block::DetectorRail { powered: true, .. });
+            if on && !recv_exit_was && recv_feeding {
+                recv_hold[2] = false;
+                recv_exit_edges.push(t);
+                if !o.recv_fly {
+                    // (the stop feed keyed on the exit: the front shuts behind the leaving cart (it is
+                    // two cells past the gate) and the carts behind advance D live gt later; each
+                    // next cart then starts from rest at the front face like the first, so the
+                    // spacing holds along the run)
+                    recv_feeding = false;
+                    recv_feed_until = t;
+                    if recv_hold[1] || recv_hold[0] {
+                        recv_fly_wait = Some(0);
+                    }
+                } else if recv_hold[1] || recv_hold[0] || recv_adv_mid.is_some() || recv_adv_rear.is_some() {
+                    recv_feed_until = t + o.recv_feed;
+                    recv_fly_wait = Some(0);
+                } else {
+                    recv_feeding = false;
+                    recv_feed_until = t;
+                }
+            }
+            recv_exit_was = on;
         }
         // (the cycle: T = warm + 100 c; the hold at T+3; the escapement at A+6 / A+13)
         let ph = (t - warm - o.corner).rem_euclid(100);
@@ -809,9 +876,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             }
             // (the feed: the front's cart into Tail(3) when it is latched free and the spacer since
             // its last P edge has run, with no advance in progress)
-            if recv_hold[2] && !recv_feeding && recv_adv_mid.is_none() && recv_adv_rear.is_none() && !occ_t[3] && t - last_rise_t3 >= o.spacer && t >= recv_feed_until && live_ok {
+            let exit_mode_now = o.recv_exit_d.is_some() && g.recv_exit.is_some();
+            let spacer_ok = if exit_mode_now { t - recv_last_feed_start >= o.spacer } else { t - last_rise_t3 >= o.spacer };
+            if recv_hold[2] && !recv_feeding && recv_adv_mid.is_none() && recv_adv_rear.is_none() && (exit_mode_now || !occ_t[3]) && spacer_ok && t >= recv_feed_until && live_ok {
                 recv_feeding = true;
                 recv_feed_until = t + o.recv_feed;
+                recv_last_feed_start = t;
             }
             if recv_feeding && t >= recv_feed_until {
                 // (no edge at Tail(3) within the feed window: the front was empty)
@@ -825,6 +895,25 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 if recv_hold[0] {
                     recv_adv_rear = Some(0);
                     recv_hold[0] = false;
+                }
+            }
+            // (`--recv-exit-d D`: the next advance D live gt after the leaving cart's exit edge)
+            if let Some(d) = o.recv_exit_d
+                && let Some(w) = recv_fly_wait.as_mut()
+            {
+                if live_ok {
+                    *w += 1;
+                }
+                if *w >= d {
+                    recv_fly_wait = None;
+                    if recv_hold[1] {
+                        recv_adv_mid = Some(0);
+                        recv_hold[1] = false;
+                    }
+                    if recv_hold[0] {
+                        recv_adv_rear = Some(0);
+                        recv_hold[0] = false;
+                    }
                 }
             }
             for adv in [&mut recv_adv_mid, &mut recv_adv_rear] {
@@ -995,8 +1084,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 Role::Tail(j) if o.overfill && *j + 1 == nt => last_open,
                 Role::Tail(j) if o.overfill && *j + 2 == nt => !occ_t[j + 1] && !last_open && !(*j == 0 && o.spacer > 0 && t - last_rise_t1 < o.spacer),
                 Role::Tail(j) if recv_on && *j == 2 => recv_feeding && t < recv_feed_until,
-                Role::Tail(j) if recv_on && *j == 1 => recv_live.is_none() || !recv_mid_shut || recv_adv_mid.is_some(),
-                Role::Tail(j) if recv_on && *j == 0 => recv_live.is_none() || !recv_rear_shut || recv_adv_rear.is_some(),
+                Role::Tail(j) if recv_on && *j == 1 => recv_live.is_none() || !recv_mid_shut || recv_adv_mid.is_some() || (recv_settled && !recv_hold[0] && !recv_hold[1] && recv_adv_mid.is_none() && recv_adv_rear.is_none() && recv_fly_wait.is_none()),
+                Role::Tail(j) if recv_on && *j == 0 => recv_live.is_none() || !recv_rear_shut || recv_adv_rear.is_some() || (recv_settled && !recv_hold[0] && recv_adv_rear.is_none()),
                 Role::Tail(j) => {
                     if *j + 1 == nt {
                         t < tail_release_until
@@ -1269,7 +1358,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         for e in &recv_edges {
             l.push(format!("  receiver edge {e}"));
         }
-        l.push(format!("  receiver feeds (Tail(3)'s P edges): {}", recv_feeds.iter().take(12).map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
+        l.push(format!("  receiver feeds (Tail(3)'s P edges): {}{}", recv_feeds.iter().take(12).map(|x| x.to_string()).collect::<Vec<_>>().join(", "), if recv_exit_edges.is_empty() { String::new() } else { format!("; exit detector edges: {}", recv_exit_edges.iter().take(12).map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) }));
     }
     Ok(l.join("\n"))
 }
