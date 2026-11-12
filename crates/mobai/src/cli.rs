@@ -237,6 +237,11 @@ pub enum MobaiCmd {
     RecPanewater {
         path: std::path::PathBuf,
     },
+    /// (tickexact 2026-11-12, ironfarm's lane hand-off) Scene lane-handoff's recording per lane and
+    /// cart: the stop, the speed, the gap to the rider ahead, the rider's health and eye cell
+    RecHandoff {
+        path: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-11, ironspec's sentinel) Scene sentinel-<case>'s recording as events: the
     /// claim, the bed's, observer's and lamp's flips, the lie-downs and wakes, the reload
     RecSentinel {
@@ -499,6 +504,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecDrop { path } => crate::fixture::rec_drop(&path),
         MobaiCmd::RecPanesight { path } => crate::fixture::rec_panesight(&path),
         MobaiCmd::RecPanewater { path } => crate::fixture::rec_panewater(&path),
+        MobaiCmd::RecHandoff { path } => crate::fixture::rec_handoff(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
         MobaiCmd::LoadWindow { case, runs, version } => crate::loadwindow::load_window(&version, &case, runs),
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),

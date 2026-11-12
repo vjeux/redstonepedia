@@ -97,6 +97,7 @@ horses.rec	0d4fd5510c0f2f5f		26.3	uncommitted	recorded before manifests: see the
 jobsite-memory.rec	897fc66aadcbc6cf		26.3	2026-11-11T18:13Z on d9186e31db	mctas mobai record jobsite-memory --seed 1 --ticks 24000 --dir designs/redsim/recorded/mobai
 jobsite-near.rec	6cc73b0ba3a97706		26.3	2026-11-11T19:37Z on d2663812b7	mctas mobai record jobsite-near --seed 1 --ticks 12000 --dir designs/redsim/recorded/mobai
 junction-settle.rec	61bbd0ad8c06dab3		26.3	2026-11-11T21:31Z on 6c741d7b3c	mctas mobai record junction-settle --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+lane-handoff.rec	592f2394ff8f6094		26.3	2026-11-12T07:09Z on c61be3216	mctas mobai record lane-handoff --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 ledge-r1-150.rec	81ce5c84b3ef460c		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-150 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
 ledge-r1-182.rec	3fe0e0ef3b8cc669		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-182 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
 ledge-r1-196.rec	eeab59cbe641f9b8		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-196 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai

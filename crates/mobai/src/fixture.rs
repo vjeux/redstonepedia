@@ -463,6 +463,18 @@ const GQ_PARK: i32 = 4 + GQ_SLOPE + 3;
 /// The tick the intakes are set on the run (the run at rest).
 const GQ_RELEASE: u32 = 30;
 
+/// (tickexact 2026-11-12, ironspec's bridge of ironfarm's lane hand-off, explore/ironfarm
+/// 00b3c5816) The lane-handoff scene's lanes: z, kind (`r30`: R pulsed 30 gt; `r4`: R pulsed 4 gt,
+/// the crawl control; `plain`: R a plain slope, its cart from rest 0.188 into the cell, the hang
+/// control), and the tick the pulse starts and ends (None: no pulse).
+fn handoff_lanes() -> Vec<(i32, &'static str, Option<(u32, u32)>)> {
+    vec![(3, "r30", Some((20, 50))), (8, "r4", Some((20, 24))), (13, "plain", None), (18, "plain-alone", None)]
+}
+
+/// The lane-handoff scene's cells along x: the run's plain slopes x 1..=4 (rail at y 70 - x), R at
+/// x 5 (y 65), D at x 6 (its trapdoor floor at y 64, the far wall at x 7).
+const HANDOFF_R: i32 = 5;
+
 /// (tickexact 2026-11-12, ironspec's pane sight bridge) The pane-sight scene's lanes: what it
 /// shows, the rider's z offset in its lane (x 4.5), the zombie's (x, z offset), the panes (x, z
 /// offset, north arm, south arm) at y 65 and 66. Sight rays run from the rider's eye to the
@@ -698,6 +710,18 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
                 id += if ar { 2 } else { 1 };
             }
             vec![(GQ_RELEASE, acts)]
+        }
+        // (tickexact 2026-11-12, ironfarm's lane hand-off) each lane's R line: a redstone block
+        // north of R at its pulse's start, air at its end
+        "lane-handoff" => {
+            let mut by: std::collections::BTreeMap<u32, Vec<([i32; 3], String)>> = std::collections::BTreeMap::new();
+            for (z, _, pulse) in handoff_lanes() {
+                if let Some((on, off)) = pulse {
+                    by.entry(on).or_default().push(([HANDOFF_R, 65, z - 1], "minecraft:redstone_block".to_string()));
+                    by.entry(off).or_default().push(([HANDOFF_R, 65, z - 1], "minecraft:air".to_string()));
+                }
+            }
+            by.into_iter().collect()
         }
         // (tickexact 2026-11-12) the pane walls' water: the column's sources (soul sand turns them
         // into a bubble column), the waterlogged pane and the open sources placed at t5, so their
@@ -5433,6 +5457,67 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-12, ironspec's bridge of ironfarm's lane hand-off, explore/ironfarm
+    // 00b3c5816, its switch-bench geometry) handoff_lanes, 5 apart in z: a run of plain slopes
+    // ascending west (x 1..4, rail at y 70 - x, glass under each, glass at (0, 70)), R at (5, 65)
+    // (a powered slope, unpowered: braked; a plain slope in the control), glass under it; D, the
+    // off-rail drop cell at x 6: a shut bottom-half trapdoor at (6, 64), the far wall (7, 64..65),
+    // glass beside the trapdoor (z +-1), the rider string at (6, 65) with its hooks (z +-1) on
+    // stone (z +-2); 4 ridden carts, the front one mid-R (the control's from rest 0.188 into R),
+    // the rest 0.79 apart up the run; R powered by a redstone block placed north of it at the
+    // lane's pulse
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 32, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let ridden = "{Motion:[0.0d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string();
+        let r = HANDOFF_R;
+        for (z, kind, _) in handoff_lanes() {
+            for x in 1..r {
+                b.push(([x, 70 - x, z], "minecraft:rail[shape=ascending_west,waterlogged=false]".into()));
+                b.push(([x, 69 - x, z], "minecraft:glass".into()));
+            }
+            b.push(([0, 69, z], "minecraft:glass".into()));
+            if kind.starts_with("plain") {
+                b.push(([r, 65, z], "minecraft:rail[shape=ascending_west,waterlogged=false]".into()));
+            } else {
+                b.push(([r, 65, z], "minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]".into()));
+            }
+            b.push(([r, 64, z], "minecraft:glass".into()));
+            let d = r + 1;
+            b.push(([d, 64, z], "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]".into()));
+            b.push(([d + 1, 64, z], "minecraft:glass".into()));
+            b.push(([d + 1, 65, z], "minecraft:glass".into()));
+            b.push(([d, 64, z - 1], "minecraft:glass".into()));
+            b.push(([d, 64, z + 1], "minecraft:glass".into()));
+            b.push(([d, 65, z], "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,south=true,west=false,powered=false]".into()));
+            b.push(([d, 65, z - 1], "minecraft:tripwire_hook[attached=true,facing=south,powered=false]".into()));
+            b.push(([d, 65, z + 1], "minecraft:tripwire_hook[attached=true,facing=north,powered=false]".into()));
+            b.push(([d, 65, z - 2], stone.into()));
+            b.push(([d, 65, z + 2], stone.into()));
+            let front = if kind.starts_with("plain") { r as f64 + 0.188 } else { r as f64 + 0.5 };
+            let n = if kind == "plain-alone" { 1 } else { 4 };
+            for k in 0..n {
+                let x = front - 0.79 * k as f64;
+                let cx = x.floor() as i32;
+                let y = (70 - cx) as f64 + (1.0 - (x - cx as f64)) + 0.0625;
+                mobs.push(("minecraft:minecart".into(), [x, y, z as f64 + 0.5], Some(ridden.clone())));
+            }
+        }
+        v.push(Scene {
+            name: "lane-handoff".into(),
+            chunks: [0, 0, 0, 1],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 72, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, the pane walls' water for 7b90c3f1's lift) a 1 x 1 water column over
     // soul sand (16, 64..68, 16) walled by 4 dry unconnected glass panes per layer (its corners
     // air), its sources placed at t5 (the soul sand makes it a bubble column); a waterlogged pane
@@ -9154,6 +9239,75 @@ pub fn stopper_sweep(files: &[std::path::PathBuf]) -> Result<()> {
 /// gq-empties per lane: each cart's start and end z, its largest stored speed (and the tick), how
 /// far it ever went back up the run, every pair whose centres came within 0.5 (merged), and for
 /// the admission lanes how many carts passed G0.
+/// (tickexact 2026-11-12, ironspec's bridge of ironfarm's lane hand-off) Scene lane-handoff's
+/// recording, per lane and cart (the front one first): where it stops (x, how far into its cell,
+/// y), from which tick, its speed at the end and the most before, its gap to the cart ahead's rider
+/// (front face to the rider's box), its rider's least health and eye cell at the end.
+pub fn rec_handoff(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let v3 = |e: &serde_json::Value, k: &str| [e[k][0].as_f64().unwrap_or(0.0), e[k][1].as_f64().unwrap_or(0.0), e[k][2].as_f64().unwrap_or(0.0)];
+    let find = |f: &serde_json::Value, n: u64| f["entities"].as_array().into_iter().flatten().find(|e| e["n"].as_u64() == Some(n)).cloned();
+    let first = frames.first().ok_or_else(|| anyhow!("an empty recording"))?;
+    let ents: Vec<serde_json::Value> = first["entities"].as_array().cloned().unwrap_or_default();
+    let rider_of = |cart: u64| ents.iter().find(|e| e["vehicle"].as_str() == Some(&format!("#{cart}"))).and_then(|e| e["n"].as_u64());
+    for (z, kind, pulse) in handoff_lanes() {
+        let mut carts: Vec<(u64, [f64; 3])> = ents
+            .iter()
+            .filter(|e| e["type"] == "minecart" && v3(e, "pos")[2].floor() as i32 == z)
+            .filter_map(|e| e["n"].as_u64().map(|n| (n, v3(e, "pos"))))
+            .collect();
+        carts.sort_by(|a, b| b.1[0].total_cmp(&a.1[0]));
+        println!("  lane z {z} {kind} (R pulse {pulse:?}):");
+        let mut ahead_rider: Option<u64> = None;
+        for (k, (cart, _)) in carts.iter().enumerate() {
+            let track: Vec<Option<([f64; 3], [f64; 3])>> = frames.iter().map(|f| find(f, *cart).map(|e| (v3(&e, "pos"), v3(&e, "motion")))).collect();
+            let Some((pe, me)) = track.last().copied().flatten() else {
+                println!("    cart {k} (#{cart}): gone");
+                continue;
+            };
+            let stop = (1..track.len())
+                .rev()
+                .find(|&i| match (track[i - 1], track[i]) {
+                    (Some((a, _)), Some((b, _))) => (a[0] - b[0]).abs() + (a[1] - b[1]).abs() + (a[2] - b[2]).abs() > 1e-9,
+                    _ => false,
+                })
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            let vmax = track.iter().flatten().map(|(_, m)| (m[0] * m[0] + m[2] * m[2]).sqrt()).fold(0.0f64, f64::max);
+            let rider = rider_of(*cart);
+            let health = rider
+                .map(|r| {
+                    frames
+                        .iter()
+                        .filter_map(|f| find(f, r))
+                        .filter_map(|e| e["health"].as_str().and_then(|h| h.parse::<f64>().ok()))
+                        .fold(f64::INFINITY, f64::min)
+                })
+                .unwrap_or(f64::NAN);
+            let eye = rider.and_then(|r| frames.last().and_then(|f| find(f, r))).map(|e| {
+                let p = v3(&e, "pos");
+                format!("({}, {}, {})", p[0].floor() as i64, (p[1] + 1.62).floor() as i64, p[2].floor() as i64)
+            });
+            let gap = ahead_rider.and_then(|ar| frames.last().and_then(|f| find(f, ar))).map(|e| (v3(&e, "pos")[0] - 0.3) - (pe[0] + 0.49));
+            println!(
+                "    cart {k} (#{cart}): stops at x {:.4} ({:.3} into cell {}), y {:.4}, from t{stop}; speed at the end {:.4}, most {vmax:.4}{}; rider least health {health:.1}, eye cell {}",
+                pe[0],
+                pe[0] - pe[0].floor(),
+                pe[0].floor() as i64,
+                pe[1],
+                (me[0] * me[0] + me[2] * me[2]).sqrt(),
+                gap.map(|g| format!("; gap to the cart ahead's rider {g:+.4}")).unwrap_or_default(),
+                eye.unwrap_or("-".into())
+            );
+            ahead_rider = rider;
+        }
+    }
+    Ok(())
+}
+
 /// (tickexact 2026-11-12) Scene pane-water's recording: every block change in its watched box, in
 /// order, with its tick (the column's walls, the waterlogged pane's spill, the dry panes beside
 /// water).
