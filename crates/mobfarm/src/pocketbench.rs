@@ -73,6 +73,12 @@ pub struct PocketOpts {
     /// The release: every pocket gate opens together for the pulse and the latch resets (farmopt
     /// 16:33), else front-first (the front gate, then each gate as the pocket ahead empties).
     pub together: bool,
+    /// The normally-shut entry: G_0 opens only to admit (pocket 0 latched, pocket 1 free) and
+    /// shuts at P_1's rising edge or after this many gt; 0 = off.
+    pub entry_admit: i64,
+    /// Feed-gated launches: a cart launches only while pocket 0 is latched free (the hold's feed
+    /// driven by its entry pocket), and the together release leaves pocket 0's latch to P_1's edge.
+    pub feed_gated: bool,
     pub faults: Vec<PocketFault>,
 }
 
@@ -181,6 +187,9 @@ pub struct PocketReport {
     pub rises: Vec<Vec<i64>>,
     pub entries: Vec<usize>,
     pub gate_edges_on_cart: Vec<String>,
+    /// the normally-shut entry's admissions, and the chain's most carts at once (count, tick)
+    pub admits: usize,
+    pub max_chain: (usize, i64),
     pub disagreements: Vec<String>,
     pub ripples: Vec<(i64, Option<i64>)>,
     pub releases: usize,
@@ -229,6 +238,11 @@ pub fn pocket_bench(o: &PocketOpts) -> Result<PocketReport, String> {
     let mut last_rise_p1: i64 = i64::MIN / 2;
     let mut front_open_until: i64 = -1;
     let mut all_open_until: i64 = -1;
+    // (the normally-shut entry: G_0 open until this tick; admissions; the chain's most carts)
+    let mut admit_until: i64 = -1;
+    let mut admits = 0usize;
+    let mut max_chain = (0usize, 0i64);
+    let mut feed_in_flight = false;
     // (each cart's tick crossing the front gate's plane: the hand-off spacing per pair)
     let front_plane = g.gate[n - 1].0 as f64 + 0.5;
     let mut s0_open_until: i64 = -1;
@@ -240,9 +254,25 @@ pub fn pocket_bench(o: &PocketOpts) -> Result<PocketReport, String> {
     let mut ghost_edges: Vec<(usize, i64)> = o.faults.iter().filter_map(|f| if let PocketFault::Ghost { sensor, at } = f { Some((*sensor, *at)) } else { None }).collect();
     let mut extra_edges: Vec<(usize, i64)> = Vec::new();
     for t in 0..o.ticks {
-        // (launches)
+        // (launches; `feed_gated`: a cart launches only while pocket 0 is latched free and no
+        // launched cart is still short of P_0 (the hold's feed, the pressed run's release, driven
+        // by pocket 0 free), the next one no sooner than its gap after this one)
         for k in 0..o.speeds.len() {
+            if o.feed_gated && launch[k] == t && ids[k].is_none() && (occ[0] || feed_in_flight) {
+                launch[k] = t + 1;
+                for j in k + 1..o.speeds.len() {
+                    launch[j] = launch[j].max(launch[j - 1] + *o.gaps.get(j - 1).or(o.gaps.last()).unwrap_or(&24));
+                }
+                continue;
+            }
             if launch[k] == t {
+                if o.feed_gated {
+                    feed_in_flight = true;
+                    rep.carts[k].launched = t;
+                    for j in k + 1..o.speeds.len() {
+                        launch[j] = launch[j].max(t + *o.gaps.get(j - 1).or(o.gaps.last()).unwrap_or(&24));
+                    }
+                }
                 let rider = if ridden_k(k) { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
                 let nbt = format!("{{Motion:[{:.4}d,0.0d,0.0d]{rider}}}", o.speeds[k]);
                 let y = (o.descent.max(1) - 1) as f64 + 0.9 + 0.0625;
@@ -299,6 +329,14 @@ pub fn pocket_bench(o: &PocketOpts) -> Result<PocketReport, String> {
             }
         }
         let now: Vec<Option<(f64, f64, f64)>> = ids.iter().map(|id| id.and_then(|id| cart_state(&run.world, id))).collect();
+        // (the chain's carts: between the first pocket's sensor and the front gate)
+        {
+            let (x0, x1) = (g.p[0].0 as f64, g.gate[n - 1].0 as f64 + 1.0);
+            let k = now.iter().filter(|c| c.is_some_and(|(x, _, _)| x >= x0 && x < x1)).count();
+            if k > max_chain.0 {
+                max_chain = (k, t);
+            }
+        }
         // (the sensors: the real detector rails' powered state; entries into each detection box)
         let mut edges: Vec<(usize, i64)> = Vec::new();
         for (si, (sx, sy)) in sensors.iter().enumerate() {
@@ -334,11 +372,18 @@ pub fn pocket_bench(o: &PocketOpts) -> Result<PocketReport, String> {
             let si = *si;
             if si < n {
                 occ[si] = true;
+                if si == 0 {
+                    feed_in_flight = false;
+                }
                 if si > 0 {
                     occ[si - 1] = false;
                 }
                 if si == 1 {
                     last_rise_p1 = t;
+                    // (the admitted cart is in pocket 1: the entry shuts)
+                    if o.entry_admit > 0 && admit_until > t {
+                        admit_until = t;
+                    }
                 }
             } else if si == n {
                 occ[n - 1] = false;
@@ -354,7 +399,10 @@ pub fn pocket_bench(o: &PocketOpts) -> Result<PocketReport, String> {
             front_open_until = t + o.pulse;
             if o.together {
                 all_open_until = t + o.pulse;
-                occ.iter_mut().for_each(|b| *b = false);
+                // (`feed_gated`: pocket 0's latch is left to P_1's edge, so a cart still resting
+                // in the entry pocket stays known)
+                let from = if o.feed_gated { 1 } else { 0 };
+                occ.iter_mut().skip(from).for_each(|b| *b = false);
             }
             rep.releases += 1;
             ripple_from = Some(t);
@@ -370,6 +418,12 @@ pub fn pocket_bench(o: &PocketOpts) -> Result<PocketReport, String> {
                 s0_open_until = t + o.pulse;
             }
         }
+        // (the normally-shut entry: admit when pocket 0 holds a cart and pocket 1 is free, outside
+        // the spacer after P_1's last edge)
+        if o.entry_admit > 0 && occ[0] && !occ[1] && t >= admit_until && t - last_rise_p1 >= o.spacer && t >= all_open_until {
+            admit_until = t + o.entry_admit;
+            admits += 1;
+        }
         // (the targets)
         for gi in 0..gate_cells.len() {
             let open = if gi == n {
@@ -378,6 +432,8 @@ pub fn pocket_bench(o: &PocketOpts) -> Result<PocketReport, String> {
                 t < front_open_until
             } else if t < all_open_until {
                 true
+            } else if gi == 0 && o.entry_admit > 0 {
+                t < admit_until
             } else {
                 let mut sh = occ[gi + 1];
                 if gi == 0 && o.spacer > 0 && t - last_rise_p1 < o.spacer {
@@ -431,6 +487,8 @@ pub fn pocket_bench(o: &PocketOpts) -> Result<PocketReport, String> {
         }
         prev = now;
     }
+    rep.admits = admits;
+    rep.max_chain = max_chain;
     rep.text = report_text(o, &g, &rep);
     Ok(rep)
 }
@@ -496,6 +554,11 @@ fn report_text(o: &PocketOpts, g: &Geo, rep: &PocketReport) -> String {
         sens.push(format!("{} {} rises / {} carts entering{} (rise gaps {})", names[si], r.len(), rep.entries[si], if merged > 0 { format!(", {merged} MERGED") } else { String::new() }, if gaps.is_empty() { "-".into() } else { gaps.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",") }));
     }
     l.push(format!("sensors (each pass must start at least the pulse + 2 gt after the one before; a cart entering while the rail is still on merges): {}", sens.join("; ")));
+    if o.entry_admit > 0 {
+        l.push(format!("normally-shut entry (G_0 opens only to admit: pocket 0 latched, pocket 1 free, outside the {}-gt spacer; shut at P_1's edge or after {} gt): {} admissions; the chain's most carts at once {} (t {})", o.spacer, o.entry_admit, rep.admits, rep.max_chain.0, rep.max_chain.1));
+    } else {
+        l.push(format!("the chain's most carts at once {} (t {})", rep.max_chain.0, rep.max_chain.1));
+    }
     l.push(format!("gate edges with a cart's box in the gate's cell (the bar: 0): {}{}", rep.gate_edges_on_cart.len(), if rep.gate_edges_on_cart.is_empty() { String::new() } else { format!(" ({})", rep.gate_edges_on_cart.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
     l.push(format!("the latch empty while a cart rests in its pocket (the bar: 0): {}{}", rep.disagreements.len(), if rep.disagreements.is_empty() { String::new() } else { format!(" (first: {})", rep.disagreements[0]) }));
     let rmax = rep.ripples.iter().filter_map(|r| r.1).max();

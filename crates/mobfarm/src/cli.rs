@@ -1161,6 +1161,17 @@ pub enum MobfarmCmd {
         /// Front-first releases (default: every pocket gate together, the latch reset).
         #[arg(long)]
         front_first: bool,
+        /// The normally-shut entry (7b90c3f1, ironspec Nov 11 17:19): the entry pocket's gate G_0
+        /// is shut except to admit, opening when pocket 0 is latched and pocket 1 free, and
+        /// shutting at P_1's rising edge (the admitted cart in pocket 1; the spacer then holds it)
+        /// or after MAX gt; 0 = off (G_0 shut only while pocket 1 is latched or in the spacer).
+        #[arg(long, default_value_t = 0)]
+        entry_admit: i64,
+        /// Feed-gated launches (7b90c3f1): a cart launches only while pocket 0 is latched free and
+        /// no launched cart is short of P_0 (the hold's feed, driven by its entry pocket); the
+        /// together release leaves pocket 0's latch to P_1's edge.
+        #[arg(long)]
+        feed_gated: bool,
     },
     /// The gravity-queue bench (ironspec Nov 11 16:38; paper v0 2098083320824660): a tail chain of
     /// the stand's pockets, a straight pressed run fed by count, R1's escapement (G0 over a powered
@@ -3574,9 +3585,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (_, text) = crate::holdbench::hold_bench(&speeds, &rid, descent, post, flats, gap, ticks, !no_brake).map_err(|e| anyhow::anyhow!(e))?;
             println!("{text}");
         }
-        MobfarmCmd::PocketBench { pockets, speeds, riders, gaps, descent, ticks, beat, beat_at, corner, lead, pulse, wire, spacer, fault, pocket_cells, front_first } => {
+        MobfarmCmd::PocketBench { pockets, speeds, riders, gaps, descent, ticks, beat, beat_at, corner, lead, pulse, wire, spacer, fault, pocket_cells, front_first, entry_admit, feed_gated } => {
             let faults = fault.iter().map(|f| crate::pocketbench::parse_fault(f)).collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))?;
-            let o = crate::pocketbench::PocketOpts { pockets, speeds, riders: riders.iter().map(|r| *r != 0).collect(), gaps, descent, ticks, beat, beat_at, corner, lead, pulse, wire, spacer, faults, cells: pocket_cells, together: !front_first };
+            let o = crate::pocketbench::PocketOpts { pockets, speeds, riders: riders.iter().map(|r| *r != 0).collect(), gaps, descent, ticks, beat, beat_at, corner, lead, pulse, wire, spacer, faults, cells: pocket_cells, together: !front_first, entry_admit, feed_gated };
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
