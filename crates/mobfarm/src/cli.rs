@@ -954,11 +954,20 @@ pub enum MobfarmCmd {
         /// gap printed.
         #[arg(long, allow_hyphen_values = true)]
         rest_pos: Vec<String>,
-        /// The least speed of a cart entering a curve from its side: its chord's points start after
-        /// its first move (0.75 of it a tick, ridden); 0 keeps the whole chord.
-        #[arg(long, default_value_t = 0.0)]
-        chord_speed: f64,
+        /// The least speed of a cart entering a curve from its side, as a `speeds:` print's name
+        /// (its lo; e.g. `through`, the least through-cart speed at K): the chord's points start
+        /// after its first move (0.75 of it a tick, ridden). A free number is refused (ironspec Nov
+        /// 12 09:38); absent, the whole chord.
+        #[arg(long)]
+        chord_speed: Option<String>,
+        /// A part laid over the design with no move (repeatable, in order): the scan and every
+        /// bridge hash run on the composition, as the official run composes the module and its
+        /// parts.
+        #[arg(long)]
+        part: Vec<PathBuf>,
         /// A bridged pair "A=x,y,z B=x,y,z by=COMMIT/ARTIFACT hash=H name=lo..hi ... margin=M"
+        /// (a range "lo.." or "..hi" has an open end: the run at the bound covers every speed or
+        /// rest beyond it, e.g. nap-rest-z=..7.8952 through=0.29..0.44)
         /// (repeatable; also the design's `bridged-pairs:` header lines; ironspec Nov 12 08:58): a
         /// flagged pair carried by an official run, accepted only while the cells within 2 of both
         /// cells hash to H (`--bridge-hash`) and each named range holds the design's `speeds:`
@@ -9776,8 +9785,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction, single_occupant, rest_pos, chord_speed, bridged_pair, speed, bridge_hash } => {
-            let (_c, spec) = load(version, &design)?;
+        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction, single_occupant, rest_pos, chord_speed, bridged_pair, speed, bridge_hash, part } => {
+            let (_c, mut spec) = load(version, &design)?;
+            // (the composition: the parts laid over the design with no move, as the official run
+            // composes the module and its parts; the scan and every bridge hash run on it)
+            let mut part_texts = Vec::new();
+            for p in &part {
+                part_texts.push(std::fs::read_to_string(p)?);
+            }
+            if !part_texts.is_empty() {
+                let replaced = crate::pushscan::compose(&mut spec, &part_texts).map_err(|e| anyhow::anyhow!(e))?;
+                println!("composition: {} with {} parts laid over it ({}), {replaced} of its cells replaced", design.display(), part.len(), part.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "));
+            }
             if controls {
                 let cl = crate::pushscan::tee_controls();
                 println!("rail-T scan controls (a 3-connection T at 0,0,0; each source type in its update reach, then moved out of it): {} of {} pass", cl.iter().filter(|l| l.ends_with("PASS")).count(), cl.len());
@@ -9798,8 +9817,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 switches.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
             }
             // (the declared own-route junctions and single-occupant groups: the flags and the
-            // design's header lines, each anchored at a comment line's start)
-            let text = std::fs::read_to_string(&design)?;
+            // design's header lines and its parts', each anchored at a comment line's start)
+            let text = std::iter::once(std::fs::read_to_string(&design)?).chain(part_texts.iter().cloned()).collect::<Vec<_>>().join("\n");
             let mut decl_txt: Vec<String> = own_route_junction.clone();
             decl_txt.extend(crate::pushscan::header_entries(&text, "own-route-junctions:"));
             let mut single_txt: Vec<String> = single_occupant.clone();
@@ -9847,10 +9866,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3, "own-route junction {d}: x,y,z=REASON");
                 own_decl.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
             }
-            let (lines, n, tracks, declared, bridged) = crate::pushscan::scan(&spec, &rests, !no_auto, &own_decl, &single, &rest_points, chord_speed, &bridges, &speeds).map_err(|e| anyhow::anyhow!(e))?;
+            // (the chord's side-entry speed: a `speeds:` print's lo, never a free value)
+            let (chord_v, chord_src) = match chord_speed.as_deref() {
+                None => (0.0, "none given: the whole chord".to_string()),
+                Some(name) => {
+                    anyhow::ensure!(name.parse::<f64>().is_err(), "--chord-speed {name}: a free value is refused; name a `speeds:` print (its lo is the least side-entry speed)");
+                    let (lo, _) = speeds.get(name).ok_or_else(|| anyhow::anyhow!("--chord-speed {name}: the design has no `speeds:` print {name}"))?;
+                    (*lo, format!("the design's `speeds:` print {name}'s lo"))
+                }
+            };
+            let (lines, n, tracks, declared, bridged) = crate::pushscan::scan(&spec, &rests, !no_auto, &own_decl, &single, &rest_points, chord_v, &bridges, &speeds).map_err(|e| anyhow::anyhow!(e))?;
             let flagged = lines.iter().filter(|l| l.starts_with("  PUSH")).count();
             println!(
-                "push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis; a curve's passing cart also along its chord from t0 for side entries at {chord_speed} or faster; {} own-route junctions, {} single-occupant groups and {} bridged pairs declared; {} rest points): {flagged} pairs within push range (open), {declared} declared single-occupant, {bridged} bridged",
+                "push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis; a curve's passing cart also along its chord from t0 for side entries at {chord_v} or faster ({chord_src}); {} own-route junctions, {} single-occupant groups and {} bridged pairs declared; {} rest points): {flagged} pairs within push range (open), {declared} declared single-occupant, {bridged} bridged",
                 own_decl.len(),
                 single.len(),
                 bridges.len(),

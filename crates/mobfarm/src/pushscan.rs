@@ -173,12 +173,13 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
         if !junction(j) {
             return Err(format!("own-route junction {},{},{}: not a junction (fewer than 3 potential connections)", j.x, j.y, j.z));
         }
-        // ((a), G1's CHANGES 2: every potential connection off the stored shape's two exits must
-        // be the rest cell, and exactly one)
+        // ((a), G1's CHANGES 2 and 3: every rail in a direction off the stored shape's two exits,
+        // at dy -1, 0 and 1, must be the rest cell, and exactly one)
         let off: Vec<(i32, i32, BlockPos)> = [(0, -1), (1, 0), (0, 1), (-1, 0)]
             .iter()
             .filter(|(dx, dz)| !exits(js).iter().any(|(ex, ez, _)| (*ex, *ez) == (*dx, *dz)))
-            .filter_map(|(dx, dz)| (-1..=1).map(|dy| BlockPos::new(j.x + dx, j.y + dy, j.z + dz)).find(|p| is_rail(p)).map(|p| (*dx, *dz, p)))
+            .flat_map(|(dx, dz)| (-1..=1).map(move |dy| (*dx, *dz, BlockPos::new(j.x + dx, j.y + dy, j.z + dz))))
+            .filter(|(_, _, p)| is_rail(p))
             .collect();
         let off_rest: Vec<&(i32, i32, BlockPos)> = off.iter().filter(|(_, _, p)| rest_cells.contains(p)).collect();
         let off_other: Vec<String> = off.iter().filter(|(_, _, p)| !rest_cells.contains(p)).map(|(_, _, p)| format!("{},{},{} {}", p.x, p.y, p.z, short(&rails[p]))).collect();
@@ -297,17 +298,20 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
                     if h != br.hash {
                         fails.push(format!("VOID: the cells within 2 changed (hash {h}, bridged {})", br.hash));
                     }
+                    if br.ranges.is_empty() {
+                        fails.push("no speed ranges".to_string());
+                    }
                     for (name, lo, hi) in &br.ranges {
                         match speeds.get(name) {
                             None => fails.push(format!("no `speeds:` print for {name}")),
                             Some((dlo, dhi)) if dlo > dhi => fails.push(format!("{name} {dlo}..{dhi}: the design's print has lo above hi")),
-                            Some((dlo, dhi)) if *dlo < *lo - 1e-9 || *dhi > *hi + 1e-9 => fails.push(format!("{name} {dlo}..{dhi} outside the bridged {lo}..{hi}")),
+                            Some((dlo, dhi)) if *dlo < *lo - 1e-9 || *dhi > *hi + 1e-9 => fails.push(format!("{name} {dlo}..{dhi} outside the bridged {}", range_txt(*lo, *hi))),
                             Some(_) => {}
                         }
                     }
                     if fails.is_empty() {
                         bridged += 1;
-                        out.push(format!("  BRIDGED {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at}): bridged by {}, margin {} (hash {h}; {})", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps), br.by, br.margin, br.ranges.iter().map(|(n, lo, hi)| format!("{n} {lo}..{hi}: the design's {}", speeds.get(n).map_or("?".to_string(), |(a, b)| format!("{a}..{b}")))).collect::<Vec<_>>().join(", ")));
+                        out.push(format!("  BRIDGED {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at}): bridged by {}, margin {} (hash {h}; {})", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps), br.by, br.margin, br.ranges.iter().map(|(n, lo, hi)| format!("{n} {}: the design's {}", range_txt(*lo, *hi), speeds.get(n).map_or("?".to_string(), |(a, b)| format!("{a}..{b}")))).collect::<Vec<_>>().join(", ")));
                     } else {
                         out.push(format!("  PUSH {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at}): open, the bridge by {} fails: {}", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps), br.by, fails.join("; ")));
                     }
@@ -415,9 +419,12 @@ pub fn parse_bridge(entry: &str) -> Result<Bridge, String> {
             "hash" => hash = Some(v.to_string()),
             "margin" => margin = Some(v.to_string()),
             _ => {
-                let (lo, hi) = v.split_once("..").ok_or_else(|| format!("bridged pair {entry}: {tok}: name=lo..hi"))?;
-                let lo: f64 = lo.parse().map_err(|e| format!("bridged pair {entry}: {tok}: {e}"))?;
-                let hi: f64 = hi.parse().map_err(|e| format!("bridged pair {entry}: {tok}: {e}"))?;
+                let (lo, hi) = v.split_once("..").ok_or_else(|| format!("bridged pair {entry}: {tok}: name=lo..hi (or lo.. / ..hi for an open end)"))?;
+                // (an open end, "lo.." or "..hi": the margin grows past it, so a run at the bound
+                // covers every speed or rest beyond it (a faster through-cart moves further along K's
+                // chord before the push search; a napper resting lower on R is further from the row))
+                let lo: f64 = if lo.is_empty() { f64::NEG_INFINITY } else { lo.parse().map_err(|e| format!("bridged pair {entry}: {tok}: {e}"))? };
+                let hi: f64 = if hi.is_empty() { f64::INFINITY } else { hi.parse().map_err(|e| format!("bridged pair {entry}: {tok}: {e}"))? };
                 if lo > hi {
                     return Err(format!("bridged pair {entry}: {tok}: lo above hi"));
                 }
@@ -426,6 +433,9 @@ pub fn parse_bridge(entry: &str) -> Result<Bridge, String> {
         }
     }
     let need = |o: Option<String>, n: &str| o.ok_or_else(|| format!("bridged pair {entry}: no {n}="));
+    if ranges.is_empty() {
+        return Err(format!("bridged pair {entry}: no speed ranges (the bridged run's ranges must be cited; ironspec Nov 12 09:38)"));
+    }
     Ok(Bridge {
         a: a.ok_or_else(|| format!("bridged pair {entry}: no A="))?,
         b: b.ok_or_else(|| format!("bridged pair {entry}: no B="))?,
@@ -436,10 +446,58 @@ pub fn parse_bridge(entry: &str) -> Result<Bridge, String> {
     })
 }
 
-/// The hash of every cell within 2 (each axis) of either cell, in x, y, z order, air included
-/// (FNV-1a 64 over "x,y,z=state;"): any geometry change near a bridged pair changes it.
+/// The design with parts laid over it in order, each with no move (G1's CHANGES 3 on 54fb5abe4:
+/// a bridge's hash covers the module plus its parts as the official run composes them): a part's
+/// blocks replace the design's at their cells. Returns the cells replaced.
+pub fn compose(spec: &mut FarmSpec, parts: &[String]) -> Result<usize, String> {
+    let mut map: HashMap<BlockPos, redsim::block::Block> = spec.blocks.drain(..).collect();
+    let mut replaced = 0usize;
+    for text in parts {
+        let d = mctas::design::Design::parse(text).map_err(|e| e.to_string())?;
+        for (p, s) in &d.blocks {
+            let b = redsim::block::Block::parse(s)?;
+            if map.insert(BlockPos::new(p[0], p[1], p[2]), b).is_some() {
+                replaced += 1;
+            }
+        }
+    }
+    let mut v: Vec<(BlockPos, redsim::block::Block)> = map.into_iter().collect();
+    v.sort_by_key(|(p, _)| (p.x, p.y, p.z));
+    spec.blocks = v;
+    Ok(replaced)
+}
+
+/// A bridged range as written: "lo..hi", or "lo.." / "..hi" for an open end.
+fn range_txt(lo: f64, hi: f64) -> String {
+    match (lo.is_infinite(), hi.is_infinite()) {
+        (true, true) => "..".to_string(),
+        (true, false) => format!("..{hi}"),
+        (false, true) => format!("{lo}.."),
+        (false, false) => format!("{lo}..{hi}"),
+    }
+}
+
+/// The hash of every cell within 2 (each axis) of either cell, the push-scan neighbourhood hash
+/// an official run prints for its composed world (ironspec Nov 12 09:38): the union of the two
+/// 5 x 5 x 5 cubes centred on A and B, each cell once, in ascending x, then y, then z; each cell
+/// contributes the bytes of "x,y,z=STATE;" (decimal integers, no spaces), STATE the block's full
+/// state string with every property, names in alphabetical order as the game's state strings list
+/// them (e.g. `minecraft:rail[shape=north_east,waterlogged=false]`, `minecraft:glass`), an empty
+/// cell `minecraft:air`; FNV-1a 64 (offset basis 0xcbf29ce484222325, prime 0x100000001b3) over
+/// them, printed as 16 lowercase hex digits.
 pub fn neighborhood_hash(spec: &FarmSpec, a: BlockPos, b: BlockPos) -> String {
-    let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, s)| (*p, s.to_string())).collect();
+    // (the state string canonical: every property, names in alphabetical order)
+    let canonical = |s: &str| -> String {
+        match s.split_once('[') {
+            Some((id, rest)) => {
+                let mut v: Vec<&str> = rest.trim_end_matches(']').split(',').filter(|p| !p.is_empty()).collect();
+                v.sort();
+                if v.is_empty() { id.to_string() } else { format!("{id}[{}]", v.join(",")) }
+            }
+            None => s.to_string(),
+        }
+    };
+    let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, s)| (*p, canonical(&s.to_string()))).collect();
     let mut cells: Vec<BlockPos> = Vec::new();
     for c in [a, b] {
         for dx in -2..=2 {
