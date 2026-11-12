@@ -1052,7 +1052,8 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "zombie")]
         scarer: String,
         /// With --scarer-search / --scarer-check: an extra rider's feet x,y,z (repeatable; a seated
-        /// villager's feet are its cart's position: a hold's or a fall's cart; one on foot, its feet).
+        /// villager's feet are its cart's position: a hold's or a fall's cart; one on foot, its feet);
+        /// with --scarer-occlude, an extra point the occluder keeps in sight (a seat's exact cart).
         #[arg(long, allow_hyphen_values = true)]
         scarer_rider: Vec<String>,
         /// With --scarer-search: at most this many posts.
@@ -1103,6 +1104,11 @@ pub enum MobfarmCmd {
         /// With --scarer-occlude: a column x,y0,z,y1 of rider positions to hide, every 0.1.
         #[arg(long, allow_hyphen_values = true)]
         hide_column: Vec<String>,
+        /// With --scarer-occlude: a box x0,y0,z0,x1,y1,z1 whose rails' riders to hide: every rider
+        /// position on each rail cell in it, every 0.05 along the rail (ironspec Nov 12 08:24: a
+        /// row riders roll along; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        hide_rails: Vec<String>,
         /// With --scarer-exact: the mix (scarer mobs are their own bill line): from the fewest
         /// posts' pillagers down, the least cover with at most p pillagers, each passing the built
         /// re-check inside the search (every post laid at once).
@@ -1159,6 +1165,43 @@ pub enum MobfarmCmd {
         /// With --clear-rate: the most floors to add.
         #[arg(long, default_value_t = 6)]
         clear_floors: usize,
+        /// The all-positions statics (ironspec Nov 12 08:24): every rider position on the rails
+        /// (each rail cell every 0.1 along it, a slope's 0.97 too) and in each --scarer-column
+        /// (every 0.25) where a hostile in its range is in the rider's sight, the panic stroll's
+        /// candidates and each one's complete path from there; FAIL at each panicking position
+        /// with an unreached candidate, printed by class (the unreached cell, the positions drawing
+        /// it). The --pillager positions count as hostiles.
+        #[arg(long)]
+        clear_all: bool,
+        /// With --clear-all: a seen position's tail in game ticks (G1 on 6757c71fe: NEAREST_HOSTILE
+        /// stays until a hostiles scan, every 20 gt, runs on a living scan, every 20 gt, taken after
+        /// the hostile left sight: up to ~38 gt); every position within it along the track (a
+        /// ridden cart at most 0.4 b/gt on each axis: a straight cell 2.5 gt, a curve 1.25; 1 b/gt in
+        /// a column) panics too, the flee counted there too; 0 = sight only.
+        #[arg(long, default_value_t = 38.0)]
+        clear_tail: f64,
+        /// With --clear-all: every panicking position listed (seen, or in a tail and how far).
+        #[arg(long)]
+        clear_list: bool,
+        /// With --clear-all: a rest cell x,y,z where a cart waits longer than the tail (a hold: the
+        /// tail stops there; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        tail_rest: Vec<String>,
+        /// Run the statics on a design with unsupported blocks (they would pop: dust or a diode with
+        /// no sturdy top under it, a hook without its anchor, a rail without its support): by default
+        /// flee-check refuses such a design and lists them (farmopt / ironspec Nov 12 11:13-11:14).
+        #[arg(long)]
+        allow_unsupported: bool,
+        /// With --clear-all: a box x0,y0,z0,x1,y1,z1 no candidate may land in (a feed or a switched
+        /// cell): every candidate inside it, reached or not, from every source, listed (ironspec Nov
+        /// 12 11:15: 0 candidates lifted into the feed or switched cells; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        candidate_box: Vec<String>,
+        /// With --clear-all: the panic sources only (PANIC's stroll and flee, the gate), without IDLE's
+        /// at the calm positions (its stroll 10/7 and its walks to a rider it sees within 8, the stamp
+        /// bar's input, printed apart as STAMP classes by default; ironspec Nov 12 10:24 / 10:49).
+        #[arg(long)]
+        clear_panic_only: bool,
     },
     /// One judge run of a design on redsim: its table.
     Run {
@@ -5315,6 +5358,27 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',')]
         only: Vec<String>,
     },
+}
+
+/// (farmopt / ironspec Nov 12 11:13-11:14) flee-check's statics refuse a design with an unsupported
+/// block (it would pop), listing them; `--allow-unsupported` runs anyway, with the list as a warning.
+fn refuse_unsupported(spec: &redsim::entity::mob::farm::FarmSpec, allow: bool) -> Result<()> {
+    let un = crate::fleecheck::unsupported(spec).map_err(|e| anyhow::anyhow!(e))?;
+    if un.is_empty() {
+        return Ok(());
+    }
+    let msg = format!(
+        "{} unsupported block(s) in the design, each would pop (the statics refuse it; --allow-unsupported to run anyway): {}{}",
+        un.len(),
+        un.iter().take(16).cloned().collect::<Vec<_>>().join("; "),
+        if un.len() > 16 { format!("; and {} more", un.len() - 16) } else { String::new() }
+    );
+    if allow {
+        eprintln!("WARNING: {msg}");
+        Ok(())
+    } else {
+        anyhow::bail!(msg)
+    }
 }
 
 fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::entity::mob::farm::FarmSpec)> {
@@ -10223,12 +10287,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if let Some(oc) = &scarer_occlude {
                 let v: Vec<&str> = oc.split(',').collect();
                 anyhow::ensure!(v.len() == 4, "--scarer-occlude x,y,z,pillager|zombie");
                 let post = redsim::pos::BlockPos::new(v[0].trim().parse()?, v[1].trim().parse()?, v[2].trim().parse()?);
                 let pill = v[3].trim() == "pillager";
+                let (_c, spec) = load(version, &design)?;
+                refuse_unsupported(&spec, allow_unsupported)?;
                 let mut hide = Vec::new();
                 for s in &hide_point {
                     let q: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
@@ -10244,14 +10310,26 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         hide.push(redsim::entity::Vec3::new(q[0], y0 + i as f64 * 0.1, q[2]));
                     }
                 }
+                for s in &hide_rails {
+                    let q: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 6, "--hide-rails x0,y0,z0,x1,y1,z1");
+                    let lo = [q[0].min(q[3]), q[1].min(q[4]), q[2].min(q[5])];
+                    let hi = [q[0].max(q[3]), q[1].max(q[4]), q[2].max(q[5])];
+                    hide.extend(crate::fleecheck::rail_positions_in(&spec, lo, hi));
+                }
                 let mut excl = Vec::new();
                 for e in &scarer_exclude {
                     let q: Vec<i32> = e.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
                     anyhow::ensure!(q.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
                     excl.push(([q[0].min(q[3]), q[1].min(q[4]), q[2].min(q[5])], [q[0].max(q[3]), q[1].max(q[4]), q[2].max(q[5])]));
                 }
-                let (_c, spec) = load(version, &design)?;
-                for l in crate::fleecheck::occlude(&spec, post, pill, &hide, &excl).map_err(|e| anyhow::anyhow!(e))? {
+                let mut keep_extra = Vec::new();
+                for r in &scarer_rider {
+                    let v: Vec<f64> = r.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--scarer-rider x,y,z");
+                    keep_extra.push(redsim::entity::Vec3::new(v[0], v[1], v[2]));
+                }
+                for l in crate::fleecheck::occlude(&spec, post, pill, &hide, &excl, &keep_extra).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
@@ -10259,12 +10337,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !post_drift.is_empty() {
                 anyhow::ensure!(post_drift.len() == 3, "--post-drift x,y,z");
                 let (_c, spec) = load(version, &design)?;
+                refuse_unsupported(&spec, allow_unsupported)?;
                 for l in crate::fleecheck::post_drift(&spec, redsim::pos::BlockPos::new(post_drift[0], post_drift[1], post_drift[2]), drift_ticks).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
             }
             let (_c, spec) = load(version, &design)?;
+            refuse_unsupported(&spec, allow_unsupported)?;
             if !golem_reach.is_empty() {
                 anyhow::ensure!(golem_reach.len() == 3 && golem_pad.len() == 6, "--golem-reach x,y,z --golem-pad x0,y0,z0,x1,y1,z1");
                 let g = &golem_pad;
@@ -10399,6 +10479,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         });
                         println!("  PATH {} {:.2},{:.2},{:.2} cell {},{},{}: {}; {}", p.2.replace(' ', ""), p.1.x, p.1.y, p.1.z, cell.x, cell.y, cell.z, if role.0 { "ARMS" } else if role.1 { "clears" } else { "neither" }, shares);
                     }
+                }
+            }
+            if clear_all {
+                let mut cols = Vec::new();
+                for s in &scarer_column {
+                    let q: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 4, "--scarer-column x,y0,z,y1");
+                    cols.push([q[0], q[1], q[2], q[3]]);
+                }
+                let mut rests = Vec::new();
+                for s in &tail_rest {
+                    let q: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 3, "--tail-rest x,y,z");
+                    rests.push(redsim::pos::BlockPos::new(q[0], q[1], q[2]));
+                }
+                let mut watch = Vec::new();
+                for e in &candidate_box {
+                    let q: Vec<i32> = e.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 6, "--candidate-box x0,y0,z0,x1,y1,z1");
+                    watch.push(([q[0].min(q[3]), q[1].min(q[4]), q[2].min(q[5])], [q[0].max(q[3]), q[1].max(q[4]), q[2].max(q[5])]));
+                }
+                for l in crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
                 }
             }
             for s in &clear_rate {
