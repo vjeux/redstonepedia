@@ -34,6 +34,13 @@ pub const OUT: [i32; 3] = [0, 0, 3];
 /// its output into a redstone lamp; the villager in its cell, HOME = the bed (`preset`) or none
 /// (it claims the bed itself, AcquirePoi).
 pub fn design(preset: bool, plate: bool) -> Result<String> {
+    design_dug(preset, plate, None)
+}
+
+/// The sentinel's room, `dug` = Some(r): sealed in a stone mass reaching r cells past the room
+/// every way (the room dug into rock, as placed on v4: a stroll candidate inside rock is lifted to
+/// the first open cell above, the mass's top), no outsider floor.
+pub fn design_dug(preset: bool, plate: bool, dug: Option<i32>) -> Result<String> {
     let mut b = Builder::new("sentinel");
     put(&mut b, HEAD, "red_bed[facing=south,occupied=false,part=head]")?;
     put(&mut b, FOOT, "red_bed[facing=south,occupied=false,part=foot]")?;
@@ -45,9 +52,10 @@ pub fn design(preset: bool, plate: bool) -> Result<String> {
         put(&mut b, CELL, "oak_pressure_plate[powered=false]")?;
     }
     let inside = [HEAD, FOOT, CELL, [CELL[0], 1, CELL[2]]];
-    for x in -2..=1 {
-        for z in -1..=2 {
-            for y in -1..=2 {
+    let r = dug.unwrap_or(0);
+    for x in -2 - r..=1 + r {
+        for z in -1 - r..=2 + r {
+            for y in -1 - r..=2 + r {
                 let c = [x, y, z];
                 if inside.contains(&c) || b.d.blocks.contains_key(&c) {
                     continue;
@@ -64,9 +72,11 @@ pub fn design(preset: bool, plate: bool) -> Result<String> {
     b.entity("villager", [CELL[0] as f64 + 0.5, 0.0, CELL[2] as f64 + 0.5], Some(&nbt));
     // (a stone floor east of the room for the bench's outsider: a villager with no HOME, free to
     // walk, that must never claim the sealed bed)
-    for x in 4..=8 {
-        for z in -2..=2 {
-            put(&mut b, [x, -1, z], "stone")?;
+    if dug.is_none() {
+        for x in 4..=8 {
+            for z in -2..=2 {
+                put(&mut b, [x, -1, z], "stone")?;
+            }
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
@@ -98,6 +108,17 @@ pub struct Report {
     /// The plate (if built): ticks released while the sentinel is awake, pressed while it sleeps.
     pub plate_off_awake: i64,
     pub plate_on_asleep: i64,
+    /// (G1's review, ironspec 19:02/19:14) Per night: the CANT_REACH_WALK_TARGET_SINCE stamp's age at
+    /// the first calm REST tick (no walk target, not panicking, awake).
+    pub nights: Vec<NightRow>,
+    /// Every change of the stamp: (t, day time, the stamp as t).
+    pub stamp_changes: Vec<(i64, i64, Option<i64>)>,
+    /// IDLE stroll targets: all, outside the room, the first few outside.
+    pub strolls: i64,
+    pub strolls_outside: i64,
+    pub stroll_examples: Vec<[i32; 3]>,
+    /// HOME lost or regained: (t, day time, has a HOME).
+    pub home_events: Vec<(i64, i64, bool)>,
 }
 
 fn block(s: &str) -> Block {
@@ -141,6 +162,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, days: i64, f: &Faults) -> Result<Report
     let has_plate = run.world.get(at(CELL)).to_string().contains("pressure_plate");
     let (mut was_occ, mut was_obs, mut was_asleep) = (occupied(&run.world), obs_on(&run.world), false);
     let mut was_plate = plate_on(&run.world);
+    // (G1's review: the stamp, the nights, the strolls, HOME)
+    let room = [HEAD, FOOT, CELL, [CELL[0], 1, CELL[2]]];
+    let mut last_stamp: Option<i64> = None;
+    let mut in_rest = false;
+    let mut calm_done = true;
+    let mut last_wt: Option<[i32; 3]> = None;
+    let mut last_home = true;
     let mut skipped = false;
     let mut freeze_from: Option<i64> = None;
     let mut reload_from: Option<i64> = None;
@@ -244,6 +272,56 @@ pub fn bench(spec: &FarmSpec, seed: u64, days: i64, f: &Faults) -> Result<Report
                 rep.panic_ticks += 1;
             }
             rep.home = brain::brain(w, i).home.map(|h| [h.x, h.y, h.z]);
+            {
+                let (now_dt, now_day) = (w.day_time().rem_euclid(24000), (w.day_time() - d0).div_euclid(24000));
+                let has_home = rep.home.is_some();
+                if has_home != last_home {
+                    rep.home_events.push((run.world.time - t0, now_dt, has_home));
+                    last_home = has_home;
+                }
+                if brain::has_exact(w, i) {
+                    let x = brain::ex(w, i);
+                    let stamp = x.mem.cant_reach_since;
+                    if stamp != last_stamp {
+                        rep.stamp_changes.push((run.world.time - t0, now_dt, stamp.map(|s| s - t0)));
+                        last_stamp = stamp;
+                    }
+                    let resting = matches!(x.active, brain::Act::Rest);
+                    let panicking = matches!(x.active, brain::Act::Panic);
+                    let wt = x.mem.walk_target.and_then(|t| match t.target {
+                        brain::Tracker::Block(b) => Some([b.x, b.y, b.z]),
+                        _ => None,
+                    });
+                    if resting && !in_rest {
+                        in_rest = true;
+                        calm_done = false;
+                        rep.nights.push(NightRow { day: now_day, rest_start_dt: now_dt, ..Default::default() });
+                    }
+                    if !resting && !panicking {
+                        in_rest = false;
+                    }
+                    if resting && !calm_done && wt.is_none() && !panicking && !asleep {
+                        calm_done = true;
+                        if let Some(n) = rep.nights.last_mut() {
+                            n.calm_dt = Some(now_dt);
+                            n.stamp_age = stamp.map(|s| run.world.time - s);
+                        }
+                    }
+                    if matches!(x.active, brain::Act::Idle)
+                        && let Some(p) = wt
+                        && wt != last_wt
+                    {
+                        rep.strolls += 1;
+                        if !room.contains(&p) {
+                            rep.strolls_outside += 1;
+                            if rep.stroll_examples.len() < 6 {
+                                rep.stroll_examples.push(p);
+                            }
+                        }
+                    }
+                    last_wt = wt;
+                }
+            }
             if has_plate {
                 let p = plate_on(w);
                 if !asleep && !p {
@@ -268,4 +346,28 @@ pub fn bench(spec: &FarmSpec, seed: u64, days: i64, f: &Faults) -> Result<Report
         rep.problems.push(format!("world: {}", run.world.errors.join("; ")));
     }
     Ok(rep)
+}
+
+/// One night of the sentinel (G1's review).
+#[derive(Debug, Default, Clone)]
+pub struct NightRow {
+    pub day: i64,
+    /// The day time REST began.
+    pub rest_start_dt: i64,
+    /// The first calm REST tick's day time and the stamp's age there (None: no stamp).
+    pub calm_dt: Option<i64>,
+    pub stamp_age: Option<i64>,
+}
+
+/// The Wilson score interval (95%) for s successes in n trials.
+pub fn wilson(s: u64, n: u64) -> (f64, f64) {
+    if n == 0 {
+        return (0.0, 1.0);
+    }
+    let (s, n, z) = (s as f64, n as f64, 1.96f64);
+    let p = s / n;
+    let d = 1.0 + z * z / n;
+    let c = (p + z * z / (2.0 * n)) / d;
+    let h = z * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt() / d;
+    ((c - h).max(0.0), (c + h).min(1.0))
 }

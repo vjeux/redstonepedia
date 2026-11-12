@@ -2343,10 +2343,44 @@ pub enum MobfarmCmd {
         /// A save and reload: START,LEN in gt after the entry.
         #[arg(long)]
         reload: Option<String>,
+        /// A sweep: reload phases (gt after the entry, each --sweep-len gt), plain freeze phases, and
+        /// freezes of 200 gt starting each of these gt after each reload's load.
+        #[arg(long)]
+        reload_phases: Option<String>,
+        #[arg(long)]
+        freeze_phases: Option<String>,
+        #[arg(long)]
+        freeze_after_load: Option<String>,
+        #[arg(long, default_value_t = 400)]
+        sweep_len: i64,
+        /// The release on the bed observer's wake edge after F, this many gt later (instead of
+        /// --release-after past F); the give-up --wake-give-up gt after F with no wake.
+        #[arg(long)]
+        after_wake: Option<i64>,
+        #[arg(long, default_value_t = 200)]
+        wake_give_up: i64,
         /// The trip (a `bedtier --trip` design): the cart starts on the switch flat heading up the
         /// divert; the visit ends at the re-entry's waiting cell.
         #[arg(long)]
         trip: bool,
+    },
+    /// (ironspec 20:49) A strand's consequence, give-up only: a save and reload at --reload-at gt
+    /// after the entry (400 gt), then the picker's next napper C --c-delay gt after the first cart
+    /// passes R; prints who is seated in which visit and any HOME lost.
+    BedtierStrand {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        from: u64,
+        #[arg(long, default_value_t = 8)]
+        to: u64,
+        #[arg(long, default_value = "0.1,0.2,0.3")]
+        speeds: String,
+        #[arg(long, default_value = "146,148,150,152,154,156,158,160,162")]
+        reload_at: String,
+        #[arg(long, default_value_t = 100)]
+        c_delay: i64,
+        #[arg(long, default_value_t = 300)]
+        give_up: i64,
     },
     /// (ironspec 17:32) The sentinel villager (its own bed, a sealed one-cell room, an observer on
     /// the bed's head): write its design (`--claim`: no HOME preset, it claims the bed itself).
@@ -2358,6 +2392,9 @@ pub enum MobfarmCmd {
         /// The variant: a wooden pressure plate in the sentinel's standing cell.
         #[arg(long)]
         plate: bool,
+        /// The room dug into rock: a stone mass reaching this many cells past it every way.
+        #[arg(long)]
+        dug: Option<i32>,
     },
     /// The sentinel's bench: the bed's lie-down and wake and the observer's pulses (day times) over
     /// `--days` days per seed, where it stands up, panic and off-cell ticks; the faults: a level-32
@@ -4640,7 +4677,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, crate::bedtier::design_with(bench, trip)?)?;
             println!("wrote {}", out.display());
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand, after_sleep, empty, no_home, hide_after_wake, freeze, reload, trip } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand, after_sleep, empty, no_home, hide_after_wake, freeze, reload, reload_phases, freeze_phases, freeze_after_load, sweep_len, after_wake, wake_give_up, trip } => {
             let (_c, spec) = load(version, &design)?;
             let sp: Vec<f64> = speeds.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
             let pair = |s: Option<String>, what: &str| -> Result<Option<(i64, i64)>> {
@@ -4657,7 +4694,83 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let freeze = pair(freeze, "freeze")?;
             let reload = pair(reload, "reload")?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, freeze, reload, trip };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, freeze, reload, trip, after_wake, wake_give_up };
+            // (a sweep, ironspec 21:00/21:40: every reload phase, every freeze phase, and a freeze
+            // starting k gt after each reload's load (inside the race window), with the totals the
+            // bars read)
+            if reload_phases.is_some() || freeze_phases.is_some() {
+                let list = |s: &Option<String>| -> Result<Vec<i64>> {
+                    Ok(match s {
+                        Some(s) => s.split(',').map(|x| x.trim().parse()).collect::<std::result::Result<_, _>>()?,
+                        None => Vec::new(),
+                    })
+                };
+                let rp = list(&reload_phases)?;
+                let fp = list(&freeze_phases)?;
+                let ks = list(&freeze_after_load)?;
+                let mut rows: Vec<(String, crate::bedtier::Faults)> = Vec::new();
+                for &p in &rp {
+                    rows.push((format!("reload +{p}"), crate::bedtier::Faults { reload: Some((p, sweep_len)), ..faults.clone() }));
+                    for &k in &ks {
+                        rows.push((format!("reload +{p}, freeze load+{k}"), crate::bedtier::Faults { reload: Some((p, sweep_len)), freeze: Some((p + sweep_len + k, 200)), ..faults.clone() }));
+                    }
+                }
+                for &p in &fp {
+                    rows.push((format!("freeze +{p}"), crate::bedtier::Faults { freeze: Some((p, sweep_len)), ..faults.clone() }));
+                }
+                let (mut tot, mut seated, mut to_r, mut never, mut ridden_held, mut healed, mut lost, mut bulb) = (0, 0, 0, 0, 0, 0, 0, 0);
+                let mut min_pick = f64::MAX;
+                let mut heal_gt: Vec<i64> = Vec::new();
+                for (name, f) in &rows {
+                    let (mut ok, mut bad_here) = (0, Vec::new());
+                    for seed in from..=to {
+                        for &v in &sp {
+                            tot += 1;
+                            match crate::bedtier::bench(&spec, seed, v, f_at, release_after, day, on_stand, after_sleep, f) {
+                                Ok(r) => {
+                                    if r.seated_out {
+                                        seated += 1;
+                                    }
+                                    if r.problems.iter().any(|x| x.starts_with("a riderless cart left")) {
+                                        to_r += 1;
+                                    }
+                                    if r.problems.iter().any(|x| x.starts_with("the cart neither")) {
+                                        never += 1;
+                                    }
+                                    if r.ridden_held {
+                                        ridden_held += 1;
+                                    }
+                                    if r.problems.iter().any(|x| x.contains("HOME")) {
+                                        lost += 1;
+                                    }
+                                    if r.problems.iter().any(|x| x.starts_with("the taken bulb")) {
+                                        bulb += 1;
+                                    }
+                                    if let Some(s) = r.pickup_speed {
+                                        min_pick = min_pick.min(s);
+                                    }
+                                    if !r.holds.is_empty() && r.seated_out {
+                                        healed += 1;
+                                        if let (Some(h), Some(rr)) = (r.holds.first(), r.r_at) {
+                                            heal_gt.push(rr - h);
+                                        }
+                                    }
+                                    if r.problems.is_empty() {
+                                        ok += 1;
+                                    } else {
+                                        bad_here.push(format!("seed {seed} speed {v}: {:?}", r.problems));
+                                    }
+                                }
+                                Err(e) => bad_here.push(format!("seed {seed} speed {v}: ERROR {e}")),
+                            }
+                        }
+                    }
+                    println!("{name}: {ok} of {} clean{}", (to - from + 1) as usize * sp.len(), if bad_here.is_empty() { String::new() } else { format!("; {}", bad_here.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) });
+                }
+                heal_gt.sort();
+                println!("sweep: {tot} visits ({} rows), seated {seated}; strands reaching R {to_r}; never out {never}; ridden carts held {ridden_held}; HOME problems {lost}; bulb apart {bulb}; strands healed by the retry {healed} (hold to R: min {:?}, median {:?}, max {:?} gt); least pickup speed {:.3}", rows.len(), heal_gt.first(), heal_gt.get(heal_gt.len() / 2), heal_gt.last(), min_pick);
+                return Ok(());
+            }
             let mut bad = 0;
             let mut n = 0;
             for seed in from..=to {
@@ -4668,7 +4781,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             if !r.problems.is_empty() {
                                 bad += 1;
                             }
-                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?} at {:?} b/t, entry {:?} at {:?}, R {:?}, out {:?} seated {}, held {:?}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.entry_at, r.entry_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, r.held, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?} at {:?} b/t, entry {:?} at {:?}, R {:?}, out {:?} seated {}, held {:?}, retry holds {:?} roll-backs {:?} pickup vz {:?} least z {:?} bulb lag {}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.entry_at, r.entry_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, r.held, r.holds, r.rollbacks, r.pickup_vz.map(|s| format!("{s:.3}")), r.min_z.map(|s| format!("{s:.2}")), r.bulb_lag_max, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
                         }
                         Err(e) => {
                             bad += 1;
@@ -4679,8 +4792,39 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("bed tier unit bench: {} of {n} visits clean", n - bad);
         }
-        MobfarmCmd::Sentinel { out, claim, plate } => {
-            std::fs::write(&out, crate::sentinel::design(!claim, plate)?)?;
+        MobfarmCmd::BedtierStrand { design, from, to, speeds, reload_at, c_delay, give_up } => {
+            let (_c, spec) = load(version, &design)?;
+            let sp: Vec<f64> = speeds.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
+            let ra: Vec<i64> = reload_at.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
+            let (mut n, mut strands, mut lost, mut unhealed) = (0, 0, 0, 0);
+            for &p in &ra {
+                for seed in from..=to {
+                    for &v in &sp {
+                        n += 1;
+                        match crate::bedtier::strand_bench(&spec, seed, v, p, c_delay, give_up) {
+                            Ok(r) => {
+                                if r.stranded {
+                                    strands += 1;
+                                }
+                                if !r.home_lost.is_empty() {
+                                    lost += 1;
+                                }
+                                if r.problems.iter().any(|x| x.starts_with("not healed")) {
+                                    unhealed += 1;
+                                }
+                                if r.stranded || !r.problems.is_empty() {
+                                    println!("reload +{p} seed {seed} speed {v}: stranded {}, A seated in visit {:?}, C seated in visit {:?}, visit 2's F {:?}{}", r.stranded, r.a_seated_visit, r.c_seated_visit, r.visit2_f, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                                }
+                            }
+                            Err(e) => println!("reload +{p} seed {seed} speed {v}: ERROR {e}"),
+                        }
+                    }
+                }
+            }
+            println!("strand bench (give-up only, C {c_delay} gt after R): {n} visits, {strands} strands, {lost} with a HOME lost, {unhealed} not healed after visit 2");
+        }
+        MobfarmCmd::Sentinel { out, claim, plate, dug } => {
+            std::fs::write(&out, crate::sentinel::design_dug(!claim, plate, dug)?)?;
             println!("wrote {}", out.display());
         }
         MobfarmCmd::SentinelBench { design, from, to, days, freeze, reload, kill, outsider, skip } => {
@@ -4696,6 +4840,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 })
             };
             let f = crate::sentinel::Faults { freeze: two(&freeze)?, reload: two(&reload)?, kill, outsider, skip };
+            let (mut dusks, mut fails, mut max_age, mut over_1000, mut strolls, mut outside) = (0u64, 0u64, 0i64, 0u64, 0i64, 0i64);
+            let mut slips: Vec<f64> = Vec::new();
             for seed in from..=to {
                 match crate::sentinel::bench(&spec, seed, days, &f) {
                     Ok(r) => {
@@ -4704,10 +4850,46 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             println!("  day {} dayTime {:5} (t {}): {}", e.day, e.day_time, e.t, e.what);
                         }
                         println!("  stood up at {:?}", r.stand_ups);
+                        // (G1's review: per night the stamp's age at the first calm REST tick; the
+                        // lie-down's slip from the previous wake (the plate's rising edge) in 100-gt
+                        // beats against day-1's [115, 125])
+                        let mut last_wake: Option<i64> = None;
+                        let mut night_slips: Vec<f64> = Vec::new();
+                        for e in &r.events {
+                            if e.what.starts_with("bed free") {
+                                last_wake = Some(e.t);
+                            }
+                            if e.what.starts_with("bed occupied") {
+                                dusks += 1;
+                                if let Some(w) = last_wake {
+                                    let s = (e.t - w) as f64 / 100.0;
+                                    night_slips.push(s);
+                                    slips.push(s);
+                                }
+                            }
+                        }
+                        let lie_downs = r.events.iter().filter(|e| e.what.starts_with("bed occupied")).count();
+                        fails += r.nights.len().saturating_sub(lie_downs) as u64 + r.home_events.iter().filter(|h| !h.2).count() as u64;
+                        for n in &r.nights {
+                            if let Some(a) = n.stamp_age {
+                                max_age = max_age.max(a);
+                                if a > 1000 {
+                                    over_1000 += 1;
+                                }
+                            }
+                        }
+                        strolls += r.strolls;
+                        outside += r.strolls_outside;
+                        println!("  nights (REST start, first calm REST tick, the stamp's age there): {:?}", r.nights.iter().map(|n| (n.day, n.rest_start_dt, n.calm_dt, n.stamp_age)).collect::<Vec<_>>());
+                        println!("  the stamp's changes (t, day time, the stamp as t): {:?}", r.stamp_changes.iter().take(12).collect::<Vec<_>>());
+                        println!("  slips wake -> lie-down (100-gt beats): {:?}; HOME events {:?}; IDLE strolls {} ({} outside the room: {:?})", night_slips, r.home_events, r.strolls, r.strolls_outside, r.stroll_examples);
                     }
                     Err(e) => println!("seed {seed}: ERROR {e}"),
                 }
             }
+            let (lo, hi) = crate::sentinel::wilson(dusks.saturating_sub(fails), dusks);
+            let in_window = slips.iter().filter(|s| **s >= 115.0 && **s <= 125.0).count();
+            println!("sentinel: {dusks} dusks, {fails} failed (a REST night with no lie-down, or HOME lost); success {:.1}%, Wilson 95% [{:.3}, {:.3}]; the stamp's age at the first calm REST tick: max {max_age}, over 1,000 on {over_1000} nights; slips {in_window} of {} in [115, 125] beats (min {:.1}, max {:.1}); IDLE strolls {strolls}, {outside} with a target outside the room", 100.0 * (dusks.saturating_sub(fails)) as f64 / dusks.max(1) as f64, lo, hi, slips.len(), slips.iter().cloned().fold(f64::MAX, f64::min), slips.iter().cloned().fold(f64::MIN, f64::max));
         }
         MobfarmCmd::PickerSim { riders, batch, cycle, spacing, phase, jitter, k, away, nights, seed } => {
             let aw: Vec<i64> = away.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
