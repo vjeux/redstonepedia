@@ -1673,11 +1673,14 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         if merge_west == f64::MAX { " none".to_string() } else { format!("{:+.3}", merge_west) }
     ));
     lines.push(format!(
-        "the nappers' launches from the rest (its centre off the rest's cell after the release; the rest's support {}): {} launches, departure {} gt after the release, speed then {}; stuck (still on the rest 40 gt after its release; the bar: 0): {launch_stuck}",
+        "the nappers' launches from the rest (its centre off the rest's cell after the release; the rest's support {}): {} launches, departure {} gt after the release, speed then {}; stuck (still on the rest 40 gt after its release; the bar: 0): {launch_stuck}; the launch threshold (the latest departure, the pulse must outlast it) {} gt against the pulse {} gt; launches after the pulse ended (the bar: 0): {}",
         if so.siding_north { so.r_support.as_deref().unwrap_or("minecraft:stone") } else { "-" },
         launches.len(),
         if launches.is_empty() { "-".to_string() } else { format!("{}..{}", launches.iter().map(|l| l.0).min().unwrap_or(0), launches.iter().map(|l| l.0).max().unwrap_or(0)) },
-        if launches.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", launches.iter().map(|l| l.1).fold(f64::MAX, f64::min), launches.iter().map(|l| l.1).fold(0.0f64, f64::max)) }
+        if launches.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", launches.iter().map(|l| l.1).fold(f64::MAX, f64::min), launches.iter().map(|l| l.1).fold(0.0f64, f64::max)) },
+        launches.iter().map(|l| l.0).max().map_or("-".to_string(), |d| d.to_string()),
+        so.nap_pulse,
+        launches.iter().filter(|l| l.0 > so.nap_pulse).count()
     ));
     lines.push(format!(
         "nappers came to rest on the siding at z {} over {} nappers ({}; a napper resting above z {:.2} reaches above the split row's cart floor {:.4}; the static worst z gap to a through-cart projected onto K's north edge (z {:.1}, moveAlongTrack's entry at x fraction 0), from the highest rest: {})",
@@ -1959,7 +1962,10 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>) ->
             18 + ns,
             2 + ns
         ));
-        out.push_str("# Bench (the S-bend, wt-go): the napper rests on R at z 7.435..7.740 for arrivals 0.20..0.44 from K's cell; push contact with every passing cart 0 (the split's through-carts on the row at 0.30, offsets 0/12/24: 72/72 pass, 0 slowed); lane carts on the siding's cells 0; stray power on R 0; matrix (ii) and (A) 200 + 200 rows 0 failing (rets 132..400, merge entry 0.296..0.476, nap_rets 300..1700, +-2). The delivery floor: first failure stored 0.22, 0.23..0.60 clean.\n");
+        out.push_str("# Bench (the S-bend, wt-go; tool unreviewed): napper arrivals 0.10..0.44 on K's cell (the brief's band) rest on R at z 7.895..7.435 and launch 8..6 gt after the release (the launch threshold: the switch's pulse must outlast 8 gt; 6 gt crawls or sticks at the high rests; the design's pulse 30); push contact with every passing cart 0, the least gap +0.084 at a 0.10 arrival and +0.239 at 0.20 against the split's ridden through-carts at 0.30, their entries into K swept (0.30 is the conservative end: the row's measured 0.35..0.39 moves a cart further along K's chord before the push search; tick-exact's official crossing 1531189749067418: +0.107 / +0.235); lane carts on the siding's cells 0; stray power on R 0. On the slime support: matrix (ii) and (A) 200 + 200 rows 0 failing (rets 132..400, merge entry 0.296..0.476, nap_rets 300..1700, +-2; occupancy 8, stamps over 1,000 and cut windows counted), restarts inside the napper's wait 1000/0 + 1000/0, the start-up from the steady state (7 riders, the 8th in the pocket) 3 cycles clean, the launch identical to stone's at every arrival and pulse; the control (glass under R) never launches. The delivery floor: first failure stored 0.22, 0.23..1.00 clean.\n");
+        if support == "minecraft:slime_block" {
+            out.push_str("# R's slime support: lay it only together with F3's z 9 floors (9fc3155f's 4d76acbfb: lay with it, not before): each S-bend seat loses its own R cell as a stroll candidate (one of four at each seat in 8fb667bca's prints). Pending official rows: tick-exact's napper release on slime (a cart on rails is never onGround, so slime's stepOn should not run: G1's 26.3 read), the seats' official P_null re-measured on slime.\n");
+        }
         // (c3 is a junction only through R beside it: ironspec's ruling (07:52), declared for push-scan)
         let why = "c3 (ironspec 07:52): its third arm is the siding rest R itself and it is never switched, and no other route's cart enters it (ironfarm escape-bench --siding-north: the westmost branch-cart centre in the merge cell x+0.24 over the matrix and restarts, lane carts on the siding's cells 0, push contact 0, one napper per siding at a time)";
         out.push_str(&format!("# own-route-junctions: {}\n", [-1, 3, 7].iter().map(|x| format!("{},{m},{mz}={why}", x - 1)).collect::<Vec<_>>().join("; ")));
@@ -2183,8 +2189,9 @@ pub struct SidingRow {
     /// --k-row: the least z gap between a through-cart's box and the waiting napper's push box
     /// (boxes 0.98, the napper's inflated 0.2; negative is contact; f64::MAX none).
     pub th_zgap: f64,
-    /// The nappers' launches from the rest: stuck (still on it 40 gt after the release, a failure),
-    /// the departure ticks after the release and the speeds then (min, max).
+    /// The nappers' launches from the rest: stuck (still on it 40 gt after the release) plus late
+    /// (off it only after the pulse ended), both failures; the departure ticks after the release
+    /// and the speeds then (min, max).
     pub launch_stuck: usize,
     pub launch_t: (i64, i64),
     pub launch_v: (f64, f64),
@@ -2277,7 +2284,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                 r.merge_v_max = b.parse().map_err(|_| format!("siding_row: merge-entry speed {s}"))?;
             }
         } else if l.starts_with("the nappers' launches from the rest") {
-            r.launch_stuck = req(l, "stuck (still on the rest 40 gt after its release; the bar: 0): ")? as usize;
+            r.launch_stuck = req(l, "stuck (still on the rest 40 gt after its release; the bar: 0): ")? as usize + req(l, "launches after the pulse ended (the bar: 0): ")? as usize;
             if let Some(s) = l.split("departure ").nth(1).and_then(|s| s.split(" gt").next())
                 && let Some((a, b)) = s.split_once("..")
             {
@@ -2385,7 +2392,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
     if so.flat_detector && !text.lines().any(|l| l.starts_with("the siding flat's detector")) {
         return Err("siding_row: --flat-detector, but the bench printed no detector line".to_string());
     }
-    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells"] {
+    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest"] {
         if !text.lines().any(|l| l.starts_with(key)) {
             return Err(format!("siding_row: the bench printed no \"{key}\" line"));
         }
