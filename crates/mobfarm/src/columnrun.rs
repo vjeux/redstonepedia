@@ -157,6 +157,8 @@ pub trait Controller {
     fn step(&mut self, v: &View, log: &mut Vec<String>) -> BTreeMap<String, Want>;
     /// The stand's summoner rest cells (the batch at T).
     fn summoner_cells(&self) -> Vec<String>;
+    /// Where the carts are, by part (a line at each T).
+    fn snapshot(&self, v: &View) -> String;
 }
 
 /// v4's controller (C′, the inverted gravity column): the hold's front-first fill and its release
@@ -185,6 +187,11 @@ pub struct V4 {
     cond_was: bool,
     until: [i64; 6],
     last_feed: i64,
+    held_at: i64,
+    feeding: bool,
+    adv_at: Option<i64>,
+    adv: [bool; 3],
+    left: [bool; 3],
     pulse: i64,
     ready: bool,
     t1_shut_at: i64,
@@ -229,6 +236,11 @@ impl V4 {
             ready: !(1..=3).any(|k| v.cart_near(&format!("R{k}"))),
             until: [i64::MIN / 4; 6],
             last_feed: i64::MIN / 4,
+            held_at: i64::MIN / 4,
+            feeding: false,
+            adv_at: None,
+            adv: [false; 3],
+            left: [false; 3],
             pulse,
             t1_shut_at: i64::MIN / 4,
             t2_shut_at: i64::MIN / 4,
@@ -250,6 +262,19 @@ impl V4 {
 impl Controller for V4 {
     fn summoner_cells(&self) -> Vec<String> {
         vec!["S0r".into(), "S1r".into(), "S2r".into()]
+    }
+
+    fn snapshot(&self, v: &View) -> String {
+        let c = |n: &str| v.carts_near(n).len();
+        let stand = c("S0r") + c("S1r") + c("S2r");
+        let hold = ["Ra", "Rb", "Rc"].iter().map(|n| c(n)).sum::<usize>();
+        let tail: Vec<String> = (1..=5).map(|k| format!("{}", c(&format!("R{k}")))).collect();
+        let (top, low) = (v.cells.cells.get("RUNTOP").copied(), v.cells.cells.get("Pesc").copied());
+        let run = match (top, low) {
+            (Some(tp), Some(lp)) => v.carts.iter().filter(|k| k.pos[0].floor() as i32 == tp[0] && k.pos[2] >= lp[2] as f64 && k.pos[2] < tp[2] as f64 + 1.0 && k.pos[1] > lp[1] as f64 - 0.5 && k.pos[1] < tp[1] as f64 + 1.5).count(),
+            _ => 0,
+        };
+        format!("stand {stand}, hold {hold}, tail pockets 1..5 [{}], run {run} (top detector {}), elsewhere {}", tail.join(" "), if v.is_on("RUNTOP") { "on" } else { "off" }, v.carts.len() - stand - hold - run - (1..=5).map(|k| c(&format!("R{k}"))).sum::<usize>())
     }
 
     fn step(&mut self, v: &View, log: &mut Vec<String>) -> BTreeMap<String, Want> {
@@ -313,10 +338,13 @@ impl Controller for V4 {
         }
         match self.rel {
             Some(_) => {
+                // (9fc3155f, Nov 11 20:59: Gc, with G_c and R*_c's power, closes on the rear
+                // cart's own P_b rise, zero delay; Gb stays with Ga's close)
                 let bc = self.rel_b_open.is_some();
+                let c_open = bc && !(self.rel_pockets[2] && self.rel_rear.is_some());
                 self.set("Ga", true, true);
                 self.set("Gb", bc, bc);
-                self.set("Gc", bc, bc);
+                self.set("Gc", c_open, c_open);
             }
             None => {
                 self.set("Ga", false, false);
@@ -334,7 +362,9 @@ impl Controller for V4 {
         if t == self.staged_at {
             self.staged = true;
         }
-        let cond = self.staged && self.fills < 3 && t >= self.last_release + 10 && t >= self.last_hold_edge + 6;
+        // (ironfarm's admission keyed on the release finished, ironspec Nov 11 20:58: Ga, Gb and Gc
+        // shut after the rear cart's evidence; until ironfarm's own law lands)
+        let cond = self.staged && self.fills < 3 && self.rel.is_none() && t >= self.last_release + 10 && t >= self.last_hold_edge + 6;
         if cond && !self.cond_was {
             self.gp_until = t + 11;
             self.staged = false;
@@ -354,38 +384,64 @@ impl Controller for V4 {
         // cart against a shut gate on a slope keeps a small stored speed)
         let rest = |k: usize| v.cart_near(&format!("R{k}"));
         if self.ready && v.rose("P3") {
+            // (7b90c3f1's key, gq-bench a3d13d512e: the first P3 rise while idle is the batch's
+            // cart 0: T1 shuts at the edge + 0, T2 at + 1; held 4 gt after the later shut)
             self.ready = false;
-            self.t1_shut_at = t + 1;
-            self.t2_shut_at = t + 2;
-            log.push(format!("t {t}: receiver catch: P3 edge, T1 shuts at +1, T2 at +2 (emulated)"));
-        }
-        let recv_empty = (1..=3).all(|k| !nearp(k)) && ["T1", "T2", "T3"].iter().all(|g| !v.cart_on_gate(g));
-        if !self.ready && recv_empty && t > self.t2_shut_at + 2 && (1..=3).all(|k| self.until[k] <= t) {
-            self.ready = true;
+            self.t1_shut_at = t;
+            self.t2_shut_at = t + 1;
+            self.held_at = t + 5;
+            self.feeding = false;
+            self.adv_at = None;
+            self.adv = [false; 3];
+            self.left = [false; 3];
+            log.push(format!("t {t}: receiver key: P3 edge, T1 shut, T2 at +1 (emulated)"));
         }
         let pulse = self.pulse;
         if v.rose("P1") {
             let occ: Vec<String> = (1..=5usize).map(|k| format!("{k}:{}", if rest(k) { "rest" } else if nearp(k) { "moving" } else { "-" })).collect();
-            log.push(format!("t {t}: P1 edge (an arrival): pockets {} receiver {}", occ.join(" "), if self.ready { "ready" } else { "not ready" }));
+            log.push(format!("t {t}: P1 edge (an arrival): pockets {} receiver {}", occ.join(" "), if self.ready { "idle" } else { "busy" }));
+        }
+        if !self.ready {
+            // (the feed: T3 opens when held, no advance running, >= 24 gt since the last feed
+            // start, a cart at G3's face; X's rise shuts it and starts the advance 4 gt later:
+            // T2 and T1 open together, T2 shut on the next P3 rise, T1 on the next P2 rise)
+            if !self.feeding && t >= self.held_at && self.adv_at.is_none() && !self.adv[1] && !self.adv[2] && t >= self.last_feed + 24 && rest(3) {
+                self.feeding = true;
+                self.last_feed = t;
+            }
+            if self.feeding && v.rose("X") {
+                self.feeding = false;
+                self.adv_at = Some(t + 4);
+            }
+            if self.adv_at == Some(t) {
+                self.adv_at = None;
+                self.adv[2] = nearp(2);
+                self.adv[1] = nearp(1);
+            }
+            if self.adv[2] && v.rose("P3") {
+                self.adv[2] = false;
+                self.left[2] = true;
+            }
+            if self.adv[1] && v.rose("P2") {
+                self.adv[1] = false;
+                self.left[1] = true;
+            }
+            let quiet = !self.feeding && self.adv_at.is_none() && !self.adv[1] && !self.adv[2];
+            if quiet && t > self.held_at && (1..=3).all(|k| !nearp(k)) && ["T1", "T2", "T3"].iter().all(|g| !v.cart_on_gate(g)) {
+                self.ready = true;
+                log.push(format!("t {t}: receiver idle (emulated)"));
+            }
         }
         if self.ready {
             self.set("T1", true, true);
             self.set("T2", true, true);
             self.set("T3", false, false);
         } else {
-            if t > self.t2_shut_at && self.until[1] <= t && rest(1) && !nearp(2) {
-                self.until[1] = t + pulse;
-            }
-            if t > self.t2_shut_at && self.until[2] <= t && rest(2) && !nearp(3) {
-                self.until[2] = t + pulse;
-            }
-            if self.until[3] <= t && rest(3) && !nearp(4) && t >= self.last_feed + 24 {
-                self.until[3] = t + pulse;
-                self.last_feed = t;
-            }
-            let t1 = t < self.t1_shut_at || t < self.until[1];
-            let t2 = t < self.t2_shut_at || t < self.until[2];
-            let t3 = t < self.until[3];
+            // (early reopen: T1 once its cart has left and its pocket is empty, T2 once its cart
+            // has left and pockets 1 and 2 are empty)
+            let t1 = t < self.t1_shut_at || self.adv[1] || (self.left[1] && !nearp(1));
+            let t2 = t < self.t2_shut_at || self.adv[2] || (self.left[2] && !nearp(1) && !nearp(2));
+            let t3 = self.feeding;
             self.set("T1", t1, t1);
             self.set("T2", t2, t2);
             self.set("T3", t3, t3);
@@ -622,9 +678,25 @@ pub fn run(spec: &FarmSpec, meta: &BTreeMap<String, String>, o: &Opts) -> Result
     let mut ds_passes: BTreeMap<u32, usize> = BTreeMap::new();
     let mut max_v_contact = 0.0f64;
     let mut external: Vec<String> = Vec::new();
+    let mut sensor_fail = 0usize;
+    let mut dep_fail = 0usize;
+    let mut sensor_lines: Vec<String> = Vec::new();
+    let mut prev_batch: Vec<u32> = Vec::new();
+    let mut reach_at: BTreeMap<u32, i64> = BTreeMap::new();
+    let lock_y = cells.cells.get("PAD0").map(|p| p[1] as f64 + 20.54);
     let rider_of: BTreeMap<u32, Option<u32>> = carts0.iter().map(|c| (c.id, c.rider)).collect();
     for _ in 0..ticks {
         let t = run.world.time;
+        if let Some(lock) = lock_y {
+            for vid in &prev_batch {
+                if !reach_at.contains_key(vid)
+                    && let Some(i) = redsim::entity::index_of(&run.world, *vid)
+                    && run.world.entities.list[i].pos.y >= lock
+                {
+                    reach_at.insert(*vid, t);
+                }
+            }
+        }
         let carts = carts_of(&run.world);
         let mut rise = BTreeSet::new();
         for (n, c) in &cells.cells {
@@ -677,7 +749,39 @@ pub fn run(spec: &FarmSpec, meta: &BTreeMap<String, String>, o: &Opts) -> Result
             if !others.is_empty() {
                 summon_fail += 1;
             }
+            // (the pad's golem sensor box at T, tick-exact's worst case: a rider senses a golem
+            // whose feet are < 20.54 below or < 19.79 above its own and |dx|, |dz| < 18.84 to the
+            // golem's centre; every rider outside the batch inside it, and the departing batch's
+            // feet against the lock height pad feet + 20.54)
+            if let (Some(p0), Some(p1)) = (cells.cells.get("PAD0"), cells.cells.get("PAD1")) {
+                let g = p0[1] as f64;
+                let inside: Vec<String> = vill.iter().filter(|(id, _, p)| {
+                    !batch.contains(id) && p[1] - 20.54 < g && g < p[1] + 19.79 && {
+                        let cx = (p[0]).clamp(p0[0] as f64 + 0.5, p1[0] as f64 + 0.5);
+                        let cz = (p[2]).clamp(p0[2] as f64 + 0.5, p1[2] as f64 + 0.5);
+                        (p[0] - cx).abs() < 18.84 && (p[2] - cz).abs() < 18.84
+                    }
+                }).map(|(_, _, p)| format!("({:.2},{:.2},{:.2})", p[0], p[1], p[2])).collect();
+                if !inside.is_empty() {
+                    sensor_fail += 1;
+                }
+                let lock = g + 20.54;
+                let dep: Vec<String> = prev_batch.iter().map(|vid| vill.iter().find(|x| x.0 == *vid).map_or("gone".to_string(), |(_, _, p)| format!("{:.2}{}", p[1], if p[1] >= lock { "" } else { " LOW" }))).collect();
+                let reached: Vec<String> = prev_batch.iter().map(|vid| reach_at.get(vid).map_or("never".to_string(), |r| format!("T{:+}", r - t))).collect();
+                if !prev_batch.is_empty() && (prev_batch.iter().any(|vid| reach_at.get(vid).is_none_or(|r| *r > t - 5))) {
+                    dep_fail += 1;
+                }
+                sensor_lines.push(format!("  T {}: riders outside the batch in a pad spot's sensor box: {}{}; the batch that left at the last T, feet now [{}] (lock {lock:.2}), first at the lock {}", t - start, inside.len(), if inside.is_empty() { String::new() } else { format!(" {}", inside.join(" ")) }, dep.join(", "), reached.join(", ")));
+                prev_batch = batch.clone();
+                for vid in &prev_batch {
+                    reach_at.remove(vid);
+                }
+            }
             summon_lines.push(format!("  T {}: {} summoner(s) in the stand; other riders in a summoner's 10-box: {}{}", t - start, batch.len(), others.len(), if list.is_empty() { String::new() } else { format!(" {}", list.join(" ")) }));
+            if o.trace {
+                let vv = View { t, on: &on, rise: &rise, carts: &carts, cells: &cells };
+                log.push(format!("T {}: {}", t - start, ctl.snapshot(&vv)));
+            }
         }
         let v = View { t, on: &on, rise: &rise, carts: &carts, cells: &cells };
         // (a gate moved by the file's own redstone, not by the controller: listed)
@@ -761,6 +865,13 @@ pub fn run(spec: &FarmSpec, meta: &BTreeMap<String, String>, o: &Opts) -> Result
     for l in &summon_lines {
         s.push_str(l);
         s.push('\n');
+    }
+    if !sensor_lines.is_empty() {
+        s.push_str(&format!("pad sensor box at T (tick-exact's worst case, |dx|,|dz| < 18.84, golem feet < 20.54 below / < 19.79 above a rider's) and the departing batch (its rear at the lock, pad feet + 20.54, by the next T - 5): {} of {} T with a rider outside the batch inside a pad spot's box{}; {} T whose last batch missed the lock by T - 5{}\n", sensor_fail, sensor_lines.len(), if sensor_fail == 0 { " (PASS)" } else { " (FAIL)" }, dep_fail, if dep_fail == 0 { " (PASS)" } else { " (FAIL)" }));
+        for l in &sensor_lines {
+            s.push_str(l);
+            s.push('\n');
+        }
     }
     s.push_str(&format!("gate openings: {}\n", opens.iter().map(|(g, n)| format!("{g} {n}")).collect::<Vec<_>>().join(", ")));
     s.push_str(&format!("gates moved by the file's own redstone (not the controller): {}{}\n", external.len(), if external.is_empty() { String::new() } else { format!(": {}", external.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }));

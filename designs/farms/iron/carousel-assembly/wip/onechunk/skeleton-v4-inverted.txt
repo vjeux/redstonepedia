@@ -19,11 +19,13 @@
 # + tail: /tmp/onechunk/tail-v5b.txt moved by -6,0,-6 into the frame, then 0,0,0 into its tier
 # + esc: designs/farms/iron/carousel-assembly/wip/onechunk/escapement-v4.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + stand-fix: designs/farms/iron/carousel-assembly/wip/onechunk/stand-fix-v4.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
+# + tail-fix: designs/farms/iron/carousel-assembly/wip/onechunk/tail-fix-v4.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # cleared first (committed cells a lane re-lays): x -3..-3 y 1..5 z 5..7
 # cleared first (committed cells a lane re-lays): x 9..9 y 0..2 z 6..7
 # cleared first (committed cells a lane re-lays): x -3..-3 y 18..19 z -5..-5
 # cleared first (committed cells a lane re-lays): x 0..7 y -6..1 z 1..2
 # cleared first (committed cells a lane re-lays): x 2..2 y 0..0 z 0..0
+# cleared first (committed cells a lane re-lays): x 8..8 y 34..34 z 9..9
 # sketch track (plain rails, no control; a lane's cells replace it): pressedrun=@-4,31,8;-4,30,7;-4,21,-2;@-4,20,-3
 # sketch track (plain rails, no control; a lane's cells replace it): descent=@7,14,5;7,14,6;-3,6,6;-3,6,5;@-3,6,4
 # sketch track (plain rails, no control; a lane's cells replace it): +climb=9,2,6;9,4,8;9,4,9;-6,18,9;-6,32,-6;9,38,-6;@9,38,-5
@@ -31,7 +33,7 @@
 name: skeleton-v4-inverted
 circuit: mob-farm iron_ingot
 declared: 3,6,10 rail; 3,5,9 rail; 3,4,8 rail; 3,3,7 rail; 3,2,6 rail[shape=ascending_west]; 4,1,6 rail; 5,0,6 rail; 6,-1,6 powered_rail[powered=false]; 7,-1,6 rail; 9,-1,6 rail; 10,-2,6 powered_rail[powered=false]; 11,-2,6 rail; 12,-1,6 detector_rail; 13,-2,6 rail; 14,-3,6 powered_rail[powered=false]; 15,-3,6 rail; 15,-3,7 powered_rail[powered=true]!; 15,-2,8 powered_rail[powered=true]!; 15,-1,9 powered_rail[powered=true]!; 15,0,10 powered_rail[powered=true]!; 15,1,11 powered_rail[powered=true]!; 14,-2,6 oak_fence_gate[open=false]; 10,-1,6 oak_fence_gate[open=false]; 6,0,6 oak_fence_gate[open=false]
-run-cells: Pa 13,17,8; Pb 13,18,3; Pc 10,19,1; Ds 13,14,11; ESC 3,19,1; RUNTOP 2,31,14; Pesc 2,20,3; P1 15,38,2; P2 15,37,7; P3 15,36,11; P4 9,35,15; P5 5,34,15; Ra 13,16,9; Rb 13,17,4; Rc 11,18,1; R1 15,37,3; R2 15,36,8; R3 15,35,12; R4 8,34,15; R5 4,33,15; S0r 13,-2,6; S1r 9,-1,6; S2r 5,0,6; STRIP0 3,-3,6; STRIP1 15,2,6
+run-cells: Pa 13,17,8; Pb 13,18,3; Pc 10,19,1; Ds 13,14,11; ESC 3,19,1; RUNTOP 2,31,14; Pesc 2,20,3; P1 15,38,2; P2 15,37,7; P3 15,36,11; P4 9,35,15; P5 5,34,15; Ra 13,16,9; Rb 13,17,4; Rc 11,18,1; R1 15,37,3; R2 15,36,8; R3 15,35,12; R4 8,34,15; R5 4,33,15; S0r 13,-2,6; S1r 9,-1,6; S2r 5,0,6; STRIP0 3,-3,6; STRIP1 15,2,6; X 14,34,15; PAD0 4,-6,0; PAD1 14,-6,5
 run-controller: v4
 run-gates: Ga 13,16,10/13,14,10; Gb 13,17,5/13,15,5; Gc 12,18,1/12,16,1; G0e 2,21,3; GP 2,20,2; S0 14,-2,6/14,-3,7; S1 10,-1,6/10,-3,6; S2 6,0,6/6,-2,6; T1 15,37,4/15,35,4; T2 15,36,9/15,34,9; T3 15,35,13/15,33,13; T4 7,34,15/7,32,15; T5 3,33,15
 port nether-anchor: 6 0 6
@@ -945,7 +947,7 @@ layer 34:
   ...............g
   ...............e
   ...............y
-  .....M.Wsgvwwwwz
+  .....M.WsgvwwwMz
 layer 35:
   ............i2
   .

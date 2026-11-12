@@ -1,0 +1,9 @@
+# The receiver's exit detector X for v4 (owner 7b90c3f1, placed by onechunk; farmopt Nov 11 20:33 and 21:00), loop frame (paste with no move; a relaying part, `tail-fix!=`):
+# the flat (8,34,9) on the tail's z 9 row, crossed only by carts leaving the receiver, as a detector rail east_west; nothing powered on its faces ((8,35,9) air, its glass
+# support below). The receiver's feed keys on its rising edge (shut G3, one ring edge, then G2 and G1 advance together).
+name: tail-fix-v4
+origin: 8 0 9
+palette:
+  X minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+layer 34:
+  X
