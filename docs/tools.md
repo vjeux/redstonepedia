@@ -213,6 +213,18 @@ cart-cart contact with both stored speeds (bar 0.2, the nearest run cell named),
 onto a cart (the closed bar's box), each cart's detector passes, and at each T every rider inside a
 stand summoner's box grown by 10, every rider inside a pad spot's sensor box (the worst-case
 constants) and the last departing batch's feet against the lock (pad feet + 20.54) by T - 5.
+The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] [--hold 320]
+[--pulse 20] [--stagger A1,B1,A2] [--freeze T,D]... [--design-out F]` (L1′, the cart loop: an
+overworld portal and its Nether twin, each side an exit track into a 2-pocket queue, 3 empty carts,
+each released `hold` gt after it arrived) and `mctas mobfarm l1-item-bench [--width 5] [--items 6]
+[--period 200] [--ticks N] [--seed S] [--freeze T,D]... [--design-out F]` (L1‴, the item loop:
+same-axis portals, a firing dropper fed by an up-facing one and a hopper floor past the frame on
+each side, dedicated items, each side's clock every `period` gt) write their design and run it:
+each side's arrivals and their intervals against the 300-gt PORTAL ticket, the Nether's ticket
+lapsing, carts or items held inside a portal (the cooldown restarting every tick inside), the carts
+or items counted. Crossings, the cooldown restart, the closest-portal search and the Nether ticket
+are redsim's; the pockets' power and the clocks are EMULATED (labelled); `--freeze` freezes the
+entities while the blocks run (the login window).
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

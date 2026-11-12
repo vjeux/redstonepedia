@@ -1,0 +1,134 @@
+# L1' cart-loop loader bench (onechunk, Nov 11): the overworld portal A and its Nether twin B, each with an exit track into a 2-pocket queue; the pockets' power EMULATED by mobfarm l1-bench
+name: l1-cart-loop-bench
+circuit: mob-farm iron_ingot
+port nether-anchor: 0 0 0
+port nether-axis: 1 0 0
+port output: 8 10 8
+origin: -1 0 0
+palette:
+  A minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  B minecraft:powered_rail[powered=true,shape=ascending_north,waterlogged=false]
+  C minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  D minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  E minecraft:rail[shape=north_east,waterlogged=false]
+  F minecraft:rail[shape=north_south,waterlogged=false]
+  G minecraft:glass
+  H minecraft:rail[shape=north_west,waterlogged=false]
+  I minecraft:rail[shape=south_east,waterlogged=false]
+  J minecraft:rail[shape=south_west,waterlogged=false]
+  K minecraft:redstone_block
+  N minecraft:nether_portal[axis=x]
+  O minecraft:obsidian
+  P minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+  R minecraft:rail[shape=ascending_north,waterlogged=false]
+  p minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  r minecraft:rail[shape=ascending_south,waterlogged=false]
+layer 9:
+  .OO
+  .G
+  .K
+  .K
+  .
+  .
+  .
+  .
+layer 10:
+  ONNO
+  .FG
+  .DG
+  .CG
+  .KG
+  .
+  .
+  .
+layer 11:
+  ONNO
+  ..A
+  ..A
+  ..F
+  .Cp
+  .KG
+  .
+  .
+layer 12:
+  ONNO
+  .
+  .
+  .
+  .
+  .Cr
+  .KG
+  .
+layer 13:
+  .OO
+  .
+  .
+  .
+  .
+  .
+  .Cp
+  .GG
+layer 14:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .EH
+nether-origin: -1 0 -7
+nether layer 9:
+  .
+  .
+  .
+  .
+  ..K
+  ..K
+  ..G
+  .OO
+nether layer 10:
+  .
+  .
+  .
+  .GK
+  .GB
+  .GD
+  .GF
+  ONNO
+nether layer 11:
+  .
+  .
+  .GK
+  .PB
+  .F
+  .A
+  .A
+  ONNO
+nether layer 12:
+  .
+  .GK
+  .RB
+  .
+  .
+  .
+  .
+  ONNO
+nether layer 13:
+  .GG
+  .PB
+  .
+  .
+  .
+  .
+  .
+  .OO
+nether layer 14:
+  .IJ
+  .
+  .
+  .
+  .
+  .
+  .
+  .

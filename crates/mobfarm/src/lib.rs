@@ -10,6 +10,8 @@ pub mod carousel;
 pub mod cli;
 pub mod column;
 pub mod columnrun;
+pub mod l1bench;
+pub mod l1items;
 pub mod comb;
 pub mod components;
 pub mod headperm;

@@ -984,6 +984,58 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 238.0)]
         per_day: f64,
     },
+    /// (onechunk 2026-11-11; farmopt 22:22, tick-exact's code read) L1‴, the item-loop loader,
+    /// benched in redsim (`mobfarm::l1items`): a same-axis portal pair, on each side a firing
+    /// dropper fed from below and a hopper floor past the frame; dedicated items circulate; each
+    /// side's clock EMULATED; each side's arrivals against the 300-gt ticket, items stalled in a
+    /// portal, the items counted, the landing spread.
+    L1ItemBench {
+        #[arg(long)]
+        design_out: Option<PathBuf>,
+        /// The portals' interior width (each side fires from its own column).
+        #[arg(long, default_value_t = 5)]
+        width: i32,
+        #[arg(long, default_value_t = 4)]
+        items: u32,
+        #[arg(long, default_value_t = 6000)]
+        ticks: i64,
+        /// Each side's clock period (gt).
+        #[arg(long, default_value_t = 200)]
+        period: i64,
+        /// Entities frozen D gt from T (repeatable T,D): the login window.
+        #[arg(long)]
+        freeze: Vec<String>,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long)]
+        trace: bool,
+    },
+    /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
+    /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
+    /// the overworld portal and its Nether twin, each side an exit track into a 2-pocket queue, 3
+    /// empty carts; the pockets' power EMULATED (each cart released `hold` gt after it arrived);
+    /// each side's arrivals and their intervals against the 300-gt ticket, the Nether's ticket
+    /// lapsing, carts held inside a portal.
+    L1Bench {
+        /// Write the bench design here and run it.
+        #[arg(long)]
+        design_out: Option<PathBuf>,
+        #[arg(long, default_value_t = 3000)]
+        ticks: i64,
+        #[arg(long, default_value_t = 320)]
+        hold: i64,
+        #[arg(long, default_value_t = 20)]
+        pulse: i64,
+        /// The first releases (A's pocket 1, B's pocket 1, A's pocket 2), gt after the start: phases
+        /// 0, 227, 453 of a ~680-gt cart cycle (each side then gets an arrival every ~227 gt).
+        #[arg(long, default_value = "5,113,232")]
+        stagger: String,
+        /// Entities frozen D gt from T (repeatable T,D): the login window.
+        #[arg(long)]
+        freeze: Vec<String>,
+        #[arg(long)]
+        trace: bool,
+    },
     /// (onechunk 2026-11-11; farmopt 19:14, ironspec 19:16) A gravity column run from its own
     /// file (`mobfarm::columnrun`): the file built as placed, its header's run cells
     /// (`run-gates:`, `run-cells:`, `run-controller:`), T at every world time multiple of 100, the
@@ -4882,6 +4934,34 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}", crate::borders::summary(&d.blocks, [0, 0], 12));
             // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
             println!("{}", crate::borders::peaks_line(&d.blocks).0);
+        }
+        MobfarmCmd::L1ItemBench { design_out, width, items, ticks, period, freeze, seed, trace } => {
+            let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-item-bench-{}.txt", std::process::id())));
+            std::fs::write(&path, crate::l1items::design_text(width, items))?;
+            let (_c, spec) = load(version, &path)?;
+            let freezes: Vec<(i64, i64)> = freeze.iter().map(|f| {
+                let n: Vec<i64> = f.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(n.len() == 2, "--freeze T,D");
+                Ok((n[0], n[1]))
+            }).collect::<Result<_>>()?;
+            let o = crate::l1items::Opts { width, items, ticks, period, freezes, seed, trace };
+            println!("{}", path.display());
+            print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::L1Bench { design_out, ticks, hold, pulse, stagger, freeze, trace } => {
+            let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-bench-{}.txt", std::process::id())));
+            std::fs::write(&path, crate::l1bench::design_text())?;
+            let (_c, spec) = load(version, &path)?;
+            let st: Vec<i64> = stagger.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(st.len() == 3, "--stagger A1,B1,A2");
+            let freezes: Vec<(i64, i64)> = freeze.iter().map(|f| {
+                let n: Vec<i64> = f.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(n.len() == 2, "--freeze T,D");
+                Ok((n[0], n[1]))
+            }).collect::<Result<_>>()?;
+            let o = crate::l1bench::Opts { ticks, hold, pulse, stagger: [st[0], st[1], st[2]], freezes, trace };
+            println!("{}", path.display());
+            print!("{}", crate::l1bench::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::SummonChance { design, pad, stand, per_day } => {
             let (_c, spec) = load(version, &design)?;

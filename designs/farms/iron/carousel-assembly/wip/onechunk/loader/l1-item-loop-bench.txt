@@ -1,0 +1,73 @@
+# L1''' item-loop loader bench (onechunk, Nov 11): portals 5 x 3, a firing dropper fed from below and a hopper floor on each side; 6 items; the clocks EMULATED by mobfarm l1-item-bench
+name: l1-item-loop-bench
+circuit: mob-farm iron_ingot
+port nether-anchor: 0 0 0
+port nether-axis: 1 0 0
+port output: 11 10 8
+nbt: 1 9 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}
+nbt: 1 10 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nether nbt: 3 9 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}
+nether nbt: 3 10 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+origin: -1 0 0
+palette:
+  A minecraft:dropper[facing=up,triggered=false]
+  B minecraft:hopper[enabled=true,facing=south]
+  C minecraft:hopper[enabled=true,facing=west]
+  D minecraft:dropper[facing=north,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  N minecraft:nether_portal[axis=x]
+  O minecraft:obsidian
+  d minecraft:dropper[facing=south,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer 9:
+  .OOOOO
+  ..ACCC
+  ...hhh
+  .
+layer 10:
+  ONNNNNO
+  ..D
+  .
+  ...GGGG
+layer 11:
+  ONNNNNO
+  .
+  .
+  ...GGGG
+layer 12:
+  ONNNNNO
+  .
+  .
+  ...GGGG
+layer 13:
+  .OOOOO
+  .
+  .
+  .
+nether-origin: -1 0 -3
+nether layer 9:
+  .
+  .BBB
+  .HHHA
+  .OOOOO
+nether layer 10:
+  GGGG
+  .
+  ....d
+  ONNNNNO
+nether layer 11:
+  GGGG
+  .
+  .
+  ONNNNNO
+nether layer 12:
+  GGGG
+  .
+  .
+  ONNNNNO
+nether layer 13:
+  .
+  .
+  .
+  .OOOOO
