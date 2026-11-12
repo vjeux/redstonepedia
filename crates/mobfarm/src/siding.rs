@@ -264,7 +264,41 @@ fn put(b: &mut Builder, c: [i32; 3], s: &str) -> Result<()> {
         bail!("the siding's {s} at {c:?} meets {old}");
     }
     b.set(c[0], c[1], c[2], s);
+    note(c);
     Ok(())
+}
+
+// (ironspec 16:41, "why is it so big?": every placed cell's job, the generator's section that first
+// placed it, for `MCTAS_SIDING_JOBS=1`'s breakdown; a support set by `b.set` takes the job of the
+// cell over it)
+thread_local! {
+    static SEC: std::cell::RefCell<&'static str> = const { std::cell::RefCell::new("?") };
+    static CELLS: std::cell::RefCell<std::collections::BTreeMap<[i32; 3], &'static str>> = std::cell::RefCell::new(Default::default());
+}
+
+fn sec(name: &'static str) {
+    SEC.with(|s| *s.borrow_mut() = name);
+}
+
+fn note(c: [i32; 3]) {
+    let s = SEC.with(|s| *s.borrow());
+    CELLS.with(|m| {
+        m.borrow_mut().entry(c).or_insert(s);
+    });
+}
+
+/// The breakdown: each job's cells among the design's blocks (the design as built here, before
+/// any turn), a support with no job of its own taking its upper neighbour's.
+fn jobs_of(b: &Builder) -> Vec<(&'static str, Vec<[i32; 3]>)> {
+    let cells = CELLS.with(|m| m.borrow().clone());
+    let mut out: std::collections::BTreeMap<&'static str, Vec<[i32; 3]>> = Default::default();
+    for c in b.d.blocks.keys() {
+        let j = cells.get(c).copied().or_else(|| cells.get(&[c[0], c[1] + 1, c[2]]).copied()).unwrap_or("? (no section)");
+        out.entry(j).or_default().push(*c);
+    }
+    let mut v: Vec<_> = out.into_iter().collect();
+    v.sort_by_key(|(_, cs)| std::cmp::Reverse(cs.len()));
+    v
 }
 
 fn at(p: BlockPos) -> [i32; 3] {
@@ -283,6 +317,7 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     // plain ascending rails, so an empty cart sent back out the entry stops on the rise and rolls
     // back in; the bench's flat run and launcher sit on top of it)
     let r = entry_rise();
+    sec("bench-only: launcher, approach and run-out");
     if bench {
         put(b, [-10, r, 0], "stone")?;
         put(b, [-10, r + 1, 0], "glass")?;
@@ -293,22 +328,26 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     }
     for x in if bench { -6 } else { 0 }..=0 {
         // (x -2 up: the rise, then flat)
+        sec(if x < 0 { "bench-only: launcher, approach and run-out" } else { "track: entry, T, exit branch" });
         let k = (-1 - x).clamp(0, r);
         let up = x <= -2 && -1 - x <= r;
         put(b, [x, if up { k - 1 } else { k }, 0], &rail(if up { "ascending_west" } else { "east_west" }))?;
         put(b, [x, if up { k - 2 } else { k - 1 }, 0], "glass")?;
     }
     // the T, idle powered (entry -> bed line)
+    sec("track: entry, T, exit branch");
     put(b, at(s.tee), &rail("south_west"))?;
     put(b, at(s.tee_ctrl), "redstone_block")?;
     // the bed line: the booster, the free cell, the activator, the slow run, the park rail, the stop
     // (the rail between the T and the free cell a booster, always powered: a slow arrival leaves
     // the drop fast enough to park against the cobblestone, where the kick has the park rail's
     // whole length; the returning cart, the napper in it, gains it again on its way to the slot)
+    sec("track: bed line (booster, free cell)");
     put(b, at(s.boost), "powered_rail[powered=true,shape=north_south,waterlogged=false]")?;
     put(b, [s.boost.x, s.boost.y - 1, s.boost.z], "redstone_block")?;
     put(b, at(s.free_cell), &rail("north_south"))?;
     put(b, [s.free_cell.x, -1, s.free_cell.z], "glass")?;
+    sec("drop and park: activator slope, low line, park, caps over it");
     if retry() {
         // (the self-retrying kick: the activator a slope down south from the free cell, a plain
         // rail and the park rail one block down, the stop the park's block (K's, wired); glass over
@@ -343,6 +382,7 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     // the exit branch: a plain rail, the slot (a braked powered rail sloping down east: the
     // returning cart stops on it, 0.2 in; the release powers it alone, so the cart leaves at the
     // slope's gravity and boost, not the cap), a plain flat, the exit and the bench's run-out
+    sec("track: entry, T, exit branch");
     put(b, [2, 0, 0], &rail("east_west"))?;
     put(b, [2, -1, 0], "glass")?;
     // (the branch's second rail: the circuit's detector rail, two from the T, whose power would
@@ -355,13 +395,16 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     put(b, [s.slot_rails[1].x, -2, 0], "glass")?;
     // (the exit cell the siding's; the run-out past it and its end stop the bench's)
     for x in s.exit.x..=if bench { 11 } else { s.exit.x } {
+        sec(if x > s.exit.x { "bench-only: launcher, approach and run-out" } else { "track: entry, T, exit branch" });
         put(b, [x, -1, 0], &rail("east_west"))?;
         put(b, [x, -2, 0], "glass")?;
     }
     if bench {
+        sec("bench-only: launcher, approach and run-out");
         put(b, [12, -1, 0], "glass")?;
     }
     // the bed west of the free cell (head) and the activator (foot), facing north, on glass
+    sec("bed");
     put(b, at(s.bed_foot), "red_bed[facing=north,occupied=false,part=foot]")?;
     put(b, at(s.bed_head), "red_bed[facing=north,occupied=false,part=head]")?;
     put(b, [s.bed_foot.x, -1, s.bed_foot.z], "glass")?;
@@ -372,6 +415,7 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     // (the walkers' glass), over the activator and the slow run, over the bed; the east wall a third
     // block high, glass over the hatch
     let f = s.free_cell;
+    sec("cage: glass walls and roof round the free cell and the bed");
     let (fx, fz) = (f.x, f.z);
     let mut walls: Vec<[i32; 3]> = Vec::new();
     for dy in 0..=1 {
@@ -395,6 +439,7 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
         put(b, c, "glass")?;
     }
     // the hatch: an iron trapdoor open (its plate across the sight line) while its control below
+    sec("waking zombie and hatch");
     // (a redstone block) powers it; shut (glass under it) the line passes over its bottom half
     put(b, at(s.hatch), "iron_trapdoor[facing=east,half=bottom,open=true,powered=true,waterlogged=false]")?;
     put(b, at(s.hatch_ctrl), "redstone_block")?;
@@ -445,6 +490,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     let rep = |f: &str, d: u8| format!("repeater[delay={d},facing={f},locked=false,powered=false]");
     let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
     // the control blocks: solid, each powered by a torch below (or, the T, its own torch)
+    sec("H's outputs: torches and feeds into the T, activator and hatch controls");
     swap(b, at(s.tee_ctrl), "stone")?;
     swap(b, at(s.activator), "stone")?;
     swap(b, at(s.hatch_ctrl), "stone")?;
@@ -491,6 +537,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     }
     on(b, [2, -2, 3], &rep("south", 1))?;
     // the H line: x -1, z 0..5, then east along z 5 and up north into the Ha repeater's back
+    sec("H line (the visit's state to its outputs)");
     // (z 5, not 4: dust beside Aa, which its repeater powers strongly, would feed the line back)
     for z in 0..=5 {
         on(b, [-1, -3, z], dust)?;
@@ -500,6 +547,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     on(b, [2, -2, 5], dust)?;
     on(b, [2, -2, 4], dust)?;
     // the latch (y -3): N1, W1 (south face), D1 west and north into N2; N2, W2 (east face), D2
+    sec("H latch (N1, N2, W1, W2, D1, D2, H out)");
     // east and south into N1
     on(b, [-5, -3, 2], "stone")?; // N1 (on its own floor)
     put(b, [-5, -3, 3], "redstone_wall_torch[facing=south,lit=true]")?; // W1
@@ -518,6 +566,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     on(b, [-3, -3, 0], dust)?;
     on(b, [-2, -3, 0], dust)?;
     // S: the observer south of the bed's foot (replacing the cage's glass), dust west along z 5,
+    sec("S nap line (off on FC)");
     // down north to the 4-tick repeater into N1
     // (the free-cell sensor FC: no S observer or S line; H is set by F alone, day-1's pulse on
     // every visit, so a bed change with no visit (a stranger leaving the bed) sets nothing)
@@ -563,6 +612,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
         on(b, [-4, -3, 2], &rep("east", 4))?;
     }
     // R: the exit branch's detector rail (its second rail, two from the T), repeaters north, dust
+    sec("R line (L's rise into N2 and DB)");
     // west along z -3, down west into a repeater south into N2
     // (the free-cell sensor FC, ironspec 09:37/09:39: R needs a rider seen leaving. A seat string
     // over the exit branch at (3,2,0), hooks (3,2,-1) and (3,2,1) on glass, in the band 2.06-2.16 a
@@ -612,6 +662,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     on(b, [-7, -3, -2], &rep("north", 1))?;
     }
     // L: the tripwire across the slot's slope (hooks north on stone, south on the dorm zombie's
+    sec("L string over the slot");
     // glass: a stone top there would be a golem spot, a cap would cut the bed's sight of the zombie)
     put(b, [4, 0, 0], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
     put(b, [4, 0, -1], "tripwire_hook[attached=true,facing=south,powered=false]")?;
@@ -619,6 +670,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     put(b, [4, 0, 1], "tripwire_hook[attached=true,facing=north,powered=false]")?;
     ensure!(b.d.blocks.get(&[4, 0, 2]).is_some_and(|x| x.to_string().contains("glass")), "the south hook hangs on the dorm zombie's glass at (4,0,2)");
     // K: BK east of the park's torch; the torch under the park rail's support
+    sec("kick: K, BK and the chain into it (not-H delayed, L, not-FC)");
     let kz = s.park.z;
     on(b, [2, -2, kz], "stone")?; // BK
     put(b, [1, -2, kz], "redstone_wall_torch[facing=west,lit=false]")?;
@@ -701,6 +753,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
         put(b, [1, 2, 1], "stone_pressure_plate[powered=false]")?;
     }
     // glass caps on the circuit's solid tops a golem could stand on (N1, N2, BK, the hook's stone)
+    sec("golem-spot caps (glass)");
     for c in [[-5, -2, 2], [-7, -2, -1], [2, -1, kz], [4, 1, -2]].into_iter().filter(|c| !(fc() && *c == [4, 1, -2])) {
         put(b, c, "glass")?;
     }
@@ -767,6 +820,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
         }
     }
     on(b, [-4, -3, 6], dust)?;
+    sec("kick: K, BK and the chain into it (not-H delayed, L, not-FC)");
     on(b, [-5, -3, 6], &rep("east", 1))?;
     // the chain: 8-gt repeaters, (-6,-3,6) the merge cell (dust)
     for z in [4, 5, 7, 8] {
@@ -780,6 +834,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
         swap(b, [x, -3, 9], &rep("west", if x <= -1 { 4 } else { 1 }))?;
     }
     // B now: B itself (one bulb, one resync), into the chain's end through (1,-2,8): B's line
+    sec("K's hold and B-now line (into the chain's end)");
     // branches at its stair's foot (-4,-3,6) down to the N line (-4,-4,7), (-4,-5,8), which carries
     // it both ways: down to N's repeater and up the N stair to (0,-1,8), whose block feeds the
     // repeater (1,-2,8) into the chain's end. (A second bulb under the S dust had no free face for
@@ -848,6 +903,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     // - SC (2,-2,7), a subtract comparator before BK: back the chain's end (not-X delayed or B
     //   now), side FAST through (1,-2,7): BK = SC or L or not-H, so K = (X delayed and not-B now,
     //   or FAST) and not-L and H.
+    sec("forced exit: FAST (F with no nap kicks at once): F's tap, N, FA, the torch tower, SC");
     on(b, [-1, -2, 8], dust)?;
     on(b, [-2, -3, 8], dust)?;
     on(b, [-3, -4, 8], dust)?;
@@ -907,6 +963,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     // (1,-3,4) would take Aa's block's (the wire's own note). The H line's end goes round the
     // east instead: (1,-3,5), (2,-3,5), (3,-3,5), up north to (3,-2,4), west to (2,-2,4); (2,-2,5)
     // is glass)
+    sec("H line (the visit's state to its outputs)");
     swap(b, [2, -2, 5], "glass")?;
     swap(b, [2, -3, 5], dust)?;
     b.set(2, -4, 5, "stone");
@@ -916,6 +973,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     // for 44 gt with H off and the next arrival meet a powered park (it bounces, stops short of
     // the stop and is kicked too slow to take its napper). Ha's strongly powered hatch control
     // (2,0,2) feeds dust east and south into the L line at (6,0,4): BK = SC or L or not-H)
+    sec("kick: K, BK and the chain into it (not-H delayed, L, not-FC)");
     for c in [[3, 0, 2], [3, 0, 3], [3, 0, 4], [4, 0, 4], [5, 0, 4]] {
         on(b, c, dust)?;
     }
@@ -931,6 +989,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
     // (-1,1,1) onto (-1,0,1), read by a repeater (0,0,1) east into the booster: the booster powered
     // only with a rider over it, so an empty cart is halted on it, inside the siding)
     if fc() {
+        sec("FC string over the free cell and not-FC into the chain");
         put(b, [1, 1, 2], "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]")?;
         put(b, [0, 1, 2], "tripwire_hook[attached=true,facing=east,powered=false]")?;
         swap(b, [-1, 1, 2], "stone")?;
@@ -945,6 +1004,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
         // (the booster's cap a top-half iron trapdoor, ironspec 12:05: 1.81-2.0 keeps a standing
         // villager (1.95) off the booster and leaves a seated rider's eye (1.68) in open air; nothing
         // beside it is a source, so it never opens)
+        sec("cage: glass walls and roof round the free cell and the bed");
         swap(b, [1, 1, 1], "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")?;
         // (glass over the cap: its top is a golem spot otherwise)
         put(b, [1, 2, 1], "glass")?;
@@ -958,6 +1018,7 @@ fn wire_b(b: &mut Builder) -> Result<()> {
         // line into the box. Its control is the L network (not-H or L, BK's own input), brought up
         // from (4,0,4) by dust (4,1,5), (5,2,5), (5,3,6), (4,4,6), (4,5,5), (4,6,4), the last pointing
         // north into it: post 1 seen from F to R, not while the slot is taken)
+        sec("waking zombie and hatch");
         put(b, [3, 7, 3], "iron_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]")?;
         for c in [[4, 1, 5], [5, 2, 5], [5, 3, 6], [4, 4, 6], [4, 5, 5], [3, 6, 5], [3, 7, 4]] {
             on(b, c, dust)?;
@@ -996,6 +1057,7 @@ fn giveup_sched(b: &mut Builder) -> Result<()> {
         put(b, c, part)
     };
     // V: the arrival's detector rail and the stone under it, the bulb beside that stone, the
+    sec("V divert gate (ARR, DA, DB, not-V) and F's gate into H");
     // return's repeater into the bulb from the north
     // (the FC build, day-1 13:13 / ironspec 13:16: the detector one cell out, at (-1,0,0), so its
     // power never reaches the T (1,0,0): beside the T it set the T's powered shape under an entering
@@ -1317,6 +1379,8 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
     let s = layout();
     let name = format!("carousel-bed-siding{}{}{}{}{}", if wired { "-wired" } else { "" }, match give_up { GiveUp::None => "", GiveUp::Timer => "-giveup", GiveUp::Scheduler => "-force" }, if exit_brake { "-brake" } else { "" }, if cage_only { "-cage" } else { "" }, if alone { "-alone" } else { "" });
     let mut b = Builder::new(&name);
+    CELLS.with(|m| m.borrow_mut().clear());
+    sec("?");
     if turn != 0 {
         // (read by `wire`: the T's control inverted for turns 2 and 3, where the T's curve rule
         // inverts its polarity)
@@ -1378,6 +1442,7 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
         b.d.meta.insert("build".into(), crate::placing::BuildPlan { last, fills_last: false }.meta());
     }
     for i in (0..21).filter(|_| !alone) {
+        sec("bench-only: the 21 riders' hold and its zombies");
         let c = hold_cell(i);
         put(&mut b, at(c), "powered_rail[powered=false,shape=east_west,waterlogged=false]")?;
         put(&mut b, [c.x, c.y - 1, c.z], "glass")?;
@@ -1390,6 +1455,7 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
     // the hold zombies: in boats on glass 3 north of the hold row, every 8 along it (each rider
     // sees one within 8: every held rider panics at night, as on the loop), roofed
     for zx in [-18, -10, -2, 6, 14, 22].into_iter().filter(|_| !alone) {
+        sec("bench-only: the 21 riders' hold and its zombies");
         put(&mut b, [zx, -1, -23], "glass")?;
         put(&mut b, [zx, 3, -23], "oak_leaves[distance=1,persistent=true,waterlogged=false]")?;
         b.entity("oak_boat", [zx as f64 + 0.5, 0.0, -22.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
@@ -1413,6 +1479,22 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
     b.d.meta.insert("flights".into(), String::new());
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), at(s.bed_head));
+    if std::env::var("MCTAS_SIDING_JOBS").is_ok_and(|v| v == "1") {
+        // (the breakdown, local frame, before any turn)
+        let total = b.d.blocks.len();
+        eprintln!("jobs: {total} blocks (local frame, before the turn)");
+        for (j, cs) in jobs_of(&b) {
+            let mut cs = cs;
+            cs.sort_by_key(|c| (c[2], c[1], c[0]));
+            let kinds: std::collections::BTreeMap<String, usize> = cs.iter().fold(Default::default(), |mut a, c| {
+                let id = b.d.blocks[c].split('[').next().unwrap_or("").trim_start_matches("minecraft:").to_string();
+                *a.entry(id).or_default() += 1;
+                a
+            });
+            eprintln!("job {:3} {j}: {:?}", cs.len(), kinds);
+            eprintln!("    cells {}", cs.iter().map(|c| format!("({},{},{})", c[0], c[1], c[2])).collect::<Vec<_>>().join(" "));
+        }
+    }
     if turn != 0 {
         // (the build's last cells: the turned copy's T torches Ta' and W after the list as
         // written; then the whole design turned)
@@ -1477,6 +1559,19 @@ fn shift_south(b: &mut Builder) -> Result<()> {
             e.pos[2] += 2.0;
         }
     }
+    CELLS.with(|m| {
+        let mut m = m.borrow_mut();
+        let mv: Vec<[i32; 3]> = m.keys().filter(|c| c[2] >= 1 && !stay.contains(c)).copied().collect();
+        let mut back = Vec::new();
+        for c in mv {
+            let j = m.remove(&c).expect("listed");
+            back.push(([c[0], c[1], c[2] + 2], j));
+        }
+        for (c, j) in back {
+            m.insert(c, j);
+        }
+    });
+    sec("option 2: the lines' seam dust");
     // (the seam: each line crossing z 0|1 two dust longer, on stone)
     let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
     for (x, y) in [(-3, -5), (-1, -3), (-5, -3), (-7, -3)] {
@@ -1493,6 +1588,7 @@ fn shift_south(b: &mut Builder) -> Result<()> {
     // string, the returning cart boosted at once); it needs the T's latch: the raw hook's 10-gt
     // hold runs out under a slow ridden cart)
     let boost_n1 = std::env::var("MCTAS_SIDING_BOOST_N1").is_ok_and(|v| v == "1");
+    sec("option 2: the two new rails");
     if !boost_n1 {
         for z in [1, 2] {
             put(b, [1, -1, z], "glass")?;
@@ -1531,6 +1627,7 @@ fn shift_south(b: &mut Builder) -> Result<()> {
 /// diagonals to the R line. An empty cart trips nothing: the T stays at the entry and it goes back
 /// out. `--no-tfc` leaves the last element out (the forced-empty rows' positive control).
 fn seat_t(b: &mut Builder, turned: bool) -> Result<()> {
+    sec("seat string and its line into the T");
     let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
     let on = |b: &mut Builder, c: [i32; 3], part: &str| -> Result<()> {
         put(b, [c[0], c[1] - 1, c[2]], "stone")?;
@@ -1578,6 +1675,119 @@ fn seat_t(b: &mut Builder, turned: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// (farmopt 16:39, the gravity queue's open question) The night's sleeper picker on a loop with no
+/// fixed slots, simulated: `riders` carts go round in one order (first in, first out); every
+/// `cycle` gt a batch of `batch` carts passes the switch at the top of the climb back (`spacing` gt
+/// apart, at `phase` gt into the cycle, ±`jitter`); the picker counts the carts passing it in deep
+/// night (13,670..22,330) and sends every `k`-th to the bed (when the bed stop is free and the night's
+/// count is under `riders`; a pick that finds the bed busy waits for the next passing cart); a
+/// sleeper is away `away.0..=away.1` gt (its trip, the visit, the trip back) and rejoins the loop at
+/// the tail chain, behind every cart that passed the switch meanwhile. Returns, over `nights`
+/// nights (each from a random order and a random night start against the cycle): nights in which
+/// every rider slept exactly once, nights with a rider twice, nights with a rider missed, and the
+/// worst night's counts.
+pub fn picker_sim(riders: usize, batch: usize, cycle: i64, spacing: i64, phase: i64, jitter: i64, k: usize, away: (i64, i64), nights: usize, seed: u64, rule: &str) -> (usize, usize, usize, Vec<usize>) {
+    let mut rng = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    let mut next = move || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+    let (mut ok, mut twice, mut missed) = (0, 0, 0);
+    let mut worst: Vec<usize> = vec![1; riders];
+    let mut worst_bad = 0usize;
+    for _ in 0..nights {
+        // the loop's order: the carts in the order they next pass the switch
+        let mut order: std::collections::VecDeque<usize> = (0..riders).collect();
+        for i in (1..riders).rev() {
+            let j = (next() % (i as u64 + 1)) as usize;
+            order.swap(i, j);
+        }
+        let start = 13_670 - (next() % cycle as u64) as i64;
+        let mut slept = vec![0usize; riders];
+        let mut count = 0usize;
+        let mut sleeps = 0usize;
+        let mut pending_pick = false;
+        // the sleeper away: (rider, back at tick)
+        let mut away_now: Option<(usize, i64)> = None;
+        let mut last_picked: Option<usize> = None;
+        let mut want_behind: Option<usize> = None;
+        let mut t0 = start;
+        while t0 < 22_330 {
+            for s in 0..batch {
+                let j = if jitter > 0 { (next() % (2 * jitter as u64 + 1)) as i64 - jitter } else { 0 };
+                let t = t0 + phase + s as i64 * spacing + j;
+                // the sleeper back first if it rejoined before this cart passes
+                if let Some((r, back)) = away_now
+                    && back <= t
+                {
+                    order.push_back(r);
+                    away_now = None;
+                    if rule == "behind" {
+                        want_behind = Some(r);
+                    }
+                }
+                let Some(c) = order.pop_front() else { continue };
+                let in_night = (13_670..22_330).contains(&t);
+                let mut pick = false;
+                if in_night && sleeps < riders {
+                    match rule {
+                        "behind" => {
+                            // (the cart that passes right after the last sleeper's own next pass)
+                            if last_picked.is_none() && count == 0 {
+                                pick = true;
+                            } else if pending_pick && away_now.is_none() {
+                                pick = true;
+                            }
+                            if want_behind == Some(c) {
+                                pending_pick = true;
+                                want_behind = None;
+                            }
+                        }
+                        _ => {
+                            count += 1;
+                            if count % k == 0 {
+                                pending_pick = true;
+                            }
+                            if pending_pick && away_now.is_none() {
+                                pick = true;
+                            }
+                        }
+                    }
+                }
+                if pick {
+                    pending_pick = false;
+                    sleeps += 1;
+                    slept[c] += 1;
+                    last_picked = Some(c);
+                    let a = away.0 + (next() % ((away.1 - away.0) as u64 + 1)) as i64;
+                    away_now = Some((c, t + a));
+                } else {
+                    order.push_back(c);
+                }
+            }
+            t0 += cycle;
+        }
+        let two = slept.iter().filter(|n| **n >= 2).count();
+        let zero = slept.iter().filter(|n| **n == 0).count();
+        if two == 0 && zero == 0 {
+            ok += 1;
+        }
+        if two > 0 {
+            twice += 1;
+        }
+        if zero > 0 {
+            missed += 1;
+        }
+        if two + zero > worst_bad {
+            worst_bad = two + zero;
+            worst = slept.clone();
+        }
+    }
+    (ok, twice, missed, worst)
 }
 
 /// (ironspec / farmopt 16:08, one-chunk (d)) One leg of the napper's trip on a straight test track

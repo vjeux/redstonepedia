@@ -2285,6 +2285,37 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         to: String,
     },
+    /// (farmopt 16:39, the gravity queue's open question) The night's sleeper picker with no queue
+    /// slots, simulated: every k-th cart passing the switch at the top of the climb goes to the bed
+    /// (the bed free, the night's count under the riders'), and comes back into the loop behind every
+    /// cart that passed meanwhile; over many nights from random orders and night starts, how often
+    /// every rider slept exactly once.
+    PickerSim {
+        #[arg(long, default_value_t = 21)]
+        riders: usize,
+        #[arg(long, default_value_t = 3)]
+        batch: usize,
+        #[arg(long, default_value_t = 100)]
+        cycle: i64,
+        /// Gt between a batch's carts passing the switch.
+        #[arg(long, default_value_t = 4)]
+        spacing: i64,
+        /// Gt into the golem cycle at which the batch's first cart passes the switch.
+        #[arg(long, default_value_t = 70)]
+        phase: i64,
+        #[arg(long, default_value_t = 2)]
+        jitter: i64,
+        /// The k values to try, comma-separated.
+        #[arg(long, default_value = "1,2,3,4,5,6,7,8,9,10,11,12")]
+        k: String,
+        /// The sleeper's time away from the loop, gt (min,max): its trip, the visit, the trip back.
+        #[arg(long, default_value = "230,290")]
+        away: String,
+        #[arg(long, default_value_t = 2000)]
+        nights: usize,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+    },
     /// (ironspec / farmopt 16:08, one-chunk (d)) The napper's trip, measured on straight test tracks
     /// in redsim: the descent from the queue tier's divert to the siding's entry and the climb from
     /// its exit back (powered), each with its ramp at the start, at the end and spread, and the
@@ -4510,6 +4541,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let d = ((f[0] - t[0]).powi(2) + (f[1] - t[1]).powi(2) + (f[2] - t[2]).powi(2)).sqrt();
                 println!("trapdoors {}: {:.2},{:.2},{:.2} -> {:.2},{:.2},{:.2} ({d:.2}): {}", if toggle { "flipped" } else { "as built" }, f[0], f[1], f[2], t[0], t[1], t[2], match hit { None => "CLEAR".to_string(), Some(c) => format!("blocked at ({},{},{})", c[0], c[1], c[2]) });
             }
+        }
+        MobfarmCmd::PickerSim { riders, batch, cycle, spacing, phase, jitter, k, away, nights, seed } => {
+            let aw: Vec<i64> = away.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
+            anyhow::ensure!(aw.len() == 2, "--away min,max");
+            println!("picker: {riders} riders, batches of {batch} every {cycle} gt passing the switch at +{phase} ({spacing} gt apart, ±{jitter}), the sleeper away {}..{} gt, deep night 13,670..22,330, {nights} nights each", aw[0], aw[1]);
+            for kk in k.split(',').map(|s| s.trim().parse::<usize>()).collect::<std::result::Result<Vec<_>, _>>()? {
+                let (ok, twice, missed, worst) = crate::siding::picker_sim(riders, batch, cycle, spacing, phase, jitter, kk, (aw[0], aw[1]), nights, seed, "kth");
+                println!("  every {kk}-th cart: every rider exactly once in {ok} of {nights} nights ({:.1}%); a rider twice in {twice}, a rider missed in {missed}; the worst night's naps per rider {:?}", 100.0 * ok as f64 / nights as f64, worst);
+            }
+            let (ok, twice, missed, worst) = crate::siding::picker_sim(riders, batch, cycle, spacing, phase, jitter, 1, (aw[0], aw[1]), nights, seed, "behind");
+            println!("  the cart right behind the last sleeper: every rider exactly once in {ok} of {nights} nights ({:.1}%); twice in {twice}, missed in {missed}; worst {:?}", 100.0 * ok as f64 / nights as f64, worst);
         }
         MobfarmCmd::TripBench { down_cells, down_drop, up_cells, up_climb, entry_speed, exit_speed, inside } => {
             let ins: Vec<i64> = inside.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
