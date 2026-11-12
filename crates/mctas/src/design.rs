@@ -102,6 +102,52 @@ impl EntitySpec {
     }
 }
 
+/// How [`Design::parse_with`] reads a whitespace-only line inside a layer that more rows of the
+/// same layer follow (farmopt, Nov 12 2026, ironspec's ruling: ironfarm's lanes file wrote its
+/// empty rows as two spaces, which the parser skipped, so every later row of the layer moved one
+/// north and the file loaded as a different design). A blank line at a layer's end (before the
+/// next header line or the end of the file) is a separator in every reading, and a comment-only
+/// line is never a row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlankRows {
+    /// Refuse the file, naming the line (what [`Design::parse`] does: nothing silently dropped).
+    Refuse,
+    /// The old reading: no row, so the layer's later rows move north.
+    Skip,
+    /// An empty row (what a writer that emits two spaces for an empty row meant).
+    Air,
+}
+
+/// The 0-based line numbers of the whitespace-only lines inside a layer (or a Nether layer) that
+/// more rows of the same layer follow: the lines [`BlankRows`] decides (`mctas design blank-rows`).
+pub fn interior_blank_rows(text: &str) -> Vec<usize> {
+    let mut in_layer = false;
+    let mut pending: Vec<usize> = Vec::new();
+    let mut out = Vec::new();
+    for (lineno, raw) in text.lines().enumerate() {
+        if raw.trim().is_empty() {
+            if in_layer {
+                pending.push(lineno);
+            }
+            continue;
+        }
+        if raw.starts_with("  ") {
+            if in_layer {
+                out.append(&mut pending);
+            }
+            continue;
+        }
+        // a header line (a comment-only line is neither a row nor the layer's end)
+        let l = raw.split('#').next().unwrap_or("").trim();
+        if l.is_empty() {
+            continue;
+        }
+        pending.clear();
+        in_layer = (l.starts_with("layer ") || l.starts_with("nether layer ")) && l.ends_with(':');
+    }
+    out
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Design {
     pub name: String,
@@ -174,6 +220,12 @@ impl Design {
     }
 
     pub fn parse(text: &str) -> Result<Design> {
+        Design::parse_with(text, BlankRows::Refuse)
+    }
+
+    /// `parse` with a chosen reading of a blank line inside a layer that more rows of the same
+    /// layer follow ([`BlankRows`]); `mctas design blank-rows` compares the two old readings.
+    pub fn parse_with(text: &str, blank_rows: BlankRows) -> Result<Design> {
         enum Section {
             Header,
             Palette,
@@ -191,6 +243,9 @@ impl Design {
         let mut palette: BTreeMap<char, String> = BTreeMap::new();
         let mut section = Section::Header;
         let mut row = 0i32;
+        // blank lines seen inside the current layer, not yet known to be its end (a separator) or
+        // an interior row (more rows of the layer follow)
+        let mut pending_blank: Vec<usize> = Vec::new();
         for (lineno, raw) in text.lines().enumerate() {
             let err = || format!("line {}: {raw:?}", lineno + 1);
             let line = match raw.find('#') {
@@ -199,10 +254,15 @@ impl Design {
                 _ => raw,
             };
             if line.trim().is_empty() {
+                // a comment-only line is no row; a whitespace-only line inside a layer may be one
+                if raw.trim().is_empty() && matches!(section, Section::Layer(_) | Section::NetherLayer(_)) {
+                    pending_blank.push(lineno);
+                }
                 continue;
             }
             let indented = line.starts_with("  ");
             if !indented {
+                pending_blank.clear();
                 let l = line.trim();
                 if l == "palette:" {
                     section = Section::Palette;
@@ -260,6 +320,20 @@ impl Design {
                     bail!("unexpected {}", err());
                 }
                 continue;
+            }
+            if !pending_blank.is_empty() && matches!(section, Section::Layer(_) | Section::NetherLayer(_)) {
+                match blank_rows {
+                    BlankRows::Refuse => {
+                        let at = pending_blank[0];
+                        bail!(
+                            "line {}: a blank line inside a layer with more rows of it after: write an empty row as `  .` (a blank line is read as no row, which moves every later row of the layer)",
+                            at + 1
+                        );
+                    }
+                    BlankRows::Skip => {}
+                    BlankRows::Air => row += pending_blank.len() as i32,
+                }
+                pending_blank.clear();
             }
             match section {
                 Section::Header => bail!("indented line outside palette/layer: {}", err()),
@@ -507,6 +581,32 @@ impl Design {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_blank_line_inside_a_layer_is_refused_and_its_two_readings_differ() {
+        // (farmopt, Nov 12 2026, ironspec's ruling) ironfarm's lanes file wrote an empty row as
+        // two spaces; the old parser skipped it and the layer's later rows moved one north.
+        let text = "name: b\npalette:\n  S stone\nlayer 0:\n  S\n  \n  S\n\nlayer 1:\n  S\n\n# a comment line\n";
+        assert_eq!(interior_blank_rows(text), vec![5]);
+        let err = Design::parse(text).unwrap_err().to_string();
+        assert!(err.contains("line 6") && err.contains("`  .`"), "{err}");
+        let skip = Design::parse_with(text, BlankRows::Skip).unwrap();
+        let air = Design::parse_with(text, BlankRows::Air).unwrap();
+        assert!(skip.blocks.contains_key(&[0, 0, 1]) && !skip.blocks.contains_key(&[0, 0, 2]));
+        assert!(air.blocks.contains_key(&[0, 0, 2]) && !air.blocks.contains_key(&[0, 0, 1]));
+        // the explicit empty row parses as the air reading
+        let explicit = text.replacen("  S\n  \n", "  S\n  .\n", 1);
+        assert_eq!(Design::parse(&explicit).unwrap(), air);
+        // a blank line at a layer's end, a comment-only line inside a layer, an empty line
+        // between rows of a Nether layer
+        let ok = "name: c\npalette:\n  S stone\nlayer 0:\n  S\n# note\n  S\n  \nlayer 1:\n  S\n";
+        assert!(interior_blank_rows(ok).is_empty());
+        assert!(Design::parse(ok).unwrap().blocks.contains_key(&[0, 0, 1]));
+        let nether = "name: n\npalette:\n  S stone\nlayer 0:\n  S\nnether layer 64:\n  S\n\n  S\n";
+        assert_eq!(interior_blank_rows(nether), vec![7]);
+        assert!(Design::parse(nether).is_err());
+        assert!(Design::parse_with(nether, BlankRows::Air).unwrap().nether_blocks.contains_key(&[0, 64, 2]));
+    }
 
     #[test]
     fn nether_part_round_trip() {

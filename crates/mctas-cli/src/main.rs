@@ -1,4 +1,5 @@
 mod bench;
+mod design_cli;
 mod door;
 
 use anyhow::{Context, Result, bail};
@@ -125,6 +126,12 @@ enum Cmd {
         #[command(subcommand)]
         command: mobai::cli::MobaiCmd,
     },
+    /// The design text format itself: `blank-rows` lists (and rewrites) blank lines inside a
+    /// layer, which the parser refuses.
+    Design {
+        #[command(subcommand)]
+        command: design_cli::DesignCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -242,6 +249,7 @@ fn main() -> Result<()> {
         Cmd::Test(args) => door_judge::cmd_test(&cli.version, args)?,
         Cmd::Recorded { command } => door_judge::cmd_recorded(&cli.version, command)?,
         Cmd::Mobai { command } => mobai::cli::run(&cli.version, command)?,
+        Cmd::Design { command } => design_cli::run(command)?,
     }
     Ok(())
 }
