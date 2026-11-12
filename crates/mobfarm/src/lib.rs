@@ -21,6 +21,7 @@ pub mod layouts;
 pub mod naps;
 pub mod napper;
 pub mod ringbench;
+pub mod chainbench;
 pub mod parts;
 pub mod placing;
 pub mod queue;

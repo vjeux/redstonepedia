@@ -9,6 +9,13 @@
 //! runs every 100 gt and needs all 3 of the stand's batch eligible, so a nap later in the night than
 //! the night before loses every summon of that rider's batches in between. This models the order in
 //! game ticks, continuously over days, and scores summons lost per day and each rider's drift.
+//!
+//! Simplifications (G1 Nov 11 18:27): a summon here needs all 3 of the stand's batch eligible; the
+//! game counts every villager wanting in the summoner's box inflated 10 (at most 5) and needs the
+//! summoner itself panicking and wanting, so a waiting rider or a napper in reach can make up the 3
+//! (queue-loop-run scores that rule exactly). Summons that find no spawn cell are not modelled. The
+//! model's losses run about 0.7x the built W register's (21 against 30 a day; 36 against 48 with
+//! fix (a) alone) while its patterns match (G1's v' = v - 4 and v + 14); its zeros hold.
 
 use std::collections::VecDeque;
 
@@ -88,8 +95,14 @@ pub struct Opts {
     /// With `skip_night`: the observer-only sentinel's fallback (the early wake refused: ALARM the next
     /// night); off = a directional source that accepts the early wake.
     pub skip_alarm: bool,
-    /// A missed (-1) or double (+1) pass edge on the virtual clock at day D's first pick.
+    /// A missed (-1) or double (+1) pass edge on the virtual clock at day D's 5th pick.
     pub pass_fault: Option<(usize, i64)>,
+    /// The register's batch-cart index carried across nights (as the built W controller does: visit
+    /// j's cart is (all visits so far) mod 3), not reset at dusk; with `visits` above the night's
+    /// natural count (99), no 21 cap (the build's 22 a night). G1's calibration (Nov 11 18:27).
+    pub register_carry: bool,
+    /// One slow visit: the night's 5th pick on every EVERY-th night takes T gt: (EVERY, T).
+    pub slow_visit: Option<(usize, i64)>,
     /// Releases skipped a day (fix (a): 2, so 714 = 34 x 21 carts pass a day).
     pub skip_per_day: usize,
     /// A nap's trip, the switch to its re-entry point, uniform in [lo, hi] gt; lie-down this many gt
@@ -173,6 +186,7 @@ pub fn simulate(o: &Opts) -> Score {
     let mut cur_day: i64 = 0;
     let mut jit = 0i64;
     let mut alarm = false;
+    let mut total_picks = 0usize;
     let mut shift = 0i64;
     let mut fault_done = false;
     let cycles_per_day = o.day_gt / o.period;
@@ -191,7 +205,7 @@ pub fn simulate(o: &Opts) -> Score {
                 sc.lost_skip += day_lost[2] as f64;
                 sc.worst_day = sc.worst_day.max(day_lost.iter().sum());
                 sc.days += 1;
-                let over = day_lost[0] + day_lost[1] + day_lost[2].saturating_sub(o.skip_per_day);
+                let over = day_lost[0] + if o.keep_place { 0 } else { day_lost[1] } + day_lost[2].saturating_sub(o.skip_per_day);
                 if over > 0 {
                     sc.bad_days.push((cur_day, over));
                 }
@@ -315,7 +329,7 @@ pub fn simulate(o: &Opts) -> Score {
             let want = in_night && bed_free && night_picks.len() < o.visits && !hole && match o.picker {
                 Picker::FromPick(k) | Picker::FromReturn(k) => count >= k,
                 Picker::Anchored(k, off) => if night_picks.is_empty() { anchor.is_none() && count >= k || anchor.is_some() && anchor_passes % o.carts == off % o.carts } else { count >= k },
-                Picker::Register(every) => j == night_picks.len() % 3 && night_releases % every == 0,
+                Picker::Register(every) => j == (if o.register_carry { total_picks } else { night_picks.len() }) % 3 && night_releases % every == 0,
             };
             if want {
                 // (a missed or double pass edge on the virtual clock at day D's 5th pick: the picker's
@@ -332,6 +346,7 @@ pub fn simulate(o: &Opts) -> Score {
                     count = (count as i64 + f).max(0) as usize;
                 }
                 night_picks.push(cart);
+                total_picks += 1;
                 last_sleep[cart] = Some(t + o.sleep_at);
                 naps[cart].push(t + o.sleep_at);
                 let gate = if o.gate_virtual {
@@ -343,7 +358,11 @@ pub fn simulate(o: &Opts) -> Score {
                 } else {
                     o.gate_m
                 };
-                away.push((cart, t + rng.range(o.trip.0, o.trip.1), 0, gate));
+                let drawn = rng.range(o.trip.0, o.trip.1);
+                // (`slow_visit`: the night's 5th pick on every EVERY-th night takes T gt, e.g. the
+                // tier's HOME-lost fault, ironspec Nov 11 18:49)
+                let slow = o.slow_visit.is_some_and(|(every, _)| every > 0 && day >= 0 && day % every as i64 == 0) && night_picks.len() == 5;
+                away.push((cart, t + if slow { o.slow_visit.map_or(drawn, |s| s.1) } else { drawn }, 0, gate));
                 count = 0;
                 // (the register diverts before the stand: its batch lacks the napper; gravity picks
                 // after the summon, from the batch that made it)

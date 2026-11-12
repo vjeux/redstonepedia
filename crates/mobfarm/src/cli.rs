@@ -6,6 +6,18 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum MobfarmCmd {
+    /// The pausable timers' shared lockable chain (`chainbench.rs`): writes its design (`--stages`
+    /// 1-tick repeaters with side lockers on a NOT-ALIVE bus) to `--out` and prints every stage's
+    /// unfrozen delay, the lag after a `--freeze-len` gt freeze begun at every phase, the 200-gt
+    /// frozen control and the block count.
+    ChainBench {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value_t = 80)]
+        stages: i32,
+        #[arg(long, default_value_t = 50)]
+        freeze_len: i64,
+    },
     /// The fast liveness ring (`ringbench.rs`): writes its design (24 rail cells, 8 detectors, 2
     /// carts) to `--out`, runs it `--ticks` gt and prints the gaps between the detectors' rising
     /// edges, the false drops of a `--stretch` gt stretcher, each detector's own spacing, the carts'
@@ -92,6 +104,19 @@ pub enum MobfarmCmd {
         /// A missed (-1) or double (+1) pass edge at day D's 5th pick: D,F.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         pass_fault: Vec<i64>,
+        /// The register's batch-cart index carried across nights (the built W controller; with
+        /// --visits 99, no 21 cap).
+        #[arg(long)]
+        register_carry: bool,
+        /// The batch's spacing at the pick point, gt (4 for the climb's batch; the W stand's 10).
+        #[arg(long, default_value_t = 4)]
+        spacing: i64,
+        /// One slow visit: the night's 5th pick on every EVERY-th night takes T gt: EVERY,T.
+        #[arg(long, value_delimiter = ',')]
+        slow_visit: Vec<i64>,
+        /// After each row, its longest zero-loss trip (fixed trips scanned up in 5-gt steps).
+        #[arg(long)]
+        trip_bound: bool,
         /// Fix (a): releases skipped a day.
         #[arg(long, default_value_t = 0)]
         skip_per_day: usize,
@@ -4911,7 +4936,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+            let slow_visit = match slow_visit.as_slice() {
+                [] => None,
+                [e, t] => Some((*e as usize, *t)),
+                _ => bail!("--slow-visit EVERY,T"),
+            };
             let [jlo, jhi] = rearm_jitter[..] else { bail!("--rearm-jitter takes LO,HI") };
             let freeze = match freeze[..] { [d, l] => Some((d as usize, l)), [] => None, _ => bail!("--freeze takes D,LEN") };
             let pass_fault = match pass_fault[..] { [d, f] => Some((d as usize, f)), [] => None, _ => bail!("--pass-fault takes D,F") };
@@ -4924,12 +4954,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "register" => Picker::Register(every),
                 s => bail!("--picker {s}: from-pick, from-return, anchored or register"),
             };
-            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing: 4, cross_at, dusk_at };
+            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, slow_visit, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing, cross_at, dusk_at };
             let rows: Vec<(String, Opts)> = if table {
-                let reg = Opts { picker: Picker::Register(every), keep_place: true, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, skip_per_day: 0, ..base.clone() };
-                let grav = Opts { picker: Picker::FromPick(k), keep_place: false, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, skip_per_day: 0, trip: (200, 240), ..base.clone() };
+                let reg = Opts { picker: Picker::Register(every), keep_place: true, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, register_carry: false, skip_per_day: 0, ..base.clone() };
+                let built = Opts { register_carry: true, visits: 99, spacing: 10, ..reg.clone() };
+                let grav = Opts { picker: Picker::FromPick(k), keep_place: false, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, register_carry: false, skip_per_day: 0, trip: (200, 240), ..base.clone() };
                 let mut v: Vec<(String, Opts)> = vec![
-                    ("baseline".into(), reg.clone()),
+                    ("register as built (calibration: 22 visits a night, the cart index carried)".into(), built.clone()),
+                    ("register as built + (a)".into(), Opts { skip_per_day: 2, ..built.clone() }),
+                    ("register as built + (a) + the 21 cap".into(), Opts { skip_per_day: 2, visits: 21, ..built.clone() }),
+                    ("baseline (index reset at dusk, 21 cap)".into(), reg.clone()),
                     ("baseline + (a)".into(), Opts { skip_per_day: 2, ..reg.clone() }),
                     ("gravity".into(), grav.clone()),
                     ("gravity + (b)".into(), Opts { picker: Picker::Anchored(k, offset), ..grav.clone() }),
@@ -4958,6 +4992,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             for (label, o) in &rows {
                 println!("{}", crate::napper::line(label, o, &crate::napper::simulate(o)));
+                if trip_bound {
+                    // (G1 Nov 11 18:27: each row's longest zero-loss trip, fixed trips scanned up in
+                    // 5-gt steps from 100: a design checks its measured trip against it)
+                    let mut ok: Option<i64> = None;
+                    let mut first_bad: Option<(i64, usize)> = None;
+                    for tt in (100..=700).step_by(5) {
+                        let sc = crate::napper::simulate(&Opts { trip: (tt, tt), slow_visit: None, ..o.clone() });
+                        if sc.bad_days.is_empty() {
+                            ok = Some(tt);
+                        } else {
+                            first_bad = Some((tt, sc.bad_days.len()));
+                            break;
+                        }
+                    }
+                    println!("  {label}: the longest zero-loss trip {} gt{}", ok.map_or("none from 100".to_string(), |t| t.to_string()), first_bad.map_or(String::new(), |(t, n)| format!(" (the first loss at {t} gt: {n} days losing more than the skips)")));
+                }
+            }
+        }
+        MobfarmCmd::ChainBench { out, stages, freeze_len } => {
+            let d = crate::chainbench::design(stages);
+            std::fs::write(&out, format!("# The pausable timers' shared lockable chain: {stages} 1-tick repeaters, side lockers on a NOT-ALIVE bus (mctas mobfarm chain-bench).\n{}", d.to_text()))?;
+            let (_c, spec) = load(version, &out)?;
+            for l in crate::chainbench::bench(&spec, stages, freeze_len).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
             }
         }
         MobfarmCmd::RingBench { out, ticks, stretch, gone_at, speed, carts } => {
