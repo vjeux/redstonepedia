@@ -1,30 +1,38 @@
-# The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own build.
-# - merge row along z 7 (9fc3155f's shift): lane 7's curve (7,0,7) (a T once the hold's line joins from (8,0,7)), passive Ts (3,0,7) and (-1,0,7) (north_west), the main line to the wall entry (-4,0,7), glass over it; the station's tracks and boosters (z 1..6) are dfb89499's, not here.
-# - shared lift: shaft (-5,y,7), soul sand (-5,-1,7), water to y 24, glass walls on the 4 faces (panes to come), ceiling (-5,26,7); the exit current's source (-5,25,6) boxed; the exit north along x -5 at y 25 to the curve (-5,25,10).
-# - split: the row along z 10 at y 24 (OUTSIDE the chunk: z 10), a slope (-3,24,10) and a powered rail on a redstone block (-2,24,10); J(-1) (-1,24,10), J(3) (3,24,10), J(7) (7,24,10) as plain rails whose shapes the latches set (EMULATED: the bench sets the junctions' shapes on detector rises); the row's detectors (1,24,10) and (5,24,10); the 4th route (8,24,10), (9,24,10) (the napper's way out).
-# - the lanes' 2-cell branches (x,24,9) -> (x,24,8) -> the merge curve (x,24,7) are ironfarm's (not here); the branch detector the latches read is (x,24,8) (two cells off the junction; ironfarm's (x,24,9) detector would sit beside the junction).
-# - napper (c): the hold's line (8,0,7) (its gate EMULATED: the bench releases the napper D gt after the arming detector (5,0,7)'s rise); 9fc3155f's napper lift (x 5..7, z 4..6) is not re-laid for z 7 here.
-# - latches (reverse merge order x -1, 3, 7): J(-1) set at idle; lane -1's branch rise clears it and sets J(3); lane 3's clears J(3); the third cart's rise at (5,24,10) sets J(-1), or opens the napper window (J(7) to the 4th route on lane 7's branch rise; J(-1) set on the napper's own rise at (1,24,10)).
+# The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own world.
+# - merge row along z 7: lane 7's curve (7,0,7) (a T once the hold's line joins from (8,0,7)), Ts (3,0,7) and (-1,0,7) NW, the main line to the wall entry (-4,0,7), the arming detector (5,0,7) with the napper; the station's tracks and boosters (z 1..6) are dfb89499's, not here.
+# - shared lift: shaft (-5,y,7), soul sand (-5,-1,7), water to y 24, glass walls (panes to come), the exit current's source (-5,25,6) boxed, the exit at y 25.
+# - split (in the chunk): the exit at y 25 north to the curve (-5,25,9); a powered rail on a redstone block (the exit cell (-5,25,8) with --boost-exit, else (-4,25,9)); the row along z 9 at y 25: J(-1) (-1,25,9), J(3) (3,25,9), J(7) (7,25,9), the row's detectors (1,25,9) and (5,25,9), the 4th route (8,25,9), (9,25,9); each lane's branch the detector slope (x,24,8) ascending south (the guard and the latch, diagonal to its junction), into ironfarm's merge cell (x,24,7) (not here); (x,24,9) the junction's glass support.
+# - switches EMULATED: a lever over each junction (face ceiling, glass over it) is the latch's output; the napper's hold gate (8,0,7) EMULATED (the bench releases the napper D gt after (5,0,7)'s rise). The napper lift (c) is not in this file yet.
+# - latches (merge order x -1, 3, 7): J(-1) on at idle; lane -1's branch rise turns it off and J(3) on; lane 3's turns J(3) off; the third cart's rise at the row's second detector turns J(-1) on, or opens the napper window (J(7) off on lane 7's branch rise; J(-1) on at the napper's own first rise at the row's first detector).
+# T (-1,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; placement order (settles north_east unpowered): lay it after its two designed arms, before the third
+# T (-1,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (-1,26,9); switched by its declared lever (NW on, NE off; now north_east)
+# T (3,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; placement order (settles north_east unpowered): lay it after its two designed arms, before the third
+# T (3,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (3,26,9); switched by its declared lever (NW on, NE off; now north_east)
+# T (7,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; placement order (settles north_east unpowered): lay it after its two designed arms, before the third
+# T (7,25,9): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=true] (7,26,9); switched by its declared lever (NW on, NE off; now north_west)
+# placement-order cells (not Ts): none
 name: f1q2-lift-split
 circuit: mob-farm iron_ingot
 origin: -6 0 5
 palette:
   A minecraft:rail[shape=north_east,waterlogged=false]
-  B minecraft:rail[shape=north_south,waterlogged=false]
+  B minecraft:bubble_column[drag=false]
   C minecraft:rail[shape=north_west,waterlogged=false]
-  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
   E minecraft:redstone_block
   G minecraft:glass
-  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  R minecraft:rail[shape=ascending_west,waterlogged=false]
+  L minecraft:lever[face=ceiling,facing=north,powered=false]
+  P minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  R minecraft:rail[shape=ascending_east,waterlogged=false]
   S minecraft:soul_sand
   W minecraft:water[level=0]
+  d minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  l minecraft:lever[face=ceiling,facing=north,powered=true]
   r minecraft:rail[shape=east_west,waterlogged=false]
 layer -2:
   .
   .
   .G
-  .
   .
   .
 layer -1:
@@ -33,193 +41,171 @@ layer -1:
   .SGGGGGGGGGGGGG
   .
   .
-  .
 layer 0:
   .
   .G
-  GWrrrCrrrCrDrCr
+  GBrrrCrrrCrdrCr
   .G
-  .
   .
 layer 1:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 2:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 3:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 4:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 5:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 6:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 7:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 8:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 9:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 10:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 11:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 12:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 13:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 14:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 15:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 16:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 17:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 18:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 19:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 20:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 21:
   .
   .G
-  GWG
+  GBG
   .G
-  .
   .
 layer 22:
   .
   .G
-  GWG
-  .G
-  .
-  .
+  GBG
+  .E
+  .GG
 layer 23:
-  .
-  .G
-  GWG
-  .G
-  .
-  ...GEGGGGGGGGGGG
-layer 24:
-  .
-  .G
-  GWG
-  .G
-  .G
-  .GGRPrrDrrrDrCrr
-layer 25:
   .G
   GWG
   G.G
-  .B
-  .B
-  .Ar
+  .P...G...G...G
+  .ARG
+layer 24:
+  .
+  .G
+  .G
+  .....D...D...D
+  ...RGGGGGGGGGGGG
+layer 25:
+  .
+  .
+  .
+  .
+  ....rArdrArdrCrr
 layer 26:
   .
-  .G
-  .G
   .
   .
   .
+  .....L...L...l
+layer 27:
+  .
+  .
+  .
+  .
+  .....G...G...G

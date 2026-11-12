@@ -345,6 +345,7 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
     let rblock = Block::parse("minecraft:redstone_block")?;
     let glass_b = Block::parse("minecraft:glass")?;
     let mut frozen_ticks = 0i64;
+    let (mut freeze_box, mut freeze_levels): (Option<[i32; 4]>, Option<(i32, i32)>) = (None, None);
     // (`split3`: the latches (L1: J1 to lane B; L2: J2 to lane C), the detectors' last states, the
     // junction cells; each junction set to its latch's shape, the redstone the bench stands in for)
     let ye = o.height - o.exit_slope;
@@ -364,16 +365,23 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         // (the freeze: the bench's chunks (x -1..0, z -1..0) at level 32, the spare chunk west of
         // them still forced)
         let frozen_now = o.freeze.is_some_and(|(f, l)| t >= f && t < f + l);
+        // (G1, lift3 CHANGES 1: `liveness::freeze32`, a forced ring around the part's chunk box, so
+        // every part chunk reads level 32 (redstone runs, entities frozen), asserted with `levels`;
+        // under the loop these are pearl-alternative rows only)
         if let Some((from, len)) = o.freeze {
             if t == from {
-                if run.world.entity_chunks.is_none() {
-                    let (mn, sz) = (run.world.min, run.world.size);
-                    run.world.entity_chunks = Some([mn.x.div_euclid(16), mn.z.div_euclid(16), (mn.x + sz[0] - 1).div_euclid(16), (mn.z + sz[2] - 1).div_euclid(16)]);
+                let pb = crate::liveness::freeze32(&mut run.world);
+                let (lo, hi) = crate::liveness::levels(&run.world, pb);
+                if (lo, hi) != (32, 32) {
+                    return Err(format!("the freeze left the part's chunks {pb:?} at levels {lo}..{hi}, not 32"));
                 }
-                redsim::reload::unload_some(&mut run.world, [-2, -1, 0, 0]);
+                freeze_box = Some(pb);
+                freeze_levels = Some((lo, hi));
             }
-            if t == from + len {
-                redsim::reload::load_some(&mut run.world, [-2, -1, 0, 0]);
+            if t == from + len
+                && let Some(pb) = freeze_box
+            {
+                crate::liveness::thaw32(&mut run.world, pb);
             }
         }
         if frozen_now {
@@ -653,6 +661,9 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         ));
     }
     out.push(format!("pairs: the closest centres in the shaft's column {}; {}", if column_gap.is_finite() { format!("{column_gap:.3}") } else { "-".into() }, touches.line()));
+    if let (Some(pb), Some((lo, hi))) = (freeze_box, freeze_levels) {
+        out.push(format!("freeze (pearl alternative only): liveness::freeze32 on the part's chunks {pb:?}, levels {lo}..{hi}"));
+    }
     if o.exit == "piston" {
         out.push(format!("piston firings (tick, cart, its y, its vertical speed): {}", piston_fired.iter().map(|(t, k, y, vy)| format!("t {t} cart {k} y {y:.3} vy {vy:.3}")).collect::<Vec<_>>().join("; ")));
     }
