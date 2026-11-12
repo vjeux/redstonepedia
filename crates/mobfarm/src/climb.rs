@@ -1053,6 +1053,10 @@ pub struct ClimbOpts {
     /// (7b90c3f1) With gate_shut_d1: G2 keyed on P2's flat (8,0,6) as a detector rail, its rising
     /// edge while G1 is shut (the second cart) + .1, instead of D1's.
     pub p2_key: bool,
+    /// (7b90c3f1) (A), ironspec 19:52: three zero-delay evidence keys: G0 open at the start and shut
+    /// on D2's (P2's flat as a detector) first rise after T + REL + 40 live, G1 on D1's first rise,
+    /// G2 on D2's rise while G1 is shut; the REL tick after T.
+    pub a_rel: Option<i64>,
     /// (7b90c3f1) A fault row: cart K never handed off (removed at T).
     pub missing: Option<usize>,
     /// The batch's carts (3, or 2: the third stays parked).
@@ -1145,8 +1149,14 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     }
     let d1_cell = BlockPos::new(12, -1, SZ);
     let p2_cell = BlockPos::new(8, 0, SZ);
-    if o.p2_key {
+    if o.p2_key || o.a_rel.is_some() {
         run.world.set_block(p2_cell, parse("detector_rail[powered=false,shape=east_west,waterlogged=false]")?, redsim::world::flags::ALL);
+    }
+    let mut a_armed_at: Option<i64> = None;
+    let mut g0_key_at: Option<i64> = None;
+    if o.a_rel.is_some() {
+        // ((A): G0 open at the bench's start (REL opened it before the arriving batch))
+        open[2] = true;
     }
     let mut p2_was = false;
     let mut p2_edges: Vec<i64> = Vec::new();
@@ -1248,7 +1258,7 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             // (`--p2-key`: P2's flat (8,0,6) a detector rail; G2 shuts on its rising edge while G1
             // is already shut (the batch's second cart, the first having crossed it with G1 open)
             // plus B, instead of D1 + B)
-            if o.p2_key {
+            if o.p2_key || o.a_rel.is_some() {
                 let p2_on = matches!(run.world.get(p2_cell), Block::DetectorRail { powered: true, .. });
                 if p2_on && !p2_was {
                     p2_edges.push(dt);
@@ -1262,14 +1272,30 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 open[1] = !d1_first.is_some_and(|e| live >= e + a1);
                 open[0] = if o.p2_key { !p2_key_at.is_some_and(|e| live >= e + a2) } else { !d1_first.is_some_and(|e| live >= e + a2) };
             }
+            // ((A), ironspec 19:52: three zero-delay evidence keys: G0 on D2's first rise after the
+            // arming at REL + 40 (live), G1 on D1's first rise, G2 on D2's rise while G1 is shut)
+            if let Some(rel) = o.a_rel {
+                if a_armed_at.is_none() && live >= rel + 40 {
+                    a_armed_at = Some(dt);
+                }
+                if let Some(&e) = p2_edges.last()
+                    && a_armed_at.is_some_and(|a| e >= a)
+                    && g0_key_at.is_none()
+                {
+                    g0_key_at = Some(e);
+                }
+                open[2] = g0_key_at.is_none();
+                open[1] = d1_first.is_none();
+                open[0] = p2_key_at.is_none();
+            }
         }
         for i in 0..3 {
-            if !open[i] && shut_dt[i].is_none() && i < 2 {
+            if !open[i] && shut_dt[i].is_none() && (i < 2 || o.a_rel.is_some()) {
                 shut_dt[i] = Some(dt);
             }
         }
         for (k, (gx, _)) in GATES.iter().rev().enumerate() {
-            if k == 0 || !open[2 - k] || o.gate_shut.is_some() || o.gate_shut_d1.is_some() {
+            if k == 0 || !open[2 - k] || o.gate_shut.is_some() || o.gate_shut_d1.is_some() || o.a_rel.is_some() {
                 continue;
             }
             let edge = *gx as f64 + o.close_at;
@@ -1292,10 +1318,12 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             let p = BlockPos::new(*gx, *gy, SZ);
             if run.world.get(p) != want {
                 run.world.set_block(p, want, redsim::world::flags::ALL);
-                // (a shut gate's slope unpowered: its source back to stone)
-                if !open[i] && i < 2 {
-                    let src = if i == 0 { BlockPos::new(6, -2, SZ) } else { BlockPos::new(10, -3, SZ) };
-                    run.world.set_block(src, stone.clone(), redsim::world::flags::ALL);
+                // (a shut gate's slope unpowered: its source back to stone; G0's, (A), keeps its own)
+                if !open[i] && (i < 2 || o.a_rel.is_some()) {
+                    if i < 2 {
+                        let src = if i == 0 { BlockPos::new(6, -2, SZ) } else { BlockPos::new(10, -3, SZ) };
+                        run.world.set_block(src, stone.clone(), redsim::world::flags::ALL);
+                    }
                     // (a gate edge on a cart: a cart's box meeting the gate's cell as it shuts)
                     for (n, id) in carts.iter().enumerate() {
                         if let Some((cp, _)) = pos(&run.world, *id)
@@ -1482,18 +1510,35 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     // (7b90c3f1: the D1-keyed shuts' report: per stand gate (G1, G2) its shut tick, the leader gap
     // (from the last cart entering the gate's cell before the shut) and the follower margin (to the
     // first cart entering it after); D1's rising edges (the bar: 1 a cycle))
-    if o.gate_shut_d1.is_some() || o.gate_shut.is_some() {
+    if o.gate_shut_d1.is_some() || o.gate_shut.is_some() || o.a_rel.is_some() {
         let per_gate = |g: usize| -> String {
-            let Some(s) = shut_dt[g] else { return format!("{} never shut", ["G2", "G1"][g]) };
+            let name = ["G2", "G1", "G0"][g];
+            let Some(s) = shut_dt[g] else { return format!("{name} never shut") };
             let lead = (0..3).filter_map(|k| gate_entry[k][g].map(|(t, _)| (t, k))).filter(|(t, _)| *t <= s).max();
             let foll = (0..3).filter_map(|k| gate_entry[k][g].map(|(t, _)| (t, k))).filter(|(t, _)| *t > s).min();
             format!(
-                "{} shut T+{s}: leader gap {}, follower margin {}",
-                ["G2", "G1"][g],
+                "{name} shut T+{s}: leader gap {}, follower margin {}",
                 lead.map_or("-".to_string(), |(t, k)| format!("{} (cart {k})", s - t)),
                 foll.map_or("-".to_string(), |(t, k)| format!("{} (cart {k})", t - s))
             )
         };
+        if let Some(rel) = o.a_rel {
+            // ((A)'s G0: the arming tick, the new cart 0's D2 rise (the key), the margin between)
+            out.push(format!(
+                "(A) keys: G0 armed at T+{} (REL T+{rel} + 40 live), keyed on D2's rise at {} (margin {}); {}; {}; {}; D1 rises {} ({}); D2 rises {} ({}), G2's key {}",
+                a_armed_at.map_or("-".to_string(), |a| a.to_string()),
+                g0_key_at.map_or("NONE".to_string(), |k| format!("T+{k}")),
+                match (a_armed_at, g0_key_at) { (Some(a), Some(k)) => (k - a).to_string(), _ => "-".to_string() },
+                per_gate(2),
+                per_gate(1),
+                per_gate(0),
+                d1_edges.len(),
+                d1_edges.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", "),
+                p2_edges.len(),
+                p2_edges.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", "),
+                if p2_key_at.is_some() { "taken" } else { "NOT TAKEN" }
+            ));
+        } else {
         out.push(format!(
             "stand shuts{}: D1 rising edges {} ({}); {}; {}{}",
             o.gate_shut_d1.map_or(String::new(), |(a, b)| if o.p2_key { format!(" on D1's edge + {a} (G1) / P2's second edge + {b} (G2)") } else { format!(" on D1's edge + {a} (G1) / + {b} (G2)") }),
@@ -1503,6 +1548,7 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             per_gate(0),
             if o.p2_key { format!("; P2 rising edges {} ({}), the key {}", p2_edges.len(), p2_edges.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", "), if p2_key_at.is_some() { "taken" } else { "NOT TAKEN" }) } else { String::new() }
         ));
+        }
     }
     out.push(format!(
         "entry into each gate's cell (G2 x 6, G1 x 10, G0 x 14), tick and stored speed: {}; gate edges on a cart: {}{}; merges: {}{}",
