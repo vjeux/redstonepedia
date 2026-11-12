@@ -50,10 +50,10 @@ pub struct ReturnBars {
     /// `--k-relay`: the returning napper's arrival on its siding's K cell (ironspec 08:46, widened 09:00:
     /// 0.10..0.44) in place of the 4th route's hand-on band.
     pub k_band: Option<(f64, f64)>,
-    /// A departure off a pulse's rise (the bench's "NOT on the hold at any pulse") is a failure in itself
-    /// (a scheduled-departure design); off (ironspec 10:09, (b): the ungated pulse with the timers keyed
-    /// to the napper's actual departure), such a departure is judged by its slot margins and the state
-    /// (lanes, sidings, the napper's route) and only counted.
+    /// A departure off a pulse's rise (the bench's "NOT on the hold at any pulse") is a failure in itself:
+    /// (c′) (ironspec 11:43: presence-gated, sensed at the hold and locked at E's rise) departs on the
+    /// fired pulse; off only for (b) (ironspec 10:09, superseded: the taps keyed to the actual departure),
+    /// where such a departure is judged by its slot margins and the state and only counted.
     pub scheduled_only: bool,
 }
 
@@ -94,6 +94,8 @@ pub struct ReturnRead {
     /// `Some(false)`: "NOT on the hold at any pulse" (a departure outside a scheduled window, or with a
     /// presence gate, never departed).
     pub napper_on_hold: Option<bool>,
+    /// The bench's `hold release:` line ((c′), 7b90c3f1's amend), when printed.
+    pub hold: Option<HoldRelease>,
     pub touches: usize,
     pub pushes: usize,
     /// Per lane, the longest return (release to its branch flat, live gt).
@@ -119,6 +121,100 @@ fn need(l: &str, key: &str, what: &str, errors: &mut Vec<String>) -> Option<f64>
         errors.push(format!("{what}: no number after {key:?} in {:?}", l.chars().take(140).collect::<String>()));
     }
     v
+}
+
+/// The bench's `hold release:` line ((c′), 7b90c3f1's amend): the pulses fired (and those while the
+/// napper rested), the departure on a fired pulse, creeps, FIFO pops without a departure, fired pulses
+/// without that cycle's departure, and each presence sample at E's rise.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HoldRelease {
+    pub fired: usize,
+    /// The fired pulses' numbers while the napper rested on the hold.
+    pub fired_in_rest: Vec<usize>,
+    pub skipped: usize,
+    /// `Some(true)`: the departure on a fired pulse; `Some(false)`: NOT on a fired pulse; `None`: it
+    /// never left.
+    pub on_fired: Option<bool>,
+    /// The departure's ARM3 offset, when on a fired pulse.
+    pub departure_arm3: Option<i64>,
+    pub creeps: usize,
+    pub pops_without: usize,
+    pub pulses_without: usize,
+    /// Presence samples at E's rise: (rolling, speed); `rolling` true for "rolling on the hold".
+    pub rolling_samples: Vec<f64>,
+    /// The napper's second ARM3 rise (ironspec 11:49: its own pass over the arming detector, ≈ ARM3 + 31):
+    /// `None` when the line has no such field; `Some(Some(true))` fired a pulse (a phantom),
+    /// `Some(Some(false))` fired nothing, `Some(None)` no second rise in the run.
+    pub second_rise: Option<Option<bool>>,
+}
+
+/// The count right after `key` (spaces skipped); an error when absent or not a number.
+fn count_after(l: &str, key: &str, errors: &mut Vec<String>) -> usize {
+    match l.find(key).map(|i| &l[i + key.len()..]).and_then(|s| s.trim_start().split(|c: char| !c.is_ascii_digit()).next().and_then(|d| d.parse::<usize>().ok())) {
+        Some(n) => n,
+        None => {
+            errors.push(format!("hold release: no count after {key:?}"));
+            0
+        }
+    }
+}
+
+/// Read the bench's `hold release:` line (the text after the prefix).
+pub fn read_hold(rest: &str, errors: &mut Vec<String>) -> HoldRelease {
+    let mut h = HoldRelease { fired: count_after(rest, "pulses fired ", errors), skipped: count_after(rest, "skipped ", errors), ..Default::default() };
+    // (`(while the napper rested: #i[, #j …] | none)`)
+    match rest.split_once("(while the napper rested: ").and_then(|(_, r)| r.split_once(')')) {
+        Some((list, _)) if list.trim() == "none" => {}
+        Some((list, _)) => {
+            for p in list.split(", ") {
+                match p.trim().trim_start_matches('#').parse::<usize>() {
+                    Ok(i) => h.fired_in_rest.push(i),
+                    Err(_) => errors.push(format!("hold release: a pulse number {p:?} unreadable")),
+                }
+            }
+        }
+        None => errors.push("hold release: no \"while the napper rested\" list".to_string()),
+    }
+    // (`the napper's departure on fired pulse #k at t T (ARM3 + X) | NOT on a fired pulse | none (it never left)`)
+    match rest.split_once("the napper's departure ").map(|(_, r)| r) {
+        Some(r) if r.starts_with("on fired pulse") => {
+            h.on_fired = Some(true);
+            h.departure_arm3 = r.split_once("(ARM3 + ").and_then(|(_, x)| x.split(|c: char| !(c.is_ascii_digit() || c == '-')).next()).and_then(|x| x.parse().ok());
+            if h.departure_arm3.is_none() {
+                errors.push("hold release: the departure's ARM3 offset unreadable".to_string());
+            }
+        }
+        Some(r) if r.starts_with("NOT on a fired pulse") => h.on_fired = Some(false),
+        Some(r) if r.starts_with("none") => h.on_fired = None,
+        _ => errors.push("hold release: the departure unreadable".to_string()),
+    }
+    h.creeps = count_after(rest, "creeps ", errors);
+    h.pops_without = count_after(rest, "FIFO pops without a departure ", errors);
+    h.pulses_without = count_after(rest, "fired pulses without that cycle's departure ", errors);
+    // (`the napper's second ARM3 rise at t T: fired #k | nothing` or `... none (no second rise)`)
+    if let Some((_, r)) = rest.split_once("the napper's second ARM3 rise ") {
+        let verdict = r.split_once(": ").map_or(r, |(_, v)| v).trim_start();
+        h.second_rise = Some(if verdict.starts_with("fired") {
+            Some(true)
+        } else if verdict.starts_with("nothing") {
+            Some(false)
+        } else if r.starts_with("none") || verdict.starts_with("none") {
+            None
+        } else {
+            errors.push(format!("hold release: the napper's second ARM3 rise unreadable: {:?}", r.chars().take(60).collect::<String>()));
+            None
+        });
+    }
+    // (`presence samples at E's rise: t …: at rest on the hold (v) | rolling on the hold (v) | not on the hold (v); …`)
+    if let Some((_, samples)) = rest.split_once("presence samples at E's rise: ") {
+        for s in samples.split("; ").filter(|s| s.contains("rolling on the hold")) {
+            match s.split_once("rolling on the hold (").and_then(|(_, v)| v.split(')').next()).and_then(|v| v.trim().parse::<f64>().ok()) {
+                Some(v) => h.rolling_samples.push(v),
+                None => errors.push(format!("hold release: a rolling sample's speed unreadable in {s:?}")),
+            }
+        }
+    }
+    h
 }
 
 /// Read a return bench's text (the `--row9` bench's lines). `k_cell`: with `--k-relay`, the napper's
@@ -227,6 +323,9 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
                 }
                 None => r.errors.push("the split line has no junction gaps".to_string()),
             }
+        }
+        if let Some(rest) = l.strip_prefix("hold release: ") {
+            r.hold = Some(read_hold(rest, &mut r.errors));
         }
         if let Some(rest) = l.strip_prefix("(c)'s napper lift: ") {
             // (`... on the hold when a pulse (P gt) launched it: at x,y,z (on the hold) ...` or `...: NOT
@@ -348,8 +447,28 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
         if r.napper_ahead.is_some_and(|g| g < 0) || r.napper_behind.is_some_and(|g| g < 0) {
             v.push(format!("the napper rode with a batch (behind {}, ahead {})", r.napper_behind.map_or("-".into(), |g| g.to_string()), r.napper_ahead.map_or("-".into(), |g| g.to_string())));
         }
-        if b.scheduled_only && r.napper_on_hold == Some(false) {
-            v.push("the napper departed outside a scheduled window (not on the hold at any pulse's rise)".into());
+        // ((c′), ironspec 11:43/11:45, from the bench's `hold release:` line: exactly one fired pulse per
+        // rest, the departure on a fired pulse, 0 creeps, 0 FIFO pops without a departure, 0 fired pulses
+        // without that cycle's departure; a rolling presence sample printed, not barred: the close is day-1's)
+        if let Some(h) = &r.hold {
+            if h.fired_in_rest.len() != 1 {
+                v.push(format!("{} fired pulses while the napper rested (exactly one)", h.fired_in_rest.len()));
+            }
+            match h.on_fired {
+                Some(true) => {}
+                Some(false) => v.push("the napper's departure not on a fired pulse".into()),
+                None => v.push("the napper never left the hold".into()),
+            }
+            for (n, what) in [(h.creeps, "creep(s) (the napper off the hold with no pulse)"), (h.pops_without, "FIFO pop(s) without a departure"), (h.pulses_without, "fired pulse(s) without that cycle's departure")] {
+                if n > 0 {
+                    v.push(format!("{n} {what}"));
+                }
+            }
+            if h.second_rise == Some(Some(true)) {
+                v.push("the napper's second ARM3 rise fired a pulse (a phantom: presence must be live AND delayed)".into());
+            }
+        } else if b.scheduled_only && r.napper_on_hold == Some(false) {
+            v.push("the napper did not depart on a fired pulse (not on the hold at any pulse's rise: it never departed, or left the hold without one)".into());
         }
         if r.napper_behind.is_some_and(|g| g < b.napper_behind) {
             v.push(format!("the napper {} gt behind the third cart (bar {})", r.napper_behind.unwrap_or(0), b.napper_behind));
@@ -405,6 +524,23 @@ pub enum Row {
     /// The napper leaving R at this tick (its `--napper-r`: the late-arrival rows), with one more batch
     /// so a late napper always has a next batch to be judged against.
     Late(i64),
+    /// A late row with a login: the napper from R at `.0`, a `.2`-gt login at `.0 + .1`.
+    LateLogin(i64, i64, i64),
+    /// The presence gate's positive control: the nominal corner with `--gate-delayed-only`.
+    GateControl,
+}
+
+/// A row's short label.
+pub fn row_label(row: &Row) -> String {
+    match row {
+        Row::Control => "the control".to_string(),
+        Row::Restart(t, how) => format!("a restart at t {t} ({})", how.label()),
+        Row::Login(t, d) => format!("a {d}-gt login at t {t}"),
+        Row::Jitter(code) => format!("jitter [{}]", jitter_of(*code).iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")),
+        Row::Late(r) => format!("the napper from R at t {r}"),
+        Row::LateLogin(r, off, d) => format!("the napper from R at t {r} with a {d}-gt login at +{off}"),
+        Row::GateControl => "the gate's positive control (--gate-delayed-only)".to_string(),
+    }
 }
 
 /// The bench's jitter vector for `code`: each of batches 0 and 1's six releases shifted -2, 0 or +2
@@ -491,6 +627,18 @@ pub struct ReturnJudgeOpts {
     /// --dep-keyed`); when not, the late family's verdict names the bench's emulation as the cause of
     /// its failures (G1's note on 1a962db4a), so they are not read as the design's.
     pub taps_follow_departure: bool,
+    /// E's rise relative to ARM3 (7b90c3f1's (c′) amend: ARM3 + 2): the napper's departure relative to
+    /// E's rise is the `hold release:` line's ARM3 offset less this.
+    pub e_rise: i64,
+    /// The positive control of the presence gate (ironspec 11:49): each nominal corner with the bench's
+    /// `--gate-delayed-only` (the live term removed) must fire the phantom pulse at the napper's second
+    /// ARM3 rise; a control that does not is a failure of the judge's own check.
+    pub gate_control: bool,
+    /// The arrivals x freezes rows (R_FROM, R_TO, OFF_FROM, OFF_TO): the napper leaving R at every tick
+    /// R_FROM..=R_TO with a login of each of the lead's lengths at every offset OFF_FROM..=OFF_TO after
+    /// its start (ironspec 11:43/11:48: the departure on the fired pulse at every freeze offset and every
+    /// arrival phase), with one more batch like the late rows.
+    pub late_logins: Option<(i64, i64, i64, i64)>,
     pub bars: ReturnBars,
     /// Every gt bar's margin at the nominal corners.
     pub margin: i64,
@@ -566,6 +714,13 @@ fn opts(base: &ReturnOpts, c: &Corner, row: Row) -> ReturnOpts {
             lo.batches = base.batches + 1;
             lo.ticks = base.ticks + 100;
         }
+        Row::LateLogin(r, off, d) => {
+            lo.napper_r = r;
+            lo.login = Some((r + off, d));
+            lo.batches = base.batches + 1;
+            lo.ticks = base.ticks + 100;
+        }
+        Row::GateControl => lo.gate_delayed_only = true,
     }
     // (the napper is the cart after the batches: its index set once the batches are)
     lo.trace = (lo.k_relay && c.napper.is_some()).then_some(lo.batches * 3);
@@ -605,6 +760,18 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
                 push(c, Row::Late(r));
             }
         }
+        if let Some((ra, rb, oa, ob)) = o.late_logins {
+            for r in ra..=rb {
+                for off in oa..=ob {
+                    for &d in o.ds.iter().filter(|d| **d <= o.lead_login_max) {
+                        push(c, Row::LateLogin(r, off, d));
+                    }
+                }
+            }
+        }
+        if o.gate_control {
+            push(c, Row::GateControl);
+        }
     }
     let results = run_all(base, &runs, o.jobs)?;
     type Res = ((Corner, Row), ReturnRead);
@@ -620,6 +787,36 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
     let all_branch: Vec<f64> = ctl_reads.iter().flat_map(|r| r.branch.clone()).collect();
     // (the napper's delivery: with --k-relay its arrival on its K cell against the S-bend's band, its F
     // entry printed; else the 4th route's hand-on)
+    // (the bench's `hold release:` line over a set of runs ((c′), ironspec 11:43/11:45/11:49): the runs
+    // carrying it, those with other than exactly one fired pulse in the rest, departures not on a fired
+    // pulse, creeps, FIFO pops and fired pulses without that cycle's departure, phantoms at the napper's
+    // second ARM3 rise, and the rolling presence samples (printed, not barred: the close is day-1's))
+    let hold_text = |rs: &[&ReturnRead]| -> String {
+        let hs: Vec<&HoldRelease> = rs.iter().filter_map(|r| r.hold.as_ref()).collect();
+        if hs.is_empty() {
+            return "the hold release: no line".to_string();
+        }
+        let rolling: Vec<f64> = hs.iter().flat_map(|h| h.rolling_samples.iter().copied()).collect();
+        let deps: Vec<i64> = hs.iter().filter_map(|h| h.departure_arm3).collect();
+        format!(
+            "the hold release ({} runs): other than one fired pulse in the rest {}, not on a fired pulse {}, never left {}, creeps {}, FIFO pops without a departure {}, fired pulses without that cycle's departure {}, phantoms at the napper's second ARM3 rise {} (second rises read {}), the departure ARM3 + {}, rolling presence samples {}{}",
+            hs.len(),
+            hs.iter().filter(|h| h.fired_in_rest.len() != 1).count(),
+            hs.iter().filter(|h| h.on_fired == Some(false)).count(),
+            hs.iter().filter(|h| h.on_fired.is_none()).count(),
+            hs.iter().map(|h| h.creeps).sum::<usize>(),
+            hs.iter().map(|h| h.pops_without).sum::<usize>(),
+            hs.iter().map(|h| h.pulses_without).sum::<usize>(),
+            hs.iter().filter(|h| h.second_rise == Some(Some(true))).count(),
+            hs.iter().filter(|h| matches!(h.second_rise, Some(Some(_)))).count(),
+            match (deps.iter().min(), deps.iter().max()) {
+                (Some(a), Some(b)) => format!("{a}..{b}"),
+                _ => "-".to_string(),
+            },
+            rolling.len(),
+            if rolling.is_empty() { String::new() } else { format!(" (up to {:.3})", rolling.iter().copied().fold(0.0, f64::max)) }
+        )
+    };
     let napper_text = |rs: &[&ReturnRead]| -> String {
         let entry: Vec<f64> = rs.iter().filter_map(|r| r.napper_entry).collect();
         match o.bars.k_band {
@@ -755,7 +952,11 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         // (the jitter rows: the bench's 729 ±2 patterns; the late rows: the napper leaving R at every tick
         // (lead rows, ironspec 10:02); each with its failing count, the napper's least window and the
         // departures outside a scheduled window)
-        for (fam, is_fam) in [("jitter (the bench's 729 ±2 patterns over batches 0 and 1)", (|r: &Row| matches!(r, Row::Jitter(_))) as fn(&Row) -> bool), ("late arrivals (the napper leaving R at every tick, with one more batch)", |r: &Row| matches!(r, Row::Late(_)))] {
+        for (fam, is_fam) in [
+            ("jitter (the bench's 729 ±2 patterns over batches 0 and 1)", (|r: &Row| matches!(r, Row::Jitter(_))) as fn(&Row) -> bool),
+            ("late arrivals (the napper leaving R at every tick, so it reaches the hold at every phase relative to E's rise; with one more batch)", |r: &Row| matches!(r, Row::Late(_))),
+            ("arrivals x freezes (the napper leaving R at every tick of a cycle, a login of each of the lead's lengths at every offset after its start; with one more batch)", |r: &Row| matches!(r, Row::LateLogin(..))),
+        ] {
             let rows: Vec<&&Res> = mine.iter().filter(|((_, row), _)| is_fam(row)).collect();
             if rows.is_empty() {
                 continue;
@@ -772,14 +973,16 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
                 .map(|((_, row), _)| match row {
                     Row::Jitter(code) => format!("[{}]", jitter_of(*code).iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")),
                     Row::Late(r) => format!("R at t {r}"),
+                    Row::LateLogin(r, off, d) => format!("R {r} +{off}/{d}gt"),
                     _ => String::new(),
                 })
                 .collect();
             out.push(format!(
-                "  {fam}: {} runs, failing {}; departures off a pulse's rise {off_window}{}; the napper riding with a batch {rode}; the napper's least window {} behind, {} ahead; the least shaft-entry gap {}; delivery {}; {}{}",
+                "  {fam}: {} runs, failing {}; departures off a pulse's rise {off_window}{}; the napper riding with a batch {rode}; {}; the napper's least window {} behind, {} ahead; the least shaft-entry gap {}; delivery {}; {}{}",
                 rows.len(),
                 bad.len(),
-                if o.bars.scheduled_only { " (each a failure)" } else { " (counted: judged by their slot margins and the state, ironspec 10:09)" },
+                if o.bars.scheduled_only { " (each a failure: (c′) departs on the fired pulse, ironspec 11:43)" } else { " (counted: judged by their slot margins and the state, (b))" },
+                hold_text(&rs),
                 least(&rs, |r| r.napper_behind, o.bars.napper_behind),
                 least(&rs, |r| r.napper_ahead, o.bars.napper_ahead),
                 least(&rs, |r| r.shaft, o.bars.shaft_min),
@@ -792,8 +995,8 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
                         " — failing: {} ({}){}",
                         which.join(" "),
                         kinds.into_iter().collect::<Vec<_>>().join(", "),
-                        if fam.starts_with("late") && !o.taps_follow_departure {
-                            " — CAUSE: the bench's emulated K/J(-1) taps fire on the schedule, not following a late napper's actual departure (7b90c3f1's --day1-taps --dep-keyed keys them to it); these failures are the bench's emulation, not the design's"
+                        if (fam.starts_with("late") || fam.starts_with("arrivals")) && !o.taps_follow_departure {
+                            " — the bench's emulated taps cannot judge a late napper; these rows wait for the fired-pulse-keyed taps (7b90c3f1's (c′) amend: --day1-taps keyed to the presence-gated fired pulse)"
                         } else {
                             ""
                         }
@@ -827,6 +1030,75 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         if !restarts.is_empty() {
             out.push(format!("  the restarts' least delivery {}, the most {}", ends(true), ends(false)));
         }
+    }
+    // (the presence gate's positive control (ironspec 11:49): each corner's run with the live term removed
+    // must fire the phantom pulse at the napper's second ARM3 rise; one that does not means the check
+    // cannot see a phantom: a failure)
+    for ((c, _), r) in results.iter().filter(|((_, row), _)| *row == Row::GateControl) {
+        let bit = r.hold.as_ref().is_some_and(|h| h.second_rise == Some(Some(true)) || h.pulses_without > 0);
+        if !bit {
+            total += 1;
+        }
+        out.push(format!(
+            "the presence gate's positive control at {} (the bench's --gate-delayed-only: the live term removed): {}",
+            c.label(),
+            match &r.hold {
+                None => "FAIL: no hold release line".to_string(),
+                Some(h) => format!(
+                    "the napper's second ARM3 rise {}; fired pulses without that cycle's departure {}: {}",
+                    match h.second_rise {
+                        Some(Some(true)) => "fired a pulse",
+                        Some(Some(false)) => "fired nothing",
+                        Some(None) => "absent",
+                        None => "not printed",
+                    },
+                    h.pulses_without,
+                    if bit { "the phantom, so the check bites" } else { "FAIL: no phantom, the control did not bite" }
+                ),
+            }
+        ));
+    }
+    // (the hold release over every lead row ((c′)): one line for ironspec's bar)
+    let lead_rows: Vec<&ReturnRead> = results.iter().filter(|((_, row), _)| !matches!(row, Row::GateControl) && !matches!(row, Row::Login(_, d) if *d > o.lead_login_max)).map(|(_, r)| r).collect();
+    if lead_rows.iter().any(|r| r.hold.is_some()) {
+        out.push(format!("over the lead's rows, {}", hold_text(&lead_rows)));
+    }
+    // ((c′), ironspec 11:48: the napper's departure tick relative to E's rise over every arrival phase and
+    // freeze in the lead's scope (the controls, the restarts, the lead's logins, the jitter and the late
+    // rows), min..max, and at both ends of that spread K set/reset, the J(-1) re-arm and the lane-7 merge
+    // separation passing (the end rows are lead rows, so a failure there is already a failing run; this
+    // names them))
+    let spread: Vec<(i64, &Res)> = results
+        .iter()
+        .filter(|((_, row), _)| !matches!(row, Row::GateControl) && !matches!(row, Row::Login(_, d) if *d > o.lead_login_max))
+        .filter_map(|res| res.1.hold.as_ref().and_then(|h| h.departure_arm3).map(|x| (x - o.e_rise, res)))
+        .collect();
+    if let (Some(lo), Some(hi)) = (spread.iter().min_by_key(|(d, _)| *d), spread.iter().max_by_key(|(d, _)| *d)) {
+        let end = |(d, ((c, row), r)): &(i64, &Res)| -> String {
+            let k_ok = r.wrong == 0 && r.never == 0 && r.sided == 0 && (o.bars.k_band.is_none() || r.napper_k.is_some_and(|x| o.bars.k_band.is_some_and(|kb| x >= kb.0 && x <= kb.1)));
+            let j_ok = o.bars.junction_min.get(&-1).is_none_or(|m| r.junction.get(&-1).is_some_and(|g| g >= m));
+            let m_ok = r.napper_behind.is_some_and(|g| g >= o.bars.napper_behind) && r.pushes <= o.bars.pushes_max;
+            let ok = |b: bool| if b { "ok" } else { "FAIL" };
+            format!(
+                "E{:+} at {} {} (K set/reset {}, the J(-1) re-arm {}, the lane-7 merge separation {} (the napper {} behind))",
+                d,
+                c.label(),
+                row_label(row),
+                ok(k_ok),
+                ok(j_ok),
+                ok(m_ok),
+                r.napper_behind.map_or("-".into(), |g| format!("{g} gt"))
+            )
+        };
+        out.push(format!(
+            "the napper's departure relative to E's rise (ARM3 + {}) over every arrival phase and freeze in the lead's rows ({} runs): E{:+}..E{:+}; the earliest {}; the latest {}",
+            o.e_rise,
+            spread.len(),
+            lo.0,
+            hi.0,
+            end(lo),
+            end(hi)
+        ));
     }
     // (the most delivered over the lead's rows: the controls and the restarts)
     let most = results
@@ -884,7 +1156,14 @@ pub fn file_gates(path: &str) -> Result<(Vec<String>, usize), String> {
             Err(_) => unparsed.push(format!("({},{},{}) {s}", p[0], p[1], p[2])),
         }
     }
+    // (a checked placement (ironspec's audit 11:05: `place_raw` skips a cell outside the world's box):
+    // every cell counted against the box before placing, the world's model errors read after; any is a
+    // failure)
+    let out_of_box: Vec<String> = cells.iter().filter(|(p, _)| !w.contains(*p)).map(|(p, b)| format!("({},{},{}) {b}", p.x, p.y, p.z)).collect();
+    let errors0 = w.errors.len();
     w.place_raw(&cells);
+    let place_errors: Vec<String> = w.errors[errors0..].to_vec();
+    fails += out_of_box.len() + place_errors.len();
     let cell = |p: BlockPos| format!("({},{},{})", p.x, p.y, p.z);
     let rails: Vec<BlockPos> = cells.iter().filter(|(_, b)| redsim::rails::is_rail(b)).map(|(p, _)| *p).collect();
     let pops: Vec<String> = rails.iter().filter(|p| redsim::rails::would_pop(&w, **p)).map(|p| cell(*p)).collect();
@@ -908,8 +1187,10 @@ pub fn file_gates(path: &str) -> Result<(Vec<String>, usize), String> {
     };
     fails += verdict_kinds.get("UNCLASSIFIED").copied().unwrap_or(0);
     out.push(format!(
-        "static gates on the split file ({path}): parse {} cells; would-pop {} of {} rails{}{}; {} T(s) (the bench's verdicts: {})",
+        "static gates on the split file ({path}): parse {} cells; out-of-box cells {}{}; would-pop {} of {} rails{}{}; {} T(s) (the bench's verdicts: {})",
         d.blocks.len(),
+        out_of_box.len() + place_errors.len(),
+        if out_of_box.is_empty() && place_errors.is_empty() { String::new() } else { format!(" (FAIL: {})", out_of_box.iter().chain(place_errors.iter()).take(6).cloned().collect::<Vec<_>>().join("; ")) },
         pops.len(),
         rails.len(),
         if pops.is_empty() { String::new() } else { format!(" ({})", pops.join(", ")) },
@@ -1017,11 +1298,16 @@ pub fn drivers(w: &redsim::world::World, p: redsim::pos::BlockPos) -> Vec<(Strin
     let mut out = Vec::new();
     for d in Dir::ALL {
         let q = p.rel(d);
+        // (only cells inside the world's box: a trial placement outside it would be skipped (ironspec's
+        // audit 11:05), and outside reads air anyway)
+        if !w.contains(q) {
+            continue;
+        }
         let s = w.get(q);
         if redsim::behavior::is_conductor(w, &s, q) {
             for e in Dir::ALL {
                 let r = q.rel(e);
-                if r == p {
+                if r == p || !w.contains(r) {
                     continue;
                 }
                 let sr = w.get(r);
@@ -1465,7 +1751,7 @@ mod tests {
         assert!(fails(&ok, &bars(), true).is_empty(), "{:?}", fails(&ok, &bars(), true));
         let late = read(&lift("NOT on the hold at any pulse"), true);
         assert_eq!(late.napper_on_hold, Some(false));
-        assert!(fails(&late, &bars(), true).iter().any(|f| f.contains("outside a scheduled window")), "{:?}", fails(&late, &bars(), true));
+        assert!(fails(&late, &bars(), true).iter().any(|f| f.contains("did not depart on a fired pulse")), "{:?}", fails(&late, &bars(), true));
         // ((b), ironspec 10:09: the timers keyed to the actual departure: an off-rise departure is no
         // failure in itself)
         let b_design = ReturnBars { scheduled_only: false, ..bars() };
@@ -1474,6 +1760,44 @@ mod tests {
         assert!(!read(T, true).lift_seen);
         let rode = read(&T.replace("the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first", "the napper 100 behind batch 0's third cart, -45 ahead of the next batch's first"), true);
         assert!(fails(&rode, &bars(), true).iter().any(|f| f.contains("rode with a batch (behind 100, ahead -45)")), "{:?}", fails(&rode, &bars(), true));
+    }
+
+    /// The bench's `hold release:` line ((c′), 7b90c3f1's amend; ironspec 11:43/11:45): one fired pulse
+    /// in the rest, the departure on it, 0 creeps / pops / pulses without a departure passes; two fired
+    /// pulses in the rest, a departure not on a fired pulse, a napper that never left, a creep, a pop and
+    /// a pulse without that cycle's departure each fail; a rolling presence sample is read (printed, not
+    /// barred); an unreadable count is an error.
+    #[test]
+    fn reads_the_hold_release() {
+        let good = "pulses fired 2 (while the napper rested: #1), skipped 1; the napper's departure on fired pulse #1 at t 215 (ARM3 + 13); creeps 0 (the napper off the hold with no pulse); FIFO pops without a departure 0; fired pulses without that cycle's departure 0; presence samples at E's rise: t 200: at rest on the hold (0.000); t 300: not on the hold (0.000)";
+        let with = |s: &str| format!("{T}hold release: {s}\n");
+        let r = read(&with(good), true);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let h = r.hold.clone().expect("the hold line");
+        assert_eq!((h.fired, h.fired_in_rest.clone(), h.skipped, h.on_fired, h.departure_arm3, h.creeps, h.pops_without, h.pulses_without), (2, vec![1], 1, Some(true), Some(13), 0, 0, 0));
+        assert!(fails(&r, &bars(), true).is_empty(), "{:?}", fails(&r, &bars(), true));
+        for (from, to, want) in [
+            ("(while the napper rested: #1)", "(while the napper rested: #1, #2)", "2 fired pulses while the napper rested"),
+            ("(while the napper rested: #1)", "(while the napper rested: none)", "0 fired pulses while the napper rested"),
+            ("on fired pulse #1 at t 215 (ARM3 + 13)", "NOT on a fired pulse", "not on a fired pulse"),
+            ("on fired pulse #1 at t 215 (ARM3 + 13)", "none (it never left)", "never left the hold"),
+            ("creeps 0", "creeps 1", "1 creep"),
+            ("FIFO pops without a departure 0", "FIFO pops without a departure 2", "2 FIFO pop"),
+            ("fired pulses without that cycle's departure 0", "fired pulses without that cycle's departure 1 (rising at t 300)", "1 fired pulse(s) without that cycle's departure"),
+        ] {
+            let b = read(&with(&good.replace(from, to)), true);
+            assert!(b.errors.is_empty(), "{to:?}: {:?}", b.errors);
+            assert!(fails(&b, &bars(), true).iter().any(|f| f.contains(want)), "{to:?} -> {want:?} in {:?}", fails(&b, &bars(), true));
+        }
+        let rolling = read(&with(&good.replace("t 200: at rest on the hold (0.000)", "t 200: rolling on the hold (0.031)")), true);
+        assert_eq!(rolling.hold.map(|h| h.rolling_samples), Some(vec![0.031]));
+        assert!(!read(&with(&good.replace("creeps 0", "creeps x")), true).errors.is_empty());
+        // (ironspec 11:49: the napper's second ARM3 rise fires nothing; fired is a phantom, a failure)
+        let second = |v: &str| read(&with(&format!("{good}; the napper's second ARM3 rise at t 246: {v}")), true);
+        assert_eq!(second("nothing").hold.and_then(|h| h.second_rise), Some(Some(false)));
+        assert!(fails(&second("nothing"), &bars(), true).is_empty());
+        assert!(fails(&second("fired #3"), &bars(), true).iter().any(|f| f.contains("second ARM3 rise fired a pulse")), "{:?}", fails(&second("fired #3"), &bars(), true));
+        assert!(!second("maybe").errors.is_empty());
     }
 
     /// ironspec's T rule bites (a positive control): a switched T with arms N/W/E (a row along x, its
@@ -1506,6 +1830,7 @@ mod tests {
             let mut w = redsim::world::World::new(BlockPos::new(-3, -3, -3), [7, 7, 7]);
             let cells: Vec<(BlockPos, Block)> = blocks.iter().map(|(k, s)| (BlockPos::new(k[0], k[1], k[2]), Block::parse(s).expect("a block"))).collect();
             w.place_raw(&cells);
+            assert!(cells.iter().all(|(p, _)| w.contains(*p)) && w.errors.is_empty(), "the test's cells all inside its world: {:?}", w.errors);
             t_rule(&w, BlockPos::new(0, 0, 0))
         };
         let lever = |on: bool| vec![([0, 1, 0], format!("minecraft:lever[face=ceiling,facing=north,powered={on}]")), ([0, 2, 0], "minecraft:glass".to_string())];

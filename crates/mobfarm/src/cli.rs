@@ -2337,11 +2337,47 @@ pub enum MobfarmCmd {
         /// `--napper-lift`: the tick the napper leaves R.
         #[arg(long, default_value_t = 0)]
         napper_r: i64,
-        /// `--napper-lift`: the hold's release pulse (gt): 12, day-1's (ironspec 10:04/10:05: the 12-gt
-        /// pulse, ungated unless its gate is chosen), through the repeater (8,-1,8) into the stone under
-        /// the hold rail, the rail rising at ARM3 + D.
+        /// `--napper-lift`: the hold's release pulse (gt): 12 (the run line of 7b90c3f1's (c′) amend;
+        /// day-1's re-measured threshold + 2), through the repeater (8,-1,8) into the stone under the hold
+        /// rail, the rail rising at ARM3 + D.
         #[arg(long, default_value_t = 12)]
         release_pulse: i64,
+        /// The bench's `--day1-taps`: K set/reset and J(-1)'s re-arm at day-1's taps, keyed to the fired
+        /// pulse ((c′), ironspec 11:43) instead of the bench watching the carts.
+        #[arg(long)]
+        day1_taps: bool,
+        /// The bench's `--supp-open` (with --day1-taps: J(-1)'s suppression opens this many gt after the
+        /// napper's own ARM3).
+        #[arg(long, default_value_t = 73)]
+        supp_open: i64,
+        /// The bench's `--pulse-gate X` ((c′), ironspec 11:43/11:49: the pulse fires only when the
+        /// napper's waiting bit (set on (7,-3,4), reset by the fired pulse) AND its copy delayed X are high
+        /// at E's rise; day-1's 38).
+        #[arg(long)]
+        pulse_gate: Option<i64>,
+        /// The bench's `--bit-delay` (its arrival-phase bookkeeping).
+        #[arg(long, default_value_t = 36)]
+        bit_delay: i64,
+        /// The bench's `--mirror-z` (onechunk's southern pair).
+        #[arg(long)]
+        mirror_z: bool,
+        /// The bench's `--tripwire`, `--dep-keyed` and `--trip-lag` (option (b), kept as options).
+        #[arg(long)]
+        tripwire: bool,
+        #[arg(long)]
+        dep_keyed: bool,
+        #[arg(long, default_value_t = 0)]
+        trip_lag: i64,
+        /// Skip the positive control of `--pulse-gate` (each nominal corner with the bench's
+        /// `--gate-delayed-only`, the live term removed: it must fire the phantom pulse at the napper's
+        /// second ARM3 rise, ironspec 11:49).
+        #[arg(long)]
+        no_gate_control: bool,
+        /// The arrivals x freezes rows: the napper leaving R at every tick R_FROM..=R_TO with a login of
+        /// each of the lead's lengths (1..=--lead-login-max) at every offset OFF_FROM..=OFF_TO after its
+        /// start (R_FROM,R_TO,OFF_FROM,OFF_TO; `-1,-1,-1,-1`: none; with --napper-lift).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "86,185,30,199")]
+        late_logins: Vec<i64>,
         #[arg(long)]
         boosters: bool,
         #[arg(long)]
@@ -2381,11 +2417,14 @@ pub enum MobfarmCmd {
         /// (with --napper-lift; one more batch so a late napper has a next batch; `-1,-1`: none).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "0,199")]
         late: Vec<i64>,
-        /// A departure off a pulse's rise is a failure in itself (a scheduled-departure design); by default
-        /// (ironspec 10:09, (b): the ungated pulse, the timers keyed to the napper's actual departure) it is
+        /// A departure off a pulse's rise is a failure in itself: (c′) (ironspec 11:43, presence-gated)
+        /// departs on the fired pulse; `false` for (b) (the taps keyed to the actual departure), where it is
         /// counted and judged by its slot margins and the state.
-        #[arg(long)]
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         scheduled_only: bool,
+        /// E's rise relative to ARM3 (7b90c3f1's (c′) amend: ARM3 + 2), for the departure's spread.
+        #[arg(long, default_value_t = 2)]
+        e_rise: i64,
         /// The batch carts' delivery band (stored, entering their lane's merge cell): the floor 0.27
         /// (ironfarm's real first failure 0.22 + ironspec's 0.05, farmopt 05:58); the upper end 0.95
         /// (ironfarm's upward sweep, farmopt 08:57: no failure through stored 1.00 (merge entry 0.991),
@@ -6875,7 +6914,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, day1_taps, supp_open, pulse_gate, bit_delay, mirror_z, tripwire, dep_keyed, trip_lag, no_gate_control, late_logins, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, e_rise, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
             anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
@@ -6892,11 +6931,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let prelude = if napper_lift { 100 } else { 0 };
             let ticks = ticks + prelude;
             let starts = vec![starts[0], starts[1] + prelude];
-            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z: false, day1_taps: false, supp_open: 73, pulse_gate: None, gate_delayed_only: false, bit_delay: 36, tripwire: false, dep_keyed: false, trip_lag: 0 };
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, bit_delay, tripwire, dep_keyed, trip_lag };
             anyhow::ensure!(k_band.len() == 2, "--k-band LO,HI");
             let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])), scheduled_only };
             let line = format!(
-                "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
+                "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
                 if z7 { "--z7 " } else { "" },
                 if row9 { "--row9 " } else { "" },
                 if row10 { "--row10 " } else { "" },
@@ -6904,7 +6943,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if boost_exit { "--boost-exit " } else { "" },
                 if climb2 { "--climb2 " } else { "" },
                 if boost_slope { "--boost-slope " } else { "" },
-                if napper_lift { format!("--napper-lift --release-pulse {release_pulse} {}", if napper_r != 0 { format!("--napper-r {napper_r} ") } else { String::new() }) } else { String::new() },
+                if napper_lift {
+                    format!(
+                        "--napper-lift --release-pulse {release_pulse} {}{}{}{}",
+                        if napper_r != 0 { format!("--napper-r {napper_r} ") } else { String::new() },
+                        if day1_taps { format!("--day1-taps {}", if supp_open != 73 { format!("--supp-open {supp_open} ") } else { String::new() }) } else { String::new() },
+                        pulse_gate.map_or(String::new(), |x| format!("--pulse-gate {x} ")),
+                        format!("{}{}{}", if tripwire { "--tripwire " } else { "" }, if dep_keyed { "--dep-keyed " } else { "" }, if trip_lag != 0 { format!("--trip-lag {trip_lag} ") } else { String::new() })
+                    )
+                } else {
+                    String::new()
+                },
+                if mirror_z { "--mirror-z " } else { "" },
                 if arm_station { "--arm-station " } else { "" },
                 if boosters { "--boosters " } else { "" },
                 if row_boost { "--row-boost " } else { "" },
@@ -6972,7 +7022,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             let phase_corners: Vec<crate::returnjudge::Corner> = speeds.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
-            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), taps_follow_departure: false, bars, margin, jobs };
+            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), taps_follow_departure: day1_taps && (pulse_gate.is_some() || dep_keyed), e_rise, gate_control: pulse_gate.is_some() && !no_gate_control, late_logins: (napper_lift && late_logins.len() == 4 && late_logins[0] >= 0).then(|| (late_logins[0], late_logins[1], late_logins[2], late_logins[3])), bars, margin, jobs };
             println!(
                 "return judge (cc767b78, bench, tool unreviewed; the lead's rows: the controls at {} corners (offsets {:?}, the departure spread {}..{} gt on each, releases {speeds:?}, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
                 o.corners.len(),
