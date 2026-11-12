@@ -1,0 +1,13 @@
+# G0's departure detector for onechunk's v4 (owner 7b90c3f1; ironspec 19:06: a sloped detector replacing the stand departure's booster #1, crossed only by departing carts, so G0 shuts on its falling
+# edge + 2), loop frame (paste with no move, after `--clear 9,-4,1,9,-3,1` takes the committed booster #1 and its redstone block out): a detector rail ascending_south at (9,-3,1) on glass (9,-4,1).
+# Its faces: the corner (9,-3,0) (plain rail), the redstone block (9,-3,2) under booster #2 (not a rail), the glass below, stone (8,-3,1), air above, outside the chunk east: no gate, no powered rail
+# (G3 (8,-3,0) and booster #2 (9,-2,2) diagonal). Placed once dfb89499's combined bench keeps >= 2 gt at every corner without booster #1; the fallback (9,2,6) costs no booster.
+name: g0-detector-v4
+origin: 9 0 1
+palette:
+  D minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
+  g minecraft:glass
+layer -4:
+  g
+layer -3:
+  D

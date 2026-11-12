@@ -82,3 +82,29 @@ wiring, nothing benched, everything else a reserved box; both are written in the
   every villager position's box on one axis, sealed, the AFK 2 sections away) has no room in the
   bed's section of any of the three: the bed stop fills the 16-wide column; it goes in the next
   chunk at the bed's height.
+- v4 = C′ (ironspec 18:21-18:45, the layout of record): 58f770cc's minimal bed tier in the SW
+  quadrant (bed head (-3,50,4): every rider more than 16 + 1 from it, the least 17.13 at the tail's
+  R4 slope; `mobfarm column --bed`), 9fc3155f's hold (hold-v4) and tail chain with the switch flat
+  (tail-v5), the hold's leaving-edge detector Ds (hold-ds-v4.txt), the cavity floor at y -11 (the
+  flood with every rail cell a summoner found the stand's departure rails at y -3 reaching a floor at
+  -10: 101 off-pad spots), the sentinel room in the east chunk ((c) 12.00 on x). 16 x 69 x 16 =
+  17,664 blocks³. G0's departure detector (g0-detector-v4.txt, replacing booster #1 at (9,-3,1)) is
+  prepared, placed once dfb89499's bench keeps 2 gt at every corner without that booster.
+- Condition (a) over every villager position (`column --sections`): 67..118 of 146 positions lie
+  more than 1 section from both homes by the site's y phase; a third sealed home at mid-height in the
+  east chunk brings every phase to 0 (an option line: ironspec ruled the stamp bench instead).
+- The full bills (provisional: b8949c96's dug-in prices at its whole-sample spots, 2 s a placed
+  block, 1 s a dug one, its cave fills and spawn-proofing slabs; my estimates for the parts not laid
+  at the judge's middle prices, the committed C24 file's 5.33 s a block for redstone):
+
+  | | v4 = C′ plains / forest | (b) plains / forest |
+  |---|---|---|
+  | the skeleton file, dug in (b8949c96) | 631.4 / 651.5 | 464.3 / 512.3 |
+  | spawn-proofing (673 / 1,052 cells; 418 / 528) | +22.4 / +35.1 | +13.9 / +17.6 |
+  | parts not laid (release, controller, wiring, boosters, clock, divert; (b): register ~520, controller ~750, H, climb, descent, R1, posts, 18 riders) | +53.2 | +190.1 |
+  | the bed tier (58f770cc's 191-block minimal tier; (b): in place of the committed bed stop) | +16.7 | -20.5 (void; about -6 dug in) |
+  | AFK room, shaft and hatch | +1.5 | +1.9 |
+  | sentinel room | +6 | +6 |
+  | total | about 731 / 764 | about 656..670 / 707..722 |
+  | blocks³ | 17,664 | 16,384 |
+  | option: a third sealed home | +6 | |
