@@ -37,7 +37,8 @@ pub fn run(cmd: DesignCmd) -> Result<()> {
 }
 
 /// The rails of one part (its blocks pasted raw into a world one cell larger on every side) that
-/// would pop, and those left unjudged because a neighbour (below or beside) doesn't parse in redsim.
+/// would pop, and those left unjudged: a rail whose own state redsim can't parse, or one with a
+/// neighbour (below or beside) that doesn't parse.
 fn popping_rails(blocks: &BTreeMap<[i32; 3], String>) -> (Vec<[i32; 3]>, Vec<[i32; 3]>) {
     use redsim::pos::BlockPos;
     let Some(first) = blocks.keys().next() else { return (Vec::new(), Vec::new()) };
@@ -51,16 +52,22 @@ fn popping_rails(blocks: &BTreeMap<[i32; 3], String>) -> (Vec<[i32; 3]>, Vec<[i3
     let mut w = redsim::world::World::new(BlockPos::new(lo[0] - 1, lo[1] - 1, lo[2] - 1), [hi[0] - lo[0] + 3, hi[1] - lo[1] + 3, hi[2] - lo[2] + 3]);
     let mut cells = Vec::new();
     let mut unparsed: BTreeSet<[i32; 3]> = BTreeSet::new();
+    let mut unparsed_rails: Vec<[i32; 3]> = Vec::new();
     for (p, s) in blocks {
         match redsim::block::Block::parse(s) {
             Ok(b) => cells.push((BlockPos::new(p[0], p[1], p[2]), b)),
             Err(_) => {
                 unparsed.insert(*p);
+                // a rail redsim can't parse is itself unjudged (G1's note on 751a7e063)
+                let name = s.strip_prefix("minecraft:").unwrap_or(s).split('[').next().unwrap_or("");
+                if name.ends_with("rail") {
+                    unparsed_rails.push(*p);
+                }
             }
         }
     }
     w.place_raw(&cells);
-    let (mut pops, mut unjudged) = (Vec::new(), Vec::new());
+    let (mut pops, mut unjudged) = (Vec::new(), unparsed_rails);
     for p in blocks.keys() {
         let bp = BlockPos::new(p[0], p[1], p[2]);
         if !redsim::rails::would_pop(&w, bp) {
@@ -82,9 +89,18 @@ fn would_pop(paths: &[PathBuf]) -> Result<()> {
         walk(p, &mut files)?;
     }
     let (mut designs, mut failing, mut cells, mut unjudged_files) = (0usize, 0usize, 0usize, 0usize);
+    // .txt files that don't parse as designs (notes, tables, refused files): counted and named,
+    // not silently skipped (G1's note on 751a7e063)
+    let mut not_designs: Vec<&PathBuf> = Vec::new();
     for f in &files {
-        let Ok(text) = std::fs::read_to_string(f) else { continue };
-        let Ok(d) = Design::parse(&text) else { continue };
+        let Ok(text) = std::fs::read_to_string(f) else {
+            not_designs.push(f);
+            continue;
+        };
+        let Ok(d) = Design::parse(&text) else {
+            not_designs.push(f);
+            continue;
+        };
         designs += 1;
         let (pops, unjudged) = popping_rails(&d.blocks);
         let (npops, nunjudged) = popping_rails(&d.nether_blocks);
@@ -102,10 +118,14 @@ fn would_pop(paths: &[PathBuf]) -> Result<()> {
         }
         if !unjudged.is_empty() || !nunjudged.is_empty() {
             unjudged_files += 1;
-            println!("{}: {} rail(s) unjudged (a neighbour redsim can't parse): {}", f.display(), unjudged.len() + nunjudged.len(), show(&unjudged));
+            println!("{}: {} rail(s) unjudged (the rail or a neighbour redsim can't parse): {}", f.display(), unjudged.len() + nunjudged.len(), show(&unjudged));
         }
     }
     println!("{designs} design file(s) read; {failing} with rails that would pop ({cells} cells); {unjudged_files} with unjudged rails");
+    if !not_designs.is_empty() {
+        let shown: Vec<String> = not_designs.iter().take(5).map(|p| p.display().to_string()).collect();
+        println!("{} .txt file(s) not read as designs (they don't parse): {}{}", not_designs.len(), shown.join(", "), if not_designs.len() > 5 { ", ..." } else { "" });
+    }
     Ok(())
 }
 

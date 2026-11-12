@@ -23,6 +23,12 @@ fn an_ascending_rail_needs_a_rigid_block_below_and_on_its_high_side() {
     assert!(!would_pop(&held, rail), "glass on the high side holds it");
     let wrong_side = world(&[((0, 0, 0), "glass"), ((0, 1, 0), "rail[shape=ascending_south]"), ((0, 1, -1), "stone")]);
     assert!(would_pop(&wrong_side, rail), "a block on the low side doesn't");
+    // the high-side block's UP face is read (`canSupportRigidBlock`): a bottom slab there pops,
+    // a top slab holds (G1's note on 751a7e063)
+    let bottom = world(&[((0, 0, 0), "glass"), ((0, 1, 0), "rail[shape=ascending_south]"), ((0, 1, 1), "stone_slab[type=bottom]")]);
+    assert!(would_pop(&bottom, rail), "a bottom slab on the high side pops");
+    let top = world(&[((0, 0, 0), "glass"), ((0, 1, 0), "rail[shape=ascending_south]"), ((0, 1, 1), "stone_slab[type=top]")]);
+    assert!(!would_pop(&top, rail), "a top slab on the high side holds");
     // a flat rail needs only its rigid top below; a bottom slab's top is no rigid top
     assert!(!would_pop(&world(&[((0, 0, 0), "stone"), ((0, 1, 0), "rail[shape=north_south]")]), rail));
     assert!(would_pop(&world(&[((0, 0, 0), "stone_slab[type=bottom]"), ((0, 1, 0), "rail[shape=north_south]")]), rail));
