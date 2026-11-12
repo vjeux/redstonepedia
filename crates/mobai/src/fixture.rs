@@ -5877,9 +5877,9 @@ fn scenes_raw() -> Vec<Scene> {
     // enters the lift) an IDLE rider in a cart at rest at (13.22, 64.0625, 7.5) on an unpowered
     // powered rail (13,64,7) against a stone stop (12,64,7), a rail line east (14..19, 64, 7) into a
     // walled bubble column (20, 64..70, 7) over soul sand (its sources placed at t5; the column in
-    // the next chunk, since redsim does not model sky light through a bubble column and the
-    // section's light would reach the zombie's); a zombie in a boat closed in a stone box at
-    // (13.5, 64, 12.5), its north wall (13,64..65,11) opening at t200 (the rider 5 away panics); at
+    // the next chunk, laid out before redsim modeled a bubble column's sky light (light block 1, as
+    // water), which it now does: the recording replays exactly); a zombie in a boat closed in a
+    // stone box at (13.5, 64, 12.5), its north wall (13,64..65,11) opening at t200 (the rider 5 away panics); at
     // t214 the rail's support (13,63,7) becomes a redstone block: the powered rail kicks the cart
     // east off the stop, along the line and into the column. The frames give the panic stroll's
     // draw, MoveToTargetSink's start (the path, its length, reached or partial) against its stop
