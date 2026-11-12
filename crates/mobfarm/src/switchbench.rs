@@ -56,6 +56,7 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     let stone = Block::parse("minecraft:stone")?;
     let air = Block::parse("minecraft:air")?;
     let slope = Block::parse("minecraft:rail[shape=ascending_west,waterlogged=false]")?;
+    let flat = Block::parse("minecraft:rail[shape=east_west,waterlogged=false]")?;
     let pslope = Block::parse("minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
     let rblock = Block::parse("minecraft:redstone_block")?;
     let trap_shut = Block::parse("minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]")?;
@@ -75,7 +76,16 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
             blocks.push((BlockPos::new(x, top - 1 - x, z), slope.clone()));
             blocks.push((BlockPos::new(x, top - 2 - x, z), glass.clone()));
         }
-        blocks.push((BlockPos::new(-1, top, z), glass.clone()));
+        if o.intake_flat {
+            // (the flat intake and the split's flat branch behind it, level with the top slope's high end)
+            blocks.push((BlockPos::new(-1, top, z), flat.clone()));
+            blocks.push((BlockPos::new(-1, top - 1, z), glass.clone()));
+            blocks.push((BlockPos::new(-2, top, z), flat.clone()));
+            blocks.push((BlockPos::new(-2, top - 1, z), glass.clone()));
+            blocks.push((BlockPos::new(-3, top, z), glass.clone()));
+        } else {
+            blocks.push((BlockPos::new(-1, top, z), glass.clone()));
+        }
         blocks.push((BlockPos::new(xr, h, z), pslope.clone()));
         blocks.push((BlockPos::new(xr, h - 1, z), glass.clone()));
         // (D: the trapdoor floor, the far wall two high, the sides at the cart's level, the string)
@@ -97,6 +107,7 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     while run.settle_tick() {}
     let rider = if o.riders { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
     let nbt = format!("{{Motion:[0.0d,0.0d,0.0d]{rider}}}");
+    let nbt_in = format!("{{Motion:[{:.4}d,0.0d,0.0d]{rider}}}", o.v_in);
     let slope_y = |x: f64| {
         let cx = x.floor() as i32;
         (top - 1 - cx) as f64 + (1.0 - (x - cx as f64)) + 0.0625
@@ -105,11 +116,16 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     // restage fills it)
     let nl = o.lanes;
     let mut carts: Vec<(usize, Option<u32>)> = Vec::new();
+    let mut overflow: Vec<(i64, usize)> = Vec::new();
     for l in 0..nl {
         for k in 0..o.per_lane {
             let x = xr as f64 + 0.5 - 0.79 * k as f64;
             if x < 0.6 {
-                break;
+                // (a lane's carts beyond the run start as returns, arriving through the intake as room
+                // allows: the fill level)
+                carts.push((l, None));
+                overflow.push((40 + 25 * k as i64, carts.len() - 1));
+                continue;
             }
             let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x, slope_y(x), zs[l] as f64 + 0.5], Some(&nbt))?;
             carts.push((l, Some(id)));
@@ -132,7 +148,7 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     let mut unsettled = 0usize;
     let mut shut_onto: Vec<String> = Vec::new();
     let mut prev: Vec<Option<(f64, f64, f64, f64)>> = vec![None; n];
-    let mut pending: Vec<(i64, usize)> = Vec::new();
+    let mut pending: Vec<(i64, usize)> = overflow;
     let mut fell = vec![false; n];
     let mut rest_d: Vec<f64> = Vec::new();
     let mut rested_d = vec![false; n];
@@ -144,6 +160,7 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     let mut r_rest_x: Vec<Option<f64>> = vec![None; n];
     let mut creep_max = 0.0f64;
     let mut hanging: Vec<String> = Vec::new();
+    let mut arrivals: Vec<f64> = Vec::new();
     let mut hang_ticks = vec![0i64; n];
     let mut eye_d: std::collections::BTreeMap<String, usize> = Default::default();
     let mut eye_r: std::collections::BTreeMap<String, usize> = Default::default();
@@ -207,14 +224,16 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
                 run.world.set_block(BlockPos::new(xr, h, z + 1), if want_r { rblock.clone() } else { air.clone() }, redsim::world::flags::ALL);
             }
         }
-        // (returns near the lane's top once clear)
+        // (returns near the lane's top once clear; with --intake-flat, onto the split's flat branch two
+        // cells above the run's top slope, moving toward the lane at --v-in)
         let due: Vec<usize> = pending.iter().filter(|p| p.0 <= t).map(|p| p.1).collect();
         for c in due {
             let l = carts[c].0;
-            let x = 1.5;
+            let x = if o.intake_flat { -1.5 } else { 1.5 };
             let clear = carts.iter().filter(|(ll, _)| *ll == l).all(|(_, id)| id.and_then(|id| cart_state(&run.world, id)).is_none_or(|(cx, _, _, _)| cx > x + 1.2));
             if clear && frozen32.is_none() {
-                let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x, slope_y(x), zs[carts[c].0] as f64 + 0.5], Some(&nbt))?;
+                let (y, nb) = if o.intake_flat { (top as f64 + 0.0625, nbt_in.clone()) } else { (slope_y(x), nbt.clone()) };
+                let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x, y, zs[carts[c].0] as f64 + 0.5], Some(&nb))?;
                 carts[c].1 = Some(id);
                 pending.retain(|p| p.1 != c);
             }
@@ -288,6 +307,11 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
                 hang_ticks[c] = 0;
             }
             // (through the floor)
+            // (an arrival at the lane's back: the stored speed dropping by 0.04 or more with a cart of
+            // the lane within 1.3 ahead, behind R)
+            if pv - v >= 0.04 && x < xr as f64 && (0..n).any(|j| j != c && carts[j].0 == l && now[j].is_some_and(|(xj, _, _, _)| xj > x && xj - x < 1.3)) {
+                arrivals.push(pv);
+            }
             if y < floor - 1.0 && x > xd as f64 - 0.5 {
                 if !fell[c] {
                     fell[c] = true;
@@ -343,6 +367,8 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
         ));
     }
     lines.push(format!("carts hanging over the rail end's support column (the bar: 0): {}{}", hanging.len(), if hanging.is_empty() { String::new() } else { format!(" ({})", hanging.join("; ")) }));
+    let amax = arrivals.iter().copied().fold(0.0f64, f64::max);
+    lines.push(format!("arrivals at the lanes' backs ({}): {}, {} above 0.46, the hardest {amax:.3}", if o.intake_flat { format!("returns on the split's flat at {:.2} b/t", o.v_in) } else { "ideal returns near the top".to_string() }, arrivals.len(), arrivals.iter().filter(|a| **a > 0.46).count()));
     lines.push(format!(
         "the riders' eye blocks: in D {}; on R {}",
         eye_d.iter().map(|(k, v)| format!("{k} x{v}")).collect::<Vec<_>>().join(", "),

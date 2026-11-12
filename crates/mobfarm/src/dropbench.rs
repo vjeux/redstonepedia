@@ -41,6 +41,10 @@ pub struct DropOpts {
     pub retry: i64,
     /// Logins: T,D (the entities frozen for D gt while the redstone runs).
     pub login: Vec<(i64, i64)>,
+    /// The switched-R lane: a flat intake and the split's flat branch above the run; returns arrive
+    /// on the branch at `v_in`.
+    pub intake_flat: bool,
+    pub v_in: f64,
     /// R (under G_P) a powered slope, always on: the staged cart leaves faster.
     pub r_boost: bool,
     pub floor_bottom: bool,

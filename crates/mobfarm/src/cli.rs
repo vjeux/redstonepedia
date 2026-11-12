@@ -1247,6 +1247,12 @@ pub enum MobfarmCmd {
         /// length), printing the rows that fail.
         #[arg(long)]
         login_matrix: bool,
+        /// The switched-R lane: the flat intake and the split's flat branch above the run.
+        #[arg(long)]
+        intake_flat: bool,
+        /// The returns' speed on the split's flat branch (with --intake-flat).
+        #[arg(long, default_value_t = 0.2)]
+        v_in: f64,
         #[arg(long)]
         r_boost: bool,
         #[arg(long)]
@@ -4105,7 +4111,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, r_boost, floor_bottom, empty } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, r_boost, floor_bottom, empty } => {
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
@@ -4113,7 +4119,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok((a, d))
             };
             let login: Vec<(i64, i64)> = login.iter().map(pair).collect::<anyhow::Result<_>>()?;
-            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, r_boost, floor_bottom, riders: !empty };
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty };
             if login_matrix {
                 // (a login of 1..=3 gt landing at every phase of the third cycle)
                 let base = 300 + 2 * period;
