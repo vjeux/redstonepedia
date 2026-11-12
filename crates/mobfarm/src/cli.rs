@@ -9850,6 +9850,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let (lo, hi) = v.split_once("..").ok_or_else(|| anyhow::anyhow!("--speed {s}: name=lo..hi"))?;
                 speeds.insert(k.to_string(), (lo.parse()?, hi.parse()?));
             }
+            // (the settled composition's states for every bridged or hashed pair's cells (ironspec
+            // 09:56): redsim's settle flows fluids as the game does; a bridge's hash is the settled
+            // world's, and every cell where it differs from the files is printed)
+            let mut pairs: Vec<(redsim::pos::BlockPos, redsim::pos::BlockPos, String)> = bridges.iter().map(|br| (br.a, br.b, format!("{},{},{}~{},{},{}", br.a.x, br.a.y, br.a.z, br.b.x, br.b.y, br.b.z))).collect();
             for pair in &bridge_hash {
                 let (a, b) = pair.split_once('~').ok_or_else(|| anyhow::anyhow!("--bridge-hash {pair}: x,y,z~x,y,z"))?;
                 let cell = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
@@ -9857,7 +9861,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(v.len() == 3, "--bridge-hash {pair}: x,y,z~x,y,z");
                     Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
                 };
-                println!("bridge hash {pair}: {}", crate::pushscan::neighborhood_hash(&spec, cell(a)?, cell(b)?));
+                pairs.push((cell(a)?, cell(b)?, pair.clone()));
+            }
+            let settled = if pairs.is_empty() {
+                None
+            } else {
+                let cells: Vec<redsim::pos::BlockPos> = pairs.iter().flat_map(|(a, b, _)| crate::pushscan::pair_cells(*a, *b)).collect();
+                Some(crate::pushscan::settled_states(&spec, &cells).map_err(|e| anyhow::anyhow!(e))?)
+            };
+            if let Some(st) = settled.as_ref() {
+                let file = crate::pushscan::file_states(&spec);
+                for (a, b, label) in &pairs {
+                    let diffs = crate::pushscan::settle_diffs(&file, st, *a, *b);
+                    let shown = bridge_hash.contains(label);
+                    if shown || !diffs.is_empty() {
+                        println!(
+                            "bridge hash {label}: {} (the settled composition){}; the files' {}; {} cells differ after the settle{}",
+                            crate::pushscan::hash_states(st, *a, *b),
+                            if shown { "" } else { " (a bridged pair)" },
+                            crate::pushscan::hash_states(&file, *a, *b),
+                            diffs.len(),
+                            if diffs.is_empty() { String::new() } else { format!(": {}", diffs.join(", ")) }
+                        );
+                    }
+                }
             }
             let mut own_decl: Vec<(redsim::pos::BlockPos, String)> = Vec::new();
             for d in &decl_txt {
@@ -9875,7 +9902,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     (*lo, format!("the design's `speeds:` print {name}'s lo"))
                 }
             };
-            let (lines, n, tracks, declared, bridged) = crate::pushscan::scan(&spec, &rests, !no_auto, &own_decl, &single, &rest_points, chord_v, &bridges, &speeds).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, n, tracks, declared, bridged) = crate::pushscan::scan(&spec, &rests, !no_auto, &own_decl, &single, &rest_points, chord_v, &bridges, &speeds, settled.as_ref()).map_err(|e| anyhow::anyhow!(e))?;
             let flagged = lines.iter().filter(|l| l.starts_with("  PUSH")).count();
             println!(
                 "push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis; a curve's passing cart also along its chord from t0 for side entries at {chord_v} or faster ({chord_src}); {} own-route junctions, {} single-occupant groups and {} bridged pairs declared; {} rest points): {flagged} pairs within push range (open), {declared} declared single-occupant, {bridged} bridged",

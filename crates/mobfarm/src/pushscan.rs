@@ -98,7 +98,7 @@ fn overlap(a: &[f64; 6], b: &[f64; 6]) -> bool {
 /// printed as declared, with the group's REASON (the bench's numbers), and not counted. `rest_pos`:
 /// resting carts at exact positions (the bench's rest points): each box inflated 0.2 in x and z
 /// only, against every track cell off its cell's own route.
-pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockPos, String)], single: &[(Vec<BlockPos>, String)], rest_pos: &[[f64; 3]], chord_speed: f64, bridges: &[Bridge], speeds: &HashMap<String, (f64, f64)>) -> Result<(Vec<String>, usize, usize, usize, usize), String> {
+pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockPos, String)], single: &[(Vec<BlockPos>, String)], rest_pos: &[[f64; 3]], chord_speed: f64, bridges: &[Bridge], speeds: &HashMap<String, (f64, f64)>, settled: Option<&HashMap<BlockPos, String>>) -> Result<(Vec<String>, usize, usize, usize, usize), String> {
     let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     // (the tracks: union-find over the rail cells joined by their exits)
     let cells: Vec<BlockPos> = rails.keys().copied().collect();
@@ -293,7 +293,12 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
                 } else if let Some(br) = bridges.iter().find(|br| (br.a == *r && br.b == *p) || (br.a == *p && br.b == *r)) {
                     // (a bridged pair: accepted only while the cells within 2 of both cells hash as in
                     // the bridged composition and the design's own speed prints lie in its ranges)
-                    let h = neighborhood_hash(spec, br.a, br.b);
+                    // (the hash of the settled composition when it was built (fluids flowed, as the
+                    // game's world), else the files')
+                    let h = match settled {
+                        Some(st) => hash_states(st, br.a, br.b),
+                        None => neighborhood_hash(spec, br.a, br.b),
+                    };
                     let mut fails: Vec<String> = Vec::new();
                     if h != br.hash {
                         fails.push(format!("VOID: the cells within 2 changed (hash {h}, bridged {})", br.hash));
@@ -486,18 +491,23 @@ fn range_txt(lo: f64, hi: f64) -> String {
 /// cell `minecraft:air`; FNV-1a 64 (offset basis 0xcbf29ce484222325, prime 0x100000001b3) over
 /// them, printed as 16 lowercase hex digits.
 pub fn neighborhood_hash(spec: &FarmSpec, a: BlockPos, b: BlockPos) -> String {
-    // (the state string canonical: every property, names in alphabetical order)
-    let canonical = |s: &str| -> String {
-        match s.split_once('[') {
-            Some((id, rest)) => {
-                let mut v: Vec<&str> = rest.trim_end_matches(']').split(',').filter(|p| !p.is_empty()).collect();
-                v.sort();
-                if v.is_empty() { id.to_string() } else { format!("{id}[{}]", v.join(",")) }
-            }
-            None => s.to_string(),
+    hash_states(&file_states(spec), a, b)
+}
+
+/// A state string canonical: every property, names in alphabetical order.
+fn canonical_state(s: &str) -> String {
+    match s.split_once('[') {
+        Some((id, rest)) => {
+            let mut v: Vec<&str> = rest.trim_end_matches(']').split(',').filter(|p| !p.is_empty()).collect();
+            v.sort();
+            if v.is_empty() { id.to_string() } else { format!("{id}[{}]", v.join(",")) }
         }
-    };
-    let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, s)| (*p, canonical(&s.to_string()))).collect();
+        None => s.to_string(),
+    }
+}
+
+/// The cells of a pair's neighbourhood: the union of the two 5 x 5 x 5 cubes, ascending x, y, z.
+pub fn pair_cells(a: BlockPos, b: BlockPos) -> Vec<BlockPos> {
     let mut cells: Vec<BlockPos> = Vec::new();
     for c in [a, b] {
         for dx in -2..=2 {
@@ -512,15 +522,48 @@ pub fn neighborhood_hash(spec: &FarmSpec, a: BlockPos, b: BlockPos) -> String {
         }
     }
     cells.sort_by_key(|p| (p.x, p.y, p.z));
+    cells
+}
+
+/// The design's own states (canonical), its cells as laid.
+pub fn file_states(spec: &FarmSpec) -> HashMap<BlockPos, String> {
+    spec.blocks.iter().map(|(p, s)| (*p, canonical_state(&s.to_string()))).collect()
+}
+
+/// The states of these cells in the settled composition (ironspec Nov 12 09:56: the game flows
+/// fluids the design files leave as air, so a bridge's hash is the settled world's): the farm's
+/// world built by redsim and run through its settle (fluids flowed, as the game's).
+pub fn settled_states(spec: &FarmSpec, cells: &[BlockPos]) -> Result<HashMap<BlockPos, String>, String> {
+    use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
+    let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    Ok(cells.iter().map(|p| (*p, canonical_state(&run.world.get(*p).to_string()))).collect())
+}
+
+/// The neighbourhood hash over given states (an absent cell `minecraft:air`).
+pub fn hash_states(states: &HashMap<BlockPos, String>, a: BlockPos, b: BlockPos) -> String {
     let mut h: u64 = 0xcbf29ce484222325;
-    for p in cells {
-        let s = format!("{},{},{}={};", p.x, p.y, p.z, all.get(&p).map_or("minecraft:air", |s| s.as_str()));
+    for p in pair_cells(a, b) {
+        let s = format!("{},{},{}={};", p.x, p.y, p.z, states.get(&p).map_or("minecraft:air", |s| s.as_str()));
         for byte in s.bytes() {
             h ^= byte as u64;
             h = h.wrapping_mul(0x100000001b3);
         }
     }
     format!("{h:016x}")
+}
+
+/// The cells of a pair's neighbourhood whose settled state differs from the file's.
+pub fn settle_diffs(file: &HashMap<BlockPos, String>, settled: &HashMap<BlockPos, String>, a: BlockPos, b: BlockPos) -> Vec<String> {
+    let air = "minecraft:air".to_string();
+    pair_cells(a, b)
+        .into_iter()
+        .filter_map(|p| {
+            let (f, s) = (file.get(&p).unwrap_or(&air), settled.get(&p).unwrap_or(&air));
+            (f != s).then(|| format!("{},{},{} {} -> {}", p.x, p.y, p.z, f.trim_start_matches("minecraft:"), s.trim_start_matches("minecraft:")))
+        })
+        .collect()
 }
 
 /// A design's `speeds:` header prints (`speeds: name=lo..hi ...`, the benches' measured ranges).
