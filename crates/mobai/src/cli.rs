@@ -308,6 +308,13 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-12, ironspec: the golem lock only on success) On the official server:
+    /// 3 panicking villagers with LAST_SLEPT and no valid golem spot in reach (no golem, no lock),
+    /// and the positive control with one spot and a calm 4th villager (a golem, all 4 locked)
+    GolemLock {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-12, ironspec's 3-bed check) On the official server: three beds side by
     /// side, three nappers asleep at once, a calm rider within 16 of another bed (occupied) and
     /// beyond 16 of its own, two controls, then a night save, stop and start
@@ -555,6 +562,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         }
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
+        MobaiCmd::GolemLock { version } => crate::golemlock::golem_lock(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
         MobaiCmd::Daylight { version, latency, levels, weather_row } => {
             if levels {

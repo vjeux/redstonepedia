@@ -5,6 +5,7 @@ pub mod bedreload;
 pub mod loadwindow;
 pub mod netherhome;
 pub mod t600;
+pub mod golemlock;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;
