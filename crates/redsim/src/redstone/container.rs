@@ -1687,7 +1687,11 @@ pub fn crafter_dispense(w: &mut World, pos: BlockPos) {
         }
     }
     if remaining > 0 {
-        w.errors.push(format!("crafter at {pos} spits {remaining} {} into the world (an item entity with a random motion: not modeled)", item_name(item)));
+        // (b8949c96 2026-11-12, 26.3's `CrafterBlock.dispenseItem`: what the front container won't
+        // take is spawned as an item entity, `DefaultDispenseItemBehavior.spawnItem(level,
+        // remaining, 6, direction, center + 0.7 direction)`, the dropper's own spawn: the storage
+        // bench's full-storage row, ironspec 2026-11-12)
+        w.spawn_dispensed(pos, front, item_name(item), remaining as u32, 0);
     }
     // (no recipe of redsim's items leaves a crafting remainder)
     if let Some(c) = w.containers.map.get_mut(&pos) {
