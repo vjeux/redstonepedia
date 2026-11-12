@@ -633,6 +633,9 @@ pub struct DropOpts {
     /// (ironspec 09:32) The R line through R_1's built driver (the design's repeater, fed by a
     /// redstone block at (x+2,17,1) for the pulse), not a redstone block in R_1's side cell.
     pub r_repeater: bool,
+    /// (G1 on 44d4bbfae) The placement count's positive control: the world built this many cells
+    /// short of the design's top (0: the design's box).
+    pub box_short: i32,
     /// The trapdoors' timer on world ticks (a plain redstone clock running through a freeze), not
     /// the live clock: the positive control for the strings.
     pub release_world: bool,
@@ -717,6 +720,8 @@ pub struct DropStats {
     /// Villagers in a shaft or on a departure rail at a summon tick (gameTime % 100 == 0, before
     /// and after it): `positions:` lists the pockets and the holds only on that timing (required 0).
     pub summon_off: usize,
+    /// (ironspec 11:05's audit) Cells set outside the world's box (dropped), the placement included.
+    pub oob: usize,
     /// The panic window per summoner (lane): the best scarer's index, the margin before T-19 of
     /// its range run, the margin before T-38 of its sight run (negative: the window fails), and
     /// the earliest failing tick in each window (after T).
@@ -833,10 +838,36 @@ fn trigger_summary(log: &[(bool, bool, bool)], tn: usize, dep: Option<i64>) -> (
     (calls, hmin, hmax, wmin, wmax)
 }
 
+/// (ironspec 11:05's audit, G1 on 44d4bbfae) The design's cells a run's placement drops: those
+/// outside the world's box (the cells `place_raw` cannot write), the overworld's and the Nether
+/// part's, read structurally (not from redsim's records).
+pub fn placement_drops(spec: &FarmSpec, w: &redsim::world::World) -> usize {
+    let ow = spec.blocks.iter().filter(|(p, _)| !w.contains(*p)).count();
+    let nether = spec.nether.as_ref().zip(w.nether.as_deref()).map_or(0, |(ns, n)| ns.placed().iter().filter(|(p, _)| !n.contains(*p)).count());
+    ow + nether
+}
+
+/// redsim's records of non-air writes outside the world's box (each one dropped).
+pub fn oob_records(w: &redsim::world::World) -> usize {
+    w.errors.iter().filter(|e| e.starts_with("setBlock outside the box")).count()
+}
+
+/// The spec a run builds its world from: the design's, or (the placement count's positive control)
+/// `short` cells short of the design's top.
+pub fn spec_for_run(spec: &FarmSpec, short: i32) -> FarmSpec {
+    let mut s = spec.clone();
+    s.hi.y -= short.max(0);
+    s
+}
+
 /// One drop run: the report lines and the figures.
-pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), String> {
+pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(o.seed, (o.ticks + 600) as u32, WalkMode::Random) };
+    let spec_run = spec_for_run(spec_in, o.box_short);
+    let spec = &spec_run;
     let mut run = Run::start(spec, &ro)?;
+    let place_drop = placement_drops(spec_in, &run.world);
+    let rec_place = oob_records(&run.world);
     while run.settle_tick() {}
     let first = run.world.entities.next_id;
     for (ty, pos, nbt) in &spec.entities {
@@ -1642,6 +1673,17 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     stats.fall_off = fall_off;
     stats.fall_toward = if fall_toward.is_finite() { Some(fall_toward) } else { None };
     stats.summon_off = summon_off.len();
+    // (ironspec 11:05's audit, G1 on 44d4bbfae: the placement's drops read structurally (the
+    // design's cells outside the world's box), redsim's records beside them; the run's writes
+    // outside the box from its records)
+    let rec_all = oob_records(&run.world);
+    stats.oob = place_drop + rec_all.saturating_sub(rec_place);
+    out.push(format!(
+        "cells outside the world's box (dropped): the design's at the placement {place_drop} (redsim's records of them {rec_place}), the run's writes {}{}{}",
+        rec_all.saturating_sub(rec_place),
+        if o.box_short > 0 { format!(" (THE CONTROL: the world built {} short of the design's top)", o.box_short) } else { String::new() },
+        if stats.oob > 0 { format!(": {}", run.world.errors.iter().filter(|e| e.starts_with("setBlock outside the box")).take(4).cloned().collect::<Vec<_>>().join(" | ")) } else { String::new() }
+    ));
     // (the panic at the next summon T = T+100, two readings. (1) ironspec's conservative windows:
     // per summoner the scarer whose runs reach furthest back: in range from t_A on (needed from
     // T-19), seen eye to eye in the 16-box from t_B on (needed from T-38). (2) the game's trigger
@@ -1889,7 +1931,7 @@ pub fn summary(label: &str, runs: &[DropStats]) -> String {
         if runs.iter().any(|s| s.refill_fail > 0) { format!("; REFILL FAILED in {} runs", runs.iter().filter(|s| s.refill_fail > 0).count()) } else { String::new() } + &match (runs.iter().filter_map(|s| s.r1_len).min(), runs.iter().filter_map(|s| s.r1_lag).max()) {
             (Some(l), Some(g)) => format!("; R_1: the shortest rail power {l} gt, the longest lag to its cart's first move {g} gt, late launches (after the power, or none) in {} runs, by the cell (off R_1's cell after the power, or never) in {} runs", runs.iter().filter(|s| s.r1_late > 0).count(), runs.iter().filter(|s| s.r1_cell_late > 0).count()),
             _ => String::new(),
-        },
+        } + &format!("; cells set outside the world's box (dropped): {} in {} runs", runs.iter().map(|s| s.oob).sum::<usize>(), runs.iter().filter(|s| s.oob > 0).count()),
         match runs.iter().filter_map(|s| s.gap_at_open).min() {
             Some(i64::MAX) => "; at every trapdoor's opening its pocket's departing cart was gone".to_string(),
             Some(g) => format!("; the closest a pocket's departing cart was to its pocket as the trapdoor opened: {:.2}", g as f64 / 100.0),

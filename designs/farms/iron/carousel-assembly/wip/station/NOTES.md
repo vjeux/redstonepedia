@@ -286,6 +286,29 @@ roof) and F3 laid, the summon from lanes x -1 and x 3 at every summon tick:
   the queue post zombie's eye (6,-10,1) under the lift's column and at the daylight detector
   (-5,15,3), whose light range meets the column); 0 with onechunk's daylight.rs hunk (9f3d965a2:
   a bubble column dampens light like water), the same verdict.
+- The east re-lay (explore/farmopt-waycell b01d2a4ed: the queue post's zombie in its boat at
+  (15.5,-20,-3.5) in the east gap chunk, the queue rider's cart at (13.5,-13.44,-5.5) on its rail
+  (13,-14,-6) on glowstone), with onechunk's hunk in the build: 500 summons PASS, 0 model errors,
+  every golem at its 2nd tick, 0 damage, the five posts alive at both dawns, the queue rider's
+  attempts 0, 0 cells set outside the world's box. The guard: the module file's part flood with
+  the rider's cell (13,-14,-6) declared: 48 spawn spots, all on the pad (8 above the rider:
+  outside its +-6); 9fc3155f's flood with the queue rider as a caller is to re-run on b01d2a4ed.
+- ironspec's audit (11:05: a cell set outside a design-sized world is dropped): the bench's world
+  is the design's extent + 4 (`watch_box`), and every post, part and controller cell is in the
+  design, so the placement can drop nothing by construction. Both benches now count, per run:
+  the design's cells outside the world's box (read structurally against the built world: the cells
+  `place_raw` cannot write; the Nether part's too), redsim's records of those ("setBlock outside
+  the box": `set_block_limit` records every non-air write outside the box, `place_raw` included),
+  and the run's writes outside the box from those records; the station judge fails a run with any,
+  golem-flow's verdict carries "WITH N cells dropped". Positive controls (G1 on 44d4bbfae): the
+  world built 5 short of the design's top (`--box-short 5`): golem-flow 1 dropped (F3's roof
+  (1,26,-5), a post cell; 1 record), drop-bench 6 (R_2's rails and glass at y 18; 6 records): the
+  placement's records are not blind; a water source at the top of an empty column (golem-flow
+  `--block=-6,16,-6,water`, drop-bench `--block 0,16,0,water`) falls out of the box's bottom: 8 and
+  4 runtime writes recorded. 0 in every run of today's rows re-run (the golem flow's lead, S2's two
+  positions, twin, 40 piglins, the blocked row, a restart, the natural row, both queue files; the
+  panic measure with F3's part, the option (b) search, the R_1 rows, the restart sweep, the judge
+  with the built drive).
 
 ## Option (b) for lane x -1 (`--panic-search 0`, bench)
 

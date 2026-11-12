@@ -68,6 +68,9 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64, rest_bar: i64) -> Vec<&'
     if s.refill_fail > 0 {
         v.push("the refill failed");
     }
+    if s.oob > 0 {
+        v.push("cells set outside the world's box (dropped)");
+    }
     if s.r1_late > 0 {
         v.push("an R_1 launch after its pulse ended (or none)");
     }

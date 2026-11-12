@@ -78,6 +78,12 @@ pub struct FlowOpts {
     pub restart_noop: bool,
     /// One reload only, at this game time in this order.
     pub restart_once: Option<(i64, crate::liveness::Restart)>,
+    /// (G1 on 44d4bbfae) The placement count's positive control: the world built this many cells
+    /// short of the design's top.
+    pub box_short: i32,
+    /// Extra blocks set in the design, loop frame (the runtime count's control: a water source at
+    /// the top of an empty column, flowing out of the box's bottom).
+    pub blocks: Vec<([i32; 3], String)>,
     /// No forced summon: the villagers' own panic summons (or not).
     pub natural: bool,
     /// The forced summon's callers: the first N summoners in lane order (x -1, 3, 7).
@@ -90,6 +96,9 @@ pub struct FlowOpts {
 /// The station's design text with the posts, the piglins and the blocked row laid.
 pub fn design_text(station: &str, o: &FlowOpts) -> Result<String, String> {
     let mut d = mctas::design::Design::parse(station).map_err(|e| e.to_string())?;
+    for (c, st) in &o.blocks {
+        d.blocks.insert(*c, if st.contains(':') { st.clone() } else { format!("minecraft:{st}") });
+    }
     for p in &o.posts {
         let [x, y, z] = p.cell;
         let sides = [('e', [x + 1, z]), ('w', [x - 1, z]), ('n', [x, z - 1]), ('s', [x, z + 1])];
@@ -176,11 +185,16 @@ impl Golem {
 }
 
 /// The bench: lines to print, and whether every bar held.
-pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), String> {
+pub fn bench(spec_in: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), String> {
     let mut out = Vec::new();
     let ticks = (o.cycles + 2) * 100 + 200;
     let ro = RunOpts { ai: true, ..RunOpts::steady(o.seed, ticks as u32, WalkMode::Random) };
+    let spec_run = crate::drop::spec_for_run(spec_in, o.box_short);
+    let spec = &spec_run;
     let mut run = Run::start(spec, &ro)?;
+    // (G1 on 44d4bbfae: the placement's drops structurally, redsim's records of them beside)
+    let place_drop = crate::drop::placement_drops(spec_in, &run.world);
+    let oob_at_start = crate::drop::oob_records(&run.world);
     run.arrive_homeless()?;
     let w0 = &run.world;
     let mob_of = |e: &redsim::entity::Entity| if let EntityKind::Mob(m) = &e.kind { Some(m.ty) } else { None };
@@ -573,6 +587,13 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
         other_tries.len(),
         if other_tries.is_empty() { String::new() } else { format!(" ({})", other_tries.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }
     ));
+    let oob_run = crate::drop::oob_records(&run.world).saturating_sub(oob_at_start);
+    let dropped = place_drop + oob_run;
+    out.push(format!(
+        "cells outside the world's box (the design's extent + 4; dropped): the design's at the placement {place_drop} (redsim's records of them {oob_at_start}), the run's writes {oob_run}{}{}",
+        if o.box_short > 0 { format!(" (THE CONTROL: the world built {} short of the design's top)", o.box_short) } else { String::new() },
+        if dropped + oob_at_start == 0 { String::new() } else { format!(": {}", run.world.errors.iter().filter(|e| e.starts_with("setBlock outside the box")).take(4).cloned().collect::<Vec<_>>().join(" | ")) }
+    ));
     let ok = no_call == 0 && all_crossed && longest <= 2 && golem_hurt.is_empty() && golem_hits.is_empty() && lingering_at_summon == 0 && late_sightings == 0 && next_batch_sightings == 0 && post_deaths.is_empty();
     out.push(format!(
         "golem damage: taken {}, dealt (a mob's hit while a golem was in the overworld) {}{}; the posts' mobs taking a golem as target: {}{}",
@@ -613,8 +634,10 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
                 .join(", ")
             )
         },
-        // (G1 on b4549f35a: a verdict beside the model's gaps, each needing the bridge)
+        // (G1 on 44d4bbfae: a verdict beside the model's gaps, each needing the bridge, and the
+        // cells dropped outside the world's box)
         if model_errors.is_empty() { String::new() } else { format!(" WITH {} model errors (each needs the bridge; listed above)", model_errors.len()) }
+            + &if dropped == 0 { String::new() } else { format!(" WITH {dropped} cells dropped outside the world's box") }
     ));
     Ok((out, ok))
 }

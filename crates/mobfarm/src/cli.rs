@@ -2788,6 +2788,14 @@ pub enum MobfarmCmd {
         /// goal phases redrawn once (each mob's goal selector runs in full on alternate ticks).
         #[arg(long)]
         restart_once: Option<String>,
+        /// (G1 on 44d4bbfae) The placement count's positive control: the world built N cells
+        /// short of the design's top (its top cells dropped at the placement).
+        #[arg(long, default_value_t = 0)]
+        box_short: i32,
+        /// An extra block in the design, loop frame, `x,y,z,STATE` (repeatable; the runtime count's
+        /// control: a water source at the top of an empty column flows out of the box's bottom).
+        #[arg(long, allow_hyphen_values = true)]
+        block: Vec<String>,
         /// No forced summon: the villagers' own panic.
         #[arg(long)]
         natural: bool,
@@ -2915,6 +2923,10 @@ pub enum MobfarmCmd {
         /// written station file lays the repeater and its glass.
         #[arg(long)]
         r_repeater: bool,
+        /// (G1 on 44d4bbfae) The placement count's positive control: the world built N cells short
+        /// of the design's top (its top cells dropped at the placement).
+        #[arg(long, default_value_t = 0)]
+        box_short: i32,
         /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
         /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
         #[arg(long, default_value = "")]
@@ -7195,7 +7207,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             }
         }
-        MobfarmCmd::GolemFlow { design, posts, cycles, seed, seeds, block_row, piglins, twin, restart, restart_phases, restart_noop, restart_once, natural, callers, roof, trace } => {
+        MobfarmCmd::GolemFlow { design, posts, cycles, seed, seeds, block_row, piglins, twin, restart, restart_phases, restart_noop, restart_once, box_short, block, natural, callers, roof, trace } => {
+            let blocks_g: Vec<([i32; 3], String)> = block
+                .iter()
+                .map(|s| -> anyhow::Result<([i32; 3], String)> {
+                    let mut it = s.splitn(4, ',');
+                    let (Some(x), Some(y), Some(z), Some(st)) = (it.next(), it.next(), it.next(), it.next()) else { anyhow::bail!("--block x,y,z,STATE") };
+                    Ok(([x.trim().parse()?, y.trim().parse()?, z.trim().parse()?], st.trim().to_string()))
+                })
+                .collect::<anyhow::Result<_>>()?;
             let once = match &restart_once {
                 Some(r) => Some(crate::liveness::parse_restart(r).map_err(|e| anyhow::anyhow!(e))?),
                 None => None,
@@ -7212,7 +7232,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (mut runs, mut passed) = (0usize, 0usize);
             for row in &rows {
                 for s in seed..seed + seeds.max(1) {
-                    let o = crate::golemflow::FlowOpts { cycles, seed: s, posts: posts_v.clone(), block_row, piglins, twin, restart: *row, restart_noop, restart_once: once, natural, callers, roof: roof.clone(), trace };
+                    let o = crate::golemflow::FlowOpts { cycles, seed: s, posts: posts_v.clone(), block_row, piglins, twin, restart: *row, restart_noop, restart_once: once, box_short, blocks: blocks_g.clone(), natural, callers, roof: roof.clone(), trace };
                     let text = crate::golemflow::design_text(&station, &o).map_err(|e| anyhow::anyhow!(e))?;
                     let path = std::env::temp_dir().join(format!("golem-flow-{}.txt", std::process::id()));
                     std::fs::write(&path, &text)?;
@@ -7319,7 +7339,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok(fspec)
             };
             let (spec, cold_spec) = (spec_of([true; 3])?, spec_of([false; 3])?);
-            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, box_short: 0, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
             let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, rest_bar, jobs };
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
@@ -7369,7 +7389,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, box_short, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -7552,7 +7572,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, box_short, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         by_rel.entry(*r).or_default().push(stats.clone());
                                         runs.push(stats);
