@@ -52,6 +52,7 @@ creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas m
 curve-pair.rec	75e57eb1ee83a548		26.3	2026-11-11T21:10Z on 744e235182	mctas mobai record curve-pair --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 curve-wrong-side.rec	a5d4dd68e0fe1501		26.3	2026-11-11T15:04Z on 0bf0bdaab4	mctas mobai record curve-wrong-side --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 door-halves.rec	b527d9b71d4e4c0f		26.3	2026-11-11T05:09Z on b799dde74	mctas mobai record door-halves --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+drop-bridge.rec	f370f361f7c8c9b0		26.3	2026-11-12T06:36Z on 3837f080a	mctas mobai record drop-bridge --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 drowned-trident.rec	37b7967c66fa587d		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-flower.rec	380b5c44d8b814db		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-golem.rec	03bed56814f1516a		26.3	uncommitted	recorded before manifests: see the recording's header and its commit

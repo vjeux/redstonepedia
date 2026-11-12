@@ -64,6 +64,7 @@ pub fn load_window(version: &str, case: &str, runs: u32) -> Result<()> {
         "load" => true,
         "pearl" => return pearl_window(version, runs, false),
         "pearl-busy" => return pearl_window(version, runs, true),
+        "portal-loop" => return portal_loop(version, runs),
         _ => bail!("--case quiet, load, pearl or pearl-busy"),
     };
     let jar = mctas::bridge::load_agent(version)?;
@@ -281,7 +282,23 @@ fn pearl_window(version: &str, runs: u32, busy: bool) -> Result<()> {
     for run in 0..runs {
         let before = std::fs::read_to_string(&srv.log)?.lines().count();
         srv.bot = None;
-        std::thread::sleep(std::time::Duration::from_secs(4));
+        // a full unload first: the old pearls' tickets (40 gt) expire and both farm chunks show
+        // every flag off, or 120 s
+        let t0 = std::time::Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let log = std::fs::read_to_string(&srv.log)?;
+            let lines = parse(&log.lines().skip(before).collect::<Vec<_>>().join("\n"));
+            let off = lines.last().is_some_and(|l| l.2.iter().all(|c| !(c.2 || c.3 || c.4 || c.5)));
+            if off {
+                break;
+            }
+            if t0.elapsed() > std::time::Duration::from_secs(120) {
+                println!("login {run}: the farm chunks didn't fully unload in 120 s after the logout");
+                break;
+            }
+        }
+        let before = std::fs::read_to_string(&srv.log)?.lines().count();
         srv.bot = Some(mctas::vanilla::bot::Bot::connect(srv.game_port(), &name).with_context(|| format!("login {run}"))?);
         std::thread::sleep(std::time::Duration::from_secs(if busy { 15 } else { 4 }));
         let log = std::fs::read_to_string(&srv.log)?;
@@ -312,5 +329,140 @@ fn pearl_window(version: &str, runs: u32, busy: bool) -> Result<()> {
         }
     }
     println!("worst over {runs} login(s): window {} ticks, {} scheduled ticks run in a farm chunk while its entities were frozen, entities ticking {} ticks after the chunk's first flag", worst.0, worst.1, worst.2);
+    Ok(())
+}
+
+/// Minecarts in `dim` (overworld or the_nether).
+fn carts_in(srv: &mut VanillaServer, dim: &str) -> Result<u32> {
+    let out = srv.cmd_long(&format!("execute in minecraft:{dim} if entity @e[type=minecraft:minecart,distance=0..]"))?;
+    Ok(out.split("count: ").nth(1).and_then(|s| s.trim().parse().ok()).unwrap_or(0))
+}
+
+/// Steps `n` ticks in steps of 5, recording each tick-5 sample of the overworld's cart count;
+/// returns the longest gap between two samples where the count rose (an arrival from the Nether).
+fn watch_loop(srv: &mut VanillaServer, n: u32, last_arrival: &mut Option<i64>, worst_gap: &mut i64) -> Result<()> {
+    let mut before = carts_in(srv, "overworld")?;
+    let mut done = 0;
+    while done < n {
+        srv.step(5)?;
+        done += 5;
+        let now_c = carts_in(srv, "overworld")?;
+        if now_c > before {
+            let t = srv.game_time()?;
+            if let Some(l) = *last_arrival {
+                *worst_gap = (*worst_gap).max(t - l);
+            }
+            *last_arrival = Some(t);
+        }
+        before = now_c;
+    }
+    Ok(())
+}
+
+/// (tickexact 2026-11-12, ironspec's portal-loop loader) An overworld portal (frame x 39..42,
+/// z 40, portal blocks x 40..41, y 64..66) linked to the Nether portal the first crossing makes,
+/// with 3 empty minecarts placed in it 100 gt apart: each bounces every 300 gt (its portal
+/// cooldown), so each side gets an arrival about every 200 gt and keeps its PORTAL ticket (300 gt,
+/// radius 3: the 3 x 3 chunks around the arrival entity-ticking). No other loader once built. The
+/// agent watches the 3 x 3 chunks around the overworld portal's chunk (2, 2). Then `runs` real
+/// saves, stops and starts at different phases of the loop: per restart, the agent's first ticks
+/// (does prepareLevels wait for the persisted PORTAL tickets) and whether the loop keeps running
+/// (the longest gap between overworld arrivals afterwards, against the ticket's 300 gt).
+fn portal_loop(version: &str, runs: u32) -> Result<()> {
+    let jar = mctas::bridge::load_agent(version)?;
+    let agent = PathBuf::from(format!("{}=watch=1,1,3,3;ticks=200", jar.display()));
+    println!("== load-window portal-loop on the official {version} server: 3 empty carts bouncing through an overworld portal at chunk (2, 2), {runs} restarts");
+    let opts = |world: Option<PathBuf>| VanillaOptions {
+        version: version.to_string(),
+        difficulty: "normal".into(),
+        with_bot: false,
+        keep_dir: true,
+        biome: "minecraft:plains".into(),
+        tick_rate: 1000,
+        world,
+        java_agent: Some(agent.clone()),
+        ..Default::default()
+    };
+    let mut srv = VanillaServer::start(&opts(None))?;
+    srv.cmd_ok("gamerule spawn_mobs false")?;
+    srv.cmd_ok("forceload add 16 16 63 63")?;
+    srv.cmd_ok("execute in minecraft:the_nether run forceload add -16 -16 31 31")?;
+    srv.step(20)?;
+    // both portals 5 wide (x 40..44 at z 40, y 64..66; the Nether's at x 5..9, z 5, y 70..72 on a
+    // platform in a cleared box), so a cart keeps its column across: the carts sit in columns
+    // 40, 42 and 44 (1.02 apart, beyond the carts' 0.2 push reach)
+    srv.cmd_ok("fill 32 63 32 47 63 47 minecraft:stone")?;
+    srv.cmd_ok("fill 39 63 40 45 63 40 minecraft:obsidian")?;
+    srv.cmd_ok("fill 39 67 40 45 67 40 minecraft:obsidian")?;
+    srv.cmd_ok("fill 39 64 40 39 66 40 minecraft:obsidian")?;
+    srv.cmd_ok("fill 45 64 40 45 66 40 minecraft:obsidian")?;
+    srv.cmd_ok("fill 40 64 40 44 66 40 minecraft:nether_portal[axis=x]")?;
+    srv.cmd_ok("execute in minecraft:the_nether run fill 0 69 0 14 75 10 minecraft:air")?;
+    srv.cmd_ok("execute in minecraft:the_nether run fill 0 68 0 14 68 10 minecraft:obsidian")?;
+    srv.cmd_ok("execute in minecraft:the_nether run fill 4 69 5 10 69 5 minecraft:obsidian")?;
+    srv.cmd_ok("execute in minecraft:the_nether run fill 4 73 5 10 73 5 minecraft:obsidian")?;
+    srv.cmd_ok("execute in minecraft:the_nether run fill 4 70 5 4 72 5 minecraft:obsidian")?;
+    srv.cmd_ok("execute in minecraft:the_nether run fill 10 70 5 10 72 5 minecraft:obsidian")?;
+    srv.cmd_ok("execute in minecraft:the_nether run fill 5 70 5 9 72 5 minecraft:nether_portal[axis=x]")?;
+    for (k, x) in [(0, 40), (1, 42), (2, 44)] {
+        srv.cmd_ok(&format!("summon minecraft:minecart {x}.5 64 40.5 {{Tags:[\"loop{k}\"]}}"))?;
+        srv.step(100)?;
+    }
+    srv.step(200)?;
+    let where_now = |srv: &mut VanillaServer| -> Result<String> {
+        let mut s = String::new();
+        for k in 0..3 {
+            let p = srv.cmd_long(&format!("data get entity @e[tag=loop{k},limit=1] Pos"))?;
+            let d = srv.cmd_long(&format!("execute in minecraft:the_nether if entity @e[tag=loop{k},distance=0..]"))?;
+            s.push_str(&format!(" loop{k} {} {}", if d.contains("passed") { "nether" } else { "overworld?" }, p.split("data: ").nth(1).unwrap_or("(gone)").trim()));
+        }
+        Ok(s)
+    };
+    println!("after the build:{}", where_now(&mut srv)?);
+    srv.cmd_ok("forceload remove 16 16 63 63")?;
+    srv.cmd_ok("execute in minecraft:the_nether run forceload remove -16 -16 31 31")?;
+    let mut last = None;
+    let mut worst_gap = 0i64;
+    watch_loop(&mut srv, 1200, &mut last, &mut worst_gap)?;
+    println!(
+        "built: carts overworld {} nether {}; the longest gap between overworld arrivals over 1,200 gt with no other loader: {worst_gap} gt",
+        carts_in(&mut srv, "overworld")?,
+        carts_in(&mut srv, "the_nether")?
+    );
+    for run in 0..runs {
+        // a different phase of the loop each time
+        srv.step(70 + 90 * run)?;
+        srv.cmd_ok("save-on")?;
+        srv.cmd_ok("save-all flush")?;
+        let old = srv.dir.clone();
+        let world = old.join(&srv.level_name);
+        let gt = srv.game_time()?;
+        drop(srv);
+        srv = VanillaServer::start(&opts(Some(world)))?;
+        let _ = std::fs::remove_dir_all(&old);
+        let log = std::fs::read_to_string(&srv.log)?;
+        let lines = parse(&log);
+        let n = lines.len();
+        let eps = episodes(&lines);
+        let worst_window = eps.iter().map(|e| e.window).max().unwrap_or(0);
+        let worst_frozen = eps.iter().map(|e| e.sched_frozen).max().unwrap_or(0);
+        let ready0 = lines.first().map(|l| l.2.iter().filter(|c| c.2 && c.5).count()).unwrap_or(0);
+        println!(
+            "restart {run} (saved at game time {gt}): the agent's first tick has {ready0} of {} watched chunks with scheduled ticks and entities on; {n} lines; worst window {worst_window} ticks, {worst_frozen} scheduled ticks run with entities frozen",
+            lines.first().map(|l| l.2.len()).unwrap_or(0)
+        );
+        let mut last = None;
+        let mut worst_gap = 0i64;
+        watch_loop(&mut srv, 1200, &mut last, &mut worst_gap)?;
+        let log = std::fs::read_to_string(&srv.log)?;
+        let lines = parse(&log);
+        let drops = lines.iter().skip(1).filter(|l| l.2.iter().any(|c| !c.5)).count();
+        println!(
+            "  after it, 1,200 gt: carts overworld {} nether {}; the longest gap between overworld arrivals {worst_gap} gt; {drops} agent lines with a watched chunk not entity-ticking",
+            carts_in(&mut srv, "overworld")?,
+            carts_in(&mut srv, "the_nether")?
+        );
+    }
+    let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())
 }

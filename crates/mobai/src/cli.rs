@@ -222,6 +222,12 @@ pub enum MobaiCmd {
     RecGqempties {
         path: std::path::PathBuf,
     },
+    /// (tickexact 2026-11-12, ironspec's drop bridge) Scene drop-bridge's recording per lane: the
+    /// release, the landing tick and speed, the spread, the speed after, the rider's health, seat and
+    /// eye
+    RecDrop {
+        path: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-11, ironspec's sentinel) Scene sentinel-<case>'s recording as events: the
     /// claim, the bed's, observer's and lamp's flips, the lie-downs and wakes, the reload
     RecSentinel {
@@ -256,6 +262,20 @@ pub enum MobaiCmd {
     /// holding the overworld bed as HOME at night, calm and panicking in the Nether, calm in the
     /// overworld, and one crossing into the Nether in a minecart: whose HOME survives
     NetherHome {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
+    /// (tickexact 2026-11-12, ironspec's T+600 check) On the official server with the golem agent:
+    /// a panicking 3-villager batch's summons exactly 600 gt apart, in both member orders, a mixed
+    /// batch, and 36 watchers counting the re-marks a golem's 2-tick dwell gives
+    T600 {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
+    /// (tickexact 2026-11-12, ironspec's 3-bed check) On the official server: three beds side by
+    /// side, three nappers asleep at once, a calm rider within 16 of another bed (occupied) and
+    /// beyond 16 of its own, two controls, then a night save, stop and start
+    ThreeBeds {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
@@ -467,9 +487,12 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecSentinel { path } => crate::fixture::rec_sentinel(&path),
         MobaiCmd::RecGqintake { paths, by_speed } => crate::fixture::rec_gqintake(&paths, by_speed),
         MobaiCmd::RecGqempties { path } => crate::fixture::rec_gqempties(&path),
+        MobaiCmd::RecDrop { path } => crate::fixture::rec_drop(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
         MobaiCmd::LoadWindow { case, runs, version } => crate::loadwindow::load_window(&version, &case, runs),
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
+        MobaiCmd::T600 { version } => crate::t600::t600(&version),
+        MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
         MobaiCmd::BedReloadVanilla { case, forceload, version } => crate::bedreload::bed_reload_vanilla(&version, &case, forceload),
         MobaiCmd::StopperSweep { files } => crate::fixture::stopper_sweep(&files),
         MobaiCmd::RecCartpole { path } => crate::fixture::rec_cartpole(&path),

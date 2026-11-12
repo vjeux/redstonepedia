@@ -463,6 +463,38 @@ const GQ_PARK: i32 = 4 + GQ_SLOPE + 3;
 /// The tick the intakes are set on the run (the run at rest).
 const GQ_RELEASE: u32 = 30;
 
+/// (tickexact 2026-11-12, ironspec's drop bridge, dfb89499's bench) The tick the drop scene's
+/// trapdoors open.
+const DROP_RELEASE: u32 = 20;
+/// The drop scene's pocket rail height.
+const DROP_P: i32 = 64;
+
+/// The drop scene's lanes: (x, pocket kind, drop in blocks from the trapdoor's block to the pocket
+/// rail's). Kinds: `flat` (an unpowered powered rail, east-west: braked), `slope` (an unpowered
+/// powered rail ascending west), `powered` (a powered one over a redstone block, stone at its east
+/// end: the launch, a positive control), `occupied` (flat and braked, a ridden cart already resting
+/// in it: the drop lands on that rider's head, a positive control for damage).
+fn drop_lanes() -> Vec<(i32, &'static str, i32)> {
+    // (the powered lane last, kicking east onto its own rails: a launched cart must not reach
+    // another lane)
+    [("flat", 14), ("flat", 17), ("slope", 14), ("slope", 17), ("occupied", 14), ("powered", 14), ("tophalf", 14)]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (kind, drop))| (2 + 4 * i as i32, kind, drop))
+        .collect()
+}
+
+/// (tickexact 2026-11-12, ironspec's escapement reads for ironfarm) The drop scene's row of the
+/// mover meeting a rider (z), its rails' x span, the drop cell's x; and the braked-slope run's row
+/// (z), its braked slope's x, the plain slopes above it, the run's ridden carts.
+const DROP_E1_Z: i32 = 6;
+const DROP_E1_RAIL: (i32, i32) = (2, 7);
+const DROP_E1_CELL: i32 = 8;
+const DROP_E2_Z: i32 = 10;
+const DROP_E2_BRAKE: i32 = 6;
+const DROP_E2_SLOPES: i32 = 7;
+const DROP_E2_CARTS: usize = 8;
+
 /// Where an intake's centre meets the back cart (their boxes 0.98 apart along the run).
 fn gq_contact_z() -> f64 {
     GQ_FRONT_Z + GQ_PITCH * (GQ_RUN - 1) as f64 + 0.98
@@ -644,6 +676,14 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
                 id += if ar { 2 } else { 1 };
             }
             vec![(GQ_RELEASE, acts)]
+        }
+        // (tickexact 2026-11-12, ironspec's drop bridge) every lane's trapdoor opens at DROP_RELEASE
+        "drop-bridge" => {
+            let open = |kind: &str| {
+                let half = if kind == "tophalf" { "top" } else { "bottom" };
+                format!("minecraft:oak_trapdoor[facing=north,half={half},open=true,powered=false,waterlogged=false]")
+            };
+            vec![(DROP_RELEASE, drop_lanes().into_iter().map(|(x, kind, drop)| ([x, DROP_P + drop, 0], open(kind))).collect())]
         }
         // (tickexact 2026-11-11, ironspec's sentinel) the case's unload and load
         n if n.starts_with("sentinel-") => match sentinel_reload(&n["sentinel-".len()..]) {
@@ -5249,6 +5289,116 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-12, ironspec's drop bridge, dfb89499's bench) a ridden cart resting
+    // off-rail on a closed bottom-half oak trapdoor at the top of a 1 x 1 glass shaft, dropped onto
+    // the lane's pocket rail at y 64 when the trapdoor opens (drop_lanes: flat and slope braked
+    // pockets from 14 and 17 blocks, a powered pocket and an occupied one as positive controls); the
+    // shaft's glass from y 66 up, the pocket's own cell and the one above open
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 30, -3, 12, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let ridden = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string();
+        let mut top = 0;
+        for (x, kind, drop) in drop_lanes() {
+            let h = DROP_P + drop;
+            top = top.max(h + 3);
+            match kind {
+                "slope" => {
+                    // (an ascending rail needs a rigid face on its high side: the stone the next
+                    // track cell would sit on)
+                    b.push(([x - 1, DROP_P, 0], stone.into()));
+                    b.push(([x, DROP_P, 0], "minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]".into()));
+                }
+                "powered" => {
+                    b.push(([x, DROP_P - 1, 0], "minecraft:redstone_block".into()));
+                    b.push(([x, DROP_P, 0], "minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]".into()));
+                    b.push(([x - 1, DROP_P, 0], stone.into()));
+                    b.push(([x + 1, DROP_P, 0], "minecraft:rail[shape=east_west,waterlogged=false]".into()));
+                    b.push(([x + 2, DROP_P, 0], "minecraft:rail[shape=east_west,waterlogged=false]".into()));
+                }
+                _ => b.push(([x, DROP_P, 0], "minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]".into())),
+            }
+            for y in DROP_P + 2..=h + 3 {
+                for p in [[x - 1, y, 0], [x + 1, y, 0], [x, y, -1], [x, y, 1]] {
+                    b.push((p, "minecraft:glass".into()));
+                }
+            }
+            if kind == "tophalf" {
+                // (ironfarm's finding: a closed top-half trapdoor, the cart on its top face at the
+                // block's top; opened, its panel's top edge stays under the cart's footprint)
+                b.push(([x, h, 0], "minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]".into()));
+                mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, h as f64 + 1.0, 0.5], Some(ridden.clone())));
+                continue;
+            }
+            b.push(([x, h, 0], "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]".into()));
+            if kind == "occupied" {
+                mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, DROP_P as f64 + 0.0625, 0.5], Some(ridden.clone())));
+            }
+            mobs.push(("minecraft:minecart".into(), [x as f64 + 0.5, h as f64 + 0.1875, 0.5], Some(ridden.clone())));
+        }
+        // the mover meeting a rider: a ridden cart on rails along x at y 64 given 0.5 b/t east,
+        // off its rails' end into the drop cell, where a ridden cart rests off-rail on a closed
+        // bottom-half trapdoor in the floor (0.875 lower: its box 0.175 under the mover's, its
+        // rider's box across the mover's path); stone beyond
+        {
+            let z = DROP_E1_Z;
+            for x in DROP_E1_RAIL.0..=DROP_E1_RAIL.1 {
+                b.push(([x, DROP_P, z], "minecraft:rail[shape=east_west,waterlogged=false]".into()));
+            }
+            b.push(([DROP_E1_CELL, DROP_P - 1, z], "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]".into()));
+            for y in DROP_P..DROP_P + 3 {
+                b.push(([DROP_E1_CELL + 1, y, z], stone.into()));
+            }
+            mobs.push((
+                "minecraft:minecart".into(),
+                [DROP_E1_CELL as f64 + 0.5, DROP_P as f64 - 1.0 + 0.1875, z as f64 + 0.5],
+                Some(ridden.clone()),
+            ));
+            mobs.push((
+                "minecraft:minecart".into(),
+                [DROP_E1_RAIL.0 as f64 + 0.5, DROP_P as f64 + 0.0625, z as f64 + 0.5],
+                Some("{Motion:[0.5d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into()),
+            ));
+        }
+        // the braked-slope run: an unpowered powered rail ascending east at DROP_E2_BRAKE, plain
+        // slopes above it on stone columns, flat rails below it to the west (to show any creep);
+        // 8 ridden carts pressed at the run's 0.79 pitch from the brake up
+        {
+            let z = DROP_E2_Z;
+            b.push(([DROP_E2_BRAKE, DROP_P, z], "minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]".into()));
+            for s in 0..=DROP_E2_SLOPES {
+                let x = DROP_E2_BRAKE + 1 + s;
+                for y in DROP_P..=DROP_P + s {
+                    b.push(([x, y, z], stone.into()));
+                }
+                if s < DROP_E2_SLOPES {
+                    b.push(([x, DROP_P + 1 + s, z], "minecraft:rail[shape=ascending_east,waterlogged=false]".into()));
+                }
+            }
+            for x in DROP_E2_BRAKE - 4..DROP_E2_BRAKE {
+                b.push(([x, DROP_P, z], "minecraft:rail[shape=east_west,waterlogged=false]".into()));
+            }
+            for k in 0..DROP_E2_CARTS {
+                let x = DROP_E2_BRAKE as f64 + 0.5 + GQ_PITCH * k as f64;
+                let y = DROP_P as f64 + (x - DROP_E2_BRAKE as f64) + 0.0625;
+                mobs.push(("minecraft:minecart".into(), [x, y, z as f64 + 0.5], Some(ridden.clone())));
+            }
+        }
+        v.push(Scene {
+            name: "drop-bridge".into(),
+            chunks: [0, -1, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, -2], [30, top + 1, 12]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's grazing eye: blindness counted from the eye point inside a
     // collision shape, as hasLineOfSight clips from the eye point, not from isInWall's eye box,
     // ±0.24) seated riders in carts at rest on a rail along z (x 4, P = 64; rails z0-1 .. z0+2), each
@@ -8895,6 +9045,168 @@ pub fn stopper_sweep(files: &[std::path::PathBuf]) -> Result<()> {
 /// gq-empties per lane: each cart's start and end z, its largest stored speed (and the tick), how
 /// far it ever went back up the run, every pair whose centres came within 0.5 (merged), and for
 /// the admission lanes how many carts passed G0.
+/// (tickexact 2026-11-12, ironspec's drop bridge) Scene drop-bridge's recording, one line per lane:
+/// the dropped cart's release tick (the trapdoor opens at DROP_RELEASE), the tick it lands (its
+/// vertical motion zeroed: snapped onto the rail, or stopped on the occupied pocket's rider), the
+/// fall time, the landing speed (its fall speed the tick before), the spread (the most its x and z
+/// moved during the fall), its speed 1, 5 and 20 ticks after landing, and its rider's least health,
+/// seat at the end and eye height over the pocket rail; in the occupied lane, the lower rider's
+/// least health too.
+pub fn rec_drop(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let v3 = |e: &serde_json::Value, k: &str| [e[k][0].as_f64().unwrap_or(0.0), e[k][1].as_f64().unwrap_or(0.0), e[k][2].as_f64().unwrap_or(0.0)];
+    let find = |f: &serde_json::Value, n: u64| f["entities"].as_array().into_iter().flatten().find(|e| e["n"].as_u64() == Some(n)).cloned();
+    let first = frames.first().ok_or_else(|| anyhow!("an empty recording"))?;
+    let ents: Vec<serde_json::Value> = first["entities"].as_array().cloned().unwrap_or_default();
+    let rider_of = |cart: u64| ents.iter().find(|e| e["type"] == "villager" && e["vehicle"].as_str() == Some(&format!("#{cart}"))).and_then(|e| e["n"].as_u64());
+    for (x, kind, drop) in drop_lanes() {
+        let in_lane = |e: &serde_json::Value| e["type"] == "minecart" && v3(e, "pos")[0] as i32 == x && v3(e, "pos")[2].floor() as i32 == 0;
+        let Some(cart) = ents.iter().filter(|e| in_lane(e)).find(|e| v3(e, "pos")[1] > DROP_P as f64 + 5.0).and_then(|e| e["n"].as_u64()) else {
+            println!("  x {x} {kind} from {drop}: no dropped cart found");
+            continue;
+        };
+        let lower = ents.iter().filter(|e| in_lane(e)).find(|e| v3(e, "pos")[1] < DROP_P as f64 + 1.0).and_then(|e| e["n"].as_u64());
+        let rider = rider_of(cart);
+        let track: Vec<Option<([f64; 3], [f64; 3])>> = frames.iter().map(|f| find(f, cart).map(|e| (v3(&e, "pos"), v3(&e, "motion")))).collect();
+        let release = track.iter().position(|s| s.is_some_and(|(_, m)| m[1] < -0.01));
+        let land = release.and_then(|r| (r + 1..track.len()).find(|&i| track[i].is_some_and(|(p, m)| m[1] == 0.0 && p[1] < DROP_P as f64 + 2.6)));
+        let x0 = track.first().and_then(|s| s.map(|(p, _)| p));
+        let mut line = format!("  x {x} {kind} from {drop}:");
+        match (release, land, x0) {
+            (Some(r), Some(l), Some(p0)) => {
+                let spread = (r..l).filter_map(|i| track[i]).fold(0.0f64, |a, (p, _)| a.max((p[0] - p0[0]).abs()).max((p[2] - p0[2]).abs()));
+                let vland = track[l - 1].map(|(_, m)| -m[1]).unwrap_or(0.0);
+                let yl = track[l].map(|(p, _)| p[1] - DROP_P as f64).unwrap_or(0.0);
+                let speed = |k: usize| track.get(l + k).copied().flatten().map(|(_, m)| (m[0] * m[0] + m[2] * m[2]).sqrt()).map(|s| format!("{s:.4}")).unwrap_or("-".into());
+                line.push_str(&format!(
+                    " released t{}, landed t{} (fall {} gt) at rail + {yl:.4}, landing speed {vland:.4} b/t, spread {spread:.4}; speed after +1 {} +5 {} +20 {}",
+                    r + 1,
+                    l + 1,
+                    l - r,
+                    speed(1),
+                    speed(5),
+                    speed(20)
+                ));
+            }
+            _ => line.push_str(&format!(" released {:?}, landed {:?}", release.map(|r| r + 1), land.map(|l| l + 1))),
+        }
+        let health = |n: u64| {
+            frames
+                .iter()
+                .filter_map(|f| find(f, n))
+                .filter_map(|e| e["health"].as_str().and_then(|h| h.parse::<f64>().ok()))
+                .fold(f64::INFINITY, f64::min)
+        };
+        if let Some(rn) = rider {
+            let last = frames.last().and_then(|f| find(f, rn));
+            let seat = last.as_ref().map(|e| e["vehicle"].as_str().unwrap_or("none").to_string()).unwrap_or("gone".into());
+            let eye = last.as_ref().map(|e| v3(e, "pos")[1] + 1.62 - DROP_P as f64).unwrap_or(0.0);
+            let end = track.last().copied().flatten().map(|(p, _)| p);
+            if let (Some(l), Some(pl)) = (land, land.and_then(|l| track[l].map(|(p, _)| p))) {
+                if let Some(k) = (l + 1..track.len()).find(|&i| track[i].is_some_and(|(p, _)| (p[0] - pl[0]).abs() + (p[1] - pl[1]).abs() + (p[2] - pl[2]).abs() > 1e-6)) {
+                    let (p, m) = track[k].unwrap_or_default();
+                    let (pp, mp) = track[k - 1].unwrap_or_default();
+                    line.push_str(&format!(
+                        "; first moves after landing at t{}: from ({:.4}, {:.4}) motion ({:.4}, {:.4}, {:.4}) to ({:.4}, {:.4}) motion ({:.4}, {:.4}, {:.4})",
+                        k + 1,
+                        pp[0],
+                        pp[1],
+                        mp[0],
+                        mp[1],
+                        mp[2],
+                        p[0],
+                        p[1],
+                        m[0],
+                        m[1],
+                        m[2]
+                    ));
+                }
+            }
+            if let (Some(pe), Some(p0)) = (end, x0) {
+                line.push_str(&format!("; the cart at the end x {:+.4} z {:+.4} from its start, rail + {:.4}", pe[0] - p0[0], pe[2] - p0[2], pe[1] - DROP_P as f64));
+            }
+            line.push_str(&format!("; rider least health {:.1}, seat at the end {seat} (cart #{cart}), eye at rail + {eye:.3}", health(rn)));
+        }
+        if let Some(ln) = lower.and_then(rider_of) {
+            line.push_str(&format!("; the lower rider's least health {:.1}", health(ln)));
+        }
+        println!("{line}");
+    }
+    let row = |z: i32| -> Vec<(u64, [f64; 3])> {
+        let mut v: Vec<(u64, [f64; 3])> = ents
+            .iter()
+            .filter(|e| e["type"] == "minecart" && v3(e, "pos")[2].floor() as i32 == z)
+            .filter_map(|e| e["n"].as_u64().map(|n| (n, v3(e, "pos"))))
+            .collect();
+        v.sort_by(|a, b| a.1[0].total_cmp(&b.1[0]));
+        v
+    };
+    let path_of = |n: u64| -> Vec<Option<[f64; 3]>> { frames.iter().map(|f| find(f, n).map(|e| v3(&e, "pos"))).collect() };
+    let least_health = |n: u64| {
+        frames
+            .iter()
+            .filter_map(|f| find(f, n))
+            .filter_map(|e| e["health"].as_str().and_then(|h| h.parse::<f64>().ok()))
+            .fold(f64::INFINITY, f64::min)
+    };
+    // the mover meeting a rider
+    let e1 = row(DROP_E1_Z);
+    if let [(mover, m0), (lower, l0)] = e1[..] {
+        let mp = path_of(mover);
+        let lp = path_of(lower);
+        let lr = rider_of(lower);
+        let rp = lr.map(path_of).unwrap_or_default();
+        let max_x = mp.iter().flatten().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max);
+        let stop = (1..mp.len()).find(|&i| match (mp[i - 1], mp[i]) {
+            (Some(a), Some(b)) => (b[0] - a[0]).abs() < 1e-9 && b[0] > m0[0] + 1.0,
+            _ => false,
+        });
+        let overlap = mp.iter().zip(rp.iter()).filter_map(|(m, r)| Some((m.as_ref()?[0] + 0.49) - (r.as_ref()?[0] - 0.3))).fold(f64::NEG_INFINITY, f64::max);
+        let lend = lp.last().copied().flatten().unwrap_or(l0);
+        println!(
+            "  mover into a rider (row z {DROP_E1_Z}): the mover (#{mover}) reaches x {max_x:.4} (its front {:.4}), stops t{} ; the most its box ever overlapped the lower rider's in x {overlap:.6}; the lower cart moved x {:+.4} y {:+.4} z {:+.4}; least health: mover's rider {:.1}, lower rider {:.1}",
+            max_x + 0.49,
+            stop.map(|s| s + 1).unwrap_or(0),
+            lend[0] - l0[0],
+            lend[1] - l0[1],
+            lend[2] - l0[2],
+            rider_of(mover).map(least_health).unwrap_or(f64::NAN),
+            lr.map(least_health).unwrap_or(f64::NAN),
+        );
+    }
+    // the braked-slope run: the front cart's x over time
+    let e2 = row(DROP_E2_Z);
+    if let Some(&(front, f0)) = e2.first() {
+        let fp = path_of(front);
+        let at = |t: usize| fp.get(t.saturating_sub(1)).copied().flatten().map(|p| format!("{:+.5}", p[0] - f0[0])).unwrap_or("-".into());
+        let back = e2.last().map(|&(n, p0)| (path_of(n), p0));
+        let back_end = back.as_ref().and_then(|(p, p0)| p.last().copied().flatten().map(|p| p[0] - p0[0])).unwrap_or(0.0);
+        let speeds: Vec<f64> = frames
+            .iter()
+            .filter_map(|f| find(f, front))
+            .map(|e| {
+                let m = v3(&e, "motion");
+                (m[0] * m[0] + m[2] * m[2]).sqrt()
+            })
+            .collect();
+        let moving = speeds.iter().filter(|s| **s > 0.0).count();
+        println!(
+            "  braked slope under a pressed run of {} ridden carts (row z {DROP_E2_Z}): the front cart's x from its start at t1 {} t100 {} t300 {} t{} {}; ticks with nonzero motion {moving} of {}; the back cart moved x {back_end:+.4}",
+            e2.len(),
+            at(1),
+            at(100),
+            at(300),
+            fp.len(),
+            at(fp.len()),
+            speeds.len()
+        );
+    }
+    Ok(())
+}
+
 pub fn rec_gqempties(path: &std::path::Path) -> Result<()> {
     let text = mctas::recorded::read_text(path)?;
     let mut lines = text.lines();

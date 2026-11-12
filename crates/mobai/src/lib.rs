@@ -4,6 +4,8 @@ pub mod bench;
 pub mod bedreload;
 pub mod loadwindow;
 pub mod netherhome;
+pub mod t600;
+pub mod threebeds;
 pub mod cli;
 pub mod farmtrace;
 pub mod fixture;
