@@ -429,6 +429,205 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
     Ok((out, total, pending))
 }
 
+/// The solve's inputs (ironspec 2026-11-12 04:10..04:12): the launch steps to try (offsets 0, s, 2s),
+/// the napper's delays, the release speeds (the measured release-speed range: its ends and middle),
+/// the measured departure spread (each launch from `spread.0` to `spread.1` gt off its nominal), the
+/// margin every gt bar must keep beyond them.
+#[derive(Clone, Debug)]
+pub struct SolveOpts {
+    pub steps: Vec<i64>,
+    pub ds: Vec<i64>,
+    pub speeds: Vec<f64>,
+    pub spread: (i64, i64),
+    pub margin: i64,
+    pub bars: ReturnBars,
+    pub jobs: usize,
+}
+
+/// One (step, D) of the solve over its corners: the least value of each gt bar, the pass/fail bars.
+#[derive(Clone, Debug)]
+pub struct SolveRow {
+    pub step: i64,
+    pub d: i64,
+    pub corners: usize,
+    pub shaft: Option<i64>,
+    pub behind: Option<i64>,
+    pub ahead: Option<i64>,
+    pub junction: BTreeMap<i32, i64>,
+    pub branch: (f64, f64),
+    pub pushes: usize,
+    /// Wrong lanes, never at a lane, dismounted, hurt, eye in a wall (summed over the corners).
+    pub lost: usize,
+}
+
+impl SolveRow {
+    /// Each gt bar's least margin (value - bar).
+    pub fn gt_margins(&self, b: &ReturnBars) -> Vec<(String, Option<i64>)> {
+        let mut v = vec![
+            ("shaft-entry gap".to_string(), self.shaft.map(|x| x - b.shaft_min)),
+            ("napper behind".to_string(), self.behind.map(|x| x - b.napper_behind)),
+            ("napper ahead".to_string(), self.ahead.map(|x| x - b.napper_ahead)),
+        ];
+        for (j, g) in &self.junction {
+            if let Some(m) = b.junction_min.get(j) {
+                v.push((format!("J({j})"), Some(g - m)));
+            }
+        }
+        v
+    }
+
+    /// The least of the gt margins (None when a bar has no value).
+    pub fn least_margin(&self, b: &ReturnBars) -> Option<i64> {
+        let m = self.gt_margins(b);
+        if m.iter().any(|(_, x)| x.is_none()) {
+            return None;
+        }
+        m.iter().filter_map(|(_, x)| *x).min()
+    }
+
+    /// The pass/fail bars clean: no lost cart, no push, every branch delivery in its band.
+    pub fn clean(&self, b: &ReturnBars) -> bool {
+        self.lost == 0 && self.pushes <= b.pushes_max && self.branch.0 >= b.branch_band.0 && self.branch.1 <= b.branch_band.1
+    }
+
+    pub fn meets(&self, b: &ReturnBars, margin: i64) -> bool {
+        self.clean(b) && self.least_margin(b).is_some_and(|m| m >= margin)
+    }
+
+    fn line(&self, b: &ReturnBars) -> String {
+        let gm: Vec<String> = self.gt_margins(b).iter().map(|(k, m)| format!("{k} {}", m.map_or("-".to_string(), |x| format!("{x:+}")))).collect();
+        let jn: Vec<String> = self.junction.iter().map(|(j, g)| format!("J({j}) {g} gt{}", if b.junction_min.contains_key(j) { "" } else { " (bar pending)" })).collect();
+        format!(
+            "s {} D {}: margins {}; the least values: shaft {}, behind {}, ahead {}; junctions {}; branch delivery {:.3}..{:.3} (margins {:+.3} / {:+.3}); pushes {}; lost carts {}",
+            self.step,
+            self.d,
+            gm.join(", "),
+            self.shaft.map_or("-".into(), |x| format!("{x} gt")),
+            self.behind.map_or("-".into(), |x| format!("{x} gt")),
+            self.ahead.map_or("-".into(), |x| format!("{x} gt")),
+            jn.join(", "),
+            self.branch.0,
+            self.branch.1,
+            self.branch.0 - b.branch_band.0,
+            b.branch_band.1 - self.branch.1,
+            self.pushes,
+            self.lost
+        )
+    }
+}
+
+/// The solve: for each launch step and napper delay, the controls at every corner (the departure
+/// spread on each launch x the release speeds); per step its best delay (the largest least gt margin,
+/// the smallest delay on a tie) with its margins and every delay that meets the bars; then the
+/// smallest step that meets every bar with `margin` gt to spare.
+pub fn solve(base: &ReturnOpts, o: &SolveOpts) -> Result<Vec<String>, String> {
+    let mut deltas = vec![o.spread.0, 0, o.spread.1];
+    deltas.sort();
+    deltas.dedup();
+    let mut runs: Vec<(i64, i64, Vec<i64>, f64)> = Vec::new();
+    for &s in &o.steps {
+        for &d in &o.ds {
+            for &da in &deltas {
+                for &db in &deltas {
+                    for &dc in &deltas {
+                        for &sp in &o.speeds {
+                            runs.push((s, d, vec![da, s + db, 2 * s + dc], sp));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    type Res = ((i64, i64), ReturnRead);
+    let mut results: Vec<Res> = Vec::new();
+    for chunk in runs.chunks(o.jobs.max(1)) {
+        let got: Vec<Result<Res, String>> = std::thread::scope(|sc| {
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|(s, d, offs, sp)| {
+                    let mut lo = base.clone();
+                    lo.offsets = offs.clone();
+                    lo.speed = *sp;
+                    lo.napper_delay = Some(*d);
+                    lo.trace = None;
+                    lo.out = None;
+                    lo.restart = None;
+                    lo.login = None;
+                    let (s, d) = (*s, *d);
+                    sc.spawn(move || return_bench(&lo).map(|t| ((s, d), read(&t, true))))
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().expect("a solve thread panicked")).collect()
+        });
+        for r in got {
+            let r = r?;
+            if !r.1.missing.is_empty() {
+                return Err(format!("s {} D {}: the bench's text lacks {:?}", r.0.0, r.0.1, r.1.missing));
+            }
+            results.push(r);
+        }
+    }
+    let mut rows: Vec<SolveRow> = Vec::new();
+    for &s in &o.steps {
+        for &d in &o.ds {
+            let mine: Vec<&ReturnRead> = results.iter().filter(|(k, _)| *k == (s, d)).map(|(_, r)| r).collect();
+            let mut junction: BTreeMap<i32, i64> = BTreeMap::new();
+            for r in &mine {
+                for (j, g) in &r.junction {
+                    let e = junction.entry(*j).or_insert(i64::MAX);
+                    *e = (*e).min(*g);
+                }
+            }
+            let br: Vec<f64> = mine.iter().flat_map(|r| r.branch.clone()).collect();
+            rows.push(SolveRow {
+                step: s,
+                d,
+                corners: mine.len(),
+                shaft: mine.iter().filter_map(|r| r.shaft).min(),
+                behind: mine.iter().filter_map(|r| r.napper_behind).min(),
+                ahead: mine.iter().filter_map(|r| r.napper_ahead).min(),
+                junction,
+                branch: (br.iter().copied().fold(f64::INFINITY, f64::min), br.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
+                pushes: mine.iter().map(|r| r.pushes).max().unwrap_or(0),
+                lost: mine.iter().map(|r| r.wrong + r.never + r.dismounted + r.hurt + r.eye).sum(),
+            });
+        }
+    }
+    let mut out = vec![format!(
+        "the solve (cc767b78, bench, tool unreviewed): launch steps {:?} (offsets 0, s, 2s), napper D {}..{}, release speeds {:?}, the departure spread {}..{} gt on each launch ({} corners a row); a row meets the bars when every gt bar keeps {} gt of margin beyond the corners and the pass/fail bars are clean",
+        o.steps,
+        o.ds.first().copied().unwrap_or(0),
+        o.ds.last().copied().unwrap_or(0),
+        o.speeds,
+        o.spread.0,
+        o.spread.1,
+        deltas.len().pow(3) * o.speeds.len(),
+        o.margin
+    )];
+    let mut first_ok: Option<&SolveRow> = None;
+    for &s in &o.steps {
+        let mine: Vec<&SolveRow> = rows.iter().filter(|r| r.step == s).collect();
+        let ok: Vec<i64> = mine.iter().filter(|r| r.meets(&o.bars, o.margin)).map(|r| r.d).collect();
+        // (the best delay: clean first, then the largest least margin, then the smallest delay)
+        let best = mine.iter().max_by(|a, b| {
+            let ka = (a.clean(&o.bars), a.least_margin(&o.bars).unwrap_or(i64::MIN), -a.d);
+            let kb = (b.clean(&o.bars), b.least_margin(&o.bars).unwrap_or(i64::MIN), -b.d);
+            ka.cmp(&kb)
+        });
+        if let Some(b) = best {
+            out.push(format!("{}{}", b.line(&o.bars), if ok.is_empty() { " -> NO delay meets the bars at this step".to_string() } else { format!(" -> meets the bars at D {}", ok.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(", ")) }));
+        }
+        if first_ok.is_none() && !ok.is_empty() {
+            first_ok = mine.iter().filter(|r| r.meets(&o.bars, o.margin)).max_by_key(|r| (r.least_margin(&o.bars).unwrap_or(i64::MIN), -r.d)).copied();
+        }
+    }
+    out.push(match first_ok {
+        Some(r) => format!("the smallest step that meets every bar with {} gt to spare: s {} with the napper at D {} (least gt margin {:+})", o.margin, r.step, r.d, r.least_margin(&o.bars).unwrap_or(0)),
+        None => format!("NO step in {:?} meets every bar with {} gt to spare (ironspec: the napper's bars re-derived from their mechanism)", o.steps, o.margin),
+    });
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

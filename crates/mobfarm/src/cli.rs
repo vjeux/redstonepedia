@@ -1500,6 +1500,18 @@ pub enum MobfarmCmd {
         junction_min: Vec<String>,
         #[arg(long, default_value_t = 0)]
         pushes_max: usize,
+        /// The solve (ironspec 04:10..04:12) instead of the matrix: these launch steps (offsets 0, s,
+        /// 2s), the napper's delays --solve-ds, the release speeds --speeds (the measured range), the
+        /// departure spread --spread LO,HI on each launch; the smallest step whose every gt bar keeps
+        /// --margin gt beyond them.
+        #[arg(long, value_delimiter = ',')]
+        solve_steps: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24")]
+        solve_ds: Vec<i64>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "0,0")]
+        spread: Vec<i64>,
+        #[arg(long, default_value_t = 2)]
+        margin: i64,
         #[arg(long, default_value_t = 8)]
         jobs: usize,
     },
@@ -5123,7 +5135,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, boosters, row_boost, offsets, offset_pm, speeds, napper_ds, restart_napper, starts, no_restarts, ds, branch_band, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, jobs } => {
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, boosters, row_boost, offsets, offset_pm, speeds, napper_ds, restart_napper, starts, no_restarts, ds, branch_band, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, solve_steps, solve_ds, spread, margin, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
             anyhow::ensure!(branch_band.len() == 2 && napper_band.len() == 2, "--branch-band LO,HI and --napper-band LO,HI");
@@ -5135,6 +5147,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), flat, game_ticks, napper_delay: None, dip, resync, seed_miss: None, restart: None, z7, row10, boosters, row_boost, out: None };
+            if !solve_steps.is_empty() {
+                anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
+                let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max };
+                let so = crate::returnjudge::SolveOpts { steps: solve_steps.clone(), ds: solve_ds.clone(), speeds: speeds.clone(), spread: (spread[0], spread[1]), margin, bars, jobs };
+                println!(
+                    "return solve on return-bench {}{}{}{}{}{}{}{}, {batches} batches, {ticks} ticks",
+                    if z7 { "--z7 " } else { "" },
+                    if row10 { "--row10 " } else { "" },
+                    if boosters { "--boosters " } else { "" },
+                    if row_boost { "--row-boost " } else { "" },
+                    if reverse { "--reverse " } else { "" },
+                    if game_ticks { "--game-ticks " } else { "(L2!) " },
+                    if flat { "--flat " } else { "" },
+                    if dip { "--dip " } else { "" }
+                );
+                for l in crate::returnjudge::solve(&base, &so).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                if jm.is_empty() {
+                    println!("PENDING: the junction bars (each latch's switching time + 4: 7b90c3f1's numbers) are not in the margins; the napper's delivery and the riders' heads under the roof are not judged");
+                }
+                return Ok(());
+            }
             // (the corners: each offset either way by offset_pm, x the speeds, x the napper's delays)
             let mut offs: Vec<Vec<i64>> = Vec::new();
             for da in [-offset_pm, 0, offset_pm] {
