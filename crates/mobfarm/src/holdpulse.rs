@@ -486,6 +486,11 @@ fn spec(g: Geo, extra: i64) -> Result<FarmSpec, String> {
 /// fires into the input cell (7,-1,8) at ARM3 + 10 (D 12 unchanged). ARM3's drive and E (with its 12-gt
 /// side) sit east of the gate (the bench's own route; the real cells are the controller box's).
 pub const GATE_DRIVE: [i32; 3] = [20, -1, 13];
+thread_local! {
+    /// (ironspec 14:15) A restart (every chunk saved and loaded) before this tick in this order, for the
+    /// next `gate_run`.
+    static GATE_RESTART: std::cell::Cell<Option<(i64, crate::liveness::Restart)>> = const { std::cell::Cell::new(None) };
+}
 const GATE_ARM3: [i32; 3] = [19, -1, 13];
 const GATE_BIT: [i32; 3] = [10, -1, 11];
 const GATE_Q: [i32; 3] = [15, -1, 5];
@@ -666,6 +671,14 @@ fn gate_run(extra: i64, live: bool, settle_rt: i64, cycles: i64, spawn: Option<(
     let mut contact: Option<i64> = None;
     let mut last_pos: Option<(f64, f64, f64)> = None;
     for t in 0..(cycles * CYCLE + 40) {
+        if let Some((rt, how)) = GATE_RESTART.with(|c| c.get())
+            && rt == t
+        {
+            let remap = crate::liveness::restart(&mut run.world, how)?;
+            if let Some(i) = id {
+                id = Some(remap.get(&i).copied().unwrap_or(i));
+            }
+        }
         let in_cycle = t.rem_euclid(CYCLE);
         if t / CYCLE < cycles && in_cycle == 0 {
             run.world.set_block(bp(GATE_DRIVE), on.clone(), redsim::world::flags::ALL);
@@ -835,12 +848,43 @@ pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>
             }
         }
         lines.push(format!(
-            "  a {freeze}-gt freeze during the approach (G1's note 4: redstone running, the cart frozen; v 0.1, the slowest exit) at every offset from the detector's rise - 3 to the cart's rest (+{}): launched on one fired pulse {ok}, otherwise {}{}; the bit at H2 after the cart's rest by {}..{} gt (bar >= 0; ironspec's 38 = approach max 33 + 3 frozen + 2)",
+            "  a {freeze}-gt freeze during the approach (G1's note 4: redstone running, the cart frozen; v 0.1, the slowest exit) at every offset from the detector's rise - 3 to the cart's rest (+{}): launched on one fired pulse {ok}, otherwise {}{}; the bit at H2 after the cart's rest by {}..{} gt (the functional bar 0: presence sampled at rest; the design margin k - approach max - 3)",
             rs1 - d1,
             bad_n.len(),
             if bad_n.is_empty() { String::new() } else { format!(" (FAIL: {})", bad_n.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
             if least == i64::MAX { "-".to_string() } else { least.to_string() },
             if most == i64::MIN { "-".to_string() } else { most.to_string() }
+        ));
+        // (ironspec 14:15) a restart at every tick of the approach (the detector's rise - 3 .. the rest), in
+        // every reload order (tick-exact's top-exit restart case: detector -> rest 36)
+        let (mut rok, mut rbad, mut rleast, mut n) = (0u32, Vec::new(), i64::MAX, 0u32);
+        let mut dr = (i64::MAX, i64::MIN);
+        for rt in (d1 - 3)..=rs1 {
+            for how in crate::liveness::Restart::rows() {
+                GATE_RESTART.with(|c| c.set(Some((rt, how))));
+                let r = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.1)), None, false);
+                GATE_RESTART.with(|c| c.set(None));
+                let r = r?;
+                n += 1;
+                let fires = r.fired.iter().filter(|&&(x, _)| r.det.is_some_and(|d| x > d)).count();
+                if let (Some(rest), Some(bit), Some(d)) = (r.rest, r.bit, r.det) {
+                    rleast = rleast.min(bit - rest);
+                    dr = (dr.0.min(rest - d), dr.1.max(rest - d));
+                }
+                if fires == 1 && r.off.is_some() && r.off_powered {
+                    rok += 1;
+                } else {
+                    rbad.push(format!("restart before t{} ({}): {fires} fired, departure {:?}", rt, how.label(), r.off));
+                }
+            }
+        }
+        lines.push(format!(
+            "  a restart (every chunk saved and loaded) at every tick of the approach (detector - 3 .. rest) in every reload order ({n} runs, v 0.1): detector -> rest {}..{} gt; launched on one fired pulse {rok}, otherwise {}{}; the bit at H2 after the cart's rest at least {} gt (the functional bar 0)",
+            if dr.0 == i64::MAX { "-".to_string() } else { dr.0.to_string() },
+            if dr.1 == i64::MIN { "-".to_string() } else { dr.1.to_string() },
+            rbad.len(),
+            if rbad.is_empty() { String::new() } else { format!(" (FAIL: {})", rbad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
+            if rleast == i64::MAX { "-".to_string() } else { rleast.to_string() }
         ));
     }
     // the control: the live term removed (P = the delayed bit alone): the napper's second ARM3 rise
