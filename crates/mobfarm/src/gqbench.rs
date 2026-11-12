@@ -112,9 +112,12 @@ pub struct GqOpts {
 /// slope down under its gate. Each P is a sensor; each G or g a gate (its cell over the slope, at the
 /// level the slope leaves) with the powered slope's cell for a G; `R*` a powered slope down powered
 /// with the next gate (the brake-boost rest cell: braking while its gate is shut, launching as it
-/// opens). hold-v4.txt's (5/5) hold (the stand's pockets, a flat in each valley) is `HOLD_V4`.
+/// opens); `Dv` / `D.` the descent's pass detector Ds (falling / flat: the front pocket's leaving
+/// edge, `g.ds`; not a pocket sensor). hold-v4.txt's (5/5) hold (the stand's pockets, a flat in each
+/// valley, Ds the sloped detector right after G_a as onechunk's v4 0633be8d9 lays it) is `HOLD_V4`;
+/// `--hold-line` also takes the names HOLD_V4, HOLD_V and HOLD_BB.
 pub const HOLD_V: &str = "r. rv P. rv G r^ r^ P. rv G r^ r. r^ P. rv G r. r.";
-pub const HOLD_V4: &str = "r. rv P. rv G r. r^ P. rv G r. r^ P. rv G r. r.";
+pub const HOLD_V4: &str = "r. rv P. rv G r. r^ P. rv G r. r^ P. rv G Dv";
 pub const TAIL_V: &str = "r. P. rv G r^ P. rv G r^ P. rv G rv r. r. r. r. r. r^ P. rv G r^ r^ P. rv g r.";
 /// The brake-boost hold (ironspec 17:33's lever): the stand's pocket (P flat on top, R, G under its
 /// gate, U) with R a powered slope powered with its gate, so all three carts launch at the release
@@ -136,26 +139,33 @@ struct LineBlocks {
 /// it (an R*), both powered with the gate.
 type LineGate = (i32, i32, Option<(i32, i32)>, Option<(i32, i32)>);
 
-fn line(b: &LineBlocks, blocks: &mut Vec<(BlockPos, Block)>, x: &mut i32, lv: &mut i32, spec: &str) -> Result<(Vec<(i32, i32)>, Vec<LineGate>), String> {
+/// A line's sensors, gates and descent detector Ds (a `Dv` / `D.` token).
+type LineOut = (Vec<(i32, i32)>, Vec<LineGate>, Option<(i32, i32)>);
+
+fn line(b: &LineBlocks, blocks: &mut Vec<(BlockPos, Block)>, x: &mut i32, lv: &mut i32, spec: &str) -> Result<LineOut, String> {
     let mut sensors = Vec::new();
     let mut gates = Vec::new();
+    let mut ds = None;
     let mut rest: Option<(i32, i32)> = None;
     for tok in spec.split_whitespace() {
         let (y, rail, dl) = match tok {
             "r." => (*lv, &b.flat, 0),
             "rv" => (*lv - 1, &b.down, -1),
             "r^" => (*lv, &b.up, 1),
-            "P." => (*lv, &b.det, 0),
+            "P." | "D." => (*lv, &b.det, 0),
             "P^" => (*lv, &b.det_up, 1),
-            "Pv" => (*lv - 1, &b.det_down, -1),
+            "Pv" | "Dv" => (*lv - 1, &b.det_down, -1),
             "R*" => (*lv - 1, &b.pdown_off, -1),
             "G" | "g" => (*lv - 1, if tok == "G" { &b.pdown_off } else { &b.down }, -1),
-            _ => return Err(format!("{tok:?}: a line token of r. rv r^ P. P^ Pv R* G g")),
+            _ => return Err(format!("{tok:?}: a line token of r. rv r^ P. P^ Pv D. Dv R* G g")),
         };
         blocks.push((BlockPos::new(*x, y, 0), rail.clone()));
         blocks.push((BlockPos::new(*x, y - 1, 0), b.glass.clone()));
         if tok.starts_with('P') {
             sensors.push((*x, y));
+        }
+        if tok.starts_with('D') {
+            ds = Some((*x, y));
         }
         if tok == "R*" {
             rest = Some((*x, y));
@@ -166,7 +176,7 @@ fn line(b: &LineBlocks, blocks: &mut Vec<(BlockPos, Block)>, x: &mut i32, lv: &m
         *lv += dl;
         *x += 1;
     }
-    Ok((sensors, gates))
+    Ok((sensors, gates, ds))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -264,7 +274,7 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     let ntail = if o.ideal_tail { 1 } else { o.tail };
     if o.tail_v && !o.ideal_tail {
         // (9fc3155f's tail chain: the launch flat stands for its buffer cell)
-        let (ps, gs) = line(&lb, &mut blocks, &mut x, &mut lv, &TAIL_V[3..])?;
+        let (ps, gs, _) = line(&lb, &mut blocks, &mut x, &mut lv, &TAIL_V[3..])?;
         if ps.len() != o.tail || gs.len() != o.tail {
             return Err(format!("--tail-v lays {} pockets: run it with --tail {}", gs.len(), gs.len()));
         }
@@ -320,12 +330,20 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     }
     // (the hold: 3 pockets; the front one's G a powered slope into the descent; or a line of tokens:
     // its 3 P detectors are the hold's sensors, hold_p[0] the entry pocket's)
+    let mut line_ds = None;
     if o.hold_v || o.hold_bb || o.hold_line.is_some() {
-        let spec = o.hold_line.as_deref().unwrap_or(if o.hold_bb { HOLD_BB } else { HOLD_V });
-        let (ps, gs) = line(&lb, &mut blocks, &mut x, &mut lv, spec)?;
+        let spec = match o.hold_line.as_deref() {
+            Some("HOLD_V4") => HOLD_V4,
+            Some("HOLD_V") => HOLD_V,
+            Some("HOLD_BB") => HOLD_BB,
+            Some(s) => s,
+            None => if o.hold_bb { HOLD_BB } else { HOLD_V },
+        };
+        let (ps, gs, ds) = line(&lb, &mut blocks, &mut x, &mut lv, spec)?;
         if gs.len() != 3 || ps.len() != 3 {
             return Err(format!("the hold's line {spec:?} lays {} sensors and {} gates (3 each)", ps.len(), gs.len()));
         }
+        line_ds = ds;
         g.hold_p = ps;
         for (j, (gx, gy, gg, gr)) in gs.into_iter().enumerate() {
             if let Some(c) = gr {
@@ -341,10 +359,15 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     }
     g.hold_exit = g.gates.iter().filter(|gt| gt.0 == Role::Hold(2)).map(|gt| gt.1 as f64 + 1.0).next().unwrap_or(f64::MAX);
     // (the descent and the sink: a flat first, at the front pocket's U top (a detector rail: the
-    // front pocket's leaving edge, 7b90c3f1's per-pocket latch clear), then slopes down)
-    put(&mut blocks, x, lv, &det);
-    g.ds = (x, lv);
-    x += 1;
+    // front pocket's leaving edge, 7b90c3f1's per-pocket latch clear), then slopes down; a hold line
+    // that lays its own Ds (`Dv` right after G_a, onechunk's v4) keeps it)
+    if let Some(d) = line_ds {
+        g.ds = d;
+    } else {
+        put(&mut blocks, x, lv, &det);
+        g.ds = (x, lv);
+        x += 1;
+    }
     for _ in 0..3 {
         put(&mut blocks, x, lv - 1, &down);
         x += 1;
@@ -428,6 +451,7 @@ pub fn hold_release(o: &GqOpts) -> Result<String, String> {
     };
     let t0 = 40i64;
     let mut exits: Vec<(usize, i64)> = Vec::new();
+    let mut exit_v: Vec<(f64, f64)> = Vec::new();
     let mut rest = Vec::new();
     let mut closest = f64::MAX;
     let mut shut_onto = Vec::new();
@@ -458,11 +482,12 @@ pub fn hold_release(o: &GqOpts) -> Result<String, String> {
         let now: Vec<Option<(f64, f64, f64)>> = ids.iter().map(|id| cart_state(&run.world, *id)).collect();
         if t >= t0 {
             for k in 0..ids.len() {
-                if let (Some((x, _, _)), Some((px, _, _))) = (now[k], prev[k])
+                if let (Some((x, _, v)), Some((px, _, _))) = (now[k], prev[k])
                     && px < g.hold_exit
                     && x >= g.hold_exit
                 {
                     exits.push((k, t - t0));
+                    exit_v.push((v, x - px));
                 }
                 for j in k + 1..ids.len() {
                     // (while both are still on the hold's line or the 6 cells after its front
@@ -481,12 +506,13 @@ pub fn hold_release(o: &GqOpts) -> Result<String, String> {
     let order: String = exits.iter().map(|(k, _)| ["a", "b", "c"].get(*k).copied().unwrap_or("?")).collect::<Vec<_>>().join("");
     let gaps: Vec<i64> = exits.windows(2).map(|w| w[1].1 - w[0].1).collect();
     Ok(format!(
-        "hold alone ({}; riders {}; the gates and their powered cells open at t 0 for {} gt): exits past the front gate's cell at {} (order {order}), gaps {}; closest centres while leaving {:.2}; rest heights {}; shut onto a cart at the window's end: {}",
+        "hold alone ({}; riders {}; the gates and their powered cells open at t 0 for {} gt): exits past the front gate's cell at {} (order {order}), gaps {}; exit speeds (stored/visible b/t) {}; closest centres while leaving {:.2}; rest heights {}; shut onto a cart at the window's end: {}",
         o.hold_line.as_deref().unwrap_or(if o.hold_bb { HOLD_BB } else if o.hold_v { HOLD_V } else { "the stand's pocket" }),
         (0..ids.len()).map(|n| if o.riders.get(n % o.riders.len().max(1)).copied().unwrap_or(true) { 'R' } else { 'E' }).collect::<String>(),
         o.hold_pulse,
         exits.iter().map(|(_, t)| format!("+{t}")).collect::<Vec<_>>().join(" "),
         gaps.iter().map(|g| g.to_string()).collect::<Vec<_>>().join("/"),
+        exit_v.iter().map(|(v, vis)| format!("{v:.3}/{vis:.3}")).collect::<Vec<_>>().join(" "),
         closest,
         rest.iter().map(|y| format!("{y:.3}")).collect::<Vec<_>>().join(" "),
         if shut_onto.is_empty() { "none".to_string() } else { shut_onto.join(", ") }
@@ -603,6 +629,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut contacts_arr: Vec<Contact> = Vec::new();
     let mut contacts_mov: Vec<Contact> = Vec::new();
     let mut exit_cross: Vec<(i64, usize)> = Vec::new();
+    let mut exit_speed: Vec<(i64, f64, f64)> = Vec::new();
     let mut hold_rest: Vec<(i64, usize)> = Vec::new();
     let mut spacing_samples: Vec<f64> = Vec::new();
     let mut merged_pairs: std::collections::BTreeSet<(usize, usize)> = Default::default();
@@ -1112,6 +1139,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             // the hold)
             if px < h2_face + 0.125 && x >= h2_face + 0.125 {
                 exit_cross.push((t, k));
+                // (the exit speed: stored (the cart's motion) and visible (its move this tick))
+                exit_speed.push((t, v, x - px));
             }
             if x >= g.hold_p[0].0 as f64 && x < h2_face && v < 0.005 && pv >= 0.005 {
                 hold_rest.push((t, k));
@@ -1223,8 +1252,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 let mut c: Vec<i64> = exit_cross.iter().filter(|(t, _)| *t >= *tr && *t < tr + 80).map(|(t, _)| *t).collect();
                 c.sort();
                 let sp: Vec<String> = c.windows(2).map(|w| (w[1] - w[0]).to_string()).collect();
+                let speeds: Vec<String> = exit_speed.iter().filter(|(t, _, _)| *t >= *tr && *t < tr + 80).map(|(_, v, vis)| format!("{v:.2}/{vis:.2}")).collect();
                 let last = hold_rest.iter().filter(|(t, _)| *t < *tr && *t > tr - 100).map(|(t, _)| *t).max();
-                format!("t {tr}: [{}] last fill {}", sp.join(","), last.map_or("-".into(), |l| format!("{} gt before", tr - l)))
+                format!("t {tr}: [{}] at {} (stored/visible b/t) last fill {}", sp.join(","), speeds.join(" "), last.map_or("-".into(), |l| format!("{} gt before", tr - l)))
             })
             .collect::<Vec<_>>()
             .join("; ")
