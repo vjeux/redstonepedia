@@ -78,6 +78,7 @@ pub mod stringbench;
 pub mod lanesbench;
 pub mod dropbench;
 pub mod switchbench;
+pub mod sidingbench;
 pub mod brigadebench;
 pub mod lanesjudge;
 pub mod postsearch;

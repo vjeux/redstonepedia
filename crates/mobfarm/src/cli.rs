@@ -3696,12 +3696,101 @@ pub enum MobfarmCmd {
         /// length), printing the rows that fail.
         #[arg(long)]
         login_matrix: bool,
+        /// Restarts T,ORDER (cc767b78's helper): a save/stop/start between ticks T - 1 and T in a load
+        /// order (ORDER save, reverse or seed:K) (repeatable). The cold start is no restart: run the
+        /// fresh design at every phase (`--siding-matrix --corners 0,1,..,99`).
+        #[arg(long)]
+        restart: Vec<String>,
+        /// The restart matrix (ironspec's L1‴ rows): every row of Restart::rows() (save, reverse,
+        /// seed:1..8) at every --phase-step phase of the third cycle, against the control.
+        #[arg(long)]
+        restart_matrix: bool,
+        /// The restart matrix's phase step (gt).
+        #[arg(long, default_value_t = 1)]
+        phase_step: i64,
         /// The switched-R lane: the flat intake and the split's flat branch above the run.
         #[arg(long)]
         intake_flat: bool,
         /// The returns' speed on the split's flat branch (with --intake-flat).
         #[arg(long, default_value_t = 0.2)]
         v_in: f64,
+        /// The napper's lane-exact siding bench (9fc3155f's cells): one lane in the budget's
+        /// coordinates, with the branch, the merge and the siding.
+        #[arg(long)]
+        siding: bool,
+        /// The siding: release the napper this long after its predecessor's merge pass.
+        #[arg(long, default_value_t = 4)]
+        nap_k: i64,
+        /// The siding: every this many drops a napper (0: none).
+        #[arg(long, default_value_t = 3)]
+        nap_every: usize,
+        /// The siding: the napper's return onto the siding this long after its drop.
+        #[arg(long, default_value_t = 60)]
+        nap_ret: i64,
+        /// The siding: its slope powered this long at the release.
+        #[arg(long, default_value_t = 30)]
+        nap_pulse: i64,
+        /// The siding: the merge cell a north_west curve (else a straight flat on the branch).
+        #[arg(long)]
+        merge_curve: bool,
+        /// The siding bench: the lane's plain slopes behind R_1.
+        #[arg(long, default_value_t = 4)]
+        slopes: i32,
+        /// The siding: a guard string over the branch cell before the merge (release while off).
+        #[arg(long)]
+        nap_guard: bool,
+        /// The siding: release only after a predecessor pass seen while the napper waits.
+        #[arg(long)]
+        nap_early: bool,
+        /// The siding's distance west of the lane (1: adjacent to the branch, as laid).
+        #[arg(long, default_value_t = 1)]
+        siding_dx: i32,
+        /// The siding's rest raised one level (9fc3155f's re-laid siding).
+        #[arg(long, default_value_t = 0)]
+        siding_dy: i32,
+        /// The merge string north-south on glass supports.
+        #[arg(long)]
+        ns_merge: bool,
+        /// The siding's guard as a detector rail in the branch cell before the merge's neighbour.
+        #[arg(long)]
+        guard_det: bool,
+        /// The detector guard's cell: the merge's z + this (1: shared with the split's latch, the lead).
+        #[arg(long, default_value_t = 1)]
+        guard_dz: i32,
+        /// The siding bench: the passive drop entry (the merge one level up over a drop with a wall).
+        #[arg(long)]
+        drop_entry: bool,
+        /// The siding bench: leave out the top slope's high-side support (the positive control).
+        #[arg(long)]
+        no_top_support: bool,
+        /// The siding bench: the side power as a real conductor (stone driven through its south face by
+        /// a repeater; the switch a redstone block at the repeater's input).
+        #[arg(long)]
+        side_real: bool,
+        /// The siding bench as a matrix: one compact row per (ret, v_in, nap_ret, corner) of the lists.
+        #[arg(long)]
+        siding_matrix: bool,
+        /// The siding matrix's returns (gt, comma list; default: --ret).
+        #[arg(long, value_delimiter = ',')]
+        rets: Vec<i64>,
+        /// The siding matrix's branch speeds (b/t, comma list; default: --v-in).
+        #[arg(long, value_delimiter = ',')]
+        v_ins: Vec<f64>,
+        /// The siding matrix's napper returns (gt, comma list; default: --nap-ret).
+        #[arg(long, value_delimiter = ',')]
+        nap_rets: Vec<i64>,
+        /// The siding matrix's corners (gt, comma list; default: --corner).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        corners: Vec<i64>,
+        /// The siding matrix's napper slot delays K (gt, comma list; default: --nap-k).
+        #[arg(long, value_delimiter = ',')]
+        nap_ks: Vec<i64>,
+        /// The siding matrix's parallel runs.
+        #[arg(long, default_value_t = 2)]
+        jobs: usize,
+        /// Write the three lanes' design file (loop frame, --slopes) to this path and exit.
+        #[arg(long)]
+        emit_lanes_design: Option<String>,
         #[arg(long)]
         r_boost: bool,
         #[arg(long)]
@@ -8147,7 +8236,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+            if let Some(path) = emit_lanes_design {
+                let text = crate::sidingbench::lanes_design(slopes).map_err(|e| anyhow::anyhow!(e))?;
+                if let Some(dir) = std::path::Path::new(&path).parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                std::fs::write(&path, &text)?;
+                println!("wrote {path} ({} lines)", text.lines().count());
+                return Ok(());
+            }
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
@@ -8156,12 +8254,189 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let login: Vec<(i64, i64)> = login.iter().map(pair).collect::<anyhow::Result<_>>()?;
             let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
-            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32 };
+            let restart: Vec<(i64, crate::liveness::Restart)> = restart.iter().map(|s| crate::liveness::parse_restart(s)).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32, restart };
+            if siding {
+                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real };
+                if restart_matrix {
+                    // (ironspec's L1‴ rows on the siding: every restart row at every phase of the third
+                    // cycle; a row fails on any failure count, or on more arrivals above 0.46 than the
+                    // control (no restart))
+                    let base_t = 300 + 2 * period;
+                    let mut grid: Vec<(crate::liveness::Restart, i64)> = Vec::new();
+                    for r in crate::liveness::Restart::rows() {
+                        let mut p = 0;
+                        while p < period {
+                            grid.push((r, p));
+                            p += phase_step.max(1);
+                        }
+                    }
+                    let mut oc = o.clone();
+                    oc.cycles = cycles.max(6);
+                    let ctl = crate::sidingbench::siding_row(&oc, &so).map_err(|e| anyhow::anyhow!(e))?;
+                    let res = crate::sidingbench::par_map(grid.len(), jobs, |i| {
+                        let (r, p) = grid[i];
+                        let mut oo = oc.clone();
+                        oo.restart = vec![(base_t + p, r)];
+                        crate::sidingbench::siding_row(&oo, &so)
+                    });
+                    let mut fails: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+                    let mut worst = 0.0f64;
+                    for (i, row) in res.into_iter().enumerate() {
+                        let (r, p) = grid[i];
+                        let row = row.map_err(|e| anyhow::anyhow!(e))?;
+                        worst = worst.max(row.arrival_max);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize;
+                        if bad > 0 || row.arrivals_over > ctl.arrivals_over {
+                            fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} over 0.46 {} (control {}){}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.arrivals_over, ctl.arrivals_over, if row.stuck { " napper stuck" } else { "" }));
+                        }
+                    }
+                    println!(
+                        "siding restart matrix (ironspec's L1‴ rows: save, reverse and seed:1..8 at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; the hardest arrival {worst:.3}; control: lost {} over 0.46 {} (max {:.3})",
+                        phase_step.max(1),
+                        grid.len(),
+                        fails.values().map(|v| v.len()).sum::<usize>(),
+                        ctl.empty_releases,
+                        ctl.arrivals_over,
+                        ctl.arrival_max
+                    );
+                    for (k, v) in &fails {
+                        println!("  {k}: {} failing: {}", v.len(), v.iter().take(4).cloned().collect::<Vec<_>>().join(" | "));
+                    }
+                    return Ok(());
+                }
+                if siding_matrix {
+                    let rets = if rets.is_empty() { vec![o.ret] } else { rets };
+                    let v_ins = if v_ins.is_empty() { vec![o.v_in] } else { v_ins };
+                    let nap_rets = if nap_rets.is_empty() { vec![so.nap_ret] } else { nap_rets };
+                    let corners = if corners.is_empty() { vec![o.corner] } else { corners };
+                    let nap_ks = if nap_ks.is_empty() { vec![so.k] } else { nap_ks };
+                    let mut rows: Vec<(i64, f64, i64, i64, i64)> = Vec::new();
+                    for &r in &rets {
+                        for &v in &v_ins {
+                            for &nr in &nap_rets {
+                                for &c in &corners {
+                                    for &kk in &nap_ks {
+                                        rows.push((r, v, nr, c, kk));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let res = crate::sidingbench::par_map(rows.len(), jobs, |i| {
+                        let (r, v, nr, c, kk) = rows[i];
+                        let mut oo = o.clone();
+                        oo.ret = r;
+                        oo.v_in = v;
+                        oo.corner = c;
+                        let mut s2 = so.clone();
+                        s2.nap_ret = nr;
+                        s2.k = kk;
+                        crate::sidingbench::siding_row(&oo, &s2)
+                    });
+                    let mut worst_q: std::collections::BTreeMap<usize, f64> = Default::default();
+                    let mut worst_nap = 0.0f64;
+                    let mut fails = 0usize;
+                    for (i, res) in res.into_iter().enumerate() {
+                        let (r, v, nr, c, kk) = rows[i];
+                        let row = res.map_err(|e| anyhow::anyhow!(e))?;
+                        for (q, x) in &row.by_q {
+                            let e = worst_q.entry(*q).or_insert(0.0);
+                            *e = e.max(*x);
+                        }
+                        let nmax = row.nap_contacts.iter().copied().fold(0.0f64, f64::max);
+                        worst_nap = worst_nap.max(nmax);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize;
+                        fails += (bad > 0) as usize;
+                        println!(
+                            "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+} K {kk}: arrivals by q {}; over 0.46 {} (max {:.3}); landings meeting a cart {} ({} over 0.46), the landing cell held at q {}; top cell {}; nappers {} (late {}; curve rule {}; the longest wait on the siding {} gt); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",
+                            row.by_q.iter().map(|(q, x)| format!("{q}:{x:.3}")).collect::<Vec<_>>().join(" "),
+                            row.arrivals_over,
+                            row.arrival_max,
+                            row.landing_meets,
+                            row.landing_over,
+                            row.occupied_q,
+                            row.top_cell,
+                            if row.nap_contacts.is_empty() { "none".to_string() } else { row.nap_contacts.iter().zip(row.nap_q.iter()).map(|(x, q)| format!("{x:.3}@q{q}")).collect::<Vec<_>>().join(",") },
+                            row.late_naps,
+                            if row.nap_cr.is_empty() { "-".to_string() } else { format!("{}..{} gt", row.nap_cr.iter().min().unwrap_or(&0), row.nap_cr.iter().filter(|c| **c < 500).max().unwrap_or(&0)) },
+                            row.nap_wait_max,
+                            row.empty_releases,
+                            row.not_one,
+                            row.wrong,
+                            row.knocked,
+                            row.touching,
+                            row.order_broken,
+                            row.off_rail,
+                            row.eyes,
+                            if row.min_health == f32::MAX { "-".to_string() } else { format!("{:.1}", row.min_health) },
+                            row.restage_max,
+                            if row.stuck { " NAPPER STUCK" } else { "" }
+                        );
+                    }
+                    println!(
+                        "siding matrix: {} rows, {fails} with a failing count; the hardest arrival by q over all rows: {}; the hardest napper {worst_nap:.3}",
+                        rows.len(),
+                        worst_q.iter().map(|(q, x)| format!("{q}:{x:.3}")).collect::<Vec<_>>().join(" ")
+                    );
+                    return Ok(());
+                }
+                println!("{}", crate::sidingbench::siding_bench(&o, &so).map_err(|e| anyhow::anyhow!(e))?);
+                return Ok(());
+            }
+            if restart_matrix {
+                // (ironspec's L1‴ rows on the switched-R lane: every restart row at every phase of the
+                // third cycle, against the control (no restart))
+                let base_t = 300 + 2 * period;
+                let mut grid: Vec<(crate::liveness::Restart, i64)> = Vec::new();
+                for r in crate::liveness::Restart::rows() {
+                    let mut p = 0;
+                    while p < period {
+                        grid.push((r, p));
+                        p += phase_step.max(1);
+                    }
+                }
+                let mut oc = o.clone();
+                oc.cycles = cycles.max(5);
+                let ctl = crate::switchbench::switch_bench(&oc).map_err(|e| anyhow::anyhow!(e))?;
+                let res = crate::sidingbench::par_map(grid.len(), jobs, |i| {
+                    let (r, p) = grid[i];
+                    let mut oo = oc.clone();
+                    oo.restart = vec![(base_t + p, r)];
+                    crate::switchbench::switch_bench(&oo)
+                });
+                let mut fails: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+                for (i, row) in res.into_iter().enumerate() {
+                    let (r, p) = grid[i];
+                    let row = row.map_err(|e| anyhow::anyhow!(e))?;
+                    let ok = row.per_release.keys().all(|k| *k == 1) && row.shuts == 0 && row.hanging == 0 && row.unsettled == 0 && row.arrivals_over <= ctl.arrivals_over;
+                    if !ok {
+                        fails.entry(r.label()).or_default().push(format!("phase {p}: per release {:?}, shuts {}, unsettled {}, hanging {}, retries {}, over 0.46 {} (control {})", row.per_release, row.shuts, row.unsettled, row.hanging, row.retries, row.arrivals_over, ctl.arrivals_over));
+                    }
+                }
+                println!(
+                    "restart matrix (ironspec's L1‴ rows: save, reverse and seed:1..8 at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; control: per release {:?}, over 0.46 {}",
+                    phase_step.max(1),
+                    grid.len(),
+                    fails.values().map(|v| v.len()).sum::<usize>(),
+                    ctl.per_release,
+                    ctl.arrivals_over
+                );
+                for (k, v) in &fails {
+                    println!("  {k}: {} failing: {}", v.len(), v.iter().take(4).cloned().collect::<Vec<_>>().join(" | "));
+                }
+                return Ok(());
+            }
             if login_matrix {
-                // (a login of 1..=3 gt landing at every phase of the third cycle)
+                // (the pearl alternative's login window: the entities held 1..=3 gt while the blocks
+                // and the controller run, at every phase of the third cycle; the control (no login)
+                // sets the arrival bar's own count, the bar 0.46)
                 let base = 300 + 2 * period;
                 let mut bad: Vec<String> = Vec::new();
                 let mut rows = 0usize;
+                let mut oc = o.clone();
+                oc.cycles = cycles.max(5);
+                let ctl = crate::switchbench::switch_bench(&oc).map_err(|e| anyhow::anyhow!(e))?;
                 for d in 1..=3i64 {
                     for p in 0..period {
                         let mut oo = o.clone();
@@ -8169,13 +8444,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         oo.login = vec![(base + p, d)];
                         let r = crate::switchbench::switch_bench(&oo).map_err(|e| anyhow::anyhow!(e))?;
                         rows += 1;
-                        let ok = r.per_release.keys().all(|k| *k == 1) && r.shuts == 0 && r.hanging == 0 && r.unsettled == 0;
+                        let ok = r.per_release.keys().all(|k| *k == 1) && r.shuts == 0 && r.hanging == 0 && r.unsettled == 0 && r.arrivals_over <= ctl.arrivals_over;
                         if !ok {
-                            bad.push(format!("login {d} gt at phase {p}: per release {:?}, shuts {}, unsettled {}, hanging {}, retries {}", r.per_release, r.shuts, r.unsettled, r.hanging, r.retries));
+                            bad.push(format!("login {d} gt at phase {p}: per release {:?}, shuts {}, unsettled {}, hanging {}, retries {}, arrivals above 0.46 {} (control {})", r.per_release, r.shuts, r.unsettled, r.hanging, r.retries, r.arrivals_over, ctl.arrivals_over));
                         }
                     }
                 }
-                println!("login matrix: {rows} rows (1..3 gt at every phase of a {period}-gt cycle), {} failing{}", bad.len(), if bad.is_empty() { String::new() } else { format!(":\n{}", bad.iter().take(20).cloned().collect::<Vec<_>>().join("\n")) });
+                let cold = ctl.text.lines().find(|l| l.starts_with("the cold start")).unwrap_or("the cold start: -");
+                println!(
+                    "the pearl alternative's login window (the entities held 1..3 gt while the blocks run; not the loop's restart, which is --restart-matrix): {rows} rows over a {period}-gt cycle, {} failing{}\ncontrol (no login): per release {:?}, arrivals above 0.46 {}\n{cold}",
+                    bad.len(),
+                    if bad.is_empty() { String::new() } else { format!(":\n{}", bad.iter().take(20).cloned().collect::<Vec<_>>().join("\n")) },
+                    ctl.per_release,
+                    ctl.arrivals_over
+                );
                 return Ok(());
             }
             println!("{}", crate::dropbench::drop_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
@@ -8217,7 +8499,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::EscapeJudge { lanes, spacing, run, per_lane, period, cycles, ret, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, empty, r_pulse, retry, intake_flat, v_in, starts, k, ds, corners, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
-            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, pockets: 0, string_dy: 2, r_pulse, retry, login: Vec::new(), intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32: Vec::new() };
+            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, pockets: 0, string_dy: 2, r_pulse, retry, login: Vec::new(), intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32: Vec::new(), restart: Vec::new() };
             let modes = vec![crate::lanesjudge::Mode::parse("gt").map_err(|e| anyhow::anyhow!(e))?];
             let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
             let title = if r_pulse > 0 {
