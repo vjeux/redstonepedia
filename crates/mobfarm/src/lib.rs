@@ -41,6 +41,8 @@ pub mod ledge_sweep;
 pub mod contact_scene;
 pub mod combine;
 pub mod holdbench;
+pub mod switchbench;
+pub mod brigadebench;
 pub mod dropbench;
 pub mod lanesbench;
 pub mod stringbench;

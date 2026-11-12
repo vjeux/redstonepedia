@@ -31,6 +31,16 @@ pub struct DropOpts {
     pub entry: i32,
     pub hold_n: i64,
     pub front_boost: bool,
+    /// The bucket-brigade lane instead (every waiting cell a pocket with its own gate): the pockets.
+    pub pockets: usize,
+    /// The brigade's strings: this many cells above each pocket's rail block (2 = (x,18+k,k-1)).
+    pub string_dy: i32,
+    /// The switched-R lane instead (ironspec 22:32): the R line's pulse (0: off).
+    pub r_pulse: i64,
+    /// The switched-R lane: retry the R line this long after a pulse if a D hasn't settled.
+    pub retry: i64,
+    /// Logins: T,D (the entities frozen for D gt while the redstone runs).
+    pub login: Vec<(i64, i64)>,
     /// R (under G_P) a powered slope, always on: the staged cart leaves faster.
     pub r_boost: bool,
     pub floor_bottom: bool,
@@ -70,6 +80,12 @@ struct Visit {
 
 /// The bench: returns the text.
 pub fn drop_bench(o: &DropOpts) -> Result<String, String> {
+    if o.r_pulse > 0 {
+        return crate::switchbench::switch_bench(o).map(|r| r.text);
+    }
+    if o.pockets > 0 {
+        return crate::brigadebench::brigade_bench(o);
+    }
     let glass = Block::parse("minecraft:glass")?;
     let stone = Block::parse("minecraft:stone")?;
     let slope = Block::parse("minecraft:rail[shape=ascending_west,waterlogged=false]")?;
