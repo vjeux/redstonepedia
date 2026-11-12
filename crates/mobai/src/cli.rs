@@ -427,6 +427,41 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec: the hold release) Does a villager seated in a cart trip a
+    /// tripwire string over the cart's cell (at rest, rolling)? With an empty cart and a villager
+    /// in the string's cell as the controls
+    TripwireRider {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// The rolling rows' speed (b/gt)
+        #[arg(long, default_value_t = 0.35)]
+        speed: f64,
+        #[arg(long, default_value_t = 40)]
+        ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec's mirror rule: day-1's latch rows) A bench piece as stated
+    /// and mirrored in z beside it, one drive script applied to both, each read cell of both copies
+    /// every tick and the ticks where they differ
+    MirrorBench {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        file: std::path::PathBuf,
+        /// The mirrored copy's z' = MIRROR_AT - z
+        #[arg(long, default_value_t = -40, allow_hyphen_values = true)]
+        mirror_at: i32,
+        /// t:x,y,z=STATE;... (STATE `air` for minecraft:air), in the stated copy's frame
+        #[arg(long, allow_hyphen_values = true)]
+        script: String,
+        /// name:x,y,z:prop;... (prop a boolean property, or `shape`)
+        #[arg(long, allow_hyphen_values = true)]
+        reads: String,
+        /// The script repeated shifted by each of these gt
+        #[arg(long, default_value = "0")]
+        phases: String,
+        #[arg(long, default_value_t = 120)]
+        ticks: u32,
+    },
     /// (tickexact 2026-11-12, push-scan's bridge) The pairs' neighbourhood hashes of a composition
     /// from its files alone (no server); --list prints each cube's non-air cells
     BridgeHash {
@@ -1014,6 +1049,34 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
+        }
+        MobaiCmd::TripwireRider { version, speed, ticks } => crate::tripwirerider::tripwire_rider(&version, speed, ticks),
+        MobaiCmd::MirrorBench { version, file, mirror_at, script, reads, phases, ticks } => {
+            let cell = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let script: Vec<crate::mirrorbench::Event> = script
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    let (t, rest) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--script t:x,y,z=STATE, got {s}"))?;
+                    let (c, state) = rest.split_once('=').ok_or_else(|| anyhow::anyhow!("--script t:x,y,z=STATE, got {s}"))?;
+                    Ok(crate::mirrorbench::Event { t: t.trim().parse()?, p: cell(c)?, state: state.trim().to_string() })
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let reads: Vec<crate::mirrorbench::Read> = reads
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    let f: Vec<&str> = s.split(':').collect();
+                    anyhow::ensure!(f.len() == 3, "--reads name:x,y,z:prop, got {s}");
+                    Ok(crate::mirrorbench::Read { name: f[0].to_string(), p: cell(f[1])?, prop: f[2].to_string() })
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let phases: Vec<u32> = phases.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::mirrorbench::mirror_bench(&version, &file, mirror_at, &script, &reads, &phases, ticks)
         }
         MobaiCmd::BridgeHash { module, parts, pairs, list, selftest } => {
             if selftest {

@@ -189,6 +189,7 @@ sulfur-cube-rail.rec	8099a548983c70e9		26.3	2026-11-11T07:12Z on 244b9196d	mctas
 sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mobai record sulfur-cubes --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 takeoff-clamp.rec	2d6def856f3a43f0		26.3	2026-11-11T20:54Z on 37d74a3853	mctas mobai record takeoff-clamp --seed 1 --ticks 100 --dir designs/redsim/recorded/mobai
 ticket-release.rec	51ce4f1f04f560c4		26.3	2026-11-11T15:48Z on 78e705bca2	mctas mobai record ticket-release --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+tripwire-rider.rec	532729e78a494c36		26.3	2026-11-12T18:48Z on f02f86adc	mctas mobai record tripwire-rider --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 unload-part-v3-raw.rec	8bd68eb2d7b4d719		26.3	2026-11-11T03:34Z on 2a49ff7aa	mctas mobai record unload-part-v3-raw --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 unload-siding-raw.rec	c0040c175b9b7e6a		26.3	2026-11-11T02:53Z on 9dcfccb602	mctas mobai record unload-siding-raw --seed 1 --ticks 3900 --dir designs/redsim/recorded/mobai
 unload-v3-raw.rec	538476674a40f9ce		26.3	2026-11-11T02:59Z on 19b0f80d6f	mctas mobai record unload-v3-raw --seed 1 --ticks 500 --dir designs/redsim/recorded/mobai

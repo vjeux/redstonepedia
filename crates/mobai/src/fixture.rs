@@ -5701,6 +5701,52 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-12, ironspec: the hold release, a seated rider under a tripwire string)
+    // each row its own copy along +x at x = 2, 6, 10, 14, 18: a straight north-south rail on glass at
+    // y 64 through z 0..12, the string at (x,65,6) over the rail's (x,64,6) between hooks (x,65,5)
+    // facing south and (x,65,7) facing north, each on glass behind it (z 4 and 8); x 2 a ridden cart
+    // at rest under the string, x 6 a ridden cart rolling south through it from z 1.5 at 0.35, x 10
+    // an empty cart at rest under it, x 14 an empty cart rolling through, x 18 a villager standing
+    // on the rail under it (the game: the seated rider and the standing villager press the string,
+    // the empty carts never; the rolling rider from its box's entry, the hooks' 10-gt re-check
+    // releasing it)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 62, stone);
+        for x in [2, 6, 10, 14, 18] {
+            for z in 0..=12 {
+                b.push(([x, 63, z], "minecraft:glass".to_string()));
+                b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            b.push(([x, 65, 4], "minecraft:glass".to_string()));
+            b.push(([x, 65, 8], "minecraft:glass".to_string()));
+            b.push(([x, 65, 5], "minecraft:tripwire_hook[attached=true,facing=south,powered=false]".to_string()));
+            b.push(([x, 65, 7], "minecraft:tripwire_hook[attached=true,facing=north,powered=false]".to_string()));
+            b.push(([x, 65, 6], "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]".to_string()));
+        }
+        let ridden = |v: f64| format!("{{Motion:[0.0d,0.0d,{v}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}");
+        let empty = |v: f64| format!("{{Motion:[0.0d,0.0d,{v}d]}}");
+        let mobs = vec![
+            ("minecraft:minecart".to_string(), [2.5, 64.0625, 6.5], Some(ridden(0.0))),
+            ("minecraft:minecart".to_string(), [6.5, 64.0625, 1.5], Some(ridden(0.35))),
+            ("minecraft:minecart".to_string(), [10.5, 64.0625, 6.5], Some(empty(0.0))),
+            ("minecraft:minecart".to_string(), [14.5, 64.0625, 1.5], Some(empty(0.35))),
+            ("minecraft:villager".to_string(), [18.5, 64.0, 6.5], Some("{PersistenceRequired:1b}".to_string())),
+        ];
+        v.push(Scene {
+            name: "tripwire-rider".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [20, 67, 13]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, the pane walls' water for 7b90c3f1's lift) a 1 x 1 water column over
     // soul sand (16, 64..68, 16) walled by 4 dry unconnected glass panes per layer (its corners
     // air), its sources placed at t5 (the soul sand makes it a bubble column); a waterlogged pane

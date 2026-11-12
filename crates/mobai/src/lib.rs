@@ -25,6 +25,8 @@ pub mod napperrelease;
 pub mod bridgehash;
 pub mod carttrace;
 pub mod sightcheck;
+pub mod mirrorbench;
+pub mod tripwirerider;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;
