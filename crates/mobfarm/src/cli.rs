@@ -1263,6 +1263,15 @@ pub enum MobfarmCmd {
         /// G2 shuts at release + A, G1 at release + B (instead of position triggers).
         #[arg(long, value_delimiter = ',')]
         gate_shut: Vec<i64>,
+        /// (7b90c3f1) The stand's gates shut on D1's real powered rising edge (P1's detector rail at
+        /// (12,-1,6): only the batch's front cart crosses it) plus lockable delays: G1 at the edge
+        /// + A, G2 at the edge + B (live time, paused while frozen); "A,B" (ironspec: 2,11).
+        #[arg(long, value_delimiter = ',')]
+        gate_shut_d1: Vec<i64>,
+        /// (7b90c3f1) A fault row: cart K (0 the front) is never handed off (removed at T: the
+        /// cart that never arrives).
+        #[arg(long)]
+        missing: Option<usize>,
         /// The batch's carts: 3, or 2 (the third stays parked).
         #[arg(long, default_value_t = 3)]
         carts: usize,
@@ -4446,7 +4455,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, timer_model, freeze_matrix, jobs } => {
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, gate_shut_d1, missing, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, timer_model, freeze_matrix, jobs } => {
             let timer_model: Option<crate::climb::TimerModel> = match (&timer_model, chain_stage) {
                 (Some(s), _) => Some(crate::climb::TimerModel::parse(s).map_err(|e| anyhow::anyhow!(e))?),
                 (None, Some(st)) => Some(crate::climb::TimerModel { stage: st.max(1), resume: false, free: None }),
@@ -4454,6 +4463,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
             anyhow::ensure!(gate_shut.is_empty() || gate_shut.len() == 2, "--gate-shut A,B");
+            anyhow::ensure!(gate_shut_d1.is_empty() || gate_shut_d1.len() == 2, "--gate-shut-d1 A,B");
             // (7b90c3f1's meter timer fill, MCTAS_TIMER_FILL=T1,T2: G1 stays open T1 and G2 T2
             // live gt after the hold's release; the bench drives its gates the same way)
             let gate_shut: Vec<i64> = match (gate_shut.is_empty(), std::env::var("MCTAS_TIMER_FILL")) {
@@ -4558,6 +4568,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     hand_off: route_geo.map(|(p, v, c)| (p, v, if e > 0 { e } else if gravity { 3 } else if folded { 13 } else { 10 }, c)),
                     hand_off_2: e2,
                     gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
+                    gate_shut_d1: (gate_shut_d1.len() == 2).then(|| (gate_shut_d1[0], gate_shut_d1[1])),
+                    missing,
                     n_carts: carts,
                     trace,
                     alive: alive_gate,
