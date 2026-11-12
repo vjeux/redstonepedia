@@ -2402,7 +2402,8 @@ pub enum MobfarmCmd {
     StationJudge {
         #[arg(long, default_value_t = 16)]
         hold_y: i32,
-        #[arg(long, value_delimiter = ',', default_value = "3,4,5,6,7")]
+        /// The RELs (T+3..9 around the adopted REL = golem + 4: G1 2026-11-12 05:15).
+        #[arg(long, value_delimiter = ',', default_value = "3,4,5,6,7,8,9")]
         rel: Vec<i64>,
         /// The launch offsets (dfb89499's run line at 4bce82b85: 0/14/28, ironspec's provisional s 14).
         #[arg(long, value_delimiter = ',', default_value = "0,14,28")]
@@ -2437,9 +2438,13 @@ pub enum MobfarmCmd {
         /// Seeds from --seed (every row runs at each; G1: dfb89499's control and cold rows ran 40).
         #[arg(long, default_value_t = 1)]
         seeds: i64,
-        /// The rest margin's and the landing lead's bar (the L1 edge bar: 3 gt + 1 scheduled tick).
+        /// The landing lead's bar (the L1 edge bar: 3 gt + 1 scheduled tick).
         #[arg(long, default_value_t = crate::stationjudge::EDGE_BAR)]
         edge: i64,
+        /// The rest margin's bar before the next summon (the L1 edge bar until dfb89499's panic measure
+        /// lands; the 20-gt rest bar is retired: ironspec 2026-11-12 05:26).
+        #[arg(long, default_value_t = crate::stationjudge::REST_BAR)]
+        rest_bar: i64,
         #[arg(long, value_delimiter = ',', default_value = "0,150")]
         starts: Vec<i64>,
         /// Login lengths for the pearl alternative's load window (empty: none).
@@ -6526,7 +6531,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::StationJudge { hold_y, rel, stagger, rebrake, release, open_delay, pulse, refill, posts, no_slab_stop, scarers, l2, ticks, seed, seeds, edge, starts, ds, no_restarts, no_cold, launch_min, rebrakes, pulses, open_delays, refill_delays, refill_lens, staggers, jobs } => {
+        MobfarmCmd::StationJudge { hold_y, rel, stagger, rebrake, release, open_delay, pulse, refill, posts, no_slab_stop, scarers, l2, ticks, seed, seeds, edge, rest_bar, starts, ds, no_restarts, no_cold, launch_min, rebrakes, pulses, open_delays, refill_delays, refill_lens, staggers, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(stagger.len() == 3, "--stagger A,B,C");
             anyhow::ensure!(refill.len() == 2, "--refill D,L");
@@ -6560,7 +6565,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let (spec, cold_spec) = (spec_of([true; 3])?, spec_of([false; 3])?);
             let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
-            let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, jobs };
+            let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, rest_bar, jobs };
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
                 if l2 { "L2" } else { "L1" },
@@ -6579,7 +6584,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in lines {
                 println!("{l}");
             }
-            println!("over the matrix: {fails} failing runs in the lead's rows (controls included; the pearl alternative's logins reported above)");
+            println!("over the matrix: {fails} failing runs in the lead's rows (controls included; the pearl alternative's logins reported above); PENDING: the stand's summon bar (dfb89499's panic measure: >= 1 caller at every T over all 400 sensor-phase pairs, margin >= 2 at REL T+2..6), the rest held to --rest-bar {rest_bar} gt meanwhile");
             let mut rows: Vec<(String, crate::drop::DropOpts)> = Vec::new();
             for v in &rebrakes {
                 rows.push((format!("the re-brake {v}"), crate::drop::DropOpts { rebrake: *v, ..base.clone() }));

@@ -6,8 +6,11 @@
 //! `liveness::Restart::rows()`, the save order, its reverse and 8 seeded orders), and the cold start
 //! (the fresh design with the departing carts absent: `--dep-riders x,x,x`); for the pearl alternative
 //! also the load window (the bench's login of D gt at every phase, the controller running through it),
-//! reported apart. A run passes when every cart landed on a braked pocket and is at rest before the next
-//! summon, with 0 wrong pockets, contacts, riders hurt, unseated ticks, departing carts stuck, refill
+//! reported apart. A run passes when every cart landed on a braked pocket at least the L1 edge bar
+//! (4 gt) before its re-brake and is at rest at least the rest bar (`--rest-bar`; the edge bar until
+//! dfb89499's panic measure, ≥ 1 caller at every T over all 400 sensor-phase pairs, lands: ironspec
+//! 2026-11-12 05:26 retired the 20-gt bar) before the next summon, with 0 wrong pockets, contacts,
+//! riders hurt, unseated ticks, departing carts stuck, refill
 //! failures and trapdoors shut onto their cart (and, with `launch_min`, every launch that far after the
 //! one before). Printed per REL over its seeds: the lead's rows' failing phases per order, their least
 //! rest margin, landing lead and launch spacing; the logins' failing phases and margins apart, and the
@@ -17,14 +20,20 @@
 use crate::drop::{DropOpts, DropStats, bench};
 use redsim::entity::mob::farm::FarmSpec;
 
-/// The L1 edge bar (farmopt 2026-11-12 02:39, ironspec): every cart at rest at least this long before
-/// the next summon, and landed at least this long before its pocket's re-brake (3 gt + 1 scheduled
-/// tick).
+/// The L1 edge bar (farmopt 2026-11-12 02:39, ironspec): every cart landed at least this long before
+/// its pocket's re-brake (3 gt + 1 scheduled tick).
 pub const EDGE_BAR: i64 = 4;
 
-/// A run's failures (empty: it passes): the bars, with the rest margin and the landing lead held to
-/// `edge` gt (the L1 edge bar, [`EDGE_BAR`]).
-pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
+/// The rest margin's bar before the next summon until dfb89499's panic measure lands (ironspec
+/// 2026-11-12 05:26: the stand's summon bar is the game's rule, ≥ 1 caller at every T over all 400
+/// sensor-phase pairs; the 20-gt rest bar and the all-three rule are retired): the L1 edge bar, the
+/// arrival at rest being a timed edge against the summon tick. The judge reports the summon bar as
+/// pending.
+pub const REST_BAR: i64 = EDGE_BAR;
+
+/// A run's failures (empty: it passes): the bars, with the landing lead held to `edge` gt (the L1
+/// edge bar, [`EDGE_BAR`]) and the rest margin before the next summon to `rest_bar` gt ([`REST_BAR`]).
+pub fn fails(s: &DropStats, launch_min: i64, edge: i64, rest_bar: i64) -> Vec<&'static str> {
     let mut v = Vec::new();
     if s.fall == i64::MAX {
         v.push("a cart never landed");
@@ -38,8 +47,8 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
         v.push("not all at rest");
     } else if s.rest < 0 {
         v.push("at rest after the next summon");
-    } else if s.rest < edge {
-        v.push("at rest within the edge bar of the next summon");
+    } else if s.rest < rest_bar {
+        v.push("at rest within the rest bar of the next summon");
     }
     if s.wrong > 0 {
         v.push("a wrong pocket");
@@ -115,8 +124,10 @@ pub struct StationJudgeOpts {
     pub restarts: bool,
     pub cold: bool,
     pub launch_min: i64,
-    /// The rest margin's and the landing lead's bar (gt; [`EDGE_BAR`]).
+    /// The landing lead's bar (gt; [`EDGE_BAR`]).
     pub edge: i64,
+    /// The rest margin's bar before the next summon (gt; [`REST_BAR`]).
+    pub rest_bar: i64,
     pub jobs: usize,
 }
 
@@ -178,7 +189,7 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
             results.push(r?);
         }
     }
-    let fl = |s: &DropStats| -> Vec<&'static str> { fails(s, o.launch_min, o.edge) };
+    let fl = |s: &DropStats| -> Vec<&'static str> { fails(s, o.launch_min, o.edge, o.rest_bar) };
     let gt = |v: Option<i64>| v.map_or("-".to_string(), |x| if x == i64::MIN { "FAIL".to_string() } else { format!("{x} gt") });
     let mut out = Vec::new();
     let mut total = 0usize;
@@ -226,7 +237,7 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
             },
             gt(rest),
             gt(rest_c),
-            o.edge,
+            o.rest_bar,
             gt(lead_min),
             o.edge,
             gt(gap),
@@ -264,21 +275,29 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
 mod tests {
     use super::*;
 
-    /// The L1 edge bar bites (a positive control): a run at rest 3 gt before the summon, or landed 2
-    /// gt before its re-brake, fails at the bar of 4 and passes at 0; the measured margins pass.
+    /// The bars bite (positive controls): a run landed 2 gt before its re-brake fails at the edge bar
+    /// of 4; a run at rest 19 gt before the summon fails at a rest bar of 20 and passes at 19 (farmopt
+    /// 2026-11-12 05:19: the rest is held to `--rest-bar`, its own bar); a run at rest 3 gt before it
+    /// fails at the default rest bar (the edge bar, until the panic measure lands); the measured
+    /// margins pass.
     #[test]
     fn edge_bar() {
         let ok = DropStats { rest: 34, brake_lead: Some(23), fall: 30, ..Default::default() };
-        assert!(fails(&ok, 0, EDGE_BAR).is_empty());
+        assert!(fails(&ok, 0, EDGE_BAR, REST_BAR).is_empty());
+        let rest19 = DropStats { rest: 19, ..ok.clone() };
+        assert_eq!(fails(&rest19, 0, EDGE_BAR, 20), vec!["at rest within the rest bar of the next summon"]);
+        assert!(fails(&rest19, 0, EDGE_BAR, 19).is_empty());
+        assert!(fails(&rest19, 0, EDGE_BAR, REST_BAR).is_empty());
         let near_summon = DropStats { rest: 3, ..ok.clone() };
-        assert_eq!(fails(&near_summon, 0, EDGE_BAR), vec!["at rest within the edge bar of the next summon"]);
-        assert!(fails(&near_summon, 0, 0).is_empty());
+        assert_eq!(fails(&near_summon, 0, EDGE_BAR, REST_BAR), vec!["at rest within the rest bar of the next summon"]);
+        assert!(fails(&near_summon, 0, EDGE_BAR, 0).is_empty());
         let near_rebrake = DropStats { brake_lead: Some(2), ..ok.clone() };
-        assert_eq!(fails(&near_rebrake, 0, EDGE_BAR), vec!["landed within the edge bar of its pocket's re-brake"]);
+        assert_eq!(fails(&near_rebrake, 0, EDGE_BAR, REST_BAR), vec!["landed within the edge bar of its pocket's re-brake"]);
+        assert!(fails(&near_rebrake, 0, 2, REST_BAR).is_empty());
         let powered = DropStats { brake_lead: Some(-1), ..ok.clone() };
-        assert_eq!(fails(&powered, 0, EDGE_BAR), vec!["landed on a powered pocket"]);
+        assert_eq!(fails(&powered, 0, EDGE_BAR, REST_BAR), vec!["landed on a powered pocket"]);
         let late = DropStats { rest: -2, ..ok.clone() };
-        assert_eq!(fails(&late, 0, EDGE_BAR), vec!["at rest after the next summon"]);
+        assert_eq!(fails(&late, 0, EDGE_BAR, REST_BAR), vec!["at rest after the next summon"]);
         assert!(Row::Restart(5, crate::liveness::Restart::rows()[0]).lead() && Row::Cold.lead() && !Row::Login(5, 2).lead());
     }
 }
