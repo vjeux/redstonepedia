@@ -34,6 +34,9 @@ pub struct LiftOpts {
     /// Q2's merge: three entry lanes (A the entry line, B and C joining it through passive T
     /// junctions), carts launched on A, B, C in turn.
     pub merge3: bool,
+    /// Q2's split: J1/J2 on the exit line after the slope, armed and disarmed by rise-keyed
+    /// detector latches, routing carts A/B/C back to lanes z 0 / 2 / -2 in merge order.
+    pub split3: bool,
     /// The bench frozen (its chunks at level 32: blocks tick, entities don't) from tick FROM for LEN
     /// gt; the carts' launches wait it out.
     pub freeze: Option<(i64, i64)>,
@@ -108,6 +111,35 @@ fn build(o: &LiftOpts) -> Result<FarmSpec, String> {
         }
         // (the exit line's end: a glass stop, the carts queueing against it)
         blocks.push((BlockPos::new(x - 1, y, 0), glass.clone()));
+        if o.split3 {
+            // (Q2's split, ironspec 22:03: two powered junctions on the exit line after the slope,
+            // J1 (straight or south_east: to lane B along z 2) and J2 (straight or north_east: to
+            // lane C along z -2), lane A straight on z 0; the detectors two cells off every
+            // junction (tick-exact: no signal source beside a T): D1a on the main line between J1
+            // and J2, Db on lane B, Dc on lane C)
+            let ye = h - o.exit_slope;
+            let x0 = -1 - o.exit_slope;
+            let (j1, j2) = (x0 - 1, x0 - 5);
+            let ns = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]")?;
+            let det = Block::parse("minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+            blocks.retain(|(p, _)| !(p.y == ye && p.z == 0 && (p.x == x0 - 3 || p.x == j2 - 2)));
+            blocks.push((BlockPos::new(x0 - 3, ye, 0), det.clone()));
+            // (Da2: lane A two cells past J2, crossed only by the batch's first cart)
+            blocks.push((BlockPos::new(j2 - 2, ye, 0), det.clone()));
+            for (j, side, corner) in [(j1, 1, "north_west"), (j2, -1, "south_west")] {
+                blocks.push((BlockPos::new(j, ye, side), ns.clone()));
+                blocks.push((BlockPos::new(j, ye - 1, side), glass.clone()));
+                blocks.push((BlockPos::new(j, ye, 2 * side), Block::parse(&format!("minecraft:rail[shape={corner},waterlogged=false]"))?));
+                blocks.push((BlockPos::new(j, ye - 1, 2 * side), glass.clone()));
+                blocks.push((BlockPos::new(j - 1, ye, 2 * side), det.clone()));
+                blocks.push((BlockPos::new(j - 1, ye - 1, 2 * side), glass.clone()));
+                for xx in (x0 - 14)..(j - 1) {
+                    blocks.push((BlockPos::new(xx, ye, 2 * side), flat.clone()));
+                    blocks.push((BlockPos::new(xx, ye - 1, 2 * side), glass.clone()));
+                }
+                blocks.push((BlockPos::new(x0 - 15, ye, 2 * side), glass.clone()));
+            }
+        }
     }
     if o.exit == "current" {
         // (a water source east of the shaft's top air cell, glass-boxed: its flow into (0,h,0)
@@ -198,6 +230,21 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
     let rblock = Block::parse("minecraft:redstone_block")?;
     let glass_b = Block::parse("minecraft:glass")?;
     let mut frozen_ticks = 0i64;
+    // (`split3`: the latches (L1: J1 to lane B; L2: J2 to lane C), the detectors' last states, the
+    // junction cells; each junction set to its latch's shape, the redstone the bench stands in for)
+    let ye = o.height - o.exit_slope;
+    let x0 = -1 - o.exit_slope;
+    let (j1, j2) = (x0 - 1, x0 - 5);
+    let (d1a, db, dc) = (BlockPos::new(x0 - 3, ye, 0), BlockPos::new(j1 - 1, ye, 2), BlockPos::new(j2 - 1, ye, -2));
+    let da2 = BlockPos::new(j2 - 2, ye, 0);
+    let (mut l1, mut l2) = (false, false);
+    let mut was = [false; 4];
+    let mut split_log: Vec<String> = Vec::new();
+    let shape = |s: &str| Block::parse(&format!("minecraft:rail[shape={s},waterlogged=false]"));
+    if o.split3 {
+        run.world.set_block(BlockPos::new(j1, ye, 0), shape("east_west")?, redsim::world::flags::ALL);
+        run.world.set_block(BlockPos::new(j2, ye, 0), shape("east_west")?, redsim::world::flags::ALL);
+    }
     for t in 0..o.ticks {
         // (the freeze: the bench's chunks (x -1..0, z -1..0) at level 32, the spare chunk west of
         // them still forced)
@@ -218,6 +265,39 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
             frozen_ticks += 1;
         }
         let live = t - frozen_ticks;
+        // (`split3`: rises arm and disarm the latches: D1a (crossed by the batch's first and third
+        // carts) arms L1 only with both latches off; Db (lane B's cart) clears L1; Da2 (lane A past
+        // J2: the first cart only, so J2 turns only once it is clear) arms L2; Dc clears L2)
+        if o.split3 {
+            let on = |p: BlockPos| matches!(run.world.get(p), Block::DetectorRail { powered: true, .. });
+            let now = [on(d1a), on(db), on(dc), on(da2)];
+            let (p1, p2) = (l1, l2);
+            if now[0] && !was[0] && !l1 && !l2 {
+                l1 = true;
+            }
+            if now[1] && !was[1] {
+                l1 = false;
+            }
+            if now[3] && !was[3] {
+                l2 = true;
+            }
+            if now[2] && !was[2] {
+                l2 = false;
+            }
+            was = now;
+            if l1 != p1 {
+                run.world.set_block(BlockPos::new(j1, ye, 0), shape(if l1 { "south_east" } else { "east_west" })?, redsim::world::flags::ALL);
+                if split_log.len() < 30 {
+                    split_log.push(format!("t {t} J1 {}", if l1 { "to B" } else { "straight" }));
+                }
+            }
+            if l2 != p2 {
+                run.world.set_block(BlockPos::new(j2, ye, 0), shape(if l2 { "north_east" } else { "east_west" })?, redsim::world::flags::ALL);
+                if split_log.len() < 30 {
+                    split_log.push(format!("t {t} J2 {}", if l2 { "to C" } else { "straight" }));
+                }
+            }
+        }
         // (`piston`: the bench powers the piston while a cart's bottom is at the exit rail's level
         // in the shaft's column, then unpowers it 4 gt later)
         if o.exit == "piston" {
@@ -243,7 +323,10 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
             }
         }
         for (k, lg) in logs.iter_mut().enumerate() {
-            if lg.id.is_none() && !frozen_now && live >= k as i64 * o.spacing {
+            // (with --merge3 the carts come in batches of three, one per lane, a batch every 100 gt:
+            // cart k at (k / 3) x 100 + (k % 3) x spacing)
+            let at = if o.merge3 { (k as i64 / 3) * 100 + (k as i64 % 3) * o.spacing } else { k as i64 * o.spacing };
+            if lg.id.is_none() && !frozen_now && live >= at {
                 let nbt = format!("{{Motion:[{:.4}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", -o.speed);
                 // (--merge3: cart k on lane A, B, C in turn: z 0, 2, -2)
                 let lane_z = if o.merge3 { [0.5, 2.5, -1.5][k % 3] } else { 0.5 };
@@ -349,6 +432,19 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         if o.exit == "current" { "1 cell" } else { "none" },
         o.height
     ));
+    if o.split3 {
+        // (each cart's lane at the end against its merge lane (cart k from lane A, B, C in turn))
+        let lanes: Vec<String> = logs
+            .iter()
+            .enumerate()
+            .map(|(k, lg)| {
+                let got = lg.end.map(|(_, _, z, _, _)| if z > 1.5 { "B" } else if z < -0.5 { "C" } else { "A" }).unwrap_or("-");
+                let want = ["A", "B", "C"][k % 3];
+                format!("cart {k} {got}{}", if got == want { "" } else { " (WRONG LANE)" })
+            })
+            .collect();
+        out.push(format!("split: {}; the switches: {}", lanes.join(", "), split_log.join(", ")));
+    }
     out.push(format!(
         "pairs: the closest centres in the shaft's column {}; the hardest contact (centres within 1.0) {:.3}{}",
         if column_gap.is_finite() { format!("{column_gap:.3}") } else { "-".into() },
