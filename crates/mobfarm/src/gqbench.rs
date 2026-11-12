@@ -423,6 +423,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut recv_hold = [false; 3];
     let mut recv_settled = false;
     let mut last_rise_t3: i64 = i64::MIN / 2;
+    // (cc767b78: the rises at P3 and P4 after the warm-up)
+    let mut p_rises: [Vec<i64>; 2] = [Vec::new(), Vec::new()];
     let mut recv_entry: [Option<i64>; 3] = [None; 3];
     let mut recv_edges: Vec<String> = Vec::new();
     let mut recv_gap_min: [Option<i64>; 2] = [None; 2];
@@ -647,6 +649,11 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         // (the sensors and the latches)
         for (si, (sx, sy)) in sensors.iter().enumerate() {
             let on = matches!(run.world.get(BlockPos::new(*sx, *sy, 0)), Block::DetectorRail { powered: true, .. });
+            // (cc767b78: every rise at P3 (Tail(2)'s P) and P4 (Tail(3)'s) after the warm-up, for
+            // the least spacing between successive rises: each cart its own rise, ironspec's bar 21)
+            if on && !was_on[si] && (si == 2 || si == 3) && t >= warm {
+                p_rises[si - 2].push(t);
+            }
             if on && !was_on[si] {
                 if si < nt {
                     occ_t[si] = true;
@@ -1391,6 +1398,16 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             l.push(format!("  receiver edge {e}"));
         }
         l.push(format!("  receiver feeds (Tail(3)'s P edges): {}{}", recv_feeds.iter().take(12).map(|x| x.to_string()).collect::<Vec<_>>().join(", "), if recv_exit_edges.is_empty() { String::new() } else { format!("; exit detector edges: {}", recv_exit_edges.iter().take(12).map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) }));
+        // (cc767b78: the least spacing between successive rises at P3 and P4 after the warm-up:
+        // each cart its own rise, ironspec's bar 21 gt)
+        let least = |v: &Vec<i64>| v.windows(2).map(|w| (w[1] - w[0], w[1])).min();
+        l.push(format!(
+            "rises at P3 and P4 after the warm-up (each cart its own rise; the bar 21 gt or more): P3 {} rises, the least spacing {}; P4 {} rises, the least spacing {}",
+            p_rises[0].len(),
+            least(&p_rises[0]).map_or("-".to_string(), |(g, t)| format!("{g} gt (at t {t})")),
+            p_rises[1].len(),
+            least(&p_rises[1]).map_or("-".to_string(), |(g, t)| format!("{g} gt (at t {t})"))
+        ));
     }
     Ok(l.join("\n"))
 }

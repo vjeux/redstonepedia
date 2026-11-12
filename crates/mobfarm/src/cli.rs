@@ -4164,6 +4164,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let real = parts.get(2).is_some_and(|x| x.trim() == "real");
                 let runs: Vec<(i64, i64)> = (*t0..=*t1).step_by((*step).max(1) as usize).flat_map(|t| ds.iter().map(move |d| (t, *d))).collect();
                 println!("gq-bench freeze matrix: {} freezes from t {t0}..{t1} every {step} gt for {:?} gt ({} runs; {}{})", if real { "real (the whole bench at level 32, redstone running)" } else { "emulated (every cart's position and motion restored each tick)" }, ds, runs.len(), if alive_gate { "day-1's live-time clock and liveness gate" } else { "ironfarm's instant gate (openings skip while frozen)" }, if corner != 0 { format!(", corner {corner}") } else { String::new() });
+                // (cc767b78: the matrix's totals: runs, runs with a gate shut onto a cart, the least
+                // rise spacing at P3 and P4 with its run, the failing freezes)
+                let mut tot = (0usize, 0usize);
+                let mut tot_gap: [Option<(i64, String)>; 2] = [None, None];
+                let mut tot_fail: Vec<String> = Vec::new();
                 for chunk in runs.chunks(jobs.max(1)) {
                     let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
                         let hs: Vec<_> = chunk
@@ -4208,9 +4213,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let into = after("must be 0): ").map(|x| num(&x)).unwrap_or("-".to_string());
                         let dropped = after("sequences dropped ").map(|x| num(&x)).unwrap_or("-".to_string());
                         let lost = after("a consequence row): ").map(|x| x.to_string()).unwrap_or("-".to_string());
-                        println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped} | releases lost {lost}");
+                        // (cc767b78: the least spacing between successive rises at P3 and P4)
+                        let rises = r.lines().find_map(|l| l.strip_prefix("rises at P3 and P4 after the warm-up (each cart its own rise; the bar 21 gt or more): ")).map(|x| x.to_string());
+                        let gap_of = |which: &str| -> Option<i64> {
+                            let s = rises.as_ref()?;
+                            let part = s.split("; ").find(|p| p.starts_with(which))?;
+                            part.split("the least spacing ").nth(1)?.split(' ').next()?.parse().ok()
+                        };
+                        let (g3, g4) = (gap_of("P3 "), gap_of("P4 "));
+                        let shuts_n: usize = shuts.parse().unwrap_or(0);
+                        tot.0 += 1;
+                        tot.1 += (shuts_n > 0) as usize;
+                        for (k, g) in [g3, g4].into_iter().enumerate() {
+                            if let Some(g) = g
+                                && tot_gap[k].as_ref().is_none_or(|(m, _)| g < *m)
+                            {
+                                tot_gap[k] = Some((g, format!("freeze t {ft} for {d}")));
+                            }
+                        }
+                        if shuts_n > 0 {
+                            tot_fail.push(format!("{ft}/{d}"));
+                        }
+                        println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped} | releases lost {lost} | least rise spacing P3 {} P4 {}", g3.map_or("-".to_string(), |g| g.to_string()), g4.map_or("-".to_string(), |g| g.to_string()));
                     }
                 }
+                println!(
+                    "over the matrix: {} runs; a gate shut onto a cart in {}{}; the least rise spacing at P3 {}, at P4 {} (each cart its own rise; the bar 21 gt or more)",
+                    tot.0,
+                    tot.1,
+                    if tot_fail.is_empty() { String::new() } else { format!(" ({})", tot_fail.iter().take(40).cloned().collect::<Vec<_>>().join(", ")) },
+                    tot_gap[0].as_ref().map_or("-".to_string(), |(g, w)| format!("{g} gt ({w})")),
+                    tot_gap[1].as_ref().map_or("-".to_string(), |(g, w)| format!("{g} gt ({w})"))
+                );
                 return Ok(());
             }
             println!("{}", crate::gqbench::gq_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
