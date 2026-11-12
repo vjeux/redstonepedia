@@ -3814,6 +3814,8 @@ pub struct LoopTiming {
     pub dep_pulse: Option<(i64, i64)>,
     /// (cc767b78) a junction cell watched while carts sit in it (loop frame).
     pub t_watch: Option<[i32; 3]>,
+    /// (cc767b78) a fault: P2's transit latch stuck (SLOT, LEVEL, N slots).
+    pub p2_stuck: Option<(i64, bool, i64)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -3957,6 +3959,9 @@ pub struct MeterState {
     /// live gt, a held REL, and the counts
     tl: Option<i64>,
     tl_live: i64,
+    /// (cc767b78) a fault on P2's transit latch: stuck set (true) or clear (false) over N slots
+    /// from SLOT (`--p2-stuck`)
+    pub tl_stuck: Option<(i64, bool, i64)>,
     rel_pending: Option<i64>,
     rels_held: usize,
     rel_late: Vec<i64>,
@@ -4412,6 +4417,21 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     // chunk ticks entities, so a frozen cart never times out)
     let rel_edge = rel_on && !s.rel_was;
     if m.p2 {
+        // (cc767b78, `--p2-stuck`: the transit latch forced set or clear over its window; a stuck
+        // set latch still times out and re-sets at once)
+        if let Some((s0, lv, n)) = s.tl_stuck
+            && c >= s0
+            && c < s0.saturating_add(n)
+        {
+            if lv {
+                if s.tl.is_none() {
+                    s.tl = Some(t);
+                }
+            } else {
+                s.tl = None;
+                s.tl_live = 0;
+            }
+        }
         let hc = at(xb, 3, 0);
         let live = w.chunk_level(hc.x.div_euclid(16), hc.z.div_euclid(16)) <= 31;
         if s.tl.is_some() && live {
@@ -5781,7 +5801,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, t_watch: None, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, t_watch: None, p2_stuck: None, meter: None }
     }
 }
 
@@ -7382,6 +7402,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut tail_rest_at: Vec<i64> = Vec::new();
     // (`meter`: S3(ii)'s metered stand, emulated)
     let mut meter_state = MeterState::default();
+    meter_state.tl_stuck = tm.p2_stuck;
     // (the wired second stand (`--meter-hold ...,VB` 2): stand B, the same stand pasted at
     // `MCTAS_WIRED_B_OFF` (default 0,-27,32) from A, its own meter on the odd cycles' REL)
     let mut meter_state_b = MeterState {
