@@ -616,13 +616,15 @@ pub enum MobfarmCmd {
         /// With --fix-search: also every PAIR of candidate glass floors (a two-cell walkway).
         #[arg(long)]
         fix_pairs: bool,
-        /// The path-integrated stamp age along a rider's path: a `queue-loop-run --watch K` file
-        /// (one cart position a gt); each stamp's arming cell, clearing cell and age, the worst
-        /// against 1,000 gt.
+        /// DIAGNOSTIC; e6 positive control not met (the runner's 1,019-gt e6 stamp on W is cleared
+        /// within a few gt by these static roles). The path-integrated stamp age along a rider's
+        /// path: a `queue-loop-run --watch K` file (one cart position a gt); each stamp's arming
+        /// cell, clearing cell and age, the worst against 1,000 gt.
         #[arg(long)]
         path_watch: Option<PathBuf>,
-        /// With --path-watch: every cell change between these two path labels' ticks (`c287+0,c297+40`:
-        /// slot and dt) with its role (arms / clears / neither) and its draws' reachable shares.
+        /// DIAGNOSTIC (see --path-watch). With --path-watch: every cell change between these two
+        /// path labels' ticks (`c287+0,c297+40`: slot and dt) with its role (arms / clears /
+        /// neither) and its draws' reachable shares.
         #[arg(long)]
         path_trace: Option<String>,
         /// The floor block --fix-search places (default glass: golem-proof, but not a stroll
@@ -7085,7 +7087,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let runs = crate::fleecheck::stamp_path(&roles, &path);
                 let worst = runs.iter().map(|r| r.cleared.map_or(path.len() as i64 - r.t0, |(t, _)| t - r.t0)).max().unwrap_or(0);
                 println!(
-                    "path-integrated stamp age ({} ticks of the rider's path; arms: a panicking cell whose draws no path reaches, clears: a panicking cell with a reachable draw; calm cells neither): {} stamps, the worst {} gt (bar < 1000): {}",
+                    "path-integrated stamp age (DIAGNOSTIC: e6 positive control not met; {} ticks of the rider's path; arms: a panicking cell whose draws no path reaches, clears: a panicking cell with a reachable draw; calm cells neither): {} stamps, the worst {} gt (bar < 1000): {}",
                     path.len(),
                     runs.len(),
                     worst,
