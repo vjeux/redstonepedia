@@ -237,6 +237,28 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-11, ironspec's chunk-loader study) On the official server with the
+    /// load-window agent: a forced farm chunk's first ticks after a world load, per tick (its
+    /// scheduled ticks, block events and entities on or off, and what ran), over --runs restarts
+    LoadWindow {
+        /// quiet (the farm's chunks forced, a void world), load (a 25 x 25 forced square of real
+        /// terrain loading at the same start), pearl (the farm held only by the bot's stand-in
+        /// pearls, the bot logging out and in), pearl-busy (pearl in real terrain at view and
+        /// simulation distance 12)
+        #[arg(long, default_value = "quiet")]
+        case: String,
+        #[arg(long, default_value_t = 5)]
+        runs: u32,
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
+    /// (tickexact 2026-11-12, ironspec's design-space item 3) On the official server: villagers
+    /// holding the overworld bed as HOME at night, calm and panicking in the Nether, calm in the
+    /// overworld, and one crossing into the Nether in a minecart: whose HOME survives
+    NetherHome {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) Scene bed-reload-<case>'s
     /// recording at its checkpoints: every villager's HOME and LAST_SLEPT, the bed, the naps
     RecBedreload {
@@ -446,6 +468,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecGqintake { paths, by_speed } => crate::fixture::rec_gqintake(&paths, by_speed),
         MobaiCmd::RecGqempties { path } => crate::fixture::rec_gqempties(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
+        MobaiCmd::LoadWindow { case, runs, version } => crate::loadwindow::load_window(&version, &case, runs),
+        MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::BedReloadVanilla { case, forceload, version } => crate::bedreload::bed_reload_vanilla(&version, &case, forceload),
         MobaiCmd::StopperSweep { files } => crate::fixture::stopper_sweep(&files),
         MobaiCmd::RecCartpole { path } => crate::fixture::rec_cartpole(&path),

@@ -47,20 +47,37 @@ pub const GOLEM_AGENT: (&str, &str) = ("dev/vjeux/mctas/agent/GolemAgent.java", 
 /// The golem agent's jar for `version`'s Java (built with the JDK's own `javac` and `jar` next to
 /// the server's `java`, cached by a hash of the source): the value of `-javaagent:`.
 pub fn golem_agent(version: &str) -> Result<PathBuf> {
+    agent_jar(version, GOLEM_AGENT, "dev.vjeux.mctas.agent.GolemAgent", "golem-agent")
+}
+
+/// (tickexact 2026-11-11, ironspec's chunk-loader study) The load-window agent (`bridge/agent`):
+/// from the official server's first tick, per watched overworld chunk and tick, whether its
+/// scheduled ticks, block events and entities run, and how many scheduled ticks and entity ticks
+/// it ran (`mctas mobai load-window`).
+pub const LOAD_AGENT: (&str, &str) = ("dev/vjeux/mctas/agent/LoadAgent.java", include_str!("../../../bridge/agent/dev/vjeux/mctas/agent/LoadAgent.java"));
+
+/// The load-window agent's jar for `version`'s Java (as [`golem_agent`]); its arguments go after
+/// `=` in the `-javaagent:` value.
+pub fn load_agent(version: &str) -> Result<PathBuf> {
+    agent_jar(version, LOAD_AGENT, "dev.vjeux.mctas.agent.LoadAgent", "load-agent")
+}
+
+/// A Java agent's jar for `version`'s Java (built with the JDK's own `javac` and `jar` next to the
+/// server's `java`, cached by a hash of the source).
+fn agent_jar(version: &str, (name, text): (&str, &str), main_class: &str, stem: &str) -> Result<PathBuf> {
     // one build at a time in this process (a gate's parallel builds all ask for it at once:
     // they shared one `.tmp-<pid>` folder and removed it under each other, tick-exact), and a
     // folder of its own per build across processes
     static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one = BUILDING.lock().unwrap_or_else(|e| e.into_inner());
     let install = setup::install_server(version)?;
-    let (name, text) = GOLEM_AGENT;
     let hash = &net::sha256_hex(format!("{version}{name}{text}").as_bytes())[..12];
-    let jar = paths::version_dir(version).join(format!("golem-agent-{hash}.jar"));
+    let jar = paths::version_dir(version).join(format!("{stem}-{hash}.jar"));
     if jar.exists() {
         return Ok(jar);
     }
     let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let tmp = paths::version_dir(version).join(format!("golem-agent-{hash}.tmp-{}-{nonce}", std::process::id()));
+    let tmp = paths::version_dir(version).join(format!("{stem}-{hash}.tmp-{}-{nonce}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     let src = tmp.join("src").join(name);
     std::fs::create_dir_all(src.parent().unwrap())?;
@@ -72,20 +89,20 @@ pub fn golem_agent(version: &str) -> Result<PathBuf> {
     let out = Command::new(&javac).args(["--release", &major.to_string(), "-nowarn", "-encoding", "UTF-8", "-d"]).arg(&classes).arg(&src).output().with_context(|| format!("running {}", javac.display()))?;
     if !out.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("javac (golem agent) failed:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        bail!("javac ({stem}) failed:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     }
     let manifest = tmp.join("MANIFEST.MF");
-    std::fs::write(&manifest, "Premain-Class: dev.vjeux.mctas.agent.GolemAgent\n")?;
+    std::fs::write(&manifest, format!("Premain-Class: {main_class}\n"))?;
     let jar_tool = javac.with_file_name("jar");
     let part = tmp.join("agent.jar");
     let out = Command::new(&jar_tool).arg("--create").arg("--file").arg(&part).arg("--manifest").arg(&manifest).arg("-C").arg(&classes).arg(".").output().with_context(|| format!("running {}", jar_tool.display()))?;
     if !out.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("jar (golem agent) failed:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        bail!("jar ({stem}) failed:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     }
     // renamed into place (processes starting together build the same jar)
     if std::fs::rename(&part, &jar).is_err() && !jar.exists() {
-        bail!("moving the golem agent into {}", jar.display());
+        bail!("moving the {stem} into {}", jar.display());
     }
     let _ = std::fs::remove_dir_all(&tmp);
     Ok(jar)
