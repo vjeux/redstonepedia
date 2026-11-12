@@ -2771,7 +2771,7 @@ fn wait_portal(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
             if let Ok(s) = p.rcon(&format!("execute in minecraft:overworld positioned {}.0 3.0 {}.0 run data get entity @e[type=minecraft:item,distance=..16,sort=nearest,limit=1] Pos", c.rox + 1, c.doz_a)) {
                 p.loga(&format!("wait_portal: nearest OW item to R_O: {}", s.trim()));
             }
-            if let Ok(s) = p.rcon(&format!("execute in minecraft:the_nether positioned {}.5 6.0 {}.5 run data get entity @e[type=minecraft:item,distance=..10,sort=nearest,limit=1] Pos", c.rnx + 2, plan.rz)) {
+            if let Ok(s) = p.rcon(&format!("execute in minecraft:the_nether positioned {} 6.0 {} run data get entity @e[type=minecraft:item,distance=..10,sort=nearest,limit=1] Pos", mctas::cell_centre(c.rnx + 2), mctas::cell_centre(plan.rz))) {
                 p.loga(&format!("wait_portal: nearest Nether item to R_N: {}", s.trim()));
             }
             if let Some(twin) = p.state.twin {
@@ -3771,8 +3771,8 @@ fn scenes2(p: &mut Prod) -> Result<()> {
                     let east_rep = p.test_block("overworld", [c.dix + 2, 3, c.doz_a + 1], "minecraft:repeater[powered=true]").unwrap_or(false);
                     let drop_trig = p.test_block("overworld", [c.dix + 1, 3, c.doz_a + 1], "minecraft:dropper[triggered=true]").unwrap_or(false);
                     let item = p.rcon(&format!(
-                        "execute in minecraft:overworld positioned {}.5 3.0 {}.5 run data get entity @e[type=minecraft:item,distance=..6,sort=nearest,limit=1] Pos",
-                        c.rox + 1, c.doz_a + 1
+                        "execute in minecraft:overworld positioned {} 3.0 {} run data get entity @e[type=minecraft:item,distance=..6,sort=nearest,limit=1] Pos",
+                        mctas::cell_centre(c.rox + 1), mctas::cell_centre(c.doz_a + 1)
                     )).unwrap_or_default();
                     let hop = p.rcon(&format!("data get block {} 2 {} Items", c.rox + 1, c.doz_a + 1)).unwrap_or_default();
                     let barrel = p.rcon(&format!("data get block {} 1 {} Items", c.rox + 1, c.doz_a + 1)).unwrap_or_default();

@@ -382,8 +382,8 @@ pub fn alt_design(n: u32) -> String {
         ports.push(format!("port input.d{i}: -3 {h} {z} frame"));
         ports.push(format!("port input.k{i}: -4 {h} {} frame", z + 1));
         let item = "Item:{id:\"minecraft:arrow\",count:1}";
-        ents.push(format!("entity: minecraft:item_frame -2.5 {h}.5 {z}.5 {{Facing:4b,{item},ItemRotation:0b}}"));
-        ents.push(format!("entity: minecraft:item_frame -3.5 {h}.5 {}.5 {{Facing:4b,{item},ItemRotation:{}b}}", z + 1, codes[i as usize % codes.len()]));
+        ents.push(format!("entity: minecraft:item_frame -2.5 {} {} {{Facing:4b,{item},ItemRotation:0b}}", mctas::cell_centre(h), mctas::cell_centre(z)));
+        ents.push(format!("entity: minecraft:item_frame -3.5 {} {} {{Facing:4b,{item},ItemRotation:{}b}}", mctas::cell_centre(h), mctas::cell_centre(z + 1), codes[i as usize % codes.len()]));
     }
     // the output torch on the west face of the support under the bus's north end
     cells.insert((1, 1, 0), 'O');
@@ -455,8 +455,8 @@ pub fn hidden_design(n: u32) -> String {
         zlast = zlast.max(zt.max(zw));
         ports.push(format!("port input.d{i}: -3 2 {zt} frame"));
         ports.push(format!("port input.k{i}: 2 2 {zk} frame"));
-        ents.push(format!("entity: minecraft:item_frame -2.5 2.5 {zt}.5 {{Facing:4b,{item},ItemRotation:0b}}"));
-        ents.push(format!("entity: minecraft:item_frame 2.5 2.5 {zk}.5 {{Facing:5b,{item},ItemRotation:{}b}}", codes[i as usize % codes.len()]));
+        ents.push(format!("entity: minecraft:item_frame -2.5 2.5 {} {{Facing:4b,{item},ItemRotation:0b}}", mctas::cell_centre(zt)));
+        ents.push(format!("entity: minecraft:item_frame 2.5 2.5 {} {{Facing:5b,{item},ItemRotation:{}b}}", mctas::cell_centre(zk), codes[i as usize % codes.len()]));
     }
     // the bus under every torch, and the output torch on the west face of its first support
     for z in 0..=zlast {
