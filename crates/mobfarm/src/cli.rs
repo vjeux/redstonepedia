@@ -1488,6 +1488,10 @@ pub enum MobfarmCmd {
         /// signal at rest; a stored shape it would not keep fails the run); the run says so.
         #[arg(long)]
         no_junction_check: bool,
+        /// Skip the rail-peak check (a slope's high end straight into a slope going down, no flat
+        /// cell between: a top no cart crosses, which fails the run); the run says so.
+        #[arg(long)]
+        no_peak_check: bool,
         /// The release group's first slope (the head) on this many gt into the slot. Default 4:
         /// day-1's wired C24 core in the farm's summon frame (q17's rail powered at slot +4 =
         /// S+11), found by the per-tick trace-diff on day-1's c24u-pad (Nov 11 13:05, IDENTICAL
@@ -3264,6 +3268,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // runner: the pasted file's chunk-line crossings, its own frame taken as the world's,
             // as `queue-loop-run` takes it)
             println!("{}", crate::borders::summary(&d.blocks, [0, 0], 12));
+            // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
+            println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
         MobfarmCmd::Column { parts, reserves, ports, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, out } => {
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
@@ -3831,7 +3837,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, cross_list, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_computed, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check, esc_bands, no_blind_check, blind_all, freeze_rows, freeze_for, freeze_after, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, takeoff_z, fault_table, perfect_tail, all_corners, rel_sweep, cprime_variants, bed_distance, approach_trace, rel_clear, head_wait, head_latch, corner_table, speeds_out, rise_list } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, cross_list, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_computed, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check, no_peak_check, esc_bands, no_blind_check, blind_all, freeze_rows, freeze_for, freeze_after, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, takeoff_z, fault_table, perfect_tail, all_corners, rel_sweep, cprime_variants, bed_distance, approach_trace, rel_clear, head_wait, head_latch, corner_table, speeds_out, rise_list } => {
             let (c, mut spec) = load(version, &design)?;
             // (every run reports the design's chunk-line crossings: ironspec's placement rule,
             // Nov 11; a report, the failing crossings listed)
@@ -4066,6 +4072,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 hdr.static_checks.push(g);
             } else {
                 hdr.static_checks.push(("rail junctions: NOT CHECKED (--no-junction-check)".to_string(), false));
+            }
+            // (the rail-peak check, a default gate (9fc3155f's find, Nov 11): a slope's high end
+            // straight into a slope going down is a top no cart crosses; the opt-out says so)
+            if !no_peak_check {
+                let g = crate::borders::peaks_line(&c.clock.design.blocks);
+                if !sweep.is_empty() || phase_sweep.is_some() {
+                    println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
+                }
+                hdr.static_checks.push(g);
+            } else {
+                hdr.static_checks.push(("rail peaks: NOT CHECKED (--no-peak-check)".to_string(), false));
             }
             if esc_bands {
                 println!("{}", crate::queue::esc_bands(&spec, &o, &tm, sweep_range, seed, seeds, cycles, jobs).map_err(|e| anyhow::anyhow!(e))?);
@@ -5903,6 +5920,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
             let off = match offset.as_slice() { [x, z] => [*x, *z], [] => [0, 0], _ => anyhow::bail!("--offset takes X,Z") };
             println!("{}", crate::borders::report(&d.blocks, off, depth));
+            println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
         MobfarmCmd::Trim { design, out, threads, days, runs } => crate::trim::trim_cmd(&crate::trim::TrimArgs { design, out, threads, days, runs })?,
         MobfarmCmd::Climb { design } => crate::trim::climb_cmd(&design)?,

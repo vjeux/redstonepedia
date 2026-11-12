@@ -147,6 +147,50 @@ pub fn crossings(blocks: &std::collections::BTreeMap<[i32; 3], String>, offset: 
 
 const RULE: &str = "the rule: plain unpowered flat cells on both sides, no climb within 2 cells, no peak or powered cell at the line";
 
+/// Slope-to-slope peaks (9fc3155f, Nov 11, found on gq-bench where carts stopped on the rising
+/// slope): a slope's high end joined straight to a slope going down from it, with no flat cell
+/// between them. Each one as (the rising cell, the falling cell).
+pub fn peaks(blocks: &std::collections::BTreeMap<[i32; 3], String>) -> Vec<([i32; 3], [i32; 3])> {
+    let rails: HashMap<[i32; 3], Rail> = blocks.iter().filter_map(|(c, s)| rail_of(s).map(|r| (*c, r))).collect();
+    let mut out: Vec<([i32; 3], [i32; 3])> = Vec::new();
+    for (c, r) in &rails {
+        if !slope(r) {
+            continue;
+        }
+        for e in ends(&r.shape) {
+            // (the high end; its neighbour one lower than that end is a slope falling away)
+            if e.2 != 1 {
+                continue;
+            }
+            if let Some(n) = next(&rails, *c, e)
+                && n[1] == c[1]
+                && rails.get(&n).is_some_and(slope)
+            {
+                // (both high ends meet at the top, so each peak is found from both sides: once)
+                out.push(if *c < n { (*c, n) } else { (n, *c) });
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The default report line for [`peaks`] (the paste's and the runner's), each peak listed.
+pub fn peaks_line(blocks: &std::collections::BTreeMap<[i32; 3], String>) -> (String, bool) {
+    let p = peaks(blocks);
+    let rails: HashMap<[i32; 3], Rail> = blocks.iter().filter_map(|(c, s)| rail_of(s).map(|r| (*c, r))).collect();
+    let cell = |c: &[i32; 3]| rails.get(c).map_or(String::new(), |r| format!("({},{},{}) {} {}", c[0], c[1], c[2], r.block, r.shape));
+    (
+        format!(
+            "rail peaks (a slope's high end straight into a slope going down, no flat cell between: a cart stops on the rising slope; `mctas mobfarm borders`): {}{}",
+            if p.is_empty() { "0, PASS".to_string() } else { format!("{}, FAIL", p.len()) },
+            p.iter().map(|(a, b)| format!("\n  peak: {} | {}", cell(a), cell(b))).collect::<String>()
+        ),
+        !p.is_empty(),
+    )
+}
+
 /// Every crossing, one line each, after a count.
 pub fn report(blocks: &std::collections::BTreeMap<[i32; 3], String>, offset: [i32; 2], depth: usize) -> String {
     let v = crossings(blocks, offset, depth);
@@ -197,5 +241,23 @@ mod tests {
         let v = crossings(&line(&climb2), [0, 0], 12);
         assert_eq!(v.len(), 1);
         assert!(v[0].1, "{}", v[0].0);
+    }
+
+    #[test]
+    fn a_slope_straight_into_a_falling_slope_is_a_peak_and_a_flat_top_or_a_valley_is_not() {
+        // (east along x: up from y 1 to 2, then straight down again: one peak, found once)
+        let peak = line(&[([0, 1, 0], "rail[shape=east_west]"), ([1, 1, 0], "rail[shape=ascending_east]"), ([2, 1, 0], "rail[shape=ascending_west]"), ([3, 1, 0], "rail[shape=east_west]")]);
+        assert_eq!(peaks(&peak), vec![([1, 1, 0], [2, 1, 0])]);
+        assert!(peaks_line(&peak).1);
+        // (a flat cell on top: no peak)
+        let flat_top = line(&[([1, 1, 0], "rail[shape=ascending_east]"), ([2, 2, 0], "rail[shape=east_west]"), ([3, 1, 0], "rail[shape=ascending_west]")]);
+        assert!(peaks(&flat_top).is_empty());
+        assert!(!peaks_line(&flat_top).1);
+        // (a valley, down then straight up, as the stand's pockets have: no peak)
+        let valley = line(&[([1, 1, 0], "rail[shape=ascending_west]"), ([2, 1, 0], "rail[shape=ascending_east]")]);
+        assert!(peaks(&valley).is_empty());
+        // (a straight climb of two slopes: no peak)
+        let climb = line(&[([1, 1, 0], "rail[shape=ascending_east]"), ([2, 2, 0], "rail[shape=ascending_east]")]);
+        assert!(peaks(&climb).is_empty());
     }
 }
