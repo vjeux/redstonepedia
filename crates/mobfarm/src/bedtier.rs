@@ -272,6 +272,8 @@ pub struct Row {
     /// After the restart: the directions of the woken napper's paths off the pickup cell (north is
     /// toward the arriving cart).
     pub paths_after_restart: Vec<&'static str>,
+    /// The same after the wake in any row.
+    pub paths_after_wake: Vec<&'static str>,
     /// The napper's cell on its first awake tick after the nap.
     pub stood: Option<[i32; 3]>,
     /// Every cell the awake napper stood on between the wake and the pickup.
@@ -476,15 +478,20 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             if row.woke_at.is_some() && !riding && !asleep && row.pickup.is_none() && !row.cells_after_wake.contains(&vcell) {
                 row.cells_after_wake.push(vcell);
             }
-            // (after a restart: the woken napper's path off the pickup cell, by direction)
-            if f.restart.is_some_and(|(at, _)| t >= at)
+            // (after the wake: the woken napper's path off the pickup cell, by direction; north is up
+            // the approach, into the arriving cart: a problem in any row)
+            if row.woke_at.is_some()
                 && !riding
                 && !asleep
                 && vcell == SWEPT[0]
                 && let Some(d) = path_dir(w, vi)
-                && !row.paths_after_restart.contains(&d)
             {
-                row.paths_after_restart.push(d);
+                if !row.paths_after_wake.contains(&d) {
+                    row.paths_after_wake.push(d);
+                }
+                if f.restart.is_some_and(|(at, _)| t >= at) && !row.paths_after_restart.contains(&d) {
+                    row.paths_after_restart.push(d);
+                }
             }
             was_asleep = asleep;
             if std::env::var("MCTAS_BT_TRACE").is_ok_and(|x| x == "1") && t % 5 == 0 {
@@ -539,8 +546,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     if let Some(t) = row.home_lost_at {
         row.problems.push(format!("the napper's HOME lost at t {t}"));
     }
-    if row.paths_after_restart.contains(&"north") {
-        row.problems.push("a northward path off the pickup cell after the restart".into());
+    if row.paths_after_wake.contains(&"north") {
+        row.problems.push(if row.paths_after_restart.contains(&"north") { "a northward path off the pickup cell after the restart" } else { "a northward path off the pickup cell" }.into());
     }
     let expect_seated = !f.empty && !f.no_home && !f.hide_after_wake;
     if expect_seated && !row.seated_out {
@@ -605,7 +612,7 @@ pub struct TwoRow {
     pub c_seated: bool,
     pub home_lost: Vec<(&'static str, i64)>,
     pub homes_end: (bool, bool),
-    /// After the restart, a napper on the pickup cell had a path north (toward the arriving cart).
+    /// A napper awake on the pickup cell had a path north (toward the arriving cart), any row.
     pub north_path: bool,
     /// At each lie-down (A's and C's), the napper's feet the tick before to the bed head's centre.
     pub lie_dists: Vec<f64>,
@@ -772,10 +779,9 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
             homes[k] = has;
             let asleep = redsim::entity::mob::mob(w, i).sleeping_pos.is_some();
             let seated = w.entities.list[i].vehicle == Some(cart) && released;
-            // (after a restart: a napper on the pickup cell with a path north, toward the cart)
+            // (a napper awake on the pickup cell with a path north, toward the cart: any row)
             let v = &w.entities.list[i];
-            if o.restart.is_some_and(|(at, _)| t >= at)
-                && v.vehicle.is_none()
+            if v.vehicle.is_none()
                 && !asleep
                 && [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32] == SWEPT[0]
                 && path_dir(w, i) == Some("north")
@@ -851,7 +857,7 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
         row.problems.push(format!("HOME lost {:?}", row.home_lost));
     }
     if row.north_path {
-        row.problems.push("a northward path off the pickup cell after the restart".into());
+        row.problems.push("a northward path off the pickup cell".into());
     }
     if !run.world.errors.is_empty() {
         row.problems.push(format!("world: {}", run.world.errors.join("; ")));
@@ -1034,6 +1040,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let (mut tot, mut clean, mut seated, mut not_out, mut lost) = (0, 0, 0, 0, 0);
     // (after a restart, the woken napper's paths off the pickup cell: visits with each direction)
     let mut dirs: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
+    let mut dirs_wake: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
     // (the lie-downs' reach to the bed head's centre: the most, against SleepInBed's 2)
     let mut lie_max = 0f64;
     let mut lie_min = f64::MAX;
@@ -1053,6 +1060,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         lost += r.home_lost_at.is_some() as usize;
                         for d in &r.paths_after_restart {
                             *dirs.entry(d).or_default() += 1;
+                        }
+                        for d in &r.paths_after_wake {
+                            *dirs_wake.entry(d).or_default() += 1;
                         }
                         for &d in &r.lie_dists {
                             lie_max = lie_max.max(d);
@@ -1095,7 +1105,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     }
     delays.sort();
     let pct = |p: f64| delays.get(((delays.len() as f64 - 1.0) * p).round() as usize).copied();
-    println!("bed stop bench: {tot} visits ({} rows), {clean} clean, seated {seated}; not out {not_out}; HOME lost {lost}; pickup speeds {:.3}..{:.3}; exit later than the night's (gt): min {:?}, median {:?}, p99 {:?}, max {:?}; after a restart, visits with a path off the pickup cell by direction {dirs:?}; lie-downs' reach to the bed head's centre {:.3}..{:.3} (SleepInBed's bar 2)", rows.len(), if min_pick == f64::MAX { 0.0 } else { min_pick }, max_pick, delays.first(), pct(0.5), pct(0.99), delays.last(), if lie_min == f64::MAX { 0.0 } else { lie_min }, lie_max);
+    println!("bed stop bench: {tot} visits ({} rows), {clean} clean, seated {seated}; not out {not_out}; HOME lost {lost}; pickup speeds {:.3}..{:.3}; exit later than the night's (gt): min {:?}, median {:?}, p99 {:?}, max {:?}; after a restart, visits with a path off the pickup cell by direction {dirs:?}; after the wake in any row {dirs_wake:?}; lie-downs' reach to the bed head's centre {:.4}..{:.4} (SleepInBed's bar 2)", rows.len(), if min_pick == f64::MAX { 0.0 } else { min_pick }, max_pick, delays.first(), pct(0.5), pct(0.99), delays.last(), if lie_min == f64::MAX { 0.0 } else { lie_min }, lie_max);
     Ok(())
 }
 
@@ -1188,7 +1198,7 @@ pub fn two_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, restart_phases
     }
     gap.sort();
     c_waits.sort();
-    println!("two visits (queue released on R, C at the entry {transit} gt later, A's lift from R + {lift_delay} at {lift_speed} b/t): {n} rows, {clean} clean; A within 17 at C's lie-down {close}; HOME lost or missing at the end {lost}; A's least distance at C's lie-down {:?}; A's R to C's lie-down min {:?} median {:?} max {:?} gt; lie-downs' reach to the bed head's centre {:.3}..{:.3} (SleepInBed's bar 2)", least.map(|d| format!("{d:.2}")), gap.first(), gap.get(gap.len() / 2), gap.last(), if lie_min == f64::MAX { 0.0 } else { lie_min }, lie_max);
+    println!("two visits (queue released on R, C at the entry {transit} gt later, A's lift from R + {lift_delay} at {lift_speed} b/t): {n} rows, {clean} clean; A within 17 at C's lie-down {close}; HOME lost or missing at the end {lost}; A's least distance at C's lie-down {:?}; A's R to C's lie-down min {:?} median {:?} max {:?} gt; lie-downs' reach to the bed head's centre {:.4}..{:.4} (SleepInBed's bar 2)", least.map(|d| format!("{d:.2}")), gap.first(), gap.get(gap.len() / 2), gap.last(), if lie_min == f64::MAX { 0.0 } else { lie_min }, lie_max);
     if day_hold.is_some() {
         println!("daylight rows (the NOT DAY gate opens at day times {day_offs}): C's wait at the queue for A's R min {:?} median {:?} max {:?} gt", c_waits.first(), c_waits.get(c_waits.len() / 2), c_waits.last());
     }
