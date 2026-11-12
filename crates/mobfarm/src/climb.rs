@@ -1016,6 +1016,180 @@ pub fn design_with(cells: i32, crest: i32, pattern: &str, with_riders: [bool; 3]
     b.text(&["One-chunk (b): the climb bench: H's queue, a straight powered climb to today's approach top, the snap turn and today's 3 pockets (gates bench-driven)."])
 }
 
+/// (cc767b78) The lock line of a lockable repeater chain: the chain locks this many gt after
+/// ALIVE falls and unlocks this many gt after it rises (one 1-tick repeater into the chain's sides).
+pub const CHAIN_LOCK_D: usize = 2;
+
+/// (cc767b78) A pausable timer's build, for the stand's fill (`--timer-model`): stages of `stage`
+/// gt; `resume`: a lock holds a stage's partial progress (a pause with no lag) instead of the
+/// stage running its full delay again from the unlock (a locked repeater's lost tick: a lag of up
+/// to one stage); `free`: the stages are a free-running clock's periods with this phase at T (a
+/// counter of clock pulses: the first count at the clock's next pulse after the release, the
+/// total rounded to whole periods) instead of a chain keyed on the release edge (exact).
+#[derive(Clone, Copy, Debug)]
+pub struct TimerModel {
+    pub stage: i64,
+    pub resume: bool,
+    pub free: Option<i64>,
+}
+
+impl TimerModel {
+    /// "chain:S[,resume][,free=P]" (or a bare S).
+    pub fn parse(s: &str) -> Result<TimerModel, String> {
+        let body = s.strip_prefix("chain:").unwrap_or(s);
+        let mut parts = body.split(',');
+        let stage: i64 = parts.next().unwrap_or("").trim().parse().map_err(|_| format!("--timer-model {s}: chain:S[,resume][,free=P]"))?;
+        let mut m = TimerModel { stage: stage.max(1), resume: false, free: None };
+        for p in parts {
+            match p.trim() {
+                "resume" => m.resume = true,
+                x if x.starts_with("free=") => m.free = Some(x[5..].parse().map_err(|_| format!("--timer-model {s}: free=P"))?),
+                x => return Err(format!("--timer-model {s}: unknown option {x}")),
+            }
+        }
+        Ok(m)
+    }
+
+    pub fn label(&self) -> String {
+        format!(
+            "{} of {} gt stages{}",
+            if self.free.is_some() { "a counter of a free-running clock's pulses" } else { "a lockable chain keyed on the release edge" },
+            self.stage,
+            match (self.resume, self.free) {
+                (true, Some(p)) => format!(" (the clock's phase {p} at T; a lock holds a period's progress)"),
+                (false, Some(p)) => format!(" (the clock's phase {p} at T; a period caught by a lock runs again in full from the unlock)"),
+                (true, None) => " (a lock holds a stage's progress)".to_string(),
+                (false, None) => " (a stage completing while locked runs its full delay again from the unlock)".to_string(),
+            }
+        )
+    }
+}
+
+/// (cc767b78) One fill timer as a lockable chain (or a counter of a clock's pulses): its stages
+/// (gt), the stage running, its completion tick (None: waiting for the unlock to schedule it), the
+/// running stage's progress left (`resume`), whether it has fired, and the completions lost to a
+/// lock.
+#[derive(Clone, Debug)]
+struct Chain {
+    stages: Vec<i64>,
+    j: usize,
+    due: Option<i64>,
+    rem: i64,
+    resume: bool,
+    /// (restart semantics) the progress held from the tick a lock engaged on a scheduled stage
+    /// until that stage's completion is lost or the lock ends (its countdown still runs, but what
+    /// it reaches while locked is lost)
+    held: Option<i64>,
+    done: bool,
+    lost: usize,
+}
+
+impl Chain {
+    /// A timer of `total` gt built as `m`, its first stage's input rising at `t` (the release;
+    /// scheduled only if unlocked): keyed, a remainder stage first and whole stages after (exact);
+    /// free-running, the first count at the clock's next pulse, then whole periods (the total
+    /// rounded to periods).
+    fn start(total: i64, m: TimerModel, t: i64, locked: bool) -> Chain {
+        let s = m.stage.max(1);
+        let mut stages = Vec::new();
+        match m.free {
+            None => {
+                if total % s > 0 {
+                    stages.push(total % s);
+                }
+                stages.extend(std::iter::repeat_n(s, (total / s) as usize));
+            }
+            Some(p) => {
+                let first = s - (t + p).rem_euclid(s);
+                let n = ((total + s / 2) / s).max(1);
+                stages.push(first);
+                stages.extend(std::iter::repeat_n(s, (n - 1) as usize));
+            }
+        }
+        if stages.is_empty() {
+            stages.push(1);
+        }
+        let due = (!locked).then(|| t + stages[0]);
+        Chain { rem: stages[0], stages, j: 0, due, resume: m.resume, held: None, done: false, lost: 0 }
+    }
+
+    /// One tick: true on the tick the chain's last stage completes (its output rises).
+    /// The chain's progress at `t` (gt since its start, as its stages count it): its completed
+    /// stages, plus the running stage's elapsed part (none while waiting for an unlock: a lost
+    /// stage's progress is gone).
+    fn progress(&self, t: i64) -> i64 {
+        let done: i64 = self.stages[..self.j.min(self.stages.len())].iter().sum();
+        if self.done {
+            return done;
+        }
+        if let Some(h) = self.held {
+            return h;
+        }
+        let cur = self.stages[self.j];
+        done + if self.resume {
+            cur - self.rem
+        } else {
+            match self.due {
+                Some(d) => cur - (d - t),
+                None => 0,
+            }
+        }
+    }
+
+    fn tick(&mut self, t: i64, locked: bool) -> bool {
+        if self.done {
+            return false;
+        }
+        if self.resume {
+            // (a pause: the stage's progress held while locked)
+            if locked {
+                return false;
+            }
+            self.rem -= 1;
+            if self.rem > 0 {
+                return false;
+            }
+            self.j += 1;
+            if self.j == self.stages.len() {
+                self.done = true;
+                return true;
+            }
+            self.rem = self.stages[self.j];
+            return false;
+        }
+        // (the progress a lock catches a scheduled stage at: held until it is lost or the lock ends)
+        if !locked {
+            self.held = None;
+        } else if self.due.is_some() && self.held.is_none() {
+            self.held = Some(self.progress(t - 1).max(0));
+        }
+        match self.due {
+            None => {
+                if !locked {
+                    self.due = Some(t + self.stages[self.j]);
+                }
+                false
+            }
+            Some(d) if d == t => {
+                if locked {
+                    self.due = None;
+                    self.held = None;
+                    self.lost += 1;
+                    return false;
+                }
+                self.j += 1;
+                if self.j == self.stages.len() {
+                    self.done = true;
+                    return true;
+                }
+                self.due = Some(t + self.stages[self.j]);
+                false
+            }
+            _ => false,
+        }
+    }
+}
+
 /// One climb run's options.
 #[derive(Clone, Debug)]
 pub struct ClimbOpts {
@@ -1048,6 +1222,24 @@ pub struct ClimbOpts {
     pub gate_shut: Option<(i64, i64)>,
     /// The batch's carts (3, or 2: the third stays parked).
     pub n_carts: usize,
+    /// (cc767b78) day-1's liveness gate (`crate::liveness`, a virtual sealed ring in the freeze's
+    /// first chunk): the cycle restarts at each golem event (T + 100 k, the column live); the
+    /// hold's release (the hand-off's start, or H's opening) at T + h_open ANDed with ALIVE at its
+    /// rise (refused: the next golem event restarts it); the stand's gate timers (gate_shut) a
+    /// "fill" sequence from the release, each shut ANDed with ALIVE, the unfired remainder dropped
+    /// when ALIVE falls and restarted at the next golem event; the hand-offs after the release in
+    /// live time (the carts' own physics: a frozen hold holds them).
+    pub alive: bool,
+    /// (cc767b78) With `alive`: the stand's fill timers pause while ALIVE is low and resume on its
+    /// return (a live clock counted on ALIVE, the detection latency included) instead of dropping.
+    pub alive_pause: bool,
+    /// (cc767b78) With `alive`: the stand's fill timers as pausable builds ([`TimerModel`]: a
+    /// lockable repeater chain keyed on the hold's release edge, or a counter of a clock's pulses),
+    /// locked while ALIVE is low (the lock line [`CHAIN_LOCK_D`] gt behind ALIVE): a stage whose
+    /// completion falls while locked is lost and runs its full delay again from the unlock (a
+    /// repeater's scheduled tick does nothing while locked; the unlock reschedules it), unless the
+    /// build holds its progress (`resume`).
+    pub timer_model: Option<TimerModel>,
     pub trace: bool,
 }
 
@@ -1099,6 +1291,8 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         }
     };
     let mut open = [true, true, false];
+    // (cc767b78: each timed gate's first shut tick, G2 and G1, for the least entry-to-edge gap)
+    let mut shut_at: [Option<i64>; 2] = [None; 2];
     let mut seen = [[false; 3]; 3];
     let pos = |w: &redsim::world::World, id: u32| w.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (e.pos, e.delta_movement));
     let mut rest_since: [Option<i64>; 3] = [None; 3];
@@ -1121,6 +1315,27 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     let mut eye_where: Vec<String> = Vec::new();
     let mut freeze_pos: Vec<[Option<Vec3>; 3]> = Vec::new();
     let mut frozen_ticks = 0i64;
+    // (cc767b78, `alive`: day-1's gate; the release's tick, the live ticks since it, the fill's
+    // offset base (0: started at the release; h_open: restarted at a golem event) and its shuts)
+    let mut release_t: Option<i64> = None;
+    let mut rel_live = 0i64;
+    let mut fill_base = 0i64;
+    let mut fill_shut = [false; 2];
+    // (`alive_pause`: the fill's live clock, ticks with ALIVE high since the release)
+    let mut fill_live = 0i64;
+    // (`timer_model`: the fill's two pausable timers, G2 and G1, and ALIVE's recent
+    // values for the lock line)
+    let mut chains: [Option<Chain>; 2] = [None, None];
+    // (the timers' lag against the carts: the carts' live ticks since the release, and per timer
+    // the largest early (timer ahead) and late (timer behind) excursion until it fires)
+    let mut carts_live = 0i64;
+    let mut excursion: [(i64, i64); 2] = [(0, 0); 2];
+    let mut alive_hist: std::collections::VecDeque<bool> = std::collections::VecDeque::new();
+    // (each cart's exit from each gate's cell: its box clear of the cell, past it)
+    let mut gate_exit: [[Option<i64>; 3]; 3] = [[None; 3]; 3];
+    // (each cart against each shut gate's collision box: its near face reached, its far face cleared)
+    let mut gate_face: [[(Option<i64>, Option<i64>); 3]; 3] = [[(None, None); 3]; 3];
+    let mut alive_log: Vec<String> = Vec::new();
     let mut handed = [false; 3];
     let mut gate_edges: Vec<String> = Vec::new();
     // (each cart's entry into each gate's cell, G2, G1, G0: the tick and its stored speed)
@@ -1134,20 +1349,63 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             [xs[0], zs[0], xs[1].max(xs[0]), zs[1].max(zs[0])]
         }
     };
+    let mut gate = crate::liveness::Liveness::from_config(crate::liveness::Ring::Virtual { x: (chunks[0] * 16 + 8) as f64, z: (chunks[1] * 16 + 8) as f64, period: 30, high: 20, phase: 0 });
     for dt in 0..o.ticks {
         // the hand-off: cart k at the hand-off point with the hand-off velocity, in live time
         // (the hold's release waits out a freeze: its clock paused, nothing handed off while the
         // column is frozen)
         let frozen_now = o.freeze.is_some_and(|(f, l)| dt >= f && dt < f + l);
+        // (cc767b78, `alive`: ALIVE this tick; at each golem event (T + 100 k, the column live)
+        // the release (until it has risen) and an unfinished fill restart; the release rises at
+        // its offset ANDed with ALIVE and starts the fill)
+        let mut released_now = false;
+        if o.alive {
+            let alive = gate.alive(&run.world, dt);
+            alive_hist.push_back(alive);
+            if alive_hist.len() > CHAIN_LOCK_D + 2 {
+                alive_hist.pop_front();
+            }
+            let col_live = run.world.entity_ticks_at((chunks[0] * 16 + 8) as f64, (chunks[1] * 16 + 8) as f64);
+            if dt % 100 == 0 && col_live {
+                if release_t.is_none() {
+                    gate.start_with("release", dt, &[o.h_open]);
+                    alive_log.push(format!("golem T+{dt}: the release armed for T+{}", dt + o.h_open));
+                } else if o.gate_shut.is_some() && !o.alive_pause && o.timer_model.is_none() && !(fill_shut[0] && fill_shut[1]) && gate.dropped("fill") {
+                    if let Some((a, b)) = o.gate_shut {
+                        fill_base = o.h_open;
+                        gate.start_with("fill", dt, &[fill_base + a, fill_base + b]);
+                        alive_log.push(format!("golem T+{dt}: the fill restarted (G2 at T+{}, G1 at T+{})", dt + fill_base + a, dt + fill_base + b));
+                    }
+                }
+            }
+            if release_t.is_none() && gate.rise(&run.world, "release", o.h_open, dt) {
+                release_t = Some(dt);
+                released_now = true;
+                alive_log.push(format!("released at T+{dt}"));
+                if let Some((a, b)) = o.gate_shut
+                    && !o.alive_pause
+                    && o.timer_model.is_none()
+                {
+                    fill_base = 0;
+                    gate.start_with("fill", dt, &[a, b]);
+                }
+            }
+            if release_t.is_some() && !frozen_now && !released_now {
+                rel_live += 1;
+            }
+            let _ = alive;
+        }
         if let Some((p, v, sp, _)) = o.hand_off {
             let live = dt - frozen_ticks;
             for k in 0..o.n_carts.min(3) {
-                let at = match k {
-                    0 => o.h_open,
-                    1 => o.h_open + sp,
-                    _ => o.h_open + sp + o.hand_off_2.unwrap_or(sp),
+                // (dfb89499's per-gap spacing; cc767b78's `alive`: in live time since the release)
+                let off = match k {
+                    0 => 0,
+                    1 => sp,
+                    _ => sp + o.hand_off_2.unwrap_or(sp),
                 };
-                if !frozen_now && !handed[k] && live >= at {
+                let due = if o.alive { release_t.is_some() && rel_live >= off } else { live >= o.h_open + off };
+                if !frozen_now && !handed[k] && due {
                     handed[k] = true;
                     place_at(&mut run.world, carts[k], p);
                     if let Some(i) = run.world.entities.list.iter().position(|e| e.id == carts[k]) {
@@ -1156,11 +1414,12 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 }
             }
         }
-        // H: opened at T + h_open, shut again after h_for
-        if dt == o.h_open && o.hand_off.is_none() {
+        // H: opened at T + h_open, shut again after h_for (`alive`: at the release, then h_for
+        // later, a risen pulse completing)
+        if o.hand_off.is_none() && if o.alive { released_now } else { dt == o.h_open } {
             run.world.set_block(h_cell, h_open.clone(), redsim::world::flags::ALL);
         }
-        if o.h_for > 0 && dt == o.h_open + o.h_for {
+        if o.h_for > 0 && if o.alive { release_t.is_some_and(|r| dt == r + o.h_for) } else { dt == o.h_open + o.h_for } {
             run.world.set_block(h_cell, h_shut.clone(), redsim::world::flags::ALL);
         }
         // the per-gate hold's next cart at rest at Ga every h_every gt
@@ -1187,6 +1446,7 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 }
                 redsim::reload::unload_some(&mut run.world, chunks);
                 freeze_pos.push(std::array::from_fn(|k| pos(&run.world, carts[k]).map(|p| p.0)));
+                gate.freeze_started(dt);
             }
             if dt == from + len {
                 redsim::reload::load_some(&mut run.world, chunks);
@@ -1194,11 +1454,73 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             }
         }
         // the pockets' gates: on timers from the release (live time, paused while frozen), or
-        // bench position triggers
+        // bench position triggers (`alive`: the fill sequence's shuts, each ANDed with ALIVE at
+        // its rise, the unfired remainder dropped when ALIVE falls, restarted at a golem event)
         if let Some((a, b)) = o.gate_shut {
-            let live = dt - frozen_ticks;
-            open[0] = live < o.h_open + a;
-            open[1] = live < o.h_open + b;
+            if let (true, Some(tmod)) = (o.alive, o.timer_model) {
+                // (the fill as lockable repeater chains keyed on the release edge: locked while
+                // ALIVE was low CHAIN_LOCK_D gt ago; a completion that falls while locked is lost
+                // and runs its full stage again from the unlock)
+                let locked = alive_hist.len() > CHAIN_LOCK_D && !alive_hist[alive_hist.len() - 1 - CHAIN_LOCK_D];
+                if release_t == Some(dt) {
+                    chains = [Some(Chain::start(a, tmod, dt, locked)), Some(Chain::start(b, tmod, dt, locked))];
+                }
+                // (the carts' live ticks since the release, for the timers' early and late lag)
+                if release_t.is_some_and(|r| dt > r) && run.world.entity_ticks_at((chunks[0] * 16 + 8) as f64, (chunks[1] * 16 + 8) as f64) {
+                    carts_live += 1;
+                }
+                for i in 0..2 {
+                    let fired = match chains[i].as_mut() {
+                        Some(c) if release_t != Some(dt) || c.due.is_none() => c.tick(dt, locked),
+                        _ => false,
+                    };
+                    // (the timer's progress against the carts' live ticks, until it fires)
+                    if let Some(c) = chains[i].as_ref()
+                        && (!c.done || fired)
+                    {
+                        let d = c.progress(dt) - carts_live;
+                        excursion[i].0 = excursion[i].0.max(d);
+                        excursion[i].1 = excursion[i].1.max(-d);
+                    }
+                    if fired && !fill_shut[i] {
+                        fill_shut[i] = true;
+                        gate.fired_pulse(&run.world, ["fill G2 (chain)", "fill G1 (chain)"][i], dt);
+                        alive_log.push(format!("{} shut at T+{dt} (chain{})", ["G2", "G1"][i], chains[i].as_ref().map_or(String::new(), |c| if c.lost > 0 { format!(", {} stage completions lost to a lock", c.lost) } else { String::new() })));
+                    }
+                }
+                open[0] = !fill_shut[0];
+                open[1] = !fill_shut[1];
+            } else if o.alive && o.alive_pause {
+                // (the fill on a live clock counted on ALIVE: paused while ALIVE is low, resumed
+                // on its return; each shut a pulse ANDed with ALIVE (true by construction), the
+                // frozen-cart check on it)
+                if release_t.is_some_and(|r| dt > r) && gate.alive(&run.world, dt) {
+                    fill_live += 1;
+                }
+                for (i, off) in [a, b].into_iter().enumerate() {
+                    if !fill_shut[i] && release_t.is_some() && fill_live >= off && gate.allow_rise(&run.world, ["fill G2", "fill G1"][i], dt) {
+                        fill_shut[i] = true;
+                        alive_log.push(format!("{} shut at T+{dt} (live {fill_live})", ["G2", "G1"][i]));
+                    }
+                }
+                open[0] = !fill_shut[0];
+                open[1] = !fill_shut[1];
+            } else if o.alive {
+                if !fill_shut[0] && gate.rise(&run.world, "fill", fill_base + a, dt) {
+                    fill_shut[0] = true;
+                    alive_log.push(format!("G2 shut at T+{dt}"));
+                }
+                if !fill_shut[1] && gate.rise(&run.world, "fill", fill_base + b, dt) {
+                    fill_shut[1] = true;
+                    alive_log.push(format!("G1 shut at T+{dt}"));
+                }
+                open[0] = !fill_shut[0];
+                open[1] = !fill_shut[1];
+            } else {
+                let live = dt - frozen_ticks;
+                open[0] = live < o.h_open + a;
+                open[1] = live < o.h_open + b;
+            }
         }
         for (k, (gx, _)) in GATES.iter().rev().enumerate() {
             if k == 0 || !open[2 - k] || o.gate_shut.is_some() {
@@ -1226,6 +1548,9 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 run.world.set_block(p, want, redsim::world::flags::ALL);
                 // (a shut gate's slope unpowered: its source back to stone)
                 if !open[i] && i < 2 {
+                    if shut_at[i].is_none() {
+                        shut_at[i] = Some(dt);
+                    }
                     let src = if i == 0 { BlockPos::new(6, -2, SZ) } else { BlockPos::new(10, -3, SZ) };
                     run.world.set_block(src, stone.clone(), redsim::world::flags::ALL);
                     // (a gate edge on a cart: a cart's box meeting the gate's cell as it shuts)
@@ -1254,6 +1579,19 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 for (g, (gx, _)) in GATES.iter().enumerate() {
                     if gate_entry[k][g].is_none() && p.x + 0.49 >= *gx as f64 && p.x < *gx as f64 + 1.0 {
                         gate_entry[k][g] = Some((dt, prev_v[k].max(s)));
+                    }
+                    // (cc767b78: the exit, the cart's box clear of the cell past it)
+                    if gate_entry[k][g].is_some() && gate_exit[k][g].is_none() && p.x - 0.49 >= *gx as f64 + 1.0 {
+                        gate_exit[k][g] = Some(dt);
+                    }
+                    // (cc767b78: the shut gate's collision box, 6/16..10/16 of its cell along the
+                    // track: the tick a cart's box first reaches its near face (within 0.01: the
+                    // contact a shut gate stops it at), and the tick it clears its far face)
+                    if gate_face[k][g].0.is_none() && p.x + 0.49 >= *gx as f64 + 0.375 - 0.01 && p.x < *gx as f64 + 1.0 {
+                        gate_face[k][g].0 = Some(dt);
+                    }
+                    if gate_face[k][g].0.is_some() && gate_face[k][g].1.is_none() && p.x - 0.49 >= *gx as f64 + 0.625 {
+                        gate_face[k][g].1 = Some(dt);
                     }
                 }
             }
@@ -1438,6 +1776,64 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     ));
     if let Some((from, len)) = o.freeze {
         out.push(format!("freeze T+{from}..T+{} (the bench's chunks {:?} at level 32; the world's errors: {}): {}", from + len, chunks, if run.world.errors.is_empty() { "none".to_string() } else { run.world.errors.join("; ") }, froze.join("; ")));
+    }
+    if o.alive {
+        out.push(format!("day-1's gate (cc767b78, emulated): {}", if alive_log.is_empty() { "nothing released".to_string() } else { alive_log.join("; ") }));
+        // (the consequence row, ironspec: a release armed at a golem event and refused at its
+        // rise (ALIVE low: during a freeze or the post-thaw window before the ring's next edge))
+        let lost: Vec<String> = gate.refused.iter().filter(|(_, w)| w.starts_with("release ")).map(|(t, _)| format!("T+{t}")).collect();
+        out.push(format!("releases lost (armed at a golem event, refused at their rise with ALIVE low; a consequence row): {}{}", lost.len(), if lost.is_empty() { String::new() } else { format!(" ({})", lost.join(", ")) }));
+        let (gl, _gp) = gate.lines();
+        out.extend(gl);
+    }
+    // (cc767b78, ironspec's (b): per timed pulse, the least gap between a cart entering the
+    // gate's cell and the gate's timed edge; the liveness latency must stay under it, so no timed
+    // edge lands on a cart frozen mid-pass)
+    if o.gate_shut.is_some() {
+        let per: Vec<String> = (0..2)
+            .map(|i| {
+                let name = ["G2", "G1"][i];
+                match shut_at[i] {
+                    None => format!("{name} never shut"),
+                    Some(ts) => {
+                        let before: Vec<(i64, usize)> = (0..n).filter_map(|k| gate_entry[k][i].map(|(t, _)| (t, k))).filter(|(t, _)| *t <= ts).collect();
+                        let after = (0..n).filter(|k| gate_entry[*k][i].is_some_and(|(t, _)| t > ts)).count();
+                        let least = before.iter().map(|(t, k)| (ts - t, *k)).min();
+                        format!(
+                            "{name} shut at T+{ts}: the least gap from a cart's entry into its cell {}{}",
+                            least.map_or("- (no cart entered before it)".to_string(), |(g, k)| format!("{g} gt (cart {k})")),
+                            if after > 0 { format!(", {after} carts entered after it") } else { String::new() }
+                        )
+                    }
+                }
+            })
+            .collect();
+        out.push(format!("timed edges (the liveness latency must stay under each least gap): {}", per.join("; ")));
+        // (machine-readable, for the matrix's drift condition: each timed gate's shut tick and
+        // every cart's entry into and exit from its cell, -1 for none)
+        let tl: Vec<String> = (0..2)
+            .map(|i| {
+                format!(
+                    "{} shut {} entries {} exits {} faces {} cleared {}",
+                    ["G2", "G1"][i],
+                    shut_at[i].unwrap_or(-1),
+                    (0..3).map(|k| gate_entry[k][i].map_or(-1, |(t, _)| t).to_string()).collect::<Vec<_>>().join(","),
+                    (0..3).map(|k| gate_exit[k][i].unwrap_or(-1).to_string()).collect::<Vec<_>>().join(","),
+                    (0..3).map(|k| gate_face[k][i].0.unwrap_or(-1).to_string()).collect::<Vec<_>>().join(","),
+                    (0..3).map(|k| gate_face[k][i].1.unwrap_or(-1).to_string()).collect::<Vec<_>>().join(",")
+                )
+            })
+            .collect();
+        out.push(format!("gate timing: {}", tl.join("; ")));
+        if let Some(tmod) = o.timer_model.filter(|_| o.alive) {
+            out.push(format!("timer lag (each timer's progress against the carts' live ticks since the release, until it fires: the largest early and late excursions): G2 early {} late {}; G1 early {} late {}", excursion[0].0, excursion[0].1, excursion[1].0, excursion[1].1));
+            out.push(format!(
+                "the fill as pausable timers ({}; locked {CHAIN_LOCK_D} gt behind ALIVE; the lag after an unlock at most {} gt): {}",
+                tmod.label(),
+                if tmod.resume { 0 } else { tmod.stage },
+                chains.iter().enumerate().map(|(i, c)| c.as_ref().map_or(format!("{} not started", ["G2", "G1"][i]), |c| format!("{} {} stages {:?}, completions lost {}", ["G2", "G1"][i], c.stages.len(), c.stages, c.lost))).collect::<Vec<_>>().join("; ")
+            ));
+        }
     }
     let _ = t0;
     Ok(out)

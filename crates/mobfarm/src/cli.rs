@@ -1287,6 +1287,34 @@ pub enum MobfarmCmd {
         out: Option<PathBuf>,
         #[arg(long)]
         trace: bool,
+        /// (cc767b78) Day-1's liveness gate instead of the paused live clock: the hold's release
+        /// and the stand's gate timers ANDed with ALIVE at their rise, the unfired remainder
+        /// dropped, the cycle restarting at the next golem event (crate::liveness;
+        /// MCTAS_ALIVE_RING=fast: day-1's benched fast ring).
+        #[arg(long)]
+        alive_gate: bool,
+        /// (cc767b78) With --alive-gate: the stand's fill timers pause while ALIVE is low and
+        /// resume on its return (a live clock counted on ALIVE) instead of dropping.
+        #[arg(long)]
+        alive_pause: bool,
+        /// (cc767b78) With --alive-gate: the fill timers as lockable repeater chains of stages of
+        /// this many gt (2: 1-tick repeaters), keyed on the release edge, locked while ALIVE is
+        /// low; a stage completing while locked runs again in full from the unlock.
+        #[arg(long)]
+        chain_stage: Option<i64>,
+        /// (cc767b78) With --alive-gate: the fill timers' pausable build, general:
+        /// "chain:S[,resume][,free=P]" (keyed chain of S-gt stages; `resume`: a lock holds a
+        /// stage's progress; `free=P`: a counter of a free-running clock of period S, phase P at
+        /// T). Overrides --chain-stage.
+        #[arg(long)]
+        timer_model: Option<String>,
+        /// (cc767b78) The freeze matrix: "F0,F1,STEP;L1,L2,..": one run per freeze start (T + F0
+        /// .. T + F1 every STEP gt) and length, every H-open corner, spacing and seed, in parallel
+        /// (--jobs); one line per run, the totals, and the drift condition per timed gate.
+        #[arg(long, default_value = "")]
+        freeze_matrix: String,
+        #[arg(long, default_value_t = 1)]
+        jobs: usize,
     },
     /// The gravity queue's climb back (onechunk's skeleton v3, `--v4` the inverted v4): the batch at
     /// rest in today's pockets leaves at the stand's release (G0 and G1 at REL, G2 at REL + its
@@ -4418,7 +4446,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, timer_model, freeze_matrix, jobs } => {
+            let timer_model: Option<crate::climb::TimerModel> = match (&timer_model, chain_stage) {
+                (Some(s), _) => Some(crate::climb::TimerModel::parse(s).map_err(|e| anyhow::anyhow!(e))?),
+                (None, Some(st)) => Some(crate::climb::TimerModel { stage: st.max(1), resume: false, free: None }),
+                _ => None,
+            };
             anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
             anyhow::ensure!(gate_shut.is_empty() || gate_shut.len() == 2, "--gate-shut A,B");
             // (7b90c3f1's meter timer fill, MCTAS_TIMER_FILL=T1,T2: G1 stays open T1 and G2 T2
@@ -4502,26 +4535,327 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(freeze.is_empty() || freeze.len() == 2, "--freeze FROM,LEN");
             let opens: Vec<i64> = h_open.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
             println!("climb bench: {} cells{}{}, the design {}", cells, if gravity { " (the gravity descent)" } else { "" }, if pattern.is_empty() { String::new() } else { format!(" ({pattern})") }, path.display());
-            for (e, e2) in &pairs {
+            // (cc767b78: the spacing pairs by index, their labels, one run's options; the freeze
+            // matrix and its drift condition)
+            let everys: Vec<i64> = (0..pairs.len() as i64).collect();
+            let ev = |i: i64| -> String {
+                let (a, b) = pairs[i as usize];
+                format!("{a}{}", b.map_or(String::new(), |b| format!(":{b}")))
+            };
+            let mk = |ei: i64, h: i64, s: i64, fr: Option<(i64, i64)>| {
+                let (e, e2) = pairs[ei as usize];
+                crate::climb::ClimbOpts {
+                    cells,
+                    crest: if gravity && (v3 || crest6 || v4 || v5 || v4r) { 6 } else if route.len() == 2 || folded || gravity { 3 } else { crest },
+                    h_open: h,
+                    h_for,
+                    h_every: if gravity { 0 } else { e },
+                    close_at,
+                    ticks,
+                    seed: s,
+                    golem_box: (golem_box.len() == 6).then(|| [golem_box[0], golem_box[1], golem_box[2], golem_box[3], golem_box[4], golem_box[5]]),
+                    freeze: fr,
+                    hand_off: route_geo.map(|(p, v, c)| (p, v, if e > 0 { e } else if gravity { 3 } else if folded { 13 } else { 10 }, c)),
+                    hand_off_2: e2,
+                    gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
+                    n_carts: carts,
+                    trace,
+                    alive: alive_gate,
+                    alive_pause,
+                    timer_model,
+                }
+            };
+            if !freeze_matrix.is_empty() {
+                let (fs, ls) = freeze_matrix.split_once(';').ok_or_else(|| anyhow::anyhow!("--freeze-matrix takes F0,F1,STEP;L1,L2,.."))?;
+                let fv: Vec<i64> = fs.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                let [f0, f1, st] = fv.as_slice() else { anyhow::bail!("--freeze-matrix takes F0,F1,STEP;L1,L2,..") };
+                let lv: Vec<i64> = ls.split(',').filter(|x| !x.trim().is_empty()).map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                let mut runs: Vec<(i64, i64, i64, i64, i64)> = Vec::new();
+                for f in (*f0..=*f1).step_by((*st).max(1) as usize) {
+                    for l in &lv {
+                        for e in &everys {
+                            for h in &opens {
+                                for s in seed..seed + seeds {
+                                    runs.push((f, *l, *e, *h, s));
+                                }
+                            }
+                        }
+                    }
+                }
+                println!("climb-bench freeze matrix: freezes from T+{f0}..T+{f1} every {st} gt for {lv:?} gt, H open {opens:?}, every {pairs:?}, seeds {seed}..{} ({} runs; {})", seed + seeds - 1, runs.len(), if alive_gate { if alive_pause { "day-1's liveness gate, the fill paused on ALIVE" } else { "day-1's liveness gate, the fill dropped when ALIVE falls" } } else { "the paused live clock (ideal: no detection latency)" });
+                // (the matrix's totals: runs with each failure, the freeze starts that fail)
+                let (mut n_runs, mut n_wrong, mut n_arr, mut n_edges, mut n_merges, mut n_into, mut n_lost, mut n_norest) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+                let mut arr_max = 0.0f64;
+                let mut least_gap: Option<i64> = None;
+                let mut failing: std::collections::BTreeMap<(i64, i64), usize> = Default::default();
+                let mut ring_line: Option<String> = None;
+                // (cc767b78, the drift condition: each (spacing, corner, seed)'s run without a
+                // freeze, its timed gates' shut ticks and every cart's entry into and exit from
+                // each gate, on two bases: the gate's cell, and the shut gate's collision box)
+                type Timing = [[(i64, [i64; 3], [i64; 3]); 2]; 2];
+                let timing = |lines: &[String]| -> Option<Timing> {
+                    let l = lines.iter().find_map(|x| x.strip_prefix("gate timing: "))?;
+                    let mut out: Timing = [[(-1, [-1; 3], [-1; 3]); 2]; 2];
+                    for (i, part) in l.split("; ").enumerate().take(2) {
+                        let w: Vec<&str> = part.split(' ').collect();
+                        let num = |s: &str| s.parse::<i64>().unwrap_or(-1);
+                        let tri = |s: &str| {
+                            let v: Vec<i64> = s.split(',').map(num).collect();
+                            [v.first().copied().unwrap_or(-1), v.get(1).copied().unwrap_or(-1), v.get(2).copied().unwrap_or(-1)]
+                        };
+                        let shut = num(w.get(2)?);
+                        out[0][i] = (shut, tri(w.get(4)?), tri(w.get(6)?));
+                        out[1][i] = (shut, tri(w.get(8)?), tri(w.get(10)?));
+                    }
+                    Some(out)
+                };
+                let mut combos: Vec<(i64, i64, i64)> = Vec::new();
+                for e in &everys {
+                    for h in &opens {
+                        for s in seed..seed + seeds {
+                            combos.push((*e, *h, s));
+                        }
+                    }
+                }
+                let mut bases: std::collections::BTreeMap<(i64, i64, i64), Timing> = Default::default();
+                for chunk in combos.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64, i64), Result<Vec<String>, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(e, h, s)| {
+                                let o = mk(e, h, s, None);
+                                let fspec = &fspec;
+                                sc.spawn(move || ((e, h, s), crate::climb::bench(fspec, &o)))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for (k, r) in got {
+                        if let Some(tm) = timing(&r.map_err(|e| anyhow::anyhow!(e))?) {
+                            bases.insert(k, tm);
+                        }
+                    }
+                }
+                // (per gate: the gap and dwell ranges over the baselines, the largest drift and its
+                // run, the worst gap - dwell - drift, the runs failing it)
+                #[derive(Default)]
+                struct Cond {
+                    gap: Option<(i64, i64)>,
+                    dwell: Option<(i64, i64)>,
+                    drift: Option<(i64, String)>,
+                    worst: Option<(i64, String)>,
+                    fails: usize,
+                    cart: Option<usize>,
+                    // (the late side: the next cart's arrival at the gate's cell after the shut,
+                    // the shut's lag against it, the worst arrival - shut, the runs failing it)
+                    late: Option<(i64, i64)>,
+                    lag: Option<(i64, String)>,
+                    late_worst: Option<(i64, String)>,
+                    late_fails: usize,
+                    next: Option<usize>,
+                }
+                let mut conds: [[Cond; 2]; 2] = Default::default();
+                // (the timers' largest early and late lag over the matrix, per gate, with its run)
+                let mut tlag: [((i64, String), (i64, String)); 2] = Default::default();
+                for chunk in runs.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64, i64, i64, i64), Result<Vec<String>, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(f, l, e, h, s)| {
+                                let o = mk(e, h, s, Some((f, l)));
+                                let fspec = &fspec;
+                                sc.spawn(move || ((f, l, e, h, s), crate::climb::bench(fspec, &o)))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((f, l, e, h, s), r) in got {
+                        // (the spacing pair's index, and its label)
+                        let ei = e;
+                        let e = ev(ei);
+                        let lines = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let find = |p: &str| lines.iter().find(|x| x.starts_with(p)).cloned().unwrap_or_default();
+                        let pockets = find("pockets: ").trim_start_matches("pockets: ").to_string();
+                        let batch = find("batch at rest: ");
+                        let at_rest = batch.split(';').next().unwrap_or("").trim_start_matches("batch at rest: ").to_string();
+                        let arr = batch.split("arrivals into a waiting cart: ").nth(1).map(|x| x.split(" (").take(2).collect::<Vec<_>>().join(" (") + ")").unwrap_or_default();
+                        let entry = find("entry into each gate's cell");
+                        let edges = entry.split("gate edges on a cart: ").nth(1).map(|x| x.split(|c: char| c == ';' || c == ' ').next().unwrap_or("").to_string()).unwrap_or_default();
+                        let merges = entry.split("merges: ").nth(1).map(|x| x.split(' ').next().unwrap_or("").to_string()).unwrap_or_default();
+                        let gate = find("day-1's gate (cc767b78").trim_start_matches("day-1's gate (cc767b78, emulated): ").to_string();
+                        let lat = lines.iter().find_map(|x| x.split("detection latency ").nth(1)).unwrap_or("-").to_string();
+                        let into = lines.iter().find_map(|x| x.split("must be 0): ").nth(1)).map(|x| x.split(' ').next().unwrap_or("").to_string()).unwrap_or("-".to_string());
+                        let lost = lines.iter().find_map(|x| x.strip_prefix("releases lost (armed at a golem event, refused at their rise with ALIVE low; a consequence row): ")).unwrap_or("-").to_string();
+                        let gaps = lines
+                            .iter()
+                            .find_map(|x| x.strip_prefix("timed edges (the liveness latency must stay under each least gap): "))
+                            .map(|x| {
+                                x.split("; ")
+                                    .map(|g| {
+                                        let name = g.split(' ').next().unwrap_or("");
+                                        let gap = g.split("into its cell ").nth(1).map(|y| y.split(" (").next().unwrap_or("").to_string()).unwrap_or_else(|| g.to_string());
+                                        format!("{name} {gap}")
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            })
+                            .unwrap_or("-".to_string());
+                        println!("freeze T+{f} for {l}, H T+{h}, every {e}, seed {s}: pockets {pockets} | batch at rest {at_rest} | arrivals into a waiting cart {arr} | gate edges on a cart {edges} | merges {merges} | gate: {gate} | latency {lat} | fired into a frozen cart {into} | releases lost {lost} | least entry-to-timed-edge gap {gaps}");
+                        if ring_line.is_none() {
+                            ring_line = lines.iter().find_map(|x| x.strip_prefix("liveness gate (day-1's: ")).map(|x| x.split(" = ALIVE").next().unwrap_or("").to_string());
+                        }
+                        let num0 = |s: &str| s.trim().split(|c: char| !c.is_ascii_digit()).next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+                        let fastest = batch.split("the fastest ").nth(1).and_then(|x| x.split(|c: char| c != '.' && !c.is_ascii_digit()).next()).and_then(|x| x.parse::<f64>().ok()).unwrap_or(0.0);
+                        let bad = [pockets.starts_with("WRONG"), fastest > 0.2, num0(&edges) > 0, num0(&merges) > 0];
+                        n_runs += 1;
+                        n_wrong += bad[0] as usize;
+                        n_arr += bad[1] as usize;
+                        n_edges += bad[2] as usize;
+                        n_merges += bad[3] as usize;
+                        n_into += (num0(&into) > 0) as usize;
+                        n_lost += (num0(&lost) > 0) as usize;
+                        n_norest += at_rest.starts_with("NO") as usize;
+                        arr_max = arr_max.max(fastest);
+                        if bad.iter().any(|b| *b) {
+                            *failing.entry((f, l)).or_default() += 1;
+                        }
+                        for g in gaps.split(", ") {
+                            if let Some(v) = g.split(' ').nth(1).and_then(|x| x.parse::<i64>().ok()) {
+                                least_gap = Some(least_gap.map_or(v, |m| m.min(v)));
+                            }
+                        }
+                        // (the drift condition against this run's baseline: the cart that entered
+                        // each timed gate's cell last before its shut there; the drift is how much
+                        // earlier the shut came against that cart's entry)
+                        if let Some(tl) = lines.iter().find_map(|x| x.split("the largest early and late excursions): ").nth(1)) {
+                            // ("G2 early E late L; G1 early E late L")
+                            for (i, part) in tl.split("; ").enumerate().take(2) {
+                                let w: Vec<&str> = part.split(' ').collect();
+                                let (ea, la) = (w.get(2).and_then(|x| x.parse::<i64>().ok()).unwrap_or(0), w.get(4).and_then(|x| x.parse::<i64>().ok()).unwrap_or(0));
+                                let label = format!("freeze T+{f}/{l}, H T+{h}, every {e}, seed {s}");
+                                if ea > tlag[i].0.0 {
+                                    tlag[i].0 = (ea, label.clone());
+                                }
+                                if la > tlag[i].1.0 {
+                                    tlag[i].1 = (la, label);
+                                }
+                            }
+                        }
+                        if let (Some(bb), Some(rr)) = (bases.get(&(ei, h, s)), timing(&lines)) {
+                            for basis in 0..2 {
+                                let (b, rt) = (bb[basis], rr[basis]);
+                                for i in 0..2 {
+                                    let (sb, eb, xb) = b[i];
+                                    let (sf, ef, _) = rt[i];
+                                    let Some(k) = (0..3).filter(|k| eb[*k] >= 0 && eb[*k] <= sb).max_by_key(|k| eb[*k]) else { continue };
+                                    if sb < 0 || sf < 0 || ef[k] < 0 || xb[k] < 0 {
+                                        continue;
+                                    }
+                                    let (gap, dwell, drift) = (sb - eb[k], xb[k] - eb[k], (ef[k] - eb[k]) - (sf - sb));
+                                    let c = &mut conds[basis][i];
+                                    c.cart = Some(k);
+                                    c.gap = Some(c.gap.map_or((gap, gap), |(a, z)| (a.min(gap), z.max(gap))));
+                                    c.dwell = Some(c.dwell.map_or((dwell, dwell), |(a, z)| (a.min(dwell), z.max(dwell))));
+                                    let label = format!("freeze T+{f}/{l}, H T+{h}, every {e}, seed {s}");
+                                    if c.drift.as_ref().is_none_or(|(d, _)| drift > *d) {
+                                        c.drift = Some((drift, label.clone()));
+                                    }
+                                    let m = gap - dwell - drift;
+                                    if c.worst.as_ref().is_none_or(|(w, _)| m < *w) {
+                                        c.worst = Some((m, label));
+                                    }
+                                    if m <= 0 {
+                                        c.fails += 1;
+                                    }
+                                    // (the late side: the next cart, the first to reach the gate
+                                    // after the shut in the baseline; the lag is how much later the
+                                    // shut came against its arrival; a shut on the arrival tick is
+                                    // in time: block ticks run before the carts move)
+                                    if let Some(kn) = (0..3).filter(|k| eb[*k] > sb).min_by_key(|k| eb[*k])
+                                        && ef[kn] >= 0
+                                    {
+                                        let (late, lag) = (eb[kn] - sb, (sf - sb) - (ef[kn] - eb[kn]));
+                                        c.next = Some(kn);
+                                        c.late = Some(c.late.map_or((late, late), |(a, z)| (a.min(late), z.max(late))));
+                                        let label = format!("freeze T+{f}/{l}, H T+{h}, every {e}, seed {s}");
+                                        if c.lag.as_ref().is_none_or(|(d, _)| lag > *d) {
+                                            c.lag = Some((lag, label.clone()));
+                                        }
+                                        let m = late - lag;
+                                        if c.late_worst.as_ref().is_none_or(|(w, _)| m < *w) {
+                                            c.late_worst = Some((m, label));
+                                        }
+                                        if m < 0 {
+                                            c.late_fails += 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                println!(
+                    "over the matrix ({}): {n_runs} runs; wrong pocket in {n_wrong}; an arrival over 0.2 in {n_arr} (the fastest {arr_max:.3}); a gate edge on a cart in {n_edges}; merges in {n_merges}; a pulse fired into a frozen cart in {n_into}; a release lost in {n_lost}; the batch never at rest in {n_norest}; the least entry-to-timed-edge gap {}; failing freezes (start, length: runs) {}",
+                    ring_line.unwrap_or_else(|| "no gate".to_string()),
+                    least_gap.map_or("-".to_string(), |g| format!("{g} gt")),
+                    if failing.is_empty() { "none".to_string() } else { failing.iter().map(|((f, l), c)| format!("T+{f}/{l}: {c}")).collect::<Vec<_>>().join(", ") }
+                );
+                // (cc767b78, ironspec's drift condition per timed gate, on the gate's cell
+                // (conservative) and on the shut gate's collision box (6/16..10/16 of the cell);
+                // and the build's per-stage lag bound against the least late margin)
+                let fmt_cond = |c: &Cond, name: &str| -> String {
+                    let late = match (&c.late, &c.lag, &c.late_worst) {
+                        (Some(a), Some((lg, ll)), Some((w, wl))) => format!(
+                            "; late side (cart {}): its arrival {}..{} gt after the shut, the largest lag {lg} gt ({ll}); the worst arrival - shut - lag {w} gt ({wl}): {}",
+                            c.next.unwrap_or(0),
+                            a.0,
+                            a.1,
+                            if c.late_fails == 0 { "PASS".to_string() } else { format!("FAIL in {} runs", c.late_fails) }
+                        ),
+                        _ => String::new(),
+                    };
+                    match (&c.gap, &c.dwell, &c.drift, &c.worst) {
+                        (Some(g), Some(d), Some((dr, dl)), Some((w, wl))) => format!(
+                            "{name} (cart {}): gap {}..{} gt, dwell {}..{} gt, the largest drift {dr} gt ({dl}); the worst gap - dwell - drift {w} gt ({wl}): {}{late}",
+                            c.cart.unwrap_or(0),
+                            g.0,
+                            g.1,
+                            d.0,
+                            d.1,
+                            if c.fails == 0 { "PASS".to_string() } else { format!("FAIL in {} runs", c.fails) }
+                        ),
+                        _ => format!("{name}: not timed (or no baseline)"),
+                    }
+                };
+                for (basis, what) in ["the gate's cell", "the shut gate's collision box"].iter().enumerate() {
+                    let per: Vec<String> = conds[basis].iter().enumerate().map(|(i, c)| fmt_cond(c, ["G2", "G1"][i])).collect();
+                    println!("drift condition on {what} (per timed gate, against each corner's run without a freeze: the least gap from the passing cart's entry to the shut, minus its dwell, must exceed the drift, the shut coming that much earlier against the cart; and the shut must come no later than the next cart's arrival tick, whatever its lag: a shut on the arrival tick is set before the carts move that tick, block ticks running before entities): {}", per.join(" || "));
+                }
+                if let Some(tm) = timer_model.filter(|_| alive_gate) {
+                    println!(
+                        "timer lag per gate over the matrix (ironspec: early until the lockers set, the ring's latency + {}; late, the ring's first edge after the thaw + a lost stage): {}",
+                        crate::climb::CHAIN_LOCK_D,
+                        (0..2).map(|i| format!("{}: early {} gt{}, late {} gt{}", ["G2", "G1"][i], tlag[i].0.0, if tlag[i].0.1.is_empty() { String::new() } else { format!(" ({})", tlag[i].0.1) }, tlag[i].1.0, if tlag[i].1.1.is_empty() { String::new() } else { format!(" ({})", tlag[i].1.1) })).collect::<Vec<_>>().join("; ")
+                    );
+                    let bound = if tm.resume { 0 } else { tm.stage };
+                    let least = |basis: usize| conds[basis].iter().filter_map(|c| c.late.map(|(a, _)| a)).min();
+                    let verdict = |m: Option<i64>| m.map_or("-".to_string(), |m| format!("{m} gt: {}", if bound <= m && bound <= 2 { "PASS" } else if bound <= m { "PASS against the margin, FAIL against ironspec's 2-gt cap" } else { "FAIL" }));
+                    println!(
+                        "per-stage lag (ironspec: at most the late margin, and at most 2 gt after an unlock): {} lags at most {bound} gt; the least late margin on the cell {}, on the collision box {}",
+                        tm.label(),
+                        verdict(least(0)),
+                        verdict(least(1))
+                    );
+                }
+                if out.is_none() {
+                    let _ = std::fs::remove_file(&path);
+                }
+                return Ok(());
+            }
+            for (ei, (e, e2)) in pairs.iter().enumerate() {
                 for h in &opens {
                     for s in seed..seed + seeds {
-                        let o = crate::climb::ClimbOpts {
-                            cells,
-                            crest: if gravity && (v3 || crest6 || v4 || v5 || v4r) { 6 } else if route.len() == 2 || folded || gravity { 3 } else { crest },
-                            h_open: *h,
-                            h_for,
-                            h_every: if gravity { 0 } else { *e },
-                            close_at,
-                            ticks,
-                            seed: s,
-                            golem_box: (golem_box.len() == 6).then(|| [golem_box[0], golem_box[1], golem_box[2], golem_box[3], golem_box[4], golem_box[5]]),
-                            freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])),
-                            hand_off: route_geo.map(|(p, v, c)| (p, v, if *e > 0 { *e } else if gravity { 3 } else if folded { 13 } else { 10 }, c)),
-                            hand_off_2: *e2,
-                            gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
-                            n_carts: carts,
-                            trace,
-                        };
+                        let o = mk(ei as i64, *h, s, (freeze.len() == 2).then(|| (freeze[0], freeze[1])));
                         let lines = crate::climb::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                         println!("== H open T+{h}, every {e}{} gt, seed {s}", e2.map_or(String::new(), |b| format!(":{b}")));
                         for l in lines {
