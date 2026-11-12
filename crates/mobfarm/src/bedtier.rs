@@ -26,191 +26,204 @@ fn put(b: &mut Builder, c: [i32; 3], s: &str) -> Result<()> {
     Ok(())
 }
 
-/// The capped flats between the park's slope and the pickup cell (the released cart's speed falls
-/// under 0.2 b/t on them, empty-cart drag 0.96 a tick).
-pub const FLATS: i32 = 6;
-/// The pickup cell's z.
-pub const ZP: i32 = 3 + FLATS;
-/// The entry rail (the cart comes in moving +x), a booster.
-pub const ENTRY: [i32; 3] = [-2, 2, 0];
-/// The activator, always on (its redstone block under it).
-pub const ACTIVATOR: [i32; 3] = [-1, 2, 0];
-/// The park: one braked powered rail on the slope down south; its support is the release's cell
+/// The fold (onechunk's C′ envelope, loop frame minus (0,50,0): x -6..0, z -1..9, the bed's head
+/// at (-3,0,4), the divert in from the east heading west, the return out east at z 6). The
+/// arrival runs west along z -1: the entry (a booster), the activator, the park (one braked slope
+/// rail), a plain slope, a capped flat, a curve south, four capped flats down x -2, the pickup
+/// cell beside the bed's head, a capped flat, a curve east, two flats, the exit slope, the rider
+/// check, the hold, R. The released cart slows on its 0.96 empty drag over about 6.2 blocks to
+/// the pickup cell (a cart over 0.2 b/t stops dead against a standing villager).
+pub const ENTRY: [i32; 3] = [3, 2, -4];
+/// The activator, always on (its redstone block under it); its south side is the landing L.
+pub const ACTIVATOR: [i32; 3] = [2, 2, -4];
+/// The park: one braked powered rail on the slope down west; its support is the release's cell
 /// (the bench sets a redstone block there).
-pub const PARK: [[i32; 3]; 1] = [[1, 1, 1]];
-pub const PARK_CTRL: [[i32; 3]; 1] = [[1, 0, 1]];
+pub const PARK: [[i32; 3]; 2] = [[1, 1, -4], [0, 0, -4]];
+pub const PARK_CTRL: [[i32; 3]; 2] = [[1, 0, -4], [0, -1, -4]];
 /// The one cell a woken napper can stand on: the pickup cell.
-pub const SWEPT: [[i32; 3]; 1] = [[1, 0, ZP]];
-pub const BED_HEAD: [i32; 3] = [0, 0, ZP];
-/// The hatch: two trapdoors in the zombie box's one opening (bottom half (-1,0,ZP), top half
-/// (-1,1,ZP)); open (their controls powered) their plates cut the eye lines; shut they pass.
-pub const HATCH: [i32; 3] = [-1, 0, ZP];
-pub const HATCH_HI: [i32; 3] = [-1, 1, ZP];
-pub const HATCH_CTRL: [i32; 3] = [-1, 0, ZP - 1];
-pub const HATCH_CTRL_HI: [i32; 3] = [-1, 2, ZP];
-/// R's detector: past the hold (a held cart never reads as the tier cleared).
-pub const EXIT_DET: [i32; 3] = [1, -1, ZP + 5];
+pub const SWEPT: [[i32; 3]; 1] = [[-2, 0, 4]];
+pub const BED_HEAD: [i32; 3] = [-3, 0, 4];
+/// The hatch: two trapdoors in the zombie box's one opening west of the bed's head (bottom half
+/// (-4,0,4), top half (-4,1,4)); open (their controls powered) their plates cut the eye lines;
+/// shut they pass.
+pub const HATCH: [i32; 3] = [-4, 0, 4];
+pub const HATCH_HI: [i32; 3] = [-4, 1, 4];
+pub const HATCH_CTRL: [i32; 3] = [-4, 0, 3];
+pub const HATCH_CTRL_HI: [i32; 3] = [-4, 2, 4];
 /// The rider check's hold: a braked powered rail, powered only while the check's string sees a rider.
-pub const HOLD: [i32; 3] = [1, -1, ZP + 4];
+pub const HOLD: [i32; 3] = [3, -1, 6];
+/// R's detector: past the hold (a held cart never reads as the tier cleared).
+pub const EXIT_DET: [i32; 3] = [4, -1, 6];
 
-/// The design: the bed tier alone, or (`bench`) with a run-out past the exit and the visiting
-/// cart and villager parked far off on a braked rail.
+/// The design: the bed tier alone, or (`bench`) with a run-out past the exit.
 pub fn design(bench: bool) -> Result<String> {
-    let mut b = Builder::new(if bench { "bed-tier-min-bench" } else { "bed-tier-min" });
+    let mut b = Builder::new(if bench { "bed-tier-fold-bench" } else { "bed-tier-fold" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
-    // the line: the entry a booster (always on: a slow arrival still reaches the park), the
-    // activator (always on), a plain rail, the curve (top-half trapdoors over all four: a rider
-    // passes, nobody stands there), the park (one braked slope rail: every arrival stops on it),
-    // a plain slope, FLATS capped flats (the released cart, boosted over the rest of the park's
-    // cell only, slows on them under 0.2 b/t: a cart faster than that stops dead against a standing
-    // villager instead of seating it), the pickup cell, two capped flats, the exit (R's detector
-    // on its slope)
+    let wall = |b: &mut Builder, c: [i32; 3]| -> Result<()> {
+        if !b.d.blocks.contains_key(&c) {
+            put(b, c, "glass")?;
+        }
+        Ok(())
+    };
+    // the arrival, west along z -1: the entry a booster (always on), the activator (always on),
+    // both capped (top-half trapdoors: a rider passes, nobody stands there)
     put(&mut b, ENTRY, "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
-    put(&mut b, [-2, 1, 0], "redstone_block")?;
+    put(&mut b, [ENTRY[0], 1, ENTRY[2]], "redstone_block")?;
     put(&mut b, ACTIVATOR, "activator_rail[powered=true,shape=east_west,waterlogged=false]")?;
-    put(&mut b, [-1, 1, 0], "redstone_block")?;
-    put(&mut b, [0, 2, 0], &rail("east_west"))?;
-    put(&mut b, [0, 1, 0], "glass")?;
-    put(&mut b, [1, 2, 0], &rail("south_west"))?;
-    put(&mut b, [1, 1, 0], "glass")?;
-    for x in -2..=1 {
-        put(&mut b, [x, 3, 0], cap)?;
+    // (the activator's redstone block on its north side, not under it: under it, it would sit
+    // beside the park rail and power it; on the north it is also the dismount's first choice,
+    // blocked)
+    put(&mut b, [ACTIVATOR[0], 1, ACTIVATOR[2]], "stone")?;
+    put(&mut b, [ACTIVATOR[0], 2, ACTIVATOR[2] - 1], "redstone_block")?;
+    put(&mut b, [ENTRY[0], 3, ENTRY[2]], cap)?;
+    put(&mut b, [ACTIVATOR[0], 3, ACTIVATOR[2]], cap)?;
+    // the park, two braked powered rails down the slope (every arrival stops on the first; the
+    // release powers both: the full second cell's boost narrows the spread of release speeds that
+    // the first cell's stop position leaves), a capped flat, the curve south
+    for (p, c) in PARK.iter().zip(PARK_CTRL.iter()) {
+        put(&mut b, *p, "powered_rail[powered=false,shape=ascending_east,waterlogged=false]")?;
+        put(&mut b, *c, "stone")?;
     }
-    put(&mut b, PARK[0], "powered_rail[powered=false,shape=ascending_north,waterlogged=false]")?;
-    put(&mut b, PARK_CTRL[0], "stone")?;
-    put(&mut b, [1, 0, 2], &rail("ascending_north"))?;
-    put(&mut b, [1, -1, 2], "glass")?;
-    // (glass two cells over the park, out of the rider space and above the cart: no villager
-    // stands on the parked cart's top)
-    put(&mut b, [1, 3, 1], "glass")?;
-    for z in 3..=ZP + 1 {
-        put(&mut b, [1, 0, z], &rail("north_south"))?;
-        put(&mut b, [1, -1, z], "glass")?;
-        if z != ZP {
-            put(&mut b, [1, 1, z], cap)?;
+    let za = ENTRY[2];
+    put(&mut b, [-1, 0, za], &rail("east_west"))?;
+    put(&mut b, [-1, -1, za], "glass")?;
+    put(&mut b, [-1, 1, za], cap)?;
+    put(&mut b, [-2, 0, za], &rail("south_east"))?;
+    put(&mut b, [-2, -1, za], "glass")?;
+    put(&mut b, [-2, 1, za], cap)?;
+    // (glass two cells over the park: no villager stands on the parked cart's top)
+    put(&mut b, [1, 3, za], "glass")?;
+    // five capped flats down x -2, the pickup cell (the bed's head west of it), a capped booster,
+    // the curve east, two capped flats east along z 6
+    for z in za + 1..=5 {
+        // (the cell after the pickup a booster, always on: an empty cart, slowing past the pickup
+        // cell on its 0.96 drag, would stall on the flats before the hold; its redstone block under
+        // it touches no other rail)
+        if z == SWEPT[0][2] + 1 {
+            put(&mut b, [-2, 0, z], "powered_rail[powered=true,shape=north_south,waterlogged=false]")?;
+            put(&mut b, [-2, -1, z], "redstone_block")?;
+        } else {
+            put(&mut b, [-2, 0, z], &rail("north_south"))?;
+            put(&mut b, [-2, -1, z], "glass")?;
+        }
+        if z != SWEPT[0][2] {
+            put(&mut b, [-2, 1, z], cap)?;
         }
     }
-    // the exit: a plain slope down (an empty cart, slowing on its 0.96 drag, still reaches it),
-    // the rider check's flat, the hold, R's detector
-    put(&mut b, [1, -1, ZP + 2], &rail("ascending_north"))?;
-    put(&mut b, [1, -2, ZP + 2], "stone")?;
-    // the exit's rider check (ironspec 18:14 (b)): a tripwire at rider height across the flat
-    // after the slope, (1,0,ZP+3) (hooks (0,0,ZP+3), (2,0,ZP+3) on stone): a seated rider's box
-    // crosses its band, an empty cart's (0.7 tall) does not. The east hook's block (3,0,ZP+3)
-    // feeds dust (3,-1,ZP+3), (3,-1,ZP+4), (2,-1,ZP+4), the last pointing west into HOLD, a braked
-    // powered rail: powered while a rider passes (the hook's 10-gt hold), it holds any riderless
-    // cart. R's detector is past the hold, so a held cart never reads as the tier cleared (the
-    // alarm: no R since the divert; day-1's switch diverts nobody more)
+    put(&mut b, [-2, 0, 6], &rail("north_east"))?;
+    put(&mut b, [-2, -1, 6], "glass")?;
+    put(&mut b, [-2, 1, 6], cap)?;
+    for x in -1..=0 {
+        put(&mut b, [x, 0, 6], &rail("east_west"))?;
+        put(&mut b, [x, -1, 6], "glass")?;
+        put(&mut b, [x, 1, 6], cap)?;
+    }
+    // the exit: a plain slope down east, a flat, the hold under the rider check (a tripwire at
+    // rider height across the hold's own cell, hooks (3,0,5) and (3,0,7): a seated rider's box
+    // crosses its band from the moment the cart nears the hold until it has left it, an empty
+    // cart's never does; the string over the hold itself, not a cell before it: the string's
+    // 10-gt re-check could drop the power while a fast cart is still on the hold), powered from
+    // the south hook's block by dust (3,-1,8), (3,-1,7) pointing north into it, then R
+    put(&mut b, [1, -1, 6], &rail("ascending_west"))?;
+    put(&mut b, [1, -2, 6], "stone")?;
+    put(&mut b, [2, -1, 6], &rail("east_west"))?;
+    put(&mut b, [2, -2, 6], "glass")?;
+    put(&mut b, [3, 0, 6], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+    put(&mut b, [3, 0, 5], "tripwire_hook[attached=true,facing=south,powered=false]")?;
+    put(&mut b, [3, 0, 4], "stone")?;
+    put(&mut b, [3, 0, 7], "tripwire_hook[attached=true,facing=north,powered=false]")?;
+    put(&mut b, [3, 0, 8], "stone")?;
     let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
-    put(&mut b, [1, -1, ZP + 3], &rail("north_south"))?;
-    put(&mut b, [1, -2, ZP + 3], "glass")?;
-    put(&mut b, [1, 0, ZP + 3], "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]")?;
-    put(&mut b, [0, 0, ZP + 3], "tripwire_hook[attached=true,facing=east,powered=false]")?;
-    put(&mut b, [-1, 0, ZP + 3], "stone")?;
-    put(&mut b, [2, 0, ZP + 3], "tripwire_hook[attached=true,facing=west,powered=false]")?;
-    put(&mut b, [3, 0, ZP + 3], "stone")?;
-    for c in [[3, -1, ZP + 3], [3, -1, ZP + 4], [2, -1, ZP + 4]] {
+    for c in [[3, -1, 8], [3, -1, 7]] {
         put(&mut b, [c[0], c[1] - 1, c[2]], "stone")?;
         put(&mut b, c, dust)?;
     }
-    put(&mut b, HOLD, "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
-    put(&mut b, [1, -2, HOLD[2]], "glass")?;
-    put(&mut b, EXIT_DET, "detector_rail[powered=false,shape=north_south,waterlogged=false]")?;
-    put(&mut b, [1, -2, EXIT_DET[2]], "stone")?;
-    // the bed, its head beside the pickup cell, roofed by two top-half trapdoors (0.25 of headroom
-    // over the bed's top: nobody stands on it; a standing napper's eye line runs under them)
-    put(&mut b, BED_HEAD, "red_bed[facing=north,occupied=false,part=head]")?;
-    put(&mut b, [0, 0, ZP + 1], "red_bed[facing=north,occupied=false,part=foot]")?;
-    put(&mut b, [0, -1, ZP], "glass")?;
-    put(&mut b, [0, -1, ZP + 1], "glass")?;
-    put(&mut b, [0, 1, ZP], cap)?;
-    put(&mut b, [0, 1, ZP + 1], cap)?;
-    // the ledge: L (-1,2,1) south of the activator (its north side glass), south along x -1 to
-    // z ZP-1, east onto (0,2,ZP-1), south onto the bed's roof (0,2,ZP); the pit's drop east of
-    // that; glass between the ledge and the track's column (the parked cart's top and the caps
-    // lead nowhere), west and south
-    put(&mut b, [-1, 2, -1], "glass")?;
-    put(&mut b, [-1, 3, -1], "glass")?;
-    for z in 1..=ZP - 1 {
-        put(&mut b, [-1, 1, z], "stone")?;
-        for y in 2..=3 {
-            put(&mut b, [-2, y, z], "glass")?;
-        }
-    }
-    for z in 1..=ZP - 2 {
-        for y in 2..=3 {
-            put(&mut b, [0, y, z], "glass")?;
-        }
-    }
-    for z in 3..=ZP - 1 {
-        put(&mut b, [1, 2, z], "glass")?;
-    }
-    put(&mut b, [1, 2, ZP + 1], "glass")?;
-    for y in 2..=3 {
-        put(&mut b, [0, y, ZP + 1], "glass")?;
-    }
-    // the pit: glass east of the track (x 2, y 0..1), west of the flats north of the bed, south
-    // of its foot
-    for z in 1..=ZP + 2 {
-        for y in 0..=1 {
-            put(&mut b, [2, y, z], "glass")?;
-        }
-    }
-    put(&mut b, [2, 2, 1], "glass")?;
-    for z in 1..=ZP - 1 {
-        put(&mut b, [0, 0, z], "glass")?;
-        if !b.d.blocks.contains_key(&[0, 1, z]) {
-            put(&mut b, [0, 1, z], "glass")?;
-        }
-    }
-    put(&mut b, [0, 0, ZP + 2], "glass")?;
-    put(&mut b, [0, 1, ZP + 2], "glass")?;
-    // the zombie box west of the bed, its one opening two trapdoors at (-1,0,ZP) (bottom half) and
-    // (-1,1,ZP) (top half), facing west: open (powered by the redstone blocks (-1,0,ZP-1) and
-    // (-1,2,ZP)) their plates stand across the cells' east sides and cut every line; shut (F: both
-    // to stone) the sleeper's eye line and a standing napper's (under the bed's roof) pass. The
-    // zombie (persistent) in a boat at (-4.5, 0, ZP+0.5), glass all round, leaves over it
+    put(&mut b, HOLD, "powered_rail[powered=false,shape=east_west,waterlogged=false]")?;
+    put(&mut b, [HOLD[0], -2, HOLD[2]], "glass")?;
+    put(&mut b, EXIT_DET, "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+    put(&mut b, [EXIT_DET[0], -2, EXIT_DET[2]], "stone")?;
+    // the bed, its head beside the pickup cell, its foot north, roofed by two top-half trapdoors
+    // (0.25 of headroom over the bed's top: nobody stands on it; a standing napper's eye line runs
+    // under them)
+    put(&mut b, BED_HEAD, "red_bed[facing=south,occupied=false,part=head]")?;
+    put(&mut b, [-3, 0, 3], "red_bed[facing=south,occupied=false,part=foot]")?;
+    put(&mut b, [-3, -1, 3], "glass")?;
+    put(&mut b, [-3, -1, 4], "glass")?;
+    put(&mut b, [-3, 1, 3], cap)?;
+    put(&mut b, [-3, 1, 4], cap)?;
+    // the hatch west of the bed's head and the zombie box behind it (one cell, x -5; the west wall
+    // on x -6): open (powered by the redstone blocks (-4,0,3) and (-4,2,4)) the plates stand across
+    // the cells' east sides and cut every line; shut (F) the sleeper's eye line and a standing
+    // napper's (under the bed's roof) pass. The zombie (persistent) in a boat at (-5.0, 0, 4.5),
+    // glass all round, leaves over it
     put(&mut b, HATCH, "iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]")?;
     put(&mut b, HATCH_HI, "iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]")?;
     put(&mut b, HATCH_CTRL, "redstone_block")?;
     put(&mut b, HATCH_CTRL_HI, "redstone_block")?;
-    put(&mut b, [-1, -1, ZP], "glass")?;
-    put(&mut b, [-1, 0, ZP + 1], "glass")?;
-    put(&mut b, [-1, 1, ZP + 1], "glass")?;
-    for y in 2..=3 {
-        put(&mut b, [-1, y, ZP + 1], "glass")?;
-    }
-    for x in -5..=-2 {
-        put(&mut b, [x, -1, ZP], "glass")?;
-        put(&mut b, [x, 2, ZP], "glass")?;
-        for y in 0..=1 {
-            put(&mut b, [x, y, ZP - 1], "glass")?;
-            put(&mut b, [x, y, ZP + 1], "glass")?;
-        }
-    }
+    put(&mut b, [-4, -1, 4], "glass")?;
+    put(&mut b, [-5, -1, 4], "glass")?;
+    put(&mut b, [-5, 2, 4], "glass")?;
     for y in 0..=1 {
-        put(&mut b, [-6, y, ZP], "glass")?;
+        put(&mut b, [-5, y, 3], "glass")?;
+        put(&mut b, [-5, y, 5], "glass")?;
+        put(&mut b, [-6, y, 4], "glass")?;
+        put(&mut b, [-4, y, 5], "glass")?;
     }
-    put(&mut b, [-5, 3, ZP], "oak_leaves[distance=1,persistent=true,waterlogged=false]")?;
-    b.entity("oak_boat", [-4.5, 0.0, ZP as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
-    if bench {
-        // the run-out past the exit and a stop
-        for z in EXIT_DET[2] + 1..=EXIT_DET[2] + 6 {
-            put(&mut b, [1, -1, z], &rail("north_south"))?;
-            put(&mut b, [1, -2, z], "glass")?;
+    put(&mut b, [-4, 1, 3], "glass")?;
+    put(&mut b, [-5, 3, 4], "oak_leaves[distance=1,persistent=true,waterlogged=false]")?;
+    b.entity("oak_boat", [-5.0, 0.0, 4.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+    // the pit: glass north of the bed's foot, south of its head, east of the flats and the pickup
+    // cell (x -1, z 0..5: the ledge's floor at y 1)
+    for y in 0..=1 {
+        put(&mut b, [-3, y, 2], "glass")?;
+        put(&mut b, [-3, y, 5], "glass")?;
+        for z in 0..=5 {
+            put(&mut b, [-1, y, z], "glass")?;
         }
-        put(&mut b, [1, -1, EXIT_DET[2] + 7], "glass")?;
-        // (the visitor is spawned by the bench at the entry at the visit's hour, HOME = the bed:
-        // parked from the start it would run REST unable to reach its bed and drop HOME after
-        // SetWalkTargetFromBlockMemory's 1200 unreachable ticks)
+    }
+    // the landing L (2,2,0) south of the activator (its north side the activator's redstone
+    // block: the dismount's first choice, blocked), the ledge: south to (2,2,1), west along z 1 to
+    // (-1,2,1), south down x -1 to (-1,2,3), west over the flat's cap (-2,2,3) onto the bed's roof
+    // (-3,2,3), (-3,2,4): there the bed's head is within SleepInBed's 2 (a villager off a rail
+    // cannot path onto one, so the walk ends there; the open column over the pickup cell west of
+    // (-2,2,3) is a way in too). Walls two high round the ledge (the
+    // parked cart's top and the caps' tops lead nowhere)
+    put(&mut b, [2, 1, -3], "stone")?;
+    put(&mut b, [2, 1, -2], "stone")?;
+    put(&mut b, [2, 1, -1], "stone")?;
+    put(&mut b, [2, 1, 0], "stone")?;
+    put(&mut b, [1, 1, 0], "stone")?;
+    put(&mut b, [0, 1, 0], "stone")?;
+    // (the pickup cell's column (-2,1..2,4) stays open: a napper falling in stands on a rail and so
+    // can path to the bed; a napper that lost its HOME re-claims the bed that way)
+    let ledge: [[i32; 3]; 12] = [[2, 2, -3], [2, 2, -2], [2, 2, -1], [2, 2, 0], [1, 2, 0], [0, 2, 0], [-1, 2, 0], [-1, 2, 1], [-1, 2, 2], [-1, 2, 3], [-2, 2, 3], [-3, 2, 3]];
+    let ledge_end = [-3, 2, 4];
+    for c in ledge.iter().chain(std::iter::once(&ledge_end)) {
+        for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let n = [c[0] + dx, 2, c[2] + dz];
+            if ledge.contains(&n) || n == ledge_end || n == [-2, 2, 4] || n == [ACTIVATOR[0], 2, ACTIVATOR[2]] {
+                continue;
+            }
+            wall(&mut b, n)?;
+            wall(&mut b, [n[0], 3, n[2]])?;
+        }
+    }
+    if bench {
+        // the run-out past R and a stop
+        for x in EXIT_DET[0] + 1..=EXIT_DET[0] + 6 {
+            put(&mut b, [x, -1, 6], &rail("east_west"))?;
+            put(&mut b, [x, -2, 6], "glass")?;
+        }
+        put(&mut b, [EXIT_DET[0] + 7, -1, 6], "glass")?;
+        // (the visitor is spawned by the bench at the entry at the visit's hour, HOME = the bed)
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
     Ok(b.text(&[
-        "The one-chunk top tier's bed stop, minimal (paper v2): a booster entry, an always-on activator, a curve, one braked park rail on a slope, a slope, capped flats, the pickup cell beside the bed, two capped flats, the exit.",
-        "The rider lands on the ledge, walks off into the pit and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it.",
+        "The one-chunk top tier's bed stop folded into C′'s envelope (loop frame minus (0,50,0); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, one braked park rail on a slope, a slope, a capped flat, a curve south, four capped flats, the pickup cell beside the bed, a capped flat, a curve east, two capped flats, the exit slope, the rider check, the hold, R.",
+        "The rider lands on the ledge south of the activator, walks round to the pickup cell's column and drops in, sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; a riderless cart is held before R.",
     ]))
 }
 
@@ -315,7 +328,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
         let w = &mut run.world;
         let i = idx(w, cart_id).ok_or("cart gone")?;
         w.entities.list[i].pos = Vec3::new(ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5);
-        w.entities.list[i].delta_movement = Vec3::new(speed, 0.0, 0.0);
+        w.entities.list[i].delta_movement = Vec3::new(-speed, 0.0, 0.0);
         let ps = w.entities.list[i].passengers.clone();
         for pid in ps {
             if let Some(j) = idx(w, pid) {
@@ -446,7 +459,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
                 }
             }
         }
-        if c.pos.z > EXIT_DET[2] as f64 + 0.5 && row.r_at.is_none() {
+        // (R and out: the exit runs east along R's row)
+        let on_exit_row = (c.pos.z - (EXIT_DET[2] as f64 + 0.5)).abs() < 0.3;
+        if on_exit_row && c.pos.x > EXIT_DET[0] as f64 + 0.5 && row.r_at.is_none() {
             row.r_at = Some(t);
         }
         // the rider check's hold: the cart still on HOLD for 40 gt after the release is the alarm
@@ -455,7 +470,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
             row.held = Some(t - 40);
             break;
         }
-        if c.pos.z > EXIT_DET[2] as f64 + 1.5 {
+        if on_exit_row && c.pos.x > EXIT_DET[0] as f64 + 1.5 {
             row.out_at = Some(t);
             row.seated_out = riding;
             break;
