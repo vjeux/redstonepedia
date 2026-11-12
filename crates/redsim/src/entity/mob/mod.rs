@@ -681,7 +681,9 @@ pub fn spawn_hook(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>
         }
     }
     let Some(end) = end else { return Some(Err(format!("{type_id}: unclosed Passengers list"))) };
-    if type_id.contains("raft") {
+    // (a raft by its id's end, the namespace stripped: "minecraft:" itself holds "raft", G1 on
+    // ff000679f)
+    if type_id.strip_prefix("minecraft:").unwrap_or(type_id).ends_with("_raft") {
         return Some(Err(format!("{type_id}: a raft's seat (0.5) is not modeled; use a wooden boat or a minecart")));
     }
     let list = &n[list_start..end];
