@@ -1232,6 +1232,10 @@ pub enum MobfarmCmd {
         floor_bottom: bool,
         #[arg(long)]
         empty: bool,
+        /// (cc767b78) Real level-32 freezes T,D (repeatable): entities frozen, redstone and the
+        /// controller running.
+        #[arg(long)]
+        freeze32: Vec<String>,
     },
     LanesBench {
         #[arg(long, default_value_t = 3)]
@@ -1262,6 +1266,89 @@ pub enum MobfarmCmd {
         freeze32: Vec<String>,
         #[arg(long)]
         empty: bool,
+    },
+    /// (cc767b78; farmopt 2026-11-11 22:03, the L1 rule) The freeze-matrix judge of the lanes
+    /// bench: the L1 load window (block events up to 3 gt ahead of the entities, at most 1 scheduled
+    /// tick while they are frozen) as a real level-32 freeze of D gt (`--ds`, 1..4) at every 1-gt
+    /// start `--starts A,B` gt from opening `--k`, at every `--corners`, in each `--modes` (gt:W
+    /// game-tick widths, ringQ:W ring-edge widths); the bars: exactly 1 cart per lane per opening,
+    /// 0 gate shuts onto a cart; the failing starts per corner and D.
+    LanesJudge {
+        #[arg(long, default_value_t = 3)]
+        lanes: usize,
+        #[arg(long, default_value_t = 2)]
+        spacing: i32,
+        #[arg(long, default_value_t = 8)]
+        run: i32,
+        #[arg(long, default_value_t = 7)]
+        per_lane: usize,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 8)]
+        cycles: i64,
+        #[arg(long, default_value_t = 150)]
+        ret: i64,
+        #[arg(long, value_delimiter = ',', default_value = "gt:14,ring34:14")]
+        modes: Vec<String>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-10,89")]
+        starts: Vec<i64>,
+        #[arg(long, default_value_t = 3)]
+        k: i64,
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        ds: Vec<i64>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-2,-1,0,1,2")]
+        corners: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+        #[arg(long)]
+        empty: bool,
+    },
+    /// (cc767b78, the L1 rule) The freeze-matrix judge of the drop bench (ironfarm's per-lane
+    /// escapement into the drop cell): the L1 load window as a real level-32 freeze of D gt (`--ds`)
+    /// at every 1-gt start `--starts A,B` gt from release `--k`, at every `--corners`; a run fails when
+    /// worse than its corner's unfrozen control on carts per G0 / G_P opening, carts per cell per
+    /// release, cells not settled, shuts onto a cart.
+    DropJudge {
+        #[arg(long, default_value_t = 3)]
+        lanes: usize,
+        #[arg(long, default_value_t = 4)]
+        spacing: i32,
+        #[arg(long, default_value_t = 10)]
+        run: i32,
+        #[arg(long, default_value_t = 8)]
+        per_lane: usize,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 8)]
+        cycles: i64,
+        #[arg(long, default_value_t = 80)]
+        ret: i64,
+        #[arg(long, default_value_t = 13)]
+        w0: i64,
+        #[arg(long, default_value_t = 12)]
+        wp: i64,
+        #[arg(long, default_value_t = 12)]
+        drop_w: i64,
+        #[arg(long, default_value_t = 0)]
+        entry: i32,
+        #[arg(long, default_value_t = 20)]
+        hold_n: i64,
+        #[arg(long)]
+        front_boost: bool,
+        #[arg(long)]
+        floor_bottom: bool,
+        #[arg(long)]
+        empty: bool,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-10,89")]
+        starts: Vec<i64>,
+        #[arg(long, default_value_t = 3)]
+        k: i64,
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        ds: Vec<i64>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-2,-1,0,1,2")]
+        corners: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
     },
     StringBench {
         #[arg(long, default_value_t = 3)]
@@ -4084,8 +4171,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, empty } => {
-            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, riders: !empty };
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, empty, freeze32 } => {
+            let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
+                let mut it = s.split(',');
+                let a = it.next().unwrap_or("").trim().parse::<i64>()?;
+                let d = it.next().unwrap_or("").trim().parse::<i64>()?;
+                Ok((a, d))
+            };
+            let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, riders: !empty, freeze32 };
             println!("{}", crate::dropbench::drop_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
             return Ok(());
         }
@@ -4100,6 +4194,46 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
             let o = crate::lanesbench::LanesOpts { lanes, spacing, run, per_lane, period, width, cycles, ret, corner, ring_q, freeze, freeze32, riders: !empty };
             println!("{}", crate::lanesbench::lanes_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
+            return Ok(());
+        }
+        MobfarmCmd::LanesJudge { lanes, spacing, run, per_lane, period, cycles, ret, modes, starts, k, ds, corners, jobs, empty } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            let modes = modes.iter().map(|m| crate::lanesjudge::Mode::parse(m)).collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let base = crate::lanesbench::LanesOpts { lanes, spacing, run, per_lane, period, width: 0, cycles, ret, corner: 0, ring_q: 0, freeze: Vec::new(), freeze32: Vec::new(), riders: !empty };
+            let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
+            let title = format!("lanes ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, period {period}, {cycles} cycles)");
+            // (lanesbench's warm-up: 100 gt)
+            let lines = crate::lanesjudge::judge(&title, 100, period, &o, |m, c, fr| {
+                let mut lo = base.clone();
+                lo.ring_q = m.ring_q;
+                lo.width = m.width;
+                lo.corner = c;
+                lo.freeze32 = fr;
+                crate::lanesbench::lanes_bench(&lo)
+            })
+            .map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            return Ok(());
+        }
+        MobfarmCmd::DropJudge { lanes, spacing, run, per_lane, period, cycles, ret, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, empty, starts, k, ds, corners, jobs } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, riders: !empty, freeze32: Vec::new() };
+            let modes = vec![crate::lanesjudge::Mode::parse("gt").map_err(|e| anyhow::anyhow!(e))?];
+            let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
+            let title = format!("drop ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, G0 {w0} gt, G_P {wp} gt, the trapdoors {drop_w} gt every {period}, hold {hold_n}, {cycles} cycles)");
+            // (dropbench's warm-up: 300 gt)
+            let lines = crate::lanesjudge::judge(&title, 300, period, &o, |_, c, fr| {
+                let mut lo = base.clone();
+                lo.corner = c;
+                lo.freeze32 = fr;
+                crate::dropbench::drop_bench(&lo)
+            })
+            .map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
             return Ok(());
         }
         MobfarmCmd::StringBench { descent, v0, pass, hold, ticks, empty } => {

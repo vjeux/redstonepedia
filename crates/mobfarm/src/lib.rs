@@ -43,6 +43,7 @@ pub mod combine;
 pub mod holdbench;
 pub mod dropbench;
 pub mod lanesbench;
+pub mod lanesjudge;
 pub mod stringbench;
 pub mod pocketbench;
 pub mod gqbench;
