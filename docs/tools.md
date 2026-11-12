@@ -287,6 +287,23 @@ the loop blocks (observers, portal blocks) a ray from the outside reaches by a 2
 through blocks under 4.034 (0 required on the Nether side), the mobs' highest box top (adults,
 babies on foot and the jockey stack apart: the jumps' own control), and the design writer re-parses
 its text and compares every cell.
+The module's static checks (onechunk, ironspec's and G1's rules, Nov 12): `mctas mobfarm ghast-check
+DESIGN [--nether] [--close OUT]` lists every block that matters (observers, chests, redstone
+components, rails, portal blocks; a player's buttons, plates and levers aside) resisting under 3.283
+that a ray from the outside air reaches by a 26-connected path through cells under 4.034 (0
+required); `--close` puts cobblestone in every outside cell with an edge or a corner on the weak
+interior around those blocks until nothing is reached, and writes the closed design (only for a
+layout whose working spaces are enclosed). `mctas mobfarm creeper-check DESIGN [--glass]` floods
+the creeper's body (`hostile::flood_with`, spawned at block light 0 or walked to from there, the
+world padded by 16) and lists its positions within 5.5 of a portal block (`--glass`: or a glass
+block; 0 required) and within 10.5 (charged creepers, information). `mctas mobfarm exit DESIGN
+--positions P --part-flood [--spots]` floods an assembled module that holds its bed as a part and
+lists every golem spawn spot by the block under it. `mobfarm column --out` re-parses what it wrote
+(every cell, block entity, entity, port, `positions:`, `declared:` and run cell), merges the parts'
+`run-cells:` / `run-gates:` (a later part's names as `<part>.<NAME>`), and with `--no-settle` writes
+the placement-order list (every rail whose designed shape, or a neighbour's, vanilla placement
+changes when it is placed last) and the rail Ts (every plain rail with 3 potential connections)
+into the header.
 Every portal's link as the game searches it: `mctas mobfarm portal-links --ow NAME=x0,y0,z0,x1,y1,z1[;...]...
 --nether NAME=...... [--expect SOURCE=TARGET]... [--margin 0.7]` (absolute cells): from each
 overworld portal the Nether portals within 16 of its x 1/8 point (y not scaled), 3D-closest, ties to
