@@ -8134,6 +8134,76 @@ pub fn rec_cartpole(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// (tickexact 2026-11-11, ironspec's sweep after the cart-pole fixes) `mctas mobai stopper-sweep
+/// FILE...`: every element of a design in the classes the cart-pole fixes changed, with what the
+/// old redsim did there: path blockers (end rods, pistons, piston heads, moving pistons: the old
+/// redsim let a villager's path through, the game does not), iron bars and chains (the old table
+/// had no iron bars and only the upright chain: such a file was refused), and the terrain blocks
+/// in front of a piston (moved, their boxes rounded to whole pixels by the old redsim when they
+/// are not whole pixels).
+pub fn stopper_sweep(files: &[std::path::PathBuf]) -> Result<()> {
+    use redsim::block::Block;
+    for f in files {
+        let text = std::fs::read_to_string(f).map_err(|e| anyhow!("{}: {e}", f.display()))?;
+        let d = mctas::design::Design::parse(&text).map_err(|e| anyhow!("{}: {e}", f.display()))?;
+        let at: std::collections::HashMap<[i32; 3], String> = d.blocks.iter().map(|(p, s)| (*p, s.clone())).collect();
+        println!("== {} ({} blocks)", f.display(), d.blocks.len());
+        let mut n = 0;
+        let mut sorted: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, s)| (*p, s.clone())).collect();
+        sorted.sort_by_key(|(p, _)| (p[1], p[2], p[0]));
+        for (p, s) in &sorted {
+            let name = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("");
+            let line = match name {
+                "end_rod" => Some("a path blocker (RodBlock): the old redsim let villager paths through it (more permissive than the game)".to_string()),
+                "piston" | "sticky_piston" if s.contains("extended=true") => Some("an extended piston: the old redsim let villager paths through its base (more permissive)".to_string()),
+                "piston" | "sticky_piston" => Some("a piston: extending, its base, head and moving blocks were open to villager paths in the old redsim (more permissive)".to_string()),
+                "piston_head" | "moving_piston" => Some("a piston head / moving piston: open to villager paths in the old redsim (more permissive)".to_string()),
+                "iron_bars" => Some("iron bars: not in the old table (the file was refused by the old redsim)".to_string()),
+                "iron_chain" if !s.contains("axis=y") => Some("a sideways iron chain: not in the old table (refused)".to_string()),
+                "iron_chain" => Some("an upright iron chain: its static box exact before; moved by a piston its box was rounded (see below)".to_string()),
+                _ => None,
+            };
+            if let Some(l) = line {
+                println!("  {p:?} {s}: {l}");
+                n += 1;
+            }
+            // the block a piston pushes (and a sticky one pulls back)
+            if matches!(name, "piston" | "sticky_piston") {
+                let facing = s.split("facing=").nth(1).map(|x| x.split([',', ']']).next().unwrap_or("")).unwrap_or("");
+                let st = match facing {
+                    "north" => [0, 0, -1],
+                    "south" => [0, 0, 1],
+                    "east" => [1, 0, 0],
+                    "west" => [-1, 0, 0],
+                    "up" => [0, 1, 0],
+                    _ => [0, -1, 0],
+                };
+                let mut q = [p[0] + st[0], p[1] + st[1], p[2] + st[2]];
+                if s.contains("extended=true") {
+                    q = [q[0] + st[0], q[1] + st[1], q[2] + st[2]];
+                }
+                if let Some(t) = at.get(&q) {
+                    let terrain = Block::parse(t).is_err();
+                    let boxes: Vec<[f64; 6]> = redsim::terrain::land::block_of(t).ok().and_then(|b| if let Block::Terrain(id) = b { Some(redsim::terrain::blocks::props(id).boxes.clone()) } else { None }).unwrap_or_default();
+                    let off_pixel = boxes.iter().flatten().any(|v| ((v * 16.0) - (v * 16.0).round()).abs() > 1.0e-6);
+                    if terrain {
+                        println!(
+                            "  {q:?} {t}: moved by the piston at {p:?}, a natural-state (table) block: {}",
+                            if off_pixel { "its boxes are not whole pixels: the old redsim rounded them while moving (its faces off by up to 1/32)" } else { "whole-pixel boxes: unchanged" }
+                        );
+                        n += 1;
+                    }
+                }
+            }
+        }
+        if n == 0 {
+            println!("  none");
+        }
+    }
+    println!("\n(any entity move that starts inside a block shape is a run's, not a file's: every mctas mobfarm command prints `voxel-stop moves: N` on stderr at its end (0 expected), and `--voxel-trace` lists each such move with its cell and both distances)");
+    Ok(())
+}
+
 /// (tickexact 2026-11-11, ironspec's raw-placement audit) The cells of scene `s` whose state one
 /// update pass would change: the scene is placed raw (no neighbour updates: a powered rail on its
 /// redstone block stays unpowered), so a block whose written state its neighbours contradict sets

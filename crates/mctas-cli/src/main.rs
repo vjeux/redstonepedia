@@ -89,6 +89,11 @@ enum Cmd {
     Mobfarm {
         #[command(subcommand)]
         command: mobfarm::cli::MobfarmCmd,
+        /// (tickexact 2026-11-11, ironspec's sweep) Print each move a block shape's voxel grid
+        /// stopped differently from a box test (the cart-pole fix: a cart starting a move inside a
+        /// shape) with its cell and both distances; their count is printed after every command
+        #[arg(long, global = true)]
+        voxel_trace: bool,
     },
     /// The farm optimizer (designs/briefs/farm-optimizer.md): a stage spec in, the merged Pareto
     /// front per fork out, with the bounds and the gap.
@@ -224,7 +229,14 @@ fn main() -> Result<()> {
         Cmd::Web { command } => web_cli::run(&cli.version, command)?,
         Cmd::BoatLeads { command } => boat_leads::cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
-        Cmd::Mobfarm { command } => mobfarm::cli::run(&cli.version, command)?,
+        Cmd::Mobfarm { command, voxel_trace } => {
+            mobfarm::cli::set_voxel_trace(voxel_trace);
+            mobfarm::cli::run(&cli.version, command)?;
+            eprintln!(
+                "voxel-stop moves: {} (moves starting inside a block's shape that its voxel grid stopped differently from a box test; 0 expected; --voxel-trace lists them)",
+                mobfarm::cli::voxel_stops()
+            );
+        }
         Cmd::Farmopt { command } => farmopt_iron::cli::run(command)?,
         Cmd::Terrain { command } => terrain::cli::run(&cli.version, command)?,
         Cmd::Test(args) => door_judge::cmd_test(&cli.version, args)?,

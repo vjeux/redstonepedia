@@ -204,6 +204,12 @@ pub enum MobaiCmd {
         #[arg(long)]
         xz: bool,
     },
+    /// (tickexact 2026-11-11, ironspec's sweep after the cart-pole fixes) Every element of the
+    /// designs in the classes the fixes changed (path blockers, iron bars and chains, piston-moved
+    /// table blocks), with what the old redsim did there
+    StopperSweep {
+        files: Vec<std::path::PathBuf>,
+    },
     /// (tickexact 2026-11-11, ironspec's cart-pole bridge) Scene cart-pole's (and -push, -stop,
     /// -climb's) recording: per lane how far the cart got, whether it passed, and the rider's eye
     RecCartpole {
@@ -382,6 +388,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
+        MobaiCmd::StopperSweep { files } => crate::fixture::stopper_sweep(&files),
         MobaiCmd::RecCartpole { path } => crate::fixture::rec_cartpole(&path),
         MobaiCmd::RecHcontact { path } => crate::fixture::rec_hcontact(&path),
         MobaiCmd::RecJunction { path } => crate::fixture::rec_junction(&path),

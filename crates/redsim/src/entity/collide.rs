@@ -137,6 +137,23 @@ fn shape_collide_voxels(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &
     distance
 }
 
+/// (tickexact 2026-11-11, ironspec's sweep) The moves stopped by a shape's voxel grid where a box
+/// test would not have stopped them there (a face starting inside a shape: the cart-pole fix),
+/// since the process started; and whether each is printed.
+static VOXEL_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static VOXEL_TRACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The moves the voxel grid stopped differently from a box test so far (the runners print it: 0
+/// expected for a design whose carts never start a move inside a block's shape).
+pub fn voxel_stops() -> u64 {
+    VOXEL_STOPS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// `--voxel-trace`: print each such move on stderr (its cell, axis, box and both distances).
+pub fn set_voxel_trace(on: bool) {
+    VOXEL_TRACE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// `VoxelShape.collideX` of one block's shape (its boxes, moved to the block) along `a`.
 fn shape_collide(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &[Aabb], mut distance: f64) -> f64 {
     if shape.is_empty() {
@@ -152,7 +169,25 @@ fn shape_collide(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &[Aabb],
     // (a moving face starting inside a box: the voxel grid decides, a line inside the box can stop it)
     let face = if distance > 0.0 { moving.max(a) - 1.0e-7 } else { moving.min(a) + 1.0e-7 };
     if shape.iter().any(|bx| overlaps(bx) && bx.min(a) < face && face < bx.max(a)) {
-        return shape_collide_voxels(a, moving, cell, shape, distance);
+        let v = shape_collide_voxels(a, moving, cell, shape, distance);
+        // (tickexact 2026-11-11, ironspec's sweep) every move the voxel grid stops where the old box
+        // test let it through (or stops it elsewhere) is counted (`voxel_stops`, printed by the
+        // runners) and, with `--voxel-trace`, printed
+        let mut boxed = distance;
+        for bx in shape.iter().filter(|bx| overlaps(bx)) {
+            if distance > 0.0 && moving.max(a) - 1.0e-7 < bx.min(a) {
+                boxed = super::vec3::jmin(boxed, bx.min(a) - moving.max(a));
+            } else if distance < 0.0 && moving.min(a) + 1.0e-7 >= bx.max(a) {
+                boxed = super::vec3::jmax(boxed, bx.max(a) - moving.min(a));
+            }
+        }
+        if (boxed - v).abs() > 1.0e-9 {
+            VOXEL_STOPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if VOXEL_TRACE.load(std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("voxel-stop: cell {:?} axis {} moving box ({:.4} {:.4} {:.4})..({:.4} {:.4} {:.4}): the old box test {boxed:.5}, the voxel grid {v:.5}", cell.map(|c| (c.x, c.y, c.z)), ["x", "y", "z"][a], moving.min_x, moving.min_y, moving.min_z, moving.max_x, moving.max_y, moving.max_z);
+            }
+        }
+        return v;
     }
     if distance > 0.0 {
         let max_a = moving.max(a);

@@ -2805,6 +2805,17 @@ fn slice_text(d: &mctas::design::Design, x: i32, y_from: Option<i32>, y_to: Opti
     out
 }
 
+/// (tickexact 2026-11-11, ironspec's sweep) `mctas mobfarm --voxel-trace`: print each move a block
+/// shape's voxel grid stops differently from a box test (`redsim::entity::collide`).
+pub fn set_voxel_trace(on: bool) {
+    redsim::entity::collide::set_voxel_trace(on);
+}
+
+/// Those moves so far (printed after every mobfarm command: 0 expected).
+pub fn voxel_stops() -> u64 {
+    redsim::entity::collide::voxel_stops()
+}
+
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
         MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, regular, dx, dz, gap, period, hide, kill, access, tier, out } => {
