@@ -2512,6 +2512,62 @@ pub enum MobfarmCmd {
         /// `--napper-lift`: arm the release on the station's exit detector (7,0,2) instead of (5,0,7).
         #[arg(long)]
         arm_station: bool,
+        /// `--row9`: ironfarm's S-bend sidings fed from the row by power-forced junctions K at
+        /// (x-2,25,9) into F (x-2,25,8), the exit routed west into K(-3) (the lift's water to 22).
+        #[arg(long)]
+        k_relay: bool,
+        /// The run mirrored in z (z' = 3 - z, onechunk's southern pair).
+        #[arg(long)]
+        mirror_z: bool,
+        /// `--k-relay`: K and J(-1) at day-1's taps after the napper's own ARM3 (instead of the
+        /// bench watching the carts).
+        #[arg(long)]
+        day1_taps: bool,
+        /// `--day1-taps`: J(-1)'s suppression opens this many gt after the napper's own ARM3 (at
+        /// D 12; day-1's REL', 72..85).
+        #[arg(long, default_value_t = 73)]
+        supp_open: i64,
+        /// `--napper-lift`: gate the hold's pulse on the napper's waiting bit (set on (7,-3,4)),
+        /// sampled X gt late at E's rise (day-1's option 2).
+        #[arg(long)]
+        pulse_gate: Option<i64>,
+        /// The control for `--pulse-gate`: sample the delayed bit alone (must fire a phantom pulse).
+        #[arg(long)]
+        gate_delayed_only: bool,
+        /// The arrival-phase sweep's bookkeeping: the waiting bit counts as consumed by the first
+        /// arming whose E rise is at least this many gt after the napper's detection on (7,-3,4).
+        #[arg(long, default_value_t = 36)]
+        bit_delay: i64,
+        /// The arrival-phase sweep R_FROM,R_TO,OFF_FROM,OFF_TO,LEN: the napper's start at every tick
+        /// R_FROM..=R_TO, bare and with a LEN-gt login at start + OFF_FROM..=OFF_TO.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        phase_sweep: Vec<i64>,
+        /// day-1's tripwire departure sensor over (8,0,7).
+        #[arg(long)]
+        tripwire: bool,
+        /// `--day1-taps` keyed to the napper's departure off the hold (option (b)); with
+        /// `--tripwire`, to the string's first rising edge.
+        #[arg(long)]
+        dep_keyed: bool,
+        /// The string's rising edge after the departure off the hold in the nominal row (gt).
+        #[arg(long, default_value_t = 0)]
+        trip_lag: i64,
+        /// `--k-relay`: the returning napper's lane (-1, 3 or 7).
+        #[arg(long, default_value_t = 3, allow_hyphen_values = true)]
+        napper_lane: i32,
+        /// `--napper-lift`: the tick the napper leaves R (the late-arrival rows).
+        #[arg(long, default_value_t = 0)]
+        napper_r: i64,
+        /// `--napper-lift`: the hold's release pulse length in gt, every cycle (>= 6 launches from rest).
+        #[arg(long, default_value_t = 8)]
+        release_pulse: i64,
+        /// `--napper-lift`: the late-arrival sweep FROM,TO over `--napper-r` (16 threads), against every bar.
+        #[arg(long, value_delimiter = ',')]
+        late_sweep: Vec<i64>,
+        /// A LEN-gt login (liveness's freeze) at every tick FROM..=TO (FROM,TO,LEN; 16 threads),
+        /// against every bar.
+        #[arg(long, value_delimiter = ',')]
+        login_sweep: Vec<i64>,
         /// The station's real departure: three boosters (on) on each lane's last three cells
         /// before the merge row (dfb89499); the arming detector at the station's exit detector.
         #[arg(long)]
@@ -6797,7 +6853,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let prelude = if napper_lift { 100 } else { 0 };
             let ticks = ticks + prelude;
             let starts = vec![starts[0], starts[1] + prelude];
-            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, out: None };
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, out: None, k_relay: false, mirror_z: false, day1_taps: false, supp_open: 73, pulse_gate: None, gate_delayed_only: false, bit_delay: 36, tripwire: false, dep_keyed: false, trip_lag: 0, napper_lane: 3, napper_r: 0, release_pulse: 8 };
             let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max };
             let line = format!(
                 "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
@@ -6901,11 +6957,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if fails == 0 && gfails == 0 { "PASSES" } else { "FAILS" }
             );
         }
-        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station } => {
+        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep } => {
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
-            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station };
+            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse };
             if restart_sweep.len() == 2 {
                 println!("{}", crate::returnbench::restart_sweep(&o, restart_sweep[0], restart_sweep[1]).map_err(|e| anyhow::anyhow!(e))?);
+            } else if late_sweep.len() == 2 {
+                println!("{}", crate::returnbench::late_sweep(&o, late_sweep[0], late_sweep[1]).map_err(|e| anyhow::anyhow!(e))?);
+            } else if login_sweep.len() == 3 {
+                println!("{}", crate::returnbench::login_sweep(&o, login_sweep[0], login_sweep[1], login_sweep[2]).map_err(|e| anyhow::anyhow!(e))?);
+            } else if phase_sweep.len() == 5 {
+                println!("{}", crate::returnbench::phase_sweep(&o, phase_sweep[0], phase_sweep[1], phase_sweep[2], phase_sweep[3], phase_sweep[4]).map_err(|e| anyhow::anyhow!(e))?);
             } else if jitter_sweep {
                 println!("{}", crate::returnbench::jitter_sweep(&o).map_err(|e| anyhow::anyhow!(e))?);
             } else {
