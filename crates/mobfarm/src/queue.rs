@@ -4430,7 +4430,18 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         for (n, &(k, j, c_go)) in s.parked.iter().enumerate() {
             let Some(&id) = carts.get(k) else { continue };
             let (o, v) = off(j as usize, s);
-            if t >= (c_go + 2) * 100 + rel_dt + o && (blind || (crest_ticks && s.vb_back_t.is_none_or(|b| t - b >= 11))) {
+            // (9fc3155f's final gates, with cc767b78's departure-run condition in crest_ticks: the
+            // crest's chunk and the run past it ticking, the departure ahead clear (no cart stopped
+            // within 8 cells past the crest, A's batch stalled at a frozen border included), at
+            // most one return per 11 gt; `MCTAS_VB_BLIND_RETURN=1` the old timed return, the
+            // positive control)
+            let blocked = carts.iter().any(|cid| {
+                w.entities.list.iter().find(|e| e.id == *cid && !e.removed).is_some_and(|e| {
+                    let (dx, dz) = (e.pos.x - crest_p.x, e.pos.z - crest_p.z);
+                    dx.abs() < 0.6 && dz > -0.6 && dz < 8.0 && e.delta_movement.x.abs() + e.delta_movement.z.abs() < 0.05
+                })
+            });
+            if t >= (c_go + 2) * 100 + rel_dt + o && (blind || (crest_ticks && !blocked && s.vb_back_t.is_none_or(|b| t - b >= 11))) {
                 tp(w, id, crest_p, redsim::entity::Vec3::new(0.0, 0.0, v.max(0.05)));
                 back.push(n);
                 s.vb_back_t = Some(t);
@@ -7797,6 +7808,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             }
             let held: Vec<redsim::entity::Vec3> = carts.iter().copied().filter(|id| keep(*id)).filter_map(|id| pos_of(&run.world, id)).collect();
             spots.retain(|s| held.iter().all(|h| (h.x - s.x).abs() > 0.6 || (h.z - s.z).abs() > 0.6 || (h.y - s.y).abs() > 0.7));
+            // (no cart put into a chunk whose entities don't tick: set there it never moves on, and
+            // the carts frozen beside it meet it at the thaw (h0's queue slots at loop z 22 after a
+            // 200 gt freeze of chunk (0,1), 4 merges); those carts stay where they are)
+            spots.retain(|s| run.world.unforced.is_empty() || run.world.chunk_level(s.x.floor() as i32 >> 4, s.z.floor() as i32 >> 4) <= 31);
             let placed = others.len().min(spots.len());
             for ((_, id), p) in others.iter().zip(spots.iter()) {
                 let p = *p;

@@ -450,6 +450,20 @@ pub enum MobfarmCmd {
         #[arg(long)]
         list: bool,
     },
+    /// The chunk-line crossings of a design's rails (ironspec's placement rule): each pair of
+    /// connected rail cells in different chunk columns, both cells' block, shape and powered state
+    /// as placed, and walking away from the line on each side the distance to the first climb,
+    /// drop, peak and powered rail; a crossing passes with plain flat cells on both sides and no
+    /// climb within 2 cells.
+    Borders {
+        design: PathBuf,
+        /// World = design + X,Z (0,0: the design's own frame is the world's).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        offset: Vec<i32>,
+        /// How far along the track each side is walked.
+        #[arg(long, default_value_t = 12)]
+        depth: usize,
+    },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
     /// position the flee check tries (three points along each rail cell, the cart's y: `fleecheck`)
@@ -2937,6 +2951,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{})\n{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, d.to_text()))?;
             println!("{}: {} + {} blocks of {} at {:?}{}", out.display(), d.blocks.len() - p.blocks.len(), p.blocks.len(), p.name, o, if p.nether_blocks.is_empty() { String::new() } else { format!(", the Nether part ({} blocks)", p.nether_blocks.len()) });
         }
+        MobfarmCmd::Borders { design, offset, depth } => {
+            let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            let off = match offset.as_slice() { [x, z] => [*x, *z], [] => [0, 0], _ => anyhow::bail!("--offset takes X,Z") };
+            println!("{}", crate::borders::report(&d.blocks, off, depth));
+        }
         MobfarmCmd::Box { design, r#box, list } => {
             anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
             let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
@@ -3433,6 +3452,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, golem_jitter, golem_late, day_only, slept, summon_at, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_rpulse, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, adm_skip_req, arrivals_out, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, fault_table, perfect_tail, all_corners, rel_sweep, corner_table, exposure_out, hold_progress, meter_hold, meter_sweep, meter_freeze, meter_freeze_n, rider_space_control, watch_mob, watch_mob_slots, bed_distance, approach_trace, rel_clear, cprime_variants, force_phase, phase_sweep, sight, reg_interlock, l33_delay, arrival_log, hold_back, bench_release, release_start, release_offs, head_wait, head_latch, head_perm, strip_riders, trace_pair, head_retry, train_size, router_pulses, dep_x, vanish, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, summon_unaligned, stale_live, darr_gate, go_lead, hold_cart, retry_darr, darr_stuck, retry_emp_only, no_arr_rules, takeoff_z, fault_slot, meter_corners, s_cell, vanish_box, hold_box, summon_raw, cell_log, stall_box, riderless_rows, lx_off, lx_stuck, emp_snapshot, dep_pulse, t_watch, p2_stuck } => {
             let (c, mut spec) = load(version, &design)?;
+            // (every run reports the design's chunk-line crossings: ironspec's placement rule,
+            // Nov 11; a report, the failing crossings listed)
+            println!("{}", crate::borders::summary(&c.clock.design.blocks, [0, 0], 12));
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (a static S3 file, `s3:` header: B's offset, mirror, delta, S's z and the liveness
             // clocks' probes as KEY=VALUE, the same as the MCTAS_* variables, which still win)
