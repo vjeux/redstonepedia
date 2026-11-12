@@ -490,6 +490,9 @@ pub enum MobaiCmd {
     JunctionProbe {
         #[arg(long, default_value = "26.3")]
         version: String,
+        /// The junction mirrored in z (the N = 4 southern modules)
+        #[arg(long)]
+        mirror: bool,
     },
     /// (tickexact 2026-11-12, ironspec: the bed stop's merge) A villager walking to its bed at night
     /// on the official server, `/time set 0` when it is `--at` blocks from the head; every tick to
@@ -945,7 +948,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let offsets: Vec<f64> = offsets.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             crate::crossing::crossing(&version, &module, &parts, &air, &nappers, f3(&through, "through")?, &offsets, &speeds, ticks)
         }
-        MobaiCmd::JunctionProbe { version } => crate::junction::junction_probe(&version),
+        MobaiCmd::JunctionProbe { version, mirror } => crate::junction::junction_probe(&version, mirror),
         MobaiCmd::DayJump { version, at, until } => crate::dayjump::day_jump(&version, at, until),
         MobaiCmd::HaltBridge { version, rows, ticks } => crate::haltbridge::halt_bridge(&version, &rows, ticks),
         MobaiCmd::FreezeRows { version, loader, module, modules, place, ticks, group, mirrored, pocket } => crate::freeze::freeze_rows(&version, &loader, &module, modules, &place, ticks, group.as_deref(), mirrored.as_deref(), pocket),

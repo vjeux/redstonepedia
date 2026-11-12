@@ -33,7 +33,7 @@ const TICKS: u32 = 6000;
 
 /// A block state mirrored in z (north and south swapped): facings, rail shapes, connections, door
 /// hinges. (Stairs' shape, inner/outer left and right, is not mapped: the module has no stairs.)
-fn mirror_z(s: &str) -> String {
+pub(crate) fn mirror_z(s: &str) -> String {
     let mut out = s.to_string();
     for (a, b) in [("facing=north", "facing=@S"), ("facing=south", "facing=north"), ("facing=@S", "facing=south")] {
         out = out.replace(a, b);
