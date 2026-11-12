@@ -1714,6 +1714,46 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// (cc767b78, the L1 rule) The freeze-matrix judge of the F1 + Q2 station (drop-bench --layout
+    /// station --pad --exit-gate --rebrake-each): the L1 load window as the bench's login of D gt
+    /// (`--ds`, 1..4) at every 1-gt start `--starts A,B` (bench ticks from T), at every `--rel`; the
+    /// pass: every cart landed on a braked pocket and at rest before the next summon, 0 wrong pockets,
+    /// contacts, hurt, unseated, stuck, refill failures. `--pulses`, `--rebrakes`, `--refill-delays`,
+    /// `--refill-lens`: the same matrix at those widths of one timed edge each (the thresholds).
+    StationJudge {
+        #[arg(long, default_value_t = 16)]
+        hold_y: i32,
+        #[arg(long, value_delimiter = ',', default_value = "3,4,5,6,7")]
+        rel: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "28,14,0")]
+        stagger: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        rebrake: i64,
+        #[arg(long, default_value_t = 3)]
+        release: i64,
+        #[arg(long, default_value_t = 8)]
+        pulse: i64,
+        #[arg(long, value_delimiter = ',', default_value = "2,10")]
+        refill: Vec<i64>,
+        #[arg(long, default_value_t = 200)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, value_delimiter = ',', default_value = "0,150")]
+        starts: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        ds: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        pulses: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        rebrakes: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        refill_delays: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        refill_lens: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+    },
     /// One-chunk's stand cycle (farmopt 18:52): the departing batch leaves today's pockets at REL
     /// (the meter's slope power) up the S3 departure and v4's climb back while the arriving batch
     /// comes down onechunk's re-laid descent from the hold's release into the same pockets; the
@@ -5559,6 +5599,49 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
             }
+            }
+        }
+        MobfarmCmd::StationJudge { hold_y, rel, stagger, rebrake, release, pulse, refill, ticks, seed, starts, ds, pulses, rebrakes, refill_delays, refill_lens, jobs } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            anyhow::ensure!(stagger.len() == 3, "--stagger A,B,C");
+            anyhow::ensure!(refill.len() == 2, "--refill D,L");
+            let lo = crate::drop::DropLayout::Station;
+            let text = crate::drop::design_full(lo, hold_y, [true; 3], [true; 3], true, true);
+            let path = std::env::temp_dir().join(format!("station-judge-{}.txt", std::process::id()));
+            std::fs::write(&path, &text)?;
+            let (_c, fspec) = load(version, &path)?;
+            let _ = std::fs::remove_file(&path);
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, release_world: false, rebrake_each: true, scarers: Vec::new(), refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), starts: (starts[0], starts[1]), ds: ds.clone(), jobs };
+            println!(
+                "station judge (cc767b78, bench, tool unreviewed: the L1 load window as the bench's login of D gt {ds:?} at every start T+{}..T+{}, REL {rel:?}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --pulse {pulse} --refill {},{}, {ticks} ticks",
+                starts[0], starts[1], stagger[0], stagger[1], stagger[2], refill[0], refill[1]
+            );
+            let (lines, fails) = crate::stationjudge::judge(&fspec, &base, &o).map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            println!("over the matrix: {fails} failing runs (controls included)");
+            // (the thresholds: the same matrix with one timed edge changed)
+            let mut rows: Vec<(String, crate::drop::DropOpts)> = Vec::new();
+            for p in &pulses {
+                rows.push((format!("the trapdoor pulse {p}"), crate::drop::DropOpts { pulse: *p, ..base.clone() }));
+            }
+            for r in &rebrakes {
+                rows.push((format!("the re-brake {r}"), crate::drop::DropOpts { rebrake: *r, ..base.clone() }));
+            }
+            for d in &refill_delays {
+                rows.push((format!("the R line's delay {d}"), crate::drop::DropOpts { refill: Some((*d, refill[1])), ..base.clone() }));
+            }
+            for l in &refill_lens {
+                rows.push((format!("the R line's length {l}"), crate::drop::DropOpts { refill: Some((refill[0], *l)), ..base.clone() }));
+            }
+            for (label, b) in rows {
+                let (lines, fails) = crate::stationjudge::judge(&fspec, &b, &o).map_err(|e| anyhow::anyhow!(e))?;
+                println!("threshold row, {label}: {fails} failing runs");
+                for l in lines {
+                    println!("  {l}");
+                }
             }
         }
         MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
