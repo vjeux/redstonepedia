@@ -35,6 +35,7 @@ pub mod standlab;
 pub mod climb;
 pub mod drop;
 pub mod liftbench;
+pub mod returnbench;
 pub mod spawnrules;
 pub mod station;
 pub mod siding;
