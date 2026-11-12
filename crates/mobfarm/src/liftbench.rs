@@ -43,6 +43,12 @@ pub struct LiftOpts {
     pub reach_dy: f64,
     /// A detector rail on the entry line at this x (the napper-only leg's evidence detector).
     pub detector_at: Option<i32>,
+    /// (c)'s napper: one more cart launched on the entry line (lane A) at this live tick, after
+    /// the batches (the y 0 hold's release into a batch's gap).
+    pub napper_at: Option<i64>,
+    /// (a‴)'s stopper: a soul sand block in the shaft at this height (the napper held under it,
+    /// the column above standing on it).
+    pub stopper: Option<i32>,
     /// The bench frozen (its chunks at level 32: blocks tick, entities don't) from tick FROM for LEN
     /// gt; the carts' launches wait it out.
     pub freeze: Option<(i64, i64)>,
@@ -165,6 +171,12 @@ fn build(o: &LiftOpts) -> Result<FarmSpec, String> {
             blocks.push((BlockPos::new(x, y, z), glass.clone()));
         }
     }
+    // (`stopper`: (a‴)'s soul sand block in the shaft; the water under it rises from the bottom
+    // soul sand, the water over it from the stopper)
+    if let Some(sy) = o.stopper {
+        blocks.retain(|(p, _)| !(p.x == 0 && p.y == sy && p.z == 0));
+        blocks.push((BlockPos::new(0, sy, 0), soul.clone()));
+    }
     // (`ceiling`: a glass block K cells over the shaft's top water, capping the column's launch)
     if o.ceiling > 0 {
         blocks.push((BlockPos::new(0, h - 1 + o.ceiling, 0), glass.clone()));
@@ -200,6 +212,12 @@ struct CartLog {
     dismounted: Option<i64>,
     hurt: f32,
     eye_in_block: u32,
+    /// `--stopper`: the cart's top and the rider's eye at the last tick.
+    held: Option<(f64, f64)>,
+    /// `--split3`: the speed entering its lane's first branch cell (ironfarm's intake: <= 0.30).
+    branch_v: Option<f64>,
+    /// Taken by the sink at the exit lines' far end (live gt), as a lane's intake takes it.
+    sunk: Option<i64>,
     end: Option<(f64, f64, f64, f64, f64)>,
     launch: Option<i64>,
     /// The rider's feet 11.95 above the entry rail's (the summoners' level), live gt from launch.
@@ -236,9 +254,10 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         o.speed,
         if spill.is_empty() { "none".to_string() } else { spill.join(" ") }
     ));
-    let mut logs: Vec<CartLog> = (0..o.carts).map(|_| CartLog { id: None, rider: None, met_column: None, top_y: f64::NEG_INFINITY, top_at: None, least_air: i32::MAX, dismounted: None, hurt: 0.0, eye_in_block: 0, end: None, launch: None, reach: None, det_rise: None, exit: None, launch_live: 0 }).collect();
+    let n_carts = o.carts + usize::from(o.napper_at.is_some());
+    let mut logs: Vec<CartLog> = (0..n_carts).map(|_| CartLog { id: None, rider: None, met_column: None, top_y: f64::NEG_INFINITY, top_at: None, least_air: i32::MAX, dismounted: None, hurt: 0.0, eye_in_block: 0, held: None, branch_v: None, sunk: None, end: None, launch: None, reach: None, det_rise: None, exit: None, launch_live: 0 }).collect();
     let mut det_was = false;
-    let mut health0: Vec<Option<f32>> = vec![None; o.carts];
+    let mut health0: Vec<Option<f32>> = vec![None; n_carts];
     let mut column_gap = f64::INFINITY;
     let mut contact_max = 0.0f64;
     let mut contact_at: Option<(i64, usize, usize, f64, f64)> = None;
@@ -341,12 +360,13 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         }
         for (k, lg) in logs.iter_mut().enumerate() {
             // (with --merge3 the carts come in batches of three, one per lane, a batch every 100 gt:
-            // cart k at (k / 3) x 100 + (k % 3) x spacing)
-            let at = if o.merge3 { (k as i64 / 3) * 100 + (k as i64 % 3) * o.spacing } else { k as i64 * o.spacing };
+            // cart k at (k / 3) x 100 + (k % 3) x spacing; --napper-at: the last cart, on lane A)
+            let napper = o.napper_at.is_some() && k == o.carts;
+            let at = if napper { o.napper_at.unwrap_or(0) } else if o.merge3 { (k as i64 / 3) * 100 + (k as i64 % 3) * o.spacing } else { k as i64 * o.spacing };
             if lg.id.is_none() && !frozen_now && live >= at {
                 let nbt = format!("{{Motion:[{:.4}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", -o.speed);
                 // (--merge3: cart k on lane A, B, C in turn: z 0, 2, -2)
-                let lane_z = if o.merge3 { [0.5, 2.5, -1.5][k % 3] } else { 0.5 };
+                let lane_z = if o.merge3 && !napper { [0.5, 2.5, -1.5][k % 3] } else { 0.5 };
                 let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [o.entry_len as f64 - 0.5, 0.0625, lane_z], Some(&nbt))?;
                 lg.id = Some(id);
                 lg.launch = Some(t);
@@ -378,15 +398,16 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         }
         // (cart pairs: the closest centres in the shaft's column (a rising cart under a bobbing
         // one) and every contact's relative speed (centres within 1.0, closing))
-        let st: Vec<Option<(f64, f64, f64, f64, f64)>> = logs.iter().map(|lg| lg.id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| { let e = &run.world.entities.list[i]; (e.pos.x, e.pos.y, e.delta_movement.x, e.delta_movement.y, e.pos.z) })).collect();
+        let st: Vec<Option<(f64, f64, f64, f64, f64, f64)>> = logs.iter().map(|lg| lg.id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| { let e = &run.world.entities.list[i]; (e.pos.x, e.pos.y, e.delta_movement.x, e.delta_movement.y, e.pos.z, e.delta_movement.z) })).collect();
         for a in 0..st.len() {
             for b in a + 1..st.len() {
                 if let (Some(pa), Some(pb)) = (st[a], st[b]) {
-                    let d = ((pa.0 - pb.0).powi(2) + (pa.1 - pb.1).powi(2)).sqrt();
+                    // (centres in 3-D: carts on side-by-side lanes (z 0 / 2 / -2) are not in contact)
+                    let d = ((pa.0 - pb.0).powi(2) + (pa.1 - pb.1).powi(2) + (pa.4 - pb.4).powi(2)).sqrt();
                     if pa.0 > -0.1 && pa.0 < 1.0 && pb.0 > -0.1 && pb.0 < 1.0 {
                         column_gap = column_gap.min(d);
                     }
-                    let rel = ((pa.2 - pb.2).powi(2) + (pa.3 - pb.3).powi(2)).sqrt();
+                    let rel = ((pa.2 - pb.2).powi(2) + (pa.3 - pb.3).powi(2) + (pa.5 - pb.5).powi(2)).sqrt();
                     if d < 1.0 && rel > contact_max {
                         contact_max = rel;
                         contact_at = Some((t, a, b, pa.0, pa.1));
@@ -394,6 +415,7 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
                 }
             }
         }
+        let mut sink_now: Vec<u32> = Vec::new();
         for (k, lg) in logs.iter_mut().enumerate() {
             let Some(id) = lg.id else { continue };
             let Some(i) = redsim::entity::index_of(&run.world, id) else { continue };
@@ -412,6 +434,20 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
                 lg.dismounted = Some(t);
             }
             lg.end = Some((p.x, p.y, p.z, (v.x * v.x + v.z * v.z).sqrt(), v.y));
+            // (`split3`: the speed entering the lane's first branch cell: lane B's (j1, ye, 1), lane
+            // C's (j2, ye, -1), lane A's the main line's cell past J2)
+            if o.split3 && lg.branch_v.is_none() {
+                let bp = e.block_position();
+                if (bp.y == ye) && ((bp.x == j1 && bp.z == 1) || (bp.x == j2 && bp.z == -1) || (bp.x == j2 - 1 && bp.z == 0)) {
+                    lg.branch_v = Some((v.x * v.x + v.z * v.z).sqrt());
+                }
+            }
+            // (the sink: a cart past the exit lines' tenth cell west of the slope leaves the world
+            // with its rider, as a lane's intake takes it (no end-stop queue contacts))
+            if lg.sunk.is_none() && p.x < (-1 - o.exit_slope - 10) as f64 && p.y > (o.height - o.exit_slope) as f64 - 0.5 {
+                lg.sunk = Some(live);
+                sink_now.push(id);
+            }
             if lg.exit.is_none() && p.x < 0.0 && (p.y - (o.height as f64 + 0.0625)).abs() < 0.01 {
                 lg.exit = Some((live - lg.launch_live, (v.x * v.x + v.z * v.z).sqrt()));
             }
@@ -430,16 +466,49 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
                     let h0 = *health0[k].get_or_insert(hp);
                     lg.hurt = lg.hurt.max(h0 - hp);
                 }
-                let eye = redsim::pos::BlockPos::new(re.pos.x.floor() as i32, (re.pos.y + 1.62).floor() as i32, re.pos.z.floor() as i32);
-                // (tick-exact: glass never suffocates; only another block with a collision shape
-                // under the eye counts)
-                let eb = run.world.get(eye);
-                if !redsim::behavior::collision_boxes(&eb).is_empty() && !eb.to_string().contains("glass") {
+                // (the game's `isInWall`: the rider's eye box (its width x 0.8 square, 1e-6 tall at
+                // the eye, 1.62 over its feet) meeting a suffocating block's collision shape;
+                // tick-exact: glass never suffocates; soul sand does, its shape 14/16 tall)
+                let (ex, ey, ez) = (re.pos.x, re.pos.y + 1.62, re.pos.z);
+                let mut in_wall = false;
+                for cx in (ex - 0.24).floor() as i32..=(ex + 0.24).floor() as i32 {
+                    for cz in (ez - 0.24).floor() as i32..=(ez + 0.24).floor() as i32 {
+                        let cp = redsim::pos::BlockPos::new(cx, ey.floor() as i32, cz);
+                        let eb = run.world.get(cp);
+                        let name = eb.to_string();
+                        let boxes = redsim::behavior::collision_boxes(&eb);
+                        let suffocating = name.contains("soul_sand") || (boxes.len() == 1 && boxes[0] == [0, 16, 0, 16, 0, 16] && !name.contains("glass"));
+                        if !suffocating {
+                            continue;
+                        }
+                        for b in &boxes {
+                            let (x0, x1) = (cx as f64 + b[0] as f64 / 16.0, cx as f64 + b[1] as f64 / 16.0);
+                            let (y0, y1) = (cp.y as f64 + b[2] as f64 / 16.0, cp.y as f64 + b[3] as f64 / 16.0);
+                            let (z0, z1) = (cz as f64 + b[4] as f64 / 16.0, cz as f64 + b[5] as f64 / 16.0);
+                            if ex + 0.24 > x0 && ex - 0.24 < x1 && ey > y0 && ey < y1 && ez + 0.24 > z0 && ez - 0.24 < z1 {
+                                in_wall = true;
+                            }
+                        }
+                    }
+                }
+                if in_wall {
                     lg.eye_in_block += 1;
+                }
+                if o.stopper.is_some() {
+                    lg.held = Some((p.y + 0.7, ey));
                 }
             }
             if o.trace == Some(k) {
                 out.push(format!("  t {t}: cart {k} at {:.3},{:.3},{:.3} v {:.3},{:.3},{:.3} in {} air {} seated {seated}", p.x, p.y, p.z, v.x, v.y, v.z, here.to_string().trim_start_matches("minecraft:"), air.map_or("-".into(), |a| a.to_string())));
+            }
+        }
+        // (the sink takes its carts and their riders)
+        for id in sink_now.drain(..) {
+            let ps: Vec<u32> = run.world.entities.list.iter().find(|e| e.id == id).map(|e| e.passengers.clone()).unwrap_or_default();
+            for e in run.world.entities.list.iter_mut() {
+                if e.id == id || ps.contains(&e.id) {
+                    e.removed = true;
+                }
             }
         }
     }
@@ -463,6 +532,11 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
             lg.hurt,
             lg.eye_in_block
         ));
+        if let Some((top, eye)) = lg.held
+            && let Some(sy) = o.stopper
+        {
+            out.push(format!("  cart {k} under the stopper at y {sy}: its top at {top:.3} (the stopper's bottom {sy}), the rider's eye at {eye:.3} (the soul sand's shape {sy}..{:.3})", sy as f64 + 0.875));
+        }
     }
     // (the primitive's cost: the shaft and its walls 3 x 3 from the soul sand's support to the
     // ceiling; the entry's rail cell in the east wall; the exit's water source and its glass box
@@ -488,6 +562,12 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
             })
             .collect();
         out.push(format!("split: {}; the switches: {}", lanes.join(", "), split_log.join(", ")));
+        let bv: Vec<f64> = logs.iter().filter_map(|lg| lg.branch_v).collect();
+        out.push(format!(
+            "branch speeds (entering each lane's first branch cell; ironfarm's intake bar <= 0.30): {}; the fastest {}",
+            logs.iter().enumerate().map(|(k, lg)| format!("cart {k} {}", lg.branch_v.map_or("-".into(), |v| format!("{v:.3}")))).collect::<Vec<_>>().join(", "),
+            bv.iter().cloned().fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v)))).map_or("-".into(), |v| format!("{v:.3}"))
+        ));
     }
     out.push(format!(
         "pairs: the closest centres in the shaft's column {}; the hardest contact (centres within 1.0) {:.3}{}",

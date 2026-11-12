@@ -2174,8 +2174,9 @@ pub enum MobfarmCmd {
         /// A glass block this many cells over the shaft's top water, capping the launch (0: none).
         #[arg(long, default_value_t = 0)]
         ceiling: i32,
-        /// FROM,LEN: the bench frozen (level 32) from tick FROM for LEN gt.
-        #[arg(long, value_delimiter = ',')]
+        /// FROM,LEN: the bench frozen (level 32: freeze32 at FROM, thaw32 LEN gt later; `--login`
+        /// is the same flag, cc767b78's judge's name for it).
+        #[arg(long, value_delimiter = ',', alias = "login")]
         freeze: Vec<i64>,
         /// Cells descending west right after the exit's landing cell (the carts pulling apart).
         #[arg(long, default_value_t = 0)]
@@ -2200,6 +2201,13 @@ pub enum MobfarmCmd {
         /// prints each cart's rise and the gt from it to the rider-height mark.
         #[arg(long)]
         detector_at: Option<i32>,
+        /// (c)'s napper: one more cart on the entry line (lane A) at this live tick, after the
+        /// batches (the y 0 hold's release into a batch's gap).
+        #[arg(long)]
+        napper_at: Option<i64>,
+        /// (a‴)'s soul-sand stopper in the shaft at this height (bench frame).
+        #[arg(long)]
+        stopper: Option<i32>,
     },
     ClimbBench {
         #[arg(long, default_value_t = 14)]
@@ -6270,8 +6278,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls, reach_dy, detector_at } => {
-            let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls, reach_dy, detector_at };
+        MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper } => {
+            let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper };
             println!("{}", crate::liftbench::lift_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, speeds, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
