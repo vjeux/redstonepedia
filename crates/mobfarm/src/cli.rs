@@ -1525,6 +1525,91 @@ pub enum MobfarmCmd {
         #[arg(long)]
         design_out: Option<PathBuf>,
     },
+    /// (b8949c96 2026-11-12, the way-in line; ironspec's loop-frame acceptance and G1's five
+    /// points on 78d4acf34) The queue cell in the loop frame against a module file
+    /// (`mobfarm::waycell`): (a) the queue rider's summon box holds no other villager's position
+    /// but the one other napper's (--napper boxes; the rider's own route --own left out); (b) its
+    /// zombie at least 6.05 from every other position and, within 8, out of its sight; (c) the
+    /// post inside the chunk, 6.05..7.95 from the rider and in its sight, its eye cell under 15
+    /// sky light, its cells free and off the --keep-clear routes; the way to the stop's positions
+    /// in the zombie's sight. No --post: every candidate post scanned. Boxes "x0,y0,z0,x1,y1,z1;..".
+    WayCell {
+        design: PathBuf,
+        /// Villager position files (comma-separated; read in turn).
+        #[arg(long, value_delimiter = ',')]
+        positions: Vec<PathBuf>,
+        /// Positions inside a box moved by a delta, X0,Y0,Z0,X1,Y1,Z1,DX,DY,DZ (a part re-laid: the
+        /// stop 9 down).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        move_positions: Vec<i32>,
+        /// The stop-9-down way-in (ironspec 12:23): the leg, the stop wall, the shaft (9,.,-5), the
+        /// queue at --queue (descending south) and the run down to the moved stop's entry (3,-25,-5).
+        #[arg(long)]
+        s9: bool,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        queue: Vec<i32>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        post: Vec<i32>,
+        #[arg(long, allow_hyphen_values = true)]
+        own: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        napper: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        keep_clear: Option<String>,
+        /// The module's chunk: x0,z0,x1,z1.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_values_t = vec![-6, -6, 9, 9])]
+        chunk: Vec<i32>,
+        /// Boxes of the pad golems' feet cells (the summon spots), for the melee-reach check.
+        #[arg(long, allow_hyphen_values = true)]
+        pad: Option<String>,
+        /// Panic-stroll draws for the seat check.
+        #[arg(long, default_value_t = 2000)]
+        draws: usize,
+        /// With --post: write the module with the queue cell and the post laid here.
+        #[arg(long)]
+        write: Option<PathBuf>,
+        /// The queue cell as a powered rail on glowstone sloping down to the west (not a trapdoor).
+        #[arg(long)]
+        rail: bool,
+        /// More cells to lay: "x,y,z=block;..." (the run, an occluder).
+        #[arg(long, allow_hyphen_values = true)]
+        extra: Option<String>,
+        /// The ride check: the stop's first rail (x,y,z) the released cart must reach.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        ride_to: Vec<i32>,
+        /// The post's own cells come in --extra (a walled post): no default glass and leaves.
+        #[arg(long)]
+        custom_post: bool,
+        /// The all-day wait: START,TICKS (day time, gt) with the rider's HOME at --bed.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        wait: Vec<i64>,
+        /// The stop's bed head (x,y,z) for --wait.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_values_t = vec![-3, -18, 3])]
+        bed: Vec<i32>,
+        /// The way down: a cart with its rider started at X,Y,Z with motion VX,VY,VZ, followed to the
+        /// queue (HOLD's lead against the 16-ball; --hold names HOLD's detector cell).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        leg: Vec<f64>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        hold: Vec<i32>,
+        /// The queue's staircase descends south (slopes ascending north), for the corner shaft (9,.,-5).
+        #[arg(long)]
+        south: bool,
+        /// The deep queue's leg, stop wall and climb laid as extra cells (ironspec 11:52): every
+        /// N-th slope of the climb a powered rail with its torch (implies --south --rail).
+        #[arg(long)]
+        deep: Option<usize>,
+        /// Ticks to follow a ride (--ride-to).
+        #[arg(long, default_value_t = 200)]
+        ride_ticks: u32,
+        /// With --ride-to: the ride in rows, every release phase 0..N (the cart held k more gt).
+        #[arg(long, default_value_t = 0)]
+        release_phases: u32,
+        /// With --ride-to: rows with a save/stop/start at these ticks after the release, in every
+        /// reload order (save, reverse, seed 1..8).
+        #[arg(long, value_delimiter = ',')]
+        restart_at: Vec<i64>,
+    },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
     /// the overworld portal and its Nether twin, each side an exit track into a 2-pocket queue, 3
@@ -6337,6 +6422,117 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 c.close.len()
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at } => {
+            let (_c, spec) = load(version, &design)?;
+            if queue.len() != 3 || !(post.is_empty() || post.len() == 3) || chunk.len() != 4 {
+                anyhow::bail!("--queue X,Y,Z, --post X,Y,Z, --chunk X0,Z0,X1,Z1");
+            }
+            let mut pos: Vec<[i32; 3]> = Vec::new();
+            for f in &positions {
+                pos.extend(crate::waycell::read_positions(&std::fs::read_to_string(f)?).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            if let [x0, y0, z0, x1, y1, z1, dx, dy, dz] = move_positions[..] {
+                let mut moved = 0;
+                for p in pos.iter_mut() {
+                    if (x0..=x1).contains(&p[0]) && (y0..=y1).contains(&p[1]) && (z0..=z1).contains(&p[2]) {
+                        *p = [p[0] + dx, p[1] + dy, p[2] + dz];
+                        moved += 1;
+                    }
+                }
+                println!("--move-positions: {moved} position(s) moved by ({dx},{dy},{dz})");
+            } else if !move_positions.is_empty() {
+                anyhow::bail!("--move-positions X0,Y0,Z0,X1,Y1,Z1,DX,DY,DZ");
+            }
+            pos.sort();
+            pos.dedup();
+            let mut o = crate::waycell::Opts {
+                queue: [queue[0], queue[1], queue[2]],
+                post: (post.len() == 3).then(|| [post[0], post[1], post[2]]),
+                own: crate::waycell::parse_boxes(own.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                napper: crate::waycell::parse_boxes(napper.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                keep_clear: crate::waycell::parse_boxes(keep_clear.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                rail,
+                chunk: [chunk[0], chunk[1], chunk[2], chunk[3]],
+                positions: pos,
+                pad: crate::waycell::parse_boxes(pad.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                extra: crate::waycell::parse_extra(extra.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                replace: crate::waycell::parse_replace(extra.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                south,
+                custom_post,
+            };
+            if let Some(n) = deep {
+                // the deep queue's leg, stop wall and climb (ironspec 11:52), every n-th slope powered
+                let (leg_cells, replaced) = crate::waycell::deep_leg();
+                o.extra.extend(leg_cells);
+                o.replace.extend(replaced);
+                o.extra.extend(crate::waycell::deep_climb(n));
+                o.south = true;
+                o.rail = true;
+            }
+            if s9 {
+                // the stop-9-down way-in (ironspec 12:23): the same leg and stop wall, the run down
+                let (leg_cells, replaced) = crate::waycell::deep_leg();
+                o.extra.extend(leg_cells);
+                o.replace.extend(replaced);
+                o.extra.extend(crate::waycell::s9_run());
+                o.south = true;
+                o.rail = true;
+            }
+            println!("{}: the queue cell {:?}, {} villager positions", design.display(), o.queue, o.positions.len());
+            if let (Some(out), Some(p)) = (&write, o.post) {
+                for l in crate::waycell::write_layout(&design, out, &o, p).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if ride_to.len() == 3 && (release_phases > 0 || !restart_at.is_empty()) {
+                let landing = s9.then_some([9, -24, -1]);
+                for l in crate::waycell::ride_rows(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], ride_ticks, release_phases.max(1), &restart_at, landing).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if ride_to.len() == 3 {
+                for l in crate::waycell::ride_lines(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], ride_ticks).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if let (2, Some(p), 3) = (wait.len(), o.post, bed.len()) {
+                for l in crate::waycell::wait_lines(&spec, &o, p, wait[0], wait[1] as u32, [bed[0], bed[1], bed[2]]).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if let (6, 3, 3) = (leg.len(), hold.len(), bed.len()) {
+                for l in crate::waycell::leg_lines(&spec, &o, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [hold[0], hold[1], hold[2]], [bed[0], bed[1], bed[2]], 600).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            let (a, lines) = crate::waycell::summon_box_lines(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            match o.post {
+                Some(p) => {
+                    let (ok, lines) = crate::waycell::post_lines(&spec, &o, p).map_err(|e| anyhow::anyhow!(e))?;
+                    for l in lines {
+                        println!("{l}");
+                    }
+                    let (seat, lines) = crate::waycell::seat_lines(&spec, &o, Some(p), draws).map_err(|e| anyhow::anyhow!(e))?;
+                    for l in lines {
+                        println!("{l}");
+                    }
+                    println!("the queue cell: {}", if a && ok && seat { "every check PASS" } else { "FAIL" });
+                }
+                None => {
+                    for l in crate::waycell::scan(&spec, &o).map_err(|e| anyhow::anyhow!(e))? {
+                        println!("{l}");
+                    }
+                }
+            }
         }
         MobfarmCmd::L1Bench { design_out, ticks, hold, pulse, stagger, freeze, piglin, trace } => {
             let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-bench-{}.txt", std::process::id())));
