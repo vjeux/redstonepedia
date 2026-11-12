@@ -1,0 +1,99 @@
+# The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..25 z -6..41.
+# F1 + Q2 budget (9fc3155f, main da6a01b66 wip/c3/f1q2-budget.txt) with L1''' laid in the shared gap chunk (1,2) (onechunk, Nov 11 23:50; ironspec's pick: the item loop; bench, tool unreviewed): the budget's reserved boxes as they are (loader-inside dropped), the loop frame (file = loop + 6,0,6), y = the level pocket rails.
+# L1''' overworld: portal interior x 15..19 y 5..7 z 33 (axis x), frame x 14..20 y 4..8; the firing dropper (16,5,34) facing north fed by the up-facing dropper (16,4,34); the hopper floor x 17..19 y 4 z 34..35 into it; the glass backstop x 17..20 y 5..7 z 36; the clock (EMULATED in the bench; a hopper clock ~200 gt + a line to both droppers, ~10 blocks, not laid) beside them at x 15 y 4..5 z 34. Inside chunk (1,2) (loop x 10..25 z 26..41): no chunk line; arrivals' PORTAL ticket in (1,2), its 3x3 the 4 modules around it.
+# L1''' Nether twin: the same cells (Nether part), its portal at the overworld portal's position / 8 (absolute), same y; each side fires from its own column (overworld 1, Nether 3 of the 5) so the other side's items come out clear of it.
+# Linking: the loader's frames sit 11 above every pad-portal frame (y -11..-7) and so above every kill room's Nether portal: a golem's 3D-closest portal is its own kill room's (horizontal 0..2 at /8) over the loader twin (>= 11), and the loader's items find their twin (~0) over any kill room (>= 11). Valid while both keep their overworld y in the Nether (pocket level <= ~110 absolute); a farm placed higher, where the Nether clamps y, needs this checked again.
+# Bench (redsim, mctas mobfarm l1-item-bench, tool unreviewed): 24000 gt (one day, no farm), seeds 1 and 3, and with entities frozen 3 gt every 137 gt: the Nether ticket never lapsed, A's arrivals 98..200 gt apart, 6 of 6 items kept, none held in a portal; widths 4 and 3 lose items. Blocks a side as laid: 16 obsidian + 15 portal + 2 droppers + 6 hoppers + 12 glass = 51 (36 placed by hand) + the clock ~10; the pair ~92 placed + 6 items, ~23 a module shared by 4.
+# + loader: designs/farms/iron/carousel-assembly/wip/onechunk/loader/l1-item-loop-bench.txt moved by 15,-5,33 into the frame, then 0,0,0 into its tier
+# reserved (no blocks): station x -3..8 y -11..19 z -6..0
+# reserved (no blocks): station-x9-support x 9..9 y 1..1 z 0..0
+# reserved (no blocks): lanes x -2..8 y 16..23 z 1..5
+# reserved (no blocks): merge x -3..7 y -1..2 z 1..9
+# reserved (no blocks): lift x -6..-4 y -1..26 z 7..9
+# reserved (no blocks): lift-top x -5..-5 y 23..25 z 5..6
+# reserved (no blocks): split x -3..9 y 22..26 z 6..9
+# reserved (no blocks): bedstop x -6..4 y -20..-14 z -6..6
+# reserved (no blocks): bedstop-south-row x -3..4 y -20..-14 z 7..7
+# reserved (no blocks): napper-lift x 5..7 y -20..-2 z 4..6
+# reserved (no blocks): napper-hold x 8..8 y -3..2 z 5..9
+# reserved (no blocks): napper-leg-21 x 9..9 y 22..24 z -6..5
+# reserved (no blocks): napper-down-shaft x 9..9 y -5..21 z -6..-6
+# reserved (no blocks): napper-queue x 9..9 y -9..-6 z -6..-6
+# reserved (no blocks): napper-queue-drop x 9..9 y -13..-10 z -6..-6
+# reserved (no blocks): napper-queue-run x 5..9 y -17..-14 z -6..-5
+# reserved (no blocks): controller x -6..-4 y 3..14 z -6..5
+# reserved (no blocks): scarer-cell x 6..8 y 3..14 z 6..8
+# reserved (no blocks): scarer-posts x -6..-4 y 16..23 z -6..-1
+# reserved (no blocks): scarer-lift x -3..-2 y 5..19 z 6..6
+name: f1q2-l1items
+circuit: mob-farm iron_ingot
+port nether-anchor: 15 -5 33
+port nether-axis: 16 -5 33
+port output: 26 5 41
+nbt: 16 4 34 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}
+nbt: 16 5 34 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nether nbt: 3 9 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}
+nether nbt: 3 10 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+origin: 14 0 33
+palette:
+  A minecraft:dropper[facing=up,triggered=false]
+  B minecraft:hopper[enabled=true,facing=south]
+  C minecraft:hopper[enabled=true,facing=west]
+  D minecraft:dropper[facing=north,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  N minecraft:nether_portal[axis=x]
+  O minecraft:obsidian
+  d minecraft:dropper[facing=south,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer 4:
+  .OOOOO
+  ..ACCC
+  ...hhh
+  .
+layer 5:
+  ONNNNNO
+  ..D
+  .
+  ...GGGG
+layer 6:
+  ONNNNNO
+  .
+  .
+  ...GGGG
+layer 7:
+  ONNNNNO
+  .
+  .
+  ...GGGG
+layer 8:
+  .OOOOO
+  .
+  .
+  .
+nether-origin: -1 0 -3
+nether layer 9:
+  .
+  .BBB
+  .HHHA
+  .OOOOO
+nether layer 10:
+  GGGG
+  .
+  ....d
+  ONNNNNO
+nether layer 11:
+  GGGG
+  .
+  .
+  ONNNNNO
+nether layer 12:
+  GGGG
+  .
+  .
+  ONNNNNO
+nether layer 13:
+  .
+  .
+  .
+  .OOOOO
