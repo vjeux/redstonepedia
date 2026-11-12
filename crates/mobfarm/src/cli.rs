@@ -3543,7 +3543,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                 }
-                println!("climb-bench freeze matrix: freezes from T+{f0}..T+{f1} every {st} gt for {lv:?} gt, H open {opens:?}, every {everys:?}, seeds {seed}..{} ({} runs; {})", seed + seeds - 1, runs.len(), if alive_gate { "day-1's liveness gate" } else { "the paused live clock" });
+                println!("climb-bench freeze matrix: freezes from T+{f0}..T+{f1} every {st} gt for {lv:?} gt, H open {opens:?}, every {everys:?}, seeds {seed}..{} ({} runs; {})", seed + seeds - 1, runs.len(), if alive_gate { if alive_pause { "day-1's liveness gate, the fill paused on ALIVE" } else { "day-1's liveness gate, the fill dropped when ALIVE falls" } } else { "the paused live clock (ideal: no detection latency)" });
+                // (the matrix's totals: runs with each failure, the freeze starts that fail)
+                let (mut n_runs, mut n_wrong, mut n_arr, mut n_edges, mut n_merges, mut n_into, mut n_lost, mut n_norest) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+                let mut arr_max = 0.0f64;
+                let mut least_gap: Option<i64> = None;
+                let mut failing: std::collections::BTreeMap<(i64, i64), usize> = Default::default();
+                let mut ring_line: Option<String> = None;
                 for chunk in runs.chunks(jobs.max(1)) {
                     let got: Vec<((i64, i64, i64, i64, i64), Result<Vec<String>, String>)> = std::thread::scope(|sc| {
                         let hs: Vec<_> = chunk
@@ -3585,8 +3591,37 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             })
                             .unwrap_or("-".to_string());
                         println!("freeze T+{f} for {l}, H T+{h}, every {e}, seed {s}: pockets {pockets} | batch at rest {at_rest} | arrivals into a waiting cart {arr} | gate edges on a cart {edges} | merges {merges} | gate: {gate} | latency {lat} | fired into a frozen cart {into} | releases lost {lost} | least entry-to-timed-edge gap {gaps}");
+                        if ring_line.is_none() {
+                            ring_line = lines.iter().find_map(|x| x.strip_prefix("liveness gate (day-1's: ")).map(|x| x.split(" = ALIVE").next().unwrap_or("").to_string());
+                        }
+                        let num0 = |s: &str| s.trim().split(|c: char| !c.is_ascii_digit()).next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+                        let fastest = batch.split("the fastest ").nth(1).and_then(|x| x.split(|c: char| c != '.' && !c.is_ascii_digit()).next()).and_then(|x| x.parse::<f64>().ok()).unwrap_or(0.0);
+                        let bad = [pockets.starts_with("WRONG"), fastest > 0.2, num0(&edges) > 0, num0(&merges) > 0];
+                        n_runs += 1;
+                        n_wrong += bad[0] as usize;
+                        n_arr += bad[1] as usize;
+                        n_edges += bad[2] as usize;
+                        n_merges += bad[3] as usize;
+                        n_into += (num0(&into) > 0) as usize;
+                        n_lost += (num0(&lost) > 0) as usize;
+                        n_norest += at_rest.starts_with("NO") as usize;
+                        arr_max = arr_max.max(fastest);
+                        if bad.iter().any(|b| *b) {
+                            *failing.entry((f, l)).or_default() += 1;
+                        }
+                        for g in gaps.split(", ") {
+                            if let Some(v) = g.split(' ').nth(1).and_then(|x| x.parse::<i64>().ok()) {
+                                least_gap = Some(least_gap.map_or(v, |m| m.min(v)));
+                            }
+                        }
                     }
                 }
+                println!(
+                    "over the matrix ({}): {n_runs} runs; wrong pocket in {n_wrong}; an arrival over 0.2 in {n_arr} (the fastest {arr_max:.3}); a gate edge on a cart in {n_edges}; merges in {n_merges}; a pulse fired into a frozen cart in {n_into}; a release lost in {n_lost}; the batch never at rest in {n_norest}; the least entry-to-timed-edge gap {}; failing freezes (start, length: runs) {}",
+                    ring_line.unwrap_or_else(|| "no gate".to_string()),
+                    least_gap.map_or("-".to_string(), |g| format!("{g} gt")),
+                    if failing.is_empty() { "none".to_string() } else { failing.iter().map(|((f, l), c)| format!("T+{f}/{l}: {c}")).collect::<Vec<_>>().join(", ") }
+                );
                 if out.is_none() {
                     let _ = std::fs::remove_file(&path);
                 }
