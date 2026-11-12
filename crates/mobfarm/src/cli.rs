@@ -1342,6 +1342,12 @@ pub enum MobfarmCmd {
         /// Edge escapement: the least gt between G_P firings.
         #[arg(long, default_value_t = 0)]
         esc_gap: i64,
+        /// The escapement's own pass sensor at R's foot (G0 on its edge).
+        #[arg(long)]
+        esc_sensor: bool,
+        /// Edge escapement: the hold's room by count instead of its entry pocket's latch.
+        #[arg(long)]
+        fill_count: bool,
         /// (cc767b78) Day-1's live-time cycle clock and liveness gate (crate::liveness): the cycle
         /// restarts at each golem event (the column live at a summon boundary), every pulse (the
         /// hold at T+3, G_P and G0's openings, the tail chain's release) ANDed with ALIVE at its
@@ -3947,7 +3953,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
             let pairs = |v: &[String], what: &str| -> anyhow::Result<Vec<(i64, i64)>> {
                 v.iter()
                     .map(|s| {
@@ -3958,7 +3964,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let fr = pairs(&freeze, "freeze")?;
             let fr32 = pairs(&freeze32, "freeze32")?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
             if !freeze_matrix.is_empty() {
                 let parts: Vec<&str> = freeze_matrix.split(';').collect();
                 let sv: Vec<i64> = parts.first().unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();

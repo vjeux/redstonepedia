@@ -77,6 +77,11 @@ pub struct GqOpts {
     /// Edge escapement: the least gt between G_P firings (the 3 admissions spread through the fill
     /// window, ironspec 18:11 (ii)).
     pub esc_gap: i64,
+    /// The escapement's own pass sensor at R's foot: G0 fires on its edge (sooner than the hold's
+    /// entry sensor).
+    pub esc_sensor: bool,
+    /// Edge escapement: the hold's room by count (fills since the last release under 3).
+    pub fill_count: bool,
     /// (cc767b78) day-1's live-time cycle clock and liveness gate (`crate::liveness`): the cycle
     /// restarts at each golem event (the column live at a summon boundary: a frozen column makes
     /// none), every pulse (the hold's release at T+3, G_P and G0's openings, the tail chain's
@@ -178,6 +183,8 @@ struct Geo {
     hold_p: Vec<(i32, i32)>,
     /// The descent's first cell, a pass detector: the hold's front pocket left.
     ds: (i32, i32),
+    /// The escapement's own pass sensor at R's foot (`--esc-sensor`).
+    esc_s: Option<(i32, i32)>,
     run_x: (f64, f64),
     g0_plane: f64,
     gp_plane: f64,
@@ -207,7 +214,7 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     // (the track: x the next cell, lv the rail's height at its west edge)
     let top = 2 * (o.tail as i32 + 6) + o.run + 8;
     let (mut x, mut lv) = (0i32, top);
-    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0), ds: (0, 0), gate_rest: Default::default(), hold_exit: f64::MAX };
+    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0), ds: (0, 0), gate_rest: Default::default(), hold_exit: f64::MAX, esc_s: None };
     let lb = LineBlocks {
         glass: glass.clone(),
         flat: flat.clone(),
@@ -304,6 +311,13 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     g.gp_plane = x as f64 + 0.5;
     x += 1;
     lv -= 1;
+    // (the escapement's own pass sensor (--esc-sensor): a flat detector at R's foot, diagonal to G_P's
+    // gate block, two cells from P's powered slope: the admitted cart's pass, G0's edge)
+    if o.esc_sensor {
+        put(&mut blocks, x, lv, &det);
+        g.esc_s = Some((x, lv));
+        x += 1;
+    }
     // (the hold: 3 pockets; the front one's G a powered slope into the descent; or a line of tokens:
     // its 3 P detectors are the hold's sensors, hold_p[0] the entry pocket's)
     if o.hold_v || o.hold_bb || o.hold_line.is_some() {
@@ -552,6 +566,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut staged_at: Option<i64> = None;
     let mut staged = false;
     let mut gp_cond_was = false;
+    let mut fills_since: usize = 0;
+    let mut esc_was_on = false;
     let mut last_gp: i64 = i64::MIN / 2;
     let mut owed_at: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
     let mut pool: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
@@ -801,15 +817,30 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         count_q -= 1;
                         // (edge-triggered escapement, ironspec's ruling (a): G0 opens on the staged
                         // cart's pass edge into the hold)
-                        if o.edge_esc && !frz {
+                        if o.edge_esc && !o.esc_sensor && !frz {
                             eg0_until = t + 12;
                             staged_at = Some(t);
+                            if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
+                                eprintln!("t {t}: P_h0 edge, G0 fires");
+                            }
                         }
                     }
                     }
                 }
             }
             was_on[si] = on;
+        }
+        // (the escapement's own pass sensor: G0 fires on its edge)
+        if let Some((ex, ey)) = g.esc_s {
+            let on = matches!(run.world.get(BlockPos::new(ex, ey, 0)), Block::DetectorRail { powered: true, .. });
+            if on && !esc_was_on && o.edge_esc && !frz {
+                eg0_until = t + 12;
+                staged_at = Some(t);
+                if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
+                    eprintln!("t {t}: escapement sensor edge, G0 fires");
+                }
+            }
+            esc_was_on = on;
         }
         // (the cycle: T = warm + 100 c; the hold at T+3; the escapement at A+6 / A+13)
         let ph = (t - warm - o.corner).rem_euclid(100);
@@ -835,6 +866,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             hold_at_release.push((t, held));
             hold_release_until = t + o.hold_pulse;
             hold_release_at = t;
+            fills_since = 0;
             occ_h = if o.edge_esc { occ_h } else { [false; 3] };
             // (the carts released: those in the hold now; the rear-clear tracking restarts)
             let hx0 = g.hold_p[0].0 as f64;
@@ -961,11 +993,21 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             }
             let quiet = hold_release_at < 0 || t >= hold_release_at + o.fill_after;
             let spaced = t >= last_gp + o.esc_gap;
-            let cond = staged && !occ_h[0] && quiet && spaced && !frz && t >= warm;
+            // (--fill-count: the hold's room by count (fills since the last release under 3) instead
+            // of its entry pocket's latch, so fills may follow each other into the hold)
+            let room = if o.fill_count { fills_since < 3 } else { !occ_h[0] };
+            let cond = staged && room && quiet && spaced && !frz && t >= warm;
             if cond && !gp_cond_was {
                 egp_until = t + 11;
                 staged = false;
                 last_gp = t;
+                fills_since += 1;
+                if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
+                    eprintln!("t {t} (ph {ph}): G_P fires; occ_h {occ_h:?}");
+                }
+            }
+            if std::env::var("MCTAS_GQ_EVENTS").is_ok() && staged && !cond && (t % 5 == 0) {
+                eprintln!("t {t} (ph {ph}): staged, waiting: occ_h {occ_h:?} quiet {quiet} spaced {spaced}");
             }
             gp_cond_was = cond;
         }
