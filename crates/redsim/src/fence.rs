@@ -17,7 +17,7 @@
 //!   (gadget-style BUD: `bud-fence-observer`).
 
 use crate::behavior::{self as bh, Box16, Support};
-use crate::block::{Block, Simple};
+use crate::block::Block;
 use crate::pos::{BlockPos, Dir};
 use crate::world::World;
 
@@ -56,14 +56,13 @@ pub fn sturdy(s: &Block, face: Dir, support: Support) -> bool {
     crate::piston::shape::face_supports(&boxes, face, support)
 }
 
-/// `Block.isExceptionForConnection` among redsim's blocks (barrier, carved pumpkin, jack o'lantern,
-/// melon and shulker boxes are not modeled).
+/// `Block.isExceptionForConnection` (`behavior::exception_for_connection`).
 fn exception(s: &Block) -> bool {
-    matches!(s, Block::Leaves { .. } | Block::Simple(Simple::Pumpkin))
+    bh::exception_for_connection(s)
 }
 
 /// `FenceBlock.connectsTo(state, faceSolid, direction)` for a fence of `kind`.
-fn connects_to(kind: u8, s: &Block, face_solid: bool, d: Dir) -> bool {
+pub fn connects_to(kind: u8, s: &Block, face_solid: bool, d: Dir) -> bool {
     let same = matches!(*s, Block::Fence { kind: k, .. } if wooden(k) == wooden(kind));
     let gate = matches!(*s, Block::FenceGate { facing, .. } if facing.axis() == d.clockwise().axis());
     (!exception(s) && face_solid) || same || gate

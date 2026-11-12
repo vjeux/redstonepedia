@@ -242,6 +242,16 @@ pub enum MobaiCmd {
     RecHandoff {
         path: std::path::PathBuf,
     },
+    /// (tickexact 2026-11-12) Every pane and fence in the designs whose written arms its neighbours
+    /// contradict (a raw-placed block keeps them); fails on any
+    ArmLint {
+        paths: Vec<std::path::PathBuf>,
+    },
+    /// (tickexact 2026-11-12, G1's connection exceptions) Scene pane-attach's recording: each
+    /// lane's pane and whether its east arm is the expected one
+    RecPaneattach {
+        path: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-11, ironspec's sentinel) Scene sentinel-<case>'s recording as events: the
     /// claim, the bed's, observer's and lamp's flips, the lie-downs and wakes, the reload
     RecSentinel {
@@ -290,6 +300,14 @@ pub enum MobaiCmd {
     /// side, three nappers asleep at once, a calm rider within 16 of another bed (occupied) and
     /// beyond 16 of its own, two controls, then a night save, stop and start
     ThreeBeds {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
+    /// (tickexact 2026-11-12, ironspec's daylight bridge) On the official server: a daylight
+    /// detector's clear-sky edges to the tick (the first rise, 7/8 at dawn and dusk), rain and thunder
+    /// readings, the bot's bed times per weather, real night skips with the readings after, a rain
+    /// ending at dusk
+    Daylight {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
@@ -505,11 +523,14 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecPanesight { path } => crate::fixture::rec_panesight(&path),
         MobaiCmd::RecPanewater { path } => crate::fixture::rec_panewater(&path),
         MobaiCmd::RecHandoff { path } => crate::fixture::rec_handoff(&path),
+        MobaiCmd::ArmLint { paths } => crate::fixture::arm_lint(&paths),
+        MobaiCmd::RecPaneattach { path } => crate::fixture::rec_paneattach(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
         MobaiCmd::LoadWindow { case, runs, version } => crate::loadwindow::load_window(&version, &case, runs),
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
+        MobaiCmd::Daylight { version } => crate::daylight::daylight(&version),
         MobaiCmd::BedReloadVanilla { case, forceload, version } => crate::bedreload::bed_reload_vanilla(&version, &case, forceload),
         MobaiCmd::StopperSweep { files } => crate::fixture::stopper_sweep(&files),
         MobaiCmd::RecCartpole { path } => crate::fixture::rec_cartpole(&path),

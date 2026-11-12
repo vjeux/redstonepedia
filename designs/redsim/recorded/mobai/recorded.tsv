@@ -33,12 +33,12 @@ carousel-wired-v3-built.rec	e9c3fccfbcdfa78f		26.3	2026-11-11T00:53Z on 4effc3db
 carousel-wired-v3.rec	0afa7e25d26f42f6		26.3	2026-11-11T00:53Z on 4effc3db21	mctas mobai record carousel-wired-v3 --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
 carousel-wired.rec	63b26c96584877e3		26.3	2026-11-10T19:31Z on ea79604008	mctas mobai record carousel-wired --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
 cart-merge.rec	40f99e6f21c43b4d		26.3	2026-11-11T11:42Z on 388d91c58	mctas mobai record cart-merge --seed 1 --ticks 900 --dir designs/redsim/recorded/mobai
-cart-pole-climb.rec	c1d378a30d4ef4f2		26.3	2026-11-11T23:48Z on 780ea315a6	mctas mobai record cart-pole-climb --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+cart-pole-climb.rec	3747bfa0dba8e5e4		26.3	2026-11-12T07:48Z on 5ebd7fdd3	mctas mobai record cart-pole-climb --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 cart-pole-head.rec	1fbdf50c98cf65f4		26.3	2026-11-11T23:48Z on 780ea315a6	mctas mobai record cart-pole-head --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
-cart-pole-push.rec	51eee9430fecc3d6		26.3	2026-11-11T23:48Z on 780ea315a6	mctas mobai record cart-pole-push --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
-cart-pole-rod.rec	9190bff69aa2d1fc		26.3	2026-11-12T02:01Z on 14da8dcdf	mctas mobai record cart-pole-rod --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
-cart-pole-stop.rec	3e3fcefcdeabab10		26.3	2026-11-11T23:47Z on 780ea315a6	mctas mobai record cart-pole-stop --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
-cart-pole.rec	765fa46b5b1b868e		26.3	2026-11-11T23:47Z on 780ea315a6	mctas mobai record cart-pole --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+cart-pole-push.rec	2d45e39ca7ccf8a7		26.3	2026-11-12T07:48Z on 5ebd7fdd3	mctas mobai record cart-pole-push --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+cart-pole-rod.rec	dd803df6e028b7cb		26.3	2026-11-12T07:48Z on 5ebd7fdd3	mctas mobai record cart-pole-rod --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+cart-pole-stop.rec	02beb2dc2f53ba06		26.3	2026-11-12T07:48Z on 5ebd7fdd3	mctas mobai record cart-pole-stop --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+cart-pole.rec	6ecaf0f33710064f		26.3	2026-11-12T07:48Z on 5ebd7fdd3	mctas mobai record cart-pole --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 cart-queue-bend.rec	777599cc15248ab8		26.3	2026-11-10T14:22Z on cf641f4683	mctas mobai record cart-queue-bend --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-queue-slope.rec	ec9ecf71f00527e3		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue-slope --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-queue.rec	03e88b32b3410e96		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
@@ -110,6 +110,7 @@ loot-pickup.rec	399481169aa92c26		26.3	2026-11-10T15:13Z on 15717973b	mctas moba
 loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
 merge-flat.rec	f58ae116a16d052e		26.3	2026-11-11T17:55Z on fdfdfa0d66	mctas mobai record merge-flat --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 merge-threshold.rec	ded8d58396e39485		26.3	2026-11-11T17:48Z on b6dbc4de63	mctas mobai record merge-threshold --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+pane-attach.rec	3367bf786b2f9801		26.3	2026-11-12T07:55Z on 5ebd7fdd3	mctas mobai record pane-attach --seed 1 --ticks 40 --dir designs/redsim/recorded/mobai
 pane-connect.rec	8106ec4b73502113		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record pane-connect --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 pane-sight.rec	fa0e3cd93ec3fe64		26.3	2026-11-12T06:56Z on c2235cf2b	mctas mobai record pane-sight --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 pane-water.rec	5df1a57f3634eb78		26.3	2026-11-12T06:56Z on c2235cf2b	mctas mobai record pane-water --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai

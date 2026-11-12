@@ -216,7 +216,8 @@ const REPATH_DROP: u32 = 135;
 /// into A, powered at tick `t`; 3: a low full-cell stopper in the cell ahead of the slope's foot
 /// ((x,64,3), rails beyond it) met descending; 4: an obstacle met climbing, the cart set off up the
 /// slope from the flat (z 1.5), at A (place 0) or over the second slope rail (place 1: (x,66,5)).
-/// 26 to a row 3 apart in x, rows 14 apart in z (from z 2).
+/// 26 to a row 3 apart in x from x 2 (a lane at x 1 would touch the sandbox's edge wall: lone iron
+/// bars there would attach to it), rows 14 apart in z (from z 2).
 #[allow(clippy::type_complexity)]
 fn cartpole_lanes(name: &str) -> Vec<(i32, i32, &'static str, u8, f64, bool, u8, u32)> {
     let poles = ["minecraft:iron_chain[axis=y,waterlogged=false]", "minecraft:iron_bars[east=false,north=false,south=false,waterlogged=false,west=false]", "minecraft:end_rod[facing=up]"];
@@ -228,7 +229,7 @@ fn cartpole_lanes(name: &str) -> Vec<(i32, i32, &'static str, u8, f64, bool, u8,
         let mut v = Vec::new();
         let mut push = |pole: &'static str, sp: f64, ridden: bool, extra: u8, t: u32| {
             let k = v.len() as i32;
-            v.push((1 + 3 * (k % 26), 2 + 14 * (k / 26), pole, 0u8, sp, ridden, extra, t));
+            v.push((2 + 3 * (k % 26), 2 + 14 * (k / 26), pole, 0u8, sp, ridden, extra, t));
         };
         for pole in [poles[2], poles[1]] {
             for sp in [0.2, 0.4, 0.6] {
@@ -257,7 +258,7 @@ fn cartpole_lanes(name: &str) -> Vec<(i32, i32, &'static str, u8, f64, bool, u8,
         };
         if mine {
             let k = v.len() as i32;
-            v.push((1 + 3 * (k % 26), 2 + 14 * (k / 26), pole, at, sp, ridden, extra, t));
+            v.push((2 + 3 * (k % 26), 2 + 14 * (k / 26), pole, at, sp, ridden, extra, t));
         }
     };
     for pole in poles {
@@ -462,6 +463,23 @@ const GQ_SLOPE: i32 = 36;
 const GQ_PARK: i32 = 4 + GQ_SLOPE + 3;
 /// The tick the intakes are set on the run (the run at rest).
 const GQ_RELEASE: u32 = 30;
+
+/// (tickexact 2026-11-12, G1 on c61be3216: the connection exceptions) The pane-attach scene's
+/// lanes: the block set east of a lone glass pane at t5, and whether the pane grows an east arm.
+fn pane_attach_lanes() -> Vec<(&'static str, bool)> {
+    vec![
+        ("minecraft:stone", true),
+        ("minecraft:shulker_box[facing=up]", false),
+        ("minecraft:jack_o_lantern[facing=north]", false),
+        ("minecraft:melon", false),
+        ("minecraft:pumpkin", false),
+        ("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]", false),
+        ("minecraft:glass", true),
+        ("minecraft:glass_pane[east=false,north=false,south=false,waterlogged=false,west=true]", true),
+        ("minecraft:iron_bars[east=false,north=false,south=false,waterlogged=false,west=true]", true),
+        ("minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]", false),
+    ]
+}
 
 /// (tickexact 2026-11-12, ironspec's bridge of ironfarm's lane hand-off, explore/ironfarm
 /// 00b3c5816) The lane-handoff scene's lanes: z, kind (`r30`: R pulsed 30 gt; `r4`: R pulsed 4 gt,
@@ -711,6 +729,8 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             vec![(GQ_RELEASE, acts)]
         }
+        // (tickexact 2026-11-12, G1's connection exceptions) each lane's neighbour east of its pane
+        "pane-attach" => vec![(5, pane_attach_lanes().into_iter().enumerate().map(|(k, (st, _))| ([3, 64, 2 + 2 * k as i32], st.to_string())).collect())],
         // (tickexact 2026-11-12, ironfarm's lane hand-off) each lane's R line: a redstone block
         // north of R at its pulse's start, air at its end
         "lane-handoff" => {
@@ -5457,6 +5477,29 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-12, G1 on c61be3216: the connection exceptions) a lone glass pane at (2, 64,
+    // z) per pane_attach_lanes entry, z = 2 + 2 k; the lane's block set east of it at t5 (its
+    // updateShape decides the east arm)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 32, 63, stone);
+        for k in 0..pane_attach_lanes().len() as i32 {
+            b.push(([2, 64, 2 + 2 * k], "minecraft:glass_pane[east=false,north=false,south=false,waterlogged=false,west=false]".to_string()));
+        }
+        v.push(Scene {
+            name: "pane-attach".into(),
+            chunks: [0, 0, 0, 1],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 66, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, ironspec's bridge of ironfarm's lane hand-off, explore/ironfarm
     // 00b3c5816, its switch-bench geometry) handoff_lanes, 5 apart in z: a run of plain slopes
     // ascending west (x 1..4, rail at y 70 - x, glass under each, glass at (0, 70)), R at (5, 65)
@@ -9235,10 +9278,32 @@ pub fn stopper_sweep(files: &[std::path::PathBuf]) -> Result<()> {
     Ok(())
 }
 
-/// (tickexact 2026-11-11, the slide bridge's empties) `mctas mobai rec-gqempties <rec>`: scene
-/// gq-empties per lane: each cart's start and end z, its largest stored speed (and the tick), how
-/// far it ever went back up the run, every pair whose centres came within 0.5 (merged), and for
-/// the admission lanes how many carts passed G0.
+/// (tickexact 2026-11-12, ironspec's note on c61be3216) `mctas mobai arm-lint <design>...`: every
+/// pane and fence whose written arms its neighbours contradict (`redsim::pane::arm_mismatches`):
+/// placed raw, it would keep them until a neighbour updates it. Fails on any.
+pub fn arm_lint(paths: &[std::path::PathBuf]) -> Result<()> {
+    let mut bad = 0;
+    for path in paths {
+        let d = mctas::design::Design::load(path)?;
+        let mut blocks = Vec::new();
+        for (q, s) in d.block_list() {
+            if let Ok(b) = Block::parse(&s) {
+                blocks.push((BlockPos::new(q[0], q[1], q[2]), b));
+            }
+        }
+        let m = redsim::pane::arm_mismatches(&blocks);
+        println!("{}: {} panes and fences, {} with arms their neighbours contradict", path.display(), blocks.iter().filter(|(_, b)| matches!(b, Block::Pane { .. } | Block::Fence { .. })).count(), m.len());
+        for (p, s, e) in &m {
+            println!("  {},{},{} {s}: its neighbours give {e}", p.x, p.y, p.z);
+        }
+        bad += m.len();
+    }
+    if bad > 0 {
+        bail!("{bad} panes or fences with contradicted arms");
+    }
+    Ok(())
+}
+
 /// (tickexact 2026-11-12, ironspec's bridge of ironfarm's lane hand-off) Scene lane-handoff's
 /// recording, per lane and cart (the front one first): where it stops (x, how far into its cell,
 /// y), from which tick, its speed at the end and the most before, its gap to the cart ahead's rider
@@ -9305,6 +9370,33 @@ pub fn rec_handoff(path: &std::path::Path) -> Result<()> {
             ahead_rider = rider;
         }
     }
+    Ok(())
+}
+
+/// (tickexact 2026-11-12, G1's connection exceptions) Scene pane-attach's recording: each lane's
+/// pane at the end and whether its east arm is the expected one.
+pub fn rec_paneattach(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let mut last: std::collections::BTreeMap<(i64, i64, i64), String> = std::collections::BTreeMap::new();
+    for l in lines {
+        let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("{e}"))?;
+        for c in f["blocks"].as_array().into_iter().flatten() {
+            last.insert((c[0].as_i64().unwrap_or(0), c[1].as_i64().unwrap_or(0), c[2].as_i64().unwrap_or(0)), c[3].as_str().unwrap_or("?").to_string());
+        }
+    }
+    let mut bad = 0;
+    for (k, (st, arm)) in pane_attach_lanes().into_iter().enumerate() {
+        let z = 2 + 2 * k as i64;
+        let pane = last.get(&(2, 64, z)).cloned().unwrap_or("minecraft:glass_pane[east=false,north=false,south=false,waterlogged=false,west=false] (unchanged)".into());
+        let east = pane.contains("east=true");
+        if east != arm {
+            bad += 1;
+        }
+        println!("  {st} east of the pane: {pane} ({})", if east == arm { "as expected" } else { "NOT as expected" });
+    }
+    println!("  {bad} lanes not as expected");
     Ok(())
 }
 
@@ -9540,6 +9632,10 @@ pub fn rec_drop(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// (tickexact 2026-11-11, the slide bridge's empties) `mctas mobai rec-gqempties <rec>`: scene
+/// gq-empties per lane: each cart's start and end z, its largest stored speed (and the tick), how
+/// far it ever went back up the run, every pair whose centres came within 0.5 (merged), and for
+/// the admission lanes how many carts passed G0.
 pub fn rec_gqempties(path: &std::path::Path) -> Result<()> {
     let text = mctas::recorded::read_text(path)?;
     let mut lines = text.lines();
@@ -10069,7 +10165,19 @@ pub fn scene_raw_conflicts(s: &Scene) -> Result<Vec<(BlockPos, String, String)>>
             }
         }
     }
-    Ok(cells.into_iter().filter(|q| w.get(*q) != u.get(*q)).map(|q| (q, w.get(q).to_string(), u.get(q).to_string())).collect())
+    // (tickexact 2026-11-12, ironspec's note on the pane model) a pane or fence whose written arms its
+    // neighbours contradict: placed raw, it keeps them (no update changes them), a configuration
+    // getStateForPlacement never makes
+    let mut finals: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, _) in &list {
+        if !finals.iter().any(|(q, _)| q == p) {
+            finals.push((*p, w.get(*p)));
+        }
+    }
+    let arms: Vec<(BlockPos, String, String)> = redsim::pane::arm_mismatches(&finals).into_iter().map(|(p, s, e)| (p, s.to_string(), e.to_string())).collect();
+    let mut out: Vec<(BlockPos, String, String)> = cells.into_iter().filter(|q| w.get(*q) != u.get(*q)).map(|q| (q, w.get(q).to_string(), u.get(q).to_string())).collect();
+    out.extend(arms);
+    Ok(out)
 }
 
 /// `mctas mobai flee-control [scene]` (ironspec Nov 11 11:13): `mobfarm flee-check`'s 6-8 metric on

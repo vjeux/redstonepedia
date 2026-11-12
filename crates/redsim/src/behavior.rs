@@ -237,6 +237,25 @@ pub fn sturdy(w: &World, s: &Block, p: BlockPos, face: Dir, support: Support) ->
     }
 }
 
+/// `Block.isExceptionForConnection`: leaves, barrier, carved pumpkin, jack o'lantern, melon,
+/// pumpkin and `#shulker_boxes` (fences, panes and walls never attach to them by a sturdy face).
+/// Among redsim's blocks: its leaves, pumpkin, melon, jack o'lantern and shulker boxes, and the
+/// natural-state table's rows by name, class and tag (barrier and carved pumpkin are not otherwise
+/// modeled).
+pub fn exception_for_connection(s: &Block) -> bool {
+    match s {
+        Block::Leaves { .. } | Block::Simple(Simple::Pumpkin) | Block::Simple(Simple::Melon) | Block::JackOLantern { .. } | Block::ShulkerBox { .. } => true,
+        Block::Terrain(id) => {
+            let p = crate::terrain::blocks::props(*id);
+            let name = p.name.split('[').next().unwrap_or("");
+            matches!(name, "minecraft:barrier" | "minecraft:carved_pumpkin" | "minecraft:jack_o_lantern" | "minecraft:melon" | "minecraft:pumpkin")
+                || p.classes.iter().any(|c| c == "LeavesBlock")
+                || p.has_tag("minecraft:shulker_boxes")
+        }
+        _ => false,
+    }
+}
+
 /// `isFaceSturdy` without a world (for static models; a moving piston's box needs its block
 /// entity, see `sturdy`).
 pub fn sturdy_of(s: &Block, face: Dir, support: Support) -> bool {

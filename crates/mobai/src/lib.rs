@@ -6,6 +6,7 @@ pub mod loadwindow;
 pub mod netherhome;
 pub mod t600;
 pub mod threebeds;
+pub mod daylight;
 pub mod cli;
 pub mod farmtrace;
 pub mod fixture;
