@@ -6,7 +6,7 @@
 //! open ground around and is removed after `--golem-ticks` whole ticks (the farm's golem leaves
 //! through its pad's portal on its 2nd tick: 2), so the villagers' NEAREST_LIVING_ENTITIES can catch
 //! it only then. Every villager's GOLEM_DETECTED_RECENTLY sets and erasures are logged (the brain
-//! agent) from the stand's summon T to T + 650: a set after T is a renewal (GolemSensor, every
+//! agent) from the stand's summon T to T + 710: a set after T is a renewal (GolemSensor, every
 //! 200 gt, reading a living list that caught the golem), and the summon at T + 600 (the stamps set
 //! at T with 599 gt to live are gone by then) takes place only if none was renewed. Each round
 //! summons every stand afresh (new sensor phases); `--rounds` rounds.
@@ -56,7 +56,7 @@ pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) ->
     srv.cmd_ok("gamerule spawn_mobs false")?;
     srv.cmd_ok("time set 6000")?;
     println!(
-        "== golem-renew on the official {version} server: {stands} stands x {rounds} rounds, each three villagers seated in carts (LAST_SLEPT set) panicking at a husk in a boat; each golem removed after {golem_ticks} whole ticks; GOLEM_DETECTED_RECENTLY logged from the summon T to T + 650"
+        "== golem-renew on the official {version} server: {stands} stands x {rounds} rounds, each three villagers seated in carts (LAST_SLEPT set) panicking at a husk in a boat; each golem removed after {golem_ticks} whole ticks; GOLEM_DETECTED_RECENTLY logged from the summon T to T + 710"
     );
     for k in 0..stands as i32 {
         let x0 = SPACING * k;
@@ -167,7 +167,7 @@ pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) ->
                 }
             }
             srv.cmd("tag @e[type=minecraft:iron_golem,tag=!ga1] add ga1")?;
-            let finished = trials.iter().all(|tr| tr.summon.is_some_and(|s| t >= s + 650)) || t - start > 1200 + 700;
+            let finished = trials.iter().all(|tr| tr.summon.is_some_and(|s| t >= s + 710)) || t - start > 1200 + 760;
             if finished {
                 break;
             }
@@ -228,6 +228,44 @@ pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) ->
         summoned.len(),
         blocked - unexplained.len(),
         unexplained.len()
+    );
+    // (ironspec 12:55) every summon tick after T at which the stand wanted (each villager's last
+    // stamp, the last summon or its own renewal, 599 gt old or more): the outcome, a new golem or
+    // none (trySpawnMob found no spot: it writes nothing, so the stand still wants 100 gt later)
+    let (mut wanted, mut ok, mut failed, mut edge) = (0u32, 0u32, Vec::new(), Vec::new());
+    for tr in &summoned {
+        let s = tr.summon.unwrap_or(0);
+        for k in [6i64, 7] {
+            let t = s + 100 * k;
+            let last_summon = tr.golems.iter().copied().filter(|&g| g < t).max().unwrap_or(s);
+            let ages: Vec<i64> = tr
+                .villagers
+                .iter()
+                .map(|v| {
+                    let own = tr.sets.get(v).and_then(|ts| ts.iter().copied().filter(|&x| x < t && x > s && x % 100 != 0).max()).unwrap_or(i64::MIN);
+                    t - last_summon.max(own)
+                })
+                .collect();
+            // a stamp 600 gt old is gone; one 599 gt old (an own renewal the tick after the summon)
+            // is gone only if that villager's brain ticked before the summoner's that tick
+            if ages.iter().all(|&a| a >= 599) {
+                wanted += 1;
+                if tr.golems.contains(&t) {
+                    ok += 1;
+                } else if ages.iter().any(|&a| a == 599) {
+                    edge.push(format!("T={s} at T+{}: stamps {} gt old, no golem", 100 * k, ages.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/")));
+                } else {
+                    failed.push(format!("T={s} at T+{}: stamps {} gt old, no golem", 100 * k, ages.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/")));
+                }
+            }
+        }
+    }
+    println!(
+        "  summon ticks at T + 600 and T + 700 where every stamp was 599+ gt old: {wanted}; a golem: {ok}; none with a 599-gt stamp (a renewal at T+1, still held when the summoner ticked first): {}{}; none with every stamp 600+ gt old (trySpawnMob found no spot): {}{}",
+        edge.len(),
+        if edge.is_empty() { String::new() } else { format!(" ({})", edge.join("; ")) },
+        failed.len(),
+        if failed.is_empty() { String::new() } else { format!(" ({})", failed.join("; ")) }
     );
     let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())
