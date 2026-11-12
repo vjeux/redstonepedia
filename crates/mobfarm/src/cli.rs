@@ -842,6 +842,15 @@ pub enum MobfarmCmd {
         /// `--bed`, and the sentinel's room, `--sentinel`), in the written frame (`--out-shift`).
         #[arg(long)]
         sections: bool,
+        /// A summoner's cell x,y,z (repeatable: the stand's pockets): print every other villager
+        /// position inside its box grown by 10 on every axis (`spawnGolemIfNeeded`'s test; each
+        /// gets the summon mark) with its least gap to a golem at `--golem-box` (17.84 or less on
+        /// every axis: golem-locked while one exists).
+        #[arg(long = "summon-box", allow_hyphen_values = true)]
+        summon_box: Vec<String>,
+        /// The pad's golem spots as feet cells x0,y0,z0,x1,y1,z1 (the column's frame).
+        #[arg(long, allow_hyphen_values = true)]
+        golem_box: Option<String>,
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -4201,7 +4210,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
             println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
-        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, sections, out } => {
+        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, out } => {
+            let summoners: Vec<[i32; 3]> = summon_box.iter().map(|t| {
+                let n: Vec<i32> = t.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(n.len() == 3, "--summon-box x,y,z");
+                Ok([n[0], n[1], n[2]])
+            }).collect::<Result<_>>()?;
+            let golem_b: Option<([i32; 3], [i32; 3])> = match golem_box.as_deref() {
+                None => None,
+                Some(b) => Some(crate::column::Reserve::parse(&format!("golem={b}")).map_err(|e| anyhow::anyhow!(e))?.b),
+            };
+            anyhow::ensure!(summoners.is_empty() || golem_b.is_some(), "--summon-box needs --golem-box");
             let clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let reserves: Vec<crate::column::Reserve> = reserves.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
@@ -4238,7 +4257,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [n[0], n[1], n[2]]
                 }
             };
-            let (text, d, bed_ok) = crate::column::run_full(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w).map_err(|e| anyhow::anyhow!(e))?;
+            let (text, d, bed_ok) = crate::column::run_full(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w, golem_b.map(|g| (summoners.as_slice(), g))).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
             if sections {
                 let mut beds: Vec<[i32; 3]> = bed_cell.into_iter().collect();

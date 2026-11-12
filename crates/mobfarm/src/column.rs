@@ -420,11 +420,11 @@ pub fn run(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[R
 /// box) the sentinel's rule (c) and its chunk section (the written frame `shift`).
 #[allow(clippy::too_many_arguments)]
 pub fn run_bed(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool, bed: Option<(P, &[String])>) -> Result<(String, Design, bool), String> {
-    run_full(specs, extra, clear, reserves, ports, f, name, with_plan, bed, None, [0; 3])
+    run_full(specs, extra, clear, reserves, ports, f, name, with_plan, bed, None, [0; 3], None)
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn run_full(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool, bed: Option<(P, &[String])>, sentinel_box: Option<(P, P)>, shift: P) -> Result<(String, Design, bool), String> {
+pub fn run_full(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool, bed: Option<(P, &[String])>, sentinel_box: Option<(P, P)>, shift: P, summon: Option<(&[P], (P, P))>) -> Result<(String, Design, bool), String> {
     let mut parts: Vec<Part> = specs.iter().map(load_part).collect::<Result<_, _>>()?;
     let mut cleared = 0usize;
     for p in &mut parts {
@@ -474,6 +474,9 @@ pub fn run_full(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves
         let (t, ok) = sentinel(&parts, sb, bed.map(|(b, _)| b), shift);
         s.push_str(&t);
         bed_ok &= ok;
+    }
+    if let Some((sc, g)) = summon {
+        s.push_str(&summon_box(&parts, reserves, sc, g));
     }
     let (mut d, two_ways, dropped) = skeleton(&parts, name)?;
     if !dropped.is_empty() {
@@ -787,6 +790,79 @@ pub fn section_report(d: &Design, beds: &[P], shift: P) -> String {
             worst = worst.max(dmin);
         }
         s.push_str(&format!("  p {p:>2}: {far} of {} beyond 1 section (the farthest {worst} sections){}\n", cells.len(), example.map(|c| format!(", e.g. ({},{},{})", c[0], c[1], c[2])).unwrap_or_default()));
+    }
+    s
+}
+
+/// The summon box (ironspec Nov 11 19:16, day-1's summon model): `Villager.spawnGolemIfNeeded`
+/// takes every villager inside the summoner's box grown by 10 on every axis, and every one of them
+/// gets the summon mark (`GolemSensor.golemDetected`). For each summoner cell, every other villager
+/// position whose box meets that box: every ridden cart's rider (its villager box, 0.6 x 1.95 at the
+/// cart's y) and every rail cell of every part (the whole cell, 2.95 high: a rider passing it,
+/// conservative), each with its least axis gap to the golem boxes at the pad's spots (feet cells in
+/// `golem`, a golem 1.4 x 2.7): 17.84 or less on every axis means its own sensor box meets a golem
+/// (golem-locked while one exists); and the reserved boxes as bounds.
+pub fn summon_box(parts: &[Part], reserves: &[Reserve], summoners: &[P], golem: (P, P)) -> String {
+    type B = ([f64; 3], [f64; 3]);
+    let gap = |a: &B, b: &B| -> [f64; 3] { [0, 1, 2].map(|k| (a.0[k] - b.1[k]).max(b.0[k] - a.1[k]).max(0.0)) };
+    let villager = |x: f64, y: f64, z: f64| -> B { ([x - 0.3, y, z - 0.3], [x + 0.3, y + 1.95, z + 0.3]) };
+    let mut positions: Vec<(String, B, bool)> = Vec::new();
+    for p in parts {
+        for e in p.placed.entities.iter().filter(|e| e.kind.ends_with("minecart") && e.nbt.as_deref().is_some_and(|t| t.contains("villager"))) {
+            positions.push((format!("rider ({:.2},{:.2},{:.2}) [{}]", e.pos[0], e.pos[1], e.pos[2], p.spec.name), villager(e.pos[0], e.pos[1], e.pos[2]), true));
+        }
+        for (c, st) in &p.placed.blocks {
+            if rail_shape_of(st).is_some() {
+                positions.push((format!("rail ({},{},{}) [{}]", c[0], c[1], c[2], p.spec.name), ([c[0] as f64, c[1] as f64, c[2] as f64], [c[0] as f64 + 1.0, c[1] as f64 + 2.95, c[2] as f64 + 1.0]), false));
+            }
+        }
+    }
+    let mut golems: Vec<B> = Vec::new();
+    for x in golem.0[0]..=golem.1[0] {
+        for y in golem.0[1]..=golem.1[1] {
+            for z in golem.0[2]..=golem.1[2] {
+                let (cx, cz) = (x as f64 + 0.5, z as f64 + 0.5);
+                golems.push(([cx - 0.7, y as f64, cz - 0.7], [cx + 0.7, y as f64 + 2.7, cz + 0.7]));
+            }
+        }
+    }
+    let lock = |b: &B| -> (f64, bool) {
+        let mut best = f64::MAX;
+        let mut locked = false;
+        for g in &golems {
+            let gp = gap(b, g);
+            let m = gp.iter().cloned().fold(0.0f64, f64::max);
+            best = best.min(m);
+            locked |= gp.iter().all(|v| *v <= 17.84);
+        }
+        (best, locked)
+    };
+    let mut s = format!("summon box (each summoner's villager box grown by 10 on every axis; every villager inside gets the summon mark): {} positions ({} riders, {} rail cells), golem spots x {}..{} y {}..{} z {}..{} (feet):\n", positions.len(), positions.iter().filter(|p| p.2).count(), positions.iter().filter(|p| !p.2).count(), golem.0[0], golem.1[0], golem.0[1], golem.1[1], golem.0[2], golem.1[2]);
+    for sc in summoners {
+        // the rider seated there, if the file has one in that cell, else a villager at the cell's
+        // floor (a flat rail's cart y)
+        let me = positions.iter().find(|p| p.2 && {
+            let b = &p.1;
+            (b.0[0] + 0.3).floor() as i32 == sc[0] && b.0[1].floor() as i32 == sc[1] && (b.0[2] + 0.3).floor() as i32 == sc[2]
+        });
+        let mb = me.map(|p| p.1).unwrap_or_else(|| villager(sc[0] as f64 + 0.5, sc[1] as f64 + 0.0625, sc[2] as f64 + 0.5));
+        let inflated: B = ([mb.0[0] - 10.0, mb.0[1] - 10.0, mb.0[2] - 10.0], [mb.1[0] + 10.0, mb.1[1] + 10.0, mb.1[2] + 10.0]);
+        let inside: Vec<&(String, B, bool)> = positions.iter().filter(|p| {
+            let same = (p.1.0[1] - mb.0[1]).abs() < 1e-9 && (p.1.0[0] - mb.0[0]).abs() < 1e-9 && (p.1.0[2] - mb.0[2]).abs() < 1e-9;
+            !same && gap(&p.1, &inflated).iter().all(|v| *v <= 0.0)
+        }).collect();
+        let riders = inside.iter().filter(|p| p.2).count();
+        s.push_str(&format!("  summoner ({},{},{}): {} other positions in its box ({} riders, {} rail cells)\n", sc[0], sc[1], sc[2], inside.len(), riders, inside.len() - riders));
+        for p in &inside {
+            let (g, locked) = lock(&p.1);
+            s.push_str(&format!("    {}: the least largest-axis gap to a golem box {g:.2}{}\n", p.0, if locked { " (golem-locked: its 17.84 box meets a golem)" } else { "" }));
+        }
+        for r in reserves {
+            let rb: B = ([r.b.0[0] as f64, r.b.0[1] as f64, r.b.0[2] as f64], [r.b.1[0] as f64 + 1.0, r.b.1[1] as f64 + 1.0, r.b.1[2] as f64 + 1.0]);
+            if gap(&rb, &inflated).iter().all(|v| *v <= 0.0) {
+                s.push_str(&format!("    bound {} (reserved): its box meets the summon box\n", r.name));
+            }
+        }
     }
     s
 }
