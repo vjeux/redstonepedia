@@ -1,8 +1,9 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..10.
-# F1 + Q2 module, FIRST ASSEMBLY, PROVISIONAL (onechunk, Nov 12 04:21; loop frame x -6..9, z -6..9 (the split's row at z 10 outside it); paste with no move and no settle; a snapshot for mobviewer's render; bench, tool unreviewed; every drive EMULATED until day-1's controller (table v6) is laid).
-# Parts: station = dfb89499's explore/farmopt-m1-restart d1a5f2985 wip/station/f1q2-station.txt (its Nether part is the bench's PLACEHOLDER, a 2 x 3 portal at y 64..66: the build's Nether side is the group layout's shared kill room at the pads' y, wip/onechunk/nether/f1q2-nether-group-p110.txt / -p88.txt, with the storage and the loader's twin); lanes = ironfarm's explore/ironfarm 1beae3a85 wip/lanes/f1q2-lanes.txt (with the pop fix's glass at (x,22,7) and the glass drop walls (x,24,5)); lift + split = 7b90c3f1's explore/farmopt-lift3 261a90ca3 wip/lift/f1q2-lift-split.txt; bed stop = 58f770cc's explore/bedtier-stop cbcac083a parts/bed-tier-min/bed-tier-fold.txt (part = local + (0,-18,-1)); sky cells (roof at y 28, rod, daylight detector) and the 2 glass scarer posts = onechunk's wip/onechunk/module/.
-# Applied here (ruled): the hook supports (-3/1/5/9,17,0) glowstone; the station's hold zombie (2,16,-6) out; the 2-post glass scarers (a pillager in a boat at (-5,-1,-5), a zombie in a boat at (-5,-4,-2), both open east).
-# Pending (later revisions as new commits): the in-chunk split being redrawn with J power-forced (and the rule: no rail with 3 potential connections among a detector's raw connections); the offsets step pending cc767b78's solve; the scarer posts pending the golem-flow bench and the runtime run (condition (i)); the pad seal of 40 cobblestone at y -8 (dfb89499); the napper lift (c) re-lay for z 7, the x 9 shaft, leg and queue (reserved boxes below); the bed stop's leaves persistent and its glass covers (20 golem spawn tops); the controller and the sensing comparators (reserved); the creeper check, the placement-order list and the every-position flood; the loader sits in the gap chunk (wip/onechunk/loader/l1-item-loop-bench.txt, 162cc90b9).
+# F1 + Q2 module, FIRST ASSEMBLY, PROVISIONAL, revision 2 (onechunk, Nov 12 05:01; loop frame x -6..9, z -6..9 (the split's row at z 10 outside it, in the next chunk south: entity-ticking only while that chunk is, flag (a)); paste with no move and no settle; bench, tool unreviewed; every drive EMULATED until day-1's controller (table v6) is laid).
+# Parts: station = dfb89499's explore/farmopt-m1-restart d1a5f2985 wip/station/f1q2-station.txt (its Nether part is the bench's PLACEHOLDER, a 2 x 3 portal at y 64..66: the build's Nether side is wip/onechunk/nether/f1q2-nether-group-p110.txt / -p88.txt: storage 820a3f174's frame, the shielded kill room, the loader's twin); lanes = ironfarm's explore/ironfarm 1beae3a85 wip/lanes/f1q2-lanes.txt; lift + split = 7b90c3f1's explore/farmopt-lift3 261a90ca3 wip/lift/f1q2-lift-split.txt; bed stop = 58f770cc's explore/bedtier-stop cbcac083a parts/bed-tier-min/bed-tier-fold.txt (part = local + (0,-18,-1)); sky cells and the 2 glass scarer posts = onechunk's wip/onechunk/module/.
+# Open reviews: the bed stop cbcac083a CHANGES 2 (the continuous slope; the NOT-DAY gate; its glass-cover stop replaces it once pushed); the split 261a90ca3 CHANGES 3 (held on J and the in-chunk re-lay); the 2 scarer posts CHANGES 1 (golem targeting from the pad).
+# Applied here (ruled): the hook supports (-3/1/5/9,17,0) glowstone; the station's hold zombie (2,16,-6) out; the 2-post glass scarers: the pillager's boat at (-4.5,-1,-4.5) and the zombie's at (-4.5,-4,-1.5), each the centre of its post's cell (-5,-1,-5) / (-5,-4,-2), the rider seated inside the glass box (floor y -2 / -5, roof y 1 / -2, walls N, S, W; open east).
+# Pending: the in-chunk split (J power-forced; no rail with 3 potential connections among a detector's raw connections); the offsets step (cc767b78); the scarers (the golem-flow bench, the runtime run); the pad seal of 40 (dfb89499); the napper lift (c) re-lay for z 7, the x 9 shaft, leg and queue (reserved); the bed stop's 20 off-pad golem spots (ironspec: golem-proof; 58f770cc's glass-cover stop); the controller and the sensing comparators (reserved); the loader is in the gap chunk (main e37e893c0 / 59d96295d's wip/onechunk/loader/l1-item-loop-bench.txt).
 # + station: /tmp/onechunk/parts/f1q2-station.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + lanes: /tmp/onechunk/parts/f1q2-lanes-v3.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + liftsplit: /tmp/onechunk/parts/f1q2-lift-split.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
@@ -22,6 +23,34 @@
 # reserved (no blocks): napper-queue-drop x 9..9 y -13..-10 z -6..-6
 # reserved (no blocks): napper-queue-run x 5..9 y -17..-14 z -6..-5
 # reserved (no blocks): controller x -6..-4 y 3..14 z -6..5
+# placement order (every rail placed last into the finished build: the ones whose designed shape, or a neighbouring rail's, vanilla placement changes; place them in an order or with a temporary helper): 19
+# placement order: (-3,24,10) placed last: (-3,24,10) ascending_west -> north_east
+# placement order: (-2,24,7) placed last: (-1,24,7) north_west -> east_west
+# placement order: (-1,0,7) placed last: (-1,0,7) north_west -> north_east
+# placement order: (-1,22,6) placed last: (-1,22,6) ascending_south -> north_south
+# placement order: (-1,24,7) placed last: (-1,24,7) north_west -> south_west
+# placement order: (-1,24,8) placed last: (-1,24,7) north_west -> south_west
+# placement order: (-1,24,10) placed last: (-1,24,10) east_west -> north_east
+# placement order: (2,24,7) placed last: (3,24,7) north_west -> east_west
+# placement order: (3,0,7) placed last: (3,0,7) north_west -> north_east
+# placement order: (3,22,6) placed last: (3,22,6) ascending_south -> north_south
+# placement order: (3,24,7) placed last: (3,24,7) north_west -> south_west
+# placement order: (3,24,8) placed last: (3,24,7) north_west -> south_west
+# placement order: (3,24,10) placed last: (3,24,10) east_west -> north_east
+# placement order: (6,24,7) placed last: (7,24,7) north_west -> east_west
+# placement order: (7,0,7) placed last: (7,0,7) north_west -> north_east
+# placement order: (7,22,6) placed last: (7,22,6) ascending_south -> north_south
+# placement order: (7,24,7) placed last: (7,24,7) north_west -> south_west
+# placement order: (7,24,8) placed last: (7,24,7) north_west -> south_west
+# placement order: (7,24,10) placed last: (7,24,10) north_west -> north_east
+# rail Ts (every plain rail with 3 potential connections in the finished build; each a placement-order case or power-forced): 7
+# rail T: (-3,24,10) stored ascending_west, unpowered north_east, powered north_west, its signal now off
+# rail T: (-1,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off
+# rail T: (-1,24,10) stored east_west, unpowered north_east, powered north_west, its signal now off
+# rail T: (3,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off
+# rail T: (3,24,10) stored east_west, unpowered north_east, powered north_west, its signal now off
+# rail T: (7,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off
+# rail T: (7,24,10) stored north_west, unpowered north_east, powered north_west, its signal now off
 name: f1q2-module-first-assembly
 circuit: mob-farm iron_ingot
 positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0

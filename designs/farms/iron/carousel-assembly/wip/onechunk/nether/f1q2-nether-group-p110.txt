@@ -1,11 +1,15 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -16..31 z -16..31.
-# the per-group Nether layout (onechunk, Nov 12; pocket 110; Nether frame, mirrored 16/48 tiling, the group around gap chunk (1,2)): b8949c96's N = 4 storage (7828f4288's framed cells: 2 hopper lines, 8 double chests, its cobblestone box and shields) replacing v4's collection; v4's kill chamber above it (its 2 x 3 axis-z portal at x 2, z 4..5, y 102..104), the kill floor's 2 x 2 hoppers the storage's; the L1''' loop's twin (the loader file's Nether side, cased, 9cc7d8f0f) 13 above at x -1..3, z 4, y 117..121; the cobblestone behind the twin's O2 at (2,120,0) is powered on every O2 pulse: its other faces (1,120,0) (3,120,0) (2,119,0) (2,121,0) (2,120,-1) hold nothing. All inside the 3 x 3 chunks of the kill room's and the twin's arrival tickets (chunk 0,0); nothing above y 122 (the roof's bedrock from 123). Bench, tool unreviewed.
-# + storage: /tmp/onechunk/parts/storage-n4-v2.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
+# the per-group Nether layout (onechunk, Nov 12; pocket 110; Nether frame, mirrored 16/48 tiling, the group around gap chunk (1,2)): b8949c96's N = 4 storage (820a3f174 / 252209db0's framed cells: 2 hopper lines, 8 double chests, the 26-connected cobblestone shield) replacing v4's collection; v4's kill chamber above it (its 2 x 3 axis-z portal at x 2, z 4..5, y 102..104), the kill floor's 2 x 2 hoppers the storage's, closed for ghasts by 14 cobblestone (wip/onechunk/nether/f1q2-killroom-shield-p110.txt: the portal's west face, the chamber's walls at its top row and its roof) and the edge cells below; the L1''' loop's twin (the loader's cased Nether side, main e37e893c0 / 59d96295d) 13 above at x -1..3, z 4, y 117..121; the cobblestone behind the twin's O2 at (2,120,0) is powered on every O2 pulse: its other faces hold nothing. All inside the 3 x 3 chunks of the kill room's and the twin's arrival tickets (chunk 0,0); nothing above y 122 (the roof's bedrock from 123). Bench, tool unreviewed.
+# + storage: /tmp/onechunk/parts/storage-n4-v3.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + kill: designs/farms/iron/carousel-assembly/wip/onechunk/skeleton-v4-inverted.txt moved by 2,38,4 into the frame, then 0,0,0 into its tier (its cells -3,61,-4..4,67,4 kept)
+# + shield: designs/farms/iron/carousel-assembly/wip/onechunk/nether/f1q2-killroom-shield-p110.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + twin: designs/farms/iron/carousel-assembly/wip/onechunk/loader/l1-item-loop-bench.txt moved by -1,107,4 into the frame, then 0,0,0 into its tier
 # cleared first (committed cells a lane re-lays): x 3..4 y 99..99 z 4..5
+# closed for ghasts (mctas mobfarm ghast-check --close): 46 cobblestone in the outside cells with an edge or a corner on a weak cell inside: (1,101,3) (1,101,6) (1,102,3) (1,102,6) (1,103,3) (1,103,6) (1,104,3) (1,104,6) (1,105,3) (1,105,4) (1,105,5) (1,105,6) (2,99,3) (2,99,4) (2,99,5) (2,99,6) (2,100,3) (2,100,6) (2,101,3) (2,101,6) (2,105,3) (2,105,6) (3,99,3) (3,99,6) (3,105,3) (3,105,6) (4,105,3) (4,105,6) (5,99,3) (5,99,4) (5,99,5) (5,99,6) (5,100,3) (5,100,6) (5,101,3) (5,101,6) (5,102,3) (5,102,6) (5,103,3) (5,103,6) (5,104,3) (5,104,6) (5,105,3) (5,105,4) (5,105,5) (5,105,6)
 name: f1q2-nether-group-p110
 circuit: mob-farm iron_ingot
+run-cells: kill.Pa 15,55,12; kill.Pb 15,56,7; kill.Pc 12,57,5; kill.Ds 15,52,15; kill.ESC 5,57,5; kill.RUNTOP 4,69,18; kill.Pesc 4,58,7; kill.P1 17,76,6; kill.P2 17,75,11; kill.P3 17,74,15; kill.P4 11,73,19; kill.P5 7,72,19; kill.Ra 15,54,13; kill.Rb 15,55,8; kill.Rc 13,56,5; kill.R1 17,75,7; kill.R2 17,74,12; kill.R3 17,73,16; kill.R4 10,72,19; kill.R5 6,71,19; kill.S0r 15,36,10; kill.S1r 11,37,10; kill.S2r 7,38,10; kill.STRIP0 5,35,10; kill.STRIP1 17,40,10; kill.X 16,72,19; kill.PAD0 6,32,4; kill.PAD1 16,32,9
+run-gates: kill.Ga 15,54,14/15,52,14; kill.Gb 15,55,9/15,53,9; kill.Gc 14,56,5/14,54,5; kill.G0e 4,59,7; kill.GP 4,58,6; kill.S0 16,36,10/16,35,11; kill.S1 12,37,10/12,35,10; kill.S2 8,38,10/8,36,10; kill.T1 17,75,8/17,73,8; kill.T2 17,74,13/17,72,13; kill.T3 17,73,17/17,71,17; kill.T4 9,72,19/9,70,19; kill.T5 5,71,19
 port output: -1 103 -3
 nbt: 2 119 3 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
 nbt: 2 121 3 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
@@ -117,108 +121,108 @@ layer 94:
   ............B........B
   ............B........B
   ........LLLLLLLLLLLLLB
-  ........M...MBBBBBBBBB
-  ........M...M
-  .......D....M
-  ............M
-  .......s....M
-  ............M
+  .......DMD..MBBBBBBBBB
+  ......DDMD..M
+  ......DDDD..M
+  ......DDD...M
+  ......DsD...M
+  ......DDD...M
   ........LLLLM
-  ........M
-  ........M
-  .......D
-  .
-  .......s
-  .
+  .......DMD
+  ......DDMD
+  ......DDDD
+  ......DDD
+  ......DsD
+  ......DDD
   .
 layer 95:
   ............BBBBBBBBBB
   ............BBBBBBBBBB
   ............BBBBBBBBBB
-  ............BBBBBBBBBB
-  .......Dss..BBBBBBBBBB
-  .......DCss...D
-  ......DrDss
-  .......s
+  ......DDDDD.BBBBBBBBBB
+  ......DDssDDBBBBBBBBBB
+  ......DDCssD.DDD
+  ......DrDssD.DDD
+  ......DsDDDD
   ......DZD
-  .......s
-  .
-  .......Dss
-  .......DCss
-  ......DrDss
-  .......s
+  ......DsD
+  ......DDDDD
+  ......DDssDD
+  ......DDCssD
+  ......DrDssD
+  ......DsDDDD
   ......DZD
-  .......s
-  .
+  ......DsD
+  ......DDD
 layer 96:
   .
   .
   .
-  .......DDD
-  ......DHFXD...D
-  .......hGFXD.DVD
-  .......ssYXD..D
-  .......s.DD
-  .......s
+  ......DDDDD
+  ......DHFXDD.DDD
+  ......DhGFXD.DVD
+  ......DssYXD.DDD
+  ......DsDDDD
+  ......DsD
   ......DXD
-  .......DDD
-  ......DHFXD
-  .......hGFXD
-  .......ssYXD
-  .......s.DD
-  .......s
+  ......DDDDD
+  ......DHFXDD
+  ......DhGFXD
+  ......DssYXD
+  ......DsDDDD
+  ......DsD
   ......DXD
-  .......D
+  ......DDD
 layer 97:
   .
   .
   .
-  .
-  .......DDD....D
-  .......KDDD..DSB
-  ......DEDDD...D
+  ......DDDDD
+  ......DDDDDD.DDD
+  ......DKDDDD.DSB
+  ......DEDDDD.DDD
+  ......DXDDDD
   ......DXD
+  ......DDD
+  ......DDDDD
+  ......DDDDDD
+  ......DKDDDD
+  ......DEDDDD
+  ......DXDDDD
   ......DXD
-  .......D
-  .
-  .......DDD
-  .......KDDD
-  ......DEDDD
-  ......DXD
-  ......DXD
-  .......D
-  .
+  ......DDD
+  ......DDD
 layer 98:
   .
   .
   .
   .
-  ..............DB
+  .............DDB
   ......LLLLLLLLdlB
-  .......D....M.DB
-  .......D....M
-  .......D....M
-  ............M
+  ......DDD...MDDB
+  ......DDD...M
+  ......DDD...M
+  ......DDD...M
   ............M
   ............M
   ......LLLLLLM
-  .......D
-  .......D
-  .......D
-  .
+  ......DDD
+  ......DDD
+  ......DDD
+  ......DDD
   .
 layer 99:
   .
   .
   .
   .
-  .
-  ......K.......DB
-  ......M
-  ......M
-  ..B..LM
-  .....LN
-  ......N
+  .............DDD
+  ......K......DDB
+  ......M......DDD
+  ....BBMB
+  ..B.BLMB
+  ....BLNB
+  ....BBNB
   ......N
   ......K
   .
@@ -234,10 +238,10 @@ layer 100:
   .
   .
   .
-  .....BB
+  ....BBBB
   ....B..B
   ..B.B..B
-  .....BB
+  ....BBBB
   .
   .
   .
@@ -253,10 +257,10 @@ layer 101:
   .
   .
   .
-  .....BB
+  ...BBBBB
   ...BWRRB
   ...BWooB
-  .....BB
+  ...BBBBB
   .
   .
   .
@@ -272,10 +276,10 @@ layer 102:
   .
   .
   .
-  ....WBB
-  ....QlPB
-  ....QlPB
-  ....WBB
+  ...BWBBB
+  ...BQlPB
+  ...BQlPB
+  ...BWBBB
   .
   .
   .
@@ -291,10 +295,10 @@ layer 103:
   .
   .
   .
-  ....WBB
-  ....Q..B
-  ....Q..B
-  ....WBB
+  ...BWBBB
+  ...BQ..B
+  ...BQ..B
+  ...BWBBB
   .
   .
   .
@@ -310,10 +314,10 @@ layer 104:
   .
   .
   .
-  ....W
-  ...BQ
-  ...BQ
-  ....W
+  ...BWBBB
+  ...BQ..B
+  ...BQ..B
+  ...BWBBB
   .
   .
   .
@@ -329,10 +333,10 @@ layer 105:
   .
   .
   .
-  .
-  ....W
-  ....W
-  .
+  ...BBBBB
+  ...BWBBB
+  ...BWBBB
+  ...BBBBB
   .
   .
   .
@@ -538,9 +542,9 @@ layer 116:
   .
   .
   .
-  .
-  .WWWWW
-  .
+  BBBBBBB
+  BWWWWWB
+  BBBBBBB
   .
   .
   .
@@ -559,7 +563,7 @@ layer 117:
   B.....B
   BBBBBBB
   WnnnnnW
-  .BBBBB
+  BBBBBBB
   .
   .
   .
@@ -575,10 +579,10 @@ layer 118:
   .
   .
   B.....B
-  B.....B
+  B..BBBB
   BBBBBBB
   WnnnnnW
-  .BBBBB
+  BBBBBBB
   .
   .
   .
@@ -592,12 +596,12 @@ layer 119:
   .
   .
   .
-  .
-  B...B.B
+  ...BBB
+  BBBBBBB
   BNNNBBB
   BLLLJgB
   WnnnnnW
-  .BBBBB
+  BBBBBBB
   .
   .
   .
@@ -611,12 +615,12 @@ layer 120:
   .
   .
   .
-  ....B
+  ...BBB
   BBBBUBB
   B...TgB
   B...JgB
   WnnnnnW
-  .BBBBB
+  BBBBBBB
   .
   .
   .
@@ -630,12 +634,12 @@ layer 121:
   .
   .
   .
-  .
+  ...BBB
   BBBBBBB
   B...g.B
   B...IgB
   WnnnnnW
-  .BBBBB
+  BBBBBBB
   .
   .
   .
@@ -653,8 +657,8 @@ layer 122:
   BBBBBBB
   BBBBBBB
   BBBBBBB
-  .WWWWW
-  .
+  BWWWWWB
+  BBBBBBB
   .
   .
   .
