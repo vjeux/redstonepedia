@@ -407,10 +407,29 @@ fn plan(p: &Part, f: &Frame) -> String {
 }
 
 /// The whole report, and the skeleton design (`ports`: set or replaced on the skeleton after the
-/// merge, the judge's `port output` when no part keeps one).
-pub fn run(specs: &[PartSpec], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool) -> Result<(String, Design), String> {
-    let parts: Vec<Part> = specs.iter().map(load_part).collect::<Result<_, _>>()?;
+/// merge, the judge's `port output` when no part keeps one; `extra`: parts built here, the sketch
+/// tracks, carts and posts, after the file parts; `clear`: boxes whose file-part blocks, block
+/// entities and entities are taken out first, a committed cell a lane re-lays).
+#[allow(clippy::too_many_arguments)]
+pub fn run(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool) -> Result<(String, Design), String> {
+    let mut parts: Vec<Part> = specs.iter().map(load_part).collect::<Result<_, _>>()?;
+    let mut cleared = 0usize;
+    for p in &mut parts {
+        for b in clear {
+            let n = p.placed.blocks.len();
+            p.placed.blocks.retain(|c, _| !inside(c, b));
+            p.placed.block_entities.retain(|c, _| !inside(c, b));
+            p.placed.entities.retain(|e| !inside(&e.cell(), b));
+            p.placed.ports.retain(|_, c| !inside(c, b));
+            p.declared.retain(|x| !inside(&x.cell, b));
+            cleared += n - p.placed.blocks.len();
+        }
+    }
+    parts.extend(extra);
     let mut s = format!("column x {}..{} z {}..{} (frame cells), chunk lines at x = {} + 16k, z = {} + 16k\n", f.x0, f.x1, f.z0, f.z1, f.phase_x, f.phase_z);
+    for b in clear {
+        s.push_str(&format!("cleared {} (file parts' blocks taken out of {} first: {cleared} blocks in all the boxes)\n", fmt_box(b), "the box"));
+    }
     for p in &parts {
         s.push_str(&part_lines(p, f));
         if with_plan {
@@ -463,8 +482,160 @@ pub fn run(specs: &[PartSpec], reserves: &[Reserve], ports: &[(String, P)], f: &
     Ok((s, d))
 }
 
+/// A sketch track's cells through its waypoints: each leg along x or z. A rising leg climbs in its
+/// last cells and a falling leg drops in its first, so the cell after a corner (rising) or before
+/// one (falling) sits at the corner's height (a curve has no slope); a leg changing height more
+/// than its length is refused.
+pub fn track_cells(points: &[P]) -> Result<Vec<P>, String> {
+    let first = *points.first().ok_or("a track needs a waypoint")?;
+    let mut cells = vec![first];
+    for w in points.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let (dx, dy, dz) = (b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        if dx != 0 && dz != 0 {
+            return Err(format!("track leg ({},{},{}) -> ({},{},{}): a leg runs along x or z", a[0], a[1], a[2], b[0], b[1], b[2]));
+        }
+        let n = dx.abs() + dz.abs();
+        if dy.abs() > n || n == 0 {
+            return Err(format!("track leg ({},{},{}) -> ({},{},{}): {} cells can't change height by {}", a[0], a[1], a[2], b[0], b[1], b[2], n, dy));
+        }
+        for k in 1..=n {
+            let step = if dy > 0 { (k - (n - dy)).max(0) } else { k.min(-dy) };
+            cells.push([a[0] + dx.signum() * k, a[1] + dy.signum() * step, a[2] + dz.signum() * k]);
+        }
+    }
+    Ok(cells)
+}
+
+/// The horizontal direction from a cell to its neighbour.
+fn dir_to(from: P, to: P) -> Result<&'static str, String> {
+    match (to[0] - from[0], to[2] - from[2]) {
+        (1, 0) => Ok("east"),
+        (-1, 0) => Ok("west"),
+        (0, 1) => Ok("south"),
+        (0, -1) => Ok("north"),
+        _ => Err(format!("({},{},{}) and ({},{},{}) are not neighbours", from[0], from[1], from[2], to[0], to[1], to[2])),
+    }
+}
+
+/// A plain rail's shape at `c` between its track neighbours: a slope rising toward a neighbour one
+/// higher, else straight or the curve joining the two directions.
+fn rail_shape(prev: Option<P>, c: P, next: Option<P>) -> Result<String, String> {
+    let ns: Vec<P> = [prev, next].into_iter().flatten().collect();
+    let up: Vec<&P> = ns.iter().filter(|n| n[1] == c[1] + 1).collect();
+    if up.len() > 1 {
+        return Err(format!("({},{},{}): a rail can't rise toward both neighbours", c[0], c[1], c[2]));
+    }
+    if let Some(u) = up.first() {
+        // (a slope runs straight: its other neighbour lies opposite)
+        let d = dir_to(c, **u)?;
+        if let Some(o) = ns.iter().find(|n| *n != *u) {
+            let od = dir_to(c, *o)?;
+            let opposite = matches!((d, od), ("east", "west") | ("west", "east") | ("north", "south") | ("south", "north"));
+            if !opposite {
+                return Err(format!("({},{},{}): a slope can't turn (a curve has no slope)", c[0], c[1], c[2]));
+            }
+        }
+        return Ok(format!("ascending_{d}"));
+    }
+    let ds: Vec<&str> = ns.iter().map(|n| dir_to(c, *n)).collect::<Result<_, _>>()?;
+    let axis = |d: &str| if d == "east" || d == "west" { "east_west" } else { "north_south" };
+    Ok(match ds.as_slice() {
+        [] => "north_south".to_string(),
+        [d] => axis(d).to_string(),
+        [a, b] if axis(a) == axis(b) => axis(a).to_string(),
+        [a, b] => {
+            let (ns_d, ew_d) = if axis(a) == "north_south" { (*a, *b) } else { (*b, *a) };
+            format!("{ns_d}_{ew_d}")
+        }
+        _ => unreachable!(),
+    })
+}
+
+/// The sketch part (`--track`, `--cart`, `--post`): plain rails through each track's waypoints with
+/// a stone under each, carts (ridden by a villager unless `empty`) on rail cells, and the brief's
+/// zombie posts (a persistent zombie in an oak boat at the cell, glass under it, leaves 3 above).
+/// A sketch: no powered rail, no control, no spacing; the cells stand in for a lane's until it
+/// sends its own.
+pub fn sketch_part(tracks: &[(String, Vec<P>)], carts: &[(P, Option<f64>, bool)], posts: &[P]) -> Result<Part, String> {
+    let mut d = Design { name: "sketch".into(), ..Default::default() };
+    let mut rails: BTreeMap<P, String> = BTreeMap::new();
+    for (name, pts) in tracks {
+        let cells = track_cells(pts).map_err(|e| format!("track {name}: {e}"))?;
+        for (i, c) in cells.iter().enumerate() {
+            let shape = rail_shape(i.checked_sub(1).map(|j| cells[j]), *c, cells.get(i + 1).copied()).map_err(|e| format!("track {name}: {e}"))?;
+            if rails.insert(*c, shape).is_some() {
+                return Err(format!("track {name}: the cell ({},{},{}) is laid twice", c[0], c[1], c[2]));
+            }
+        }
+    }
+    for (c, shape) in &rails {
+        d.blocks.insert(*c, format!("minecraft:rail[shape={shape},waterlogged=false]"));
+    }
+    for c in rails.keys() {
+        let under = [c[0], c[1] - 1, c[2]];
+        if rails.contains_key(&under) {
+            return Err(format!("the rail at ({},{},{}) sits on another rail", c[0], c[1], c[2]));
+        }
+        d.blocks.entry(under).or_insert_with(|| "minecraft:stone".into());
+    }
+    for (c, at_y, empty) in carts {
+        // (on a sketch rail its height follows the shape; on another part's rail the cart's y is
+        // given, else it sits as on a flat rail)
+        let y = match (at_y, rails.get(c)) {
+            (Some(y), _) => *y,
+            (None, Some(shape)) if shape.starts_with("ascending") => c[1] as f64 + 0.5,
+            (None, _) => c[1] as f64 + 0.0625,
+        };
+        let nbt = if *empty { None } else { Some("{Passengers:[{id:\"minecraft:villager\"}]}".to_string()) };
+        d.entities.push(mctas::design::EntitySpec { kind: "minecraft:minecart".into(), pos: [c[0] as f64 + 0.5, y, c[2] as f64 + 0.5], nbt });
+    }
+    for p in posts {
+        for (cell, block) in [([p[0], p[1] - 1, p[2]], "minecraft:glass"), ([p[0], p[1] + 3, p[2]], "minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]")] {
+            if d.blocks.insert(cell, block.into()).is_some() {
+                return Err(format!("--post ({},{},{}): its {} cell ({},{},{}) is taken", p[0], p[1], p[2], block, cell[0], cell[1], cell[2]));
+            }
+        }
+        d.entities.push(mctas::design::EntitySpec { kind: "minecraft:oak_boat".into(), pos: [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], nbt: Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into()) });
+    }
+    let spec = PartSpec { name: "sketch".into(), file: PathBuf::from("(sketch tracks, carts, posts)"), frame: [0; 3], tier: [0; 3], keep: None };
+    Ok(Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() })
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn sketch_tracks() {
+        // down 2 along -z (dropping first), then a corner east, flat
+        let cells = track_cells(&[[0, 5, 4], [0, 3, 1], [2, 3, 1]]).unwrap();
+        assert_eq!(cells, vec![[0, 5, 4], [0, 4, 3], [0, 3, 2], [0, 3, 1], [1, 3, 1], [2, 3, 1]]);
+        // up 2 along +x after a corner: the first cell keeps the corner's height (rising last)
+        assert_eq!(track_cells(&[[0, 0, 0], [0, 0, 1], [3, 2, 1]]).unwrap(), vec![[0, 0, 0], [0, 0, 1], [1, 0, 1], [2, 1, 1], [3, 2, 1]]);
+        // a curve that would have to slope is refused
+        assert!(sketch_part(&[("t".into(), vec![[0, 0, 0], [0, 0, 1], [1, 1, 1]])], &[], &[]).is_err());
+        let p = sketch_part(&[("t".into(), vec![[0, 5, 4], [0, 3, 1], [2, 3, 1]])], &[([0, 3, 2], None, false), ([7, 7, 7], Some(7.18), true)], &[[5, 3, 5]]).unwrap();
+        let d = &p.placed;
+        assert_eq!(d.blocks[&[0, 4, 3]], "minecraft:rail[shape=ascending_south,waterlogged=false]");
+        assert_eq!(d.blocks[&[0, 3, 2]], "minecraft:rail[shape=ascending_south,waterlogged=false]");
+        assert_eq!(d.blocks[&[0, 3, 1]], "minecraft:rail[shape=south_east,waterlogged=false]");
+        assert_eq!(d.blocks[&[2, 3, 1]], "minecraft:rail[shape=east_west,waterlogged=false]");
+        assert_eq!(d.blocks[&[0, 2, 1]], "minecraft:stone");
+        assert_eq!(d.blocks[&[5, 2, 5]], "minecraft:glass");
+        assert!(d.blocks[&[5, 6, 5]].contains("oak_leaves"));
+        assert_eq!(d.entities.len(), 3);
+        assert_eq!(d.entities[0].pos, [0.5, 3.5, 2.5]);
+        assert_eq!(d.entities[1].pos, [7.5, 7.18, 7.5]);
+        assert!(d.entities[1].nbt.is_none());
+        assert!(track_cells(&[[0, 0, 0], [1, 0, 1]]).is_err());
+        assert!(track_cells(&[[0, 0, 0], [0, 3, 2]]).is_err());
+        assert!(sketch_part(&[("t".into(), vec![[0, 0, 0], [0, 0, 2]]), ("u".into(), vec![[0, 1, 1], [1, 1, 1]])], &[], &[]).is_err(), "a rail on another rail");
+    }
+}
+
+#[cfg(test)]
+mod column_tests {
     use super::*;
 
     #[test]
@@ -510,7 +681,7 @@ mod tests {
             PartSpec::parse(&format!("b={}@1,0,1^0,-5,0#3,-1,0,5,0,0", f1.display())).unwrap(),
         ];
         let f = Frame { x0: -6, z0: -6, x1: 9, z1: 9, phase_x: -6, phase_z: -6 };
-        let (rep, sk) = run(&specs, &[], &[("output".into(), [1, 0, 1])], &f, "sk", true).unwrap();
+        let (rep, sk) = run(&specs, Vec::new(), &[], &[], &[("output".into(), [1, 0, 1])], &f, "sk", true).unwrap();
         assert!(rep.contains("clashes: none"), "{rep}");
         assert_eq!(sk.blocks.len(), 9);
         assert_eq!(sk.ports["output"], [1, 0, 1]);
@@ -518,7 +689,7 @@ mod tests {
         assert_eq!(sk.meta["positions"], "1,0,1 6,0,1 6,-5,1");
         // a clash is reported, and a reserved box over a part's blocks
         let specs2 = vec![PartSpec::parse(&format!("a={}", f1.display())).unwrap(), PartSpec::parse(&format!("b={}", f1.display())).unwrap()];
-        let (rep2, _) = run(&specs2, &[Reserve::parse("fold=0,-1,0,1,0,0").unwrap(), Reserve::parse("run=1,-1,0,1,-1,0").unwrap()], &[], &f, "sk", false).unwrap();
+        let (rep2, _) = run(&specs2, Vec::new(), &[], &[Reserve::parse("fold=0,-1,0,1,0,0").unwrap(), Reserve::parse("run=1,-1,0,1,-1,0").unwrap()], &[], &f, "sk", false).unwrap();
         assert!(rep2.contains("CLASH a and b: 6 cells"), "{rep2}");
         assert!(rep2.contains("CLASH fold (reserved) and a: 2 of a's cells"), "{rep2}");
         assert!(rep2.contains("CLASH fold and run (both reserved)"), "{rep2}");
@@ -528,11 +699,15 @@ mod tests {
         let (fa, fb) = (dir.join("d1.txt"), dir.join("d2.txt"));
         std::fs::write(&fa, decl).unwrap();
         std::fs::write(&fb, decl2).unwrap();
-        let (_, sk3) = run(&[PartSpec::parse(&format!("a={}@2,3,4", fa.display())).unwrap()], &[], &[("output".into(), [9, 9, 9])], &f, "sk", false).unwrap();
+        let (_, sk3) = run(&[PartSpec::parse(&format!("a={}@2,3,4", fa.display())).unwrap()], Vec::new(), &[], &[], &[("output".into(), [9, 9, 9])], &f, "sk", false).unwrap();
         assert_eq!(sk3.meta["declared"], "2,3,4 powered_rail[powered=false]<2,2,4");
         assert_eq!(sk3.ports["output"], [9, 9, 9], "a given port replaces the part's");
-        let (rep4, _) = run(&[PartSpec::parse(&format!("a={}", fa.display())).unwrap(), PartSpec::parse(&format!("b={}^0,0,0", fb.display())).unwrap()], &[], &[], &f, "sk", false).unwrap();
+        let (rep4, _) = run(&[PartSpec::parse(&format!("a={}", fa.display())).unwrap(), PartSpec::parse(&format!("b={}^0,0,0", fb.display())).unwrap()], Vec::new(), &[], &[], &[], &f, "sk", false).unwrap();
         assert!(rep4.contains("DECLARED TWO WAYS (0,0,0) declared two ways"), "{rep4}");
+        // a cleared box takes a file part's blocks (and its declared cells) out first
+        let (rep5, sk5) = run(&[PartSpec::parse(&format!("a={}", f1.display())).unwrap()], Vec::new(), &[([0, -1, 0], [2, -1, 0])], &[], &[("output".into(), [9, 9, 9])], &f, "sk", false).unwrap();
+        assert_eq!(sk5.blocks.len(), 3, "{rep5}");
+        assert!(rep5.contains("3 blocks in all the boxes"), "{rep5}");
         // written in the aligned frame: everything moves, `ground:` by its y
         let mut g = sk3.clone();
         g.meta.insert("ground".into(), "12".into());

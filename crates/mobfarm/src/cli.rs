@@ -574,6 +574,24 @@ pub enum MobfarmCmd {
         /// cell holds one); repeatable, replaces a part's port of that name.
         #[arg(long = "port", allow_hyphen_values = true)]
         ports: Vec<String>,
+        /// A sketch track NAME=x,y,z;x,y,z;... (the column's frame): plain rails through the
+        /// waypoints (each leg along x or z, its height change one block a cell from the leg's
+        /// start), a stone under each, curves at corners; it stands in for a lane's cells until
+        /// they land. Repeatable.
+        #[arg(long = "track", allow_hyphen_values = true)]
+        tracks: Vec<String>,
+        /// A cart on a sketch rail cell, x,y,z (ridden by a villager) or x,y,z,empty. Repeatable.
+        #[arg(long = "cart", allow_hyphen_values = true)]
+        carts: Vec<String>,
+        /// A zombie post at its boat's cell x,y,z (the brief's: glass under, a persistent zombie in
+        /// an oak boat, leaves 3 above). Repeatable.
+        #[arg(long = "post", allow_hyphen_values = true)]
+        posts: Vec<String>,
+        /// A box x0,y0,z0,x1,y1,z1 (the column's frame) whose file-part blocks, block entities,
+        /// entities and declared cells are taken out before the sketch is laid (a committed cell a
+        /// lane re-lays). Repeatable.
+        #[arg(long = "clear", allow_hyphen_values = true)]
+        clears: Vec<String>,
         /// The column's cells x0,z0,x1,z1 in the frame.
         #[arg(long, default_value = "-6,-6,9,9", allow_hyphen_values = true)]
         column: String,
@@ -603,6 +621,16 @@ pub enum MobfarmCmd {
         /// stay), so `mobfarm exit --positions` sets the summoners one pocket at a time.
         #[arg(long)]
         no_riders: bool,
+        /// Write every villager position of the skeleton to this file as `x y z` lines in the
+        /// written frame (`--out-shift` applied): each rider's cell and every sketch rail cell (a
+        /// rider passes it), for `mobfarm exit --positions` (the flood with a summoner at every
+        /// villager position) and `site-check --positions`.
+        #[arg(long)]
+        positions_out: Option<PathBuf>,
+        /// A header line written into the skeleton (`# ` added): the joints table, a ruling.
+        /// Repeatable, in order.
+        #[arg(long = "note")]
+        notes: Vec<String>,
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -2696,6 +2724,39 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
     Ok((c, spec))
 }
 
+/// `mobfarm column`'s sketch part from its `--track`, `--cart` and `--post` flags (none: no part).
+fn column_sketch(tracks: &[String], carts: &[String], posts: &[String]) -> Result<Vec<crate::column::Part>> {
+    if tracks.is_empty() && carts.is_empty() && posts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cell = |t: &str| -> Result<[i32; 3]> {
+        let n: Vec<i32> = t.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+        anyhow::ensure!(n.len() == 3, "{t}: give x,y,z");
+        Ok([n[0], n[1], n[2]])
+    };
+    let mut tr = Vec::new();
+    for t in tracks {
+        let (name, pts) = t.split_once('=').ok_or_else(|| anyhow::anyhow!("--track {t}: NAME=x,y,z;x,y,z;..."))?;
+        tr.push((name.trim().to_string(), pts.split(';').filter(|s| !s.trim().is_empty()).map(cell).collect::<Result<Vec<_>>>()?));
+    }
+    let mut cs = Vec::new();
+    for c in carts {
+        let (rest, empty) = match c.strip_suffix(",empty") {
+            Some(r) => (r, true),
+            None => (c.as_str(), false),
+        };
+        let f: Vec<&str> = rest.split(',').collect();
+        anyhow::ensure!(f.len() == 3 || f.len() == 4, "--cart {c}: x,y,z[,Y][,empty]");
+        let y: Option<f64> = match f.get(3) {
+            Some(t) => Some(t.trim().parse()?),
+            None => None,
+        };
+        cs.push((cell(&f[..3].join(","))?, y, empty));
+    }
+    let ps: Vec<[i32; 3]> = posts.iter().map(|p| cell(p)).collect::<Result<_>>()?;
+    Ok(vec![crate::column::sketch_part(&tr, &cs, &ps).map_err(|e| anyhow::anyhow!(e))?])
+}
+
 /// `mobfarm column --out`: the skeleton written (its `ground:`, moved by `shift` into the
 /// written frame, the header naming both), then every rail junction settled to the shape its
 /// as-placed power gives (paste's default, ironspec Nov 11 15:56), each listed.
@@ -3271,7 +3332,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
             println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
-        MobfarmCmd::Column { parts, reserves, ports, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, out } => {
+        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, out } => {
+            let clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let reserves: Vec<crate::column::Reserve> = reserves.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let mut given: Vec<(String, [i32; 3])> = Vec::new();
@@ -3287,8 +3349,36 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let ph: Vec<i32> = chunk_phase.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(ph.len() == 2, "--chunk-phase PX,PZ");
             let f = crate::column::Frame { x0: c[0], z0: c[1], x1: c[2], z1: c[3], phase_x: ph[0], phase_z: ph[1] };
-            let (text, d) = crate::column::run(&specs, &reserves, &given, &f, &name, plan).map_err(|e| anyhow::anyhow!(e))?;
+            let (text, d) = crate::column::run(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
+            if let Some(pf) = &positions_out {
+                let sh: [i32; 3] = match out_shift.as_deref() {
+                    None => [0, 0, 0],
+                    Some(s) => {
+                        let n: Vec<i32> = s.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(n.len() == 3, "--out-shift dx,dy,dz");
+                        [n[0], n[1], n[2]]
+                    }
+                };
+                let mut cells: std::collections::BTreeSet<[i32; 3]> = Default::default();
+                for e in d.entities.iter().filter(|e| e.kind.ends_with("minecart") && e.nbt.as_deref().is_some_and(|t| t.contains("villager"))) {
+                    cells.insert(e.cell());
+                }
+                for t in &tracks {
+                    let (_, pts) = t.split_once('=').ok_or_else(|| anyhow::anyhow!("--track {t}"))?;
+                    let pts: Vec<[i32; 3]> = pts.split(';').filter(|s| !s.trim().is_empty()).map(|p| {
+                        let n: Vec<i32> = p.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(n.len() == 3, "{p}: x,y,z");
+                        Ok([n[0], n[1], n[2]])
+                    }).collect::<Result<_>>()?;
+                    for c in crate::column::track_cells(&pts).map_err(|e| anyhow::anyhow!(e))? {
+                        cells.insert(c);
+                    }
+                }
+                let body: String = cells.iter().map(|c| format!("{} {} {}\n", c[0] + sh[0], c[1] + sh[1], c[2] + sh[2])).collect();
+                std::fs::write(pf, format!("# every villager position of {name} (riders' cells and sketch rail cells), the written frame\n{body}"))?;
+                println!("positions: {} cells -> {}", cells.len(), pf.display());
+            }
             let mut d = d;
             if no_riders {
                 let n = d.entities.len();
@@ -3296,7 +3386,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("riders dropped: {} (the summoners come from `mobfarm exit --positions`)", n - d.entities.len());
             }
             if let Some(out) = out {
-                let head: String = specs.iter().map(|s| format!("# + {}: {} moved by {},{},{} into the frame, then {},{},{} into its tier{}\n", s.name, s.file.display(), s.frame[0], s.frame[1], s.frame[2], s.tier[0], s.tier[1], s.tier[2], s.keep.map(|k| format!(" (its cells {},{},{}..{},{},{} kept)", k.0[0], k.0[1], k.0[2], k.1[0], k.1[1], k.1[2])).unwrap_or_default())).chain(reserves.iter().map(|r| format!("# reserved (no blocks): {} x {}..{} y {}..{} z {}..{}\n", r.name, r.b.0[0], r.b.1[0], r.b.0[1], r.b.1[1], r.b.0[2], r.b.1[2]))).collect();
+                let head: String = notes.iter().map(|n| format!("# {n}\n")).chain(specs.iter().map(|s| format!("# + {}: {} moved by {},{},{} into the frame, then {},{},{} into its tier{}\n", s.name, s.file.display(), s.frame[0], s.frame[1], s.frame[2], s.tier[0], s.tier[1], s.tier[2], s.keep.map(|k| format!(" (its cells {},{},{}..{},{},{} kept)", k.0[0], k.0[1], k.0[2], k.1[0], k.1[1], k.1[2])).unwrap_or_default()))).chain(clear.iter().map(|b| format!("# cleared first (committed cells a lane re-lays): x {}..{} y {}..{} z {}..{}\n", b.0[0], b.1[0], b.0[1], b.1[1], b.0[2], b.1[2]))).chain(tracks.iter().map(|t| format!("# sketch track (plain rails, no control; a lane's cells replace it): {t}\n"))).chain(reserves.iter().map(|r| format!("# reserved (no blocks): {} x {}..{} y {}..{} z {}..{}\n", r.name, r.b.0[0], r.b.1[0], r.b.0[1], r.b.1[1], r.b.0[2], r.b.1[2]))).collect();
                 let shift: [i32; 3] = match out_shift.as_deref() {
                     None => [0, 0, 0],
                     Some(s) => {
