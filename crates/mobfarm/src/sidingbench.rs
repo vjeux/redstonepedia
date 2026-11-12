@@ -62,6 +62,12 @@ pub struct SidingOpts {
     /// The passive drop entry (ironspec 00:41): the merge one level up, its north end a rail end over
     /// the drop onto the lane's top slope, a backstop wall two cells north of the merge.
     pub drop_entry: bool,
+    /// Leave out the top slope's high-side support (the positive control: the rail pops).
+    pub no_top_support: bool,
+    /// The siding's side power as a real conductor: stone at (x-1,m,mz+1), strongly powered by a
+    /// repeater at (x-1,m,mz+2) facing it (input from the south, away from the detector), the switch a
+    /// redstone block at the repeater's input (x-1,m,mz+3).
+    pub side_real: bool,
 }
 
 /// The bench: returns the text.
@@ -87,6 +93,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let hook_sf = b("minecraft:tripwire_hook[attached=true,facing=south,powered=false]")?;
     let hook_nf = b("minecraft:tripwire_hook[attached=true,facing=north,powered=false]")?;
     let det_ns = b("minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]")?;
+    let repeater_n = b("minecraft:repeater[delay=1,facing=south,locked=false,powered=false]")?;
     let mut blocks: Vec<(BlockPos, Block)> = Vec::new();
     let mut put = |x: i32, y: i32, z: i32, blk: &Block| blocks.push((BlockPos::new(x, y, z), blk.clone()));
     // (the hold: trapdoor floor, glass far side (z -1, two high) and both sides, its string over it)
@@ -107,7 +114,15 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let m = 18 + ns + so.drop_entry as i32;
     let mz = ns + 2;
     if so.drop_entry {
-        put(lx, m, mz - 2, &stone);
+        // (the backstop wall: glass, golem-proof (9fc3155f's flood: a stone wall's top is an off-pad
+        // spawn spot seen from the lane tops))
+        put(lx, m, mz - 2, &glass);
+        // (the top slope's high-side support (x,17+N,2+N): an ascending rail pops without a rigid
+        // block on its high side (BaseRailBlock.shouldBeRemoved); the merge's support moved up a
+        // level with the drop entry, so this cell is laid for it (onechunk's find))
+        if !so.no_top_support {
+            put(lx, 17 + ns, 2 + ns, &glass);
+        }
     }
     put(lx, 17, 1, &pslope_s);
     put(lx, 16, 1, &glass);
@@ -184,6 +199,18 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // the rest's level), between it and the branch (the west side x-3 is the lift's shell for lane -1);
     // else its west side)
     let s_pow = if so.siding_dx >= 2 && so.siding_dy == 0 { BlockPos::new(sx + 1, rest_y, rest_z) } else { BlockPos::new(sx - 1, rest_y, rest_z) };
+    // (--side-real: the side-power cell a real conductor (stone), strongly powered only through its
+    // south face by a repeater facing it (input from the south, away from the detector), the switch a
+    // redstone block at the repeater's input; the controller toggles that switch)
+    let s_switch = if so.side_real {
+        put(s_pow.x, s_pow.y, s_pow.z, &stone);
+        put(s_pow.x, s_pow.y, s_pow.z + 1, &repeater_n);
+        put(s_pow.x, s_pow.y - 1, s_pow.z + 1, &glass);
+        BlockPos::new(s_pow.x, s_pow.y, s_pow.z + 2)
+    } else {
+        s_pow
+    };
+    let rest_pos = BlockPos::new(sx, rest_y, rest_z);
     // (--nap-guard: a string over the branch cell before the merge (x,m+1,mz+1), hooks at x+-1, stone
     // at x+-2: the siding releases only while no cart is there)
     if so.guard {
@@ -202,7 +229,17 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // beside the raised siding's lower slope turned toward it); the build places them in order)
     let mut reshaped = 0usize;
     let mut reshaped_note: Vec<String> = Vec::new();
+    let mut popped: Vec<String> = Vec::new();
     for (p, blk) in &spec.blocks {
+        // (a rail the placement changed: a rail of another shape (the connection rule reshaping a
+        // neighbour placed at the same time) is put back RAW; a rail that is GONE (popped:
+        // BaseRailBlock.shouldBeRemoved, no rigid block below or on an ascending rail's high side)
+        // is a design failure, counted, never restored)
+        let now_blk = run.world.get(*p);
+        if matches!(blk, Block::PlainRail { .. } | Block::Rail { .. }) && now_blk != *blk && !matches!(now_blk, Block::PlainRail { .. } | Block::Rail { .. }) {
+            popped.push(format!("({},{},{})", p.x, p.y, p.z));
+            continue;
+        }
         if matches!(blk, Block::PlainRail { .. } | Block::Rail { .. })
             && run.world.get(*p) != *blk
         {
@@ -293,6 +330,11 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut nap_since = 0i64;
     let mut late_naps = 0usize;
     let mut nap_rested_at: Option<i64> = None;
+    let mut nap_wait_max = 0i64;
+    let mut switch_last_on = -1000i64;
+    let mut stray_power = 0usize;
+    let mut stray_with_guard = 0usize;
+    let mut guard_on_waiting = 0usize;
     let mut knocked = 0usize;
     let mut knocked_this = false;
     let mut frozen32: Option<[i32; 4]> = None;
@@ -407,7 +449,24 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         let want_s = t < s_until;
         if want_s != s_is {
             s_is = want_s;
-            run.world.set_block(s_pow, if want_s { rblock.clone() } else { air.clone() }, redsim::world::flags::ALL);
+            run.world.set_block(s_switch, if want_s { rblock.clone() } else { air.clone() }, redsim::world::flags::ALL);
+        }
+        if s_is {
+            switch_last_on = t;
+        }
+        // (every power reaching the siding rest: the rail powered while its declared switch has been
+        // off longer than the repeater's delay (4 gt margin) is a stray power (the bar: 0); the guard
+        // detector powered in those ticks shows whether it was the guard)
+        let rest_powered = matches!(run.world.get(rest_pos), Block::Rail { powered: true, .. });
+        let det_powered = matches!(run.world.get(BlockPos::new(lx, m, mz + so.guard_dz)), Block::DetectorRail { powered: true, .. });
+        if det_powered && nap.is_some() && released_at.is_none() {
+            guard_on_waiting += 1;
+        }
+        if rest_powered && t - switch_last_on > 4 {
+            stray_power += 1;
+            if det_powered {
+                stray_with_guard += 1;
+            }
         }
         // (returns: on the branch at z mz + 2.5 moving -z, or a napper onto the siding slope at rest;
         // nothing arrives while the bench is frozen)
@@ -660,10 +719,18 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 let curve_rule = match (m_pred, m_nap) { (Some(cl), Some(en)) => format!("{}", en - cl), _ => "-".to_string() };
                 let c_nap = contacts.iter().filter(|k| k.0 == c && k.4).map(|k| k.1).fold(0.0f64, f64::max);
                 let q_nap = contacts.iter().rev().find(|k| k.0 == c && k.4).map_or("-".to_string(), |k| format!("{}", k.3 as usize));
+                // (its wait on the siding: from coming to rest there to its release (day-1's strand
+                // margin under rule 2: a late napper waits for its predecessor's next pass))
+                let waited = nap_rested_at.map(|r| ra - r);
+                if let Some(w) = waited {
+                    nap_wait_max = nap_wait_max.max(w);
+                }
                 nap_rows.push(format!(
-                    "napper cart {c} (predecessor {pred}){}: the predecessor over the merge string t {}, released t {ra}, at the lane's back t {t} (z {z:.2}); the merge's curve rule (its entry minus the predecessor's clear) {curve_rule} gt; its contact {c_nap:.3} at q {q_nap}; braked creep {creep:.4}",
+                    "napper cart {c} (predecessor {pred}){}: the predecessor over the merge string t {}, at rest on the siding t {}, released t {ra} (waited {} gt on the siding), at the lane's back t {t} (z {z:.2}); the merge's curve rule (its entry minus the predecessor's clear) {curve_rule} gt; its contact {c_nap:.3} at q {q_nap}; braked creep {creep:.4}",
                     if lap_wait { " (late: its successor passed first, it waited a lane-lap)" } else { "" },
-                    pred_pass.map_or("-".to_string(), |p| p.to_string())
+                    pred_pass.map_or("-".to_string(), |p| p.to_string()),
+                    nap_rested_at.map_or("-".to_string(), |r| r.to_string()),
+                    waited.map_or("-".to_string(), |w| w.to_string())
                 ));
                 if lap_wait {
                     late_naps += 1;
@@ -698,9 +765,16 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     )];
     lines.push(format!("carts per release (exactly 1): {}; empty releases after the first (golems lost: a batch of 2 can't summon): {empty_releases}; late nappers (a lane-lap wait): {late_naps}", ph.iter().map(|(a, b2)| format!("{a}: {b2}")).collect::<Vec<_>>().join(", ")));
     lines.push(format!("nappers through the siding: {}", if nap_rows.is_empty() { "none".to_string() } else { nap_rows.join(" | ") }));
+    lines.push(format!("the longest napper wait on the siding (at rest there to its release): {nap_wait_max} gt"));
+    lines.push(format!(
+        "the siding rest powered with its declared switch off (a stray power; the bar: 0): {stray_power} ticks, {stray_with_guard} of them with the guard detector powered; ticks the guard was powered while a napper waited: {guard_on_waiting}; the side power {}",
+        if so.side_real { "a real conductor (stone), driven through its south face by a repeater" } else { "emulated (a redstone block set and cleared)" }
+    ));
     lines.push(format!("the napper heading the wrong way at the merge (the bar: 0): {}{}", wrong_way.len(), if wrong_way.is_empty() { String::new() } else { format!(" ({})", wrong_way.join("; ")) }));
     lines.push(format!(
-        "nappers knocked loose on the siding (moving with no release; the bar: 0): {knocked}; rails the bench restored to their laid shape after placement: {reshaped}{} (the build lays the merge before the branch flat, and the branch flat before a dx 1 siding's slope)",
+        "nappers knocked loose on the siding (moving with no release; the bar: 0): {knocked}; rails popped at placement (BaseRailBlock.shouldBeRemoved: no rigid block below, or on an ascending rail's high side; the bar: 0): {}{}; rails the bench restored to their laid shape after placement: {reshaped}{} (the build lays the merge before the branch flat, and the branch flat before a dx 1 siding's slope)",
+        popped.len(),
+        if popped.is_empty() { String::new() } else { format!(" ({})", popped.join(", ")) },
         if reshaped_note.is_empty() { String::new() } else { format!(" ({})", reshaped_note.join(", ")) }
     ));
     lines.push(format!("ticks with two carts over the merge (the curve rule's touching; the bar: 0): {touching}{}", if touch_note.is_empty() { String::new() } else { format!(" ({})", touch_note.join("; ")) }));
@@ -800,7 +874,9 @@ pub fn lanes_design(ns: i32) -> Result<String, String> {
         // (the drop entry)
         put(x, m, mz, curve_nw);
         put(x, m - 1, mz, glass);
-        put(x, m, mz - 2, stone);
+        put(x, m, mz - 2, glass);
+        // (the top slope's high-side support: an ascending rail needs a rigid block there)
+        put(x, 17 + ns, 2 + ns, glass);
         put(x, m, mz - 1, tripwire_ew);
         put(x - 1, m, mz - 1, hook_e);
         put(x + 1, m, mz - 1, hook_w);
@@ -832,17 +908,19 @@ pub fn lanes_design(ns: i32) -> Result<String, String> {
     let ch = |s: &str| chars.as_bytes()[states.iter().position(|t| *t == s).unwrap_or(0)] as char;
     let mut out = String::new();
     out.push_str(&format!(
-        "# F1 + Q2 lanes (ironfarm, the brake-and-rider escapement with the passive drop entry; ironspec 2026-11-12 01:21, lead): three lanes x -1 / 3 / 7, loop frame (paste with no move), {ns} slopes behind R_1, the merge at m = {m}, mz = {mz}. Benched as `mctas mobfarm drop-bench --siding --merge-curve --siding-dx 2 --guard-det --drop-entry --slopes {ns} --r-pulse 30 --drop-w 20 --per-lane 8` (explore/ironfarm): one lane, these cells at x 3.\n"
+        "# F1 + Q2 lanes (ironfarm, the brake-and-rider escapement with the passive drop entry; ironspec 2026-11-12 01:21, lead): three lanes x -1 / 3 / 7, loop frame (paste with no move), {ns} slopes behind R_1, the merge at m = {m}, mz = {mz}. Benched as `mctas mobfarm escape-bench --siding --merge-curve --siding-dx 2 --guard-det --drop-entry --slopes {ns} --r-pulse 30 --drop-w 20 --per-lane 8` (drop-bench on explore/ironfarm): one lane, these cells at x 3.\n"
     ));
     out.push_str("# Per lane x: the hold string (x-2..x+2,17,0) and R_1 (x,17,1): the station's file (dfb89499 owns those cells; not laid here; the bench lays R_1 as a powered rail ascending south, its string's hooks on stone);");
-    out.push_str(&format!(" the slopes (x,18..{},2..{}) plain, ascending south, on glass; the merge (x,{m},{mz}) a north_west curve on glass (x,{},{mz}), its north end the rail end over the drop column (x,{m}..{},{}) (empty but the pass string) onto the top slope (x,{},{}), the wall (x,{m},{}) stone;", 17 + ns, 1 + ns, m - 1, m - 1, mz - 1, 17 + ns, 1 + ns, mz - 2));
+    out.push_str(&format!(" the slopes (x,18..{},2..{}) plain, ascending south, on glass, the top one's high side (x,{},{}) glass (an ascending rail pops without it); the merge (x,{m},{mz}) a north_west curve on glass (x,{},{mz}), its north end the rail end over the drop column (x,{m}..{},{}) (empty but the pass string) onto the top slope (x,{},{}), the wall (x,{m},{}) glass (golem-proof);", 17 + ns, 1 + ns, 17 + ns, 2 + ns, m - 1, m - 1, mz - 1, 17 + ns, 1 + ns, mz - 2));
     out.push_str(&format!(" the pass string (x,{m},{}) with hooks (x+-1,{m},{}) on glass (x+-2,{m},{}) (shared at x 1 / 5); the 2-cell branch: (x,{m},{}) the detector guard (shared with the split's latch, 7b90c3f1) and (x,{m},{}) flat, both on glass, fed from the split's junction south of it (7b90c3f1's re-target);", mz - 1, mz - 1, mz - 1, mz + 1, mz + 2));
     out.push_str(&format!(" the siding at x-2: the rest (x-2,{m},{}) a powered rail ascending south (braked unpowered), the curve (x-2,{m},{mz}) south_east, the flat (x-1,{m},{mz}) east_west, the feed (x-2,{},{}) from the split's napper route, all on glass.\n", mz + 1, m + 1, mz + 2));
     out.push_str(&format!(
-        "# Switched cells (left air here; the bench's emulation: a redstone block set and cleared with flags ALL): R_1's side power (x+1,17,1) (the R line: on 30 gt when the trapdoors shut); the siding's side power (x-1,{m},{}) (the siding pulse: on 30 gt at the napper's release, K = 4 gt after its predecessor's pass string edge, while the detector guard (x,{m},{}) is off). The holds' trapdoors (x,16,0) are the station's (the trapdoor line: open 20 gt).\n",
+        "# Switched cells (left air here; the bench's emulation: a redstone block set and cleared with flags ALL): R_1's side power (x+1,17,1) (the R line: on 30 gt when the trapdoors shut); the siding's side power (x-1,{m},{}) (the siding pulse: on 30 gt at the napper's release, K = 4 gt after its predecessor's pass string edge, while the detector guard (x,{m},{}) is off; rule 2 (ironspec 03:11, provisional): only a napper already waiting when its predecessor passes is released, a later one waits for the predecessor's next pass). That cell is a face neighbour of the guard detector, which weakly powers it: built, it must be a solid conductor strongly powered only through a declared face away from the detector (no dust; no repeater or comparator taking input from the east); (x+1,{m},{}) stays air (it touches the next lane's siding rest); the block under the detector non-conductive unless it is the declared read path; never a comparator reading the detector. The holds' trapdoors (x,16,0) are the station's (the trapdoor line: open 20 gt).\n",
+        mz + 1,
         mz + 1,
         mz + 1
     ));
+    out.push_str("# PRE-SPLIT geometry: 7b90c3f1's in-chunk split (a row along z 9 at y 25, one detector slope (x,24,8) from its junction (x,25,9) into the merge) replaces this file's 2-cell branch ((x,24,8) detector, (x,24,9) flat); the drop entry, the siding and the slopes stand.\n");
     out.push_str("# The split's interface (the bench's v_in is the STORED speed, the cart's Motion at (x,24,9); a ridden cart moves 0.75 of it a tick): stored 0.30..0.48 benched clean (8 a lane, 5 slopes, ret 130..600, nap_ret 60/150/300, +-2: arrivals q0/q1 0.459, q2 0.392, q3 <= 0.332, nappers <= 0.459, landings meeting a cart 0); stored 0.26 fails the late napper with the guard at (x,24,8) (napper and successor land together); 0.22 rests on the merge's glass. Restarts (10 load orders at every phase) and the fresh-design cold start at every phase: 0 failing.\n");
     out.push_str("name: f1q2-lanes\ncircuit: mob-farm iron_ingot\n");
     out.push_str(&format!("origin: {x0} 0 {z0}\npalette:\n"));
@@ -860,6 +938,34 @@ pub fn lanes_design(ns: i32) -> Result<String, String> {
         }
     }
     // (the self-check: the file parsed back with the design parser must hold exactly these cells)
+    // (and no rail would pop: every rail on a rigid block (a full block: glass or stone here), every
+    // ascending rail with a rigid block on its high side (BaseRailBlock.shouldBeRemoved); a cell the
+    // station owns (R_1, its support) is outside this file and not checked)
+    let rigid = |p: &(i32, i32, i32)| cells.get(p).is_some_and(|s| *s == glass || *s == stone);
+    for (p, s) in &cells {
+        if !s.contains("rail[") {
+            continue;
+        }
+        if !rigid(&(p.0, p.1 - 1, p.2)) {
+            return Err(format!("lanes_design: the rail at {p:?} would pop: no rigid block below"));
+        }
+        let high = if s.contains("ascending_south") {
+            Some((p.0, p.1, p.2 + 1))
+        } else if s.contains("ascending_north") {
+            Some((p.0, p.1, p.2 - 1))
+        } else if s.contains("ascending_east") {
+            Some((p.0 + 1, p.1, p.2))
+        } else if s.contains("ascending_west") {
+            Some((p.0 - 1, p.1, p.2))
+        } else {
+            None
+        };
+        if let Some(h) = high
+            && !rigid(&h)
+        {
+            return Err(format!("lanes_design: the ascending rail at {p:?} would pop: no rigid block on its high side {h:?}"));
+        }
+    }
     let d = mctas::design::Design::parse(&out).map_err(|e| format!("lanes_design: the written file does not parse: {e:#}"))?;
     let want: std::collections::BTreeMap<[i32; 3], String> = cells.iter().map(|(k, v)| ([k.0, k.1, k.2], v.to_string())).collect();
     if d.blocks != want {
@@ -899,8 +1005,16 @@ pub struct SidingRow {
     pub nap_q: Vec<i64>,
     /// The napper's curve-rule margins at the merge (its entry minus its predecessor's clear, gt).
     pub nap_cr: Vec<i64>,
+    /// The longest napper wait on the siding (gt).
+    pub nap_wait_max: i64,
     pub wrong: usize,
     pub knocked: usize,
+    /// Rails popped at placement (no rigid support).
+    pub popped: usize,
+    /// Ticks the siding rest was powered with its declared switch off.
+    pub stray_power: usize,
+    /// Ticks the guard detector was powered while a napper waited (the scenario of the stray check).
+    pub guard_on_waiting: usize,
     pub touching: usize,
     pub arrivals_over: usize,
     pub arrival_max: f64,
@@ -952,10 +1066,16 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                     r.nap_q.push(num_after(seg, " at q ").map_or(-1, |q| q as i64));
                 }
             }
+        } else if l.starts_with("the longest napper wait on the siding") {
+            r.nap_wait_max = req(l, "to its release): ")? as i64;
         } else if l.starts_with("the napper heading the wrong way") {
             r.wrong = req(l, "(the bar: 0): ")? as usize;
         } else if l.starts_with("nappers knocked loose") {
             r.knocked = req(l, "(moving with no release; the bar: 0): ")? as usize;
+            r.popped = req(l, "on an ascending rail's high side; the bar: 0): ")? as usize;
+        } else if l.starts_with("the siding rest powered with its declared switch off") {
+            r.stray_power = req(l, "(a stray power; the bar: 0): ")? as usize;
+            r.guard_on_waiting = req(l, "ticks the guard was powered while a napper waited: ")? as usize;
         } else if l.starts_with("ticks with two carts over the merge") {
             r.touching = req(l, "the bar: 0): ")? as usize;
         } else if l.starts_with("arrivals at the lanes' backs") {
@@ -993,7 +1113,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
         }
     }
     // (every bar line must have been read: a line the bench stopped printing is an error, not a 0)
-    for key in ["carts per release (exactly 1)", "nappers through the siding", "the napper heading the wrong way", "nappers knocked loose", "ticks with two carts over the merge", "arrivals at the lanes' backs", "arrivals landing out of order", "landings meeting another cart's box", "carts at rest off the rails", "riders' eyes inside", "the restage"] {
+    for key in ["carts per release (exactly 1)", "nappers through the siding", "the longest napper wait on the siding", "the siding rest powered with its declared switch off", "the napper heading the wrong way", "nappers knocked loose", "ticks with two carts over the merge", "arrivals at the lanes' backs", "arrivals landing out of order", "landings meeting another cart's box", "carts at rest off the rails", "riders' eyes inside", "the restage"] {
         if !text.lines().any(|l| l.starts_with(key)) {
             return Err(format!("siding_row: the bench printed no \"{key}\" line"));
         }
