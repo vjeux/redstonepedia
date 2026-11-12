@@ -1,6 +1,7 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..9, WRITTEN in the frame column + (6,0,6): every cell below is the column's moved by that.
 # v4, the gravity queue with the pad below the stand (ironspec 17:30: the gravity lead geometry). Loop frame in these notes; the file is WRITTEN at loop + (6,0,6). y = the stand rails. SKETCH: committed parts as placed, sketch tracks plain rails, nothing wired, nothing benched.
 # Golem spots: 44, all at feet y -6 (the committed pad moved down 9; per pocket 40/44/40). Rule height: every waiting rider feet >= -6 + 20.54 = 14.54 (+1 margin: 15.54); hold carts at 16.18.
+# Posts: the stand (4,2,-6) (2,4,-6) (9,4,-4) + the committed (2,-2,6); the pressed run (2,31,5) (2,24,-2) (3,28,4) (3,21,-3) (post-search: 14 of 14 panic cells, least 6.35). Hold and tail chain posts: when 9fc3155f lands its cells.
 # JOINTS (each declared once, owner): [1] pressed run bottom (-4,19,-3) -> the release (-4,19..18,-3..-4): ironfarm. [2] release exit, the north edge of (-4,18,-4) -> hold corner 1 (-4,18,-5): ironfarm / 9fc3155f.
 # JOINTS: [3] hold Ga (7,16,-1) facing south -> descent first cell (7,15,0): 9fc3155f / dfb89499. [4] descent last cell (-3,6,5) -> the committed crest (-3,6,4): dfb89499 / 7b90c3f1 (timers).
 # JOINTS: [5] stand departure top booster (9,1,5) -> the crest (9,2,6) re-laid as a slope -> climb back: dfb89499. [6] climb top (9,37,-6), the sleeper switch -> tail chain buffer (9,37,-5): 58f770cc / ironfarm + 9fc3155f.
@@ -55,6 +56,10 @@ entity: minecraft:minecart 4.5 32.18 15.5 {Passengers:[{id:"minecraft:villager"}
 entity: minecraft:oak_boat 10.5 2 0.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 8.5 4 0.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 15.5 4 2.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 8.5 31 11.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 8.5 24 4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 9.5 28 10.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 9.5 21 3.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 nbt: 4 46 2 {OutputSignal:15}
 nbt: 7 47 10 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
 nbt: 8 47 10 {OutputSignal:1}
@@ -748,7 +753,7 @@ layer 20:
   .
   .
   .
-  .
+  .........g
   ..q
   ..Λ
   .
@@ -800,7 +805,7 @@ layer 23:
   .
   .
   .
-  .
+  ........g
   .
   .
   ..q
@@ -816,7 +821,7 @@ layer 24:
   .
   .
   .
-  .
+  .........X
   .
   .
   .
@@ -868,13 +873,13 @@ layer 27:
   .
   .
   .
-  Λ
+  Λ.......X
   m
   .
   .
   .
   .
-  .
+  .........g
   ..q
   ..Λ
   .
@@ -926,7 +931,7 @@ layer 30:
   .
   .
   .
-  .
+  ........g
   .
   .
   ..q
@@ -942,7 +947,7 @@ layer 31:
   .
   .
   .
-  .
+  .........X
   .
   .
   .
@@ -994,7 +999,7 @@ layer 34:
   .
   .
   .
-  .
+  ........X
   .
   .
   .
