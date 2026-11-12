@@ -97,6 +97,10 @@ pub struct GqOpts {
     /// (7b90c3f1) The flying ripple keyed on the receiver's exit detector: the next advance this many
     /// live gt after the leaving cart's exit edge (needs recv_run >= 2).
     pub recv_exit_d: Option<i64>,
+    /// (7b90c3f1) Day-1's fast ring emulated: an edge every Q live gt (0: off); with it the
+    /// receiver's feed spacer counts `recv_spacer_edges` edges and --recv-exit-d counts edges.
+    pub ring_q: f64,
+    pub recv_spacer_edges: i64,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -435,6 +439,14 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut recv_exit_edges: Vec<i64> = Vec::new();
     let mut recv_fly_wait: Option<i64> = None;
     let mut recv_last_feed_start: i64 = i64::MIN / 2;
+    // (7b90c3f1, `--ring-q Q`: day-1's fast ring emulated as edge counts: an edge every Q live gt
+    // (pausing with the carts: no edge while the column is frozen); the receiver's spacer and its
+    // ripple delay count edges)
+    let mut ring_acc = 0.0f64;
+    let mut ring_edges: i64 = 0;
+    let mut ring_edges_prev: i64 = 0;
+    let mut recv_last_feed_start_edges: i64 = i64::MIN / 2;
+    let mut col_frozen_total: i64 = 0;
     for t in 0..ticks {
         // (7b90c3f1, --recv-ideal: the receiver alone: every cart starts in the recycle pool (the
         // run and the tail empty), three come back after each hold release)
@@ -469,6 +481,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             gate.freeze_started(t);
         }
         let real_frozen = !run.world.entity_ticks_at(col.0, col.1);
+        // (ring mode: the whole column's clock pauses with the carts, the hold's release included)
+        if o.ring_q > 0.0 && (frz || real_frozen) {
+            col_frozen_total += 1;
+        }
         // (cc767b78: the climb back is part of the frozen column: a freeze defers every pending
         // launch by its length (no cart spawned into, or rolling freely through, a frozen bench))
         if frz || real_frozen {
@@ -781,7 +797,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             recv_exit_was = on;
         }
         // (the cycle: T = warm + 100 c; the hold at T+3; the escapement at A+6 / A+13)
-        let ph = (t - warm - o.corner).rem_euclid(100);
+        let ph = (t - warm - o.corner - col_frozen_total).rem_euclid(100);
         let in_cycles = t >= warm;
         // (`alive`: the golem event at the summon boundary, only with the column live: frozen
         // villagers summon nothing; it restarts the cycle)
@@ -792,7 +808,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             gate.start_with("cycle", t, &offs);
             golems.push(t);
         }
-        let hold_rise = if o.alive { gate.rise(&run.world, "cycle", 3, t) } else { in_cycles && ph == 3 && !frz };
+        let hold_rise = if o.alive { gate.rise(&run.world, "cycle", 3, t) } else { in_cycles && ph == 3 && !frz && !(o.ring_q > 0.0 && real_frozen) };
         if hold_rise {
             // (the last release's margins: the shut after the rear cleared, the next cart after
             // the shut)
@@ -845,6 +861,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         if recv_on {
             let (t_mid, t_rear) = o.receiver_p.or(o.receiver).unwrap_or((0, 0));
             let live_ok = if o.alive { alive } else { !(frz || real_frozen) };
+            // (the emulated fast ring: its edges advance only while the column's carts move)
+            ring_edges_prev = ring_edges;
+            if o.ring_q > 0.0 && !(frz || real_frozen) {
+                ring_acc += 1.0;
+                ring_edges = (ring_acc / o.ring_q).floor() as i64;
+            }
             if let Some(l) = recv_live.as_mut()
                 && live_ok
             {
@@ -877,11 +899,18 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             // (the feed: the front's cart into Tail(3) when it is latched free and the spacer since
             // its last P edge has run, with no advance in progress)
             let exit_mode_now = o.recv_exit_d.is_some() && g.recv_exit.is_some();
-            let spacer_ok = if exit_mode_now { t - recv_last_feed_start >= o.spacer } else { t - last_rise_t3 >= o.spacer };
+            let spacer_ok = if exit_mode_now && o.ring_q > 0.0 {
+                ring_edges - recv_last_feed_start_edges >= o.recv_spacer_edges
+            } else if exit_mode_now {
+                t - recv_last_feed_start >= o.spacer
+            } else {
+                t - last_rise_t3 >= o.spacer
+            };
             if recv_hold[2] && !recv_feeding && recv_adv_mid.is_none() && recv_adv_rear.is_none() && (exit_mode_now || !occ_t[3]) && spacer_ok && t >= recv_feed_until && live_ok {
                 recv_feeding = true;
                 recv_feed_until = t + o.recv_feed;
                 recv_last_feed_start = t;
+                recv_last_feed_start_edges = ring_edges;
             }
             if recv_feeding && t >= recv_feed_until {
                 // (no edge at Tail(3) within the feed window: the front was empty)
@@ -901,7 +930,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             if let Some(d) = o.recv_exit_d
                 && let Some(w) = recv_fly_wait.as_mut()
             {
-                if live_ok {
+                // (ring mode: the wait counts ring edges (each edge a step); otherwise live gt)
+                if o.ring_q > 0.0 {
+                    *w += ring_edges - ring_edges_prev;
+                } else if live_ok {
                     *w += 1;
                 }
                 if *w >= d {
