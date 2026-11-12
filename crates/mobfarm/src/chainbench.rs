@@ -85,6 +85,102 @@ fn trial(spec: &FarmSpec, stages: i32, freeze: Option<(i64, i64)>, ticks: i64) -
     Ok(rise)
 }
 
+/// The pulse train (G1 Nov 11 19:43): `pulses` trigger pulses `width` gt long every `every` gt (one
+/// per release), a `len`-gt freeze begun at every phase of one period; each stage's rise and fall per
+/// pulse against the paused ideal (start + 2(k+1) [+ width for the fall], + len when the freeze began
+/// before it), and the waves' integrity (each stage rises and falls once per pulse).
+pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i64, pulses: i64) -> Result<Vec<String>, String> {
+    let horizon = every * pulses + 2 * stages as i64 + len + 40;
+    let run_one = |freeze: Option<(i64, i64)>| -> Result<Vec<Vec<(i64, bool)>>, String> {
+        let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
+        let mut run = Run::start(spec, &ro)?;
+        while run.settle_tick() {}
+        let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
+        let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
+        let dust = Block::parse(DUST).map_err(|e| e.to_string())?;
+        let drv = drivers(stages);
+        let mut was = vec![false; stages as usize];
+        let mut tr: Vec<Vec<(i64, bool)>> = vec![Vec::new(); stages as usize];
+        for t in 0..horizon {
+            if t % every == 0 && t / every < pulses {
+                run.world.set_block(BlockPos::new(0, 1, 0), on.clone(), redsim::world::flags::ALL);
+            }
+            if t % every == width && t / every < pulses {
+                run.world.set_block(BlockPos::new(0, 1, 0), air.clone(), redsim::world::flags::ALL);
+            }
+            if let Some((f, l)) = freeze {
+                if t == f {
+                    for x in &drv {
+                        run.world.set_block(BlockPos::new(*x, 1, -2), on.clone(), redsim::world::flags::ALL);
+                    }
+                }
+                if t == f + l {
+                    for x in &drv {
+                        run.world.set_block(BlockPos::new(*x, 1, -2), dust.clone(), redsim::world::flags::ALL);
+                    }
+                }
+            }
+            run.tick();
+            for k in 0..stages as usize {
+                let now = run.world.get(BlockPos::new(k as i32 + 1, 1, 0)).to_string().contains("powered=true");
+                if now != was[k] {
+                    tr[k].push((t + 1, now));
+                    was[k] = now;
+                }
+            }
+        }
+        Ok(tr)
+    };
+    let free = run_one(None)?;
+    let base = free[0].first().map_or(2, |x| x.0) - 2;
+    let mut out = Vec::new();
+    let ok_free = free.iter().all(|v| v.len() as i64 == 2 * pulses);
+    out.push(format!("pulse train: {pulses} pulses {width} gt long every {every} gt down {stages} stages; unfrozen: every stage rises and falls once per pulse: {}", if ok_free { "yes" } else { "NO" }));
+    let (mut rise, mut fall): (std::collections::BTreeMap<i64, u64>, std::collections::BTreeMap<i64, u64>) = Default::default();
+    let mut broken = 0u64;
+    let mut broken_ex: Option<String> = None;
+    let (mut trig_phases, mut trig_waves, mut trig_dropped) = (0u64, 0u64, 0u64);
+    // (the paused ideal of an edge due d live gt after its wave starts at s: the frozen time between s
+    // and the edge is added; a freeze wholly before s delays nothing)
+    let paused = |s: i64, d: i64, f: i64| -> i64 { s + d + if f < s + d { (f + len - f.max(s)).max(0) } else { 0 } };
+    for f in 0..every + 2 * stages as i64 {
+        let tr = run_one(Some((f, len)))?;
+        // (a trigger pulse inside the freeze is a cycle-start pulse: rule 1 drops it or cuts it; those
+        // phases are reported apart: how many stages still carry every wave)
+        let trig_in = (0..pulses).any(|p| { let s = base + p * every; s < f + len && s + width > f });
+        if trig_in {
+            trig_phases += 1;
+            for v in &tr {
+                if v.len() as i64 == 2 * pulses {
+                    trig_waves += 1;
+                } else {
+                    trig_dropped += 1;
+                }
+            }
+            continue;
+        }
+        for (k, v) in tr.iter().enumerate() {
+            if v.len() as i64 != 2 * pulses {
+                broken += 1;
+                if broken_ex.is_none() {
+                    broken_ex = Some(format!("freeze at +{f}: stage {} has {} transitions (expected {})", k + 1, v.len(), 2 * pulses));
+                }
+                continue;
+            }
+            for p in 0..pulses {
+                let d = 2 * (k as i64 + 1);
+                let s = base + p * every;
+                *rise.entry(v[2 * p as usize].0 - paused(s, d, f)).or_default() += 1;
+                *fall.entry(v[2 * p as usize + 1].0 - paused(s, d + width, f)).or_default() += 1;
+            }
+        }
+    }
+    let fmt = |m: &std::collections::BTreeMap<i64, u64>| m.iter().map(|(l, n)| format!("{l}:{n}")).collect::<Vec<_>>().join(" ");
+    out.push(format!("a {len}-gt freeze begun at every phase 0..{} with no trigger inside it: rise lag (lag:count) {}; fall lag {}; stages whose waves broke (not one rise and one fall per pulse) {broken}{}", every + 2 * stages as i64, fmt(&rise), fmt(&fall), broken_ex.map_or(String::new(), |e| format!(" (first: {e})"))));
+    out.push(format!("phases with a trigger pulse inside the freeze (a cycle-start pulse: rule 1 drops it): {trig_phases}; stage-trials still carrying every wave {trig_waves}, missing a wave {trig_dropped}"));
+    Ok(out)
+}
+
 /// The bench: the unfrozen chain (every stage's delay against 2 gt a stage), a `len`-gt freeze begun at
 /// every phase 0..=2 * stages + 2 (each stage's lag against an ideal pausable timer: 2k + len when the
 /// freeze began before 2k, else 2k), and the frozen control (the bus driven from t0 + 1 for 200 gt).
@@ -135,7 +231,7 @@ pub fn bench(spec: &FarmSpec, stages: i32, len: i64) -> Result<Vec<String>, Stri
         format!("{label}: {}", m.iter().map(|(l, n)| format!("{l}:{n}")).collect::<Vec<_>>().join(" "))
     }).collect();
     out.push(format!("the lag by when each stage was due after the bus rose (lag:count; a stage due within the lockers' own 2 gt fires unpaused, lag -{len}): {}", rows.join("; ")));
-    out.push(format!("the pause latency from a freeze: ALIVE's drop (the ring's last rising edge + the 5-gt stretcher: 3..5 gt) + the bus trunk's delay + the lockers' 2 gt; a timed stage due inside it still fires"));
+    out.push(format!("the pause latency from a freeze: ALIVE's drop (rising edges 3..4 gt apart, the 5-gt stretcher: 1..5 gt after the freeze) + the bus trunk's delay + the lockers' 2 gt; a timed stage due inside it still fires"));
     let ctl = trial(spec, stages, Some((1, 200)), 2 * stages as i64 + 260)?;
     let during = ctl.iter().filter(|r| r.is_some_and(|t| t > 3 && t <= 201)).count();
     let first_after = ctl.iter().filter_map(|r| *r).filter(|t| *t > 201).min();

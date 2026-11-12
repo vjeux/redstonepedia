@@ -105,7 +105,8 @@ pub struct Opts {
     /// One slow visit: the night's 5th pick on every EVERY-th night takes T gt: (EVERY, T).
     pub slow_visit: Option<(usize, i64)>,
     /// The carts the controller's gate assumes (21) when the loop holds fewer (`carts`: a lost cart,
-    /// a stranded napper's cart held at the tier's exit); None: the loop's own count.
+    /// a stranded napper's cart held at the tier's exit); None: the loop's own count. Both the
+    /// virtual gate and the lap gate use it.
     pub gate_carts: Option<usize>,
     /// Cart 0 has no rider (a riderless cart carried in the loop): never eligible, diverted like any
     /// pick when its turn comes (nobody sleeps; the tier's give-up timeout makes a normal trip); out
@@ -114,6 +115,10 @@ pub struct Opts {
     /// The register diverts the stand's cart after its batch's summon (the built W), not before the
     /// stand: no hole while the napper is back before its next stand turn (G1 Nov 11 19:43).
     pub register_after: bool,
+    /// The riderless cart's own trip (divert to tier-clear), when it differs from a napper's: the
+    /// tier fires F at its give-up timeout (58f770cc: R 117..129 gt after entry for an arrived-empty
+    /// cart); None: the normal range.
+    pub empty_trip: Option<(i64, i64)>,
     /// Releases skipped a day (fix (a): 2, so 714 = 34 x 21 carts pass a day).
     pub skip_per_day: usize,
     /// A nap's trip, the switch to its re-entry point, uniform in [lo, hi] gt; lie-down this many gt
@@ -368,13 +373,14 @@ pub fn simulate(o: &Opts) -> Score {
                 let gate = if o.gate_virtual {
                     Some(o.gate_carts.unwrap_or(o.carts) - 1)
                 } else if o.gate_lap {
-                    Some((o.carts as i64 - 1 - away.len() as i64 + o.gate_lap_off).max(0) as usize)
+                    Some((o.gate_carts.unwrap_or(o.carts) as i64 - 1 - away.len() as i64 + o.gate_lap_off).max(0) as usize)
                 } else if let Some(nb) = o.gate_batches {
                     Some(o.batch - 1 - j + nb * o.batch)
                 } else {
                     o.gate_m
                 };
-                let drawn = rng.range(o.trip.0, o.trip.1);
+                let (tlo, thi) = if o.empty_cart && cart == 0 { o.empty_trip.unwrap_or(o.trip) } else { o.trip };
+                let drawn = rng.range(tlo, thi);
                 // (`slow_visit`: the night's 5th pick on every EVERY-th night takes T gt, e.g. the
                 // tier's HOME-lost fault, ironspec Nov 11 18:49)
                 let slow = o.slow_visit.is_some_and(|(every, _)| every > 0 && day >= 0 && day % every as i64 == 0) && night_picks.len() == 5;
