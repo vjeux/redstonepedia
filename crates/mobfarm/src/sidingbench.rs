@@ -253,6 +253,13 @@ pub struct SidingOpts {
     /// The napper arrives on the feed cell (K's cell) moving north at this stored speed, instead of
     /// spawning at rest on the rest.
     pub nap_feed_v: Option<f64>,
+    /// With --nap-feed-v: the napper's spawn moved this far back along its path (south of K's
+    /// cell centre), so its positions at tick boundaries take another phase against the cells
+    /// (the rest sweep's phases: the rest z depends on the entry phase as well as the speed).
+    pub nap_feed_phase: f64,
+    /// --siding-north: R's input fed through the budget box (x-2..x-1, 22..23, z 9): dust at the
+    /// input cell, a repeater facing west east of it; the switched cell (x,23,9).
+    pub feed_path: bool,
     /// The siding's flat (x-1,m,mz) a detector rail (east_west): the proposed siding sensor; with
     /// --siding-north the feed F a detector rail (north_south).
     pub flat_detector: bool,
@@ -524,7 +531,19 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             put(s_pow.x, s_pow.y, s_pow.z, &support);
             put(s_pow.x, s_pow.y, s_pow.z + 1, &repeater_n);
             put(s_pow.x, s_pow.y - 1, s_pow.z + 1, &glass);
-            BlockPos::new(s_pow.x, s_pow.y, s_pow.z + 2)
+            if so.siding_north && so.feed_path {
+                // (--feed-path (ironspec 09:53, the budget box (x-2..x-1, 22..23, z 9)): the input
+                // cell (x-2,23,9) dust turning from the east into the repeater's back, on glass; the
+                // feed (x-1,23,9) a repeater facing west into it, on glass; the switched cell its
+                // input (x,23,9), day-1's controller line arriving from the east or below)
+                put(s_pow.x, s_pow.y, s_pow.z + 2, &b("minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]")?);
+                put(s_pow.x, s_pow.y - 1, s_pow.z + 2, &glass);
+                put(s_pow.x + 1, s_pow.y, s_pow.z + 2, &repeater_e);
+                put(s_pow.x + 1, s_pow.y - 1, s_pow.z + 2, &glass);
+                BlockPos::new(s_pow.x + 2, s_pow.y, s_pow.z + 2)
+            } else {
+                BlockPos::new(s_pow.x, s_pow.y, s_pow.z + 2)
+            }
         }
         None => s_pow,
     };
@@ -611,14 +630,17 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut pending: Vec<(i64, usize, bool)> = Vec::new();
     // (--start-steady (ironspec 07:57): the start state is the steady state: 7 riders in their slots
     // (H on the trapdoor, then R_1 and the slopes 0.79 apart from z 1.28), the 8th in the station's
-    // pocket, leaving with the cycle before the first release (back on the branch at warm - period +
-    // ret); the R line off until the first release's trapdoors shut)
+    // pocket, leaving with the cycle before the first release (back on the branch at that release's
+    // tick minus the period plus ret: the first release is warm + corner mod period, so a negative
+    // corner's first release comes almost a period after warm); the R line off until the first
+    // release's trapdoors shut)
     let warm0 = 300i64;
     if so.start_steady {
+        let first_release = warm0 + o.corner.rem_euclid(o.period);
         for k in 0..o.per_lane {
             if k >= 7 {
                 carts.push(None);
-                pending.push(((warm0 - o.period + o.ret).max(1), carts.len() - 1, false));
+                pending.push(((first_release - o.period + o.ret).max(1), carts.len() - 1, false));
                 continue;
             }
             let (y, z) = if k == 0 { (16.1875, 0.49) } else { let z = 1.28 + 0.79 * (k - 1) as f64; (slope_y(z), z) };
@@ -688,8 +710,13 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut nap: Option<(usize, usize)> = None;
     let mut pred_pass: Option<i64> = None;
     let mut released_at: Option<i64> = None;
+    let mut v_rest_occ: Option<usize> = None;
+    let mut v_hold_occ: Option<usize> = None;
+    let mut v_run: Vec<usize> = Vec::new();
+    let mut stacked_ticks = 0usize;
+    let mut stacked_note: Option<String> = None;
     let mut launch_for: Option<i64> = None;
-    let mut launches: Vec<(i64, f64)> = Vec::new();
+    let mut launches: Vec<(i64, f64, bool)> = Vec::new();
     let mut launch_stuck = 0usize;
     let mut merge_was = false;
     let mut nap_rows: Vec<String> = Vec::new();
@@ -1057,7 +1084,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             restage_from = Some(t);
             // (the queue at rest at the release tick (the trapdoor opens now): every lane cart's
             // position, H first, kept by occupancy when all of them are at rest)
-            let lane_now: Vec<(f64, f64, f64, f64)> = (0..n).filter_map(|c| carts[c].and_then(|id| st(&run.world, id))).filter(|p| (p.0 - zc).abs() < 0.6 && p.2 < (mz - 1) as f64 + 0.5 && p.1 < m as f64 - 0.5).collect();
+            let lane_now: Vec<(f64, f64, f64, f64)> = (0..n).filter_map(|c| carts[c].and_then(|id| st(&run.world, id))).filter(|p| (p.0 - zc).abs() < 0.6 && p.2 < mz as f64 && p.1 < m as f64 - 0.5).collect();
             // (the lane's occupancy at each release after the start (the steady state): its maximum,
             // and the releases at 8 (the 8th slot is the top cell (x,m-2,mz-1)))
             if t >= steady_from {
@@ -1131,7 +1158,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             if is_nap {
                 let id = match &nbt_feed {
                     // (--nap-feed-v: the napper arrives on the feed cell (K's cell under --k-row) moving north)
-                    Some(nf) => redsim::entity::spawn(&mut run.world, "minecraft:minecart", [sx as f64 + 0.5, (m + 1) as f64 + 0.0625, mzf((mz + 2) as f64 + 0.5)], Some(nf))?,
+                    Some(nf) => redsim::entity::spawn(&mut run.world, "minecraft:minecart", [sx as f64 + 0.5, (m + 1) as f64 + 0.0625, mzf((mz + 2) as f64 + 0.5 + so.nap_feed_phase)], Some(nf))?,
                     None => redsim::entity::spawn(&mut run.world, "minecraft:minecart", [sx as f64 + 0.5, rest_y as f64 + 0.5 + 0.0625, mzf(rest_z as f64 + 0.5)], Some(&nbt0))?,
                 };
                 nap_spawned_t = Some(t);
@@ -1180,6 +1207,43 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         run.tick();
         let now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| id.and_then(|id| st(&run.world, id))).collect();
+        // (ironspec 10:02, the lane overflow: the occupancy at which a cart first rests at the
+        // lane's top cell V (x,m-2,mz-1), and any cart resting on another cart's top (its floor
+        // within the other's box height above it, the boxes overlapping in x and z): a failure)
+        {
+            let lane: Vec<(f64, f64, f64, f64)> = now.iter().flatten().copied().filter(|p| (p.0 - zc).abs() < 0.6 && p.2 < mz as f64 && p.1 < m as f64 - 0.5 && p.1 > 15.0).collect();
+            let top_z = (mz - 1) as f64;
+            if lane.iter().any(|p| p.3 < 0.002 && p.2 >= top_z && p.2 < top_z + 1.0) {
+                v_rest_occ = Some(v_rest_occ.map_or(lane.len(), |o: usize| o.min(lane.len())));
+            }
+            // (a cart resting at V for 20 gt: V held as a queue slot, not a landing's momentary stop)
+            for (c, p) in now.iter().enumerate() {
+                let at_v = p.is_some_and(|p| (p.0 - zc).abs() < 0.6 && p.3 < 0.002 && p.2 >= top_z && p.2 < top_z + 1.0 && p.1 > 15.0 && p.1 < m as f64 - 0.5);
+                if c >= v_run.len() {
+                    v_run.resize(c + 1, 0);
+                }
+                v_run[c] = if at_v { v_run[c] + 1 } else { 0 };
+                if v_run[c] == 20 {
+                    v_hold_occ = Some(v_hold_occ.map_or(lane.len(), |o: usize| o.min(lane.len())));
+                }
+            }
+            // (a cart resting on another's top stands on its box: at rest in the lane off its rail
+            // (more than 0.15 above the slopes' surface there), the boxes overlapping in x and z and
+            // its floor 0.6..0.8 above the other's (the box top 0.7; a queue's neighbours on a slope
+            // ride their rails, never counted))
+            let all: Vec<(f64, f64, f64, f64)> = now.iter().flatten().copied().collect();
+            for (i, a) in all.iter().enumerate() {
+                if a.3 >= 0.002 || (a.0 - zc).abs() >= 0.6 || a.2 <= 1.9 || a.2 >= mz as f64 || (a.1 - slope_y(a.2)).abs() <= 0.15 {
+                    continue;
+                }
+                if let Some(b) = all.iter().enumerate().find(|(j, b)| *j != i && (a.0 - b.0).abs() < 0.98 && (a.2 - b.2).abs() < 0.98 && a.1 - b.1 > 0.6 && a.1 - b.1 < 0.8).map(|(_, b)| *b) {
+                    stacked_ticks += 1;
+                    if stacked_note.is_none() {
+                        stacked_note = Some(format!("t {t}: a cart at rest at {:.2},{:.2},{:.2} on the cart at {:.2},{:.2},{:.2}", a.0, a.1, a.2, b.0, b.1, b.2));
+                    }
+                }
+            }
+        }
         // (--nap-ai: every open napper window each tick, one per napper cart (G1's CHANGES 3: a window
         // is never cut by the next napper): its activity, calm or panicking, its CANT_REACH stamp's age
         // (at the bar's ticks: calm REST with no walk target held), its clears (on the siding they
@@ -1533,7 +1597,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             {
                 let in_rest = x.floor() as i32 == sx && z.floor() as i32 == rest_z;
                 if !in_rest {
-                    launches.push((t - ra, v));
+                    // (R's own powered flag at the departure tick: a launch after R's power ended)
+                    let r_on = run.world.get(wp(BlockPos::new(sx, m, rest_z))).to_string().contains("powered=true");
+                    launches.push((t - ra, v, r_on));
                     launch_for = Some(ra);
                 } else if t > ra + 40 {
                     launch_stuck += 1;
@@ -1673,14 +1739,15 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         if merge_west == f64::MAX { " none".to_string() } else { format!("{:+.3}", merge_west) }
     ));
     lines.push(format!(
-        "the nappers' launches from the rest (its centre off the rest's cell after the release; the rest's support {}): {} launches, departure {} gt after the release, speed then {}; stuck (still on the rest 40 gt after its release; the bar: 0): {launch_stuck}; the launch threshold (the latest departure, the pulse must outlast it) {} gt against the pulse {} gt; launches after the pulse ended (the bar: 0): {}",
+        "the nappers' launches from the rest (its centre off the rest's cell after the release; the rest's support {}): {} launches, departure {} gt after the release, speed then {}; stuck (still on the rest 40 gt after its release; the bar: 0): {launch_stuck}; the launch threshold (the latest departure, counted from the switch; R powers {} gt after it) {} gt against the pulse {} gt; launches after the pulse ended (R unpowered at the departure tick; the bar: 0): {}",
         if so.siding_north { so.r_support.as_deref().unwrap_or("minecraft:stone") } else { "-" },
         launches.len(),
         if launches.is_empty() { "-".to_string() } else { format!("{}..{}", launches.iter().map(|l| l.0).min().unwrap_or(0), launches.iter().map(|l| l.0).max().unwrap_or(0)) },
         if launches.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", launches.iter().map(|l| l.1).fold(f64::MAX, f64::min), launches.iter().map(|l| l.1).fold(0.0f64, f64::max)) },
+        if so.siding_north && so.feed_path { 4 } else { 2 },
         launches.iter().map(|l| l.0).max().map_or("-".to_string(), |d| d.to_string()),
         so.nap_pulse,
-        launches.iter().filter(|l| l.0 > so.nap_pulse).count()
+        launches.iter().filter(|l| !l.2).count()
     ));
     lines.push(format!(
         "nappers came to rest on the siding at z {} over {} nappers ({}; a napper resting above z {:.2} reaches above the split row's cart floor {:.4}; the static worst z gap to a through-cart projected onto K's north edge (z {:.1}, moveAlongTrack's entry at x fraction 0), from the highest rest: {})",
@@ -1805,6 +1872,14 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         if min_health == f32::MAX { "-".to_string() } else { format!("{min_health:.1}") }
     ));
     lines.push(format!(
+        "the lane's top cell V (x,{},{}): a cart first rests there 20 gt (V held as a queue slot) at the lane's occupancy {}, first stops there at all (a landing's momentary stop included) at {}; carts resting on another cart's top (the overflow; the bar: 0): {stacked_ticks} cart-ticks{}",
+        m - 2,
+        mz - 1,
+        v_hold_occ.map_or("never".to_string(), |o| o.to_string()),
+        v_rest_occ.map_or("never".to_string(), |o| o.to_string()),
+        stacked_note.as_ref().map_or(String::new(), |n| format!(" (the first: {n})"))
+    ));
+    lines.push(format!(
         "the restage (a release to the hold's string rising again): the slowest {} gt of the {}-gt beat over {} cycles",
         restage.iter().max().map_or("-".to_string(), |v| v.to_string()),
         o.period,
@@ -1830,7 +1905,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
 /// 2026-11-12 01:30): R_1 and the hold string, the N slopes on glass, the drop entry (the merge one
 /// level up, the empty drop column, the wall, the pass string), the 2-cell branch with its detector
 /// guard, the x-2 siding. The switched cells are left air and named in the header.
-pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>) -> Result<String, String> {
+pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>, rest_range: Option<&str>) -> Result<String, String> {
     let m = 19 + ns;
     let mz = ns + 2;
     // (--r-support: the block under the S-bend's rest R (ironspec 08:46, the row partials): stone, or a
@@ -1854,6 +1929,8 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>) ->
     let curve_sw = "minecraft:rail[shape=south_west,waterlogged=false]";
     let curve_ne = "minecraft:rail[shape=north_east,waterlogged=false]";
     let repeater_n = "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]";
+    let repeater_w = "minecraft:repeater[delay=1,facing=east,locked=false,powered=false]";
+    let dust_ne = "minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]";
     let det = "minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]";
     let mut cells: std::collections::BTreeMap<(i32, i32, i32), &str> = Default::default();
     for x in [-1, 3, 7] {
@@ -1884,6 +1961,14 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>) ->
             put(x - 2, m - 1, mz, support);
             put(x - 2, m - 1, mz + 1, repeater_n);
             put(x - 2, m - 2, mz + 1, glass);
+            // (the feed path, the budget box (x-2..x-1, m-2..m-1, mz+2) (ironspec 09:53): dust at R's
+            // input (x-2,m-1,mz+2) turning from the east into the repeater's back, the feed repeater
+            // (x-1,m-1,mz+2) facing west into it, both on glass; the switched cell is the feed's input
+            // (x,m-1,mz+2), day-1's controller line)
+            put(x - 2, m - 1, mz + 2, dust_ne);
+            put(x - 2, m - 2, mz + 2, glass);
+            put(x - 1, m - 1, mz + 2, repeater_w);
+            put(x - 1, m - 2, mz + 2, glass);
             put(x - 2, m, mz - 1, curve_se);
             put(x - 2, m - 1, mz - 1, glass);
             put(x - 1, m, mz - 1, curve_sw);
@@ -1948,7 +2033,7 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>) ->
         out.push_str("# Per lane x: the hold string (x-2..x+2,17,0) and R_1 (x,17,1): the station's file (dfb89499). The split's file (7b90c3f1) owns the row along z 9 at y 25, K (x-2,25,9) (a power-forced T: north_east through, north_west into the siding; driver from day-1), J (x,25,9), their glass (x-2,24,9) and (x,24,9), and the branch's detector slope D (x,24,8) (the guard and the pass). Not laid here.");
         out.push_str(&format!(" Here: the slopes (x,18..{},2..{}) plain, ascending south, on glass, the top one's high side (x,{},{}) glass; the merge C (x,{m},{mz}) a north_west curve on glass (x,{},{mz}), its north end the rail end over the drop column (x,{m}..{},{}) (empty) onto the top slope, the wall (x,{m},{}) glass (golem-proof);", 17 + ns, 1 + ns, 17 + ns, 2 + ns, m - 1, m - 1, mz - 1, mz - 2));
         out.push_str(&format!(" the siding (the S-bend): the feed F (x-2,{},{}) north_south on glass (x-2,{m},{}), the rest R (x-2,{m},{mz}) a powered rail ascending south (braked unpowered) on {} (x-2,{},{mz}) (its switched power: strongly powered by the repeater (x-2,{},{}) facing north, on glass (x-2,{},{})), c1 (x-2,{m},{}) south_east, c2 (x-1,{m},{}) south_west, c3 (x-1,{m},{mz}) north_east into C, the curves on glass. No pass string: the pass is D's rising edge (D -> the same cart's merge-cell entry 2 gt, clear 9 gt).{}\n", m + 1, mz + 1, mz + 1, support.trim_start_matches("minecraft:"), m - 1, m - 1, mz + 1, m - 2, mz + 1, mz - 1, mz - 1, if support == "minecraft:slime_block" { " R's support is a slime block (ironspec 08:46, the row partials: a conductor that is not solid-render, so R's cell is no stable destination for a panicking rider; the same repeater powers it)." } else { "" }));
-        out.push_str(&format!("# Switched cells (left air here): R_1's side power (x+1,17,1) (the station's R line); the siding's switch: the repeater's input (x-2,{},{}) (the siding pulse: on 30 gt (>= 6) at the napper's release, K gt after the window's pass (D's rising edge) while D is off; no other powered rail within 8 along R's line). No siding sensor: the napper-present bit is K's routing, delayed >= 16 gt plus the row's travel to K (K -> rest 12..15 gt measured). The holds' trapdoors (x,16,0) are the station's.\n", m - 1, mz + 2));
+        out.push_str(&format!("# Switched cells (left air here): R_1's side power (x+1,17,1) (the station's R line); the siding's switch: the feed repeater's input (x,{},{}) (day-1's controller line arrives there from the east or below; the feed path (x-2..x-1,{}..{},{}) is laid here: dust at R's input (x-2,{},{}), the feed repeater facing west at (x-1,{},{}), both on glass; the siding pulse: on 30 gt (the launch threshold 8) at the napper's release, K gt after the window's pass (D's rising edge) while D is off; no other powered rail within 8 along R's line). No siding sensor: the napper-present bit is K's routing, delayed >= 16 gt plus the row's travel to K (K -> rest 12..15 gt measured). The holds' trapdoors (x,16,0) are the station's.\n", m - 1, mz + 2, m - 2, m - 1, mz + 2, m - 1, mz + 2, m - 1, mz + 2));
         out.push_str(&format!(
             "# Placement order (a rail placed last among its neighbours takes its natural shape; these differ from the design and need a temporary helper rail while placed, removed after: a removed rail reshapes nothing): {}. Lane x 3 shown; the same cells at x -1 and 7. c3 (x-1,{m},{mz}) sees three rails (c2, C, R): lay it before R. THE MERGE C (x,{m},{mz}) NEEDS A POWERED PLACEMENT (official, tick-exact): D (the split's) first; then a helper rail at (x,{m},{}) on a temporary support (x,{},{}), plus a temporary redstone block at (x+1,{m},{mz}); then C, which takes north_west; then remove the helper and its support, then the redstone block. THE TOP SLOPE S (x,{},{}) (official, tick-exact, `mctas mobai rail-slope`): the glass (x,{},{}) first, a helper rail (x,{},{}) on it, the slope below at its low end; then S comes out ascending_south and keeps it; with no helper it settles north_south.\n",
             if natural_mismatch.is_empty() { "none".to_string() } else { natural_mismatch.join("; ") },
@@ -1962,9 +2047,12 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>) ->
             18 + ns,
             2 + ns
         ));
-        out.push_str("# Bench (the S-bend, wt-go; tool unreviewed): napper arrivals 0.10..0.44 on K's cell (the brief's band) rest on R at z 7.895..7.435 and launch 8..6 gt after the release (the launch threshold: the switch's pulse must outlast 8 gt; 6 gt crawls or sticks at the high rests; the design's pulse 30); push contact with every passing cart 0, the least gap +0.084 at a 0.10 arrival and +0.239 at 0.20 against the split's ridden through-carts at 0.30, their entries into K swept (0.30 is the conservative end: the row's measured 0.35..0.39 moves a cart further along K's chord before the push search; tick-exact's official crossing 1531189749067418: +0.107 / +0.235); lane carts on the siding's cells 0; stray power on R 0. On the slime support: matrix (ii) and (A) 200 + 200 rows 0 failing (rets 132..400, merge entry 0.296..0.476, nap_rets 300..1700, +-2; occupancy 8, stamps over 1,000 and cut windows counted), restarts inside the napper's wait 1000/0 + 1000/0, the start-up from the steady state (7 riders, the 8th in the pocket) 3 cycles clean, the launch identical to stone's at every arrival and pulse; the control (glass under R) never launches. The delivery floor: first failure stored 0.22, 0.23..1.00 clean.\n");
+        out.push_str("# Bench (the S-bend, wt-go; tool unreviewed): napper arrivals 0.10..0.44 on K's cell (the brief's band) rest on R at z 7.343..7.922 over their entry phases (the rest sweep, `--rest-sweep lo,hi,step --rest-phases N` with K laid: the ceiling 7.922 at arrival 0.102 over 64 phases, 0.10 at phase 0 7.895; rest z is not monotone in the arrival, its maxima fall with speed) and leave R 10..8 gt after the switch, counted from the tick the bench sets the feed repeater's input (x,23,9) (R powers 4 gt later, through the feed repeater and R's own; without the feed path 8..6 gt, where tick-exact's official release, counted from the input pulse at R's repeater, reads one tick later: +9/+8/+7) (the launch threshold: the switch's pulse must be at least 8 gt: at 7 the 0.10 rest leaves after R's power ended, at 0.231; 6 gt crawls or sticks at the high rests; the design's pulse 30); push contact with every passing cart 0, the least gap +0.084 at a 0.10 arrival and +0.239 at 0.20 against the split's ridden through-carts at 0.30, their entries into K swept (0.30 is the conservative end: the row's measured 0.35..0.39 moves a cart further along K's chord before the push search; tick-exact's official crossing on slime 1491498096433479: +0.0795 against 0.29 through-carts, and its first crossing (the napper placed static at its rest): +0.084 against 0.30, slime and stone alike; the final composition's crossing rows (0.29..0.44, their hashes printed) supersede both when they land); lane carts on the siding's cells 0; stray power on R 0. On the slime support with the feed path: matrix (ii) and (A) 200 + 200 rows 0 failing (rets 132..400, merge entry 0.283..0.476, nap_rets 300..1700, +-2, the split row's through-carts at 0.30; occupancy 8, stamps over 1,000, cut windows and carts resting on another cart's top counted; the lane's largest occupancy at a release 7), restarts inside the napper's wait 1000/0 + 1000/0, the start-up from the steady state (7 riders, the 8th in the pocket) 3 cycles clean, the launch identical to stone's at every arrival and pulse; the control (glass under R) never launches. The lane overflow (ironspec 10:02): 0 carts resting on another cart's top in every row; an overfilled lane (9 carts, the control) leaves its extra cart at rest off the rails on the merge support's edge above V (a counted failure) with 14 empty releases of 40. The delivery floor: first failure stored 0.22, 0.23..1.00 clean.\n");
         if support == "minecraft:slime_block" {
-            out.push_str("# R's slime support: lay it only together with F3's z 9 floors (9fc3155f's 4d76acbfb: lay with it, not before): each S-bend seat loses its own R cell as a stroll candidate (one of four at each seat in 8fb667bca's prints). Pending official rows: tick-exact's napper release on slime (a cart on rails is never onGround, so slime's stepOn should not run: G1's 26.3 read), the seats' official P_null re-measured on slime.\n");
+            out.push_str("# R's slime support: lay it only together with F3's z 9 floors (9fc3155f's 4d76acbfb: lay with it, not before): each S-bend seat loses its own R cell as a stroll candidate (one of four at each seat in 8fb667bca's prints). Cited: tick-exact's napper release on the official server (`mctas mobai napper-release`, de0bcdeae; the stone baseline artifact 1012303384495744, the slime run matching it: the cart leaves R +9/+8/+7 gt from the input pulse at 0.37..0.52 b/gt from the rests 7.895 / 7.740 / 7.435; a cart on rails is never onGround, so slime's stepOn does not run). Pending: the seats' official P_null re-measured on slime.\n");
+        }
+        if let Some(rr) = rest_range {
+            out.push_str(&format!("# speeds: nap-rest-z={rr}\n"));
         }
         // (c3 is a junction only through R beside it: ironspec's ruling (07:52), declared for push-scan)
         let why = "c3 (ironspec 07:52): its third arm is the siding rest R itself and it is never switched, and no other route's cart enters it (ironfarm escape-bench --siding-north: the westmost branch-cart centre in the merge cell x+0.24 over the matrix and restarts, lane carts on the siding's cells 0, push contact 0, one napper per siding at a time)";
@@ -2195,6 +2283,10 @@ pub struct SidingRow {
     pub launch_stuck: usize,
     pub launch_t: (i64, i64),
     pub launch_v: (f64, f64),
+    /// The lane overflow (ironspec 10:02): cart-ticks a cart rested on another cart's top (a
+    /// failure), and the occupancy at which a cart first rested at the lane's top cell V.
+    pub stacked: usize,
+    pub v_rest_occ: Option<usize>,
     pub drop_stamp_max: i64,
     /// The branch returns' merge-entry stored speed (min, max; -1 none); the nappers' rest z (min,
     /// max; -1 none); --k-row: through-carts slowed, lost, ticks in push range of the waiting napper,
@@ -2283,8 +2375,11 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                 r.merge_v_min = a.parse().map_err(|_| format!("siding_row: merge-entry speed {s}"))?;
                 r.merge_v_max = b.parse().map_err(|_| format!("siding_row: merge-entry speed {s}"))?;
             }
+        } else if l.starts_with("the lane's top cell V") {
+            r.stacked = req(l, "carts resting on another cart's top (the overflow; the bar: 0): ")? as usize;
+            r.v_rest_occ = l.split("(V held as a queue slot) at the lane's occupancy ").nth(1).and_then(|s| s.split(',').next()).and_then(|s| s.trim().parse().ok());
         } else if l.starts_with("the nappers' launches from the rest") {
-            r.launch_stuck = req(l, "stuck (still on the rest 40 gt after its release; the bar: 0): ")? as usize + req(l, "launches after the pulse ended (the bar: 0): ")? as usize;
+            r.launch_stuck = req(l, "stuck (still on the rest 40 gt after its release; the bar: 0): ")? as usize + req(l, "launches after the pulse ended (R unpowered at the departure tick; the bar: 0): ")? as usize;
             if let Some(s) = l.split("departure ").nth(1).and_then(|s| s.split(" gt").next())
                 && let Some((a, b)) = s.split_once("..")
             {
@@ -2392,7 +2487,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
     if so.flat_detector && !text.lines().any(|l| l.starts_with("the siding flat's detector")) {
         return Err("siding_row: --flat-detector, but the bench printed no detector line".to_string());
     }
-    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest"] {
+    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest", "the lane's top cell V"] {
         if !text.lines().any(|l| l.starts_with(key)) {
             return Err(format!("siding_row: the bench printed no \"{key}\" line"));
         }
