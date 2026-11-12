@@ -387,6 +387,30 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 pending.retain(|p| p.1 != c);
             }
         }
+        // (a restart between ticks t - 1 and t (cc767b78's helper): the carts followed to their new
+        // ids; the cold start also resets the bench's controller: the trapdoor shut, an R pulse to
+        // restage, the siding braked, the merge passes forgotten (a waiting napper waits for its
+        // predecessor's next pass))
+        for (rt, how) in &o.restart {
+            if *rt == t {
+                crate::liveness::restart(&mut run.world, *how)?;
+                for id in carts.iter_mut().flatten() {
+                    *id = crate::liveness::follow(&run.world, *id);
+                }
+                if *how == crate::liveness::Restart::Cold {
+                    trap_until = -1;
+                    r_until = t + 10 + o.r_pulse;
+                    s_until = s_until.min(t);
+                    held = 0;
+                    for lp in last_pass.iter_mut() {
+                        *lp = None;
+                    }
+                    lap_wait = false;
+                    nap_since = t;
+                    merge_was = false;
+                }
+            }
+        }
         run.tick();
         let now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| id.and_then(|id| st(&run.world, id))).collect();
         // (the riders: the block at every rider's eye (air, string, hooks and rails are fine; anything
@@ -625,6 +649,25 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         lines.push(format!("a napper still waiting at the end: cart {c} (predecessor pass {:?}, released {:?})", pred_pass, released_at));
     }
     Ok(lines.join("\n"))
+}
+
+/// Run `f` over `0..n` on `jobs` threads, results in order.
+pub fn par_map<T: Send>(n: usize, jobs: usize, f: impl Fn(usize) -> T + Sync) -> Vec<T> {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let out: std::sync::Mutex<Vec<Option<T>>> = std::sync::Mutex::new((0..n).map(|_| None).collect());
+    std::thread::scope(|sc| {
+        for _ in 0..jobs.max(1) {
+            sc.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if i >= n {
+                    break;
+                }
+                let r = f(i);
+                out.lock().unwrap()[i] = Some(r);
+            });
+        }
+    });
+    out.into_inner().unwrap().into_iter().map(|x| x.expect("every job ran")).collect()
 }
 
 /// One siding run's numbers, for the matrix.

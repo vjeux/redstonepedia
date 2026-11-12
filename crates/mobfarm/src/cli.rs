@@ -1247,6 +1247,17 @@ pub enum MobfarmCmd {
         /// length), printing the rows that fail.
         #[arg(long)]
         login_matrix: bool,
+        /// Restarts T,ORDER (cc767b78's helper): a save/stop/start (ORDER save, reverse, seed:K) or
+        /// the cold start (cold) between ticks T - 1 and T (repeatable).
+        #[arg(long)]
+        restart: Vec<String>,
+        /// The restart matrix (ironspec's L1‴ rows): every row of Restart::rows() (save, reverse,
+        /// seed:1..8, cold) at every --phase-step phase of the third cycle, against the control.
+        #[arg(long)]
+        restart_matrix: bool,
+        /// The restart matrix's phase step (gt).
+        #[arg(long, default_value_t = 1)]
+        phase_step: i64,
         /// The switched-R lane: the flat intake and the split's flat branch above the run.
         #[arg(long)]
         intake_flat: bool,
@@ -4273,7 +4284,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, drop_entry, siding_matrix, rets, v_ins, nap_rets, corners, jobs, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, drop_entry, siding_matrix, rets, v_ins, nap_rets, corners, jobs, r_boost, floor_bottom, empty, freeze32 } => {
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
@@ -4282,9 +4293,57 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let login: Vec<(i64, i64)> = login.iter().map(pair).collect::<anyhow::Result<_>>()?;
             let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
-            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32 };
+            let restart: Vec<(i64, crate::liveness::Restart)> = restart.iter().map(|s| crate::liveness::parse_restart(s)).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32, restart };
             if siding {
                 let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, siding_dx, siding_dy, ns_merge, guard_det, drop_entry };
+                if restart_matrix {
+                    // (ironspec's L1‴ rows on the siding: every restart row at every phase of the third
+                    // cycle; a row fails on any failure count, or on more arrivals above 0.46 than the
+                    // control (no restart))
+                    let base_t = 300 + 2 * period;
+                    let mut grid: Vec<(crate::liveness::Restart, i64)> = Vec::new();
+                    for r in crate::liveness::Restart::rows() {
+                        let mut p = 0;
+                        while p < period {
+                            grid.push((r, p));
+                            p += phase_step.max(1);
+                        }
+                    }
+                    let mut oc = o.clone();
+                    oc.cycles = cycles.max(6);
+                    let ctl = crate::sidingbench::siding_row(&oc, &so).map_err(|e| anyhow::anyhow!(e))?;
+                    let res = crate::sidingbench::par_map(grid.len(), jobs, |i| {
+                        let (r, p) = grid[i];
+                        let mut oo = oc.clone();
+                        oo.restart = vec![(base_t + p, r)];
+                        crate::sidingbench::siding_row(&oo, &so)
+                    });
+                    let mut fails: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+                    let mut worst = 0.0f64;
+                    for (i, row) in res.into_iter().enumerate() {
+                        let (r, p) = grid[i];
+                        let row = row.map_err(|e| anyhow::anyhow!(e))?;
+                        worst = worst.max(row.arrival_max);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.stuck as usize;
+                        if bad > 0 || row.arrivals_over > ctl.arrivals_over {
+                            fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} over 0.46 {} (control {}){}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.arrivals_over, ctl.arrivals_over, if row.stuck { " napper stuck" } else { "" }));
+                        }
+                    }
+                    println!(
+                        "siding restart matrix (ironspec's L1‴ rows: save, reverse, seed:1..8 and cold at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; the hardest arrival {worst:.3}; control: lost {} over 0.46 {} (max {:.3})",
+                        phase_step.max(1),
+                        grid.len(),
+                        fails.values().map(|v| v.len()).sum::<usize>(),
+                        ctl.empty_releases,
+                        ctl.arrivals_over,
+                        ctl.arrival_max
+                    );
+                    for (k, v) in &fails {
+                        println!("  {k}: {} failing: {}", v.len(), v.iter().take(4).cloned().collect::<Vec<_>>().join(" | "));
+                    }
+                    return Ok(());
+                }
                 if siding_matrix {
                     let rets = if rets.is_empty() { vec![o.ret] } else { rets };
                     let v_ins = if v_ins.is_empty() { vec![o.v_in] } else { v_ins };
@@ -4366,6 +4425,49 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{}", crate::sidingbench::siding_bench(&o, &so).map_err(|e| anyhow::anyhow!(e))?);
                 return Ok(());
             }
+            if restart_matrix {
+                // (ironspec's L1‴ rows on the switched-R lane: every restart row at every phase of the
+                // third cycle, against the control (no restart))
+                let base_t = 300 + 2 * period;
+                let mut grid: Vec<(crate::liveness::Restart, i64)> = Vec::new();
+                for r in crate::liveness::Restart::rows() {
+                    let mut p = 0;
+                    while p < period {
+                        grid.push((r, p));
+                        p += phase_step.max(1);
+                    }
+                }
+                let mut oc = o.clone();
+                oc.cycles = cycles.max(5);
+                let ctl = crate::switchbench::switch_bench(&oc).map_err(|e| anyhow::anyhow!(e))?;
+                let res = crate::sidingbench::par_map(grid.len(), jobs, |i| {
+                    let (r, p) = grid[i];
+                    let mut oo = oc.clone();
+                    oo.restart = vec![(base_t + p, r)];
+                    crate::switchbench::switch_bench(&oo)
+                });
+                let mut fails: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+                for (i, row) in res.into_iter().enumerate() {
+                    let (r, p) = grid[i];
+                    let row = row.map_err(|e| anyhow::anyhow!(e))?;
+                    let ok = row.per_release.keys().all(|k| *k == 1) && row.shuts == 0 && row.hanging == 0 && row.unsettled == 0 && row.arrivals_over <= ctl.arrivals_over;
+                    if !ok {
+                        fails.entry(r.label()).or_default().push(format!("phase {p}: per release {:?}, shuts {}, unsettled {}, hanging {}, retries {}, over 0.46 {} (control {})", row.per_release, row.shuts, row.unsettled, row.hanging, row.retries, row.arrivals_over, ctl.arrivals_over));
+                    }
+                }
+                println!(
+                    "restart matrix (ironspec's L1‴ rows: save, reverse, seed:1..8 and cold at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; control: per release {:?}, over 0.46 {}",
+                    phase_step.max(1),
+                    grid.len(),
+                    fails.values().map(|v| v.len()).sum::<usize>(),
+                    ctl.per_release,
+                    ctl.arrivals_over
+                );
+                for (k, v) in &fails {
+                    println!("  {k}: {} failing: {}", v.len(), v.iter().take(4).cloned().collect::<Vec<_>>().join(" | "));
+                }
+                return Ok(());
+            }
             if login_matrix {
                 // (the L1 rows: a save, stop and start at every phase of the third cycle, as its load
                 // window: the entities held 1..=3 gt while the blocks and the controller run; the
@@ -4438,7 +4540,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::DropJudge { lanes, spacing, run, per_lane, period, cycles, ret, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, empty, r_pulse, retry, intake_flat, v_in, starts, k, ds, corners, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
-            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, pockets: 0, string_dy: 2, r_pulse, retry, login: Vec::new(), intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32: Vec::new() };
+            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, pockets: 0, string_dy: 2, r_pulse, retry, login: Vec::new(), intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32: Vec::new(), restart: Vec::new() };
             let modes = vec![crate::lanesjudge::Mode::parse("gt").map_err(|e| anyhow::anyhow!(e))?];
             let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
             let title = if r_pulse > 0 {

@@ -245,6 +245,27 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
                 pending.retain(|p| p.1 != c);
             }
         }
+        // (a restart between ticks t - 1 and t: every entity back under a new id, followed; the cold
+        // start also drops what was in flight, and the bench's controller starts again at its initial
+        // state: the trapdoor shut, an R pulse to restage, the strings' counts from zero)
+        for (rt, how) in &o.restart {
+            if *rt == t {
+                crate::liveness::restart(&mut run.world, *how)?;
+                for (_, id) in carts.iter_mut() {
+                    if let Some(i) = id {
+                        *i = crate::liveness::follow(&run.world, *i);
+                    }
+                }
+                if *how == crate::liveness::Restart::Cold {
+                    trap_until = -1;
+                    r_until = t + 10 + o.r_pulse;
+                    retry_at = t + 10 + o.r_pulse + o.retry;
+                    for h in held.iter_mut() {
+                        *h = 0;
+                    }
+                }
+            }
+        }
         run.tick();
         let now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|(_, id)| id.and_then(|id| cart_state(&run.world, id))).collect();
         if let Ok(tr) = std::env::var("MCTAS_SWITCH_TRACE") {

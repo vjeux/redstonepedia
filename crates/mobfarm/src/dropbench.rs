@@ -53,6 +53,9 @@ pub struct DropOpts {
     /// entities frozen, redstone and the bench's controller running (the load window: block events
     /// up to 3 gt ahead of the entities).
     pub freeze32: Vec<(i64, i64)>,
+    /// (cc767b78's shared helper, ironspec's L1‴ rows) Restarts T,ORDER: a save/stop/start (or the
+    /// cold start) between ticks T - 1 and T.
+    pub restart: Vec<(i64, crate::liveness::Restart)>,
 }
 
 fn cart_state(w: &redsim::world::World, id: u32) -> Option<(f64, f64, f64, f64)> {
