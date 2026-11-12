@@ -120,7 +120,7 @@ pub fn is_dangerous(s: &Block, fire_immune: bool) -> bool {
 }
 
 /// The rail blocks (`BlockTags.PREVENT_MOB_SPAWNING_INSIDE`; terrain states by the tag).
-fn prevents_spawning_inside(s: &Block) -> bool {
+pub(crate) fn prevents_spawning_inside(s: &Block) -> bool {
     if let Block::Terrain(id) = s {
         return crate::terrain::blocks::props(*id).has_tag("minecraft:prevent_mob_spawning_inside");
     }

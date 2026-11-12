@@ -594,7 +594,10 @@ pub(crate) fn valid_empty(w: &World, p: BlockPos, type_id: &str) -> bool {
     if fluid {
         return false;
     }
-    if has_tag(w, p, "minecraft:prevent_mob_spawning_inside") {
+    // (tickexact 2026-11-12, carousel-gate t262: a bat's candidate inside a north_west rail drew
+    // its rule's two draws where the game's placement refused it) redsim's own rail blocks have no
+    // natural-state row, so the tag is read off the block itself too
+    if has_tag(w, p, "minecraft:prevent_mob_spawning_inside") || crate::entity::mob::blocks::prevents_spawning_inside(&b) {
         return false;
     }
     let col = blocks::type_index(type_id);
