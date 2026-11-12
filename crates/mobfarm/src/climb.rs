@@ -1050,6 +1050,9 @@ pub struct ClimbOpts {
     /// only by the batch's front cart) plus lockable delays: G1 at the edge + .0, G2 at the edge + .1
     /// (live time: paused while frozen).
     pub gate_shut_d1: Option<(i64, i64)>,
+    /// (7b90c3f1) With gate_shut_d1: G2 keyed on P2's flat (8,0,6) as a detector rail, its rising
+    /// edge while G1 is shut (the second cart) + .1, instead of D1's.
+    pub p2_key: bool,
     /// (7b90c3f1) A fault row: cart K never handed off (removed at T).
     pub missing: Option<usize>,
     /// The batch's carts (3, or 2: the third stays parked).
@@ -1141,6 +1144,13 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         handed[k] = true;
     }
     let d1_cell = BlockPos::new(12, -1, SZ);
+    let p2_cell = BlockPos::new(8, 0, SZ);
+    if o.p2_key {
+        run.world.set_block(p2_cell, parse("detector_rail[powered=false,shape=east_west,waterlogged=false]")?, redsim::world::flags::ALL);
+    }
+    let mut p2_was = false;
+    let mut p2_edges: Vec<i64> = Vec::new();
+    let mut p2_key_at: Option<i64> = None;
     let mut d1_was = matches!(run.world.get(d1_cell), Block::DetectorRail { powered: true, .. });
     let mut d1_edges: Vec<i64> = Vec::new();
     let mut d1_first: Option<i64> = None;
@@ -1235,9 +1245,22 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 }
             }
             d1_was = d1_on;
+            // (`--p2-key`: P2's flat (8,0,6) a detector rail; G2 shuts on its rising edge while G1
+            // is already shut (the batch's second cart, the first having crossed it with G1 open)
+            // plus B, instead of D1 + B)
+            if o.p2_key {
+                let p2_on = matches!(run.world.get(p2_cell), Block::DetectorRail { powered: true, .. });
+                if p2_on && !p2_was {
+                    p2_edges.push(dt);
+                    if !open[1] && p2_key_at.is_none() {
+                        p2_key_at = Some(live);
+                    }
+                }
+                p2_was = p2_on;
+            }
             if let Some((a1, a2)) = o.gate_shut_d1 {
                 open[1] = !d1_first.is_some_and(|e| live >= e + a1);
-                open[0] = !d1_first.is_some_and(|e| live >= e + a2);
+                open[0] = if o.p2_key { !p2_key_at.is_some_and(|e| live >= e + a2) } else { !d1_first.is_some_and(|e| live >= e + a2) };
             }
         }
         for i in 0..3 {
@@ -1472,12 +1495,13 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             )
         };
         out.push(format!(
-            "stand shuts{}: D1 rising edges {} ({}); {}; {}",
-            o.gate_shut_d1.map_or(String::new(), |(a, b)| format!(" on D1's edge + {a} (G1) / + {b} (G2)")),
+            "stand shuts{}: D1 rising edges {} ({}); {}; {}{}",
+            o.gate_shut_d1.map_or(String::new(), |(a, b)| if o.p2_key { format!(" on D1's edge + {a} (G1) / P2's second edge + {b} (G2)") } else { format!(" on D1's edge + {a} (G1) / + {b} (G2)") }),
             d1_edges.len(),
             d1_edges.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", "),
             per_gate(1),
-            per_gate(0)
+            per_gate(0),
+            if o.p2_key { format!("; P2 rising edges {} ({}), the key {}", p2_edges.len(), p2_edges.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", "), if p2_key_at.is_some() { "taken" } else { "NOT TAKEN" }) } else { String::new() }
         ));
     }
     out.push(format!(

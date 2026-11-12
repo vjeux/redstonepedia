@@ -1268,6 +1268,10 @@ pub enum MobfarmCmd {
         /// + A, G2 at the edge + B (live time, paused while frozen); "A,B" (ironspec: 2,11).
         #[arg(long, value_delimiter = ',')]
         gate_shut_d1: Vec<i64>,
+        /// (7b90c3f1) With --gate-shut-d1 A,B: G2 keyed on P2's flat (8,0,6) laid as a detector
+        /// rail, on its rising edge while G1 is already shut (the batch's second cart) + B.
+        #[arg(long)]
+        p2_key: bool,
         /// (7b90c3f1) A fault row: cart K (0 the front) is never handed off (removed at T: the
         /// cart that never arrives).
         #[arg(long)]
@@ -4427,7 +4431,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, gate_shut_d1, missing, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, gate_shut_d1, p2_key, missing, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
             anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
             anyhow::ensure!(gate_shut.is_empty() || gate_shut.len() == 2, "--gate-shut A,B");
             anyhow::ensure!(gate_shut_d1.is_empty() || gate_shut_d1.len() == 2, "--gate-shut-d1 A,B");
@@ -4530,6 +4534,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             hand_off_2: *e2,
                             gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
                             gate_shut_d1: (gate_shut_d1.len() == 2).then(|| (gate_shut_d1[0], gate_shut_d1[1])),
+                            p2_key,
                             missing,
                             n_carts: carts,
                             trace,
