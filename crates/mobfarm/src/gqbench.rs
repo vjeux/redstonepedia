@@ -92,6 +92,8 @@ pub struct GqOpts {
     /// (7b90c3f1) The receiver's shuts keyed on the front pocket's P (Tail(2)'s) rising edge with
     /// the receiver idle: the middle at the edge + .0, the rear at + .1 (live gt).
     pub receiver_p: Option<(i64, i64)>,
+    /// (7b90c3f1) Flats between the receiver's front gate (Tail(2)'s G) and the U into Tail(3).
+    pub recv_run: i32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -140,7 +142,7 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     put(&mut blocks, x, lv, &flat);
     x += 1;
     let intake_flat = !o.no_intake_flat;
-    let pocket = |blocks: &mut Vec<(BlockPos, Block)>, extra: &mut Vec<(BlockPos, Block)>, put: &mut dyn FnMut(&mut Vec<(BlockPos, Block)>, i32, i32, &Block), x: &mut i32, lv: &mut i32, last_over_run: bool| -> ((i32, i32), (i32, i32), (i32, i32)) {
+    let pocket = |blocks: &mut Vec<(BlockPos, Block)>, extra: &mut Vec<(BlockPos, Block)>, put: &mut dyn FnMut(&mut Vec<(BlockPos, Block)>, i32, i32, &Block), x: &mut i32, lv: &mut i32, last_over_run: bool, run_flats: i32| -> ((i32, i32), (i32, i32), (i32, i32)) {
         // P flat detector at lv; R down; G down (powered, the gate over it at R's level); U up
         let p = (*x, *lv);
         put(blocks, *x, *lv, &det);
@@ -161,17 +163,23 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
             return (p, gate_cell, g_cell);
         }
         put(blocks, *x + 2, *lv - 2, &pdown_off);
-        put(blocks, *x + 3, *lv - 2, &up);
+        // (`--recv-run N`, the receiver's front pocket only: N flats between its G and the U into
+        // the next pocket (tail-v5's G3, flat, curve, flats, U into P4))
+        for f in 0..run_flats {
+            put(blocks, *x + 3 + f, *lv - 2, &flat);
+        }
+        put(blocks, *x + 3 + run_flats, *lv - 2, &up);
         // (U rises east: its high side's rigid block is under the next P)
-        extra.push((BlockPos::new(*x + 4, *lv - 2, 0), Block::parse("minecraft:glass").unwrap()));
-        *x += 4;
+        extra.push((BlockPos::new(*x + 4 + run_flats, *lv - 2, 0), Block::parse("minecraft:glass").unwrap()));
+        *x += 4 + run_flats;
         *lv -= 1;
         (p, gate_cell, g_cell)
     };
     let ntail = if o.ideal_tail { 1 } else { o.tail };
     for j in 0..ntail {
         let last = j + 1 == ntail;
-        let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, last);
+        let rf = if j == 2 && o.receiver_p.or(o.receiver).is_some() { o.recv_run } else { 0 };
+        let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, last, rf);
         g.tail_p.push(p);
         g.gates.push((Role::Tail(j), gc.0, gc.1, if last { None } else { Some(gg) }));
     }
@@ -206,7 +214,7 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     lv -= 1;
     // (the hold: 3 pockets; the front one's G a powered slope into the descent)
     for j in 0..3 {
-        let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, false);
+        let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, false, 0);
         g.hold_p.push(p);
         g.gates.push((Role::Hold(j), gc.0, gc.1, Some(gg)));
     }
@@ -482,6 +490,21 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         }
         gate.column_frozen = Some(frz || real_frozen);
         let alive = gate.alive(&run.world, t);
+        // (7b90c3f1, cc767b78 19:49: the receiver's feed window and the tail chain's release pulse
+        // count the live clock, not world ticks: while the column is frozen (or ALIVE is low with
+        // --alive-gate) their ends move out a tick at a time, so neither can shut onto a frozen cart
+        // or run out during a freeze)
+        {
+            let live_now = if o.alive { alive } else { !(frz || real_frozen) };
+            if !live_now {
+                if recv_feeding && t < recv_feed_until {
+                    recv_feed_until += 1;
+                }
+                if t < tail_release_until {
+                    tail_release_until += 1;
+                }
+            }
+        }
         // (gates as targeted `wire` gt ago; a pocket's G slope powered with its gate)
         for gi in 0..n_gates {
             let want = if target_hist[gi].len() > o.wire as usize { target_hist[gi].pop_front().unwrap() } else { gate_open[gi] };
