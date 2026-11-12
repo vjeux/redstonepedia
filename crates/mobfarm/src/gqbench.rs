@@ -98,6 +98,9 @@ pub struct GqOpts {
     pub gp_retry: bool,
     /// Ga's close delay after P_b's edge runs as a locked chain (not paused by a freeze).
     pub pb_locked: bool,
+    /// The controller's clock counts ring edges (every Q live gt; 34 = 3 and 4 in turn), pausing
+    /// exactly with the carts (0: the game tick).
+    pub ring_q: i64,
     /// Edge escapement: G_P only after no hold sensor edge for this many gt (the hold settled).
     pub fill_quiet: i64,
     /// The start state: the run empty, carts admitted seated one at a time until N are on it.
@@ -612,6 +615,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut owed: i64 = 0;
     let mut egp_until: i64 = -1;
     let mut eg0_until: i64 = -1;
+    let mut ring_live: i64 = 0;
+    let mut ring_next: i64 = 3;
+    let mut ring_alt = false;
+    let mut ring_time: i64 = 0;
+    let mut prev_ct: i64 = 0;
+    let mut hold_release_ct: i64 = 0;
     let mut staged_at: Option<i64> = None;
     let mut staged = false;
     let mut gp_cond_was = false;
@@ -727,6 +736,23 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             gate.freeze_started(t);
         }
         let real_frozen = !run.world.entity_ticks_at(col.0, col.1);
+        // (--ring-q: the controller's clock counts the ring's rising edges (day-1's ring-edge counters,
+        // ironspec 20:34): it advances only on an edge, by the edge spacing (Q gt, or 3 and 4 in turn
+        // for Q = 34), and never while the column is frozen (the ring's carts freeze with the farm's),
+        // so every escapement and hold delay and opening width pauses exactly with the carts; without
+        // it, the controller clock is the game tick)
+        if o.ring_q > 0 && !(frz || real_frozen) {
+            ring_live += 1;
+            if ring_live >= ring_next {
+                let step = if o.ring_q == 34 { if ring_alt { 4 } else { 3 } } else { o.ring_q };
+                ring_alt = !ring_alt;
+                ring_time = ring_next;
+                ring_next += step;
+            }
+        }
+        let ct = if o.ring_q > 0 { ring_time } else { t };
+        let ct_adv = ct - prev_ct;
+        prev_ct = ct;
         // (cc767b78: the climb back is part of the frozen column: a freeze defers every pending
         // launch by its length (no cart spawned into, or rolling freely through, a frozen bench))
         if frz || real_frozen {
@@ -748,7 +774,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         }
         // (the ideal tail: the next pooled cart placed at rest at the last tail gate's face whenever
         // the last pocket is empty: the intake junction measured alone, with no tail chain upstream)
-        if o.ideal_tail && !pool.is_empty() && t >= next_spawn_ok && !gate_open[g.gates.iter().position(|x| x.0 == Role::Tail(0)).unwrap_or(0)] && t >= tail_release_until + 2 {
+        if o.ideal_tail && !pool.is_empty() && t >= next_spawn_ok && !gate_open[g.gates.iter().position(|x| x.0 == Role::Tail(0)).unwrap_or(0)] && ct >= tail_release_until + 2 {
             let (px5, ph5) = g.tail_p[0];
             let face = g.gates.iter().find(|x| x.0 == Role::Tail(0)).map_or(0.0, |x| x.1 as f64 + 0.375);
             let empty = ids.iter().all(|id| id.and_then(|id| cart_state(&run.world, id)).is_none_or(|(x, _, _)| x < px5 as f64 || x > face + 0.6));
@@ -930,7 +956,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         // (edge-triggered escapement, ironspec's ruling (a): G0 opens on the staged
                         // cart's pass edge into the hold)
                         if o.edge_esc && !o.esc_sensor && !frz {
-                            eg0_until = t + 12;
+                            eg0_until = ct + 12;
                             staged_at = Some(t);
                             if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
                                 eprintln!("t {t}: P_h0 edge, G0 fires");
@@ -954,7 +980,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 if o.alive && !(alive && gate.allow_rise(&run.world, "G0 (escapement edge)", t)) {
                     g0_wait = true;
                 } else {
-                    eg0_until = t + 12;
+                    eg0_until = ct + 12;
                     staged_at = Some(t);
                     stage_live = 0;
                 }
@@ -966,7 +992,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         }
         if g0_wait && alive && !frz && gate.allow_rise(&run.world, "G0 (escapement edge, waited)", t) {
             g0_wait = false;
-            eg0_until = t + 12;
+            eg0_until = ct + 12;
             staged_at = Some(t);
             stage_live = 0;
         }
@@ -1011,7 +1037,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             if p_has {
                 staged = true;
             } else {
-                eg0_until = t + 12;
+                eg0_until = ct + 12;
                 staged_at = Some(t);
             }
             reset_log = format!("t {t}: broke the empty carts {broken:?}; latches re-read: hold {occ_h:?}, fills {fills_since}; P {}", if p_has { "held a cart (staged)" } else { "empty: G0 fired once" });
@@ -1047,6 +1073,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             hold_at_release.push((t, held));
             hold_release_until = t + o.hold_pulse;
             hold_release_at = t;
+            hold_release_ct = ct;
             fills_since = 0;
             occ_h = if o.edge_esc { occ_h } else { [false; 3] };
             // (the carts released: those in the hold now; the rear-clear tracking restarts)
@@ -1060,16 +1087,18 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         let run_busy = matches!(run.world.get(BlockPos::new(g.run_sensor.0, g.run_sensor.1, 0)), Block::DetectorRail { powered: true, .. });
         // (the last pocket's cart released only at rest: its pass edge plus a live-time settle count,
         // ironspec 17:19 (i))
-        if !frz {
+        if o.ring_q > 0 {
+            settle_live += ct_adv;
+        } else if !frz {
             settle_live += 1;
         }
         // (intake keyed on the escapement's own admission, ironspec 17:43 (B): each G0 opening edge
         // owes one intake; the last tail gate releases its waiting cart (latched, settled) once per
         // owed admission, so the run's count stays constant)
-        let g0_w = if o.edge_esc { t < eg0_until && !frz } else { in_cycles && !frz && G0_AT.iter().any(|a| (ph >= *a && ph < a + 12) || (t - warm >= 100 && ph + 100 >= *a && ph + 100 < a + 12)) };
+        let g0_w = if o.edge_esc { ct < eg0_until && !frz } else { in_cycles && !frz && G0_AT.iter().any(|a| (ph >= *a && ph < a + 12) || (t - warm >= 100 && ph + 100 >= *a && ph + 100 < a + 12)) };
         if g0_w && !g0_prev_w {
             owed += 1;
-            owed_at.push_back(t);
+            owed_at.push_back(ct);
         }
         g0_prev_w = g0_w;
         // (--start-fill N, the guide's fill procedure: carts join the run only ridden, one at a time:
@@ -1132,12 +1161,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         let tail_ev = if gentle_filling {
             false
         } else if filling {
-            occ_t[nt - 1] && t - run_still_since >= 5 && settle_live >= o.settle && t >= tail_release_until + 4
+            occ_t[nt - 1] && t - run_still_since >= 5 && settle_live >= o.settle && ct >= tail_release_until + 4
         } else if o.intake_admit {
             // (released once the admission's train shift has settled: `adm_settle` gt after its edge)
-            occ_t[nt - 1] && owed > 0 && owed_at.front().is_some_and(|e| t - e >= o.adm_settle) && settle_live >= o.settle && t >= tail_release_until + 4
+            occ_t[nt - 1] && owed > 0 && owed_at.front().is_some_and(|e| ct - e >= o.adm_settle) && settle_live >= o.settle && ct >= tail_release_until + 4
         } else {
-            !o.overfill && occ_t[nt - 1] && !run_busy && settle_live >= o.settle && t >= tail_release_until + 4
+            !o.overfill && occ_t[nt - 1] && !run_busy && settle_live >= o.settle && ct >= tail_release_until + 4
         };
         if tail_ev && o.intake_admit && !filling && !frz {
             owed -= 1;
@@ -1163,7 +1192,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         };
         if tail_go {
             tail_refusing = false;
-            tail_release_until = t + o.pulse;
+            tail_release_until = ct + o.pulse;
             occ_t[nt - 1] = false;
             count_q += 1;
             // (the released cart: the one resting at the last tail gate's face; its first contact is
@@ -1224,32 +1253,34 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         // staged cart's pass into the hold (P_h0's edge, above); one kick at the first cycle)
         if o.edge_esc {
             if t == warm {
-                eg0_until = t + 12;
+                eg0_until = ct + 12;
                 staged_at = Some(t);
             }
             // (live-time timers, day-1's pause semantics: with --alive-gate every delay counts only
-            // ticks while ALIVE, so a freeze pauses it instead of letting it run out under frozen carts)
+            // ticks while ALIVE, so a freeze pauses it instead of letting it run out under frozen carts;
+            // with --ring-q every delay advances by the ring clock's steps (ring-edge counting))
             let live = !o.alive || alive;
-            if staged_at.is_some() && live {
-                stage_live += 1;
+            let adv = if o.ring_q > 0 { ct_adv } else if live { 1 } else { 0 };
+            if staged_at.is_some() {
+                stage_live += adv;
             }
             if staged_at.is_some() && stage_live >= o.stage_delay {
                 staged = true;
                 staged_at = None;
                 stage_live = 0;
             }
-            if hold_release_at >= 0 && live {
-                rel_live += 1;
+            if hold_release_at >= 0 {
+                rel_live += adv;
             }
             // (--pb-locked: Ga's close delay a locked chain (runs through a freeze once started);
-            // otherwise pausable on ALIVE)
-            if pb_armed && (live || o.pb_locked) {
-                pb_live += 1;
+            // otherwise pausable (ALIVE, or the ring clock))
+            if pb_armed {
+                pb_live += if o.pb_locked { 1 } else { adv };
             }
             // (G_P's retry: a G_P opening whose cart never reaches the escapement sensor (it froze on P
             // through the opening) re-arms the staged latch after the pulse plus 20 live gt)
-            if gp_waiting.is_some() && live {
-                gp_wait_live += 1;
+            if gp_waiting.is_some() {
+                gp_wait_live += adv;
             }
             if gp_waiting.is_some() && gp_wait_live >= 11 + 20 && o.gp_retry {
                 gp_waiting = None;
@@ -1271,7 +1302,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 if o.alive {
                     let _ = gate.allow_rise(&run.world, "G_P (edge)", t);
                 }
-                egp_until = t + 11;
+                egp_until = ct + 11;
                 staged = false;
                 last_gp = t;
                 fills_since += 1;
@@ -1292,7 +1323,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 Role::Tail(j) if o.overfill && *j + 2 == nt => !occ_t[j + 1] && !last_open && !(*j == 0 && o.spacer > 0 && t - last_rise_t1 < o.spacer),
                 Role::Tail(j) => {
                     if *j + 1 == nt {
-                        t < tail_release_until
+                        ct < tail_release_until
                     } else {
                         let mut sh = occ_t[j + 1];
                         if *j == 0 && o.spacer > 0 && t - last_rise_t1 < o.spacer {
@@ -1301,8 +1332,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         !sh
                     }
                 }
-                Role::Gp if o.edge_esc => t < egp_until,
-                Role::G0 if o.edge_esc => t < eg0_until,
+                Role::Gp if o.edge_esc => ct < egp_until,
+                Role::G0 if o.edge_esc => ct < eg0_until,
                 Role::Gp => if o.alive { t < gp_until } else { in_cycles && !frz && o.esc_at.iter().any(|a| (ph >= a + 6 && ph < a + 6 + 11) || (t - warm >= 100 && ph + 100 >= a + 6 && ph + 100 < a + 6 + 11)) },
                 Role::G0 => if o.alive { t < g0_until } else { in_cycles && !frz && o.esc_at.iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12)) },
                 Role::Hold(j) => {
@@ -1314,7 +1345,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     } else {
                         hold_release_at + if o.hold_ripple > 0 { (2 - *j as i64) * o.hold_ripple } else { 0 }
                     };
-                    let mut until = hold_release_at + 2 * o.hold_ripple.max(0) + o.hold_pulse;
+                    let mut until = if o.ring_q > 0 {
+                        // (ring clock: the window's cap counted on ring edges since the release)
+                        if ct - hold_release_ct < 2 * o.hold_ripple.max(0) + o.hold_pulse { i64::MAX / 2 } else { t }
+                    } else {
+                        hold_release_at + 2 * o.hold_ripple.max(0) + o.hold_pulse
+                    };
                     // (--hold-close-ds: the release's gates shut once Ds has counted as many leaving
                     // edges as carts were latched at the release (evidence, ruling (a)); hold_pulse
                     // the cap)
