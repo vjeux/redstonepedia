@@ -539,6 +539,8 @@ struct MobRow {
 struct MobStats {
     checks: u64,
     jumps: u64,
+    /// mobs on the ground at a jump call, summed: the jumps that happened
+    mob_jumps: u64,
     outside: Vec<String>,
     held: Vec<String>,
     gone: Vec<String>,
@@ -546,10 +548,16 @@ struct MobStats {
 
 impl MobRow {
     fn jump(&self, srv: &mut VanillaServer) -> Result<()> {
+        let mut grounded = 0u64;
         for (dim, _, _) in &self.planes {
+            // (G1) how many mobs stand on the ground at this call: those are the real jumps
+            let out = srv.cmd(&format!("execute in minecraft:{dim} if entity @e[tag=loopmob,distance=0..,nbt={{OnGround:1b}}]"))?;
+            grounded += out.rsplit(' ').next().and_then(|w| w.trim().parse::<u64>().ok()).unwrap_or(0);
             srv.cmd(&format!("execute in minecraft:{dim} as @e[tag=loopmob,distance=0..,nbt={{OnGround:1b}}] run data merge entity @s {{Motion:[0.0d,0.42d,0.0d]}}"))?;
         }
-        self.stats.borrow_mut().jumps += 1;
+        let mut st = self.stats.borrow_mut();
+        st.jumps += 1;
+        st.mob_jumps += grounded;
         Ok(())
     }
 
@@ -595,9 +603,10 @@ impl MobRow {
     fn report(&self) -> String {
         let st = self.stats.borrow();
         format!(
-            "mob/pickup row: {} checks, {} forced jumps; outside their portal: {}; holding anything: {}; gone: {}",
+            "mob/pickup row: {} checks, {} jump calls (every 7 gt), {} mob jumps (mobs on the ground at a call); outside their portal: {}; holding anything: {}; gone: {}",
             st.checks,
             st.jumps,
+            st.mob_jumps,
             if st.outside.is_empty() { "none".to_string() } else { st.outside.join("; ") },
             if st.held.is_empty() { "none".to_string() } else { st.held.join("; ") },
             if st.gone.is_empty() { "none".to_string() } else { st.gone.join("; ") }
