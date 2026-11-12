@@ -818,11 +818,51 @@ pub fn stamp_class(p: &Place) -> &'static str {
 
 /// The golem-proof clearing cells for a place (9fc3155f, ironspec Nov 11 19:18's fix price): each
 /// standing cell within 2 sideways and 2 up or down of the rider's rail cell that is air with air
-/// above and below, the cell below set to glass (no golem spawns on glass) and the place re-checked
-/// alone in that world; the cells whose glass turns the place's class from "arms, never clears".
-/// A glass cell in a cart's or rider's space (a rail cell or the two cells over one) is skipped.
-pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos, block: &str) -> Result<Vec<(BlockPos, &'static str)>, String> {
-    let glass = redsim::block::Block::parse(block)?;
+/// above and below, the cell below set to the floor block (refused unless golem-proof) and every
+/// place re-checked in that world (G1's review: the floor can cut a zombie's sight or add a stroll
+/// target elsewhere); the cells whose floor turns the place's class from "arms, never clears", each
+/// with the other places whose class or `seen` it changes.
+/// A floor cell in a cart's or rider's space (a rail cell or the two cells over one) is skipped.
+/// The fix search's floor block, refused unless golem-proof (G1's review, ironspec Nov 12 00:09:
+/// `SpawnUtil.Strategy.LEGACY_IRON_GOLEM`'s excluded list: glass, stained and tinted glass, panes,
+/// glowstone, sea lantern, leaves, ice...; a block a golem can spawn on would add a golem spot).
+fn golem_proof(block: &str) -> Result<redsim::block::Block, String> {
+    let b = redsim::block::Block::parse(block)?;
+    if !redsim::entity::mob::blocks::golem_excluded(&b) {
+        return Err(format!("--fix-block {block}: a golem can spawn on it (not on LEGACY_IRON_GOLEM's excluded list: glass, glowstone, sea lantern, leaves, ice...): refused"));
+    }
+    Ok(b)
+}
+
+/// The full re-check of a fix (G1's review): every place but `skip` whose stamp class or `seen`
+/// count changed between `base` (no fix) and `ps` (the fix placed), each as "x,y,z: class (seen n)
+/// -> class (seen m)"; a place gone or new printed too.
+fn class_changes(base: &[Place], ps: &[Place], skip: BlockPos) -> Vec<String> {
+    let mut out = Vec::new();
+    for p in ps {
+        if p.cell == skip && !p.on_foot {
+            continue;
+        }
+        match base.iter().find(|b| b.cell == p.cell && b.on_foot == p.on_foot) {
+            Some(b) => {
+                if stamp_class(b) != stamp_class(p) || b.seen != p.seen {
+                    out.push(format!("{},{},{}{}: {} (seen {}) -> {} (seen {})", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, stamp_class(b), b.seen, stamp_class(p), p.seen));
+                }
+            }
+            None => out.push(format!("{},{},{}: new, {} (seen {})", p.cell.x, p.cell.y, p.cell.z, stamp_class(p), p.seen)),
+        }
+    }
+    for b in base {
+        if !ps.iter().any(|p| p.cell == b.cell && p.on_foot == b.on_foot) {
+            out.push(format!("{},{},{}: gone", b.cell.x, b.cell.y, b.cell.z));
+        }
+    }
+    out
+}
+
+pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos, block: &str) -> Result<Vec<(BlockPos, &'static str, Vec<String>)>, String> {
+    let glass = golem_proof(block)?;
+    let base = check_inner(spec, home, &[], panic_boxes, true, claims, None)?;
     let solid: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.to_string().ends_with(":air")).map(|(p, _)| *p).collect();
     let rails: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
     let cart_space = |p: BlockPos| rails.contains(&p) || rails.contains(&BlockPos::new(p.x, p.y - 1, p.z)) || rails.contains(&BlockPos::new(p.x, p.y - 2, p.z));
@@ -838,11 +878,13 @@ pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([
                 }
                 let mut s2 = spec.clone();
                 s2.blocks.push((f, glass.clone()));
-                let ps = check_inner(&s2, home, &[], panic_boxes, true, claims, Some(place))?;
+                // (the full re-check, G1's review: every place's class and `seen` with the floor
+                // placed, since a floor can cut a zombie's sight or add a stroll target elsewhere)
+                let ps = check_inner(&s2, home, &[], panic_boxes, true, claims, None)?;
                 if let Some(p) = ps.iter().find(|p| p.cell == place && !p.on_foot) {
                     let k = stamp_class(p);
                     if k != "arms, never clears" {
-                        out.push((f, k));
+                        out.push((f, k, class_changes(&base, &ps, place)));
                     }
                 }
             }
@@ -853,8 +895,9 @@ pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([
 
 /// [`clearing_fixes`] over pairs: when no single glass floor turns the place, every pair of the
 /// candidate floors (a walkway's two cells), the pairs whose glass turns it.
-pub fn clearing_fix_pairs(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos, block: &str) -> Result<(usize, Vec<(BlockPos, BlockPos, &'static str)>), String> {
-    let glass = redsim::block::Block::parse(block)?;
+pub fn clearing_fix_pairs(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos, block: &str) -> Result<(usize, Vec<(BlockPos, BlockPos, &'static str, Vec<String>)>), String> {
+    let glass = golem_proof(block)?;
+    let base = check_inner(spec, home, &[], panic_boxes, true, claims, None)?;
     let solid: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.to_string().ends_with(":air")).map(|(p, _)| *p).collect();
     let rails: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
     let cart_space = |p: BlockPos| rails.contains(&p) || rails.contains(&BlockPos::new(p.x, p.y - 1, p.z)) || rails.contains(&BlockPos::new(p.x, p.y - 2, p.z));
@@ -883,11 +926,11 @@ pub fn clearing_fix_pairs(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: 
             let mut s2 = spec.clone();
             s2.blocks.push((a, glass.clone()));
             s2.blocks.push((b, glass.clone()));
-            let ps = check_inner(&s2, home, &[], panic_boxes, true, claims, Some(place))?;
+            let ps = check_inner(&s2, home, &[], panic_boxes, true, claims, None)?;
             if let Some(p) = ps.iter().find(|p| p.cell == place && !p.on_foot) {
                 let k = stamp_class(p);
                 if k != "arms, never clears" {
-                    out.push((a, b, k));
+                    out.push((a, b, k, class_changes(&base, &ps, place)));
                 }
             }
         }
@@ -919,7 +962,7 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
                     }
                 })
                 .collect();
-            rows.push(format!("  STAMP {},{},{}{}: {class}; {} ({}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, if panicking { "panicking" } else { "calm" }, detail.join("; "), if p.village { "; in a village" } else { "" }));
+            rows.push(format!("  STAMP {},{},{}{}: {class}{}; {} ({}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, if panicking { "" } else { " (day: classed on IDLE's sources; REST's HOME walks not modeled)" }, if panicking { "panicking" } else { "calm" }, detail.join("; "), if p.village { "; in a village" } else { "" }));
         }
     }
     let mut lines = vec![format!(
@@ -949,7 +992,7 @@ fn clearing_lines(places: &[Place], each: bool) -> Vec<String> {
         if panicking(p) {
             lines.push(format!("  {tag} {},{},{}{}: panicking ({} seen within 8); the panic stroll reaches {} of its {} cells (an event picks one {:.0}%)", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, p.seen, p.panic_stroll.cells - p.panic_stroll.unreached.len(), p.panic_stroll.cells, 100.0 * p.panic_stroll.reached_share));
         } else {
-            lines.push(format!("  {tag} {},{},{}{}: calm (no zombie seen within 8); the calm stroll reaches {} of its {} cells (an event picks one {:.1}%)", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, p.stroll.cells - p.stroll.unreached.len(), p.stroll.cells, 100.0 * p.stroll.reached_share));
+            lines.push(format!("  {tag} {},{},{}{}: calm, day (no hostile seen within its range; IDLE's sources; REST's HOME walks not modeled); the calm stroll reaches {} of its {} cells (an event picks one {:.1}%)", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, p.stroll.cells - p.stroll.unreached.len(), p.stroll.cells, 100.0 * p.stroll.reached_share));
         }
     }
     lines

@@ -627,9 +627,10 @@ pub enum MobfarmCmd {
         /// neither) and its draws' reachable shares.
         #[arg(long)]
         path_trace: Option<String>,
-        /// The floor block --fix-search places (default glass: golem-proof, but not a stroll
-        /// destination, which needs a solid-render block below; glowstone and sea lantern are
-        /// both golem-proof and solid-render).
+        /// The floor block --fix-search places, refused unless golem-proof (LEGACY_IRON_GOLEM's
+        /// excluded list: glass, stained or tinted glass, panes, glowstone, sea lantern, leaves,
+        /// ice...); default glass (not a stroll destination, which needs a solid-render block below;
+        /// glowstone and sea lantern are both golem-proof and solid-render).
         #[arg(long, default_value = "minecraft:glass")]
         fix_block: String,
     },
@@ -7341,19 +7342,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::Envelope { families, q1, q2, villagers } => {
             use crate::envelope::{C, Queue};
             if !villagers.is_empty() {
-                let st = crate::envelope::station_v4();
+                let st = crate::envelope::station_m1();
                 let al = |p: i32| ((p + 15) / 16) * 16;
-                // (golems a day by count: 51b2aacd's derived table, with tick-exact's re-mark price at
-                // 18 (~3-4.5% lost: ~229) and the skip hold at 21 (~236); day-1 to confirm)
+                // (golems a day by count, NOT measured here: 51b2aacd's derived table, with
+                // tick-exact's re-mark price at 18 (~3-4.5% lost: ~229) and the skip hold at 21
+                // (~236); day-1's rows to confirm (printed in the header))
                 let gpd = |n: usize| -> f64 { match n { 0..=17 => 0.99 * 40.0 * n as f64 / 3.0, 18 => 229.0, 19..=21 => 236.0, _ => 238.0 } };
                 struct Row { n: usize, fam: String, queue: String, nap: String, gpd: f64, vol: i64, blocks: i64, red: i64, area: f64, dims: String, margin: i64 }
                 let mut rows: Vec<Row> = Vec::new();
                 for &n in &villagers {
                     let b = n / 3;
                     let linger = b.saturating_sub(6);
-                    let out = (n - 3).min(15).max(n.saturating_sub(3).min(15));
-                    let out_n = if n >= 18 { 15 } else { n - 3 };
-                    let _ = out;
+                    // (the out-of-range group: N - 3, at most 15 (the batches past the floor's 6
+                    // linger in range); saturating below 3 villagers)
+                    let out_n = n.saturating_sub(3).min(15);
                     for f in &families {
                         if f == "F5" {
                             continue;
@@ -7389,25 +7391,26 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for (nap, track, nap_red, z4) in naps {
                                 let lay = crate::envelope::layout(f, q, &st, z4).map_err(|e| anyhow::anyhow!(e))?;
                                 let (lo, hi) = crate::envelope::bound(&lay.boxes);
-                                let (px, pz) = (crate::envelope::pitch(&lay, &st, 0), crate::envelope::pitch(&lay, &st, 2));
-                                let (_, mper) = crate::envelope::pitch_mirror_z(&lay, &st);
+                                // (the strict pitch: every rider position, G1's review)
+                                let (px, pz) = (crate::envelope::pitch(&lay, &st, 0, true), crate::envelope::pitch(&lay, &st, 2, true));
+                                let (_, mper) = crate::envelope::pitch_mirror_z(&lay, &st, true);
                                 let area = (al(px) as f64 * al(pz) as f64).min(if mper > 0 { al(px) as f64 * mper as f64 / 2.0 } else { f64::MAX });
                                 let (mut tr, _) = crate::envelope::transport_blocks(f, q, &lay, &st);
-                                // (Q2 shares one lift with a merge and a split: 7b90c3f1's ~420 at H 41)
-                                if let Queue::Q2(..) = q
-                                    && (f == "F1" || f == "F3")
-                                {
-                                    let top = lay.riders.iter().map(|r| r.y).fold(f64::MIN, f64::max);
-                                    let bot = lay.riders.iter().map(|r| r.y).fold(f64::MAX, f64::min);
-                                    let h = if f == "F1" { top + 4.0 } else { 4.0 - bot }.ceil() as i64;
-                                    tr = 8 * h + 30 + 60 + if f == "F1" { 90 } else { 30 };
+                                // (the shared lift's height from the layout's lift column (x 1.5): 8H + 30,
+                                // + 60 for a Q2 merge and split (7b90c3f1))
+                                let lift: Vec<f64> = lay.transit.iter().filter(|p| (p.x - 1.5).abs() < 1e-9).map(|p| p.y).collect();
+                                if !lift.is_empty() && f != "F5" {
+                                    let h = (lift.iter().cloned().fold(f64::MIN, f64::max) - lift.iter().cloned().fold(f64::MAX, f64::min)).ceil() as i64;
+                                    tr = 8 * h + 30 + if let Queue::Q2(..) = q { 60 } else { 0 } + if f == "F3" { 30 } else { 0 } + if f == "F2" { 2 * (lay.transit.len() as i64 - lift.len() as i64) / 3 } else { 0 };
                                 }
                                 let ctrl = match q { Queue::Q1(_) => 338, Queue::Q2(..) => 195 } + nap_red;
                                 let tier_extra = if z4 { 400 - 152 + 3 * 34 * 2 } else { 0 };
                                 let blocks = crate::envelope::blocks(out_n + 3 * linger, tr + track, ctrl, 13) + tier_extra;
                                 // (the exit's margin: out of range by T + 100 (1 + the lingering summons))
                                 // (falls: onechunk's correction, 26 blocks ~52 gt)
-                                let t_out = match f.as_str() { "F1" => 32, "F2" => 46, _ => 53 };
+                                // (the departing batch's last cart out of range: F1 by the shared lift ~T+71
+                                // (7b90c3f1), F2 by its track and lift, F3 by the fall (drag 0.95, ~52 gt))
+                                let t_out = match f.as_str() { "F1" => 71, "F2" => 90, _ => 53 };
                                 let margin = 100 * (1 + linger as i64) - t_out;
                                 rows.push(Row {
                                     n,
@@ -7433,6 +7436,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let lt = b.n < a.n || b.gpd > a.gpd || b.vol < a.vol || b.blocks < a.blocks || b.red < a.red || b.area < a.area;
                     le && lt
                 });
+                println!("(the M1 station; every rider position in the bed check and in the pitch (strict); golems a day NOT measured here: 51b2aacd's derived rows, tick-exact's re-mark price at 18, day-1 to confirm; blocks are part-budget estimates)");
                 println!("N | golems/day | family | queue | naps | envelope (blocks^3) | blocks (L1) | redstone | tiling area/module | exit margin (gt) | Pareto");
                 for r in &rows {
                     println!(
@@ -7442,14 +7446,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
-            let st = crate::envelope::station_v4();
+            let st = crate::envelope::station_m1();
             let cb = crate::envelope::clear_bounds(&st);
             println!(
                 "constants: sight {} sideways, {} above / {} below a golem's feet; mark {} / {} (inside the sight box); bed radius {}; margin {}; lift {} b/t; cart {} b/t; bed tier {}x{}x{}; S1 posts {} beside [code: 26.3 GolemSensor / spawnGolemIfNeeded at the worst-case follow range 17.84; derived: bed, posts]",
                 C.sight_side, C.sight_above, C.sight_below, C.mark_side, C.mark_vert, C.bed_r, C.margin, C.lift, C.cart, C.tier[0], C.tier[1], C.tier[2], C.posts
             );
             println!(
-                "station (v4's, file frame): summoners {}; 44 golem cells x 4..13 z 0..5 feet -6; blocks x {}..{} y {}..{} z {}..{}; out of range: x <= {:.2} or >= {:.2}, z <= {:.2} or >= {:.2}, feet >= {:.2} or <= {:.2}",
+                "station (the M1 station, dfb89499 a07e7a1b3; file frame): summoners {}; holds (waiting) at 16.19 over them; the pad's extent x 4..14 z 0..5 at feet -6 (its 44 reachable cells inside); blocks x {}..{} y {}..{} z {}..{}; out of range: x <= {:.2} or >= {:.2}, z <= {:.2} or >= {:.2}, feet >= {:.2} or <= {:.2}",
                 st.summoners.iter().map(|p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" "),
                 st.lo[0], st.hi[0], st.lo[1], st.hi[1], st.lo[2], st.hi[2], cb[0], cb[1], cb[2], cb[3], cb[4], cb[5]
             );
@@ -7464,8 +7468,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let lay = crate::envelope::layout(f, *q, &st, z4).map_err(|e| anyhow::anyhow!(e))?;
                     let (lo, hi) = crate::envelope::bound(&lay.boxes);
                     let bind = crate::envelope::binding(&lay);
-                    let (px, pz) = (crate::envelope::pitch(&lay, &st, 0), crate::envelope::pitch(&lay, &st, 2));
-                    let (mp, mper) = crate::envelope::pitch_mirror_z(&lay, &st);
+                    let (px, pz) = (crate::envelope::pitch(&lay, &st, 0, true), crate::envelope::pitch(&lay, &st, 2, true));
+                    let (wx, wz) = (crate::envelope::pitch(&lay, &st, 0, false), crate::envelope::pitch(&lay, &st, 2, false));
+                    let (mp, mper) = crate::envelope::pitch_mirror_z(&lay, &st, true);
+                    println!("  pitch with the waiting riders only (the departing batch lingers by rule): x {wx}, z {wz}; the strict pitch below takes every rider position");
                     let al = |p: i32| ((p + 15) / 16) * 16;
                     println!(
                         "{} with {}{}: envelope {} x {} x {} (x {}..{}, y {}..{}, z {}..{}) = {} blocks^3; binding x: {}; y: {}; z: {}; pitch x {} ({} chunk-aligned), z {} ({})",
@@ -7578,17 +7584,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let runs = crate::fleecheck::stamp_path(&roles, &path);
                 let worst = runs.iter().map(|r| r.cleared.map_or(path.len() as i64 - r.t0, |(t, _)| t - r.t0)).max().unwrap_or(0);
                 println!(
-                    "path-integrated stamp age (DIAGNOSTIC: e6 positive control not met; {} ticks of the rider's path; arms: a panicking cell whose draws no path reaches, clears: a panicking cell with a reachable draw; calm cells neither): {} stamps, the worst {} gt (bar < 1000): {}",
+                    "path-integrated stamp age (DIAGNOSTIC: e6 positive control not met; no verdict: a bar needs a runtime runner's stamp; {} ticks of the rider's path; arms: a panicking cell whose draws no path reaches, clears: a panicking cell with a reachable draw; calm cells neither): {} stamps, the worst {} gt",
                     path.len(),
                     runs.len(),
-                    worst,
-                    if worst < 1000 { "PASS" } else { "FAIL" }
+                    worst
                 );
                 let label = |t: i64| path.get(t as usize).map_or(String::new(), |p| p.2.replace(' ', ""));
                 for r in &runs {
                     match r.cleared {
-                        Some((t, c)) => println!("  STAMP-AGE armed {} at {},{},{} ({}), cleared {} at {},{},{}: {} gt", label(r.t0), r.cell0.x, r.cell0.y, r.cell0.z, r.src, label(t), c.x, c.y, c.z, t - r.t0),
-                        None => println!("  STAMP-AGE armed {} at {},{},{} ({}), still armed at the path's end: {} gt or more", label(r.t0), r.cell0.x, r.cell0.y, r.cell0.z, r.src, path.len() as i64 - r.t0),
+                        Some((t, c)) => println!("  STAMP-AGE (DIAGNOSTIC) armed {} at {},{},{} ({}), cleared {} at {},{},{}: {} gt", label(r.t0), r.cell0.x, r.cell0.y, r.cell0.z, r.src, label(t), c.x, c.y, c.z, t - r.t0),
+                        None => println!("  STAMP-AGE (DIAGNOSTIC) armed {} at {},{},{} ({}), still armed at the path's end: {} gt or more", label(r.t0), r.cell0.x, r.cell0.y, r.cell0.z, r.src, path.len() as i64 - r.t0),
                     }
                 }
                 if let Some(pt) = &path_trace {
@@ -7629,7 +7634,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     at.x,
                     at.y,
                     at.z,
-                    if fixes.is_empty() { "none".to_string() } else { fixes.iter().map(|(f, k)| format!("{short} {},{},{} -> {k}", f.x, f.y, f.z)).collect::<Vec<_>>().join("; ") }
+                    if fixes.is_empty() { "none".to_string() } else { fixes.iter().map(|(f, k, ch)| format!("{short} {},{},{} -> {k} (the full re-check: {})", f.x, f.y, f.z, if ch.is_empty() { "no other place's class or seen changes".to_string() } else { ch.join(", ") })).collect::<Vec<_>>().join("; ") }
                 );
                 if fix_pairs {
                     let (n, pairs) = crate::fleecheck::clearing_fix_pairs(&spec, bed, &panic_boxes, &claims, at, &fix_block).map_err(|e| anyhow::anyhow!(e))?;
@@ -7638,7 +7643,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         at.x,
                         at.y,
                         at.z,
-                        if pairs.is_empty() { "none".to_string() } else { pairs.iter().map(|(a, b, k)| format!("{short} {},{},{} + {},{},{} -> {k}", a.x, a.y, a.z, b.x, b.y, b.z)).collect::<Vec<_>>().join("; ") }
+                        if pairs.is_empty() { "none".to_string() } else { pairs.iter().map(|(a, b, k, ch)| format!("{short} {},{},{} + {},{},{} -> {k} (the full re-check: {})", a.x, a.y, a.z, b.x, b.y, b.z, if ch.is_empty() { "no other place's class or seen changes".to_string() } else { ch.join(", ") })).collect::<Vec<_>>().join("; ") }
                     );
                 }
             }

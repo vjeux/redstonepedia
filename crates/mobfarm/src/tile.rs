@@ -3,11 +3,13 @@
 //! module's pad sensed by the other's riders (the worst-case follow range 17.84: |dx|, |dz| < 18.84
 //! and the golem's feet < 19.79 above / < 20.54 below the rider's), (b) a summon in one module
 //! marking the other's riders (|dx|, |dz| < 10.6 and feet within 11.95), (e) one module's zombies
-//! within 6.05 of the other's riders, (f) the beds' distance, (g) the chunk alignment. Positions:
-//! every rider position along every rail cell (3 points a cell, the cart's feet: a villager sits at
-//! the cart's y) and, separately, the design's own placed riders (the waiting places); the
-//! summoners the three lowest placed riders (the stand); the golem cells the cells the summoners'
-//! searches spawn on; the zombies as seated.
+//! within 6.05 of the other's riders, and within 8 of its napper's sleep and stand-up points, (f)
+//! the beds' distance (a neighbour's bed is a village POI within 8 sections: no bar here), (g) the
+//! chunk alignment. Positions: every rider position along every rail cell (3 points a cell, the
+//! cart's feet: a villager sits at the cart's y), the napper on foot (each bed's sleep point and
+//! stand-up cells) and, separately, the design's own placed riders (the waiting places); the
+//! summoners the three placed riders whose summon searches find the most golem cells (the stand);
+//! the golem cells the cells the summoners' searches spawn on; the zombies as seated.
 
 use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
 use redsim::entity::mob::spawn;
@@ -28,6 +30,8 @@ pub struct Sets {
     pub zombies: Vec<Vec3>,
     /// The beds' heads.
     pub beds: Vec<BlockPos>,
+    /// The napper on foot: each bed's sleep point and stand-up cells (feet); also in `riders`.
+    pub napper: Vec<Vec3>,
 }
 
 /// The sets of `spec`'s module (its world built and settled).
@@ -52,20 +56,43 @@ pub fn sets(spec: &FarmSpec) -> Result<Sets, String> {
         .map(|(_, p, _)| Vec3::new(p[0], p[1], p[2]))
         .collect();
     waiting.sort_by(|a, b| a.y.total_cmp(&b.y));
-    let summoners: Vec<Vec3> = waiting.iter().take(3).copied().collect();
+    // (the summoners by role, G1's review: the three placed riders whose summon searches find the
+    // most golem spawn cells (the stand over its pad), not the three lowest (wrong for F3, whose
+    // queue is below the stand))
+    let mut scored: Vec<(usize, Vec3, Vec<Vec3>)> = waiting
+        .iter()
+        .map(|s| {
+            let start = BlockPos::new(s.x.floor() as i32, s.y.floor() as i32, s.z.floor() as i32);
+            let cells: Vec<Vec3> = spawn::golem_spawn_cells_from(w, start).into_iter().filter(|(_, ok)| ok.is_ok()).map(|(c, _)| Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5)).collect();
+            (cells.len(), *s, cells)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.y.total_cmp(&b.1.y)));
+    let summoners: Vec<Vec3> = scored.iter().filter(|(n, _, _)| *n > 0).take(3).map(|(_, s, _)| *s).collect();
     let mut golems: Vec<Vec3> = Vec::new();
-    for s in &summoners {
-        let start = BlockPos::new(s.x.floor() as i32, s.y.floor() as i32, s.z.floor() as i32);
-        for (cell, ok) in spawn::golem_spawn_cells_from(w, start) {
-            let g = Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5);
-            if ok.is_ok() && !golems.iter().any(|h| (h.x - g.x).abs() < 1e-9 && (h.y - g.y).abs() < 1e-9 && (h.z - g.z).abs() < 1e-9) {
-                golems.push(g);
+    for (_, _, cells) in scored.iter().filter(|(n, _, _)| *n > 0).take(3) {
+        for g in cells {
+            if !golems.iter().any(|h| (h.x - g.x).abs() < 1e-9 && (h.y - g.y).abs() < 1e-9 && (h.z - g.z).abs() < 1e-9) {
+                golems.push(*g);
             }
         }
     }
     let zombies = crate::fleecheck::zombies_seated(w, spec);
     let beds: Vec<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("_bed[") && b.to_string().contains("part=head")).map(|(p, _)| *p).collect();
-    Ok(Sets { riders, waiting, summoners, golems, zombies, beds })
+    // (the napper on foot, G1's review: its sleep point (the bed head, the sleeping villager at the
+    // bed's height) and its stand-up cells (the head's four sides at floor level) as rider positions)
+    let mut napper = Vec::new();
+    for b in &beds {
+        napper.push(Vec3::new(b.x as f64 + 0.5, b.y as f64 + 0.5625, b.z as f64 + 0.5));
+        for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let c = BlockPos::new(b.x + dx, b.y, b.z + dz);
+            if w.get(c).is_air() && w.get(BlockPos::new(c.x, c.y + 1, c.z)).is_air() {
+                napper.push(Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5));
+            }
+        }
+    }
+    riders.extend(napper.iter().copied());
+    Ok(Sets { riders, waiting, summoners, golems, zombies, beds, napper })
 }
 
 /// A copy's point: mirrored in z (a cell z to -z: a point z to 1 - z) when `mirror_z`, then moved
@@ -123,12 +150,16 @@ pub fn candidate(a: &Sets, at: [i32; 3], mirror_z: bool) -> String {
     let mark_all = both(&a.summoners, &br, &bs, &a.riders, &mark_margin);
     let mark_wait = both(&a.summoners, &bw, &bs, &a.waiting, &mark_margin);
     let zomb = both(&a.zombies, &br, &bz, &a.riders, &zdist);
+    // ((e) for the napper, G1's review: a neighbour's zombie within 8 of the napper's sleep point or
+    // a stand-up cell, distance only (sight needs the composite world: the flee-check screen))
+    let bn = mv(&a.napper);
+    let nap8 = both(&a.zombies, &bn, &bz, &a.napper, &|z: Vec3, v: Vec3| ((z.x - v.x).powi(2) + (z.y - v.y).powi(2) + (z.z - v.z).powi(2)).sqrt() - 8.0);
     let bed = a.beds.iter().flat_map(|p| {
         let q = place(Vec3::new(p.x as f64, p.y as f64, p.z as f64), at, mirror_z);
         a.beds.iter().map(move |r| ((q.x - r.x as f64).powi(2) + (q.y - r.y as f64).powi(2) + (q.z - r.z as f64).powi(2)).sqrt())
     }).fold(f64::MAX, f64::min);
     format!(
-        "at {},{},{}{}: (a) golem sight, every rider position {}; the waiting riders {} | (b) summon mark, every rider position {}; the waiting riders {} | (e) zombie to rider (6.05) {} | (f) beds {} apart | (g) chunk-aligned {}",
+        "at {},{},{}{}: (a) golem sight, every rider position {}; the waiting riders {} | (b) summon mark, every rider position {}; the waiting riders {} | (e) zombie to rider (6.05) {}; to the napper's sleep and stand-up points (8, distance only) {} | (f) beds {} apart (a neighbour's bed within 8 sections, 128 blocks, is a village POI to this module's riders: no bar here; ironspec's condition is the composite flee-check with the neighbours' beds in every ticket state and no path to them) | (g) chunk-aligned {}",
         at[0],
         at[1],
         at[2],
@@ -138,6 +169,7 @@ pub fn candidate(a: &Sets, at: [i32; 3], mirror_z: bool) -> String {
         fmt(mark_all),
         fmt(mark_wait),
         fmt(zomb),
+        fmt(nap8),
         if bed == f64::MAX { "-".into() } else { format!("{bed:.1}") },
         if at[0].rem_euclid(16) == 0 && at[2].rem_euclid(16) == if mirror_z { 15 } else { 0 } { "yes" } else { "no" }
     )
