@@ -946,7 +946,10 @@ pub fn t_rails(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>
         let with = |cells: Vec<[i32; 3]>| -> Vec<[i32; 3]> { cells.iter().flat_map(|x| n6(*x)).chain(cells.iter().copied()).collect() };
         match n {
             "redstone_block" => Vec::new(),
-            // (its own neighbours and the block below's: `updatePowerToConnected`)
+            // (its own neighbours and the block below's: `updatePowerToConnected`; an ascending one
+            // also the cell above's (G1 on f1507f5dc: the ruled reach set, push-scan's above-slope
+            // rule: split9's branch detectors ascend south beside J))
+            "detector_rail" if s.contains("ascending") => with(vec![c, [c[0], c[1] - 1, c[2]], [c[0], c[1] + 1, c[2]]]),
             "detector_rail" => with(vec![c, [c[0], c[1] - 1, c[2]]]),
             "redstone_wire" | "redstone_torch" | "redstone_wall_torch" => with(n6(c).into_iter().chain([c]).collect()),
             // (the block in front and its neighbours; a repeater's or comparator's front is opposite
@@ -1039,6 +1042,81 @@ pub fn placement_order(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec
 /// target block (every portal block; with `glass`, every glass block too: the loader's overworld
 /// side): 0 required; those within 10.5 printed for charged creepers. The distance runs from the
 /// creeper's feet point (the explosion's centre) to the block's nearest point. (report, passes)
+/// (ironspec 08:10 and 08:21) The assembly check: `composed` (the design re-composed from its
+/// declared parts and overrides) against `committed` (the file as committed): every cell and
+/// entity must match. A cell or entity in the committed file that no part declares (a leftover:
+/// a superseded part's cell that stayed, a stale mob) is printed, and so is a declared one the file
+/// lacks or holds differently. Then the census of the file's entities (each passenger counted).
+pub fn assembly_check(composed: &Design, committed: &Design) -> (String, bool) {
+    let mut s = String::new();
+    let mut leftover: Vec<String> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+    let mut differ: Vec<String> = Vec::new();
+    for (p, b) in &committed.blocks {
+        match composed.blocks.get(p) {
+            None => leftover.push(format!("({},{},{}) {b}", p[0], p[1], p[2])),
+            Some(c) if c != b => differ.push(format!("({},{},{}) {b} in the file, {c} declared", p[0], p[1], p[2])),
+            Some(_) => {}
+        }
+    }
+    for (p, c) in &composed.blocks {
+        if !committed.blocks.contains_key(p) {
+            missing.push(format!("({},{},{}) {c}", p[0], p[1], p[2]));
+        }
+    }
+    let mut ent_left: Vec<String> = Vec::new();
+    let mut want: Vec<&mctas::design::EntitySpec> = composed.entities.iter().collect();
+    for e in &committed.entities {
+        if let Some(i) = want.iter().position(|w| *w == e) {
+            want.remove(i);
+        } else {
+            ent_left.push(format!("{} at ({},{},{}) {}", e.kind, e.pos[0], e.pos[1], e.pos[2], e.nbt.as_deref().unwrap_or("")));
+        }
+    }
+    let ent_missing: Vec<String> = want.iter().map(|e| format!("{} at ({},{},{}) {}", e.kind, e.pos[0], e.pos[1], e.pos[2], e.nbt.as_deref().unwrap_or(""))).collect();
+    let list = |v: &[String]| v.iter().take(40).cloned().collect::<Vec<_>>().join("; ");
+    s.push_str(&format!(
+        "{} cells in the file, {} declared by the parts and overrides: {} leftover (in the file, no part declares it){}, {} missing{}, {} different{}\n",
+        committed.blocks.len(),
+        composed.blocks.len(),
+        leftover.len(),
+        if leftover.is_empty() { String::new() } else { format!(": {}", list(&leftover)) },
+        missing.len(),
+        if missing.is_empty() { String::new() } else { format!(": {}", list(&missing)) },
+        differ.len(),
+        if differ.is_empty() { String::new() } else { format!(": {}", list(&differ)) }
+    ));
+    s.push_str(&format!(
+        "{} entities in the file, {} declared: {} leftover{}, {} missing{}\n",
+        committed.entities.len(),
+        composed.entities.len(),
+        ent_left.len(),
+        if ent_left.is_empty() { String::new() } else { format!(": {}", list(&ent_left)) },
+        ent_missing.len(),
+        if ent_missing.is_empty() { String::new() } else { format!(": {}", list(&ent_missing)) }
+    ));
+    // the census: each entity by kind, its passengers too
+    let mut census: BTreeMap<String, usize> = BTreeMap::new();
+    for e in &committed.entities {
+        *census.entry(e.kind.trim_start_matches("minecraft:").to_string()).or_insert(0) += 1;
+        if let Some(n) = &e.nbt {
+            for part in n.split("id:\"minecraft:").skip(1) {
+                let k: String = part.chars().take_while(|c| *c != '"').collect();
+                *census.entry(k).or_insert(0) += 1;
+            }
+        }
+    }
+    s.push_str(&format!("census (the file's entities, each passenger counted): {}\n", census.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ")));
+    if !committed.nether_blocks.is_empty() || !composed.nether_blocks.is_empty() {
+        let nl = committed.nether_blocks.iter().filter(|(p, b)| composed.nether_blocks.get(*p) != Some(*b)).count();
+        let nm = composed.nether_blocks.iter().filter(|(p, _)| !committed.nether_blocks.contains_key(*p)).count();
+        s.push_str(&format!("Nether part: {} cells in the file, {} declared: {nl} leftover or different, {nm} missing\n", committed.nether_blocks.len(), composed.nether_blocks.len()));
+    }
+    let ok = leftover.is_empty() && missing.is_empty() && differ.is_empty() && ent_left.is_empty() && ent_missing.is_empty();
+    s.push_str(&format!("assembly: {}\n", if ok { "every cell and entity declared by a part (PASS)" } else { "FAIL" }));
+    (s, ok)
+}
+
 pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool, unlit_control: bool) -> Result<(String, bool), String> {
     use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
     use redsim::entity::mob::hostile;

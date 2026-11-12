@@ -645,6 +645,10 @@ pub struct RunOut {
     /// seen crossing, those past 0.375 from the column's centre, the largest offset, and the
     /// flight time from the arrival (min, max, sum).
     pub face: [(usize, usize, f64, i64, i64, i64); 2],
+    /// (ironspec 07:54, the twin's condition (b)) The longest time any arrival spent inside its
+    /// portal's cells, per side (gt): an arrival re-crosses only if it is still in a portal block
+    /// when its portal cooldown ends.
+    pub portal_time: [i64; 2],
     pub errors: Vec<String>,
     pub log: Vec<String>,
     pub stuck_log: Vec<String>,
@@ -845,6 +849,9 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
                 let inside = e.1[0] > -0.13 && e.1[0] < width as f64 + 0.13 && e.1[2] > -0.13 && e.1[2] < 1.13 && e.1[1] > 9.9 && e.1[1] < (10 + o.height) as f64;
                 if inside {
                     let since = *inside_since.entry((wi, e.0)).or_insert(t);
+                    if arriving[wi].contains(&e.0) {
+                        out.portal_time[wi] = out.portal_time[wi].max(t - since + 1);
+                    }
                     if t - since == 40 {
                         out.stuck += 1;
                         out.stuck_log.push(format!("t {rel}: item {} inside {}'s portal 40 gt at ({:.2},{:.2},{:.2}) v ({:.3},{:.3},{:.3}), cooldown {}", e.0, if wi == 0 { "A" } else { "B" }, e.1[0], e.1[1], e.1[2], e.2[0], e.2[1], e.2[2], e.3));
@@ -1060,6 +1067,39 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
         s.push_str(&format!(
             "  at the face crossing (the first tick an arrival's box reaches the exit face): {} arrivals; offset from the column's centre past 0.375 {} ({:.3}%); the largest {:.3}; flight time from the arrival {}..{} gt (mean {:.1})\n",
             fc.0, fc.1, if fc.0 == 0 { 0.0 } else { 100.0 * fc.1 as f64 / fc.0 as f64 }, fc.2, if fc.3 == i64::MAX { 0 } else { fc.3 }, fc.4, if fc.0 == 0 { 0.0 } else { fc.5 as f64 / fc.0 as f64 }
+        ));
+        // (ironspec 07:54, the twin's condition (b)) an arrival re-crosses only if it is still in a
+        // portal block when its portal cooldown (300 gt, `setPortalCooldown` on the crossing's copy)
+        // ends
+        let pt = runs.iter().map(|r| r.portal_time[wi]).max().unwrap_or(0);
+        s.push_str(&format!("  the longest time an arrival spent inside the portal's cells: {pt} gt (its portal cooldown 300: margin {})\n", 300 - pt));
+    }
+    // (ironspec 07:54, the twin's condition (a)) where a dispensed item can cross, from the code:
+    // `DefaultDispenseItemBehavior.spawnItem` (accuracy 6) gives its x velocity
+    // `triangle(stepX * pow, 0.0172275 * 6)` = triangle(0, 0.103365) for a dropper facing along z,
+    // bounded (mean + spread * (nextDouble - nextDouble)), and spawns it 0.7 in front of the dropper's
+    // centre (`getDispensePosition`), inside the portal block's cell; its z velocity is at least
+    // 0.2 - 0.103365 = 0.0966, so its first move puts its box (half-width 0.125) into the portal's
+    // inside shape (z 0.375..0.625 of the cell: 0.7 - 0.5 + 0.0966 + 0.125 > 0.375), and
+    // `NetherPortalBlock.getPortalTransitionTime` is 0 for a non-player: it crosses at its next
+    // tick's portal check, after 1 move (2 allowed here); each move's x step decays by the item's
+    // drag 0.98
+    let bound = |moves: i32| -> f64 { (0..moves).map(|k| 0.103365 * 0.98f64.powi(k)).sum() };
+    let (b2, b5) = (bound(2), bound(5));
+    for (wi, name) in [(0usize, "A"), (1usize, "B")] {
+        let side = if wi == 0 { sides(o.width, o.height, o.fire_y, o.far_rows).0 } else { sides(o.width, o.height, o.fire_y, o.far_rows).1 };
+        let c = side.col as f64 + 0.5;
+        s.push_str(&format!(
+            "side {name} fires from column x {} (centre {c:.1}): the code-derived crossing bound |x - {c:.1}| <= {b2:.4} after 2 moves ({:.4}..{:.4}; {:.4} after 5), the item's box (half-width 0.125) inside x {:.3}..{:.3}: inside its own column x {}..{} with margin {:.3}\n",
+            side.col,
+            c - b2,
+            c + b2,
+            b5,
+            c - b2 - 0.125,
+            c + b2 + 0.125,
+            side.col,
+            side.col + 1,
+            0.5 - b2 - 0.125
         ));
     }
     for r in fails.iter().take(6) {

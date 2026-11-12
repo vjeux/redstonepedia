@@ -1801,6 +1801,11 @@ pub enum MobfarmCmd {
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
+        /// The assembly check: compare this committed file with the composition (cell for cell,
+        /// entity for entity: any cell or entity no part declares is printed) and print the
+        /// census; exit 1 on any difference.
+        #[arg(long)]
+        verify: Option<PathBuf>,
     },
     /// A design's overworld box: its extents, volume, the chunk columns it crosses (X >> 4,
     /// Z >> 4 of its cells as written) and its blocks by kind, within `--box` if given.
@@ -1859,6 +1864,13 @@ pub enum MobfarmCmd {
         piglins: Option<f64>,
         #[arg(long, default_value_t = 2)]
         difficulty: i32,
+        /// Also check the Nether group file (the kill room, storage, shield and twin, Nether
+        /// frame) against the twin's ticket alone.
+        #[arg(long)]
+        nether_group: Option<PathBuf>,
+        /// The twin's lowest portal row in the Nether group (its portal blocks at or above it).
+        #[arg(long, default_value_t = 110)]
+        twin_y: i32,
     },
     /// (onechunk Nov 12; ironspec's deciding test for every rider's bed) The assembled F1 + Q2
     /// module run with REAL brains: every villager's stamp at each calm REST tick with no walk
@@ -1890,6 +1902,18 @@ pub enum MobfarmCmd {
         /// table v6 at s 12: the golem pulse starts a cycle, REL = golem + 4).
         #[arg(long)]
         drive: bool,
+        /// Riders a lane at the start with --lane-carts, the pocket and the hold included (8: R_1
+        /// and 5 slopes; 7: ironspec's steady start, the top slope empty).
+        #[arg(long, default_value_t = 7)]
+        per_lane: usize,
+        /// tick-exact's official lane x 3 scene (the night held at 18,000; 7 riders entering lane
+        /// x 3; every 100 gt the cart on H out and a rider in at the top; R_1 pulsed 12 gt).
+        #[arg(long)]
+        official_lane3: bool,
+        /// tick-exact's per-draw log of the official lane run: its per-block tally printed beside
+        /// redsim's.
+        #[arg(long)]
+        compare_official: Option<String>,
     },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
@@ -6754,7 +6778,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out } => {
+        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify } => {
             let mut notes = notes;
             if let Some(nf) = &notes_file {
                 notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
@@ -6913,6 +6937,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 d.entities.retain(|e| !(e.kind.ends_with("minecart") && e.nbt.as_deref().is_some_and(|t| t.contains("villager"))));
                 println!("riders dropped: {} (the summoners come from `mobfarm exit --positions`)", n - d.entities.len());
             }
+            if let Some(vf) = &verify {
+                // (ironspec 08:10 and 08:21: the assembly check: the committed file re-composed from
+                // its declared parts and overrides must match it cell for cell and entity for
+                // entity, so a stale cell or a stale mob can't hide; and the census)
+                let committed = mctas::design::Design::parse(&std::fs::read_to_string(vf)?)?;
+                let (rep, ok) = crate::column::assembly_check(&d, &committed);
+                print!("assembly check against {}: {rep}", vf.display());
+                if !ok {
+                    std::process::exit(1);
+                }
+            }
             if let Some(out) = out {
                 let head: String = notes.iter().map(|n| format!("# {n}\n")).chain(specs.iter().map(|s| format!("# + {}: {} moved by {},{},{} into the frame, then {},{},{} into its tier{}\n", s.name, s.file.display(), s.frame[0], s.frame[1], s.frame[2], s.tier[0], s.tier[1], s.tier[2], s.keep.map(|k| format!(" (its cells {},{},{}..{},{},{} kept)", k.0[0], k.0[1], k.0[2], k.1[0], k.1[1], k.1[2])).unwrap_or_default()))).chain(clear.iter().map(|b| format!("# cleared first (committed cells a lane re-lays): x {}..{} y {}..{} z {}..{}\n", b.0[0], b.1[0], b.0[1], b.1[1], b.0[2], b.1[2]))).chain(tracks.iter().map(|t| format!("# sketch track (plain rails, no control; a lane's cells replace it): {t}\n"))).chain(reserves.iter().map(|r| format!("# reserved (no blocks): {} x {}..{} y {}..{} z {}..{}\n", r.name, r.b.0[0], r.b.1[0], r.b.0[1], r.b.1[1], r.b.0[2], r.b.1[2]))).collect();
                 let shift: [i32; 3] = match out_shift.as_deref() {
@@ -6929,11 +6964,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::TicketCheck { module, loader, tiling, no_mirror, piglins, difficulty } => {
+        MobfarmCmd::TicketCheck { module, loader, tiling, no_mirror, piglins, difficulty, nether_group, twin_y } => {
             let m = mctas::design::Design::parse(&std::fs::read_to_string(&module)?)?;
             let l = mctas::design::Design::parse(&std::fs::read_to_string(&loader)?)?;
-            let (rep, ok) = crate::ticketcheck::report(&m, &l, tiling, !no_mirror).map_err(|e| anyhow::anyhow!(e))?;
+            let (rep, mut ok) = crate::ticketcheck::report(&m, &l, tiling, !no_mirror).map_err(|e| anyhow::anyhow!(e))?;
             print!("{}: {rep}", module.display());
+            if let Some(g) = nether_group {
+                let gd = mctas::design::Design::parse(&std::fs::read_to_string(&g)?)?;
+                let (nrep, nok) = crate::ticketcheck::nether_report(&gd, twin_y).map_err(|e| anyhow::anyhow!(e))?;
+                print!("{}: {nrep}", g.display());
+                ok &= nok;
+            }
             if let Some(days) = piglins {
                 print!("{}", crate::ticketcheck::piglin_season(&m, difficulty, days, 3.0, 211.0));
             }
@@ -6941,12 +6982,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             let restart = crate::liveness::Restart::parse(&restart_order).ok_or_else(|| anyhow::anyhow!("--restart-order {restart_order}: save, reverse or seed:K"))?;
             let restarts: Vec<i64> = if restart_every > 0 { (1..).map(|k| k * restart_every).take_while(|t| *t < ticks).collect() } else { Vec::new() };
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, restarts, restart, control_rider, trace, bed, drive };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, restarts, restart, control_rider, trace, bed, drive };
             print!("{}", crate::f1q2run::run(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::CreeperCheck { design, glass, unlit_control } => {

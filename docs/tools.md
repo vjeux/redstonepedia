@@ -329,6 +329,26 @@ the daytime ones apart, the longest stretch between two clears (all, and those e
 per pocket turn the panic's onset (the WALK_TARGET holder, MoveToTargetSink's remainingCooldown),
 the tick WALK_TARGET frees, the draws landed with and without a complete path and the panic ticks
 spent on a landed draw with no path.
+Each draw (a new walk target cell) is classified at the first path MoveToTargetSink computes for its
+own target: complete, PARTIAL or never pathed (the target changed or cleared first), by place and
+panic/calm; the partial panic draws are listed by (place, target cell, rider cell) and one row each
+(the tick, the rider and its lane, its exact position, its cart at rest or rolling and its velocity,
+the scarer from NEAREST_HOSTILE, the partial path's end, how long WALK_TARGET was held and whether
+the hold outlasted the rider's stay at its cell, and every cart of its lane at the draw tick, for an
+official replay). `--per-lane N` (default 7: ironspec's steady start, the top slope empty) sets the
+riders a lane. The drive follows 7b90c3f1's K re-lay: each junction's lever (x,26,9) toggled
+(redsim settles the junction), the branch detector slopes D (x,24,8) as the latches' inputs, J(-1)
+re-armed at lane 7's D. A restart books the stamp the reload drops (no codec for
+CANT_REACH_WALK_TARGET_SINCE) as "a reload", not a clear, and renumbers the controller's golems.
+`--official-lane3` rebuilds tick-exact's official lane x 3 scene instead of the night (the night held
+at 18,000, 7 riders entering lane x 3 at (3.6, 24.0, 6.49) one per 30 gt, every 100 gt the cart on
+H out and a fresh rider in at the top, R_1 powered 12 gt without updates), with the landed panic
+draws per rider block; `--compare-official LOG` prints tick-exact's per-draw log's tally per block
+beside it (null / complete / PARTIAL / never).
+`mctas mobfarm column ... --verify FILE` is the assembly check: the committed FILE re-composed from
+the same parts and overrides must match it cell for cell and entity for entity (a cell or an entity
+no part declares, a leftover of a superseded part, is printed), with the census of its entities
+(each passenger counted); exit 1 on any difference.
 `mctas mobfarm ticket-check --module M --loader L [--tiling 1|2|4] [--no-mirror] [--piglins DAYS
 [--difficulty 2]]` (onechunk, ironspec's freeze ruling) places the module copies by the budget's
 tiling around the loader's gap chunk (the loader at its frame + (17, 0, 17), chunk (1,1); modules at
@@ -338,7 +358,15 @@ found in the destination level: `addTicketWithRadius(PORTAL, .., 3)`; 30 + the C
 <= 31 entity-ticking, 32 block-ticking only, 33 loaded; >= 32 a violation); `--piglins` adds the pad
 portals' random-tick zombified piglins a copy-day (`NetherPortalBlock.randomTick`: a block's random
 tick 3/4096 a tick, a spawn on difficulty/2000 of them, a player within 128) and their accumulation
-over the season by the player's position.
+over the season by the player's position. `--nether-group G [--twin-y Y]` adds every chunk of the
+Nether group (the kill room, storage, shield and twin) against the twin's portal ticket alone (level
+30 at the chunk of the twin's exit block, its portal blocks at or above Y; the kill room's own ticket
+comes and goes with golem arrivals), each <= 31 to pass.
+The loader's bench (`mobfarm l1-item-bench`) also prints, per side, the longest time an arrival spent
+inside the portal's cells (against the crossing copy's 300-gt portal cooldown) and the code-derived
+bound on where a dispensed item crosses (`DefaultDispenseItemBehavior.spawnItem`'s x velocity
+triangle(0, 0.103365), bounded; the item inside the portal's shape after its first move; a
+non-player's transition time 0; 2 moves allowed, each decayed by the 0.98 drag).
 Every portal's link as the game searches it: `mctas mobfarm portal-links --ow NAME=x0,y0,z0,x1,y1,z1[;...]...
 --nether NAME=...... [--expect SOURCE=TARGET]... [--margin 0.7]` (absolute cells): from each
 overworld portal the Nether portals within 16 of its x 1/8 point (y not scaled), 3D-closest, ties to

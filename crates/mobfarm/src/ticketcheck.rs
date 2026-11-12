@@ -52,6 +52,54 @@ pub fn piglin_season(module: &Design, difficulty: i32, days: f64, tick_speed: f6
     )
 }
 
+/// (G1 on f1507f5dc, ironspec 08:17) The Nether side: every chunk of the Nether group (the kill room,
+/// its storage and shield, the twin) against the twin's portal ticket alone (the loop's
+/// overworld-to-Nether crossings: level 30 at the twin's exit block's chunk; the kill room's own
+/// ticket comes and goes with golem arrivals, so ticking can't depend on it): best level 30 + the
+/// Chebyshev distance, >= 32 a violation. The twin's exit blocks are the twin's portal blocks (the
+/// group's portal blocks at or above `twin_y`); the worst of their chunks is taken.
+pub fn nether_report(group: &Design, twin_y: i32) -> Result<(String, bool), String> {
+    let chunk = |v: i32| v.div_euclid(16);
+    let mut tickets: Vec<(i32, i32)> = Vec::new();
+    for (p, s) in &group.blocks {
+        if s.contains("nether_portal") && p[1] >= twin_y {
+            let c = (chunk(p[0]), chunk(p[2]));
+            if !tickets.contains(&c) {
+                tickets.push(c);
+            }
+        }
+    }
+    if tickets.is_empty() {
+        return Err(format!("no portal block at or above y {twin_y} (the twin)"));
+    }
+    let mut per: std::collections::BTreeMap<(i32, i32), usize> = std::collections::BTreeMap::new();
+    for p in group.blocks.keys() {
+        *per.entry((chunk(p[0]), chunk(p[2]))).or_insert(0) += 1;
+    }
+    let mut ok = true;
+    let mut s = format!(
+        "the Nether group against the twin's ticket alone (level 30 at the chunk of the twin's exit block: its portal blocks at y >= {twin_y} sit in chunk(s) {}); the same group serves N = 1 and N = 4:\n",
+        tickets.iter().map(|(x, z)| format!("({x},{z})")).collect::<Vec<_>>().join(", ")
+    );
+    for ((cx, cz), n) in &per {
+        let d = tickets.iter().map(|(tx, tz)| (cx - tx).abs().max((cz - tz).abs())).max().unwrap_or(99);
+        let level = 30 + d;
+        if level >= 32 {
+            ok = false;
+        }
+        s.push_str(&format!(
+            "  chunk ({cx},{cz}): {n} blocks; distance {d}, best level {level}: {}\n",
+            match level {
+                ..=31 => "entity-ticking",
+                32 => "BLOCK-TICKING ONLY (a violation)",
+                _ => "NOT TICKING (a violation)",
+            }
+        ));
+    }
+    s.push_str(&format!("the Nether group: {}\n", if ok { "every chunk entity-ticking from the twin's ticket alone (PASS)" } else { "FAIL" }));
+    Ok((s, ok))
+}
+
 /// The report and whether every cell is entity-ticking.
 pub fn report(module: &Design, loader: &Design, n: usize, mirror: bool) -> Result<(String, bool), String> {
     let chunk = |v: i32| v.div_euclid(16);
