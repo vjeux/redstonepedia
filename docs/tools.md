@@ -244,7 +244,10 @@ official bridge): a summon at every summon tick, each golem followed to its port
 tick of its own life it crossed in, bar 2), its targets and the posts' (printed counts), damage
 taken or dealt, the posts alive at each dawn, golems in the overworld at a summon tick and the
 summoners' sightings, a reload's priced costs apart; `--block-row` the positive control,
-`--restart-noop` the restarts' control).
+`--restart-noop` the restarts' control). `--r-repeater` (drop-bench and station-judge) drives the R
+line through R_1's built driver (a repeater facing west into R_1, fed by the controller's block at
+(x+2,17,1)) and prints each lane's rail power and its cart's first move (a launch after the power
+ended, or none, fails).
 The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] [--hold 320]
 [--pulse 20] [--stagger A1,B1,A2] [--freeze T,D[,ow|nether|both]]... [--piglin T]...
 [--design-out F]` (L1′, the cart loop: an overworld portal and its Nether twin, each side an exit

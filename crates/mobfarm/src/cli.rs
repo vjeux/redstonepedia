@@ -2910,6 +2910,11 @@ pub enum MobfarmCmd {
         /// shortest panic window in the pocket.
         #[arg(long)]
         panic_search: Option<usize>,
+        /// (ironspec 09:32) The R line through R_1's built driver (a repeater facing west into
+        /// R_1, fed by the controller's block at (x+2,17,1)), not a block in R_1's side cell; the
+        /// written station file lays the repeater and its glass.
+        #[arg(long)]
+        r_repeater: bool,
         /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
         /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
         #[arg(long, default_value = "")]
@@ -2967,6 +2972,10 @@ pub enum MobfarmCmd {
         pulse: i64,
         #[arg(long, value_delimiter = ',', default_value = "2,10")]
         refill: Vec<i64>,
+        /// (ironspec 09:32) The R line through R_1's built driver (a repeater facing west into
+        /// R_1, fed by the controller's block at (x+2,17,1)), not a block in R_1's side cell.
+        #[arg(long)]
+        r_repeater: bool,
         /// Zombie posts (x,y,z, repeatable; none in the run line since 4bce82b85: the hold post came out).
         #[arg(long = "post", allow_hyphen_values = true)]
         posts: Vec<String>,
@@ -7277,7 +7286,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::StationJudge { hold_y, rel, stagger, rebrake, release, open_delay, pulse, refill, posts, no_slab_stop, scarers, l2, ticks, seed, seeds, edge, rest_bar, starts, ds, no_restarts, no_cold, launch_min, rebrakes, pulses, open_delays, refill_delays, refill_lens, staggers, jobs } => {
+        MobfarmCmd::StationJudge { hold_y, rel, stagger, rebrake, release, open_delay, pulse, refill, r_repeater, posts, no_slab_stop, scarers, l2, ticks, seed, seeds, edge, rest_bar, starts, ds, no_restarts, no_cold, launch_min, rebrakes, pulses, open_delays, refill_delays, refill_lens, staggers, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(stagger.len() == 3, "--stagger A,B,C");
             anyhow::ensure!(refill.len() == 2, "--refill D,L");
@@ -7300,7 +7309,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             let lo = crate::drop::DropLayout::Station;
-            let ex = crate::drop::Extras { blocks: Vec::new(), posts: posts_v, slab_stop: !no_slab_stop };
+            let ex = crate::drop::Extras { blocks: Vec::new(), posts: posts_v, slab_stop: !no_slab_stop, r_repeater };
             let spec_of = |dep: [bool; 3]| -> anyhow::Result<redsim::entity::mob::farm::FarmSpec> {
                 let text = crate::drop::design_extra(lo, hold_y, dep, [true; 3], true, true, &ex);
                 let path = std::env::temp_dir().join(format!("station-judge-{}-{}.txt", std::process::id(), dep[0] as u8));
@@ -7310,7 +7319,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok(fspec)
             };
             let (spec, cold_spec) = (spec_of([true; 3])?, spec_of([false; 3])?);
-            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
             let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, rest_bar, jobs };
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
@@ -7360,7 +7369,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -7502,7 +7511,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     _ => anyhow::bail!("--layout series, parallel:P or station"),
                 };
                 for h in &holds {
-                    let ex = crate::drop::Extras { blocks: blocks_v.clone(), posts: posts_v.clone(), slab_stop };
+                    let ex = crate::drop::Extras { blocks: blocks_v.clone(), posts: posts_v.clone(), slab_stop, r_repeater };
                     let text = crate::drop::design_extra(lo, *h as i32, dep, arr, pad, refill_v.is_some(), &ex);
                     // (onechunk's module: the station as a committed design in the loop frame)
                     if let Some(wd) = &write_design {
@@ -7517,12 +7526,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 stagger
                             ),
                             "Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on switched supports (x,-1,0) (stone; a redstone block while powered); the launcher stone (x,0,-1) under an unattached string (x,1,-1); the pocket strings (x,1,0); departure (x,0,1) plain, the exit detector D_k (x,0,2), (x,0,3) plain, boosters (x,0,4..6): the merge row at z 7.".into(),
-                            format!("Holds H0..2 at (x,{0},0): bottom-half trapdoors (open: the drop), the ring's glass, the north stop a bottom slab (x,{1},-1), the hold string (x,{1},0); R_1 (x,{1},1) a powered rail ascending south, side-powered at (x+1,{1},1) (glass; a redstone block while powered). The pad: portals x -2..7 rows z -5 and -2, golem feet -6 (PAD0..PAD1).", *h, *h + 1),
-                            "Events (L1, game ticks, every drive EMULATED until the circuit is laid; T the summon tick): 1. pocket k's support powered at REL + offset k, unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens. 4. all three shut: + 2 gt, every R_1 side-powered for 10 gt (the next batch rolls into the holds).".into(),
+                            format!("Holds H0..2 at (x,{0},0): bottom-half trapdoors (open: the drop), the ring's glass, the north stop a bottom slab (x,{1},-1), the hold string (x,{1},0); R_1 (x,{1},1) a powered rail ascending south, {2}. The pad: portals x -2..7 rows z -5 and -2, golem feet -6 (PAD0..PAD1).", *h, *h + 1, if r_repeater { format!("driven by its built repeater (x+1,{0},1) (delay 1, facing west into R_1, on glass (x+1,{1},1)), fed from the controller's cell (x+2,{0},1)", *h + 1, *h) } else { format!("side-powered at (x+1,{},1) (glass; a redstone block while powered)", *h + 1) }),
+                            format!("Events (L1, game ticks, every drive EMULATED until the circuit is laid; T the summon tick): 1. pocket k's support powered at REL + offset k, unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens. 4. all three shut: + 2 gt, {} for 10 gt (the next batch rolls into the holds; R_1's threshold 5 gt with the built drive, NOTES).", if r_repeater { "every R_1 repeater's input powered" } else { "every R_1 side-powered" }),
                             "Carts: the batch in the pockets and the next in the holds (riders), the hold carts where the lane leaves them (0.49 into the cell, against the ring's north glass: tickexact's lane-handoff ca3cdb2ed); the lanes' carts (R_1 on) and R_2 are the lanes' file's. The pad's seal: cobblestone at y -8 under the floor rows, x -2..7 (40 blocks).".into(),
                             "The Nether part is the bench's PLACEHOLDER, not the build: the shared kill room's portal at the pads' y replaces it.".into(),
                             "Read path: the hold strings' hook supports (x+-2,17,0) are glowstone (golem-proof, lit, a solid-render stroll destination, a sturdy hook face); glowstone conducts no power, so each hold string is read from its hooks directly (dust or a repeater beside the hook), never through the support.".into(),
-                            "R_1's power cell (x+1,17,1) sits face-adjacent (south) to the hold string's hook (x+1,17,0): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook can drive (never dust, nor a repeater or comparator reading from the north); this file holds glass there, the bench's emulation (a redstone block while the R line is on). R_1's high side's support (x,17,2), the lanes' glass under their R_2, comes from the lanes' file: `design would-pop` on this file alone lists R_1 x3, safe in the build (R_1 takes its slope once R_2 is placed).".into(),
+                            format!("R_1's power cell (x+1,17,1) sits face-adjacent (south) to the hold string's hook (x+1,17,0): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook can drive (never dust, nor a repeater or comparator reading from the north); {}. R_1's high side's support (x,17,2), the lanes' glass under their R_2, comes from the lanes' file: `design would-pop` on this file alone lists R_1 x3, safe in the build (R_1 takes its slope once R_2 is placed).", if r_repeater { "this file lays it (repeater[delay=1,facing=east] on glass at (x+1,16,1)); its input cell (x+2,17,1) is the controller's (the bench: a redstone block there for the R line's pulse)" } else { "this file holds glass there, the bench's emulation (a redstone block while the R line is on)" }),
                         ];
                         let loop_text = crate::drop::station_loop_text(&text, *h as i32, &header).map_err(|e| anyhow::anyhow!(e))?;
                         std::fs::write(wd, &loop_text)?;
@@ -7543,7 +7552,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         by_rel.entry(*r).or_default().push(stats.clone());
                                         runs.push(stats);

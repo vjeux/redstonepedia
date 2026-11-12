@@ -68,6 +68,12 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64, rest_bar: i64) -> Vec<&'
     if s.refill_fail > 0 {
         v.push("the refill failed");
     }
+    if s.r1_late > 0 {
+        v.push("an R_1 launch after its pulse ended (or none)");
+    }
+    if s.r1_cell_late > 0 && s.r1_late == 0 {
+        v.push("an R_1 cart off its cell only after its pulse ended (or never)");
+    }
     if s.shut_onto > 0 {
         v.push("a trapdoor shut onto its cart");
     }

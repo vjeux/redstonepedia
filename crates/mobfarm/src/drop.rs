@@ -119,6 +119,9 @@ pub struct Extras {
     pub blocks: Vec<(i32, i32, i32, String)>,
     pub posts: Vec<(i32, i32, i32)>,
     pub slab_stop: bool,
+    /// (ironspec 09:32) R_1's built driver laid: a repeater at (x+1,17,1) facing west into R_1,
+    /// on glass, fed from (x+2,17,1) (the controller's cell), instead of the side cell's glass.
+    pub r_repeater: bool,
 }
 
 /// [`design_full`] with [`Extras`].
@@ -326,7 +329,14 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
             // coming off R_1 at ~0.5 b/t drops into the hold rather than over the ring; the hold's
             // string at rider height (x,17,0), hooks at x +-1, glass at x +-2 (ironfarm's release gate)
             b.set(x, hold_y + 1, z + 1, "powered_rail[powered=false,shape=ascending_south,waterlogged=false]");
-            b.set(x + 1, hold_y + 1, z + 1, "glass");
+            if extra.r_repeater {
+                // (the built driver: a repeater facing west into R_1 (its FACING the input side,
+                // east), on glass; its input (x+2,17,1) the controller's)
+                b.set(x + 1, hold_y + 1, z + 1, "repeater[delay=1,facing=east,locked=false,powered=false]");
+                b.set(x + 1, hold_y, z + 1, "glass");
+            } else {
+                b.set(x + 1, hold_y + 1, z + 1, "glass");
+            }
             b.set(x + 1, hold_y + 2, z + 1, "glass");
             b.set(x, hold_y + 2, z + 2, "rail[shape=ascending_south,waterlogged=false]");
             b.set(x, hold_y + 1, z + 2, "glass");
@@ -620,6 +630,9 @@ pub struct DropOpts {
     pub follow_range: f64,
     /// (option (b)) Search a zombie post's cells for this lane (0..2) in the zombie band.
     pub panic_search: Option<usize>,
+    /// (ironspec 09:32) The R line through R_1's built driver (the design's repeater, fed by a
+    /// redstone block at (x+2,17,1) for the pulse), not a redstone block in R_1's side cell.
+    pub r_repeater: bool,
     /// The trapdoors' timer on world ticks (a plain redstone clock running through a freeze), not
     /// the live clock: the positive control for the strings.
     pub release_world: bool,
@@ -680,6 +693,13 @@ pub struct DropStats {
     pub hold_lane: [i64; 3],
     /// With the refill: next-batch carts not at rest in their hold (fallen through or stuck).
     pub refill_fail: usize,
+    /// (ironspec 09:32) R_1's launches after their rail's power ended, or none; the longest lag from
+    /// the rail's power to its cart's first move; the shortest power a rail got.
+    pub r1_late: usize,
+    /// (G1 on b4549f35a) The same keyed on leaving R_1's cell (ironfarm's and tick-exact's rows).
+    pub r1_cell_late: usize,
+    pub r1_lag: Option<i64>,
+    pub r1_len: Option<i64>,
     /// The closest zombie-to-villager approach (its distance, and where: the tick, the lane and
     /// phase, the rider's feet, the zombie), for the bridge check.
     pub zombie_any_at: Option<(f64, String)>,
@@ -843,6 +863,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     }
     let parse = |s: &str| Block::parse(&format!("minecraft:{s}")).map_err(|e| e.to_string());
     let (rs, stone, td_open, td_shut, glass) = (parse("redstone_block")?, parse("stone")?, parse(TRAPDOOR_OPEN)?, parse(TRAPDOOR_SHUT)?, parse("glass")?);
+    let air_b = parse("air")?;
     for t in 0..400 {
         run.tick();
         if t >= 60 && run.world.time % 100 == 0 {
@@ -937,6 +958,16 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     let mut r_to: Option<i64> = None;
     let mut next_rest: [Option<(i64, Vec3)>; 3] = [None; 3];
     let mut next_fell = [false; 3];
+    // (ironspec 09:32: R_1's launch against its drive: each lane's rail powered from .. to (read
+    // from the rail's own state after each tick), each next cart's first move after the R line came
+    // on (its position before the R line's first tick, then more than 0.01 off it))
+    let mut next_start: Vec<Option<Vec3>> = vec![None; 3];
+    let mut next_moved: Vec<Option<i64>> = vec![None; 3];
+    // (G1 on b4549f35a: ironfarm's and tick-exact's rows key on leaving the rest's cell: each next
+    // cart's first tick off R_1's cell (x, hold + 1, z + 1))
+    let mut next_off_cell: Vec<Option<i64>> = vec![None; 3];
+    let mut r1_on: [Option<i64>; 3] = [None; 3];
+    let mut r1_off: [Option<i64>; 3] = [None; 3];
     let mut next_closest: Option<f64> = None;
     let mut gap_at_open: [Option<f64>; 3] = [None; 3];
     let mut ready_at: [Option<i64>; 3] = [None; 3];
@@ -1065,8 +1096,13 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             }
             r_was = on;
             for (x, _, z) in pockets {
-                let p = BlockPos::new(x + 1, o.hold_y + 1, z + 1);
-                let want = if on { rs.clone() } else { glass.clone() };
+                // (the real drive: the controller's block into the repeater's input; else the
+                // emulation: a redstone block in R_1's side cell)
+                let (p, want) = if o.r_repeater {
+                    (BlockPos::new(x + 2, o.hold_y + 1, z + 1), if on { rs.clone() } else { air_b.clone() })
+                } else {
+                    (BlockPos::new(x + 1, o.hold_y + 1, z + 1), if on { rs.clone() } else { glass.clone() })
+                };
                 if run.world.get(p) != want {
                     run.world.set_block(p, want, redsim::world::flags::ALL);
                 }
@@ -1180,9 +1216,35 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             }
         }
         let w = &run.world;
+        // (R_1's rails: powered after this tick?)
+        if o.refill.is_some() && o.layout == DropLayout::Station {
+            for (k, (x, _, z)) in pockets.iter().enumerate() {
+                let pw = w.get(BlockPos::new(*x, o.hold_y + 1, *z + 1)).to_string().contains("powered=true");
+                if pw && r1_on[k].is_none() {
+                    r1_on[k] = Some(dt);
+                }
+                if !pw && r1_on[k].is_some() && r1_off[k].is_none() {
+                    r1_off[k] = Some(dt);
+                }
+            }
+        }
         // (the next batch: in the hold at rest, or fallen through)
         for (j, id) in next_carts.iter().enumerate() {
             let Some((p, v)) = pos(w, *id) else { continue };
+            if j < 3 {
+                if r_from.is_none() {
+                    next_start[j] = Some(p);
+                } else if next_moved[j].is_none() && next_start[j].is_some_and(|s| ((p.x - s.x).powi(2) + (p.y - s.y).powi(2) + (p.z - s.z).powi(2)).sqrt() > 0.01) {
+                    next_moved[j] = Some(dt);
+                }
+                if r_from.is_some() && next_off_cell[j].is_none() {
+                    let (rx, _, rz) = pockets[j];
+                    let cell = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                    if cell != (rx, o.hold_y + 1, rz + 1) {
+                        next_off_cell[j] = Some(dt);
+                    }
+                }
+            }
             let s3 = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
             if r_from.is_some() {
                 if p.y < o.hold_y as f64 - 0.5 {
@@ -1481,6 +1543,56 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             next_closest.map_or("-".to_string(), |d| format!("{d:.2}"))
         ));
         stats.refill_fail = (0..next_carts.len().min(3)).filter(|j| next_fell[*j] || next_rest[*j].is_none()).count();
+        // (ironspec 09:32: each lane's R_1 against its drive: a launch only after the rail's power
+        // ended is bad (ironfarm's bar for R), as is none)
+        let mut late = 0usize;
+        let mut cell_late = 0usize;
+        let mut lag: Option<i64> = None;
+        let mut len: Option<i64> = None;
+        let per: Vec<String> = (0..next_carts.len().min(3))
+            .map(|j| {
+                let (on, off, mv, oc) = (r1_on[j], r1_off[j], next_moved[j], next_off_cell[j]);
+                if let (Some(a), Some(b)) = (on, off) {
+                    len = Some(len.map_or(b - a, |x: i64| x.min(b - a)));
+                }
+                if let (Some(a), Some(m)) = (on, mv) {
+                    lag = Some(lag.map_or(m - a, |x: i64| x.max(m - a)));
+                }
+                let bad = match (mv, off) {
+                    (None, _) => true,
+                    (Some(m), Some(b)) => m >= b,
+                    (Some(_), None) => false,
+                };
+                let bad_cell = match (oc, off) {
+                    (None, _) => true,
+                    (Some(c), Some(b)) => c >= b,
+                    (Some(_), None) => false,
+                };
+                late += bad as usize;
+                cell_late += bad_cell as usize;
+                format!(
+                    "lane {j}: the rail powered {}, its cart moves {}{}, off R_1's cell {}{}",
+                    match (on, off) {
+                        (Some(a), Some(b)) => format!("T+{a}..T+{b} ({} gt)", b - a),
+                        (Some(a), None) => format!("from T+{a}"),
+                        _ => "NEVER".to_string(),
+                    },
+                    mv.map_or("NEVER".to_string(), |m| format!("at T+{m}")),
+                    if bad { " (LATE: after its power ended, or never)" } else { "" },
+                    oc.map_or("NEVER".to_string(), |c| format!("at T+{c}{}", off.map_or(String::new(), |b| format!(" ({} gt before its power ended)", b - c)))),
+                    if bad_cell { " (LATE by the cell: after its power ended, or never)" } else { "" }
+                )
+            })
+            .collect();
+        out.push(format!(
+            "R_1's launch ({}): {}",
+            if o.r_repeater { "the built drive: a repeater facing west into R_1, fed by the controller's block at (x+2,17,1)" } else { "the emulated drive: a redstone block in R_1's side cell" },
+            per.join("; ")
+        ));
+        stats.r1_late = late;
+        stats.r1_cell_late = cell_late;
+        stats.r1_lag = lag;
+        stats.r1_len = len;
     }
     stats.gap_at_open = (0..3).filter_map(|k| gap_at_open[k]).map(|g| if g.is_finite() { (g * 100.0).floor() as i64 } else { i64::MAX }).min();
     // (the launch spacing: consecutive launches in launch order, world ticks)
@@ -1702,7 +1814,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             rows.push((
                 w0,
                 format!(
-                    "({},{},{}) open {}: its seat {:.2} from the rider at rest, the nearest any rider comes {:.2}, the nearest pad golem {pad:.2}; lane {k}'s rider in view and in range from T+{first}{}; its panic starts T+{}..{}; its window in the pocket {}..{} gt",
+                    "({},{},{}) open {}: its seat {:.2} from the rider at rest, the nearest any rider comes {:.2}, the nearest pad golem {pad:.2}; lane {k}'s rider in view and in range from T+{first}{}; its panic starts T+{}..{} (the dead-tick margin {}: a start at T+39 puts T on its dead tick); its window in the pocket {}..{} gt",
                     c.cell[0] - 6,
                     c.cell[1],
                     c.cell[2] - 6,
@@ -1712,6 +1824,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
                     landing.map_or(String::new(), |l| if first < l { format!(" ({} gt before landing at T+{l})", l - first) } else { format!(" (after landing at T+{l})") }),
                     hmin.unwrap_or(-1),
                     hmax.unwrap_or(-1),
+                    hmin.map_or("-".to_string(), |h| (h - 39).to_string()),
                     w0,
                     wmax.unwrap_or(0)
                 ),
@@ -1719,7 +1832,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
         }
         rows.sort_by(|a, b| b.0.cmp(&a.0));
         out.push(format!(
-            "option (b), lane {k} (loop frame cells; a zombie in a boat in a glass box open on one side, its sight through the open face; the band: its seat 6.05..7.95 from the rider at rest, no rider ever nearer than 6.05; every one calling at all 400 phase pairs): {considered} candidates in the band with room, {clear} with no rider ever nearer than 6.05, {} calling at all 400; the best by the shortest window: {}",
+            "option (b), lane {k} (loop frame cells; a zombie in a boat in a glass box open on one side, its sight through the open face; the band: its seat 6.05..7.95 from the rider at rest, no rider of this station bench ever nearer than 6.05 (the module's other riders, the lanes, the S-bend, the merge row and the queue, are 9fc3155f's check); every one calling at all 400 phase pairs): {considered} candidates in the band with room, {clear} with no station rider ever nearer than 6.05, {} calling at all 400; the best by the shortest window: {}",
             rows.len(),
             if rows.is_empty() { "none".to_string() } else { rows.iter().take(12).map(|(_, s)| s.clone()).collect::<Vec<_>>().join(" | ") }
         ));
@@ -1773,7 +1886,10 @@ pub fn summary(label: &str, runs: &[DropStats]) -> String {
         } else {
             String::new()
         },
-        if runs.iter().any(|s| s.refill_fail > 0) { format!("; REFILL FAILED in {} runs", runs.iter().filter(|s| s.refill_fail > 0).count()) } else { String::new() },
+        if runs.iter().any(|s| s.refill_fail > 0) { format!("; REFILL FAILED in {} runs", runs.iter().filter(|s| s.refill_fail > 0).count()) } else { String::new() } + &match (runs.iter().filter_map(|s| s.r1_len).min(), runs.iter().filter_map(|s| s.r1_lag).max()) {
+            (Some(l), Some(g)) => format!("; R_1: the shortest rail power {l} gt, the longest lag to its cart's first move {g} gt, late launches (after the power, or none) in {} runs, by the cell (off R_1's cell after the power, or never) in {} runs", runs.iter().filter(|s| s.r1_late > 0).count(), runs.iter().filter(|s| s.r1_cell_late > 0).count()),
+            _ => String::new(),
+        },
         match runs.iter().filter_map(|s| s.gap_at_open).min() {
             Some(i64::MAX) => "; at every trapdoor's opening its pocket's departing cart was gone".to_string(),
             Some(g) => format!("; the closest a pocket's departing cart was to its pocket as the trapdoor opened: {:.2}", g as f64 / 100.0),

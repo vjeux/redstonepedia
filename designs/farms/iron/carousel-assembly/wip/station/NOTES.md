@@ -15,7 +15,10 @@ lanes' feed are emulated until the circuit is laid).
   loop (2,16,-6) came out (9fc3155f's static (c) with the summoner-only scarers: 0 never-clearing
   places without it), and with it the 6.08 question.
 - The run line (cc767b78's L1 judge runs it):
-  `drop-bench --layout station --pad --hold-y 16 --stagger 0,12,24 --rel 4 --rebrake 16 --rebrake-each --release 3 --exit-gate --open-delay 4 --pulse 12 --refill 2,10 --l1 --slab-stop`
+  `drop-bench --layout station --pad --hold-y 16 --stagger 0,12,24 --rel 4 --rebrake 16 --rebrake-each --release 3 --exit-gate --open-delay 4 --pulse 12 --refill 2,10 --r-repeater --l1 --slab-stop`
+  (`--r-repeater`: R_1's built drive laid and driven, farmopt 10:13: per lane a repeater (delay 1)
+  at (x+1,17,1) facing west into R_1 on glass (x+1,16,1), fed from the controller's cell
+  (x+2,17,1); against the old glass stub, +3 glass a copy, the repeaters in the stubs' cells).
   (ironspec adopted s 12: launch offsets 0/12/24, REL = golem + 4 (day-1's release tap at stage
   2)). The stand's summon bar is the game's rule (ironspec 05:26): at every summon >= 1 caller over
   all 400 sensor phase pairs, with a margin of 2 callers at REL T+2..6; the 20-gt rest bar and the
@@ -52,10 +55,12 @@ lanes' feed are emulated until the circuit is laid).
   directly (dust or a repeater beside the hook), never through the support.
 - R_1 (x,17,1): a powered rail ascending south on the ring's south glass, its power cell
   (x+1,17,1) (glass over it at (x+1,18,1)). That cell is face-adjacent to the hook (x+1,17,0): the
-  built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook
-  drives (never dust, nor a repeater or comparator reading from the north); the bench emulates it
-  (a redstone block while the R line is on). The station owns the hold-string row
-  (x-2..x+2,17,0) and R_1; R_2's rail (x,18,2) and its glass are the lanes'.
+  built driver, laid in the file (farmopt 10:13), is a repeater (delay 1) there facing west into
+  R_1, on glass (x+1,16,1), its input from the east (x+2,17,1) (the controller's cell), which no hook
+  drives (never dust, nor a repeater or comparator reading from the north); the bench drives the
+  repeater's input with a redstone block while the R line is on (`--r-repeater`). The station owns
+  the hold-string row (x-2..x+2,17,0) and R_1 with its driver; R_2's rail (x,18,2) and its glass
+  are the lanes'.
 - The carts where the lane leaves them (tickexact's lane-handoff ca3cdb2ed, its +x our -z): the
   hold's cart 0.49 into its cell against the ring's north glass (scene x 6.51); the next one braked
   on R_1 against that cart's rider (z 1.28, y 17.3425; scene x 5.72).
@@ -89,7 +94,8 @@ lanes' feed are emulated until the circuit is laid).
 2. Pocket k's gate: its exit detector rises after REL + offset k, or its string is off at REL +
    offset k (an empty pocket: the cold start). Its trapdoor opens 4 gt later, not before T+3.
 3. Each trapdoor shuts 12 gt after it opens.
-4. All three shut: +2 gt, every R_1 powered for 10 gt: the next batch rolls into the holds.
+4. All three shut: +2 gt, every R_1 repeater's input powered for 10 gt (the rail powered 1 gt later
+   for 10 gt): the next batch rolls into the holds.
 
 ## Timed edges at the 4-gt edge bar (cc767b78's station judge 1e4e249c7, G1-approved with its follow-ups through c2f1473fd)
 
@@ -101,10 +107,27 @@ T+0..150 x 10 orders), 7,560 runs; 0 failures at the run line (rest >= 34, landi
 | trapdoor pulse | 12 | >= 6 | 6 gt |
 | re-brake | 16 | 6..35 | 10 below, 19 above |
 | R line length | 10 | >= 6 | 4 gt (the tightest) |
+| R line length, R_1's built drive (`--r-repeater`) | 10 | >= 5 | 5 gt |
 
 Outside: pulse 5, a trapdoor shuts onto its cart; re-brake 4..5, a departing cart stuck; re-brake
 >= 36, the cold start lands within 4 gt of the re-brake; R line 5, the refill fails. Every edge
 at the run line clears 3 gt + 1 scheduled tick.
+
+R_1 with its built drive (ironspec 09:32; the emulated rows above put a redstone block in R_1's side
+cell): a repeater (delay 1) at (x+1,17,1) facing west into R_1, on glass at (x+1,16,1), fed by the
+controller's block at (x+2,17,1) for the R line's pulse. The station judge with `--r-repeater`,
+REL T+2..6 x (the control, the cold start, 1,510 restarts: every phase T+0..150 x 10 orders),
+7,560 runs a row: the run line's 10 gt 0 failing; 7, 6 and 5 gt 0 failing; 4 gt 7,560 failing
+(each next cart starts but does not reach its hold). The bench reads R_1's own powered state after
+every tick and each next cart's first move after the R line comes on: the rail powered T+56..T+66
+at REL T+4 (1 gt after the emulation's T+55..T+65), every cart moving at T+57, no launch after its
+power ended (ironfarm's bar for R) in any row. Keyed on leaving R_1's cell instead (ironfarm's and
+tick-exact's rows, G1 on b4549f35a): every cart is off R_1's cell at T+60, 6 gt before the run
+line's power ends (3 at 7 gt, 2 at 6, 1 at 5; at 4 gt it leaves at T+61, after its power: late);
+the judge fails a row on either key, and the rows are the same: 5 gt passes, 4 fails every run.
+The next cart rests on R_1 70 gt or more before its
+R line in L1 (the lanes refill R_1 right after each R line), pressed on the hold cart's rider
+(tick-exact's lane-handoff position): the bench's start, reloaded at every phase by the restarts.
 
 ## Rows (bench; the tool reviewed by G1 through 4bce82b85; pulse 12)
 
@@ -245,6 +268,24 @@ roof) and F3 laid, the summon from lanes x -1 and x 3 at every summon tick:
   stored living list (250 per 500 summons, every other cycle): no golem is in the overworld, the
   next batch never sees one, no summon is lost. The bench counts a sighting with no golem left in
   the overworld apart (G1's note on cc951af97); the bar counts a sighting while a golem is there.
+
+- The bed stop's queue (b8949c96's module file, explore/farmopt-waycell f15c4a464, on rev 3
+  e9eeeee52: the queue post's zombie in its boat at (6.5,-11,1.5), the queue rider in its cart at
+  (8.5,-13.44,-5.5); its S2 still the old post): the golem flow on the module file, 500 summons
+  over 2 days: PASS (every golem at its 2nd tick, 0 damage taken or dealt, the five posts alive at
+  both dawns, 0 golems in the overworld at a summon tick, 0 sightings); the queue rider's golem
+  attempts 0 in this bench (no napper walks the bed stop here). In the farm its 10-box (x
+  -1.8..18.8, y -23.4..-1.5, z -15.8..4.8) covers the bed stop's walk from its entry (3,-16,-5) to
+  its exit R (4,-19,4), and a napper there that slept wants a golem, so the queue rider can count 3
+  (G1): its summons are harmless because no golem spawn cell lies within its search (SpawnUtil's
+  LEGACY_IRON_GOLEM, +-8 / +-6; glass and glowstone excluded): 9fc3155f's flood with the queue
+  rider as a caller ("queue: 0", "bedstop2: 0"), and my part flood of the module file with the
+  rider's cell (8,-14,-6) declared: 48 spawn spots, all on the pad (golem feet -6, 8 over the
+  rider: outside its +-6). The flood must re-run when the queue is re-laid east.
+- Its model errors: 2,523 on main's redsim, all one gap (the sky light through a bubble column, at
+  the queue post zombie's eye (6,-10,1) under the lift's column and at the daylight detector
+  (-5,15,3), whose light range meets the column); 0 with onechunk's daylight.rs hunk (9f3d965a2:
+  a bubble column dampens light like water), the same verdict.
 
 ## Option (b) for lane x -1 (`--panic-search 0`, bench)
 

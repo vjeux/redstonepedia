@@ -188,10 +188,14 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
     let mut holds: Vec<u32> = Vec::new();
     let mut posts: Vec<u32> = Vec::new();
     let mut piglins: Vec<u32> = Vec::new();
+    let mut others: Vec<u32> = Vec::new();
     for e in w0.entities.list.iter().filter(|e| !e.removed) {
         match mob_of(e) {
-            Some(MobType::Villager) if e.pos.y < 2.0 => pocket.push(e.id),
-            Some(MobType::Villager) => holds.push(e.id),
+            // (the pockets' summoners at y 0..2, the holds' riders at y 16..18; any other villager
+            // (a queue or lane rider, a napper) is neither)
+            Some(MobType::Villager) if (0.0..2.0).contains(&e.pos.y) => pocket.push(e.id),
+            Some(MobType::Villager) if (15.0..19.0).contains(&e.pos.y) => holds.push(e.id),
+            Some(MobType::Villager) => others.push(e.id),
             Some(MobType::Zombie) => posts.push(e.id),
             Some(MobType::Pillager) => posts.push(e.id),
             Some(t) if t.def().game_id == "minecraft:zombified_piglin" => piglins.push(e.id),
@@ -215,13 +219,14 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
         return Err(format!("golem flow: {} summoners in the pockets (3 wanted)", pocket.len()));
     }
     out.push(format!(
-        "golem flow: {} summons from game time {} (day time {}), seed {}; summoners {:?} (lanes x -1/3/7), the holds' riders {}, posts: {} mob(s) seated{}, {} zombified piglin(s) in the portal cells{}{}{}",
+        "golem flow: {} summons from game time {} (day time {}), seed {}; summoners {:?} (lanes x -1/3/7), the holds' riders {}, other villagers {} (queue or lane riders: never forced to summon), posts: {} mob(s) seated{}, {} zombified piglin(s) in the portal cells{}{}{}",
         o.cycles,
         run.world.time,
         run.world.day_time().rem_euclid(24000),
         o.seed,
         pocket,
         holds.len(),
+        others.iter().map(|id| w0.entities.list.iter().find(|e| e.id == *id).map_or(format!("#{id}"), |e| format!("#{id} at {:.2},{:.2},{:.2}", e.pos.x, e.pos.y, e.pos.z))).collect::<Vec<_>>().join(", "),
         posts.len(),
         if o.posts.iter().any(|p| p.kind == 'p') { ", the pillager seated in its boat (9fc3155f's model: box, seat and eye; its AI not modeled)" } else { "" },
         piglins.len(),
@@ -241,6 +246,7 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
     let mut sightings: Vec<(i64, u32, bool, bool)> = Vec::new();
     let mut priced_hits: Vec<String> = Vec::new();
     let mut summons: Vec<(i64, Option<u32>)> = Vec::new();
+    let mut other_tries: Vec<String> = Vec::new();
     let mut lost: Vec<String> = Vec::new();
     let mut lingering_at_summon = 0usize;
     let mut piglin_moves = 0usize;
@@ -357,6 +363,10 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
             let events = std::mem::take(&mut run.world.mob.events);
             for ev in events {
                 match ev {
+                    MobEvent::GolemTry { t: et, villager, golem, .. } if !pocket.contains(&villager) => {
+                        // (another villager's attempt: a lane or queue rider, a napper)
+                        other_tries.push(format!("#{villager} at game time {et}{}", if golem.is_some() { " (a golem)" } else { " (no spot)" }));
+                    }
                     MobEvent::GolemTry { t: et, villager, golem, at, .. } if pocket.contains(&villager) => {
                         if !summons.iter().any(|(st, g)| *st == et && g.is_some()) {
                             summons.retain(|(st, _)| *st != et);
@@ -558,6 +568,11 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
         model_errors.len(),
         if model_errors.is_empty() { String::new() } else { format!(": {}", model_errors.iter().take(8).cloned().collect::<Vec<_>>().join(" | ")) }
     ));
+    out.push(format!(
+        "golem attempts by villagers other than the pockets' summoners (a queue or lane rider, a napper): {}{}",
+        other_tries.len(),
+        if other_tries.is_empty() { String::new() } else { format!(" ({})", other_tries.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }
+    ));
     let ok = no_call == 0 && all_crossed && longest <= 2 && golem_hurt.is_empty() && golem_hits.is_empty() && lingering_at_summon == 0 && late_sightings == 0 && next_batch_sightings == 0 && post_deaths.is_empty();
     out.push(format!(
         "golem damage: taken {}, dealt (a mob's hit while a golem was in the overworld) {}{}; the posts' mobs taking a golem as target: {}{}",
@@ -575,7 +590,7 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
         ));
     }
     out.push(format!(
-        "verdict: {}",
+        "verdict: {}{}",
         if ok {
             "PASS (every golem through a portal by its second tick, no damage taken or dealt, nothing shot, no summon lost to golem detection, no golem in the overworld at a summon tick, the summoners see no golem 3+ ticks after a summon, the posts alive; targets a printed count)".to_string()
         } else {
@@ -597,7 +612,9 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
                 .collect::<Vec<_>>()
                 .join(", ")
             )
-        }
+        },
+        // (G1 on b4549f35a: a verdict beside the model's gaps, each needing the bridge)
+        if model_errors.is_empty() { String::new() } else { format!(" WITH {} model errors (each needs the bridge; listed above)", model_errors.len()) }
     ));
     Ok((out, ok))
 }
