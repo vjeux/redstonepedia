@@ -1,0 +1,133 @@
+# The one-chunk top tier's bed stop, minimal (paper v2): a booster entry, an always-on activator, a curve, one braked park rail on a slope, a slope, capped flats, the pickup cell beside the bed, two capped flats, the exit.
+# The rider lands on the ledge, walks off into the pit and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it.
+name: bed-tier-min
+circuit: mob-farm iron_ingot
+port home: 0 0 9
+port output: 12 0 6
+entity: minecraft:oak_boat -4.5 0 9.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+origin: -6 0 -1
+palette:
+  A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
+  B minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
+  C minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  E minecraft:rail[shape=north_south,waterlogged=false]
+  F minecraft:rail[shape=south_west,waterlogged=false]
+  G minecraft:glass
+  H minecraft:red_bed[facing=north,occupied=false,part=foot]
+  I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  J minecraft:red_bed[facing=north,occupied=false,part=head]
+  K minecraft:redstone_block
+  L minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  M minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+  R minecraft:rail[shape=ascending_north,waterlogged=false]
+  S minecraft:stone
+  T minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
+  p minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  r minecraft:rail[shape=east_west,waterlogged=false]
+  t minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......S
+  .......G.S
+  .......GSS
+  .......S
+layer -1:
+  .
+  .
+  .
+  .......G
+  .......G
+  .......G
+  .......G
+  .......G
+  .......G
+  .......G
+  .GGGGGGG
+  ......GG
+  .......R
+  .......E.L
+  .......pLL
+  .......D
+layer 0:
+  .
+  .
+  ......GSG
+  ......GRG
+  ......GEG
+  ......GEG
+  ......GEG
+  ......GEG
+  ......GEG
+  .GGGGKGEG
+  G....iJEG
+  .GGGGGHEG
+  ......G.G
+  .....StTMS
+  .
+  .
+layer 1:
+  .
+  ....KKGG
+  .....SGPG
+  .....SG.G
+  .....SGIG
+  .....SGIG
+  .....SGIG
+  .....SGIG
+  .....SGIG
+  .GGGGSGIG
+  G....BI.G
+  .GGGGGIIG
+  ......G.G
+  .
+  .
+  .
+layer 2:
+  .....G
+  ....CArF
+  ....G.G.G
+  ....G.G
+  ....G.GG
+  ....G.GG
+  ....G.GG
+  ....G.GG
+  ....G.GG
+  ....G..G
+  .GGGGK
+  .....GGG
+  .
+  .
+  .
+  .
+layer 3:
+  .....G
+  ....IIII
+  ....G.GG
+  ....G.G
+  ....G.G
+  ....G.G
+  ....G.G
+  ....G.G
+  ....G.G
+  ....G
+  .O
+  .....GG
+  .
+  .
+  .
+  .

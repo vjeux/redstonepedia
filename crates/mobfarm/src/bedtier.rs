@@ -28,7 +28,7 @@ fn put(b: &mut Builder, c: [i32; 3], s: &str) -> Result<()> {
 
 /// The capped flats between the park's slope and the pickup cell (the released cart's speed falls
 /// under 0.2 b/t on them, empty-cart drag 0.96 a tick).
-pub const FLATS: i32 = 7;
+pub const FLATS: i32 = 6;
 /// The pickup cell's z.
 pub const ZP: i32 = 3 + FLATS;
 /// The entry rail (the cart comes in moving +x), a booster.
@@ -48,8 +48,10 @@ pub const HATCH: [i32; 3] = [-1, 0, ZP];
 pub const HATCH_HI: [i32; 3] = [-1, 1, ZP];
 pub const HATCH_CTRL: [i32; 3] = [-1, 0, ZP - 1];
 pub const HATCH_CTRL_HI: [i32; 3] = [-1, 2, ZP];
-/// The exit's R detector.
-pub const EXIT_DET: [i32; 3] = [1, -1, ZP + 3];
+/// R's detector: past the hold (a held cart never reads as the tier cleared).
+pub const EXIT_DET: [i32; 3] = [1, -1, ZP + 5];
+/// The rider check's hold: a braked powered rail, powered only while the check's string sees a rider.
+pub const HOLD: [i32; 3] = [1, -1, ZP + 4];
 
 /// The design: the bed tier alone, or (`bench`) with a run-out past the exit and the visiting
 /// cart and villager parked far off on a braked rail.
@@ -82,14 +84,39 @@ pub fn design(bench: bool) -> Result<String> {
     // (glass two cells over the park, out of the rider space and above the cart: no villager
     // stands on the parked cart's top)
     put(&mut b, [1, 3, 1], "glass")?;
-    for z in 3..=ZP + 2 {
+    for z in 3..=ZP + 1 {
         put(&mut b, [1, 0, z], &rail("north_south"))?;
         put(&mut b, [1, -1, z], "glass")?;
         if z != ZP {
             put(&mut b, [1, 1, z], cap)?;
         }
     }
-    put(&mut b, EXIT_DET, "detector_rail[powered=false,shape=ascending_north,waterlogged=false]")?;
+    // the exit: a plain slope down (an empty cart, slowing on its 0.96 drag, still reaches it),
+    // the rider check's flat, the hold, R's detector
+    put(&mut b, [1, -1, ZP + 2], &rail("ascending_north"))?;
+    put(&mut b, [1, -2, ZP + 2], "stone")?;
+    // the exit's rider check (ironspec 18:14 (b)): a tripwire at rider height across the flat
+    // after the slope, (1,0,ZP+3) (hooks (0,0,ZP+3), (2,0,ZP+3) on stone): a seated rider's box
+    // crosses its band, an empty cart's (0.7 tall) does not. The east hook's block (3,0,ZP+3)
+    // feeds dust (3,-1,ZP+3), (3,-1,ZP+4), (2,-1,ZP+4), the last pointing west into HOLD, a braked
+    // powered rail: powered while a rider passes (the hook's 10-gt hold), it holds any riderless
+    // cart. R's detector is past the hold, so a held cart never reads as the tier cleared (the
+    // alarm: no R since the divert; day-1's switch diverts nobody more)
+    let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+    put(&mut b, [1, -1, ZP + 3], &rail("north_south"))?;
+    put(&mut b, [1, -2, ZP + 3], "glass")?;
+    put(&mut b, [1, 0, ZP + 3], "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]")?;
+    put(&mut b, [0, 0, ZP + 3], "tripwire_hook[attached=true,facing=east,powered=false]")?;
+    put(&mut b, [-1, 0, ZP + 3], "stone")?;
+    put(&mut b, [2, 0, ZP + 3], "tripwire_hook[attached=true,facing=west,powered=false]")?;
+    put(&mut b, [3, 0, ZP + 3], "stone")?;
+    for c in [[3, -1, ZP + 3], [3, -1, ZP + 4], [2, -1, ZP + 4]] {
+        put(&mut b, [c[0], c[1] - 1, c[2]], "stone")?;
+        put(&mut b, c, dust)?;
+    }
+    put(&mut b, HOLD, "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
+    put(&mut b, [1, -2, HOLD[2]], "glass")?;
+    put(&mut b, EXIT_DET, "detector_rail[powered=false,shape=north_south,waterlogged=false]")?;
     put(&mut b, [1, -2, EXIT_DET[2]], "stone")?;
     // the bed, its head beside the pickup cell, roofed by two top-half trapdoors (0.25 of headroom
     // over the bed's top: nobody stands on it; a standing napper's eye line runs under them)
@@ -212,7 +239,27 @@ pub struct Row {
     pub out_at: Option<i64>,
     /// The cart over R's detector (the tier clear), gt after the entry.
     pub r_at: Option<i64>,
+    /// The rider check held the cart on HOLD (still there 40 gt: the alarm), gt after the entry.
+    pub held: Option<i64>,
+    /// Whether the cart left with the napper seated.
+    pub seated_out: bool,
     pub problems: Vec<String>,
+}
+
+/// The bench's fault and control rows.
+#[derive(Debug, Default, Clone)]
+pub struct Faults {
+    /// The cart sent empty (no villager): the rider check's positive control.
+    pub empty: bool,
+    /// The villager arrives with no HOME memory (a napper that lost its home: it never walks to
+    /// the bed).
+    pub no_home: bool,
+    /// The waker hidden again once the napper is awake (both hatches back open-plated): the
+    /// refuge's positive control (the napper should go back to bed).
+    pub hide_after_wake: bool,
+    /// A level-32 freeze (the tier's entities stop ticking) from this gt after the entry, for this
+    /// many gt.
+    pub freeze: Option<(i64, i64)>,
 }
 
 fn block(s: &str) -> Block {
@@ -223,7 +270,8 @@ fn block(s: &str) -> Block {
 /// F at `f_at` gt after the entry (the hatch's control off: the zombie seen), the release
 /// `release_after` gt after F (the park's supports to redstone blocks), until the cart passes
 /// the run-out's z 8 or 1200 gt.
-pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after: i64, day: bool, on_stand: bool, after_sleep: Option<i64>) -> Result<Row, String> {
+#[allow(clippy::too_many_arguments)]
+pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after: i64, day: bool, on_stand: bool, after_sleep: Option<i64>, f: &Faults) -> Result<Row, String> {
     // (`after_sleep`: F comes that many gt after the lie-down (the bed's own evidence), or at
     // `f_at_in` at the latest (the give-up))
     let mut f_at = f_at_in;
@@ -248,11 +296,20 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
     }
     // the visitor at the entry, HOME = the bed (as the game loads the memory)
     let h = BED_HEAD;
-    let nbt = format!("{{Rotation:[0f,0f],Passengers:[{{id:\"minecraft:villager\",Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}", h[0], h[1], h[2]);
+    let nbt = if f.empty {
+        "{Rotation:[0f,0f]}".to_string()
+    } else if f.no_home {
+        "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}".to_string()
+    } else {
+        format!("{{Rotation:[0f,0f],Passengers:[{{id:\"minecraft:villager\",Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}", h[0], h[1], h[2])
+    };
     let cart_id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5], Some(&nbt))?;
-    let vill_id = run.world.entities.list.iter().find(|e| e.id == cart_id).and_then(|e| e.passengers.first().copied()).ok_or("no rider")?;
+    let vill = run.world.entities.list.iter().find(|e| e.id == cart_id).and_then(|e| e.passengers.first().copied());
+    if vill.is_none() && !f.empty {
+        return Err("no rider".into());
+    }
     run.own.push(cart_id);
-    run.own.push(vill_id);
+    run.own.extend(vill);
     // the entry
     {
         let w = &mut run.world;
@@ -271,20 +328,44 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
     let mut last_cart = [0f64; 3];
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
+    let mut hidden = false;
+    // (F, the give-up and the release count live time, the farm's cart-driven fast ring: a
+    // level-32 freeze stops the ring with the carts, so those delays pause through it)
+    let mut live = 0i64;
+    let mut slept_live: Option<i64> = None;
+    let mut f_fired = false;
     for t in 1..=1200i64 {
+        if let Some((at, len)) = f.freeze {
+            if t == at {
+                run.world.entity_chunks = Some([100, 100, 101, 101]);
+            }
+            if t == at + len {
+                run.world.entity_chunks = None;
+            }
+        }
+        let frozen = f.freeze.is_some_and(|(a, l)| t >= a && t < a + l);
+        if !frozen {
+            live += 1;
+        }
         if let Some(d) = after_sleep
-            && let Some(s) = row.slept_at
+            && let Some(s) = slept_live
             && s + d < f_at
-            && t <= s + d
+            && live <= s + d
         {
             f_at = s + d;
         }
-        if t == f_at {
+        if !frozen && !f_fired && live == f_at {
+            f_fired = true;
             set(&mut run.world, HATCH_CTRL, "stone");
             set(&mut run.world, HATCH_CTRL_HI, "stone");
         }
-        let stand_now = on_stand && t > f_at && row.release_at.is_none() && idx(&run.world, vill_id).is_some_and(|vi| { let v = &run.world.entities.list[vi]; let c = [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32]; v.vehicle.is_none() && redsim::entity::mob::mob(&run.world, vi).sleeping_pos.is_none() && SWEPT.contains(&c) });
-        if row.release_at.is_none() && (stand_now || t == f_at + release_after) {
+        if f.hide_after_wake && !hidden && row.woke_at.is_some() {
+            set(&mut run.world, HATCH_CTRL, "redstone_block");
+            set(&mut run.world, HATCH_CTRL_HI, "redstone_block");
+            hidden = true;
+        }
+        let stand_now = on_stand && f_fired && row.release_at.is_none() && vill.and_then(|id| idx(&run.world, id)).is_some_and(|vi| { let v = &run.world.entities.list[vi]; let c = [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32]; v.vehicle.is_none() && redsim::entity::mob::mob(&run.world, vi).sleeping_pos.is_none() && SWEPT.contains(&c) });
+        if row.release_at.is_none() && !frozen && (stand_now || live == f_at + release_after) {
             for c in PARK_CTRL {
                 set(&mut run.world, c, "redstone_block");
             }
@@ -293,39 +374,59 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
         let before = idx(&run.world, cart_id).map(|i| run.world.entities.list[i].pos);
         run.tick();
         let w = &run.world;
-        let (Some(ci), Some(vi)) = (idx(w, cart_id), idx(w, vill_id)) else {
-            row.problems.push(format!("t {t}: the cart or the villager is gone"));
+        let Some(ci) = idx(w, cart_id) else {
+            row.problems.push(format!("t {t}: the cart is gone"));
             break;
         };
         let c = &w.entities.list[ci];
-        let v = &w.entities.list[vi];
-        let vcell = [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32];
-        let riding = v.vehicle.is_some();
-        let asleep = redsim::entity::mob::mob(w, vi).sleeping_pos.is_some();
-        if !riding && row.landed.is_none() && v.on_ground {
-            row.landed = Some((vcell, t));
+        let vi = vill.and_then(|id| idx(w, id));
+        if vill.is_some() && vi.is_none() {
+            row.problems.push(format!("t {t}: the villager is gone"));
+            break;
         }
-        if asleep && row.slept_at.is_none() {
-            row.slept_at = Some(t);
-        }
-        if was_asleep && !asleep {
-            row.woke_at = Some(t);
-            row.stood = Some(vcell);
-        }
-        if row.woke_at.is_some() && !riding && row.pickup.is_none() && !row.cells_after_wake.contains(&vcell) {
-            row.cells_after_wake.push(vcell);
-        }
-        was_asleep = asleep;
-        if std::env::var("MCTAS_BT_TRACE").is_ok_and(|x| x == "1") && (t % 5 == 0 || std::env::var("MCTAS_BT_TRACE_FROM").ok().and_then(|s| s.parse::<i64>().ok()).is_some_and(|f| t >= f && t <= f + 15)) {
-            use redsim::entity::mob::ai::brain;
-            let b = brain::brain(w, vi);
-            let act = brain::has_exact(w, vi).then(|| {
-                let x = brain::ex(w, vi);
-                format!("{:?} cant_reach {:?}", x.active, x.mem.cant_reach_since)
-            });
-            eprintln!("t {t}: villager {:.2} {:.2} {:.2} riding {riding} asleep {asleep} act {act:?} home {:?} hostile {:?} | cart {:.2} {:.2} {:.2} v {:.3} {:.3} {:.3}", v.pos.x, v.pos.y, v.pos.z, b.home, b.nearest_hostile, c.pos.x, c.pos.y, c.pos.z, c.delta_movement.x, c.delta_movement.y, c.delta_movement.z);
+        let mut riding = false;
+        if let Some(vi) = vi {
+            let v = &w.entities.list[vi];
+            let vcell = [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32];
+            riding = v.vehicle.is_some();
+            let asleep = redsim::entity::mob::mob(w, vi).sleeping_pos.is_some();
+            if !riding && row.landed.is_none() && v.on_ground {
+                row.landed = Some((vcell, t));
+            }
+            if asleep && row.slept_at.is_none() {
+                row.slept_at = Some(t);
+                slept_live = Some(live);
+            }
+            if was_asleep && !asleep {
+                row.woke_at = Some(t);
+                row.stood = Some(vcell);
+            }
+            if row.woke_at.is_some() && !riding && row.pickup.is_none() && !row.cells_after_wake.contains(&vcell) {
+                row.cells_after_wake.push(vcell);
+            }
+            was_asleep = asleep;
+            if std::env::var("MCTAS_BT_TRACE").is_ok_and(|x| x == "1") && (t % 5 == 0 || std::env::var("MCTAS_BT_TRACE_FROM").ok().and_then(|s| s.parse::<i64>().ok()).is_some_and(|f| t >= f && t <= f + 15)) {
+                use redsim::entity::mob::ai::brain;
+                let b = brain::brain(w, vi);
+                let act = brain::has_exact(w, vi).then(|| {
+                    let x = brain::ex(w, vi);
+                    format!("{:?} cant_reach {:?}", x.active, x.mem.cant_reach_since)
+                });
+                eprintln!("t {t}: villager {:.2} {:.2} {:.2} riding {riding} asleep {asleep} act {act:?} home {:?} hostile {:?} | cart {:.2} {:.2} {:.2} v {:.3} {:.3} {:.3}", v.pos.x, v.pos.y, v.pos.z, b.home, b.nearest_hostile, c.pos.x, c.pos.y, c.pos.z, c.delta_movement.x, c.delta_movement.y, c.delta_movement.z);
+            }
+            if riding && row.release_at.is_some() && row.pickup.is_none() {
+                row.pickup = Some((row.cells_after_wake.last().copied().unwrap_or(vcell), t));
+                row.pickup_speed = before.map(|bp| ((c.pos.x - bp.x).powi(2) + (c.pos.z - bp.z).powi(2)).sqrt());
+            }
+            if row.release_at.is_none() && row.landed.is_some() && riding && t > 5 {
+                row.problems.push(format!("t {t}: the napper back in a cart before the release (at {vcell:?})"));
+                break;
+            }
         }
         // the cart: parked (still for 10 gt before the release), its speed over the swept cells
+        if vi.is_none() && std::env::var("MCTAS_BT_TRACE").is_ok_and(|x| x == "1") && t % 5 == 0 {
+            eprintln!("t {t}: (no villager) | cart {:.2} {:.2} {:.2} v {:.3} {:.3} {:.3}", c.pos.x, c.pos.y, c.pos.z, c.delta_movement.x, c.delta_movement.y, c.delta_movement.z);
+        }
         let cp = [c.pos.x, c.pos.y, c.pos.z];
         let moved = (cp[0] - last_cart[0]).abs() + (cp[2] - last_cart[2]).abs() + (cp[1] - last_cart[1]).abs();
         still = if moved < 1e-4 { still + 1 } else { 0 };
@@ -345,31 +446,36 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
                 }
             }
         }
-        if riding && row.slept_at.is_some() && row.pickup.is_none() {
-            row.pickup = Some((row.cells_after_wake.last().copied().unwrap_or(vcell), t));
-            row.pickup_speed = before.map(|bp| ((c.pos.x - bp.x).powi(2) + (c.pos.z - bp.z).powi(2)).sqrt());
-        }
-        if row.release_at.is_none() && row.landed.is_some() && riding && t > 5 {
-            row.problems.push(format!("t {t}: the napper back in a cart before the release (at {vcell:?})"));
-            break;
-        }
         if c.pos.z > EXIT_DET[2] as f64 + 0.5 && row.r_at.is_none() {
             row.r_at = Some(t);
         }
-        if c.pos.z > EXIT_DET[2] as f64 + 2.0 {
+        // the rider check's hold: the cart still on HOLD for 40 gt after the release is the alarm
+        let ccell = [c.pos.x.floor() as i32, (c.pos.y + 0.01).floor() as i32, c.pos.z.floor() as i32];
+        if row.release_at.is_some() && still >= 40 && ccell == HOLD {
+            row.held = Some(t - 40);
+            break;
+        }
+        if c.pos.z > EXIT_DET[2] as f64 + 1.5 {
             row.out_at = Some(t);
+            row.seated_out = riding;
             break;
         }
     }
-    if row.out_at.is_none() {
-        row.problems.push("the cart not out in 1200 gt".into());
+    if row.out_at.is_none() && row.held.is_none() {
+        row.problems.push("the cart neither out nor held in 1200 gt".into());
     }
-    if row.pickup.is_none() && row.slept_at.is_some() {
-        row.problems.push("the napper not picked up".into());
+    if row.out_at.is_some() && !row.seated_out {
+        row.problems.push("a riderless cart left the tier (not held)".into());
     }
-    for c in &row.cells_after_wake {
-        if !SWEPT.contains(c) {
-            row.problems.push(format!("the woken napper stood on {c:?}, outside the swept cells"));
+    let expect_seated = !f.empty && !f.no_home && !f.hide_after_wake;
+    if expect_seated && !row.seated_out {
+        row.problems.push(if row.held.is_some() { "held at the exit: the napper not seated".into() } else { "the napper not seated".into() });
+    }
+    if !f.hide_after_wake {
+        for c in &row.cells_after_wake {
+            if !SWEPT.contains(c) {
+                row.problems.push(format!("the woken napper stood on {c:?}, outside the swept cells"));
+            }
         }
     }
     if !run.world.errors.is_empty() {
