@@ -1046,6 +1046,12 @@ pub struct ClimbOpts {
     /// The stand's gates on timers from the hold's release (T + h_open) instead of position
     /// triggers: G2 shuts at release + .0, G1 at release + .1 (live time: paused while frozen).
     pub gate_shut: Option<(i64, i64)>,
+    /// (7b90c3f1) The stand's gates on D1's real powered rising edge (P1's detector rail, crossed
+    /// only by the batch's front cart) plus lockable delays: G1 at the edge + .0, G2 at the edge + .1
+    /// (live time: paused while frozen).
+    pub gate_shut_d1: Option<(i64, i64)>,
+    /// (7b90c3f1) A fault row: cart K never handed off (removed at T).
+    pub missing: Option<usize>,
     /// The batch's carts (3, or 2: the third stays parked).
     pub n_carts: usize,
     pub trace: bool,
@@ -1122,6 +1128,23 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     let mut freeze_pos: Vec<[Option<Vec3>; 3]> = Vec::new();
     let mut frozen_ticks = 0i64;
     let mut handed = [false; 3];
+    // (7b90c3f1: the fault row: the missing cart removed at T and never handed off; D1's rising
+    // edges (P1's detector rail) and the first one's live tick; each stand gate's shut tick)
+    if let Some(k) = o.missing
+        && k < 3
+    {
+        let riders_k: Vec<u32> = run.world.entities.list.iter().find(|e| e.id == carts[k]).map(|e| e.passengers.clone()).unwrap_or_default();
+        for r in riders_k {
+            let _ = redsim::entity::kill(&mut run.world, r);
+        }
+        let _ = redsim::entity::kill(&mut run.world, carts[k]);
+        handed[k] = true;
+    }
+    let d1_cell = BlockPos::new(12, -1, SZ);
+    let mut d1_was = matches!(run.world.get(d1_cell), Block::DetectorRail { powered: true, .. });
+    let mut d1_edges: Vec<i64> = Vec::new();
+    let mut d1_first: Option<i64> = None;
+    let mut shut_dt: [Option<i64>; 3] = [None; 3];
     let mut gate_edges: Vec<String> = Vec::new();
     // (each cart's entry into each gate's cell, G2, G1, G0: the tick and its stored speed)
     let mut gate_entry: [[Option<(i64, f64)>; 3]; 3] = [[None; 3]; 3];
@@ -1200,8 +1223,30 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             open[0] = live < o.h_open + a;
             open[1] = live < o.h_open + b;
         }
+        // (7b90c3f1: D1-keyed shuts: D1's real powered state; its first rising edge starts both
+        // lockable delays (live time, paused while frozen))
+        {
+            let d1_on = matches!(run.world.get(d1_cell), Block::DetectorRail { powered: true, .. });
+            let live = dt - frozen_ticks;
+            if d1_on && !d1_was {
+                d1_edges.push(dt);
+                if d1_first.is_none() {
+                    d1_first = Some(live);
+                }
+            }
+            d1_was = d1_on;
+            if let Some((a1, a2)) = o.gate_shut_d1 {
+                open[1] = !d1_first.is_some_and(|e| live >= e + a1);
+                open[0] = !d1_first.is_some_and(|e| live >= e + a2);
+            }
+        }
+        for i in 0..3 {
+            if !open[i] && shut_dt[i].is_none() && i < 2 {
+                shut_dt[i] = Some(dt);
+            }
+        }
         for (k, (gx, _)) in GATES.iter().rev().enumerate() {
-            if k == 0 || !open[2 - k] || o.gate_shut.is_some() {
+            if k == 0 || !open[2 - k] || o.gate_shut.is_some() || o.gate_shut_d1.is_some() {
                 continue;
             }
             let edge = *gx as f64 + o.close_at;
@@ -1411,6 +1456,30 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         contact_max,
         if contacts.is_empty() { String::new() } else { format!(" ({})", contacts.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
     ));
+    // (7b90c3f1: the D1-keyed shuts' report: per stand gate (G1, G2) its shut tick, the leader gap
+    // (from the last cart entering the gate's cell before the shut) and the follower margin (to the
+    // first cart entering it after); D1's rising edges (the bar: 1 a cycle))
+    if o.gate_shut_d1.is_some() || o.gate_shut.is_some() {
+        let per_gate = |g: usize| -> String {
+            let Some(s) = shut_dt[g] else { return format!("{} never shut", ["G2", "G1"][g]) };
+            let lead = (0..3).filter_map(|k| gate_entry[k][g].map(|(t, _)| (t, k))).filter(|(t, _)| *t <= s).max();
+            let foll = (0..3).filter_map(|k| gate_entry[k][g].map(|(t, _)| (t, k))).filter(|(t, _)| *t > s).min();
+            format!(
+                "{} shut T+{s}: leader gap {}, follower margin {}",
+                ["G2", "G1"][g],
+                lead.map_or("-".to_string(), |(t, k)| format!("{} (cart {k})", s - t)),
+                foll.map_or("-".to_string(), |(t, k)| format!("{} (cart {k})", t - s))
+            )
+        };
+        out.push(format!(
+            "stand shuts{}: D1 rising edges {} ({}); {}; {}",
+            o.gate_shut_d1.map_or(String::new(), |(a, b)| format!(" on D1's edge + {a} (G1) / + {b} (G2)")),
+            d1_edges.len(),
+            d1_edges.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", "),
+            per_gate(1),
+            per_gate(0)
+        ));
+    }
     out.push(format!(
         "entry into each gate's cell (G2 x 6, G1 x 10, G0 x 14), tick and stored speed: {}; gate edges on a cart: {}{}; merges: {}{}",
         (0..n)
