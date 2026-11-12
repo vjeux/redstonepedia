@@ -1,0 +1,23 @@
+# The shared kill room's ghast shield (onechunk, Nov 12; pocket 110's Nether frame; G1's 26-connected rule): v4's kill chamber (its 2 x 3 axis-z portal at x 2, z 4..5, y 102..104, the lava at (3..4,102,4..5) on signs) was open above and on the portal's west side; cobblestone closes it: the portal's west face (x 1, y 102..103, z 4..5), the chamber's walls at y 104 (x 5, z 4..5; z 3 and 6, x 3..4) and its roof at y 105 over x 3..4, z 4..5 (a golem standing in the lava, 2.7 tall, keeps its head under 105). The edges and corners a ray still crosses are closed by `mctas mobfarm ghast-check --close` on the composed layout. (Empty rows are written as "." so the parser keeps them.)
+name: f1q2-killroom-shield-p110
+circuit: mob-farm iron_ingot
+origin: 1 0 3
+palette:
+  c minecraft:cobblestone
+layer 102:
+  .
+  c
+  c
+layer 103:
+  .
+  c
+  c
+layer 104:
+  ..cc
+  ....c
+  ....c
+  ..cc
+layer 105:
+  .
+  ..cc
+  ..cc
