@@ -427,6 +427,33 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec: H = 15 and DAY's thresholds) The controller's daylight
+    /// detector at its cell in the composition (fluids flowed): the column over it, then its output
+    /// every N gt over a clear, a rain and a thunder day
+    DetectorInPlace {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, default_value = "")]
+        parts: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "-5,15,3")]
+        at: String,
+        #[arg(long, default_value_t = 20)]
+        every: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec: PANIC's start erases an IDLE rider's entity walk) An IDLE
+    /// villager in a cart with an entity walk or interaction target when a zombie comes into sight:
+    /// its WALK_TARGET, PATH, LOOK_TARGET and INTERACTION_TARGET lines around PANIC's first tick
+    PanicStart {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value_t = 3)]
+        trials: u32,
+        /// The gt each trial waits for an entity walk at most
+        #[arg(long, default_value_t = 3000)]
+        wait_max: u32,
+    },
     /// (tickexact 2026-11-12, ironspec: the hold release) Does a villager seated in a cart trip a
     /// tripwire string over the cart's cell (at rest, rolling)? With an empty cart and a villager
     /// in the string's cell as the controls
@@ -1050,6 +1077,13 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::DetectorInPlace { version, module, parts, at, every } => {
+            let v: Vec<i32> = at.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(v.len() == 3, "--at x,y,z, got {at}");
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            crate::detectorinplace::detector_in_place(&version, &module, &parts, [v[0], v[1], v[2]], every)
+        }
+        MobaiCmd::PanicStart { version, trials, wait_max } => crate::panicstart::panic_start(&version, trials, wait_max),
         MobaiCmd::TripwireRider { version, speed, ticks } => crate::tripwirerider::tripwire_rider(&version, speed, ticks),
         MobaiCmd::MirrorBench { version, file, mirror_at, script, reads, phases, ticks } => {
             let cell = |s: &str| -> anyhow::Result<[i32; 3]> {

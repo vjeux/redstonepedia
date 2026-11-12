@@ -1,8 +1,9 @@
 //! (tickexact 2026-11-12, ironspec: the hold release's cheaper check) `mctas mobai tripwire-rider`:
 //! on the official 26.3 server, does a villager seated in a cart trip a tripwire string over the
 //! cart's cell? A straight north-south rail on stone at y 64 through z 0..12, the string at
-//! (0,65,6) (the cell over the rail's (0,64,6)) between hooks (0,65,5) facing north and (0,65,7)
-//! facing south, each on stone behind it, the string placed last (attached). Rows, each in a fresh
+//! (0,65,6) (the cell over the rail's (0,64,6)) between hooks (0,65,5) facing south and (0,65,7)
+//! facing north (each toward the string), each on stone behind it, the string placed last
+//! (attached). Rows, each in a fresh
 //! copy 20 blocks east: (i) a ridden cart at rest on (0,64,6), (ii) a ridden cart rolling through at
 //! `--speed`, the controls (iii) an empty cart at rest and rolling, (iv) a villager standing in the
 //! string's cell, (v) a villager walking through it (its stroll toward a target past it). Every

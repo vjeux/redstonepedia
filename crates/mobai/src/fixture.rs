@@ -687,6 +687,9 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-12, ironspec and onechunk: an entity walk across PANIC's start) the
+        // zombie's box opens toward the rider at t200
+        "panic-entity-walk" => vec![(200, vec![s([9, 64, 8], "minecraft:air"), s([9, 65, 8], "minecraft:air")])],
         // (tickexact 2026-11-11, ironspec's gravity intake bridge) every intake set at rest on the
         // run once the run is at rest (the scene's entities by number: each lane's 12 run carts
         // and their riders, then its intake)
@@ -5742,6 +5745,52 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([0, 62, 0], [20, 67, 13]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-12, ironspec and onechunk: an entity walk across PANIC's start) an IDLE
+    // rider (day time 1000) in a cart on a rail at (4,64,4), a second villager free on the walled
+    // stone floor (x 2..11, z 2..11) at (6.5,64,4.5), a zombie in a boat at (10.5,64,8.5) closed in
+    // a stone box; at t200 the box's west wall (9,64..65,8) goes: the zombie comes into the rider's
+    // sight 7.2 away (the game: VillagerPanicTrigger.start erases PATH, WALK_TARGET, LOOK_TARGET and
+    // INTERACTION_TARGET at PANIC's first tick and nothing sets an entity walk during PANIC)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 62, stone);
+        for x in 1..=12 {
+            for z in 1..=12 {
+                b.push(([x, 63, z], stone.to_string()));
+                if x == 1 || x == 12 || z == 1 || z == 12 {
+                    for y in 64..=65 {
+                        b.push(([x, y, z], "minecraft:glass".to_string()));
+                    }
+                }
+            }
+        }
+        b.push(([4, 64, 4], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        // the zombie's stone box round (10,64..65,8), its west wall the one that opens
+        for (x, z) in [(9, 8), (11, 8), (10, 7), (10, 9)] {
+            for y in 64..=65 {
+                b.push(([x, y, z], stone.to_string()));
+            }
+        }
+        b.push(([10, 66, 8], stone.to_string()));
+        let mobs = vec![
+            ("minecraft:minecart".to_string(), [4.5, 64.0625, 4.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string())),
+            ("minecraft:villager".to_string(), [6.5, 64.0, 4.5], Some("{PersistenceRequired:1b}".to_string())),
+            ("minecraft:oak_boat".to_string(), [10.5, 64.0, 8.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".to_string())),
+        ];
+        v.push(Scene {
+            name: "panic-entity-walk".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 1000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([1, 63, 1], [12, 66, 12]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,

@@ -6,9 +6,10 @@
 //! differ between the copies (a rail's shape compared through the mirror).
 //!
 //! The script: `t:x,y,z=STATE;...` (at tick t, before that tick runs, set the cell; `air` for
-//! minecraft:air), with `@k` after the tick to repeat the whole script shifted k gt (a phase), as
-//! `--phases a,b,c`. Reads: `name:x,y,z:prop;...` with prop a boolean property (powered, lit, open)
-//! or `shape`.
+//! minecraft:air), repeated shifted by each of `--phases`. Reads: `name:x,y,z:prop;...` with prop a
+//! boolean property (powered, lit, open) or `shape`; only the read cells are compared, so the reads
+//! must cover every output the controller consumes (a difference in an unread cell is not seen).
+//! The copies must stand at least 16 apart in z (checked).
 
 use crate::freeze::mirror_z;
 use anyhow::Result;
@@ -61,10 +62,15 @@ pub fn mirror_bench(version: &str, file: &std::path::Path, mirror_at: i32, scrip
     let d = mctas::design::Design::load(file)?;
     let mz = |p: [i32; 3]| [p[0], p[1], mirror_at - p[2]];
     println!("== mirror-bench on the official {version} server: {} as stated and mirrored in z (z' = {mirror_at} - z); {} events, phases {phases:?}, {ticks} gt each", file.display(), script.len());
-    let opts = VanillaOptions { version: version.to_string(), difficulty: "peaceful".into(), with_bot: false, keep_dir: false, tick_rate: 1000, world: None, ..Default::default() };
-    let mut srv = VanillaServer::start(&opts)?;
     let (lo, hi) = (d.blocks.iter().map(|(p, _)| p[2]).min().unwrap_or(0), d.blocks.iter().map(|(p, _)| p[2]).max().unwrap_or(0));
     let (mlo, mhi) = (mirror_at - hi, mirror_at - lo);
+    // the copies must not reach each other (redstone, the drive cells' neighbours): 16 blocks apart
+    let (slo, shi) = (script.iter().map(|e| e.p[2]).chain([lo]).min().unwrap_or(lo), script.iter().map(|e| e.p[2]).chain([hi]).max().unwrap_or(hi));
+    let (m_lo, m_hi) = (mirror_at - shi, mirror_at - slo);
+    let gap = if m_hi < slo { slo - m_hi } else if m_lo > shi { m_lo - shi } else { 0 };
+    anyhow::ensure!(gap >= 16, "the copies are {gap} apart in z (the piece and its drive cells z {slo}..{shi}, mirrored {m_lo}..{m_hi}): move --mirror-at so they are at least 16 apart");
+    let opts = VanillaOptions { version: version.to_string(), difficulty: "peaceful".into(), with_bot: false, keep_dir: false, tick_rate: 1000, world: None, ..Default::default() };
+    let mut srv = VanillaServer::start(&opts)?;
     srv.cmd_ok(&format!("forceload add -48 {} 47 {}", lo.min(mlo) - 8, hi.max(mhi) + 8))?;
     srv.step(20)?;
     let mut total_diff = 0u32;
