@@ -406,8 +406,11 @@ pub fn fault_cases(o: &LoopOpts, partial: bool) -> Vec<(String, Vec<String>)> {
             let dy = o.dip_y as f64 + 0.0625;
             let foot = 2 * o.approach as i32 - o.dip_y as i32;
             for z in (foot + 1)..(foot + 1 + o.dip_flat as i32) {
+                // the cell's centre as a number (`mctas::cell_centre`): the integer with a literal
+                // dot-5 suffix reads z − 0.5 for a negative z, the next cell down
+                let zc = mctas::cell_centre(z);
                 for (what, v0) in [("at rest", 0.0), ("crawling", -0.02)] {
-                    v.push((format!("dip push-in z {}.5 {what}", z), vec![format!("5,35,place,head,{fx},{dy},{z}.5,{v0}")]));
+                    v.push((format!("dip push-in z {zc} {what}"), vec![format!("5,35,place,head,{fx},{dy},{zc},{v0}")]));
                 }
             }
         }

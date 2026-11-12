@@ -220,7 +220,7 @@ pub fn sky(path: &Path, t: &str, o: &SkyOpts) -> Result<(String, String), String
     let g = gy - off;
     d.meta.insert("ground".into(), g.to_string());
     d.meta.remove("terrain");
-    d.meta.insert("afk".into(), format!("{}.5 {} {}.5", cx, yr - 1, cz));
+    d.meta.insert("afk".into(), format!("{} {} {}", mctas::cell_centre(cx), yr - 1, mctas::cell_centre(cz)));
     d.meta.insert("sky".into(), format!("{t} at ({lx},{lz}), lifted {off} (design y 0 at world y {off}), the box's bottom {gap} above the highest natural block under it, roof y {yr}{}", if o.rod { ", a lightning rod" } else { ", no rod (the roof 3 wider)" }));
     let report = format!(
         "sky variant in {t}: the footprint's min column ({lx},{lz}), lifted {off} (design y {y0}..{yr} at world y {}..{}), every villager position at least {r} over the highest natural block within {r} columns, the box's bottom {gap} blocks above the highest natural block under it (world y {gref}){}; binding: {why}\n\
