@@ -5,13 +5,17 @@
 //! the pocket release speed, the napper's delay) the control — the cold start: the return starts empty,
 //! its latches idle, and nothing in it keys on world time, so every bar rides the batch's own launches
 //! (REL) — and at the nominal corners a save/stop/start at every 1-gt phase in each of
-//! `liveness::Restart::rows()`'s 10 orders (the bench's `--restart`); the pearl alternative's logins of
-//! D gt at every phase (the bench's `--login`, through `liveness::freeze32`) are reported apart. The
+//! `liveness::Restart::rows()`'s 10 orders (the bench's `--restart`), and logins of D gt at every phase
+//! (the bench's `--login`, through `liveness::freeze32`): up to `--lead-login-max` (3) gt the lead's
+//! (ironspec 09:26: a restart's riders officially miss 1 tick, the brief's bound <= 3 gt), longer the
+//! pearl alternative's stated limit (failures by gap length, the first failing gap). The
 //! bars: every cart in its own lane (no WRONG LANE, no NEVER), seated, unhurt, its eye never in a wall,
 //! its rider's head under the roof's underside (`--head-max`, 28.0); every batch cart's delivery (stored,
-//! entering its lane's merge cell: ironfarm's drop entry) in `--branch-band` (0.27..0.48: the floor
-//! ironfarm's real first failure 0.22 + 0.05, the upper end pending ironfarm's upper failure - 0.05) and
-//! the napper's (stored, handed on by the 4th route toward the bed stop) in `--napper-band` (0.1..0.3), each
+//! entering its lane's merge cell: ironfarm's drop entry) in `--branch-band` (0.27..0.95: the floor
+//! ironfarm's real first failure 0.22 + 0.05, the upper end ironfarm's upward sweep: no failure through
+//! stored 1.00, less 0.05) and the napper's (stored, handed on by the 4th route toward the bed stop) in
+//! `--napper-band` (0.1..0.3; with `--k-relay` its arrival on its siding's K cell in `--k-band`,
+//! 0.10..0.44, read from the bench's trace of the napper), each
 //! with its margin to both ends; every shaft-entry gap at least `--shaft-min`; the napper's window at
 //! least `--napper-behind` behind the batch's third cart and `--napper-ahead` ahead of the next batch's
 //! first; each junction's turn at least `--junction-min J:G` ahead of the next cart at it; box-test
@@ -20,7 +24,9 @@
 //! verdict and sources, the detectors' Ts), and here `redsim::rails::would_pop` over every rail of the
 //! file and every detector's reach set (the faces of its cell, of the cell under it, and for a sloped
 //! detector of the cell above it) with each rail's connection count; a T in a reach set must be
-//! declared (a lever over it). A value the reader cannot read is an error (nothing silently dropped).
+//! declared (a driver on a face: a lever, a repeater or comparator pointing in, any source; a detector
+//! alone is none); every switched T obeys ironspec's T rule (`t_rule`). A value the reader cannot read
+//! is an error (nothing silently dropped).
 
 use crate::liveness::Restart;
 use crate::returnbench::{ReturnOpts, return_bench};
@@ -41,6 +47,9 @@ pub struct ReturnBars {
     pub pushes_max: usize,
     /// Every rider's head strictly under this (the roof's underside).
     pub head_max: f64,
+    /// `--k-relay`: the returning napper's arrival on its siding's K cell (ironspec 08:46, widened 09:00:
+    /// 0.10..0.44) in place of the 4th route's hand-on band.
+    pub k_band: Option<(f64, f64)>,
 }
 
 /// One run's reading of the bench's text.
@@ -52,12 +61,18 @@ pub struct ReturnRead {
     pub dismounted: usize,
     pub hurt: usize,
     pub eye: usize,
+    /// Batch carts that took a siding's F or the 4th route (the bench's "handed on" speed) instead of
+    /// their own branch (each a failure: their lane's number can match while their route does not).
+    pub sided: usize,
     /// The batch carts' stored speed entering their branch (printed, not a bar).
     pub branch: Vec<f64>,
     /// The batch carts' stored speed entering their lane's merge cell (the delivery).
     pub merge: Vec<f64>,
     /// The napper's hand-on speed by the 4th route (stored).
     pub napper_entry: Option<f64>,
+    /// `--k-relay`: the napper's stored speed on arriving on its siding's K cell (read from the bench's
+    /// trace of the napper: the first tick in that cell).
+    pub napper_k: Option<f64>,
     /// The riders' highest head y.
     pub head: Option<f64>,
     /// Per junction (its x), the least gap from its turn to the next cart at it.
@@ -65,6 +80,9 @@ pub struct ReturnRead {
     pub shaft: Option<i64>,
     pub napper_behind: Option<i64>,
     pub napper_ahead: Option<i64>,
+    /// The gaps line carries the napper's clause (its values may be `-`: the napper or the next batch's
+    /// first never into the shaft, a failure).
+    pub napper_clause: bool,
     pub touches: usize,
     pub pushes: usize,
     /// Per lane, the longest return (release to its branch flat, live gt).
@@ -92,11 +110,30 @@ fn need(l: &str, key: &str, what: &str, errors: &mut Vec<String>) -> Option<f64>
     v
 }
 
-/// Read a return bench's text (the `--row9` bench's lines).
-pub fn read(text: &str, napper: bool) -> ReturnRead {
+/// Read a return bench's text (the `--row9` bench's lines). `k_cell`: with `--k-relay`, the napper's
+/// siding K cell, whose arrival speed is read from the bench's trace of the napper (`  t T: cart K at
+/// x,y,z v vx,vy,vz on ...`: the first tick in that cell); a napper run without it is missing it.
+pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> ReturnRead {
     let mut r = ReturnRead::default();
     let (mut saw_split, mut saw_pairs, mut saw_gaps, mut saw_head) = (false, false, false, false);
     for l in text.lines() {
+        if let Some(kc) = k_cell
+            && r.napper_k.is_none()
+            && l.starts_with("  t ")
+            && let Some((_, rest)) = l.split_once(" at ")
+            && let Some((pos, vel)) = rest.split_once(" v ")
+        {
+            let nums = |s: &str| s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>();
+            let vel = vel.split(" on ").next().unwrap_or("");
+            match (nums(pos), nums(vel)) {
+                (Ok(p), Ok(v)) if p.len() == 3 && v.len() == 3 => {
+                    if (p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32) == kc {
+                        r.napper_k = Some((v[0] * v[0] + v[2] * v[2]).sqrt());
+                    }
+                }
+                _ => r.errors.push(format!("a trace line unreadable: {:?}", l.chars().take(120).collect::<String>())),
+            }
+        }
         let is_napper = l.starts_with("napper ");
         if (l.starts_with("cart ") || is_napper) && l.contains(": into the shaft") {
             r.carts += 1;
@@ -121,16 +158,21 @@ pub fn read(text: &str, napper: bool) -> ReturnRead {
                     None => {}
                 }
             } else {
-                // (`branch speed V (entering the merge cell M)`)
-                match num_after(l, "; branch speed ") {
-                    Some(v) => r.branch.push(v),
-                    None if arrived => r.errors.push(format!("{head}...: in its lane without its branch speed")),
-                    None => {}
-                }
-                match num_after(l, "(entering the merge cell ") {
-                    Some(m) => r.merge.push(m),
-                    None if arrived => r.errors.push(format!("{head}...: in its lane without its merge-cell entry speed")),
-                    None => {}
+                // (`branch speed V (entering the merge cell M)`; a batch cart the bench "hands on" (a
+                // siding's F or the 4th route) took no branch of its own: a failure, not a reading)
+                if arrived && l.contains("(handed on by the 4th route at ") {
+                    r.sided += 1;
+                } else {
+                    match num_after(l, "; branch speed ") {
+                        Some(v) => r.branch.push(v),
+                        None if arrived => r.errors.push(format!("{head}...: in its lane without its branch speed")),
+                        None => {}
+                    }
+                    match num_after(l, "(entering the merge cell ") {
+                        Some(m) => r.merge.push(m),
+                        None if arrived => r.errors.push(format!("{head}...: in its lane without its merge-cell entry speed")),
+                        None => {}
+                    }
                 }
             }
             // (its lane, as the line names it, and the return: release to its branch flat)
@@ -189,9 +231,19 @@ pub fn read(text: &str, napper: bool) -> ReturnRead {
             }
             r.shaft = all.into_iter().min();
             if let Some(n) = nap {
-                // (`X behind batch 0's third cart, Y ahead of batch 1's first`; `-` unmeasured)
-                r.napper_behind = n.split(" behind").next().and_then(|x| x.trim().parse().ok());
-                r.napper_ahead = n.split(", ").nth(1).and_then(|x| x.split(" ahead").next()).and_then(|x| x.trim().parse().ok());
+                // (`X behind batch B's third cart, Y ahead of the next batch's first`; `-` unmeasured: the
+                // napper or the next batch's first never into the shaft (a failure); any other value an
+                // error)
+                r.napper_clause = true;
+                let behind = n.split(" behind").next().unwrap_or("").trim();
+                let ahead = n.split(", ").nth(1).and_then(|x| x.split(" ahead").next()).unwrap_or("").trim();
+                for (v, slot, what) in [(behind, &mut r.napper_behind, "behind"), (ahead, &mut r.napper_ahead, "ahead")] {
+                    match v.parse::<i64>() {
+                        Ok(g) => *slot = Some(g),
+                        Err(_) if v == "-" => {}
+                        Err(_) => r.errors.push(format!("the napper's gap {what} {v:?} unreadable")),
+                    }
+                }
             }
         }
     }
@@ -210,8 +262,11 @@ pub fn read(text: &str, napper: bool) -> ReturnRead {
     if !saw_gaps {
         r.missing.push("the shaft entry gaps line");
     }
-    if napper && (r.napper_behind.is_none() || r.napper_ahead.is_none()) {
+    if napper && !r.napper_clause {
         r.missing.push("the napper's window");
+    }
+    if napper && k_cell.is_some() && r.napper_k.is_none() && r.wrong == 0 && r.never == 0 {
+        r.missing.push("the napper's arrival on its K cell (the trace)");
     }
     r
 }
@@ -226,7 +281,7 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
     for e in &r.errors {
         v.push(format!("unreadable: {e}"));
     }
-    for (n, what) in [(r.wrong, "wrong lane(s)"), (r.never, "never at a lane"), (r.dismounted, "dismounted"), (r.hurt, "hurt"), (r.eye, "eye in a wall")] {
+    for (n, what) in [(r.wrong, "wrong lane(s)"), (r.never, "never at a lane"), (r.sided, "batch cart(s) off their branch (into a siding's F or the 4th route)"), (r.dismounted, "dismounted"), (r.hurt, "hurt"), (r.eye, "eye in a wall")] {
         if n > 0 {
             v.push(format!("{n} {what}"));
         }
@@ -238,10 +293,22 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
         v.push(format!("a delivery {x:.3} outside {:.2}..{:.2}", b.branch_band.0, b.branch_band.1));
     }
     if napper {
-        match r.napper_entry {
-            Some(x) if x < b.napper_band.0 || x > b.napper_band.1 => v.push(format!("the napper's delivery {x:.3} outside {:.2}..{:.2}", b.napper_band.0, b.napper_band.1)),
-            None => v.push("no napper delivery".into()),
-            _ => {}
+        match b.k_band {
+            // (`--k-relay`: the napper's arrival on its siding's K cell against the S-bend's band; its
+            // F entry (the bench's "handed on" speed) is printed, not barred)
+            Some(kb) => match r.napper_k {
+                Some(x) if x < kb.0 || x > kb.1 => v.push(format!("the napper's arrival on its K cell {x:.3} outside {:.2}..{:.2}", kb.0, kb.1)),
+                None => v.push("no napper arrival on its K cell".into()),
+                _ => {}
+            },
+            None => match r.napper_entry {
+                Some(x) if x < b.napper_band.0 || x > b.napper_band.1 => v.push(format!("the napper's delivery {x:.3} outside {:.2}..{:.2}", b.napper_band.0, b.napper_band.1)),
+                None => v.push("no napper delivery".into()),
+                _ => {}
+            },
+        }
+        if r.napper_behind.is_none() || r.napper_ahead.is_none() {
+            v.push("the napper's window unmeasured (it or the next batch's first never into the shaft)".into());
         }
         if r.napper_behind.is_some_and(|g| g < b.napper_behind) {
             v.push(format!("the napper {} gt behind the third cart (bar {})", r.napper_behind.unwrap_or(0), b.napper_behind));
@@ -352,6 +419,11 @@ pub struct ReturnJudgeOpts {
     pub starts: (i64, i64),
     pub restarts: bool,
     pub ds: Vec<i64>,
+    /// Logins of at most this many gt are the lead's (ironspec 09:26: the lead's freeze is a restart,
+    /// riders officially miss 1 tick, the brief's bound <= 3 gt): their failures count; longer logins
+    /// are the pearl alternative's, printed as its stated limit (failures by gap length, the first
+    /// failing gap).
+    pub lead_login_max: i64,
     pub bars: ReturnBars,
     /// Every gt bar's margin at the nominal corners.
     pub margin: i64,
@@ -373,12 +445,13 @@ fn least(rs: &[&ReturnRead], f: impl Fn(&ReturnRead) -> Option<i64>, bar: i64) -
 }
 
 /// Runs `runs` on `jobs` threads, each through the bench and the reader; any missing line or
-/// unreadable value is an error.
+/// unreadable value is an error. With `--k-relay` the napper's K cell is read from its trace.
 fn run_all<K: Clone + Send + Sync + std::fmt::Debug>(base: &ReturnOpts, runs: &[(K, ReturnOpts, bool)], jobs: usize) -> Result<Vec<(K, ReturnRead)>, String> {
+    let kc = base.k_relay.then_some((base.napper_lane - 2, 25, 9));
     let mut results = Vec::new();
     for chunk in runs.chunks(jobs.max(1)) {
         let got: Vec<Result<(K, ReturnRead), String>> = std::thread::scope(|sc| {
-            let hs: Vec<_> = chunk.iter().map(|(k, lo, nap)| sc.spawn(move || return_bench(lo).map(|t| (k.clone(), read(&t, *nap))))).collect();
+            let hs: Vec<_> = chunk.iter().map(|(k, lo, nap)| sc.spawn(move || return_bench(lo).map(|t| (k.clone(), read(&t, *nap, kc))))).collect();
             hs.into_iter().map(|h| h.join().expect("a return judge thread panicked")).collect()
         });
         for r in got {
@@ -389,17 +462,17 @@ fn run_all<K: Clone + Send + Sync + std::fmt::Debug>(base: &ReturnOpts, runs: &[
             results.push((k, rd));
         }
     }
-    let _ = base;
     Ok(results)
 }
 
-/// The bench options for one corner and row.
+/// The bench options for one corner and row (with `--k-relay` and a napper, the napper's trace for
+/// its K cell).
 fn opts(base: &ReturnOpts, c: &Corner, row: Row) -> ReturnOpts {
     let mut lo = base.clone();
     lo.offsets = c.offsets.clone();
     lo.speed = c.speed;
     lo.napper_delay = c.napper;
-    lo.trace = None;
+    lo.trace = (lo.k_relay && c.napper.is_some()).then_some(lo.batches * 3);
     lo.out = None;
     lo.restart = None;
     lo.login = None;
@@ -447,7 +520,22 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
     total += ctl_fail.len();
     let all_merge: Vec<f64> = ctl_reads.iter().flat_map(|r| r.merge.clone()).collect();
     let all_branch: Vec<f64> = ctl_reads.iter().flat_map(|r| r.branch.clone()).collect();
-    let all_nap: Vec<f64> = ctl_reads.iter().filter_map(|r| r.napper_entry).collect();
+    // (the napper's delivery: with --k-relay its arrival on its K cell against the S-bend's band, its F
+    // entry printed; else the 4th route's hand-on)
+    let napper_text = |rs: &[&ReturnRead]| -> String {
+        let entry: Vec<f64> = rs.iter().filter_map(|r| r.napper_entry).collect();
+        match o.bars.k_band {
+            Some(kb) => {
+                let k: Vec<f64> = rs.iter().filter_map(|r| r.napper_k).collect();
+                format!(
+                    "the napper's arrival on its K cell {}; its F entry (printed) {}",
+                    margins(&k, kb),
+                    if entry.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", entry.iter().copied().fold(f64::INFINITY, f64::min), entry.iter().copied().fold(f64::NEG_INFINITY, f64::max)) }
+                )
+            }
+            None => format!("the napper's delivery (its hand-on) {}", margins(&entry, o.bars.napper_band)),
+        }
+    };
     let head = ctl_reads.iter().filter_map(|r| r.head).fold(f64::NEG_INFINITY, f64::max);
     let mut ret_max: BTreeMap<String, i64> = BTreeMap::new();
     for r in &ctl_reads {
@@ -464,12 +552,12 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         }
     }
     out.push(format!(
-        "the controls ({} corners; each the cold start): failing {}; delivery (merge-cell entry, stored) {}; branch entry (printed) {}; the napper's delivery (its hand-on) {}; the highest head {:.3} (the roof's underside {:.1}, margin {:+.3}); the least shaft-entry gap {}; the napper's least window {} behind, {} ahead; the least junction gaps {}; box touches up to {}, pushes up to {}; the longest return per lane {}",
+        "the controls ({} corners; each the cold start): failing {}; delivery (merge-cell entry, stored) {}; branch entry (printed) {}; {}; the highest head {:.3} (the roof's underside {:.1}, margin {:+.3}); the least shaft-entry gap {}; the napper's least window {} behind, {} ahead; the least junction gaps {}; box touches up to {}, pushes up to {}; the longest return per lane {}",
         controls.len(),
         ctl_fail.len(),
         margins(&all_merge, o.bars.branch_band),
         if all_branch.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", all_branch.iter().copied().fold(f64::INFINITY, f64::min), all_branch.iter().copied().fold(f64::NEG_INFINITY, f64::max)) },
-        margins(&all_nap, o.bars.napper_band),
+        napper_text(&ctl_reads),
         head,
         o.bars.head_max,
         o.bars.head_max - head,
@@ -504,7 +592,8 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
             if short.is_empty() { String::new() } else { format!(" -> SHORT: {}", short.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(", ")) }
         ));
     }
-    // (the nominal corners' restarts (the lead) and logins (reported))
+    // (the nominal corners' restarts and the logins of up to `lead_login_max` gt (the lead), the longer
+    // logins (the pearl alternative's stated limit))
     for c in &o.phase_corners {
         let mine: Vec<&Res> = results.iter().filter(|((cc, _), _)| cc == c).collect();
         let restarts: Vec<&&Res> = mine.iter().filter(|((_, row), _)| matches!(row, Row::Restart(..))).collect();
@@ -512,12 +601,26 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         let failing: Vec<&&&Res> = restarts.iter().filter(|((cc, _), r)| !fl(cc, r).is_empty()).collect();
         total += failing.len();
         let rr: Vec<&ReturnRead> = restarts.iter().map(|(_, r)| r).collect();
-        let lr: Vec<&ReturnRead> = logins.iter().map(|(_, r)| r).collect();
-        let login_failing = logins.iter().filter(|((cc, _), r)| !fl(cc, r).is_empty()).count();
         let mg: Vec<f64> = rr.iter().flat_map(|r| r.merge.clone()).collect();
-        let nap: Vec<f64> = rr.iter().filter_map(|r| r.napper_entry).collect();
+        // (the logins by gap length: runs, failing, the failing phases)
+        let mut by_d: BTreeMap<i64, (usize, Vec<i64>, std::collections::BTreeSet<String>)> = BTreeMap::new();
+        for ((cc, row), r) in logins.iter().map(|x| &***x) {
+            if let Row::Login(t, d) = row {
+                let e = by_d.entry(*d).or_default();
+                e.0 += 1;
+                let f = fl(cc, r);
+                if !f.is_empty() {
+                    e.1.push(*t);
+                    e.2.extend(f.iter().map(|k| kind(k)));
+                }
+            }
+        }
+        let lead_login_fail: usize = by_d.iter().filter(|(d, _)| **d <= o.lead_login_max).map(|(_, e)| e.1.len()).sum();
+        total += lead_login_fail;
+        let lead_logins: usize = by_d.iter().filter(|(d, _)| **d <= o.lead_login_max).map(|(_, e)| e.0).sum();
+        let lr: Vec<&ReturnRead> = logins.iter().filter(|((_, row), _)| matches!(row, Row::Login(_, d) if *d <= o.lead_login_max)).map(|(_, r)| r).collect();
         out.push(format!(
-            "{}: {} restarts (every phase t {}..{} x {} orders): failing {}; delivery {}; the napper's delivery {}; the highest head {:.3}; the least shaft-entry gap {}; the napper's least window {} behind, {} ahead | the pearl alternative's logins ({} runs, through liveness::freeze32; reported, out of the lead's scope): failing {login_failing}; the least shaft-entry gap {}",
+            "{}: {} restarts (every phase t {}..{} x {} orders): failing {}; delivery {}; {}; the highest head {:.3}; the least shaft-entry gap {}; the napper's least window {} behind, {} ahead; the lead's logins of 1..{} gt ({} runs, through liveness::freeze32): failing {lead_login_fail}, the least shaft-entry gap {}",
             c.label(),
             restarts.len(),
             o.starts.0,
@@ -525,14 +628,32 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
             orders.len(),
             failing.len(),
             margins(&mg, o.bars.branch_band),
-            margins(&nap, o.bars.napper_band),
+            napper_text(&rr),
             rr.iter().filter_map(|r| r.head).fold(f64::NEG_INFINITY, f64::max),
             least(&rr, |r| r.shaft, o.bars.shaft_min),
             least(&rr, |r| r.napper_behind, o.bars.napper_behind),
             least(&rr, |r| r.napper_ahead, o.bars.napper_ahead),
-            logins.len(),
+            o.lead_login_max,
+            lead_logins,
             least(&lr, |r| r.shaft, o.bars.shaft_min),
         ));
+        for (d, (n, ts, kinds)) in by_d.iter().filter(|(d, _)| **d <= o.lead_login_max) {
+            if !ts.is_empty() {
+                let mut ts = ts.clone();
+                ts.sort();
+                out.push(format!("  the lead's logins of {d} gt failing at t {} of {n} ({})", bands(&ts), kinds.iter().cloned().collect::<Vec<_>>().join(", ")));
+            }
+        }
+        let pearl: Vec<(&i64, &(usize, Vec<i64>, std::collections::BTreeSet<String>))> = by_d.iter().filter(|(d, _)| **d > o.lead_login_max).collect();
+        if !pearl.is_empty() {
+            let first = pearl.iter().find(|(_, e)| !e.1.is_empty()).map(|(d, _)| **d);
+            out.push(format!(
+                "  the pearl alternative's stated limit (logins over {} gt; reported, out of the lead's scope): {}; the first failing gap {}",
+                o.lead_login_max,
+                pearl.iter().map(|(d, e)| format!("{d} gt: failing {} of {}{}", e.1.len(), e.0, if e.2.is_empty() { String::new() } else { format!(" ({})", e.2.iter().cloned().collect::<Vec<_>>().join(", ")) })).collect::<Vec<_>>().join("; "),
+                first.map_or("none".to_string(), |d| format!("{d} gt"))
+            ));
+        }
         for how in &orders {
             let mut ts: Vec<i64> = failing.iter().filter_map(|((_, row), _)| if let Row::Restart(t, h) = row { (h == how).then_some(*t) } else { None }).collect();
             ts.sort();
@@ -655,8 +776,9 @@ pub fn file_gates(path: &str) -> Result<(Vec<String>, usize), String> {
     // (every detector's reach set (G1 06:33): its state change updates the neighbours of its own cell
     // and of the cell under it, and a sloped detector's also reaches the cell above it (rails.rs sends a
     // slope's update there: tick-exact's rail-t scene, the T at a sloped detector's top); every rail in
-    // the set with its potential connections; a T there must be one the design declares (a lever over
-    // it, the latch's output), else the detector's press re-settles it: a failure)
+    // the set with its potential connections; a T there must be one the design declares (a driver on a
+    // face, [`drivers`]: a lever, a repeater pointing in, any source but a detector), else the
+    // detector's press re-settles it: a failure)
     for p in &rails {
         let s = w.get(*p);
         if !s.to_string().contains("detector_rail") {
@@ -688,7 +810,7 @@ pub fn file_gates(path: &str) -> Result<(Vec<String>, usize), String> {
             }
             let n = redsim::rails::RailState::new(*q, b).count_potential_connections(&w);
             let tee = redsim::rails::junction_at(&w, *q).is_some();
-            let declared = d.blocks.get(&[q.x, q.y + 1, q.z]).is_some_and(|x| x.contains("lever"));
+            let declared = drivers(&w, *q).iter().any(|x| !x.2);
             in_reach.push(format!("{} ({n} connections{})", cell(*q), if tee { if declared { ", a declared T" } else { ", an UNDECLARED T" } } else { "" }));
             if tee && !declared {
                 undeclared.push(cell(*q));
@@ -709,30 +831,98 @@ pub fn file_gates(path: &str) -> Result<(Vec<String>, usize), String> {
     }
     // (ironspec's T rule on every switched T: [`t_rule`])
     for p in &rails {
-        let Some((line, bad)) = t_rule(&w, &d.blocks, *p) else { continue };
+        let Some((line, bad)) = t_rule(&w, *p) else { continue };
         fails += usize::from(!bad.is_empty());
         out.push(format!("  {line}: {}", if bad.is_empty() { "ok".to_string() } else { format!("FAIL ({})", bad.join("; ")) }));
     }
     Ok((out, fails))
 }
 
+/// The drivers on the faces of the cell `p` (G1's note on 5af88c7da: day-1's built J/K driver is a
+/// repeater into the T, not a lever over it): every face neighbour that powers `p` now or would in its
+/// powered state (a lever, a repeater or comparator pointing in, a torch, a redstone block, a detector
+/// rail: any source, read through redsim's own `signal` with the neighbour set powered), and every
+/// component that strongly powers a conductor on a face of `p` now or would in its powered state (a
+/// repeater into the stone under it). Each: (what and where, whether it powers `p` now, whether it is a
+/// detector rail).
+pub fn drivers(w: &redsim::world::World, p: redsim::pos::BlockPos) -> Vec<(String, bool, bool)> {
+    use redsim::block::Block;
+    use redsim::pos::Dir;
+    let name = |b: &Block| b.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+    let cell = |q: redsim::pos::BlockPos| format!("({},{},{})", q.x, q.y, q.z);
+    // (the block in its powered state, if it has one)
+    let lit = |b: &Block| -> Option<Block> {
+        let t = b.to_string();
+        let u = t.replace("powered=false", "powered=true").replace("lit=false", "lit=true").replace("power=0,", "power=15,").replace("power=0]", "power=15]");
+        if u == t {
+            return None;
+        }
+        Block::parse(&u).ok()
+    };
+    let mut out = Vec::new();
+    for d in Dir::ALL {
+        let q = p.rel(d);
+        let s = w.get(q);
+        if redsim::behavior::is_conductor(w, &s, q) {
+            for e in Dir::ALL {
+                let r = q.rel(e);
+                if r == p {
+                    continue;
+                }
+                let sr = w.get(r);
+                let now = w.direct_signal(r, e) > 0;
+                let could = now
+                    || lit(&sr).is_some_and(|on| {
+                        let mut w2 = w.clone();
+                        w2.place_raw(&[(r, on)]);
+                        w2.direct_signal(r, e) > 0
+                    });
+                if could {
+                    out.push((format!("{} {} via {} {}", name(&sr), cell(r), name(&s), cell(q)), now, name(&sr).contains("detector")));
+                }
+            }
+        } else {
+            let now = w.signal(q, d) > 0;
+            let could = now
+                || lit(&s).is_some_and(|on| {
+                    let mut w2 = w.clone();
+                    w2.place_raw(&[(q, on)]);
+                    w2.signal(q, d) > 0
+                });
+            if could {
+                out.push((format!("{} {}", name(&s), cell(q)), now, name(&s).contains("detector")));
+            }
+        }
+    }
+    out
+}
+
 /// ironspec's T rule (farmopt 2026-11-12 07:29) on the rail at `p` when it is a switched T (a T with a
-/// lever over it, the latch's output): it stores the shape the game settles it to for its lever's
-/// stored state; its two settle shapes (powered, unpowered) are the two curves through its stem (the
-/// shapes the routes use: the stem with the entry side to turn into the branch, with the far side to
-/// pass along the row); a stored non-settle shape fails (the game settles an arms-N/W/E T north_east
-/// unpowered, north_west powered). Returns its description and failures; `None` if it is no switched T.
-pub fn t_rule(w: &redsim::world::World, blocks: &BTreeMap<[i32; 3], String>, p: redsim::pos::BlockPos) -> Option<(String, Vec<String>)> {
+/// driver on a face ([`drivers`]): a lever, a repeater or comparator pointing in, any source; a
+/// detector rail alone is no declared switch, the detector reach gate's): it stores the shape the game
+/// settles it to for the power it gets; its two settle shapes (powered, unpowered) are the two curves
+/// through its stem (the shapes the routes use: the stem with the entry side to turn into the branch,
+/// with the far side to pass along the row); a stored non-settle shape fails (the game settles an
+/// arms-N/W/E T north_east unpowered, north_west powered). A T powered with no declared driver the gate
+/// recognises fails. Returns its description and failures; `None` if it is no switched T.
+pub fn t_rule(w: &redsim::world::World, p: redsim::pos::BlockPos) -> Option<(String, Vec<String>)> {
     use redsim::pos::Dir;
     let j = redsim::rails::junction_at(w, p)?;
-    let lever = blocks.get(&[p.x, p.y + 1, p.z]).filter(|b| b.contains("lever"))?;
-    let on = lever.contains("powered=true");
-    let want = if on { j.powered } else { j.unpowered };
+    let dr = drivers(w, p);
+    let declared: Vec<&(String, bool, bool)> = dr.iter().filter(|x| !x.2).collect();
     let mut bad: Vec<String> = Vec::new();
+    if declared.is_empty() {
+        if !j.signal {
+            return None;
+        }
+        bad.push(format!("powered with no driver the gate recognises (drivers on its faces: {})", if dr.is_empty() { "none".to_string() } else { dr.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", ") }));
+    }
+    let on = j.signal;
+    let want = if on { j.powered } else { j.unpowered };
     if j.stored != j.unpowered && j.stored != j.powered {
         bad.push(format!("stored {}, which no settle gives", j.stored.name()));
     } else if j.stored != want {
-        bad.push(format!("stored {}, the other settle than its lever's state ({}) gives", j.stored.name(), if on { "on" } else { "off" }));
+        bad.push(format!("stored {}, the other settle than its power ({}) gives", j.stored.name(), if on { "on" } else { "off" }));
     }
     let curve = |a: Dir, b: Dir| -> Option<String> {
         let ns = [a, b].into_iter().find(|d| matches!(d, Dir::North | Dir::South))?;
@@ -750,12 +940,13 @@ pub fn t_rule(w: &redsim::world::World, blocks: &BTreeMap<[i32; 3], String>, p: 
         bad.push(format!("its settle shapes {} / {} are not the routes' curves through its stem ({})", settles[0], settles[1], if routes.is_empty() { "no single stem".to_string() } else { routes.join(", ") }));
     }
     let line = format!(
-        "switched T ({},{},{}): arms {}, its lever {}, stored {}; settles {} unpowered, {} powered; the routes' curves through its stem {}",
+        "switched T ({},{},{}): arms {}, driven by {} ({}), stored {}; settles {} unpowered, {} powered; the routes' curves through its stem {}",
         p.x,
         p.y,
         p.z,
         j.arms.iter().map(|a| a.name()).collect::<Vec<_>>().join("/"),
-        if on { "on" } else { "off" },
+        if declared.is_empty() { "nothing declared".to_string() } else { declared.iter().map(|x| format!("{}{}", x.0, if x.1 { " (on)" } else { " (off)" })).collect::<Vec<_>>().join(", ") },
+        if on { "powered" } else { "unpowered" },
         j.stored.name(),
         j.unpowered.name(),
         j.powered.name(),
@@ -797,7 +988,8 @@ pub struct SolveRow {
     pub napper: (f64, f64),
     pub head: f64,
     pub pushes: usize,
-    /// Wrong lanes, never at a lane, dismounted, hurt, eye in a wall (summed over the corners).
+    /// Wrong lanes, never at a lane, batch carts off their branch, dismounted, hurt, eye in a wall
+    /// (summed over the corners).
     pub lost: usize,
 }
 
@@ -831,8 +1023,8 @@ impl SolveRow {
             && self.pushes <= b.pushes_max
             && self.delivery.0 >= b.branch_band.0
             && self.delivery.1 <= b.branch_band.1
-            && self.napper.0 >= b.napper_band.0
-            && self.napper.1 <= b.napper_band.1
+            && self.napper.0 >= b.k_band.unwrap_or(b.napper_band).0
+            && self.napper.1 <= b.k_band.unwrap_or(b.napper_band).1
             && self.head < b.head_max
     }
 
@@ -877,7 +1069,7 @@ impl SolveRow {
             self.ahead.map_or("-".into(), |x| format!("{x} gt")),
             jn.join(", "),
             band(self.delivery, b.branch_band),
-            band(self.napper, b.napper_band),
+            band(self.napper, b.k_band.unwrap_or(b.napper_band)),
             self.head,
             self.pushes,
             self.lost
@@ -921,7 +1113,7 @@ pub fn solve(base: &ReturnOpts, o: &SolveOpts) -> Result<Vec<String>, String> {
                 }
             }
             let range = |xs: Vec<f64>| (xs.iter().copied().fold(f64::INFINITY, f64::min), xs.iter().copied().fold(f64::NEG_INFINITY, f64::max));
-            let nap: Vec<f64> = mine.iter().filter_map(|r| r.napper_entry).collect();
+            let nap: Vec<f64> = mine.iter().filter_map(|r| if o.bars.k_band.is_some() { r.napper_k } else { r.napper_entry }).collect();
             rows.push(SolveRow {
                 step: s,
                 d,
@@ -935,7 +1127,7 @@ pub fn solve(base: &ReturnOpts, o: &SolveOpts) -> Result<Vec<String>, String> {
                 napper: if nap.len() == mine.len() { range(nap) } else { (f64::NEG_INFINITY, f64::INFINITY) },
                 head: mine.iter().filter_map(|r| r.head).fold(f64::NEG_INFINITY, f64::max),
                 pushes: mine.iter().map(|r| r.pushes).max().unwrap_or(0),
-                lost: mine.iter().map(|r| r.wrong + r.never + r.dismounted + r.hurt + r.eye).sum(),
+                lost: mine.iter().map(|r| r.wrong + r.never + r.sided + r.dismounted + r.hurt + r.eye).sum(),
             });
         }
     }
@@ -964,11 +1156,15 @@ pub fn solve(base: &ReturnOpts, o: &SolveOpts) -> Result<Vec<String>, String> {
     if o.all_rows {
         let jh: Vec<String> = o.bars.junction_min.iter().map(|(j, m)| format!("J({j}) gap, bar {m}")).collect();
         table.push(format!(
-            "| s | D | shaft-entry gap, bar {} | napper behind, bar {} | napper ahead, bar {} | {} | delivery (merge-cell entry) | napper delivery (hand-on) | highest head | pushes | lost carts | meets (every gt margin >= {}) |",
+            "| s | D | shaft-entry gap, bar {} | napper behind, bar {} | napper ahead, bar {} | {} | delivery (merge-cell entry) | {} | highest head | pushes | lost carts | meets (every gt margin >= {}) |",
             o.bars.shaft_min,
             o.bars.napper_behind,
             o.bars.napper_ahead,
             jh.join(" | "),
+            match o.bars.k_band {
+                Some(kb) => format!("napper's arrival on its K cell, band {:.2}..{:.2}", kb.0, kb.1),
+                None => format!("napper delivery (hand-on), band {:.2}..{:.2}", o.bars.napper_band.0, o.bars.napper_band.1),
+            },
             o.margin
         ));
         table.push(format!("|{}", "---|".repeat(11 + o.bars.junction_min.len())));
@@ -1008,8 +1204,13 @@ pub fn solve(base: &ReturnOpts, o: &SolveOpts) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
 
+    /// The reader without a K cell (the pre-K-relay bench).
+    fn read(t: &str, napper: bool) -> ReturnRead {
+        super::read(t, napper, None)
+    }
+
     fn bars() -> ReturnBars {
-        ReturnBars { branch_band: (0.30, 0.48), napper_band: (0.1, 0.3), shaft_min: 14, napper_behind: 21, napper_ahead: 16, junction_min: [(3, 8), (-1, 8)].into_iter().collect(), pushes_max: 0, head_max: 28.0 }
+        ReturnBars { branch_band: (0.30, 0.48), napper_band: (0.1, 0.3), shaft_min: 14, napper_behind: 21, napper_ahead: 16, junction_min: [(3, 8), (-1, 8)].into_iter().collect(), pushes_max: 0, head_max: 28.0, k_band: None }
     }
 
     const T: &str = "cart 0 (batch 0, lane -1): into the shaft 30 live gt after release (the rider's feet at y 12.01 at 44); lane -1, at its branch flat 132 live gt after release; branch speed 0.410 (entering the merge cell 0.350); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  cart 0 speed pin: merge row stored >= 0.791, moved >= 0.200/gt; split row stored >= 0.230, moved >= 0.172/gt; the rider's highest head y 26.900 (the roof's underside 28.0)\ncart 1 (batch 0, lane 3): into the shaft 31 live gt after release; lane 3, at its branch flat 153 live gt after release; branch speed 0.420 (entering the merge cell 0.360); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  cart 1 speed pin: merge row -; split row -; the rider's highest head y 27.012 (the roof's underside 28.0)\nnapper 3 (batch 0, the 4th route): into the shaft 80 live gt after release; the 4th route; branch speed - (handed on by the 4th route at 0.261 stored, 0.196/gt); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  napper 3 speed pin: merge row -; split row -; the rider's highest head y 26.500 (the roof's underside 28.0)\nsplit: 0 wrong lane(s) of 3; the batch carts' stored speed entering their branch 0.410..0.420, entering their lane's merge cell 0.350..0.360 (ironfarm's delivery band 0.30..0.48, margins 0.050 / 0.120); the least gap from a junction's turn to the next cart at it: J(3) 17 gt, J(-1) 18 gt; the shaft's closest pair 3.100\npairs: box touches (the game's push test: inflated 0.2 sideways, |dy| < 0.7) 6 pair-ticks, the hardest closing 0.081 (t 120, carts 0 and 1 at 1.00,2.00,3.00); where a push acts (|cos| >= 0.8 against either yaw) 0\nshaft entry gaps (live gt): batch 0 23 / 23, batch 1 23 / 24; the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first\n";
@@ -1045,6 +1246,11 @@ mod tests {
         assert!(read(&T.replace("split: ", "splat: "), true).missing.contains(&"the split line"));
         assert!(!fails(&read(&T.replace("split: ", "splat: "), true), &bars(), true).is_empty(), "a missing line fails");
         assert!(read(&T.replace("; the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first", ""), true).missing.contains(&"the napper's window"));
+        // (the napper's clause with `-` (it never into the shaft): no missing line, a failure)
+        let dash = read(&T.replace("the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first", "the napper - behind batch -'s third cart, - ahead of the next batch's first"), true);
+        assert!(dash.missing.is_empty() && dash.errors.is_empty(), "{:?} {:?}", dash.missing, dash.errors);
+        assert!(fails(&dash, &bars(), true).iter().any(|f| f.contains("window unmeasured")), "{:?}", fails(&dash, &bars(), true));
+        assert!(!read(&T.replace("the napper 30 behind", "the napper x behind"), true).errors.is_empty());
         // (unreadable values: errors, and each run fails (the strict reader's positive control))
         for (from, to) in [("(entering the merge cell 0.360)", ""), ("handed on by the 4th route at 0.261", "handed on by the 4th route at x"), ("J(3) 17 gt", "J(3) - gt"), ("|dy| < 0.7) 6", "|dy| < 0.7) six"), ("head y 26.500", "head y -"), ("batch 1 23 / 24", "batch 1 23 / x")] {
             let e = read(&T.replace(from, to), true);
@@ -1055,44 +1261,94 @@ mod tests {
         let off = read(&T.replace("; lane 3, at its branch flat 153 live gt after release; branch speed 0.420 (entering the merge cell 0.360)", "; NEVER at a lane (ends at 1.00,2.00,3.00); branch speed -"), true);
         assert!(off.errors.is_empty(), "{:?}", off.errors);
         assert!(fails(&off, &bars(), true).iter().any(|x| x.contains("never at a lane")));
+        // (a batch cart the bench "hands on" (into a siding's F or the 4th route) took no branch of its
+        // own: a failure, not an unreadable line)
+        let sided = read(&T.replace("branch speed 0.420 (entering the merge cell 0.360)", "branch speed - (handed on by the 4th route at 0.303 stored, 0.227/gt)"), true);
+        assert!(sided.errors.is_empty() && sided.sided == 1, "{:?} {}", sided.errors, sided.sided);
+        assert!(fails(&sided, &bars(), true).iter().any(|x| x.contains("off their branch")), "{:?}", fails(&sided, &bars(), true));
+    }
+
+    /// The K re-lay (ironspec 08:46, the band widened 09:00): the napper's arrival on its siding's K
+    /// cell read from the bench's trace of the napper (the first tick in that cell) and barred against
+    /// --k-band (0.10..0.44) in place of the 4th route's hand-on; a napper run without the K cell in its
+    /// trace is missing it; an unreadable trace line is an error.
+    #[test]
+    fn reads_the_k_cell() {
+        let kb = ReturnBars { k_band: Some((0.10, 0.44)), ..bars() };
+        let trace = "  t 400: cart 3 at 0.500,25.062,9.500 v 0.300,0.000,0.000 on rail[shape=east_west,waterlogged=false]\n  t 401: cart 3 at 1.010,25.062,9.500 v 0.296,-0.000,0.000 on rail[shape=north_east,waterlogged=false]\n  t 402: cart 3 at 1.300,25.062,9.200 v 0.000,0.000,-0.290 on rail[shape=north_east,waterlogged=false]\n";
+        let t = format!("{T}{trace}");
+        let r = super::read(&t, true, Some((1, 25, 9)));
+        assert!(r.missing.is_empty() && r.errors.is_empty(), "{:?} {:?}", r.missing, r.errors);
+        assert_eq!(r.napper_k, Some(0.296));
+        assert!(fails(&r, &kb, true).is_empty(), "{:?}", fails(&r, &kb, true));
+        // (the 4th route's hand-on is no bar under the K re-lay; 0.15 on K: in the band; 0.08 and 0.46:
+        // failures)
+        let at = |v: &str| super::read(&t.replace("v 0.296,-0.000,0.000", &format!("v {v},-0.000,0.000")), true, Some((1, 25, 9)));
+        assert!(fails(&at("0.150"), &kb, true).is_empty(), "{:?}", fails(&at("0.150"), &kb, true));
+        assert!(fails(&at("0.080"), &kb, true).iter().any(|f| f.contains("arrival on its K cell 0.080")), "{:?}", fails(&at("0.080"), &kb, true));
+        assert!(fails(&at("0.460"), &kb, true).iter().any(|f| f.contains("arrival on its K cell 0.460")), "{:?}", fails(&at("0.460"), &kb, true));
+        // (no K cell in the trace: missing; an unreadable trace line: an error)
+        assert!(super::read(&t, true, Some((5, 25, 9))).missing.iter().any(|m| m.contains("K cell")));
+        assert!(!super::read(&t.replace("v 0.296,-0.000,0.000", "v x,0,0"), true, Some((1, 25, 9))).errors.is_empty());
     }
 
     /// ironspec's T rule bites (a positive control): a switched T with arms N/W/E (a row along x, its
     /// stem north) stored east_west fails (no settle gives it); stored north_east with its lever off
     /// passes (the unpowered settle); stored north_west with its lever off fails (the other settle);
-    /// stored north_west with its lever on passes; a T without a lever is no switched T.
+    /// stored north_west with its lever on passes; a T with no driver on a face is no switched T. The
+    /// driver may be any source on a face (G1's note on 5af88c7da: day-1's J/K driver is a repeater
+    /// into the T): a repeater pointing into the T (on: north_west passes, north_east fails; off: the
+    /// reverse), a repeater into the stone under the T (on: north_west passes); a repeater pointing
+    /// away from the T drives nothing.
     #[test]
     fn t_rule_bites() {
         use redsim::block::Block;
         use redsim::pos::BlockPos;
-        let tee = |stored: &str, lever: Option<bool>| -> Option<(String, Vec<String>)> {
+        let tee = |stored: &str, extra: &[([i32; 3], String)]| -> Option<(String, Vec<String>)> {
             let mut blocks: BTreeMap<[i32; 3], String> = BTreeMap::new();
             for x in -1..=1 {
                 blocks.insert([x, -1, 0], "minecraft:stone".into());
             }
             blocks.insert([0, -1, -1], "minecraft:stone".into());
+            blocks.insert([0, -1, 1], "minecraft:glass".into());
+            blocks.insert([0, -2, 1], "minecraft:glass".into());
             blocks.insert([-1, 0, 0], "minecraft:rail[shape=east_west,waterlogged=false]".into());
             blocks.insert([1, 0, 0], "minecraft:rail[shape=east_west,waterlogged=false]".into());
             blocks.insert([0, 0, -1], "minecraft:rail[shape=north_south,waterlogged=false]".into());
             blocks.insert([0, 0, 0], format!("minecraft:rail[shape={stored},waterlogged=false]"));
-            if let Some(on) = lever {
-                blocks.insert([0, 1, 0], format!("minecraft:lever[face=ceiling,facing=north,powered={on}]"));
-                blocks.insert([0, 2, 0], "minecraft:glass".into());
+            for (k, s) in extra {
+                blocks.insert(*k, s.clone());
             }
             let mut w = redsim::world::World::new(BlockPos::new(-3, -3, -3), [7, 7, 7]);
             let cells: Vec<(BlockPos, Block)> = blocks.iter().map(|(k, s)| (BlockPos::new(k[0], k[1], k[2]), Block::parse(s).expect("a block"))).collect();
             w.place_raw(&cells);
-            t_rule(&w, &blocks, BlockPos::new(0, 0, 0))
+            t_rule(&w, BlockPos::new(0, 0, 0))
         };
-        let (line, bad) = tee("east_west", Some(false)).expect("a switched T");
+        let lever = |on: bool| vec![([0, 1, 0], format!("minecraft:lever[face=ceiling,facing=north,powered={on}]")), ([0, 2, 0], "minecraft:glass".to_string())];
+        let (line, bad) = tee("east_west", &lever(false)).expect("a switched T");
         assert!(bad.iter().any(|b| b.contains("which no settle gives")), "{line}: {bad:?}");
-        let (line, bad) = tee("north_east", Some(false)).expect("a switched T");
+        let (line, bad) = tee("north_east", &lever(false)).expect("a switched T");
         assert!(bad.is_empty(), "{line}: {bad:?}");
-        assert!(line.contains("settles north_east unpowered, north_west powered") && line.contains("north_west, north_east") || line.contains("north_east, north_west"), "{line}");
-        let (line, bad) = tee("north_west", Some(false)).expect("a switched T");
+        assert!(line.contains("settles north_east unpowered, north_west powered") && (line.contains("north_west, north_east") || line.contains("north_east, north_west")), "{line}");
+        let (line, bad) = tee("north_west", &lever(false)).expect("a switched T");
         assert!(bad.iter().any(|b| b.contains("the other settle")), "{line}: {bad:?}");
-        let (line, bad) = tee("north_west", Some(true)).expect("a switched T");
+        let (line, bad) = tee("north_west", &lever(true)).expect("a switched T");
         assert!(bad.is_empty(), "{line}: {bad:?}");
-        assert!(tee("north_east", None).is_none());
+        assert!(tee("north_east", &[]).is_none());
+        // (a repeater on the T's south face pointing into it: its back (facing) south, its output north)
+        let rep = |on: bool, facing: &str| vec![([0, 0, 1], format!("minecraft:repeater[delay=1,facing={facing},locked=false,powered={on}]"))];
+        let (line, bad) = tee("north_west", &rep(true, "south")).expect("a repeater-driven T");
+        assert!(bad.is_empty() && line.contains("repeater (0,0,1) (on)"), "{line}: {bad:?}");
+        let (line, bad) = tee("north_east", &rep(true, "south")).expect("a repeater-driven T");
+        assert!(bad.iter().any(|b| b.contains("the other settle")), "{line}: {bad:?}");
+        let (line, bad) = tee("north_east", &rep(false, "south")).expect("a repeater-driven T, off");
+        assert!(bad.is_empty() && line.contains("repeater (0,0,1) (off)"), "{line}: {bad:?}");
+        let (line, bad) = tee("north_west", &rep(false, "south")).expect("a repeater-driven T, off");
+        assert!(bad.iter().any(|b| b.contains("the other settle")), "{line}: {bad:?}");
+        assert!(tee("north_east", &rep(false, "north")).is_none(), "a repeater pointing away drives nothing");
+        // (a repeater into the stone under the T, from the south (day-1's hold release drive))
+        let under = vec![([0, -1, 1], "minecraft:repeater[delay=1,facing=south,locked=false,powered=true]".to_string())];
+        let (line, bad) = tee("north_west", &under).expect("a T driven through its support");
+        assert!(bad.is_empty() && line.contains("via stone (0,-1,0)"), "{line}: {bad:?}");
     }
 }
