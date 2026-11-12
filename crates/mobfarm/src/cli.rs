@@ -2390,9 +2390,11 @@ pub enum MobfarmCmd {
         /// The force input's pulse (day-1's scheduler: its visit register's D3 gating REL+20, a 12
         /// gt pulse on at visit +328..+340, 118-150 gt after the arrival), gt after each arrival,
         /// spread over the range; driven on every visit when the design has the scheduler give-up
-        /// (`--no-force`: never).
-        #[arg(long, default_value = "118,150")]
-        force_at: String,
+        /// (`--no-force`: never). Default 118,150, and 53,57 on the FC build (ironspec 16:19: F's
+        /// new timing for one chunk, the centre of the +40..70 band the night was priced on, its
+        /// ±2 corners inside it; the measured passing window +32..150, +30 fails).
+        #[arg(long)]
+        force_at: Option<String>,
         #[arg(long)]
         no_force: bool,
         /// (ironspec 15:50) Skip the unintended-power check (on by default for the FC build: every
@@ -4611,7 +4613,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 2, "two numbers a,b");
                 Ok((v[0], v[1]))
             };
+            let force_at = force_at.unwrap_or_else(|| if fc_meta { "53,57".to_string() } else { "118,150".to_string() });
             let force = if no_force { None } else { Some(two_i(&force_at)?) };
+            if fc_meta && !no_force {
+                println!("F (day-1's scheduler, emulated): +{force_at} after each arrival (FC default 53,57: the centre of the +40..70 band one chunk's night was priced on, ironspec 16:19; the measured passing window's edges +32 and 150 or later, +30 fails)");
+            }
             let fault_opt: Option<(String, usize)> = match &fault {
                 Some(f) => {
                     let (k, n) = f.split_once(':').ok_or_else(|| anyhow::anyhow!("--fault KIND:K"))?;
