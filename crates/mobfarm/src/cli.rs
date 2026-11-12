@@ -77,10 +77,15 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 3)]
         thresh_dust: i32,
     },
-    /// The odd launch tap (`oddtap.rs`, ironspec Nov 12 05:29): a cart's departure from a powered hold
-    /// rail powered by a repeater (the chain's 2-gt stage) or by a sticky piston pushing a redstone
-    /// block beside it (3 gt), at every phase.
-    OddTapBench,
+    /// The odd launch tap (`oddtap.rs`, ironspec Nov 12 05:29; G1 on 72d510183): a cart with a villager
+    /// rider leaving a powered hold rail powered by a repeater (the chain's 2-gt stage) or by a sticky
+    /// piston pushing a redstone block beside it (3 gt), with the drive a pulse of each width or held until
+    /// the cart leaves, at every phase.
+    OddTapBench {
+        /// The drive's pulse widths (gt); the held drive always runs too. 2 is P's control (a spat block).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![2i64, 4, 6, 10])]
+        pulse: Vec<i64>,
+    },
     /// The J/K junction drivers (`ctljunction.rs`, ironspec Nov 12 05:35): the napper-present latch's
     /// driver repeater power-forcing a T-junction rail; the edge to the switch and the reset to the
     /// return, at every phase, against <= 10 gt.
@@ -101,6 +106,9 @@ pub enum MobfarmCmd {
         /// control: no hold).
         #[arg(long, default_value = "edge")]
         control: String,
+        /// The input swept around D2: day (DAY's edge, DIV armed) or div (DIV's edge, at night).
+        #[arg(long, default_value = "day")]
+        edge: String,
     },
     /// 3): the units ring fast-forwarded to u 0 at its own step rate on RISE / trigger 2 (each at the
     /// next release), a pending-step latch for a release during the FF, the trigger-2 gate; every
@@ -7384,6 +7392,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let (least, nights) = night_counts(&base.nap_log);
                         let mut wait_max = base.max_siding_wait;
                         let mut lane_away_max = base.max_lane_away;
+                        let mut trip_min = base.min_trip;
+                        // (farmopt 06:04: every timing's siding wait and lane ride, for the clear-point check)
+                        let (mut late_w, mut late_r): (Vec<i64>, Vec<i64>) = (Vec::new(), Vec::new());
+                        let mut take_late = |st: &crate::napper::LaneStats| {
+                            late_w.extend(st.waits.iter().filter(|w| w.1).map(|w| w.0));
+                            late_r.extend(st.rides.iter().filter(|r| r.1).map(|r| r.0));
+                        };
                         // the strand margin: the largest one-a-night strand with no loss (step 10)
                         let mut margin = 0i64;
                         for extra in (0..=1_000i64).step_by(10) {
@@ -7391,6 +7406,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             let sr = crate::napper::simulate_lanes_scored(&so).1;
                             wait_max = wait_max.max(sr.max_siding_wait);
                             lane_away_max = lane_away_max.max(sr.max_lane_away);
+                            trip_min = trip_min.min(sr.min_trip);
+                            take_late(&sr);
                             if sr.golems + 1e-9 < base.golems {
                                 break;
                             }
@@ -7411,6 +7428,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             let hd = crate::napper::simulate_lanes_scored(&held_o).1;
                             wait_max = wait_max.max(sk.max_siding_wait).max(hd.max_siding_wait);
                             lane_away_max = lane_away_max.max(sk.max_lane_away).max(hd.max_lane_away);
+                            trip_min = trip_min.min(sk.min_trip).min(hd.min_trip);
+                            take_late(&sk);
+                            take_late(&hd);
                             let cost = hd.lost_expiry - sk.lost_expiry;
                             costs.push((s, cost));
                             min_lane = min_lane.min(hd.min_lane);
@@ -7452,16 +7472,37 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                         // (the calm-REST bar, ironspec 04:48: a napper waiting calm on its siding at night
                         // must rejoin within 1,000 gt. The model's wait runs from its return to the release
-                        // of the cart it rejoins behind; the hardware's worst case is the rejoin rule's
-                        // period + K = 4 (a napper reaching its siding just after a pass))
+                        // of the cart it rejoins behind. The bound is the larger of the early napper's (back
+                        // with the shortest trip, it waits for its window a lap after its pick: the lap less
+                        // that trip) and a late napper's (the rule's period); K = 4 on both; G1 on
+                        // 72d510183)
+                        let lap_gt = (lo_.per_lane as i64 - 1) * 100;
+                        let early = lap_gt - trip_min + 4;
+                        let late = period + 4;
+                        let structural = early.max(late);
+                        let worst = structural.max(wait_max);
                         println!(
-                            "    the longest siding wait over these runs (normal days, the strand sweep to the margin's first loss, every skip and held run) {wait_max} gt; the structural worst = the period {period} + K 4 = {} gt against the calm-REST bar < 1,000: margin {} gt{}; with ironfarm's bed-exit-to-siding leg 550..650 the CANT_REACH stamp reaches {}..{} gt (HOME released past 1,200); the most nappers of one lane away at once {lane_away_max} ({})",
-                            period + 4,
-                            1_000 - (period + 4),
-                            if period + 4 >= 1_000 { " (FAILS the bar)" } else { "" },
-                            550 + period + 4,
-                            650 + period + 4,
+                            "    the longest siding wait over these runs (normal days, the strand sweep to the margin's first loss, every skip and held run) {wait_max} gt; the structural worst = max(the early napper's: the lap {lap_gt} - the shortest pick-to-back trip {trip_min} + K 4 = {early}, a late napper's: the rule's period {period} + K 4 = {late}) = {structural} gt{}; against the calm-REST bar < 1,000: margin {} gt; the CANT_REACH stamp at the rejoin = ironfarm's bed-exit-to-siding leg 550..650 + {worst} = {}..{} gt{}; the most nappers of one lane away at once {lane_away_max} ({})",
+                            if wait_max > structural { " (FAIL: the observed wait exceeds the bound)" } else { " (the observed wait within it)" },
+                            1_000 - worst,
+                            550 + worst,
+                            650 + worst,
+                            if 650 + worst > 1_000 { ": over 1,000 without a clear on the way, so the siding clear (F3, adopted 06:24: a pillager post over the lanes' resting cells and the siding seats) is what meets the bar, under every rule" } else { "" },
                             if lane_away_max <= 1 { "a siding never double-occupied" } else { "DOUBLE OCCUPANCY" }
+                        );
+                        let mmm = |v: &[i64]| -> String {
+                            let mut s = v.to_vec();
+                            s.sort_unstable();
+                            match s.len() {
+                                0 => "none".into(),
+                                n => format!("{}/{}/{} (n {n})", s[0], s[n / 2], s[n - 1]),
+                            }
+                        };
+                        let normal_w: Vec<i64> = base.waits.iter().map(|w| w.0).collect();
+                        let normal_r: Vec<i64> = base.rides.iter().map(|r| r.0).collect();
+                        println!(
+                            "    timings, min/median/max (farmopt 06:04, for the clear-point check): the siding wait (the model's: the napper's return to the release of the cart it rejoins behind) on normal days {} (the max = the early napper), late rejoins (the strand sweep, every skip and held run) {}; the lane ride (that release to the napper's own next release at the station) normal {}, late {}. The hardware releases the napper T_pb + K = 136 / 157 / 179 gt (A / B / C at s 12) after that release, so its ride from the siding release is shorter by that",
+                            mmm(&normal_w), mmm(&late_w), mmm(&normal_r), mmm(&late_r)
                         );
                     }
                     return Ok(());
@@ -7781,17 +7822,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::CtlDivertBench { out, width, control } => {
+        MobfarmCmd::CtlDivertBench { out, width, control, edge } => {
             let mode = match control.as_str() {
                 "edge" => crate::ctldivert::Mode::Edge,
                 "level" => crate::ctldivert::Mode::Level,
                 "none" => crate::ctldivert::Mode::None,
                 other => bail!("--control edge|level|none, not {other}"),
             };
+            let edge = match edge.as_str() {
+                "day" => crate::ctldivert::Edge::Day,
+                "div" => crate::ctldivert::Edge::Div,
+                other => bail!("--edge day|div, not {other}"),
+            };
             let d = crate::ctldivert::design_with(mode);
             std::fs::write(&out, format!("# The divert's single atomic read ({control}): DECIDE = DIV - DAY held by a repeater H (mctas mobfarm ctl-divert-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
-            for l in crate::ctldivert::bench(&spec, width, mode).map_err(|e| anyhow::anyhow!(e))? {
+            for l in crate::ctldivert::bench(&spec, width, mode, edge).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
         }
@@ -7803,8 +7849,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::OddTapBench => {
-            for l in crate::oddtap::bench().map_err(|e| anyhow::anyhow!(e))? {
+        MobfarmCmd::OddTapBench { pulse } => {
+            for l in crate::oddtap::bench(&pulse).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
         }

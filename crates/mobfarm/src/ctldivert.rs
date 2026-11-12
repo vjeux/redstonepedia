@@ -38,6 +38,14 @@ pub enum Mode {
     None,
 }
 
+/// The input whose edge the bench sweeps around D2 (G1 on 72d510183: DIV reaches X through the same
+/// kind of repeater as DAY, so its edges are sampled the same way).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Day,
+    Div,
+}
+
 pub fn design() -> Design {
     design_with(Mode::Edge)
 }
@@ -113,7 +121,7 @@ struct Trial {
 /// that); atomic = across delta each direction switches its decision once, at the same delta both ways
 /// (one sampling instant: the decision is NOT DAY as it stood then). Prints the decisions, the sampling
 /// instant, H's open span and the switching time (D2's rise to the junction line's change).
-pub fn bench(spec: &FarmSpec, width: i64, mode: Mode) -> Result<Vec<String>, String> {
+pub fn bench(spec: &FarmSpec, width: i64, mode: Mode, edge: Edge) -> Result<Vec<String>, String> {
     let deltas: Vec<i64> = (-12..=16).collect();
     let per = 80i64 + width;
     let horizon = 2 * deltas.len() as i64 * (per + 60) + 200;
@@ -127,13 +135,22 @@ pub fn bench(spec: &FarmSpec, width: i64, mode: Mode) -> Result<Vec<String>, Str
     let junction = |run: &Run| run.world.best_neighbor_signal(bp(JUNCTION)) > 0;
     let l_on = |run: &Run| run.world.get(bp(L)).to_string().contains("powered=true");
     run.world.set_block(bp(DIV_DRIVE), on.clone(), all);
+    let edge_drive = if edge == Edge::Day { DAY_DRIVE } else { DIV_DRIVE };
     let mut trials: Vec<Trial> = Vec::new();
     for rising in [true, false] {
         for &delta in &deltas {
-            // settle with DAY at its starting level, the hold re-sampled once (a D2 pulse) so it starts
-            // equal to NOT that level
-            let day0 = !rising;
-            run.world.set_block(bp(DAY_DRIVE), if day0 { on.clone() } else { air.clone() }, all);
+            // settle with the edge's input at its starting level (the other input at night / armed), the
+            // hold re-sampled once (a D2 pulse) so it starts equal to that decision
+            match edge {
+                Edge::Day => {
+                    run.world.set_block(bp(DIV_DRIVE), on.clone(), all);
+                    run.world.set_block(bp(DAY_DRIVE), if rising { air.clone() } else { on.clone() }, all);
+                }
+                Edge::Div => {
+                    run.world.set_block(bp(DAY_DRIVE), air.clone(), all);
+                    run.world.set_block(bp(DIV_DRIVE), if rising { air.clone() } else { on.clone() }, all);
+                }
+            }
             for _ in 0..10 {
                 run.tick();
             }
@@ -150,7 +167,7 @@ pub fn bench(spec: &FarmSpec, width: i64, mode: Mode) -> Result<Vec<String>, Str
             let mut tr = Trial { delta, rising, pick: last, changes: Vec::new(), hold: None, open: None };
             for t in -20i64..per {
                 if t == delta {
-                    run.world.set_block(bp(DAY_DRIVE), if rising { on.clone() } else { air.clone() }, all);
+                    run.world.set_block(bp(edge_drive), if rising { on.clone() } else { air.clone() }, all);
                 }
                 if t == 0 {
                     run.world.set_block(bp(D2_DRIVE), on.clone(), all);
@@ -179,17 +196,19 @@ pub fn bench(spec: &FarmSpec, width: i64, mode: Mode) -> Result<Vec<String>, Str
         }
     }
     // per trial: at most one change, none after the switching bar
+    let name = if edge == Edge::Day { "DAY" } else { "DIV" };
     let mut bad = Vec::new();
     for tr in &trials {
         if tr.changes.len() > 1 || tr.changes.iter().any(|c| *c > SWITCH_BAR) {
-            bad.push(format!("DAY {} at {:+}: changes at {:?}", if tr.rising { "rises" } else { "falls" }, tr.delta, tr.changes));
+            bad.push(format!("{name} {} at {:+}: changes at {:?}", if tr.rising { "rises" } else { "falls" }, tr.delta, tr.changes));
         }
     }
     // across delta: one switch per direction, at the same delta both ways
     let boundary = |rising: bool| -> Result<i64, String> {
         let row: Vec<&Trial> = trials.iter().filter(|t| t.rising == rising).collect();
-        // (rising: night -> day: pick while DAY's edge comes after the sample, no before it)
-        let start_pick = rising;
+        // (DAY rising: night -> day, pick until the edge is seen; DIV rising: unarmed -> armed, no pick
+        // until it is seen)
+        let start_pick = if edge == Edge::Day { rising } else { !rising };
         let switches: Vec<i64> = row.windows(2).filter(|w| w[0].pick != w[1].pick).map(|w| w[1].delta).collect();
         if switches.len() != 1 {
             return Err(format!("{} switches", switches.len()));
@@ -230,14 +249,14 @@ pub fn bench(spec: &FarmSpec, width: i64, mode: Mode) -> Result<Vec<String>, Str
             br,
             bf,
             match (&br, atomic_cross) {
-                (Ok(b), true) => format!(" -> the decision is NOT DAY as it stood at D2's rise + {} (an edge at <= {:+} is seen, at >= {b:+} not)", b - 1, b - 1),
+                (Ok(b), true) => format!(" -> the decision takes {name} as it stood at D2's rise + {} (an edge at <= {:+} is seen, at >= {b:+} not)", b - 1, b - 1),
                 _ => String::new(),
             },
             span(&opens),
             span(&holds),
             switch_max.map_or("- (no change seen)".into(), |v| v.to_string()),
         ),
-        format!("  DAY rises (night -> day) at D2's rise + delta: {}", row(true)),
-        format!("  DAY falls (day -> night) at D2's rise + delta: {}", row(false)),
+        format!("  {name} rises ({}) at D2's rise + delta: {}", if edge == Edge::Day { "night -> day" } else { "unarmed -> armed" }, row(true)),
+        format!("  {name} falls ({}) at D2's rise + delta: {}", if edge == Edge::Day { "day -> night" } else { "armed -> unarmed" }, row(false)),
     ])
 }

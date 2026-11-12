@@ -824,6 +824,9 @@ pub struct LaneStats {
     pub golems: f64,
     pub max_queue: usize,
     pub max_trip: i64,
+    /// The shortest pick-to-back trip (G1 on 72d510183: an early napper's siding wait is bounded by the
+    /// lap less this).
+    pub min_trip: i64,
     /// The latest lie-down's in_day (from the model's night start) over the scored nights.
     pub latest_lie: i64,
     /// Lie-downs after the night's end (the nap fails: LAST_SLEEP is not refreshed).
@@ -850,6 +853,12 @@ pub struct LaneStats {
     /// The most nappers of one lane away at once (picked, not yet rejoined): 1 = a siding never
     /// double-occupied.
     pub max_lane_away: usize,
+    /// Every scored rejoin's siding wait (return -> the release it rejoins behind) and whether it was
+    /// late (a lap or more after its pick).
+    pub waits: Vec<(i64, bool)>,
+    /// Every scored rejoin's lane ride: from the release it rejoined behind to its own next release (the
+    /// station's pocket), with the same late flag (farmopt 06:04: the napper's stretch to the pocket).
+    pub rides: Vec<(i64, bool)>,
 }
 
 impl LaneOpts {
@@ -905,6 +914,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     let mut bed_q: Vec<(i64, i64)> = Vec::new();
     let (mut max_queue, mut outliers) = (0usize, 0usize);
     let mut max_trip: i64 = 0;
+    let mut min_trip: i64 = i64::MAX;
     let (mut latest_lie, mut late_naps, mut util_max) = (0i64, 0usize, 0f64);
     let mut night_busy: std::collections::BTreeMap<i64, i64> = std::collections::BTreeMap::new();
     let mut next_outlier: i64 = o.outlier.map_or(i64::MAX, |(every, _)| every / 2);
@@ -918,6 +928,8 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     let mut max_siding_wait = 0i64;
     let mut max_lane_away = 0usize;
     let mut late_latch_set: Vec<bool> = vec![false; o.lanes];
+    let (mut waits, mut rides): (Vec<(i64, bool)>, Vec<(i64, bool)>) = (Vec::new(), Vec::new());
+    let mut rejoin_at: std::collections::HashMap<usize, (i64, bool)> = std::collections::HashMap::new();
     let mut nap_log: Vec<(i64, usize, i64)> = Vec::new();
     let mut release_log: Vec<(i64, usize, usize)> = Vec::new();
     let (mut least_distinct, mut short_nights, mut min_lane, mut ticks_below) = (usize::MAX, 0usize, usize::MAX, 0usize);
@@ -1038,6 +1050,11 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                 release_log.push((c, l, cart));
             }
             let t = t0 + o.cross_at + l as i64 * o.spacing;
+            if let Some((r, late)) = rejoin_at.remove(&cart)
+                && scored
+            {
+                rides.push((t - r, late));
+            }
             count += 1;
             lane_count[l] += 1;
             // (one shared bed: free once every napper is back from it; Z4: one napper per lane at a
@@ -1157,6 +1174,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                         *night_busy.entry(lie_day).or_default() += free - start;
                     }
                     max_trip = max_trip.max(back - t);
+                    min_trip = min_trip.min(back - t);
                     back
                 } else {
                     t + drawn
@@ -1196,12 +1214,15 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                         })
                     }) {
                         let (id, back_t, _) = away.remove(i);
-                        if scored && pick_cycle.get(&id).is_some_and(|pc| c > pc + lap) {
+                        let late = pick_cycle.get(&id).is_some_and(|pc| c > pc + lap);
+                        if scored && late {
                             late_nappers += 1;
                         }
                         if scored {
                             max_siding_wait = max_siding_wait.max(t - back_t);
+                            waits.push((t - back_t, late));
                         }
+                        rejoin_at.insert(id, (t, late));
                         lanes[l].push_back(id);
                     }
                 } else if o.lane_exact && o.siding_window {
@@ -1216,12 +1237,15 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                         let mut took = false;
                         while let Some(i) = away.iter().position(|a| a.1 <= t && lane_of(a.0) == l) {
                             let (id, back_t, _) = away.remove(i);
-                            if scored && pick_cycle.get(&id).is_some_and(|pc| c > pc + o.per_lane as i64 - 1) {
+                            let late = pick_cycle.get(&id).is_some_and(|pc| c > pc + o.per_lane as i64 - 1);
+                            if scored && late {
                                 late_nappers += 1;
                             }
                             if scored {
                                 max_siding_wait = max_siding_wait.max(t - back_t);
+                                waits.push((t - back_t, late));
                             }
+                            rejoin_at.insert(id, (t, late));
                             lanes[l].push_back(id);
                             took = true;
                         }
@@ -1263,7 +1287,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     for busy in night_busy.values() {
         util_max = util_max.max(*busy as f64 / window_gt);
     }
-    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, latest_lie, late_naps, util_max, lost_expiry: lost_expiry as f64, max_age, nap_log, release_log, min_lane: if min_lane == usize::MAX { 0 } else { min_lane }, busy_skips, late_nappers: late_nappers as u32, max_siding_wait, max_lane_away };
+    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, min_trip: if min_trip == i64::MAX { 0 } else { min_trip }, latest_lie, late_naps, util_max, lost_expiry: lost_expiry as f64, max_age, nap_log, release_log, min_lane: if min_lane == usize::MAX { 0 } else { min_lane }, busy_skips, late_nappers: late_nappers as u32, max_siding_wait, max_lane_away, waits, rides };
     let per_day: Vec<String> = golems_day.iter().filter(|(d, _)| **d >= o.warmup as i64 - 1).map(|(d, g)| format!("d{d} {g}")).collect();
     let lens: Vec<String> = lane_len_hist.iter().map(|(l, n)| format!("{l}:{n}")).collect();
     let foot = if o.turns == 3 {
@@ -1370,7 +1394,9 @@ mod lane_order_tests {
         let (mut checked, mut broken, mut lost) = (0usize, 0usize, 0usize);
         for l in 0..o.lanes {
             let seq: Vec<usize> = st.release_log.iter().filter(|r| r.1 == l).map(|r| r.2).collect();
-            for i in 1..seq.len().saturating_sub(1) {
+            // (the lost check from the first release on, G1 on 72d510183; the order check needs a
+            // cart before, so from the second)
+            for i in 0..seq.len().saturating_sub(1) {
                 let Some(off) = seq[i + 1..].iter().position(|&x| x == seq[i]) else {
                     if i + 4 * o.per_lane < seq.len() {
                         lost += 1;
@@ -1378,7 +1404,7 @@ mod lane_order_tests {
                     continue;
                 };
                 let j = i + 1 + off;
-                if j > i + o.per_lane && j + 1 < seq.len() {
+                if i >= 1 && j > i + o.per_lane && j + 1 < seq.len() {
                     checked += 1;
                     if !(seq[j - 1] == seq[i - 1] && seq[j + 1] == seq[i + 1]) {
                         broken += 1;
