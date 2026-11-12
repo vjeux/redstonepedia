@@ -177,7 +177,9 @@ fn spec_real(extra: i64) -> Result<FarmSpec, String> {
     put(7, -1, 8, "minecraft:stone")?;
     // 7b90c3f1's repeater (8,-1,8) facing west into the stone (9,-1,8) under the hold rail (9,0,8)
     put(8, -1, 8, "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]")?;
-    put(9, -1, 8, "minecraft:stone")?;
+    // (ironspec 13:56, V14) the napper arrival's block under the hold rail is slime (a conductor: the
+    // repeater (8,-1,8) powers the rail through it; the fired-pulse read comes off it)
+    put(9, -1, 8, "minecraft:slime_block")?;
     put(9, 0, 8, "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
     // the stop (ironspec 10:41: slime) and the glass over it
     put(9, 0, 9, "minecraft:slime_block")?;
@@ -221,6 +223,249 @@ fn spec_real(extra: i64) -> Result<FarmSpec, String> {
     put(9, -2, 6, "minecraft:redstone_block")?;
     put(9, -1, 6, "minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]")?;
     Ok(farm(blocks, BlockPos::new(-4, 0, 7), BlockPos::new(-5, -5, -1), BlockPos::new(12, 4, 14)))
+}
+
+/// (ironspec 12:59, the box item) A (c′) layout in real in-chunk cells, read from a text file: one cell a
+/// line `x y z state` (`... live` marks a cell of the live term, left out by the control); `bit x y z` (H2's
+/// input dust), `q x y z` (the latch's state dust), `arm3 x y z` (the block the bench swaps to a redstone
+/// block for 20 gt at each cycle start: the batch's ARM3; the napper's own pass over the real detector
+/// rail (5,0,7) gives its second rise), `out x y z` (the fired pulse's cell, k's input). Laid over the
+/// Real track with rev 3's hazards: the lanes' redstone blocks (x -1, 3, 7 at y -1, z 4..6), the merge
+/// row's glass, the detector rail (5,0,7).
+pub struct GateFile {
+    cells: Vec<([i32; 3], String, bool)>,
+    bit: [i32; 3],
+    q: [i32; 3],
+    arm3: [i32; 3],
+    out: [i32; 3],
+}
+
+pub fn read_gate_file(path: &str) -> Result<GateFile, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut f = GateFile { cells: Vec::new(), bit: [0; 3], q: [0; 3], arm3: [5, -1, 7], out: [7, -1, 8] };
+    let p3 = |w: &[&str]| -> Result<[i32; 3], String> {
+        let n = |s: &str| s.parse::<i32>().map_err(|e| format!("{s}: {e}"));
+        Ok([n(w[0])?, n(w[1])?, n(w[2])?])
+    };
+    for line in text.lines() {
+        let w: Vec<&str> = line.split_whitespace().collect();
+        if w.is_empty() || w[0].starts_with('#') {
+            continue;
+        }
+        match w[0] {
+            "bit" | "q" | "arm3" | "out" if w.len() == 4 => {
+                let p = p3(&w[1..4])?;
+                match w[0] {
+                    "bit" => f.bit = p,
+                    "q" => f.q = p,
+                    "arm3" => f.arm3 = p,
+                    _ => f.out = p,
+                }
+            }
+            _ if w.len() >= 4 => f.cells.push((p3(&w[0..3])?, w[3].to_string(), w.get(4) == Some(&"live"))),
+            _ => return Err(format!("{path}: bad line {line:?}")),
+        }
+    }
+    Ok(f)
+}
+
+fn spec_gate_file(f: &GateFile, live: bool) -> Result<FarmSpec, String> {
+    let b = |s: &str| Block::parse(s).map_err(|e| e.to_string());
+    let mut cells: std::collections::BTreeMap<[i32; 3], String> = std::collections::BTreeMap::new();
+    let real = spec_real(2)?;
+    let chain_or_string = |p: &BlockPos| {
+        (p.y == -2 && (8..=12).contains(&p.z) && (-2..=8).contains(&p.x)) || (p.y == -1 && (8..=11).contains(&p.z) && (-1..=6).contains(&p.x)) || (p.y == 1 && p.x == 8 && (5..=9).contains(&p.z))
+    };
+    for (p, blk) in &real.blocks {
+        if !chain_or_string(p) {
+            cells.insert([p.x, p.y, p.z], blk.to_string());
+        }
+    }
+    for x in [-1, 3, 7] {
+        for z in 4..=6 {
+            cells.insert([x, -1, z], "minecraft:redstone_block".into());
+        }
+    }
+    for x in -4..=7 {
+        cells.entry([x, -1, 7]).or_insert_with(|| "minecraft:glass".into());
+    }
+    cells.insert([5, 0, 7], "minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]".into());
+    for (p, s, is_live) in &f.cells {
+        if *is_live && !live {
+            continue;
+        }
+        cells.insert(*p, s.clone());
+    }
+    let mut blocks = Vec::new();
+    for (p, s) in cells {
+        if s == "minecraft:air" {
+            continue;
+        }
+        blocks.push((BlockPos::new(p[0], p[1], p[2]), b(&s)?));
+    }
+    Ok(farm(blocks, BlockPos::new(-4, 0, 7), BlockPos::new(-5, -9, 0), BlockPos::new(11, 4, 11)))
+}
+
+/// One run of a file layout (as `gate_run`, the ARM3 drive by swapping `f.arm3`).
+fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64, f64)>, freeze: Option<(i64, i64)>) -> Result<GateRec, String> {
+    let c = cells(Geo::Real);
+    let sp = crate::mirror::checked(&spec_gate_file(f, live)?)?;
+    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(&sp, &ro)?;
+    while run.settle_tick() {}
+    let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
+    let bp = |p: P| crate::mirror::at(p);
+    let orig = run.world.get(bp(f.arm3));
+    let powered = |run: &Run, p: P| run.world.get(bp(p)).to_string().contains("powered=true");
+    let lit_dust = |run: &Run, p: P| {
+        let s = run.world.get(bp(p)).to_string();
+        s.contains("redstone_wire") && !s.contains("power=0")
+    };
+    let mut rec = GateRec::default();
+    let mut id: Option<u32> = None;
+    let (mut arm3_on, mut fired_on) = (false, false);
+    let mut frozen: Option<[i32; 4]> = None;
+    let mut last_pos: Option<(f64, f64, f64)> = None;
+    for t in 0..(cycles * CYCLE + 40) {
+        let in_cycle = t.rem_euclid(CYCLE);
+        if t / CYCLE < cycles && in_cycle == 0 {
+            run.world.set_block(bp(f.arm3), on.clone(), redsim::world::flags::ALL);
+        }
+        if in_cycle == 20 {
+            run.world.set_block(bp(f.arm3), orig.clone(), redsim::world::flags::ALL);
+        }
+        if let Some((ts, x0, v)) = spawn
+            && t == ts
+        {
+            id = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x0, -2.9375, crate::mirror::zf(4.5)], Some(&format!("{{Motion:[{v}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))?);
+        }
+        if let Some((fr, len)) = freeze {
+            if t == fr {
+                frozen = Some(crate::liveness::freeze32(&mut run.world));
+            }
+            if t == fr + len
+                && let Some(pb) = frozen.take()
+            {
+                crate::liveness::thaw32(&mut run.world, pb);
+            }
+        }
+        run.tick();
+        let a = powered(&run, [5, 0, 7]) || in_cycle < 20 && t / CYCLE < cycles;
+        if a && !arm3_on {
+            rec.arm3.push(t);
+        }
+        arm3_on = a;
+        let out_now = lit_dust(&run, f.out) || powered(&run, [8, -1, 8]);
+        edge(&mut rec.fired, &mut fired_on, out_now, t);
+        if rec.det.is_none() && powered(&run, GATE_DET) {
+            rec.det = Some(t);
+        }
+        if rec.bit.is_none() && lit_dust(&run, f.bit) {
+            rec.bit = Some(t);
+        }
+        if let Some(i) = id
+            && let Some(e) = run.world.entities.list.iter().find(|e| e.id == i && !e.removed && matches!(e.kind, EntityKind::Minecart(_)))
+        {
+            let (x, y, z) = (e.pos.x, e.pos.y, crate::mirror::zf(e.pos.z));
+            let in_hold = x.floor() as i32 == c.hold[0] && z.floor() as i32 == c.hold[2] && (y - 0.0625).abs() < 0.2;
+            let still = last_pos.is_some_and(|(px, _, pz)| (px - x).abs() < 0.001 && (pz - z).abs() < 0.001);
+            if in_hold && still && rec.rest.is_none() {
+                rec.rest = Some(t);
+            }
+            if rec.rest.is_some() && !in_hold && rec.off.is_none() {
+                rec.off = Some(t);
+                rec.off_powered = powered(&run, c.hold);
+            }
+            last_pos = Some((x, y, z));
+        }
+    }
+    rec.q_end = lit_dust(&run, f.q);
+    Ok(rec)
+}
+
+/// The file layout's rows (ironspec 12:59: the 300 arrivals, the freeze offsets, the ARM3 control, on
+/// the real cells); `quick` runs one speed.
+pub fn gate_file_bench(path: &str, freeze: i64, quick: bool) -> Result<Vec<String>, String> {
+    let f = read_gate_file(path)?;
+    let mut lines = Vec::new();
+    let base = gate_run_file(&f, true, 4, Some((5, 7.3, 0.3)), None)?;
+    let blocks = f.cells.len();
+    lines.push(format!(
+        "(c′) real cells from {path} ({blocks} cells, {} of the live term): detector -> H2 {} gt; one arrival: rest {:?}, bit {:?}, fired {:?}, departure {:?} (rail powered then {})",
+        f.cells.iter().filter(|c| c.2).count(),
+        match (base.det, base.bit) {
+            (Some(d), Some(b)) => (b - d).to_string(),
+            _ => "-".into(),
+        },
+        base.rest,
+        base.bit,
+        base.fired,
+        base.off,
+        base.off_powered
+    ));
+    let speeds: &[f64] = if quick { &[0.25] } else { &[0.1, 0.25, 0.4] };
+    let (mut n, mut one, mut bad, mut late, mut q_left) = (0u32, 0u32, Vec::new(), 0u32, 0u32);
+    let (mut mmin, mut mmax, mut dmin, mut dmax) = (i64::MAX, i64::MIN, i64::MAX, i64::MIN);
+    for &v in speeds {
+        for k in 0..CYCLE {
+            let r = gate_run_file(&f, true, 5, Some((110 + k, 7.3, v)), None)?;
+            n += 1;
+            if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
+                mmin = mmin.min(bit - rest);
+                mmax = mmax.max(bit - rest);
+            }
+            let fires: Vec<i64> = r.fired.iter().filter(|&&(f0, _)| r.det.is_some_and(|d| f0 > d)).map(|x| x.0).collect();
+            if fires.len() == 1 {
+                one += 1;
+            } else {
+                bad.push(format!("v {v} spawn {}: {} fired", 110 + k, fires.len()));
+            }
+            if let (Some(&f0), Some(o)) = (fires.first(), r.off) {
+                dmin = dmin.min(o - (f0 - 8));
+                dmax = dmax.max(o - (f0 - 8));
+                late += !r.off_powered as u32;
+            }
+            q_left += r.q_end as u32;
+        }
+    }
+    let m = |x: i64, none: i64| if x == none { "-".to_string() } else { x.to_string() };
+    lines.push(format!(
+        "  arrivals ({n} runs: v {:?} x every gt of a cycle; the batch's ARM3 by the swap, the napper's own from its pass over (5,0,7)): the bit at H2 after rest {}..{} gt (bar >= 2); exactly one fired pulse {one}{}; the departure at E's rise + {}..{}, late {late}; the latch left set {q_left}",
+        speeds,
+        m(mmin, i64::MAX),
+        m(mmax, i64::MIN),
+        if bad.is_empty() { String::new() } else { format!(" (FAIL {}: {})", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
+        m(dmin, i64::MAX),
+        m(dmax, i64::MIN)
+    ));
+    let r0 = gate_run_file(&f, true, 5, Some((110, 7.3, 0.1)), None)?;
+    if let (Some(d1), Some(rs1), Some(&(f0, _))) = (r0.det, r0.rest, r0.fired.iter().find(|&&(x, _)| r0.det.is_some_and(|d| x > d))) {
+        let (mut ok, mut nbad, mut least) = (0u32, 0u32, i64::MAX);
+        for t in (d1 - 3..=rs1).chain(f0 - 5..=f0 + 16) {
+            let r = gate_run_file(&f, true, 5, Some((110, 7.3, 0.1)), Some((t, freeze)))?;
+            let fires = r.fired.iter().filter(|&&(x, _)| r.det.is_some_and(|d| x > d)).count();
+            if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
+                least = least.min(bit - rest);
+            }
+            if fires == 1 && r.off.is_some() && r.off_powered {
+                ok += 1;
+            } else {
+                nbad += 1;
+            }
+        }
+        lines.push(format!("  a {freeze}-gt freeze at every offset of the approach (detector - 3 .. rest) and around the fired pulse (- 5 .. + 16): launched on one fired pulse {ok}, otherwise {nbad}; the bit after rest at least {} gt", m(least, i64::MAX)));
+    }
+    let ctl = gate_run_file(&f, false, 5, Some((110, 7.3, 0.3)), None)?;
+    let lv = gate_run_file(&f, true, 5, Some((110, 7.3, 0.3)), None)?;
+    let nf = |r: &GateRec| r.fired.iter().filter(|&&(x, _)| r.det.is_some_and(|d| x > d)).count();
+    lines.push(format!(
+        "  the napper's own second ARM3 rise (its pass over the detector rail (5,0,7)): with the live term {} fired pulse(s) ({}); the control without it {} ({})",
+        nf(&lv),
+        if nf(&lv) == 1 { "pass" } else { "FAIL" },
+        nf(&ctl),
+        if nf(&ctl) > 1 { "the phantom: the control fails the row" } else { "NO phantom" }
+    ));
+    Ok(lines)
 }
 
 fn spec(g: Geo, extra: i64) -> Result<FarmSpec, String> {
@@ -571,6 +816,33 @@ pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>
         if fdep.0 == i64::MAX { "-".to_string() } else { fdep.0.to_string() },
         if fdep.1 == i64::MIN { "-".to_string() } else { fdep.1.to_string() }
     ));
+    // (G1's note 4 on 9c30d6dc3) a freeze during the approach (redstone running, the cart frozen: ironspec's
+    // + 3 in 38): at every offset from the detector's rise - 3 to the cart's rest, at the slowest exit speed
+    let r1 = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.1)), None, false)?;
+    if let (Some(d1), Some(rs1)) = (r1.det, r1.rest) {
+        let (mut ok, mut bad_n, mut least, mut most) = (0u32, Vec::new(), i64::MAX, i64::MIN);
+        for off in -3..=(rs1 - d1) {
+            let r = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.1)), Some((d1 + off, freeze)), false)?;
+            let fires = r.fired.iter().filter(|&&(f, _)| r.det.is_some_and(|d| f > d)).count();
+            if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
+                least = least.min(bit - rest);
+                most = most.max(bit - rest);
+            }
+            if fires == 1 && r.off.is_some() && r.off_powered {
+                ok += 1;
+            } else {
+                bad_n.push(format!("offset {off}: {fires} fired, departure {:?}, rail powered then {}", r.off, r.off_powered));
+            }
+        }
+        lines.push(format!(
+            "  a {freeze}-gt freeze during the approach (G1's note 4: redstone running, the cart frozen; v 0.1, the slowest exit) at every offset from the detector's rise - 3 to the cart's rest (+{}): launched on one fired pulse {ok}, otherwise {}{}; the bit at H2 after the cart's rest by {}..{} gt (bar >= 0; ironspec's 38 = approach max 33 + 3 frozen + 2)",
+            rs1 - d1,
+            bad_n.len(),
+            if bad_n.is_empty() { String::new() } else { format!(" (FAIL: {})", bad_n.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
+            if least == i64::MAX { "-".to_string() } else { least.to_string() },
+            if most == i64::MIN { "-".to_string() } else { most.to_string() }
+        ));
+    }
     // the control: the live term removed (P = the delayed bit alone): the napper's second ARM3 rise
     let ctl = gate_run(extra, false, settle_rt, 5, Some((110, 7.3, 0.3)), None, true)?;
     let ctl_fires = ctl.fired.iter().filter(|&&(f, _)| ctl.det.is_some_and(|d| f > d)).count();
