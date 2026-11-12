@@ -460,12 +460,14 @@ pub fn parse_bridge(entry: &str) -> Result<Bridge, String> {
 pub fn compose(spec: &mut FarmSpec, parts: &[String]) -> Result<(usize, usize), String> {
     let mut map: HashMap<BlockPos, redsim::block::Block> = spec.blocks.drain(..).collect();
     let (mut replaced, mut grew) = (0usize, 0usize);
+    // (counted against the design's own box, not the box as it grows (G1's note on ba49c54bc))
+    let (lo0, hi0) = (spec.lo, spec.hi);
     for text in parts {
         let d = mctas::design::Design::parse(text).map_err(|e| e.to_string())?;
         for (p, s) in &d.blocks {
             let b = redsim::block::Block::parse(s)?;
             let bp = BlockPos::new(p[0], p[1], p[2]);
-            if bp.x < spec.lo.x || bp.y < spec.lo.y || bp.z < spec.lo.z || bp.x > spec.hi.x || bp.y > spec.hi.y || bp.z > spec.hi.z {
+            if bp.x < lo0.x || bp.y < lo0.y || bp.z < lo0.z || bp.x > hi0.x || bp.y > hi0.y || bp.z > hi0.z {
                 grew += 1;
                 spec.lo = BlockPos::new(spec.lo.x.min(bp.x), spec.lo.y.min(bp.y), spec.lo.z.min(bp.z));
                 spec.hi = BlockPos::new(spec.hi.x.max(bp.x), spec.hi.y.max(bp.y), spec.hi.z.max(bp.z));
