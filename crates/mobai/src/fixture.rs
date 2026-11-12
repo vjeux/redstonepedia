@@ -220,6 +220,32 @@ const REPATH_DROP: u32 = 135;
 #[allow(clippy::type_complexity)]
 fn cartpole_lanes(name: &str) -> Vec<(i32, i32, &'static str, u8, f64, bool, u8, u32)> {
     let poles = ["minecraft:iron_chain[axis=y,waterlogged=false]", "minecraft:iron_bars[east=false,north=false,south=false,waterlogged=false,west=false]", "minecraft:end_rod[facing=up]"];
+    // (tickexact 2026-11-11, G1's review of the Stoppers bullet) the end rod's centre line: an end
+    // rod or lone iron bars placed at A into the cart's box at each of 12 ticks, at three speeds;
+    // and an end rod met descending at A at speeds 0.05 apart (its leading face's phase in the
+    // rod's box)
+    if name == "cart-pole-rod" {
+        let mut v = Vec::new();
+        let mut push = |pole: &'static str, sp: f64, ridden: bool, extra: u8, t: u32| {
+            let k = v.len() as i32;
+            v.push((1 + 3 * (k % 26), 2 + 14 * (k / 26), pole, 0u8, sp, ridden, extra, t));
+        };
+        for pole in [poles[2], poles[1]] {
+            for sp in [0.2, 0.4, 0.6] {
+                for ridden in [true, false] {
+                    for t in 1..=12 {
+                        push(pole, sp, ridden, 1, t);
+                    }
+                }
+            }
+        }
+        for i in 0..15 {
+            for ridden in [true, false] {
+                push(poles[2], 0.1 + 0.05 * i as f64, ridden, 0, 0);
+            }
+        }
+        return v;
+    }
     let fast = [0.1, 0.2, 0.4, 0.6, 0.8, 1.2, 1.6, 2.0, 2.4];
     let mut v = Vec::new();
     let mut push = |pole: &'static str, at: u8, sp: f64, ridden: bool, extra: u8, t: u32| {
@@ -377,7 +403,7 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         }
         // (tickexact 2026-11-11, ironspec's cart-pole) the overlap lanes' chain placed at A at their
         // tick; the push lanes' piston powered (a redstone block behind it) at theirs
-        "cart-pole-push" => {
+        "cart-pole-push" | "cart-pole-rod" => {
             let mut by: std::collections::BTreeMap<u32, Vec<([i32; 3], String)>> = std::collections::BTreeMap::new();
             for (x, dz, pole, _, _, _, extra, t) in cartpole_lanes(name) {
                 match extra {
@@ -4871,7 +4897,7 @@ fn scenes_raw() -> Vec<Scene> {
     // pushed into it), cart-pole-stop (low stoppers met descending), cart-pole-climb (a gate or a
     // pole met climbing); each lane's cart starts 0.0007 k further along (no two riders at exactly
     // the same distances: the sensors' ties)
-    for name in ["cart-pole", "cart-pole-push", "cart-pole-stop", "cart-pole-climb"] {
+    for name in ["cart-pole", "cart-pole-push", "cart-pole-stop", "cart-pole-climb", "cart-pole-rod"] {
         let lanes = cartpole_lanes(name);
         let rows = (lanes.len() as i32 + 25) / 26;
         let mut b = Vec::new();

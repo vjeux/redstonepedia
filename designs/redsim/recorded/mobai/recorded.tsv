@@ -36,6 +36,7 @@ cart-merge.rec	40f99e6f21c43b4d		26.3	2026-11-11T11:42Z on 388d91c58	mctas mobai
 cart-pole-climb.rec	c1d378a30d4ef4f2		26.3	2026-11-11T23:48Z on 780ea315a6	mctas mobai record cart-pole-climb --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 cart-pole-head.rec	1fbdf50c98cf65f4		26.3	2026-11-11T23:48Z on 780ea315a6	mctas mobai record cart-pole-head --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 cart-pole-push.rec	51eee9430fecc3d6		26.3	2026-11-11T23:48Z on 780ea315a6	mctas mobai record cart-pole-push --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+cart-pole-rod.rec	9190bff69aa2d1fc		26.3	2026-11-12T02:01Z on 14da8dcdf	mctas mobai record cart-pole-rod --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 cart-pole-stop.rec	3e3fcefcdeabab10		26.3	2026-11-11T23:47Z on 780ea315a6	mctas mobai record cart-pole-stop --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 cart-pole.rec	765fa46b5b1b868e		26.3	2026-11-11T23:47Z on 780ea315a6	mctas mobai record cart-pole --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 cart-queue-bend.rec	777599cc15248ab8		26.3	2026-11-10T14:22Z on cf641f4683	mctas mobai record cart-queue-bend --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
