@@ -962,31 +962,28 @@ pub fn clearing_fix_pairs(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: 
     Ok((cands.len(), out))
 }
 
-/// The scarer search (ironspec Nov 11 22:53, the station's night bars): each candidate post in
-/// `lo..=hi` (an air cell with air above and a non-air block below) for `kind`. A zombie seated in
-/// a boat on that floor (seated as `zombies_seated` seats it) covers a rider point it is
-/// FLEE_BAR..PANIC_BAR (6.05..7.95) from (the rider's feet to its seat) and seen (the rider's eye
-/// to the zombie's, `has_line_of_sight`); it is refused when any rider point is inside FLEE_BAR (the
-/// 6-8 gate's distance rule, sight or not). A pillager standing there covers 8..15 in sight and is
-/// refused when a rider point it sees is within 8. The rider points: each rail place's three points
-/// (`along_rail`; the rider's feet at the cart's y, seat 0) and `extra` (feet). A greedy cover: the
-/// post covering the most still-uncovered points first, at most `max_posts`. Not checked here: the
-/// posts' reach from the golems (their hatches) and the pad golems' distance to a pillager; the
-/// laid result goes through the full flee-check (classes, the 6-8 gate).
-pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3], kind: &str, max_posts: usize, any_floor: bool, exclude: &[([i32; 3], [i32; 3])], near: Option<f64>, walls: bool) -> Result<Vec<String>, String> {
-    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
-    let mut run = Run::start(spec, &o)?;
-    while run.settle_tick() {}
-    let w = &mut run.world;
-    let stone = redsim::block::Block::parse("minecraft:stone")?;
-    let air_block = redsim::block::Block::parse("minecraft:air")?;
-    let pillager = kind == "pillager";
-    let (mut near_bar, far_bar) = if pillager { (8.0, 15.0) } else { (FLEE_BAR, PANIC_BAR) };
-    // (a margin over the bar, ironspec Nov 11 23:57: a boat bobs in its cell and the charge test runs
-    // on the true distance, so a pillager keeps every rider it sees >= 8.5)
-    if let Some(n) = near {
-        near_bar = n;
+/// A post's blocks: its stone floor (with `any_floor`), and with an open side its stone roof and
+/// two-high walls on the other three sides.
+fn post_blocks(c: BlockPos, open: Option<(i32, i32)>, any_floor: bool) -> Vec<BlockPos> {
+    let mut v = Vec::new();
+    if any_floor {
+        v.push(BlockPos::new(c.x, c.y - 1, c.z));
     }
+    if let Some(o) = open {
+        v.push(BlockPos::new(c.x, c.y + 2, c.z));
+        for (dx, dz) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+            if (dx, dz) != o {
+                v.push(BlockPos::new(c.x + dx, c.y, c.z + dz));
+                v.push(BlockPos::new(c.x + dx, c.y + 1, c.z + dz));
+            }
+        }
+    }
+    v
+}
+
+/// The rider points the scarer tools score: each rail place's three points (`along_rail`; the
+/// rider's feet at the cart's y) and `extra` (feet).
+fn scarer_points(spec: &FarmSpec, extra: &[Vec3]) -> Vec<(String, Vec3)> {
     let mut pts: Vec<(String, Vec3)> = Vec::new();
     for (c, b) in spec.blocks.iter() {
         let s = b.to_string();
@@ -1000,10 +997,147 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
     for e in extra {
         pts.push((format!("rider {:.2},{:.2},{:.2}", e.x, e.y, e.z), *e));
     }
-    let seat = (0.5625f32 / 3.0f32) as f64 + redsim::entity::mob::types::MobType::Zombie.def().riding_offset as f64;
+    pts
+}
+
+/// A zombie seated in a boat: its feet over the boat's y (the boat's passenger attachment, then
+/// the zombie's riding offset), as `zombies_seated` seats it.
+fn zombie_seat() -> f64 {
+    (0.5625f32 / 3.0f32) as f64 + redsim::entity::mob::types::MobType::Zombie.def().riding_offset as f64
+}
+
+/// The laid scarers' check (ironspec Nov 12 01:25): each given post (its boat's cell and kind; its
+/// blocks already in the design), seated, against every rider point: refused when a pillager sees
+/// a rider inside 8.5 or a zombie has one inside 6.05 (sight or not); the points each covers
+/// (a pillager 8.5..15 in sight, a zombie 6.05..7.95 in sight); the places no post covers.
+pub fn scarer_check(spec: &FarmSpec, extra: &[Vec3], posts: &[(BlockPos, bool)], transient: &[String]) -> Result<Vec<String>, String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let w = &run.world;
+    let pts = scarer_points(spec, extra);
+    let seat = zombie_seat();
+    let mut covered = vec![false; pts.len()];
+    let mut lines = Vec::new();
+    let mut refused = 0usize;
+    for (c, pill) in posts {
+        let (near, far) = if *pill { (8.5, 15.0) } else { (FLEE_BAR, PANIC_BAR) };
+        let feet = Vec3::new(c.x as f64 + 0.5, c.y as f64 + if *pill { PILLAGER_SEAT } else { seat }, c.z as f64 + 0.5);
+        let eye = Vec3::new(feet.x, feet.y + if *pill { PILLAGER_EYE } else { 1.74 }, feet.z);
+        let mut n = 0usize;
+        let mut least = f64::MAX;
+        let mut bad: Vec<String> = Vec::new();
+        for (k, (l, p)) in pts.iter().enumerate() {
+            let d = ((p.x - feet.x).powi(2) + (p.y - feet.y).powi(2) + (p.z - feet.z).powi(2)).sqrt();
+            if d > far {
+                continue;
+            }
+            let seen = redsim::entity::mob::los::has_line_of_sight(w, Vec3::new(p.x, p.y + 1.62, p.z), eye);
+            if *pill && seen {
+                least = least.min(d);
+            }
+            if !*pill {
+                least = least.min(d);
+            }
+            if d < near && (seen || !*pill) {
+                bad.push(format!("{l} at {d:.2}{}", if seen { " (seen)" } else { "" }));
+                continue;
+            }
+            if seen && d >= near {
+                covered[k] = true;
+                n += 1;
+            }
+        }
+        if !bad.is_empty() {
+            refused += 1;
+        }
+        lines.push(format!(
+            "  {} {},{},{}: covers {n} points; the nearest rider {} {}{}",
+            if *pill { "pillager" } else { "zombie" },
+            c.x,
+            c.y,
+            c.z,
+            if *pill { "it sees" } else { "(sight or not)" },
+            if least == f64::MAX { "none within range".to_string() } else { format!("{least:.2}") },
+            if bad.is_empty() { String::new() } else { format!("; REFUSED, {} inside its bar: {}", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join(", ")) }
+        ));
+    }
+    let mut labels: Vec<&str> = Vec::new();
+    for (l, _) in &pts {
+        if !labels.contains(&l.as_str()) {
+            labels.push(l);
+        }
+    }
+    let mut open = Vec::new();
+    let mut declared = Vec::new();
+    for l in &labels {
+        let ks: Vec<usize> = pts.iter().enumerate().filter(|(_, (x, _))| x == l).map(|(k, _)| k).collect();
+        let m = ks.iter().filter(|&&k| covered[k]).count();
+        if m < ks.len() {
+            if transient.iter().any(|t| t == l) {
+                declared.push(format!("{l} ({m}/{})", ks.len()));
+            } else {
+                open.push(format!("{l} ({m}/{})", ks.len()));
+            }
+        }
+    }
+    lines.insert(
+        0,
+        format!(
+            "scarer check ({} posts, each seated in its boat, the design's blocks in the sight test): {refused} refused; {} of {} rider points covered; places not fully covered: {}{}",
+            posts.len(),
+            covered.iter().filter(|&&c| c).count(),
+            pts.len(),
+            if open.is_empty() { "none".to_string() } else { open.join(", ") },
+            if declared.is_empty() { String::new() } else { format!("; declared transient (flee-check's one exception): {}", declared.join(", ")) }
+        ),
+    );
+    Ok(lines)
+}
+
+/// The scarer search (ironspec Nov 11 22:53, the station's night bars): each candidate post in
+/// `lo..=hi` (an air cell with air above; its floor the design's, or with `any_floor` a stone floor
+/// placed for the test) for `kind`, seated in a boat (G1's review): a zombie (its seat as
+/// `zombies_seated` seats it, eye 1.74) covers a rider point it is FLEE_BAR..PANIC_BAR (6.05..7.95)
+/// from (the rider's feet to its seat) and sees (the rider's eye to its eye, `has_line_of_sight`),
+/// and is refused when any rider point is inside FLEE_BAR (the 6-8 gate's distance rule, sight or
+/// not); a pillager (feet at boat + 0.1875 - 0.6, eye 1.6575) covers 8.5..15 in sight and is
+/// refused when a rider point it sees is inside 8.5 (`near`). With `walls` each post's stone roof
+/// and two-high walls on three sides are in the sight test (each open side tried). The rider
+/// points: each rail place's three points (`along_rail`) and `extra` (feet). A greedy cover (the
+/// post covering the most still-uncovered points first, at most `max_posts`), or with `exact` an
+/// exact least cover over both kinds' posts (`exact_cover`). Not checked here: golem paths to the
+/// posts (`golem_reach`); the laid result goes through the full flee-check (classes, the 6-8 gate).
+#[allow(clippy::too_many_arguments)]
+pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3], kind: &str, max_posts: usize, any_floor: bool, exclude: &[([i32; 3], [i32; 3])], near: Option<f64>, walls: bool, target: &[String], exact: Option<usize>, transient: &[String], mix: bool) -> Result<Vec<String>, String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let w = &mut run.world;
+    let stone = redsim::block::Block::parse("minecraft:stone")?;
+    let air_block = redsim::block::Block::parse("minecraft:air")?;
+    let pillager = kind == "pillager";
+    let (mut near_bar, far_bar) = if pillager { (8.0, 15.0) } else { (FLEE_BAR, PANIC_BAR) };
+    // (a margin over the bar, ironspec Nov 11 23:57: a boat bobs in its cell and the charge test runs
+    // on the true distance, so a pillager keeps every rider it sees >= 8.5)
+    if let Some(n) = near {
+        near_bar = n;
+    }
+    let pts = scarer_points(spec, extra);
+    let seat = zombie_seat();
     let air = |w: &redsim::World, x: i32, y: i32, z: i32| w.get(BlockPos::new(x, y, z)).is_air();
     let mut cands: Vec<(BlockPos, Vec<usize>, Option<(i32, i32)>)> = Vec::new();
+    // (exact: both kinds, every valid open side its own candidate; (cell, covers, open side, a
+    // pillager, the blocks it places))
+    let mut all: Vec<(BlockPos, Vec<usize>, Option<(i32, i32)>, bool, usize)> = Vec::new();
+    let kinds: Vec<bool> = if exact.is_some() { vec![true, false] } else { vec![pillager] };
     let mut refused = 0usize;
+    for &pill in &kinds {
+    let (near_k, far_k) = match (exact.is_some(), pill) {
+        (false, _) => (near_bar, far_bar),
+        (true, true) => (near.unwrap_or(8.5).max(8.5), 15.0),
+        (true, false) => (FLEE_BAR, PANIC_BAR),
+    };
     for y in lo[1]..=hi[1] {
         for z in lo[2]..=hi[2] {
             for x in lo[0]..=hi[0] {
@@ -1025,8 +1159,8 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
                 // (stone) with `any_floor`, and with `walls` a stone roof and two-high walls on three
                 // sides, each of the four open sides tried and the best kept)
                 let sides: &[Option<(i32, i32)>] = if walls { &[Some((0, -1)), Some((1, 0)), Some((0, 1)), Some((-1, 0))] } else { &[None] };
-                let feet = Vec3::new(x as f64 + 0.5, y as f64 + if pillager { PILLAGER_SEAT } else { seat }, z as f64 + 0.5);
-                let eye = Vec3::new(feet.x, feet.y + if pillager { PILLAGER_EYE } else { 1.74 }, feet.z);
+                let feet = Vec3::new(x as f64 + 0.5, y as f64 + if pill { PILLAGER_SEAT } else { seat }, z as f64 + 0.5);
+                let eye = Vec3::new(feet.x, feet.y + if pill { PILLAGER_EYE } else { 1.74 }, feet.z);
                 let mut best_cfg: Option<(Vec<usize>, Option<(i32, i32)>)> = None;
                 let mut any_bad = false;
                 for open in sides {
@@ -1051,19 +1185,19 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
                     let mut bad = false;
                     for (k, (_, p)) in pts.iter().enumerate() {
                         let d = ((p.x - feet.x).powi(2) + (p.y - feet.y).powi(2) + (p.z - feet.z).powi(2)).sqrt();
-                        if !pillager && d < near_bar {
+                        if !pill && d < near_k {
                             bad = true;
                             break;
                         }
-                        if d > far_bar {
+                        if d > far_k {
                             continue;
                         }
                         let seen = redsim::entity::mob::los::has_line_of_sight(w, Vec3::new(p.x, p.y + 1.62, p.z), eye);
-                        if pillager && d < near_bar && seen {
+                        if pill && d < near_k && seen {
                             bad = true;
                             break;
                         }
-                        if seen && d >= near_bar {
+                        if seen && d >= near_k && (target.is_empty() || target.iter().any(|t| pts[k].0.contains(t.as_str()))) {
                             covers.push(k);
                         }
                     }
@@ -1073,6 +1207,9 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
                     if bad {
                         any_bad = true;
                         continue;
+                    }
+                    if exact.is_some() && !covers.is_empty() {
+                        all.push((BlockPos::new(x, y, z), covers.clone(), *open, pill, placed.len()));
                     }
                     if best_cfg.as_ref().is_none_or(|(c, _)| covers.len() > c.len()) {
                         best_cfg = Some((covers, *open));
@@ -1085,6 +1222,56 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
                 }
             }
         }
+    }
+    }
+    if let Some(maxk) = exact {
+        // (the built re-check inside the search, ironspec Nov 12 01:25 / the parent 02:52: every
+        // chosen post's blocks laid at once, each post re-scored against every rider point with
+        // the others' walls in its sight: None on a refusal, else the points the set covers)
+        let pill_near = near.unwrap_or(8.5).max(8.5);
+        let mut verify = |sel: &[usize]| -> Option<Vec<usize>> {
+            let mut placed: Vec<BlockPos> = Vec::new();
+            for &i in sel {
+                let (c, _, o, _, _) = &all[i];
+                for p in post_blocks(*c, *o, any_floor) {
+                    if air(w, p.x, p.y, p.z) && !placed.contains(&p) {
+                        w.set_block(p, stone.clone(), redsim::world::flags::CLIENTS);
+                        placed.push(p);
+                    }
+                }
+            }
+            let mut cov = vec![false; pts.len()];
+            let mut ok = true;
+            'post: for &i in sel {
+                let (c, _, _, pill, _) = &all[i];
+                let (nb, fb) = if *pill { (pill_near, 15.0) } else { (FLEE_BAR, PANIC_BAR) };
+                let feet = Vec3::new(c.x as f64 + 0.5, c.y as f64 + if *pill { PILLAGER_SEAT } else { seat }, c.z as f64 + 0.5);
+                let eye = Vec3::new(feet.x, feet.y + if *pill { PILLAGER_EYE } else { 1.74 }, feet.z);
+                for (k, (_, p)) in pts.iter().enumerate() {
+                    let d = ((p.x - feet.x).powi(2) + (p.y - feet.y).powi(2) + (p.z - feet.z).powi(2)).sqrt();
+                    if !*pill && d < nb {
+                        ok = false;
+                        break 'post;
+                    }
+                    if d > fb {
+                        continue;
+                    }
+                    let seen = redsim::entity::mob::los::has_line_of_sight(w, Vec3::new(p.x, p.y + 1.62, p.z), eye);
+                    if *pill && d < nb && seen {
+                        ok = false;
+                        break 'post;
+                    }
+                    if seen && d >= nb {
+                        cov[k] = true;
+                    }
+                }
+            }
+            for p in &placed {
+                w.set_block(*p, air_block.clone(), redsim::world::flags::CLIENTS);
+            }
+            if ok { Some(cov.iter().enumerate().filter(|(_, b)| **b).map(|(k, _)| k).collect()) } else { None }
+        };
+        return Ok(exact_cover(&pts, &all, maxk, refused, any_floor, transient, mix, &mut verify));
     }
     let mut covered = vec![false; pts.len()];
     let mut chosen: Vec<(BlockPos, usize, Option<(i32, i32)>)> = Vec::new();
@@ -1154,6 +1341,310 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
         }
     }
     Ok(lines)
+}
+
+const XC_W: usize = 8;
+const XC_MAX: usize = 64 * XC_W;
+type XcBits = [u64; XC_W];
+
+fn xc_and_not(a: &XcBits, b: &XcBits) -> XcBits {
+    let mut r = [0u64; XC_W];
+    for i in 0..XC_W {
+        r[i] = a[i] & !b[i];
+    }
+    r
+}
+
+fn xc_and(a: &XcBits, b: &XcBits) -> XcBits {
+    let mut r = [0u64; XC_W];
+    for i in 0..XC_W {
+        r[i] = a[i] & b[i];
+    }
+    r
+}
+
+fn xc_or(a: &XcBits, b: &XcBits) -> XcBits {
+    let mut r = [0u64; XC_W];
+    for i in 0..XC_W {
+        r[i] = a[i] | b[i];
+    }
+    r
+}
+
+fn xc_count(b: &XcBits) -> usize {
+    b.iter().map(|x| x.count_ones() as usize).sum()
+}
+
+fn xc_has(b: &XcBits, k: usize) -> bool {
+    b[k / 64] >> (k % 64) & 1 == 1
+}
+
+struct XcCtx<'a> {
+    cand: &'a [(XcBits, bool, BlockPos)],
+    by_pt: &'a [Vec<usize>],
+    uni: XcBits,
+    maxgain: usize,
+    nodes: u64,
+    limit: u64,
+}
+
+/// One bounded depth-first try for a cover of at most `k` posts with at most `max_p` pillagers
+/// (zombie posts only when `allow_z`); two posts whose footprints overlap never both.
+fn xc_dfs(cx: &mut XcCtx, chosen: &mut Vec<usize>, cov: XcBits, k: usize, max_p: usize, allow_z: bool, pills: usize, verify: &mut dyn FnMut(&[usize]) -> bool) -> bool {
+    cx.nodes += 1;
+    if cx.nodes > cx.limit {
+        return false;
+    }
+    let rem: XcBits = xc_and_not(&cx.uni, &cov);
+    let r = xc_count(&rem);
+    if r == 0 {
+        // (a cover on paper: it counts only when it passes the built re-check, every post laid)
+        return verify(chosen);
+    }
+    if chosen.len() >= k || chosen.len() + r.div_ceil(cx.maxgain) > k {
+        return false;
+    }
+    let clash = |a: BlockPos, b: BlockPos| (a.x - b.x).abs() <= 2 && (a.z - b.z).abs() <= 2 && (a.y - b.y).abs() <= 3;
+    let usable = |c: usize, chosen: &[usize]| {
+        let (_, pill, pos) = cx.cand[c];
+        (if pill { pills < max_p } else { allow_z }) && !chosen.iter().any(|&o| clash(pos, cx.cand[o].2))
+    };
+    let mut best: Option<(usize, usize)> = None;
+    for p in 0..XC_MAX {
+        if !xc_has(&rem, p) {
+            continue;
+        }
+        let m = cx.by_pt[p].iter().filter(|&&c| usable(c, chosen)).count();
+        if m == 0 {
+            return false;
+        }
+        if best.is_none_or(|b| m < b.1) {
+            best = Some((p, m));
+        }
+    }
+    let Some((p, _)) = best else { return false };
+    let mut opts: Vec<usize> = cx.by_pt[p].iter().copied().filter(|&c| usable(c, chosen)).collect();
+    opts.sort_by_key(|&c| {
+        let b = cx.cand[c].0;
+        std::cmp::Reverse(xc_count(&xc_and(&b, &rem)))
+    });
+    for c in opts {
+        chosen.push(c);
+        let b = cx.cand[c].0;
+        let ncov = xc_or(&cov, &b);
+        if xc_dfs(cx, chosen, ncov, k, max_p, allow_z, pills + cx.cand[c].1 as usize, verify) {
+            return true;
+        }
+        chosen.pop();
+    }
+    false
+}
+
+/// The exact least cover (ironspec Nov 12 01:25): over every candidate post of both kinds (each
+/// valid open side its own candidate, every refusal rule applied), the least set covering every
+/// rider point some candidate covers; two posts whose footprints (x +-1, z +-1, floor to roof)
+/// overlap are never both taken. Three answers: the fewest posts; the fewest pillagers (then the
+/// fewest posts); pillagers only. Each by iterative deepening (the uncovered point with the fewest
+/// candidates branched first, a counting bound) after dominated candidates are dropped (a cover
+/// inside another's whose post has no more pillagers and no more blocks; footprint clashes are not
+/// weighed in that drop, so a found set is re-checked built). Points no candidate covers are listed.
+fn exact_cover(pts: &[(String, Vec3)], all: &[(BlockPos, Vec<usize>, Option<(i32, i32)>, bool, usize)], maxk: usize, refused: usize, any_floor: bool, transient: &[String], mix: bool, verify: &mut dyn FnMut(&[usize]) -> Option<Vec<usize>>) -> Vec<String> {
+    let n = pts.len();
+    if n > XC_MAX {
+        return vec![format!("exact cover: {n} rider points, over the {XC_MAX} the solver holds")];
+    }
+    let bits = |v: &[usize]| {
+        let mut b = [0u64; XC_W];
+        for &k in v {
+            b[k / 64] |= 1 << (k % 64);
+        }
+        b
+    };
+    // (a declared transient's points are not required: ironspec Nov 12 01:58, a place no resting
+    // rider holds, named in the output as flee-check's one exception)
+    let mut tmask = [0u64; XC_W];
+    for (k, (l, _)) in pts.iter().enumerate() {
+        if transient.iter().any(|t| t == l) {
+            tmask[k / 64] |= 1 << (k % 64);
+        }
+    }
+    let cb: Vec<XcBits> = all.iter().map(|c| {
+        let b = bits(&c.1);
+        xc_and_not(&b, &tmask)
+    }).collect();
+    let mut uni = [0u64; XC_W];
+    for b in &cb {
+        for i in 0..XC_W {
+            uni[i] |= b[i];
+        }
+    }
+    // (the places some point of which no candidate covers)
+    let mut lost: Vec<String> = Vec::new();
+    for (k, (l, _)) in pts.iter().enumerate() {
+        if !xc_has(&uni, k) && !xc_has(&tmask, k) && !lost.contains(l) {
+            lost.push(l.clone());
+        }
+    }
+    let sub = |a: &XcBits, b: &XcBits| (0..XC_W).all(|i| a[i] & !b[i] == 0);
+    let mut order: Vec<usize> = (0..all.len()).collect();
+    order.sort_by_key(|&i| (std::cmp::Reverse(xc_count(&cb[i])), all[i].3, all[i].4));
+    let mut kept: Vec<usize> = Vec::new();
+    for &i in &order {
+        // (only a post's own other open sides drop it: a cross-cell drop can lose every answer
+        // when the dominating posts' footprints clash, so the search stays exact)
+        if kept.iter().any(|&j| all[j].0 == all[i].0 && sub(&cb[i], &cb[j]) && (!all[j].3 || all[i].3) && all[j].4 <= all[i].4) {
+            continue;
+        }
+        kept.push(i);
+    }
+    let cand: Vec<(XcBits, bool, BlockPos)> = kept.iter().map(|&i| (cb[i], all[i].3, all[i].0)).collect();
+    let by_pt: Vec<Vec<usize>> = (0..XC_MAX).map(|k| if k < n { (0..cand.len()).filter(|&c| xc_has(&cand[c].0, k)).collect() } else { Vec::new() }).collect();
+    let maxgain = cand.iter().map(|c| xc_count(&c.0)).max().unwrap_or(1).max(1);
+    let np = all.iter().filter(|c| c.3).count();
+    let mut lines = vec![format!(
+        "exact cover (both kinds seated in boats, every valid open side: a pillager covers 8.5..15 in sight, none it sees inside 8.5; a zombie covers 6.05..7.95 in sight, none inside 6.05, sight or not): {} candidates ({np} pillager, {} zombie), {} kept after dominance, {refused} cells refused outright; {n} rider points, {} coverable{}",
+        all.len(),
+        all.len() - np,
+        cand.len(),
+        xc_count(&uni),
+        if lost.is_empty() { String::new() } else { format!("; NOT coverable by any post: {}", lost.join(", ")) } + &if transient.is_empty() { String::new() } else { format!("; declared transient (not required; flee-check's one exception): {}", transient.join(", ")) }
+    )];
+    let mut cx = XcCtx { cand: &cand, by_pt: &by_pt, uni, maxgain, nodes: 0, limit: 0 };
+    let uni_c = uni;
+    let mut run = |k: usize, max_p: usize, allow_z: bool| -> (Option<Vec<usize>>, bool) {
+        cx.nodes = 0;
+        cx.limit = 20_000_000;
+        let mut chosen = Vec::new();
+        // (the built re-check: every chosen post laid, each re-scored against every rider point;
+        // a refusal or a lost point sends the search on)
+        let mut v = |sel: &[usize]| -> bool {
+            let idx: Vec<usize> = sel.iter().map(|&c| kept[c]).collect();
+            match verify(&idx) {
+                None => false,
+                Some(cov) => {
+                    let b = bits(&cov);
+                    (0..XC_W).all(|i| uni_c[i] & !b[i] == 0)
+                }
+            }
+        };
+        let ok = xc_dfs(&mut cx, &mut chosen, [0; XC_W], k, max_p, allow_z, 0, &mut v);
+        (if ok { Some(chosen) } else { None }, cx.nodes > cx.limit)
+    };
+    let mut answers: Vec<(String, Vec<usize>)> = Vec::new();
+    let mut cut = false;
+    // (1) the fewest posts
+    for k in 1..=maxk {
+        let (s, c) = run(k, usize::MAX, true);
+        cut |= c;
+        if let Some(s) = s {
+            answers.push((format!("the fewest posts: {k}"), s));
+            break;
+        }
+    }
+    if mix {
+        // (the mix (vjeux via the parent, Nov 12 02:52: scarer mobs are their own bill line): from
+        // the fewest posts' pillagers down, the least passing cover with at most p pillagers)
+        let p0 = answers.first().map(|(_, s)| s.iter().filter(|&&c| cand[c].1).count()).unwrap_or(maxk);
+        for p in (0..p0).rev() {
+            let mut found = false;
+            for k in p.max(1)..=maxk {
+                let (s, c) = run(k, p, true);
+                cut |= c;
+                if let Some(s) = s {
+                    answers.push((format!("mix, at most {p} pillagers: {k} posts"), s));
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                lines.push(format!("mix: no passing cover within {maxk} posts with at most {p} pillagers"));
+                break;
+            }
+        }
+    } else {
+        // (2) the fewest pillagers, then the fewest posts
+        'p: for p in 0..=maxk {
+            for k in p.max(1)..=maxk {
+                let (s, c) = run(k, p, true);
+                cut |= c;
+                if let Some(s) = s {
+                    answers.push((format!("the fewest pillagers: {p} ({k} posts)"), s));
+                    break 'p;
+                }
+            }
+        }
+        // (3) pillagers only
+        for k in 1..=maxk {
+            let (s, c) = run(k, usize::MAX, false);
+            cut |= c;
+            if let Some(s) = s {
+                answers.push((format!("pillagers only: {k}"), s));
+                break;
+            }
+        }
+    }
+    if cut {
+        lines.push("(a search hit its 20M-node cap: an answer below may not be the least)".to_string());
+    }
+    // (the proof: the dominance drop above ignores footprint clashes, so the fewest posts found
+    // is proven least by a search one post short over the candidates with only same-cell
+    // dominance (a post's other open sides))
+    if let Some((_, s)) = answers.first() {
+        let k = s.len();
+        let mut kc: Vec<usize> = Vec::new();
+        for &i in &order {
+            if kc.iter().any(|&j| all[j].0 == all[i].0 && sub(&cb[i], &cb[j]) && (!all[j].3 || all[i].3) && all[j].4 <= all[i].4) {
+                continue;
+            }
+            kc.push(i);
+        }
+        let cand2: Vec<(XcBits, bool, BlockPos)> = kc.iter().map(|&i| (cb[i], all[i].3, all[i].0)).collect();
+        let by_pt2: Vec<Vec<usize>> = (0..XC_MAX).map(|p| if p < n { (0..cand2.len()).filter(|&c| xc_has(&cand2[c].0, p)).collect() } else { Vec::new() }).collect();
+        let mut cx2 = XcCtx { cand: &cand2, by_pt: &by_pt2, uni, maxgain, nodes: 0, limit: 200_000_000 };
+        let mut chosen = Vec::new();
+        let found = k > 1 && xc_dfs(&mut cx2, &mut chosen, [0; XC_W], k - 1, usize::MAX, true, 0, &mut |_: &[usize]| true);
+        lines.push(if found {
+            format!("proof: a {}-post cover exists among the {} candidates without the cross-cell drop (the answer below is not the least)", k - 1, cand2.len())
+        } else if cx2.nodes > cx2.limit {
+            format!("proof: not settled (the {}-post search over {} candidates hit its 200M-node cap)", k - 1, cand2.len())
+        } else {
+            format!("proof: no {}-post cover among the {} candidates without the cross-cell drop ({} nodes): {k} posts is the least", k - 1, cand2.len(), cx2.nodes)
+        });
+    }
+    let side = |o: Option<(i32, i32)>| match o {
+        Some((0, -1)) => "open north",
+        Some((1, 0)) => "open east",
+        Some((0, 1)) => "open south",
+        Some((-1, 0)) => "open west",
+        _ => "no walls",
+    };
+    for (what, set) in &answers {
+        let posts: Vec<usize> = set.iter().map(|&c| kept[c]).collect();
+        let pills = posts.iter().filter(|&&i| all[i].3).count();
+        let blocks: usize = posts.iter().map(|&i| all[i].4).sum();
+        lines.push(format!("{what}: {} pillager(s), {} zombie post(s), {blocks} placed blocks (+ a boat each)", pills, posts.len() - pills));
+        for &i in &posts {
+            let (c, cov, o, pill, nb) = &all[i];
+            let mut b = Vec::new();
+            if any_floor {
+                b.push(format!("{},{},{}", c.x, c.y - 1, c.z));
+            }
+            if let Some(op) = o {
+                b.push(format!("{},{},{}", c.x, c.y + 2, c.z));
+                for (dx, dz) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                    if (dx, dz) != *op {
+                        b.push(format!("{},{},{}", c.x + dx, c.y, c.z + dz));
+                        b.push(format!("{},{},{}", c.x + dx, c.y + 1, c.z + dz));
+                    }
+                }
+            }
+            lines.push(format!("  {} {},{},{} {} (covers {} points; {nb} placed): stone {}", if *pill { "pillager" } else { "zombie" }, c.x, c.y, c.z, side(*o), cov.len(), b.join(" ")));
+        }
+    }
+    if answers.is_empty() {
+        lines.push(format!("no cover within {maxk} posts"));
+    }
+    lines
 }
 
 /// Whether an iron golem standing on any cell of the pad `lo..=hi` (feet cells) has a path to

@@ -909,6 +909,31 @@ pub enum MobfarmCmd {
         /// the sight test (the four open sides tried, the best kept; the post's blocks printed).
         #[arg(long)]
         scarer_walls: bool,
+        /// With --scarer-search: only the rider points whose labels contain one of these count
+        /// toward the cover (repeatable: e.g. a place `9,0,6` or `rider 9.50`); every point still
+        /// counts for the refusals (the posts already laid cover the rest).
+        #[arg(long)]
+        scarer_target: Vec<String>,
+        /// With --scarer-search: the exact least cover over both kinds' posts (pillagers and zombie
+        /// posts, every valid open side, every refusal rule), up to this many posts: the fewest
+        /// posts, the fewest pillagers, and pillagers only (--scarer and --scarer-max ignored).
+        #[arg(long)]
+        scarer_exact: Option<usize>,
+        /// The laid scarers' check: a post x,y,z,pillager|zombie (repeatable; the boat's cell, its
+        /// blocks already in the design), seated, against every rider point (the design's rails and
+        /// --scarer-rider): the refusals, what each covers, the places no post covers.
+        #[arg(long, allow_hyphen_values = true)]
+        scarer_check: Vec<String>,
+        /// With --scarer-exact / --scarer-check: a declared transient place x,y,z (repeatable; a
+        /// rail cell no resting rider holds, ironspec's ruling): its points are not required, and
+        /// the output names it as flee-check's exception.
+        #[arg(long, allow_hyphen_values = true)]
+        scarer_transient: Vec<String>,
+        /// With --scarer-exact: the mix (scarer mobs are their own bill line): from the fewest
+        /// posts' pillagers down, the least cover with at most p pillagers, each passing the built
+        /// re-check inside the search (every post laid at once).
+        #[arg(long)]
+        scarer_mix: bool,
         /// With --scarer-search: a box x0,y0,z0,x1,y1,z1 no post (with its floor and its head
         /// cell) may touch (repeatable: other parts' space, the pad's spawn columns, rider cells).
         #[arg(long, allow_hyphen_values = true)]
@@ -8947,7 +8972,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_mix, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if !post_drift.is_empty() {
                 anyhow::ensure!(post_drift.len() == 3, "--post-drift x,y,z");
                 let (_c, spec) = load(version, &design)?;
@@ -8974,6 +8999,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3, "--pillager x,y,z");
                 pills.push(redsim::entity::Vec3::new(v[0], v[1] + crate::fleecheck::PILLAGER_SEAT, v[2]));
             }
+            if !scarer_check.is_empty() {
+                let mut extra = Vec::new();
+                for r in &scarer_rider {
+                    let v: Vec<f64> = r.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--scarer-rider x,y,z");
+                    extra.push(redsim::entity::Vec3::new(v[0], v[1], v[2]));
+                }
+                let mut posts = Vec::new();
+                for p in &scarer_check {
+                    let t: Vec<&str> = p.split(',').map(|t| t.trim()).collect();
+                    anyhow::ensure!(t.len() == 4 && (t[3] == "pillager" || t[3] == "zombie"), "--scarer-check x,y,z,pillager|zombie");
+                    posts.push((redsim::pos::BlockPos::new(t[0].parse()?, t[1].parse()?, t[2].parse()?), t[3] == "pillager"));
+                }
+                for l in crate::fleecheck::scarer_check(&spec, &extra, &posts, &scarer_transient).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             if !scarer_search.is_empty() {
                 anyhow::ensure!(scarer_search.len() == 6, "--scarer-search x0,y0,z0,x1,y1,z1");
                 anyhow::ensure!(scarer == "zombie" || scarer == "pillager", "--scarer zombie|pillager");
@@ -8992,7 +9035,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(v.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
                     excl.push(([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]));
                 }
-                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl, scarer_near, scarer_walls).map_err(|e| anyhow::anyhow!(e))? {
+                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl, scarer_near, scarer_walls, &scarer_target, scarer_exact, &scarer_transient, scarer_mix).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
