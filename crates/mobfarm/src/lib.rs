@@ -51,6 +51,7 @@ pub mod returnjudge;
 pub mod spawnrules;
 pub mod station;
 pub mod siding;
+pub mod bedtier;
 pub mod tail_bench;
 pub mod merge;
 pub mod crosspush;

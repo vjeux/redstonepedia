@@ -5940,6 +5940,80 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',')]
         only: Vec<String>,
     },
+    /// (ironspec 17:00, 01:16) The lead's bed stop (F1 + Q2, under the station; loop = local +
+    /// (0,-18,-1)): write its design (`--bench`: with a run-out past R and the two-visit bench's
+    /// queue cell).
+    Bedtier {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        bench: bool,
+    },
+    /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
+    /// --after-sleep live gt after the lie-down, the release --release-after live gt after F. One
+    /// row with --reload/--freeze START,LEN and --hour DAYTIME; a sweep over --reload-phases (each
+    /// a restart of --sweep-len gt: 1 is a save, stop and start), --freeze-phases and --hours.
+    /// Prints each visit (one row) or each row's clean count, and the totals: seated, not out,
+    /// HOME losses, the pickup speeds, each exit's delay against the same seed and speed's night.
+    BedtierBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        from: u64,
+        #[arg(long, default_value_t = 8)]
+        to: u64,
+        #[arg(long, default_value = "0.1,0.2,0.3")]
+        speeds: String,
+        #[arg(long, default_value_t = 10)]
+        after_sleep: i64,
+        #[arg(long, default_value_t = 30)]
+        release_after: i64,
+        /// By day (2,000): the napper should not sleep.
+        #[arg(long)]
+        day: bool,
+        #[arg(long)]
+        empty: bool,
+        #[arg(long)]
+        no_home: bool,
+        #[arg(long)]
+        hide_after_wake: bool,
+        #[arg(long)]
+        freeze: Option<String>,
+        #[arg(long)]
+        reload: Option<String>,
+        #[arg(long)]
+        hour: Option<i64>,
+        #[arg(long)]
+        reload_phases: Option<String>,
+        #[arg(long)]
+        freeze_phases: Option<String>,
+        #[arg(long)]
+        hours: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        sweep_len: i64,
+    },
+    /// (G1's point 1, ironspec 00:52) The two-visit row on the lead's geometry: A's visit, the next
+    /// napper C waiting awake in its cart at the queue cell, the queue released on A's R (C at the
+    /// entry --transit gt later), A up its lift (emulated, from --lift-delay gt after R at
+    /// --lift-speed b/t); a restart (one tick) at each --restart-phases gt after A's entry (and a
+    /// row without); prints A's distance to the bed's head at C's lie-down (bar > 17) and both
+    /// HOMEs.
+    BedtierTwo {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        from: u64,
+        #[arg(long, default_value_t = 8)]
+        to: u64,
+        #[arg(long, default_value = "0.1,0.2,0.3")]
+        speeds: String,
+        #[arg(long)]
+        restart_phases: Option<String>,
+        #[arg(long, default_value_t = 37)]
+        transit: i64,
+        #[arg(long, default_value_t = 5)]
+        lift_delay: i64,
+        #[arg(long, default_value_t = 0.7)]
+        lift_speed: f64,
+    },
 }
 
 /// (farmopt / ironspec Nov 12 11:13-11:14) flee-check's statics refuse a design with an unsupported
@@ -13115,6 +13189,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 return Ok(());
             }
             compare_cmd(version, &design, &opts, twin)?;
+        }
+        MobfarmCmd::Bedtier { out, bench } => {
+            std::fs::write(&out, crate::bedtier::design(bench)?)?;
+            println!("wrote {}", out.display());
+        }
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, freeze, reload, hour, reload_phases, freeze_phases, hours, sweep_len } => {
+            let (_c, spec) = load(version, &design)?;
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, freeze: crate::bedtier::start_len(freeze.as_deref())?, reload: crate::bedtier::start_len(reload.as_deref())?, hour };
+            crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [reload_phases.as_deref(), freeze_phases.as_deref(), hours.as_deref()], sweep_len)?;
+        }
+        MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, transit, lift_delay, lift_speed } => {
+            let (_c, spec) = load(version, &design)?;
+            crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), transit, lift_delay, lift_speed)?;
         }
     }
     Ok(())
