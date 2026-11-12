@@ -1222,6 +1222,36 @@ pub enum MobfarmCmd {
         /// Overfill: live gt after a G0 admission edge before the last tail gate shuts.
         #[arg(long, default_value_t = 14)]
         adm_settle: i64,
+        /// The intake keyed on the escapement's admission: one intake per G0 opening edge.
+        #[arg(long)]
+        intake_admit: bool,
+        /// The ideal tail: no tail chain, each returning cart placed at rest at the last gate.
+        #[arg(long)]
+        ideal_tail: bool,
+        /// No flat between the intake's G5 and the run.
+        #[arg(long)]
+        no_intake_flat: bool,
+        /// The run filled pressed (0.79 apart) from G0 up to this far past the last tail gate (0: a
+        /// cart a cell).
+        #[arg(long, default_value_t = 0.0)]
+        back_at: f64,
+        /// (cc767b78) Day-1's live-time cycle clock and liveness gate (crate::liveness): the cycle
+        /// restarts at each golem event (the column live at a summon boundary), every pulse (the
+        /// hold at T+3, G_P and G0's openings, the tail chain's release) ANDed with ALIVE at its
+        /// rise, a risen pulse completing, the cycle's unfired remainder dropped when ALIVE falls.
+        #[arg(long)]
+        alive_gate: bool,
+        /// (cc767b78) T,D: a real freeze: the whole bench at level 32 inside a forced ring of
+        /// chunks (redstone running, entities frozen) from tick T for D gt (repeatable).
+        #[arg(long)]
+        freeze32: Vec<String>,
+        /// (cc767b78) The freeze matrix: "T0,T1,STEP;D1,D2,..[;real]": one run per freeze start
+        /// (T0..T1 every STEP gt) and length, in parallel (--jobs), with --freeze (or, with
+        /// `real`, --freeze32); one line per run with the bars.
+        #[arg(long, default_value = "")]
+        freeze_matrix: String,
+        #[arg(long, default_value_t = 1)]
+        jobs: usize,
     },
     TraceDiff {
         a: PathBuf,
@@ -3591,15 +3621,74 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle } => {
-            let fr = freeze
-                .iter()
-                .map(|s| {
-                    let p: Vec<i64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-                    if p.len() == 2 { Ok((p[0], p[1])) } else { Err(anyhow::anyhow!("--freeze T,D")) }
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle };
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive_gate, freeze32, freeze_matrix, jobs } => {
+            let pairs = |v: &[String], what: &str| -> anyhow::Result<Vec<(i64, i64)>> {
+                v.iter()
+                    .map(|s| {
+                        let p: Vec<i64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                        if p.len() == 2 { Ok((p[0], p[1])) } else { Err(anyhow::anyhow!("--{what} T,D")) }
+                    })
+                    .collect()
+            };
+            let fr = pairs(&freeze, "freeze")?;
+            let fr32 = pairs(&freeze32, "freeze32")?;
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, alive: alive_gate, freeze32: fr32 };
+            if !freeze_matrix.is_empty() {
+                let parts: Vec<&str> = freeze_matrix.split(';').collect();
+                let sv: Vec<i64> = parts.first().unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                let [t0, t1, step] = sv.as_slice() else { anyhow::bail!("--freeze-matrix takes T0,T1,STEP;D1,D2,..[;real]") };
+                let ds: Vec<i64> = parts.get(1).unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                let real = parts.get(2).is_some_and(|x| x.trim() == "real");
+                let runs: Vec<(i64, i64)> = (*t0..=*t1).step_by((*step).max(1) as usize).flat_map(|t| ds.iter().map(move |d| (t, *d))).collect();
+                println!("gq-bench freeze matrix: {} freezes from t {t0}..{t1} every {step} gt for {:?} gt ({} runs; {}{})", if real { "real (the whole bench at level 32, redstone running)" } else { "emulated (every cart's position and motion restored each tick)" }, ds, runs.len(), if alive_gate { "day-1's live-time clock and liveness gate" } else { "ironfarm's instant gate (openings skip while frozen)" }, if corner != 0 { format!(", corner {corner}") } else { String::new() });
+                for chunk in runs.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(ft, d)| {
+                                let mut o2 = o.clone();
+                                if real {
+                                    o2.freeze32 = vec![(ft, d)];
+                                } else {
+                                    o2.freeze = vec![(ft, d)];
+                                }
+                                sc.spawn(move || ((ft, d), crate::gqbench::gq_bench(&o2)))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((ft, d), r) in got {
+                        let r = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let after = |key: &str| r.lines().find_map(|l| l.split(key).nth(1)).map(|x| x.to_string());
+                        let num = |s: &str| s.trim().split(|c: char| !c.is_ascii_digit()).next().unwrap_or("").to_string();
+                        let per_open = r.lines().find_map(|l| l.strip_prefix("carts per opening (exactly 1): ")).unwrap_or("-").to_string();
+                        let shuts = after("the bar: 0): ").map(|x| num(&x)).unwrap_or("-".to_string());
+                        let arr = r.lines().find(|l| l.starts_with("arrivals into the pressed run")).map(|l| {
+                            let hard = l.split("the hardest ").nth(1).map(|x| x.split(',').next().unwrap_or("").to_string()).unwrap_or_default();
+                            let above = l.split(", ").find(|x| x.ends_with("above 0.2") || x.contains(" above 0.2")).map(|x| num(x)).unwrap_or_default();
+                            format!("{above} over 0.2 (hardest {hard})")
+                        }).unwrap_or("-".to_string());
+                        let fill = after("at its emptiest after the first cycle: ").map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or("-".to_string());
+                        let tail_max = after("the tail chain's most carts: ").map(|x| num(&x)).unwrap_or("-".to_string());
+                        let held = r.lines().find_map(|l| l.strip_prefix("the hold at each release (latched carts): ")).map(|x| {
+                            let ns: Vec<usize> = x.split(';').next().unwrap_or("").split(", ").filter_map(|y| y.split(": ").nth(1)).filter_map(|y| y.trim().parse().ok()).collect();
+                            format!("{} releases, {} not 3 carts", ns.len(), ns.iter().filter(|n| **n != 3).count())
+                        }).unwrap_or("-".to_string());
+                        let clock = r.lines().find(|l| l.starts_with("live-time cycle clock")).map(|l| {
+                            let gol = l.split("): ").nth(1).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
+                            let off = l.split("(out of phase) ").nth(1).map(|x| num(x)).unwrap_or_default();
+                            let two = l.split("cycles with two releases ").nth(1).map(|x| num(x)).unwrap_or_default();
+                            let zero = l.split("releases per cycle ").nth(1).map(|x| x.split("; releases off").next().unwrap_or("").split(", ").filter(|c| c.split(": ").nth(1).is_some_and(|n| n.starts_with('0'))).count()).unwrap_or(0);
+                            format!("{gol}, cycles with no release {zero}, two {two}, off T+3 {off}")
+                        }).unwrap_or("-".to_string());
+                        let lat = after("detection latency ").map(|x| x.to_string()).unwrap_or("-".to_string());
+                        let into = after("must be 0): ").map(|x| num(&x)).unwrap_or("-".to_string());
+                        let dropped = after("sequences dropped ").map(|x| num(&x)).unwrap_or("-".to_string());
+                        println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped}");
+                    }
+                }
+                return Ok(());
+            }
             println!("{}", crate::gqbench::gq_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::TraceDiff { a, b, tol } => {
