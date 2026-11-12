@@ -77,10 +77,11 @@ pub fn station_m1() -> Station {
         for y in 2..=15 {
             transit.push(Vec3::new(x, y as f64, 6.5));
         }
-        for z in 7..=14 {
+        for z in 7..=13 {
             transit.push(Vec3::new(x, 0.0625, z as f64 + 0.5));
         }
     }
+    // (the departures end at z 13, where the merge row turns west: the z 7 shift, ironspec Nov 12)
     Station { summoners, golems, lo: [3, -11, 0], hi: [15, 19, 8], holds, transit }
 }
 
@@ -290,17 +291,28 @@ pub fn layout(family: &str, q: Queue, st: &Station, z4: bool) -> Result<Layout, 
         "F1" => {
             lay.family = "F1 stack";
             lay.riders = lanes(17.5, 7.5, 1.0, 1.0);
-            let top = lay.riders.iter().map(|r| r.y).fold(f64::MIN, f64::max);
-            let ztop = lay.riders.iter().map(|r| r.z).fold(f64::MIN, f64::max);
-            // the merge west along z 14 to the shared lift at x 1, the lift to the lanes' top, the
-            // split over the intakes and its branches down to them
-            lay.transit.extend(row_x(0.0625, 14.5, 2, 14));
-            lay.transit.extend(col(1.5, 14.5, 0.0, top + 2.0));
-            lay.transit.extend(row_x(top + 1.0625, 14.5, 1, 14));
+            // (the budget's cells: ironfarm's drop entry at m 24, the z 7 shift, and 7b90c3f1's
+            // re-targeted return (explore/farmopt-lift3 261a90ca3): the merge west along z 13 to the
+            // shared lift at x 1, the lift's water to 24, its exit north along x 1 at 25 to z 16, the
+            // split's row along z 16 at 24 (outside the chunk: loop z 10), and per lane the drop
+            // column (x,23..24,12), the merge (x,24,13), the 2-cell branch (x,24,14..15) and the x-2
+            // siding (rest, curve and flat at 24, its feed at 25))
+            lay.transit.extend(row_x(0.0625, 13.5, 2, 14));
+            lay.transit.extend(col(1.5, 13.5, 0.0, 24.0));
+            for z in [13.5, 14.5, 15.5, 16.5] {
+                lay.transit.push(Vec3::new(1.5, 25.0625, z));
+            }
+            lay.transit.extend(row_x(24.0625, 16.5, 2, 15));
             for x in &xs {
-                for z in (ztop.ceil() as i32)..=14 {
-                    lay.transit.push(Vec3::new(*x, top + 1.0625, z as f64 + 0.5));
+                lay.transit.push(Vec3::new(*x, 23.5, 12.5));
+                lay.transit.push(Vec3::new(*x, 24.5, 12.5));
+                for z in [13.5, 14.5, 15.5] {
+                    lay.transit.push(Vec3::new(*x, 24.0625, z));
                 }
+                lay.transit.push(Vec3::new(x - 2.0, 24.0625, 14.5));
+                lay.transit.push(Vec3::new(x - 2.0, 24.0625, 13.5));
+                lay.transit.push(Vec3::new(x - 1.0, 24.0625, 13.5));
+                lay.transit.push(Vec3::new(x - 2.0, 25.0625, 15.5));
             }
             lay.notes.push(format!("waiting riders' feet >= {:.2} (the holds at 16.19 and the lanes above; the pad's golem feet + 20.54): rule 4b above", cb[4]));
             lay.notes.push("normal-running bar (>= 5 gt): the departing batch's last cart out of range ~T+71 by the shared lift (7b90c3f1): margin ~29 gt".into());
@@ -524,6 +536,35 @@ pub fn pitch_mirror_z(lay: &Layout, st: &Station, strict: bool) -> (i32, i32) {
         }
     }
     (pair, period)
+}
+
+/// The worst pair at offset `d` along `axis` (the rule, its margin, the rider, the golem or
+/// summoner): the pair that binds the pitch there (ironspec Nov 12 00:43: which pair binds z 33).
+pub fn pitch_worst(lay: &Layout, st: &Station, axis: usize, strict: bool, d: i32) -> Option<(&'static str, f64, Vec3, Vec3)> {
+    let mut ours: Vec<Vec3> = st.summoners.iter().chain(st.holds.iter()).chain(lay.riders.iter()).copied().collect();
+    if strict {
+        ours.extend(st.transit.iter().chain(lay.transit.iter()).copied());
+    }
+    let sh = |p: Vec3| if axis == 0 { Vec3::new(p.x + d as f64, p.y, p.z) } else { Vec3::new(p.x, p.y, p.z + d as f64) };
+    let theirs: Vec<Vec3> = ours.iter().map(|p| sh(*p)).collect();
+    let tg: Vec<Vec3> = st.golems.iter().map(|p| sh(*p)).collect();
+    let ts: Vec<Vec3> = st.summoners.iter().map(|p| sh(*p)).collect();
+    let mut worst: Option<(&'static str, f64, Vec3, Vec3)> = None;
+    let mut see = |rule: &'static str, srcs: &[Vec3], rs: &[Vec3], f: &dyn Fn(Vec3, Vec3) -> f64| {
+        for s in srcs {
+            for r in rs {
+                let m = f(*s, *r);
+                if worst.is_none_or(|w| m < w.1) {
+                    worst = Some((rule, m, *r, *s));
+                }
+            }
+        }
+    };
+    see("(a) golem sight", &st.golems, &theirs, &crate::tile::sight_margin);
+    see("(a) golem sight", &tg, &ours, &crate::tile::sight_margin);
+    see("(b) summon mark", &st.summoners, &theirs, &crate::tile::mark_margin);
+    see("(b) summon mark", &ts, &ours, &crate::tile::mark_margin);
+    worst
 }
 
 /// The least pitch along one axis (`axis` 0: x, 2: z) at which a copy's riders and summoners clear
