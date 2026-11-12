@@ -64,7 +64,7 @@ fn pickup_eligible(boat: &super::Entity, other: &super::Entity) -> bool {
     let EntityKind::Mob(mob) = &other.kind else { return false };
     let tag_allows = match mob.ty {
         // (the witch is absent from the tag too: checked 2026-11-08 by ironfarm)
-        MobType::Villager | MobType::Zombie | MobType::IronGolem | MobType::Witch => true,
+        MobType::Villager | MobType::Zombie | MobType::IronGolem | MobType::Witch | MobType::Pillager => true,
         // a natural mob of the terrain mode: the tag itself, by id
         MobType::Natural(_) => !CANNOT_BE_PUSHED_ONTO_BOATS.contains(&mob.ty.def().id),
     };
