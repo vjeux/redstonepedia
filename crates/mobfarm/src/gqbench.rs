@@ -86,10 +86,20 @@ pub struct GqOpts {
     pub reset_at: i64,
     /// The hold's release gates shut once Ds has counted the carts latched at the release.
     pub hold_close_ds: bool,
+    /// Ga closes this many gt after the rear cart's pass over P_b in a release (0: off).
+    pub hold_close_pb: i64,
+    /// The hold's middle and rear gates open on cart 0's rising edge at Ds (ironspec's (A)).
+    pub hold_stagger_ds: bool,
+    /// Ds a sloped detector right after the hold's line (v4's).
+    pub ds_slope: bool,
     /// Edge escapement: G_P only after no hold sensor edge for this many gt (the hold settled).
     pub fill_quiet: i64,
     /// The start state: the run empty, carts admitted seated one at a time until N are on it.
     pub start_fill: usize,
+    /// The start fill by placement: each cart placed at the back, seated before the next.
+    pub gentle: bool,
+    /// The gentle fill's control: never seat.
+    pub gentle_no_seat: bool,
     /// (cc767b78) day-1's live-time cycle clock and liveness gate (`crate::liveness`): the cycle
     /// restarts at each golem event (the column live at a summon boundary: a frozen column makes
     /// none), every pulse (the hold's release at T+3, G_P and G0's openings, the tail chain's
@@ -349,10 +359,19 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     }
     g.hold_exit = g.gates.iter().filter(|gt| gt.0 == Role::Hold(2)).map(|gt| gt.1 as f64 + 1.0).next().unwrap_or(f64::MAX);
     // (the descent and the sink: a flat first, at the front pocket's U top (a detector rail: the
-    // front pocket's leaving edge, 7b90c3f1's per-pocket latch clear), then slopes down)
-    put(&mut blocks, x, lv, &det);
-    g.ds = (x, lv);
-    x += 1;
+    // front pocket's leaving edge, 7b90c3f1's per-pocket latch clear), then slopes down; or, with
+    // --ds-slope, Ds a sloped detector right after the line (v4's Ds at (7,14,5): the first cell
+    // after G_a, a continuing descent))
+    if o.ds_slope {
+        put(&mut blocks, x, lv - 1, &det_down);
+        g.ds = (x, lv - 1);
+        x += 1;
+        lv -= 1;
+    } else {
+        put(&mut blocks, x, lv, &det);
+        g.ds = (x, lv);
+        x += 1;
+    }
     for _ in 0..3 {
         put(&mut blocks, x, lv - 1, &down);
         x += 1;
@@ -532,7 +551,13 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut replaced: Vec<bool> = vec![false; o.carts];
     let mut pending: Vec<(i64, usize)> = Vec::new();
     let in_run = o.cap.min(o.carts).min(g.run_cells.len());
-    if o.start_fill > 0 {
+    if o.start_fill > 0 && o.gentle {
+        // (the gentle start: carts 0..N placed one at a time at the back by the procedure below;
+        // the rest seated and pooled at the staging cell)
+        for (i, k) in (o.start_fill.min(o.carts)..o.carts).enumerate() {
+            pending.push((i as i64 * 30, k));
+        }
+    } else if o.start_fill > 0 {
         // (the start state: the run empty, every cart seated and pooled at the staging cell)
         for k in 0..o.carts {
             pending.push((k as i64 * 30, k));
@@ -585,9 +610,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut last_hold_edge: i64 = i64::MIN / 2;
     let mut release_n: usize = 0;
     let mut ds_since: usize = 0;
+    let mut pb_close_at: Option<i64> = None;
+    let mut ds_first_at: Option<i64> = None;
     let mut gone: Vec<bool> = vec![false; o.carts];
     let mut reset_log = String::new();
     let mut esc_was_on = false;
+    let mut g0_wait = false;
     let mut last_gp: i64 = i64::MIN / 2;
     let mut owed_at: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
     let mut pool: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
@@ -629,6 +657,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut merge_log: Vec<String> = Vec::new();
     let mut merge_open: std::collections::BTreeMap<(usize, usize), (i64, f64, f64)> = Default::default();
     let mut front_v_max: f64 = 0.0;
+    let mut vmax_any: (f64, i64, usize) = (0.0, 0, 0);
+    let mut off_track: Vec<(i64, usize, f64, f64)> = Vec::new();
+    let rail_y_min = spec.lo.y as f64 + 7.0;
+    let rail_x_span = (spec.lo.x as f64, spec.hi.x as f64);
     let mut back_moves: usize = 0;
     let mut back_max: f64 = 0.0;
     let mut run_min: (usize, i64) = (usize::MAX, 0);
@@ -640,6 +672,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut run_still_since: i64 = 0;
     let mut fill_done = false;
     let mut fill_done_at: i64 = -1;
+    let mut gentle_next: usize = 0;
+    let mut gentle_seat: Option<(usize, i64)> = None;
+    let mut gentle_log: Vec<String> = Vec::new();
+    let mut gentle_last_place: i64 = i64::MIN / 2;
     let ticks = warm + o.cycles * 100;
     // (cc767b78, `alive`: day-1's gate on a virtual sealed ring in the hold's chunk (or
     // `MCTAS_ALIVE_RING`); the cycle's pulses as offsets from its golem event: the hold at +3,
@@ -835,8 +871,23 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         // (Ds: the hold's front pocket left)
                         occ_h[2] = false;
                         ds_since += 1;
+                        // (--hold-stagger-ds: cart 0's rising edge at Ds opens the middle and rear gates)
+                        if hold_release_at >= 0 && t > hold_release_at && ds_first_at.is_none() {
+                            ds_first_at = Some(t);
+                        }
+                        if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
+                            eprintln!("t {t}: Ds edge (count {ds_since} of {release_n} since the release at {hold_release_at})");
+                        }
                     } else {
                     occ_h[h] = true;
+                    // (--hold-close-pb D: the rear cart's pass over the middle pocket's detector (P_b),
+                    // the only cart to cross it during a release, keys Ga's close D gt later)
+                    if h == 1 && o.hold_close_pb > 0 && hold_release_at >= 0 && t > hold_release_at && t < hold_release_at + o.hold_pulse && pb_close_at.is_none() {
+                        pb_close_at = Some(t + o.hold_close_pb);
+                        if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
+                            eprintln!("t {t}: P_b edge in the release at {hold_release_at}: Ga closes at {}", t + o.hold_close_pb);
+                        }
+                    }
                     if h > 0 {
                         occ_h[h - 1] = false;
                     }
@@ -861,13 +912,24 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         if let Some((ex, ey)) = g.esc_s {
             let on = matches!(run.world.get(BlockPos::new(ex, ey, 0)), Block::DetectorRail { powered: true, .. });
             if on && !esc_was_on && o.edge_esc && !frz {
-                eg0_until = t + 12;
-                staged_at = Some(t);
+                // (with --alive-gate the edge's pulse rises only while ALIVE: a refused edge waits,
+                // latched, for ALIVE)
+                if o.alive && !(alive && gate.allow_rise(&run.world, "G0 (escapement edge)", t)) {
+                    g0_wait = true;
+                } else {
+                    eg0_until = t + 12;
+                    staged_at = Some(t);
+                }
                 if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
-                    eprintln!("t {t}: escapement sensor edge, G0 fires");
+                    eprintln!("t {t}: escapement sensor edge, G0 fires{}", if g0_wait { " (waiting for ALIVE)" } else { "" });
                 }
             }
             esc_was_on = on;
+        }
+        if g0_wait && alive && !frz && gate.allow_rise(&run.world, "G0 (escapement edge, waited)", t) {
+            g0_wait = false;
+            eg0_until = t + 12;
+            staged_at = Some(t);
         }
         // (the jam's reset (ironspec 18:48), at --reset-at T: the player breaks every empty cart (the
         // merged pair first: the carts are simply removed), then presses the escapement's reset: the
@@ -938,6 +1000,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             let held = occ_h.iter().filter(|b| **b).count();
             release_n = held;
             ds_since = 0;
+            pb_close_at = None;
+            ds_first_at = None;
             hold_at_release.push((t, held));
             hold_release_until = t + o.hold_pulse;
             hold_release_at = t;
@@ -974,12 +1038,57 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         if run_moving {
             run_still_since = t;
         }
-        if o.start_fill > 0 && !fill_done && run_count >= o.start_fill && t - run_still_since >= 5 {
+        // (--gentle, ironspec 19:29: each cart placed empty on the run's rail cell just above the
+        // current back (the highest cell centre at least the pressed spacing above the back cart, so
+        // it rolls under one cell onto it), its villager seated once the run is still (the empty
+        // replaced in place by a ridden cart at rest), and only then the next placed: at most one
+        // empty, at rest at the back; --gentle-no-seat never seats (the empty-fill control))
+        if o.start_fill > 0 && o.gentle && !fill_done && t >= 10 {
+            // (the control never waits for stillness, as an empty run never stills: a placement
+            // every 25 gt, as in tick-exact's empty fill)
+            let still = t - run_still_since >= 5 || (o.gentle_no_seat && t - gentle_last_place >= 25);
+            match gentle_seat {
+                None if still && gentle_next < o.start_fill.min(o.carts) => {
+                    let back_x = ids.iter().filter_map(|id| id.and_then(|id| cart_state(&run.world, id))).filter(|(x, _, _)| *x >= g.run_x.0 as f64 && *x < g.run_x.1 as f64).map(|c| c.0).fold(f64::INFINITY, f64::min);
+                    let cell = if back_x.is_infinite() {
+                        g.run_cells.last().copied()
+                    } else {
+                        g.run_cells.iter().filter(|c| c.0 as f64 + 0.5 <= back_x - 0.79).max_by_key(|c| c.0).copied()
+                    };
+                    if let Some((cx, cy)) = cell {
+                        let k = gentle_next;
+                        ids[k] = Some(spawn(&mut run, [cx as f64 + 0.5, cy as f64 + 0.5 + 0.0625, 0.5], 0.0, false)?);
+                        gentle_seat = Some((k, t));
+                        gentle_last_place = t;
+                        gentle_log.push(format!("t {t}: cart {k} placed at x {:.1}{}", cx as f64 + 0.5, if back_x.is_infinite() { " (the run empty)".to_string() } else { format!(" (the back at {back_x:.3}, gap {:.3})", back_x - 0.79 - (cx as f64 + 0.5)) }));
+                    } else {
+                        gentle_next = o.start_fill;
+                    }
+                }
+                Some((k, t0)) if (still || o.gentle_no_seat) && t > t0 + 5 => {
+                    if !o.gentle_no_seat
+                        && let Some(id) = ids[k]
+                        && let Some((x, y, _)) = cart_state(&run.world, id)
+                    {
+                        let _ = redsim::entity::kill(&mut run.world, id);
+                        ids[k] = Some(spawn(&mut run, [x, y, 0.5], 0.0, true)?);
+                        replaced[k] = true;
+                    }
+                    gentle_seat = None;
+                    gentle_next += 1;
+                }
+                _ => {}
+            }
+        }
+        let gentle_filling = o.start_fill > 0 && o.gentle && !fill_done;
+        if o.start_fill > 0 && !fill_done && run_count >= o.start_fill && t - run_still_since >= 5 && (!o.gentle || gentle_next >= o.start_fill) {
             fill_done = true;
             fill_done_at = t;
         }
         let filling = o.start_fill > 0 && !fill_done;
-        let tail_ev = if filling {
+        let tail_ev = if gentle_filling {
+            false
+        } else if filling {
             occ_t[nt - 1] && t - run_still_since >= 5 && settle_live >= o.settle && t >= tail_release_until + 4
         } else if o.intake_admit {
             // (released once the admission's train shift has settled: `adm_settle` gt after its edge)
@@ -1089,8 +1198,11 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             // (--fill-quiet: the hold settled: no hold sensor edge in the last Q gt, so a fill never
             // follows a cart shifting between pockets through a gate that is about to shut)
             let room = room && t - last_hold_edge >= o.fill_quiet;
-            let cond = staged && room && quiet && spaced && !frz && t >= warm;
+            let cond = staged && room && quiet && spaced && !frz && t >= warm && (!o.alive || alive);
             if cond && !gp_cond_was {
+                if o.alive {
+                    let _ = gate.allow_rise(&run.world, "G_P (edge)", t);
+                }
                 egp_until = t + 11;
                 staged = false;
                 last_gp = t;
@@ -1126,7 +1238,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 Role::Hold(j) => {
                     // (together: every hold gate open for hold_pulse from T+3; a ripple of D: the
                     // front gate at T+3, each gate behind D gt later, each for hold_pulse)
-                    let from = hold_release_at + if o.hold_ripple > 0 { (2 - *j as i64) * o.hold_ripple } else { 0 };
+                    let from = if o.hold_stagger_ds && *j < 2 {
+                        // (the middle and rear gates open on cart 0's rising edge at Ds; not before)
+                        ds_first_at.unwrap_or(i64::MAX / 2)
+                    } else {
+                        hold_release_at + if o.hold_ripple > 0 { (2 - *j as i64) * o.hold_ripple } else { 0 }
+                    };
                     let mut until = hold_release_at + 2 * o.hold_ripple.max(0) + o.hold_pulse;
                     // (--hold-close-ds: the release's gates shut once Ds has counted as many leaving
                     // edges as carts were latched at the release (evidence, ruling (a)); hold_pulse
@@ -1136,10 +1253,17 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                             until = until.min(t);
                         }
                     }
+                    if let Some(c) = pb_close_at {
+                        until = until.min(c);
+                    }
                     if hold_release_at >= 0 && t >= from && t < until {
                         true
                     } else if *j == 2 {
                         false
+                    } else if o.hold_stagger_ds && hold_release_at >= 0 && t >= hold_release_at && t < until && ds_first_at.is_none() {
+                        // (before cart 0's edge at Ds the middle and rear gates keep the fill rule: shut
+                        // while the pocket ahead is latched, so nothing shuts at the release itself)
+                        !occ_h[j + 1]
                     } else {
                         !occ_h[j + 1] && !(hold_release_at >= 0 && t >= hold_release_at && t < until)
                     }
@@ -1242,9 +1366,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         merge_open.insert((a, b), (t, xa, ya));
                         merged_pairs.insert((a, b));
                     }
-                    (Some((dd, _, _)), Some((t0, xa, ya))) if dd > 0.9 => {
+                    (Some((dd, xs, _)), Some((t0, xa, ya))) if dd > 0.9 => {
                         merge_open.remove(&(a, b));
-                        merge_log.push(format!("t {t0}: carts {a} ({}) and {b} ({}) at {xa:.2},{ya:.2}, separated after {} gt", if ridden_k(a) { "R" } else { "E" }, if ridden_k(b) { "R" } else { "E" }, t - t0));
+                        merge_log.push(format!("t {t0}: carts {a} ({}) and {b} ({}) at {xa:.2},{ya:.2}, separated after {} gt at x {xs:.2}{}", if ridden_k(a) { "R" } else { "E" }, if ridden_k(b) { "R" } else { "E" }, t - t0, if xs < g.gp_plane { " (before the hold)" } else { " (IN OR PAST THE ESCAPEMENT)" }));
                     }
                     (None, Some((t0, xa, ya))) => {
                         merge_open.remove(&(a, b));
@@ -1256,6 +1380,18 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         }
         if t >= warm + 100 && in_run_now < run_min.0 {
             run_min = (in_run_now, t);
+        }
+        // (blow-ups and carts off the track: the highest stored speed of any cart at any tick; a cart
+        // below the bench's lowest rail by 2 or outside its x span by 1)
+        for k in 0..o.carts {
+            if let Some((x, y, v)) = now[k] {
+                if v > vmax_any.0 {
+                    vmax_any = (v, t, k);
+                }
+                if (y < rail_y_min - 2.0 || x < rail_x_span.0 - 1.0 || x > rail_x_span.1 + 1.0) && off_track.len() < 20 && !off_track.iter().any(|(_, kk, _, _)| *kk == k) {
+                    off_track.push((t, k, x, y));
+                }
+            }
         }
         // (the front cart at G0's face: its stored speed at rest; any cart in the run moving back up
         // it: ironspec 18:27, the empties' tolerance)
@@ -1302,7 +1438,26 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     if !reset_log.is_empty() {
         l.push(format!("the jam's reset: {reset_log}"));
     }
-    l.push(format!("merges (two carts' centres within 0.5; separated when 0.9 apart): {}{}", merge_log.len(), if merge_log.is_empty() { String::new() } else { format!(" ({})", merge_log.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }));
+    l.push(format!("merges (two carts' centres within 0.5; separated when 0.9 apart): {}{}", merge_log.len(), if merge_log.is_empty() { String::new() } else { format!(" ({})", merge_log.iter().take(if o.cycles > 200 { 400 } else { 12 }).cloned().collect::<Vec<_>>().join("; ")) }));
+    l.push(format!(
+        "stored speeds: the highest of any cart at any tick {:.3} (t {}, cart {}){}; carts off the track (below the lowest rail by 2 or outside the bench by 1): {}",
+        vmax_any.0, vmax_any.1, vmax_any.2,
+        if vmax_any.0 > 2.0 { " BLOW-UP" } else { "" },
+        if off_track.is_empty() { "0".to_string() } else { off_track.iter().map(|(t, k, x, y)| format!("t {t} cart {k} at {x:.1},{y:.1}")).collect::<Vec<_>>().join("; ") }
+    ));
+    // (every ridden intake striking an empty back (R onto E): count and speeds in 0.05 bins)
+    {
+        let re: Vec<f64> = contacts_arr.iter().chain(contacts_mov.iter()).filter(|c| c.intake.is_some() && c.t >= warm && ridden_k(c.k) && !ridden_k(c.j)).map(|c| c.pv).collect();
+        let mut bins: std::collections::BTreeMap<i64, usize> = Default::default();
+        for v in &re {
+            *bins.entry((v / 0.05).floor() as i64).or_default() += 1;
+        }
+        l.push(format!(
+            "R onto E intake contacts (a ridden intake striking the empty at the back): {}{}",
+            re.len(),
+            if re.is_empty() { String::new() } else { format!(", {:.3}..{:.3}; by 0.05: {}", re.iter().copied().fold(f64::INFINITY, f64::min), re.iter().copied().fold(0.0f64, f64::max), bins.iter().map(|(b, n)| format!("{:.2}-{:.2}: {n}", *b as f64 * 0.05, (*b + 1) as f64 * 0.05)).collect::<Vec<_>>().join(", ")) }
+        ));
+    }
     l.push(format!("the pressed run's fill (carts on its slopes) at its emptiest after the first cycle: {} (t {}); the tail chain's most carts: {tail_max}", if run_min.0 == usize::MAX { 0 } else { run_min.0 }, run_min.1));
     l.push(format!(
         "the pressed spacing (x between successive carts at rest in the run, sampled at each G0 opening edge): {}",
@@ -1357,13 +1512,18 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         let fc: Vec<&Contact> = contacts_arr.iter().chain(contacts_mov.iter()).filter(|c| c.t < fill_end).collect();
         let mx = fc.iter().map(|c| c.pv).fold(0.0f64, f64::max);
         l.push(format!(
-            "the start fill ({} carts admitted one at a time from the staging cell, each once the run is still): done at {}; {} contacts, {} above 0.2, the hardest {mx:.3}; each: {}",
+            "the start fill ({} carts {}): done at {}; {} contacts, {} above 0.2, {} above 0.46, the hardest {mx:.3}; each (mover, struck as seated at the end): {}",
             o.start_fill,
+            if o.gentle { if o.gentle_no_seat { "placed one at a time at the back, never seated (the control)" } else { "placed one at a time at the back, each seated before the next" } } else { "admitted one at a time from the staging cell, each once the run is still" },
             if fill_done_at >= 0 { format!("t {fill_done_at}") } else { "never".to_string() },
             fc.len(),
             fc.iter().filter(|c| c.pv > 0.2).count(),
-            fc.iter().take(16).map(|c| format!("t {} {}{} {:.3}", c.t, if ridden_k(c.k) { "R" } else { "E" }, if ridden_k(c.j) { "R" } else { "E" }, c.pv)).collect::<Vec<_>>().join(", ")
+            fc.iter().filter(|c| c.pv > 0.46).count(),
+            fc.iter().take(18).map(|c| format!("t {} {} {:.3}", c.t, c.k, c.pv)).collect::<Vec<_>>().join(", ")
         ));
+        if !gentle_log.is_empty() {
+            l.push(format!("the placements: {}", gentle_log.iter().take(16).cloned().collect::<Vec<_>>().join("; ")));
+        }
     }
     l.push(format!(
         "intake travel (x from the rest at the last gate to the contact) and stored speed at contact: {}",
