@@ -43,8 +43,102 @@ fn others(a: usize) -> (usize, usize) {
     }
 }
 
+/// `Shapes.findBits(min, max)`: the fewest bits (at most 3) making both ends multiples of
+/// 1/2^bits within the cell, -1 if none (a box needing a finer grid, or leaving the cell).
+fn find_bits(min: f64, max: f64) -> i32 {
+    if min < -1.0e-7 || max > 1.0000001 {
+        return -1;
+    }
+    for bits in 0..=3 {
+        let n = (1i32 << bits) as f64;
+        let (a, b) = (min * n, max * n);
+        if (a - a.round()).abs() < 1.0e-7 * n && (b - b.round()).abs() < 1.0e-7 * n {
+            return bits;
+        }
+    }
+    -1
+}
+
+/// A block shape's coordinate list along `a` (world), as the game's `VoxelShape` holds it: the
+/// union over its boxes (`optimize`: `Shapes.box` of each box joined) of each box's own grid, a
+/// `CubeVoxelShape`'s every 1/2^bits line when the box fits that grid on all three axes
+/// (`Shapes.create`), else its two edges (`ArrayVoxelShape`); an entity's box: its edges
+/// (tickexact 2026-11-11, cart-pole: a piston head's platform puts a line at 0.5 through its arm).
+fn shape_grid(cell: Option<BlockPos>, boxes: &[Aabb], a: usize) -> Vec<f64> {
+    let mut v: Vec<f64> = Vec::new();
+    for bx in boxes {
+        let cube = cell.and_then(|c| {
+            let o = [c.x as f64, c.y as f64, c.z as f64];
+            let bits = [find_bits(bx.min(0) - o[0], bx.max(0) - o[0]), find_bits(bx.min(1) - o[1], bx.max(1) - o[1]), find_bits(bx.min(2) - o[2], bx.max(2) - o[2])];
+            bits.iter().all(|b| *b >= 0).then_some((o[a], bits[a]))
+        });
+        match cube {
+            Some((o, bits)) => {
+                let n = 1i32 << bits;
+                for k in 0..=n {
+                    v.push(o + k as f64 / n as f64);
+                }
+            }
+            None => {
+                v.push(bx.min(a));
+                v.push(bx.max(a));
+            }
+        }
+    }
+    v.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    v.dedup_by(|x, y| (*x - *y).abs() < 1.0e-7);
+    v
+}
+
+/// `VoxelShape.collideX` on the shape's voxel grid (`findIndex` through its coordinate lists, the
+/// first full voxel past the moving face's own voxel): what [`shape_collide`] does when a face
+/// of the moving box starts inside one of the shape's boxes, where a grid line inside that box
+/// still stops it.
+fn shape_collide_voxels(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &[Aabb], mut distance: f64) -> f64 {
+    let (b, c) = others(a);
+    let (ga, gb, gc) = (shape_grid(cell, shape, a), shape_grid(cell, shape, b), shape_grid(cell, shape, c));
+    // `findIndex`: the last line at or below `v` (-1 below the first)
+    let fi = |g: &[f64], v: f64| g.partition_point(|x| *x <= v) as i32 - 1;
+    let size = |g: &[f64]| g.len() as i32 - 1;
+    let (min_a, max_a) = (moving.min(a), moving.max(a));
+    let a_min = fi(&ga, min_a + 1.0e-7);
+    let a_max = fi(&ga, max_a - 1.0e-7);
+    let b_min = fi(&gb, moving.min(b) + 1.0e-7).max(0);
+    let b_max = (fi(&gb, moving.max(b) - 1.0e-7) + 1).min(size(&gb));
+    let c_min = fi(&gc, moving.min(c) + 1.0e-7).max(0);
+    let c_max = (fi(&gc, moving.max(c) - 1.0e-7) + 1).min(size(&gc));
+    let mid = |g: &[f64], k: i32| (g[k as usize] + g[k as usize + 1]) / 2.0;
+    let full = |ai: i32, bi: i32, ci: i32| {
+        let (pa, pb, pc) = (mid(&ga, ai), mid(&gb, bi), mid(&gc, ci));
+        shape.iter().any(|bx| bx.min(a) < pa && pa < bx.max(a) && bx.min(b) < pb && pb < bx.max(b) && bx.min(c) < pc && pc < bx.max(c))
+    };
+    let column_full = |ai: i32| (b_min..b_max).any(|bi| (c_min..c_max).any(|ci| full(ai, bi, ci)));
+    if distance > 0.0 {
+        for ai in (a_max + 1)..size(&ga) {
+            if column_full(ai) {
+                let nd = ga[ai as usize] - max_a;
+                if nd >= -1.0e-7 {
+                    distance = super::vec3::jmin(distance, nd);
+                }
+                return distance;
+            }
+        }
+    } else if distance < 0.0 {
+        for ai in (0..a_min).rev() {
+            if column_full(ai) {
+                let nd = ga[ai as usize + 1] - min_a;
+                if nd <= 1.0e-7 {
+                    distance = super::vec3::jmax(distance, nd);
+                }
+                return distance;
+            }
+        }
+    }
+    distance
+}
+
 /// `VoxelShape.collideX` of one block's shape (its boxes, moved to the block) along `a`.
-fn shape_collide(a: usize, moving: Aabb, shape: &[Aabb], mut distance: f64) -> f64 {
+fn shape_collide(a: usize, moving: Aabb, cell: Option<BlockPos>, shape: &[Aabb], mut distance: f64) -> f64 {
     if shape.is_empty() {
         return distance;
     }
@@ -55,6 +149,11 @@ fn shape_collide(a: usize, moving: Aabb, shape: &[Aabb], mut distance: f64) -> f
     let overlaps = |bx: &Aabb| {
         moving.max(b) - 1.0e-7 >= bx.min(b) && moving.min(b) + 1.0e-7 < bx.max(b) && moving.max(c) - 1.0e-7 >= bx.min(c) && moving.min(c) + 1.0e-7 < bx.max(c)
     };
+    // (a moving face starting inside a box: the voxel grid decides, a line inside the box can stop it)
+    let face = if distance > 0.0 { moving.max(a) - 1.0e-7 } else { moving.min(a) + 1.0e-7 };
+    if shape.iter().any(|bx| overlaps(bx) && bx.min(a) < face && face < bx.max(a)) {
+        return shape_collide_voxels(a, moving, cell, shape, distance);
+    }
     if distance > 0.0 {
         let max_a = moving.max(a);
         for bx in shape.iter().filter(|bx| overlaps(bx)) {
@@ -73,19 +172,22 @@ fn shape_collide(a: usize, moving: Aabb, shape: &[Aabb], mut distance: f64) -> f
     distance
 }
 
+/// A collider: a block shape with its cell (its voxel grid: [`shape_grid`]), or an entity's box.
+pub type Collider = (Option<BlockPos>, Vec<Aabb>);
+
 /// `Shapes.collide(axis, moving, shapes, distance)`.
-fn shapes_collide(a: usize, moving: Aabb, shapes: &[Vec<Aabb>], mut distance: f64) -> f64 {
-    for s in shapes {
+fn shapes_collide(a: usize, moving: Aabb, shapes: &[Collider], mut distance: f64) -> f64 {
+    for (cell, s) in shapes {
         if distance.abs() < 1.0e-7 {
             return 0.0;
         }
-        distance = shape_collide(a, moving, s, distance);
+        distance = shape_collide(a, moving, *cell, s, distance);
     }
     distance
 }
 
 /// `Entity.collideWithShapes`.
-fn collide_with_shapes(movement: Vec3, bb: Aabb, shapes: &[Vec<Aabb>]) -> Vec3 {
+fn collide_with_shapes(movement: Vec3, bb: Aabb, shapes: &[Collider]) -> Vec3 {
     if shapes.is_empty() {
         return movement;
     }
@@ -149,7 +251,11 @@ pub fn boxes_at(w: &World, s: &Block, p: BlockPos) -> Vec<Aabb> {
     let f = |v: i32| v as f64 / 16.0;
     let raw: Vec<[i32; 6]> = match s {
         Block::Piston { .. } | Block::PistonHead { .. } => crate::piston::shape::of(w, *s, p).into_iter().map(|b| b.0).collect(),
-        Block::MovingPiston { .. } => crate::piston::shape::moving_noclip(w, p, w.entities.noclip).into_iter().map(|b| b.0).collect(),
+        // (tickexact 2026-11-11, cart-pole: a moved terrain block's exact boxes, a pushed iron
+        // chain's half-pixel column included)
+        Block::MovingPiston { .. } => {
+            return crate::piston::shape::moving_noclip_exact(w, p, w.entities.noclip).iter().map(|b| Aabb::new(x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5])).collect();
+        }
         _ => return static_boxes(s).iter().map(|c| Aabb::new(x + f(c[0]), y + f(c[2]), z + f(c[4]), x + f(c[1]), y + f(c[3]), z + f(c[5]))).collect(),
     };
     raw.iter().map(|c| Aabb::new(x + f(c[0]), y + f(c[2]), z + f(c[4]), x + f(c[1]), y + f(c[3]), z + f(c[5]))).collect()
@@ -396,9 +502,9 @@ pub fn entity_collisions(w: &World, i: usize, bb: Aabb) -> Vec<Vec<Aabb>> {
 
 /// `Entity.collectCandidateStepUpHeights` (each shape's Y coordinates: its boxes' bottoms and
 /// tops).
-fn candidate_step_up_heights(bb: Aabb, colliders: &[Vec<Aabb>], max_step: f32, skip: f32) -> Vec<f32> {
+fn candidate_step_up_heights(bb: Aabb, colliders: &[Collider], max_step: f32, skip: f32) -> Vec<f32> {
     let mut cands: Vec<f32> = Vec::new();
-    for c in colliders {
+    for (_, c) in colliders {
         let mut coords: Vec<f64> = c.iter().flat_map(|b| [b.min_y, b.max_y]).collect();
         coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
         coords.dedup();
@@ -423,12 +529,12 @@ pub fn collide(w: &World, i: usize, movement: Vec3) -> Vec3 {
     let e = &w.entities.list[i];
     let bb = e.bb;
     let max_up = super::kinds::max_up_step(w, i);
-    let entity_colliders = entity_collisions(w, i, bb.expand_towards(movement.x, movement.y, movement.z).expand_towards(0.0, max_up as f64, 0.0));
+    let entity_colliders: Vec<Collider> = entity_collisions(w, i, bb.expand_towards(movement.x, movement.y, movement.z).expand_towards(0.0, max_up as f64, 0.0)).into_iter().map(|s| (None, s)).collect();
     let step = if movement.length_sqr() == 0.0 {
         movement
     } else {
         let mut colliders = entity_colliders.clone();
-        colliders.extend(block_collisions(w, bb.expand_towards(movement.x, movement.y, movement.z)).into_iter().map(|(_, s)| s));
+        colliders.extend(block_collisions(w, bb.expand_towards(movement.x, movement.y, movement.z)).into_iter().map(|(p, s)| (Some(p), s)));
         collide_with_shapes(movement, bb, &colliders)
     };
     let x_col = movement.x != step.x;
@@ -442,7 +548,7 @@ pub fn collide(w: &World, i: usize, movement: Vec3) -> Vec3 {
             step_up = step_up.expand_towards(0.0, -1.0e-5f32 as f64, 0.0);
         }
         let mut colliders = entity_colliders.clone();
-        colliders.extend(block_collisions(w, step_up).into_iter().map(|(_, s)| s));
+        colliders.extend(block_collisions(w, step_up).into_iter().map(|(p, s)| (Some(p), s)));
         let skip = step.y as f32;
         for h in candidate_step_up_heights(grounded, &colliders, max_up, skip) {
             let from_ground = collide_with_shapes(Vec3::new(movement.x, h as f64, movement.z), grounded, &colliders);
@@ -650,7 +756,7 @@ pub fn collide_box(w: &World, bb: Aabb, movement: Vec3) -> Vec3 {
     if movement.length_sqr() == 0.0 {
         return movement;
     }
-    let colliders: Vec<Vec<Aabb>> = block_collisions(w, bb.expand_towards(movement.x, movement.y, movement.z)).into_iter().map(|(_, s)| s).collect();
+    let colliders: Vec<Collider> = block_collisions(w, bb.expand_towards(movement.x, movement.y, movement.z)).into_iter().map(|(p, s)| (Some(p), s)).collect();
     collide_with_shapes(movement, bb, &colliders)
 }
 

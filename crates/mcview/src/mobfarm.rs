@@ -210,6 +210,27 @@ pub struct WalkAnim {
     /// A chicken's wings (`Chicken.aiStep` each tick from its `onGround`): oFlap, flap,
     /// oFlapSpeed, flapSpeed, flapping.
     pub chicken: Option<[f32; 5]>,
+    /// A cube mob's squish (`AbstractCubeMob.tick` from its `onGround`): oSquish, squish,
+    /// targetSquish, and whether it was on the ground (1) the tick before.
+    pub cube: Option<[f32; 4]>,
+}
+
+/// One tick of a cube mob's squish (`AbstractCubeMob.tick`): [oSquish, squish, targetSquish,
+/// on the ground the tick before (1)] after the tick that left it `on_ground`: the squish eases
+/// half way to its target; a landing sets the target to -0.5 (flattened), a leap off the ground
+/// to 1 (stretched); then the target decays (`decreaseSquish`: x 0.6).
+pub fn squish_step(prev: [f32; 4], on_ground: bool) -> [f32; 4] {
+    let [_, squish, target, was] = prev;
+    let eased = squish + (target - squish) * 0.5;
+    let was_on_ground = was > 0.5;
+    let target = if on_ground && !was_on_ground {
+        -0.5
+    } else if !on_ground && was_on_ground {
+        1.0
+    } else {
+        target
+    };
+    [squish, eased, target * 0.6, if on_ground { 1.0 } else { 0.0 }]
 }
 
 impl WalkAnim {
@@ -221,7 +242,7 @@ impl WalkAnim {
     }
 
     fn stop(&mut self) {
-        *self = WalkAnim { bat: self.bat, chicken: self.chicken, ..WalkAnim::default() };
+        *self = WalkAnim { bat: self.bat, chicken: self.chicken, cube: self.cube, ..WalkAnim::default() };
     }
 
     /// `position(partialTicks)`.
@@ -538,6 +559,9 @@ impl MobRun {
                 let flapping = (if !e.on_ground && flapping < 1.0 { 1.0 } else { flapping }) * 0.9;
                 a.chicken = Some([flap, flap + flapping * 2.0, speed, new_speed, flapping]);
             }
+            if redsim::entity::mob::ai::cube::cube_size(m.ty.def().id).is_some() {
+                a.cube = Some(squish_step(a.cube.unwrap_or([0.0; 4]), e.on_ground));
+            }
         }
         self.walk.retain(|id, _| seen.contains(id));
     }
@@ -749,6 +773,25 @@ pub fn draw_mob(w: &World, v: &redsim::entity::mob::view::MobView, partial: f32,
     let alive = !v.dead && m.health > 0.0;
     // a wandering trader's or a trader llama's own state (redsim's `TraderState`)
     let trader = m.ai.as_ref().and_then(|a| a.trader.as_ref());
+    // what it holds: its main hand's item; a drinking witch's potion (`Witch.aiStep`: in its main
+    // hand while it drinks: water breathing, fire resistance, healing or swiftness), a wandering
+    // trader's invisibility potion or milk bucket while it drinks (`UseItemGoal`) and the glass
+    // bottle or bucket they leave; a potion with its contents' colour (`PotionContents.getColor`:
+    // its one effect's)
+    let witch_drink = m.ai.as_ref().and_then(|a| a.witch_drink);
+    let (held, held_color) = {
+        use redsim::entity::mob::ai::goal::trader::Hand;
+        let rgb = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8];
+        match (m.mainhand.as_ref(), witch_drink, trader.filter(|t| !t.llama).map(|t| t.hand)) {
+            (Some(h), _, _) => (Some(h.item.clone()), None),
+            (None, Some((p, _)), _) => (Some("minecraft:potion".to_string()), Some(rgb([10017472, 16750848, 16262179, 3402751][p.min(3) as usize]))),
+            (None, None, Some(Hand::Potion)) => (Some("minecraft:potion".to_string()), Some(rgb(16185078))),
+            (None, None, Some(Hand::Milk)) => (Some("minecraft:milk_bucket".to_string()), None),
+            (None, None, Some(Hand::Bottle)) => (Some("minecraft:glass_bottle".to_string()), None),
+            (None, None, Some(Hand::Bucket)) => (Some("minecraft:bucket".to_string()), None),
+            _ => (None, None),
+        }
+    };
     crate::mesh::MobDraw {
         body_yaw: body,
         head_yaw: head,
@@ -765,18 +808,25 @@ pub fn draw_mob(w: &World, v: &redsim::entity::mob::view::MobView, partial: f32,
         age: e.tick_count as f32 + partial,
         width: m.dims().0,
         height: m.dims().1,
-        held: m.mainhand.as_ref().map(|h| h.item.clone()),
+        held,
+        held_color,
+        foil: std::array::from_fn(|s| match s {
+            0 => m.mainhand.as_ref().is_some_and(|h| h.enchanted || !h.ench.is_empty()),
+            _ => s - 1 < m.armor.pieces as usize && !m.armor.ench[s - 1].is_empty(),
+        }),
         armor: std::array::from_fn(|s| (s < m.armor.pieces as usize && (s != 0 || m.helmet.is_some())).then_some(m.armor.material)),
         left_handed: m.left_handed,
         // a trader llama's `Llama.Variant` (CREAMY, WHITE, BROWN, GRAY: its spawn roll's order)
         variant: m.variant.or_else(|| trader.filter(|t| t.llama).map(|t| ["creamy", "white", "brown", "gray"][t.variant.clamp(0, 3) as usize])),
         invisible: trader.is_some_and(|t| t.invisible),
+        use_remaining: m.ai.as_ref().filter(|a| a.using_item).map(|a| a.use_item_remaining).or(witch_drink.map(|(_, t)| t)).or_else(|| trader.and_then(|t| t.using).map(|(_, t)| t)),
         aggressive: m.ai.as_ref().is_some_and(|a| a.aggressive),
         color: m.color,
         resting: m.bat_resting,
         anim_start: a.bat.map_or(0, |(_, since)| since),
         entity_id: e.id,
         flap: a.chicken.map_or([0.0; 2], |[of, f, os, s, _]| [of + (f - of) * partial, os + (s - os) * partial]),
+        squish: a.cube.map_or(0.0, |[o, s, _, _]| o + (s - o) * partial),
         eat: sheep_eat(m, partial),
         carried: m.ai.as_ref().and_then(|a| a.enderman.as_ref()).and_then(|s| s.carried.as_ref()).map(crate::session::drawn_state),
     }

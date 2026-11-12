@@ -179,7 +179,7 @@ fn collides(w: &World, bb: Aabb, doors: bool) -> bool {
 /// The feet height a body has in cell `p`: the highest collision top inside the cell's footprint
 /// below its middle (a slab, farmland), or the cell's bottom when the cell below holds it up; `None`
 /// when nothing holds it (it falls) and the cell is not fluid.
-fn floor_in(w: &World, p: BlockPos) -> Option<f64> {
+pub fn floor_in(w: &World, p: BlockPos) -> Option<f64> {
     let here = w.get(p);
     let tops: Vec<f64> = crate::entity::collide::boxes_at(w, &here, p).iter().map(|b| b.max_y - p.y as f64).filter(|t| *t <= 0.5).collect();
     if let Some(t) = tops.iter().cloned().reduce(f64::max) {
@@ -200,7 +200,7 @@ fn fluid(w: &World, p: BlockPos) -> bool {
 
 /// Whether a body fits in cell `p` with its feet at `feet` (anywhere in the cell: the centre and
 /// the four corners).
-fn fits(w: &World, b: &Body, p: BlockPos, feet: f64) -> bool {
+pub fn fits(w: &World, b: &Body, p: BlockPos, feet: f64) -> bool {
     let hw = b.width / 2.0;
     let slack = (0.5 - hw).max(0.0);
     let (cx, cz) = (p.x as f64 + 0.5, p.z as f64 + 0.5);
@@ -793,7 +793,8 @@ fn empty_ok(w: &World, p: BlockPos) -> bool {
     !crate::behavior::full_cube(&b) && !crate::behavior::is_signal_source(w, &b) && !fluid(w, p)
 }
 
-fn holdable(w: &World, p: BlockPos) -> bool {
+/// Whether the block at `p` is in the `enderman_holdable` tag (an enderman can take it).
+pub fn holdable(w: &World, p: BlockPos) -> bool {
     let b = w.get(p);
     let id = match b {
         Block::Terrain(id) => Some(id),

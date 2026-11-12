@@ -99,6 +99,12 @@ pub fn drawn_kinds(text: &str, ticks: u32) -> Result<(Vec<DrawnKind>, u32, Optio
             if let Some(v) = m.variant {
                 d.looks.entry(v.to_string()).or_insert((s.tick, e.pos));
             }
+            if m.use_remaining.is_some() {
+                d.looks.entry("using its item".to_string()).or_insert((s.tick, e.pos));
+            }
+            if m.foil.iter().any(|f| *f) {
+                d.looks.entry("enchanted".to_string()).or_insert((s.tick, e.pos));
+            }
         }
         if s.halted.is_some() {
             break;
@@ -1020,6 +1026,7 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         }
         let t1 = std::time::Instant::now();
         off.r.env = p.daylight();
+        off.r.glint_ms = p.glint_ms();
         // (a film's Brightness option: the game's slider, 0.5 its default)
         if let Some(b) = brightness {
             let mut e = off.r.env.unwrap_or_else(crate::daylight::Env::noon);

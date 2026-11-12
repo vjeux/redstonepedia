@@ -4,6 +4,7 @@
 //! circuit study `mobfarm` (crates/circuit/src/studies/mobfarm.rs).
 
 pub mod bury;
+pub mod approach;
 pub mod carousel;
 pub mod cli;
 pub mod day1;
@@ -33,6 +34,7 @@ pub mod timeline;
 pub mod trim;
 pub mod validate;
 pub mod weathercheck;
+pub mod sitecheck;
 pub mod fleecheck;
 pub mod ground;
 pub mod ledge_sweep;

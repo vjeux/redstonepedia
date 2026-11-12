@@ -517,25 +517,9 @@ fn trader_spawn_position_near(w: &mut World, c: &mut Custom, reference: BlockPos
     for _ in 0..10 {
         let x = reference.x + c.trader.random.next_int(radius * 2) - radius;
         let z = reference.z + c.trader.random.next_int(radius * 2) - radius;
-        let inside = x >= w.min.x && z >= w.min.z && x < w.min.x + w.size[0] && z < w.min.z + w.size[2];
-        if !inside {
-            // past the box: a void chunk of the sandbox fails the try on both sides (its height is
-            // the world's bottom, no floor); one of the terrain sample's chunks the box overlaps
-            // has the game's terrain past the box, not redsim's
-            let (cx, cz) = (x >> 4, z >> 4);
-            let (x0, z0) = (w.min.x >> 4, w.min.z >> 4);
-            let (x1, z1) = ((w.min.x + w.size[0] - 1) >> 4, (w.min.z + w.size[2] - 1) >> 4);
-            if w.land.is_some() && (x0..=x1).contains(&cx) && (z0..=z1).contains(&cz) {
-                // the game's terrain there is not redsim's: the try fails here, named in the
-                // run's report (an ambient mob's uncovered action: the legacy list, never a stop)
-                w.mob.ai.legacy.insert("minecraft:wandering_trader (a spot try past the terrain box in one of the sample's chunks)");
-                continue;
-            }
-            if trace {
-                eprintln!("trader t{}: try ({x}, {z}) in a void chunk past the box", w.time);
-            }
-            continue;
-        }
+        // (mob-AI 2026-11-11) past the box the column reads through `World::get` and
+        // `World::height` like inside: what natural updates wrote past the box (`World::outer`),
+        // else air (a void column: no floor, the try fails on both sides)
         let y = w.height(crate::terrain::Heightmap::MotionBlockingNoLeaves, x, z);
         let p = BlockPos::new(x, y, z);
         let id = "minecraft:wandering_trader";

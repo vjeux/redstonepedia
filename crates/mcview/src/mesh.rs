@@ -124,6 +124,18 @@ pub struct MobDraw {
     /// Invisible (`isInvisible`: a wandering trader after its night's potion, until its milk):
     /// not drawn.
     pub invisible: bool,
+    /// While it uses its item (`isUsingItem`: a skeleton drawing its bow), the ticks of the use it
+    /// has left (`getUseItemRemainingTicks`; redsim's `use_item_remaining`).
+    pub use_remaining: Option<i32>,
+    /// Its held item's first layer's tint (a potion's contents' colour: `ItemTintSources.potion`,
+    /// `PotionContents.getColor`); None: untinted.
+    pub held_color: Option<[u8; 3]>,
+    /// Which of its items are enchanted (`hasFoil`: the glint), its held item then its armor by
+    /// slot (0 head, 1 chest, 2 legs, 3 feet).
+    pub foil: [bool; 5],
+    /// A cube mob's squish (`SlimeRenderState.squish`: `lerp(partial, oSquish, squish)`, flattened
+    /// below 0 on landing, stretched above 0 leaping).
+    pub squish: f32,
     /// `isAggressive` (a skeleton drawing its bow at a target).
     pub aggressive: bool,
     /// A sheep's wool `DyeColor` id (0 white).

@@ -58,7 +58,7 @@ impl Opaque {
             return false;
         }
         let layer = t[0].layer & !XRAY;
-        if layer >= 65534 {
+        if layer >= crate::atlas::GAME_LAYER_MIN {
             let Some((w, h, flags)) = &self.game else { return false };
             let cols = (*w / 16) as i64;
             let rows = (*h / 16) as i64;

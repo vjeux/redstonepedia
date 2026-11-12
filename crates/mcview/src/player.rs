@@ -1743,6 +1743,13 @@ impl Player {
     /// night cycle since it's important for how the farm works"): a mob farm's run, at its world's
     /// day time with its rain and thunder (`crate::daylight::at`: the sky, the sun and the moon,
     /// the lightmap). None (the pictures' noon) for anything that does not run the game's clock.
+    /// The run's own clock for the enchantment glint's scroll, in milliseconds (50 a tick: a
+    /// native picture or a recording draws the same glint each time; the live view uses the
+    /// browser's clock, as the game its `Util.getMillis`).
+    pub fn glint_ms(&self) -> f64 {
+        (self.session.world.time as f64 + self.partial as f64) * 50.0
+    }
+
     pub fn daylight(&self) -> Option<crate::daylight::Env> {
         let s = &self.session;
         s.mob.as_ref()?;

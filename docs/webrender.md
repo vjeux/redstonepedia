@@ -657,8 +657,8 @@ each build's page.
   a design's data) is drawn as placed in a still (`Session::unspawned`: the page's first
   picture had dropped it; test `a_still_draws_the_mobs_redsim_refuses`). Their textures took the game texture past WebGL2's 2048: a shelf
   of entity textures that starts below the item atlas now starts at the left edge, and the
-  texture is twice the block atlas wide (2048 x 1488: the entity textures shelved beside the
-  block atlas first; test `the_game_texture_fits_webgl2`). Tests
+  texture is twice the block atlas wide (2048 x 1584 with the glint textures: the entity textures
+  shelved beside the block atlas first; test `the_game_texture_fits_webgl2`). Tests
   `a_humanoid_wears_its_armor_and_holds_its_item`, `a_design_mob_wears_its_equipment`. A
   left-handed mob (redsim's `left_handed`, the spawn roll's 5%; a design's `LeftHanded:1b`) holds
   its item in its left hand: the left arm, the hand's offset the other way, its model's
@@ -690,13 +690,29 @@ each build's page.
   (2026-11-11) draws as `CatRenderer` does: `AdultCatModel` (the feline body, scaled 0.8:
   `CAT_TRANSFORMER`) walking, its variant's texture (redsim's `variant`, `CatSpawner`'s pick; a
   design's `variant:"minecraft:jellie"`; black without one: `Cat.DEFAULT_VARIANT`), no collar (a
-  village cat is untamed); test `a_cat_wears_its_variant`. Not
-  drawn yet: a baby's armor (`humanoid_baby`), an enchanted item's or piece's glint, a drawn
-  bow's pull, the witch's potion, a zombie villager's profession (redsim keeps none), the farm
-  animals' warm and cold variants (every terrain site is temperate), a cube mob's squish (redsim
-  keeps none), a sulfur cube's swallowed block (redsim refuses one), the red overlay on
-  translucent faces (the translucent pass draws none), the trader's potion or milk while it
-  drinks (`CrossedArmsItemLayer`), a boat's lead, a cat's crouch and sprint (redsim keeps neither). Lava is drawn as the game draws it: its
+  village cat is untamed); test `a_cat_wears_its_variant`. A skeleton drawing its bow (redsim's
+  `using_item`: `RangedBowAttackGoal`) holds `bow_pulling_0`, `_1` from 13 ticks drawn, `_2`
+  from 18 (`items/bow.json`'s `use_duration` at scale 0.05). A drinking witch holds its potion at
+  its nose (`WitchItemLayer`, redsim's `witch_drink`), a wandering trader its potion, milk bucket,
+  glass bottle or bucket in its crossed arms (`CrossedArmsItemLayer`, redsim's `hand`), each with
+  its ground display; a potion is its bottle over its contents' overlay tinted by the contents'
+  colour (`PotionContents.getColor`: water breathing, fire resistance, healing, swiftness,
+  invisibility). An enchanted item or armor piece (redsim's spawn enchantments; a design's
+  `"minecraft:enchantments"`) glints (`entity.fsh`'s GLINT: `GlintAlpha` 0.75 times the glint
+  texture, squared and added over the lightmap; its coordinates the vertex's own through
+  `setupGlintTexturing`: scaled 8 for an item, 0.16 for armor, turned 10 degrees, scrolled by the
+  clock: the browser's, a native picture's the run's 50 ms a tick; a leather piece's base only):
+  vertex layers `GAME_LAYER_GLINT_ITEM`, `_ARMOR`, the glint textures packed with the particles.
+  A cube mob squishes (`AbstractCubeMob.tick` from its `onGround`, each tick in
+  `MobRun::follow`: flattened at a landing, stretched at a leap; `applySizeAndSquish`). A hurt
+  sulfur cube's translucent faces take the red overlay too. Tests `a_skeleton_draws_its_bow`,
+  `a_drink_is_held_where_the_game_holds_it`, `an_enchanted_piece_glints`,
+  `a_sulfur_cube_squishes`. In the 15 terrain farms' runs no skeleton draws its bow and no witch
+  drinks; enchanted bows and armor show in five. Not
+  drawn yet: a baby's armor (`humanoid_baby`: no baby in the farms wears any), a zombie
+  villager's profession (redsim keeps none), the farm animals' warm and cold variants (every
+  terrain site is temperate), a sulfur cube's swallowed block (redsim refuses one), a boat's
+  lead, a cat's crouch and sprint (redsim keeps neither). Lava is drawn as the game draws it: its
   `lava_still` texture, solid, lit by its own light 15 (it was water tinted orange). The time
   badge is the readout (`mobfarm::readout`): the game's day and clock, the golems so far and the
   iron in the farm's chests (`day 1, 13:23 · 2 golems, 9 iron`, two lines on a phone); the left
