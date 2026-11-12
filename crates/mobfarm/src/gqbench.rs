@@ -107,6 +107,8 @@ pub struct GqOpts {
     pub settled: bool,
     /// 9fc3155f's drive fix: the rear gate Gc shuts on the rear cart's P_b rise until the release ends.
     pub gc_pb: bool,
+    /// The first fill after a release is admitted this many ring-gt after cart 0's Ds rise (0: off).
+    pub admit_ds: i64,
     /// Edge escapement: G_P only after no hold sensor edge for this many gt (the hold settled).
     pub fill_quiet: i64,
     /// The start state: the run empty, carts admitted seated one at a time until N are on it.
@@ -645,6 +647,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut skipped_releases: Vec<(i64, usize)> = Vec::new();
     let mut in_transit = false;
     let mut release_active = false;
+    let mut ds_first_ct: i64 = 0;
     let mut fill_in_c = false;
     let mut was_settled = false;
     let mut was_frozen_col = false;
@@ -957,6 +960,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         // (--hold-stagger-ds: cart 0's rising edge at Ds opens the middle and rear gates)
                         if hold_release_at >= 0 && t > hold_release_at && ds_first_at.is_none() {
                             ds_first_at = Some(t);
+                            ds_first_ct = ct;
                         }
                         if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
                             eprintln!("t {t}: Ds edge (count {ds_since} of {release_n} since the release at {hold_release_at})");
@@ -1387,14 +1391,21 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 fills_since = fills_since.saturating_sub(1);
                 gp_retries += 1;
             }
-            let quiet = hold_release_at < 0 || rel_live >= o.fill_after;
+            // (--admit-ds K: the first fill after a release is admitted K ring-gt after cart 0's own
+            // Ds rise (the release's evidence), never on a time after the release starts)
+            let quiet = if o.admit_ds > 0 {
+                hold_release_at < 0 || ds_first_at.is_some() && ct - ds_first_ct >= o.admit_ds
+            } else {
+                hold_release_at < 0 || rel_live >= o.fill_after
+            };
             let spaced = t >= last_gp + o.esc_gap;
             // (--fill-count: the hold's room by count (fills since the last release under 3) instead
             // of its entry pocket's latch, so fills may follow each other into the hold)
             let room = if o.settled {
                 // (the fill drives toward settled on its own: admit while fewer than 3 pocket latches
-                // are set and nothing is in transit)
-                occ_h.iter().filter(|b| **b).count() < 3 && !in_transit
+                // are set and nothing is in transit; during a release the batch's own latches don't
+                // count (it is leaving): only the fills admitted since the release)
+                (if release_active { fills_since } else { occ_h.iter().filter(|b| **b).count() }) < 3 && !in_transit
             } else if o.fill_count { fills_since < 3 } else { !occ_h[0] };
             // (--fill-quiet: the hold settled: no hold sensor edge in the last Q gt, so a fill never
             // follows a cart shifting between pockets through a gate that is about to shut)
