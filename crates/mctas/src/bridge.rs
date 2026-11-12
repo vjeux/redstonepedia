@@ -72,6 +72,16 @@ pub fn rail_agent(version: &str) -> Result<PathBuf> {
     agent_jar(version, RAIL_AGENT, "dev.vjeux.mctas.agent.RailAgent", "rail-agent")
 }
 
+/// (tickexact 2026-11-12, the pad-golem bridge) The target agent (`bridge/agent`): every
+/// `Mob.setTarget` of a watched mob type prints the game time, the mob and its new target to
+/// stderr; the watched type ids (`minecraft:pillager,...`) go after `=` in the `-javaagent:` value.
+pub const TARGET_AGENT: (&str, &str) = ("dev/vjeux/mctas/agent/TargetAgent.java", include_str!("../../../bridge/agent/dev/vjeux/mctas/agent/TargetAgent.java"));
+
+/// The target agent's jar for `version`'s Java (as [`golem_agent`]).
+pub fn target_agent(version: &str) -> Result<PathBuf> {
+    agent_jar(version, TARGET_AGENT, "dev.vjeux.mctas.agent.TargetAgent", "target-agent")
+}
+
 /// A Java agent's jar for `version`'s Java (built with the JDK's own `javac` and `jar` next to the
 /// server's `java`, cached by a hash of the source).
 fn agent_jar(version: &str, (name, text): (&str, &str), main_class: &str, stem: &str) -> Result<PathBuf> {

@@ -8,6 +8,7 @@ pub mod t600;
 pub mod golemlock;
 pub mod railt;
 pub mod designdiff;
+pub mod padgolem;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

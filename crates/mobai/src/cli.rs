@@ -322,6 +322,21 @@ pub enum MobaiCmd {
         old: std::path::PathBuf,
         new: std::path::PathBuf,
     },
+    /// (tickexact 2026-11-12, ironspec: decision-critical) The stand's west end on the official
+    /// server (dfb89499's station pad, 9fc3155f's two glass scarer posts: a pillager at (-5,-1,-5)
+    /// and a zombie at (-5,-4,-2), both open east; the three summoners at their rest points):
+    /// golems summoned on the pad's floor cells, each followed until it leaves the overworld (its
+    /// positions, health, the pillager's crossbow, every arrow); again with zombified piglins in
+    /// the portal cells beside each spawn as push sources; the control with the z -5 portal row
+    /// blocked (the golem stays)
+    PadGolems {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// The station file whose layers y -9..-4 are the pad (dfb89499's, on
+        /// explore/farmopt-m1-restart d1a5f2985)
+        #[arg(long, default_value = "designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt")]
+        station: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
     /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
     /// T2 (face-adjacent to the detector) the positive control that re-settles
@@ -578,6 +593,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
         MobaiCmd::GolemLock { version } => crate::golemlock::golem_lock(&version),
         MobaiCmd::DesignDiff { old, new } => crate::designdiff::design_diff(&old, &new),
+        MobaiCmd::PadGolems { version, station } => crate::padgolem::pad_golems(&version, &station),
         MobaiCmd::RailT { version } => crate::railt::rail_t(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
         MobaiCmd::Daylight { version, latency, levels, weather_row } => {
