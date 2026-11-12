@@ -1229,6 +1229,8 @@ pub enum MobfarmCmd {
         #[arg(long)]
         front_boost: bool,
         #[arg(long)]
+        r_boost: bool,
+        #[arg(long)]
         floor_bottom: bool,
         #[arg(long)]
         empty: bool,
@@ -4084,8 +4086,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, empty } => {
-            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, riders: !empty };
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, empty } => {
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, riders: !empty };
             println!("{}", crate::dropbench::drop_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
             return Ok(());
         }
