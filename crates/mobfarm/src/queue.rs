@@ -353,6 +353,11 @@ pub struct LoopOpts {
     /// The bridge layout's queue rows this far apart: 1 (a U-turn of two curves), 2 (a curve, a
     /// booster, a curve).
     pub row_gap: i32,
+    /// The register folded (ironspec Nov 11 16:04, one chunk): this many queue rows (an even
+    /// number, 4 or more; 0 = today's two), `row_gap` apart going west, a turn slot at every row
+    /// end (the far turn's: slope down, slope up, a curve for its peak), the release run south from
+    /// the last row's x. Every slot keeps its period-3 cells and its beat.
+    pub fold: u8,
     /// A booster in the middle of the queue's U-turn (rows 2 apart).
     pub uturn_boost: bool,
     /// The line layout: the queue one straight row, the return the long way round it (12 slots;
@@ -515,7 +520,7 @@ pub struct LoopOpts {
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, xq_gap: 1, xq_drop: 2, xq_z: None, row_a: None, tail_post_x: None, tail_posts: [None; 4], approach: 0, depart_crest: 0, cprime: None, approach_boost: false, crest_plain_dip: false, crest_descent: 0, approach_climb_boost: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, fold: 0, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false, stand_guard: false, shift: [0, 0], tail_fifo: 0, tail_esc: 0, climb_boost: None, tail_brake: false, tail_plain: false, climb_every: 0, ledge_slope: false, esc_door: false, esc_flat: false, landing_boost2: false, esc_g0: false, esc_adm: false, adm_ledge: false, adm_g1: 0, adm_short: false, adm_qboost: false, adm_flatb: false, adm_rboost: false, adm_pdet: false, adm_sensors: false, adm_room_k: 2, adm_latch_reset: false, adm_xq: 0, xq_gap: 1, xq_drop: 2, xq_z: None, row_a: None, tail_post_x: None, tail_posts: [None; 4], approach: 0, depart_crest: 0, cprime: None, approach_boost: false, crest_plain_dip: false, crest_descent: 0, approach_climb_boost: false }
     }
 }
 
@@ -2222,6 +2227,19 @@ pub fn declared_states(o: &LoopOpts) -> Vec<crate::declared::Decl> {
     ds
 }
 
+/// The x of the queue's last row, where the release run leaves for the stand (row B's: `-row_gap`;
+/// with `fold` R, row R-1's: `-row_gap * (R - 1)`): the stand, its latch, the departure and the
+/// return run hang off it.
+pub fn row_b_x(o: &LoopOpts) -> i32 {
+    if o.fold >= 4 { -o.row_gap * (o.fold as i32 - 1) } else { -o.row_gap }
+}
+
+/// How far east of a cell the unfolded loop has the same cell of the stand and the return (0
+/// unfolded; `row_gap * (fold - 2)` folded): the runner's stand-relative windows add it.
+pub fn fold_dx(o: &LoopOpts) -> i32 {
+    -o.row_gap - row_b_x(o)
+}
+
 /// The escapement tail's level (`tail_esc`): the return run's and the ledge's y (the queue of Q
 /// slopes, B, X, P and R stepping down to slot 0 at y 0; 2 more with `ledge_slope`'s landing).
 pub fn esc_ye(o: &LoopOpts) -> i32 {
@@ -2430,6 +2448,9 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     // (`row_a` N: row A's slots set (the rest row B's): a register whose row B is laid for another
     // stand side, as the S3 bench's C file (row A 5 and row B 11 behind R1's tail: slots 16))
     let half = o.row_a.map_or(half, |n| n.min(o.slots));
+    // (`fold` R: row A gets one row's share, ceil((slots - (R - 1)) / R) slots, the turn slots
+    // counted with the rows they lead into)
+    let half = if o.fold >= 4 { let r = o.fold as i32; (o.slots - (r - 1) + r - 1) / r } else { half };
     // (`tail_desc`: the return comes in 3 blocks higher, at y 4, and the tail's 3 slots step down
     // to the queue's level; `tail_fifo` N: at y 1 + N, the FIFO's pockets each a block lower;
     // `tail_esc` Q: at y Q + 6, the ledge, the gravity queue and the escapement stepping down)
@@ -2450,7 +2471,7 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         // (`xq_z`: the x-run's row (default 24); at 25, farmopt's (c′) departure's corner row, the
         // curve (0, y_f, 25) is the border's flat cell and the transition cell goes)
         let xz = o.xq_z.unwrap_or(24);
-        let xd = -o.row_gap + 12;
+        let xd = row_b_x(o) + 12;
         for x in (n + 1 + g..xd).rev() {
             path.push(([x, ye, xz], Cell::Plain));
         }
@@ -2801,10 +2822,42 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     // booster, a curve; rows 3 apart (`row_gap` 3), a turn slot: row A's last peak is a curve, the
     // next slot runs west (slope down, slope up, a curve for its peak) and row B starts below it,
     // so no queue move is longer than another
-    let xb = -o.row_gap;
+    let xb = row_b_x(o);
     let mut z = z;
     let mut row_b = o.slots - half;
-    if o.row_gap == 3 {
+    if o.fold >= 4 {
+        // the folded register (`fold` R): after row A, R - 1 rows going west, each behind a turn slot
+        // at the last row's final peak (the far turn's cells: slope down west, slope up, the curve
+        // that is the next row's first peak); the rows alternate south and north, each a row's share
+        // of slots, the last the rest; R is even, so the last row runs south into the release run
+        let r = o.fold as i32;
+        let per = half;
+        let mut left = o.slots - half;
+        let (mut x0, mut dir, mut zt) = (0, 1, z - 1);
+        for row in 1..r {
+            slot_cells.push([x0 - 1, 0, zt]);
+            path.push(([x0 - 1, 0, zt], Cell::Slot));
+            path.push(([x0 - 2, 0, zt], Cell::Plain));
+            path.push(([x0 - 3, 1, zt], Cell::Plain));
+            left -= 1;
+            x0 -= o.row_gap;
+            dir = -dir;
+            let n = if row == r - 1 { left } else { per.min(left) };
+            let mut zz = zt + dir;
+            for _ in 0..n {
+                slot_cells.push([x0, 0, zz]);
+                path.push(([x0, 0, zz], Cell::Slot));
+                path.push(([x0, 0, zz + dir], Cell::Plain));
+                path.push(([x0, 1, zz + 2 * dir], Cell::Plain));
+                zz += 3 * dir;
+            }
+            left -= n;
+            zt = zz - dir;
+        }
+        // (the release run goes on south from the last peak's next cell, below)
+        z = zt;
+        row_b = 0;
+    } else if o.row_gap == 3 {
         slot_cells.push([-1, 0, z - 1]);
         path.push(([-1, 0, z - 1], Cell::Slot));
         path.push(([-2, 0, z - 1], Cell::Plain));
@@ -3612,8 +3665,15 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     let stand_carts: Vec<[f64; 3]> = if o.stand_stop {
         // (on the approach flats, rolling in: they settle against the gate as any batch does; set
         // down at the rest itself, the push of the first tick sends the third back off its slope)
-        // (each at rest in its own pocket, pressed against its gate: no two touch)
-        vec![[7.885, -1.8225, 0.5], [3.885, -0.8225, 0.5], [-0.115, 0.1775, 0.5]]
+        // (each at rest in its own pocket, pressed against its gate: no two touch; with `fold`, the
+        // same offsets from the last row's x, as the runner's stand spots; unfolded, today's
+        // literals, so a default run stays bit-identical)
+        if o.fold >= 4 {
+            let xb = row_b_x(o) as f64;
+            vec![[xb + 10.885, -1.8225, 0.5], [xb + 6.885, -0.8225, 0.5], [xb + 2.885, 0.1775, 0.5]]
+        } else {
+            vec![[7.885, -1.8225, 0.5], [3.885, -0.8225, 0.5], [-0.115, 0.1775, 0.5]]
+        }
     } else {
         lay.stand_cells.iter().map(|c| [c[0] as f64 + 0.5 + (0.45 - 0.5), c[1] as f64 + 1.0 - 0.45 + 0.05, c[2] as f64 + 0.5]).collect()
     };
@@ -3757,7 +3817,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     }
     // the wired pocket stand's circuit (G2 at x xb + 3), nothing in its cells yet
     if o.stand_stop && o.stand_wired {
-        let ox = -o.row_gap + 3;
+        let ox = row_b_x(o) + 3;
         for (c, s) in stand_circuit(ox, o.stand_guard) {
             if b.d.blocks.contains_key(&c) {
                 bail!("the stand's circuit meets the loop at {c:?}");
@@ -3867,6 +3927,12 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     if !lay.downgraded.is_empty() {
         bail!("boosters requested but placed plain (their redstone block would touch a controlled rail): {:?}", lay.downgraded);
     }
+    // (`fold`: the register's row count, so the runner rebuilds the folded layout from the line)
+    if o.fold >= 4
+        && let Some(q) = b.d.meta.get_mut("queue")
+    {
+        q.push_str(&format!(" fold={}", o.fold));
+    }
     // (`shift`: everything built in the loop's frame, then moved)
     let [sx, sz] = o.shift;
     if sx != 0 || sz != 0 {
@@ -3906,6 +3972,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "tail_v" => o.tail_v = v != "0",
             "bridge" => o.bridge = v != "0",
             "row_gap" => o.row_gap = v.parse()?,
+            "fold" => o.fold = v.parse()?,
             "uturn_boost" => o.uturn_boost = v != "0",
             "line" => o.line = v != "0",
             "tail_deep" => o.tail_deep = v != "0",
@@ -4621,7 +4688,7 @@ pub fn rest_check(spec: &FarmSpec, o: &LoopOpts, cells: &[[i32; 3]], speeds: &[f
         if (p.z - 0.5 - sz as f64).abs() >= 0.6 || p.y >= 1.0 {
             return None;
         }
-        match p.x - sx as f64 - (o.row_gap - 3) as f64 {
+        match p.x - sx as f64 - (o.row_gap - 3) as f64 + fold_dx(o) as f64 {
             x if (7.5..8.0).contains(&x) => Some(1),
             x if (3.5..4.0).contains(&x) => Some(2),
             x if (-0.5..0.0).contains(&x) => Some(3),
@@ -5508,11 +5575,12 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         // (the stop stand's three places by x, the batch at rest against the gate and each
         // other: S1 the front)
         // (the pocket stand's three places: a cart at rest on a pocket's rest slope, S1 the front)
-        if o.stand_stop && (e.pos.z - 0.5 - fz).abs() < 0.6 && e.pos.y < 1.0 && e.pos.x - fx > -0.6 && e.pos.x - fx < 8.5 {
+        let ex = e.pos.x - fx + fold_dx(o) as f64;
+        if o.stand_stop && (e.pos.z - 0.5 - fz).abs() < 0.6 && e.pos.y < 1.0 && ex > -0.6 && ex < 8.5 {
             if e.delta_movement.horizontal_distance_sqr() > 1e-6 {
                 return None;
             }
-            let s = match e.pos.x - fx {
+            let s = match ex {
                 x if (7.5..8.0).contains(&x) => 0,
                 x if (3.5..4.0).contains(&x) => 1,
                 x if (-0.5..0.0).contains(&x) => 2,
@@ -5984,7 +6052,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let stop_brake = |w: &mut redsim::world::World, arm: &mut Option<(u32, Option<i64>)>| {
         let Some((id, at)) = *arm else { return };
         let now = w.time as i64;
-        let entered = at.or_else(|| w.entities.list.iter().find(|e| e.id == id).filter(|e| e.pos.x - fx >= 2.0 && e.pos.x - fx < 4.7 && (e.pos.z - 0.5 - fz).abs() < 0.6 && e.pos.y < 1.5).map(|_| now));
+        let entered = at.or_else(|| w.entities.list.iter().find(|e| e.id == id).filter(|e| e.pos.x - fx + (fold_dx(o) as f64) >= 2.0 && e.pos.x - fx + (fold_dx(o) as f64) < 4.7 && (e.pos.z - 0.5 - fz).abs() < 0.6 && e.pos.y < 1.5).map(|_| now));
         *arm = Some((id, entered));
         if let Some(t_in) = entered
             && now >= t_in + tm.stop_brake_delay
@@ -6370,7 +6438,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // (the stand's region: its strip at z 0 and the release run below the queue's head; a
             // cart there not at rest in a pocket is a straggler, the stand's own state: left where
             // it is unless `reset_stragglers`)
-            let xr = -o.row_gap as f64 + 0.5 + fx;
+            let xr = row_b_x(o) as f64 + 0.5 + fx;
             let head_z = lay.slot_cells[q - 1][2] as f64;
             let ytop = if o.approach > 0 { 2.7 } else { 1.5 };
             let in_region = |p: redsim::entity::Vec3| ((p.z - 0.5 - fz).abs() < 0.6 && p.y < ytop && p.x > xr - 0.6 && p.x < 9.0 + fx) || ((p.x - xr).abs() < 0.6 && p.z < head_z - 0.5 && p.y > 0.5);
@@ -6383,7 +6451,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // design's rest positions, then the queue: a hand reset of every cart, no block touched)
             let mut spots: Vec<redsim::entity::Vec3> = Vec::new();
             if tm.reset_stand_carts {
-                let xb = -o.row_gap as f64 + fx;
+                let xb = row_b_x(o) as f64 + fx;
                 spots.extend([(10.885, -1.8225), (6.885, -0.8225), (2.885, 0.1775)].map(|(dx, y)| redsim::entity::Vec3::new(xb + dx, y, 0.5 + fz)));
             }
             for s in (0..q).rev() {
@@ -6429,15 +6497,15 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             let mut loose: Vec<String> = Vec::new();
             for id in &carts {
                 let Some(p) = pos_of(&run.world, *id) else { continue };
-                if (p.z - 0.5 - fz).abs() >= 0.6 || p.y >= (if o.approach > 0 { 2.7 } else { 1.5 }) || p.x - fx < -2.6 || p.x - fx >= 9.0 {
+                if (p.z - 0.5 - fz).abs() >= 0.6 || p.y >= (if o.approach > 0 { 2.7 } else { 1.5 }) || p.x - fx + (fold_dx(o) as f64) < -2.6 || p.x - fx + (fold_dx(o) as f64) >= 9.0 {
                     continue;
                 }
                 match place_of(&run.world, *id) {
                     Some(k) if k >= q => pk[q + 2 - k] += 1,
-                    _ => loose.push(format!("{:.2}", p.x - fx)),
+                    _ => loose.push(format!("{:.2}", p.x - fx + fold_dx(o) as f64)),
                 }
             }
-            let latch = if o.stand_wired { let t2 = BlockPos::new(-o.row_gap + 9 + o.shift[0], 0, 2 + o.shift[1]); if run.world.get(t2).to_string().contains("lit=false") { ", latch set" } else { ", latch reset" } } else { "" };
+            let latch = if o.stand_wired { let t2 = BlockPos::new(row_b_x(o) + 9 + o.shift[0], 0, 2 + o.shift[1]); if run.world.get(t2).to_string().contains("lit=false") { ", latch set" } else { ", latch reset" } } else { "" };
             stand_log.push(format!("slot {c} start: pockets S1 {} S2 {} S3 {}, {} more in the stand's strip{}{latch}", pk[0], pk[1], pk[2], loose.len(), if loose.is_empty() { String::new() } else { format!(" (x {})", loose.join(" ")) }));
         }
         // (`wired`: the daylight detectors placed now, at slot 0 +0, with the first golem pulse)
@@ -8022,7 +8090,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
             if o.stand_wired {
-                let lit = run.world.get(BlockPos::new(-o.row_gap + 9 + o.shift[0], 0, 2 + o.shift[1])).to_string().contains("lit=true");
+                let lit = run.world.get(BlockPos::new(row_b_x(o) + 9 + o.shift[0], 0, 2 + o.shift[1])).to_string().contains("lit=true");
                 if t2_was_lit == Some(true) && !lit && dt >= 55 && c < cycles {
                     latch_sets.push(dt);
                 }
@@ -8044,7 +8112,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 t3_was_lit = lit3;
             }
             // the departure: each cart past x 9 (the curve) eastward, its gap to the one before)
-            let gx = [-o.row_gap as f64 + 3.5, -o.row_gap as f64 + 7.5, -o.row_gap as f64 + 11.5];
+            let gx = [row_b_x(o) as f64 + 3.5, row_b_x(o) as f64 + 7.5, row_b_x(o) as f64 + 11.5];
             for (k, id) in carts.iter().enumerate() {
                 let p = pos_of(&run.world, *id);
                 let now = p.filter(|p| (p.z - 0.5 - fz).abs() < 0.6 && p.y < 1.5).map(|p| p.x - fx);
@@ -8054,7 +8122,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             back_through.push(format!("slot {c} +{dt}: cart {k} back through G{}", 2 - g));
                         }
                     }
-                    let xd = -o.row_gap as f64 + 12.0;
+                    let xd = row_b_x(o) as f64 + 12.0;
                     if x0 < xd && x1 >= xd {
                         // (contact: the cart before it, still within 1.05 of it along the track)
                         let touching = departs.last().and_then(|(_, kp, _)| pos_of(&run.world, carts[*kp])).zip(p).is_some_and(|(a, b)| ((a.x - b.x).powi(2) + (a.z - b.z).powi(2)).sqrt() < 1.05);
@@ -8078,7 +8146,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 ret_x[k.min(20)] = now;
             }
             // (each departed cart's speed where the climb ends, on the run north's first cell)
-            let (run_x, run_y) = (-o.row_gap as f64 + 12.5 + fx, if o.tail_desc { 4.0 } else { 1.0 });
+            let (run_x, run_y) = (row_b_x(o) as f64 + 12.5 + fx, if o.tail_desc { 4.0 } else { 1.0 });
             for (i, (t0, k, _)) in departs.iter().enumerate() {
                 if top_v[i].is_none() && t - t0 < 80 {
                     if let Some(e) = run.world.entities.list.iter().find(|e| e.id == carts[*k]) {
@@ -8088,7 +8156,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     }
                 }
             }
-            let xd = (-o.row_gap + 12) as f64 + 0.5 + fx;
+            let xd = (row_b_x(o) + 12) as f64 + 0.5 + fx;
             for (k, id) in carts.iter().enumerate() {
                 let up = pos_of(&run.world, *id).is_some_and(|p| (p.x - xd).abs() < 0.6 && p.z - fz >= 1.5 && p.z - fz < 3.0);
                 if up && !on_climb[k] {
@@ -9122,7 +9190,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 && tr.len() == 3
                 && lay.pockets.len() == 3
             {
-                let x_of = |id: u32| pos_of(&run.world, id).filter(|p| (p.z - 0.5 - fz).abs() < 0.6 && p.y < 1.5).map(|p| p.x - fx);
+                let x_of = |id: u32| pos_of(&run.world, id).filter(|p| (p.z - 0.5 - fz).abs() < 0.6 && p.y < 1.5).map(|p| p.x - fx + fold_dx(o) as f64);
                 // (cart 2 "in" the gate once its front is past the gate's near face (a shutting
                 // gate no longer stops a cart it already overlaps), "clear" once its tail is past)
                 let marks = [(0usize, 0usize, 2.0), (1, 1, 2.0), (2, 1, -0.1), (3, 1, 1.29), (4, 2, -0.2)];
