@@ -45,6 +45,33 @@ pub enum MobfarmCmd {
         /// (a negative control) Passes added to the lap-exact gate's count.
         #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
         gate_lap_off: i64,
+        /// The lap-exact gate on the virtual clock (carts - 1 virtual slots since the pick).
+        #[arg(long)]
+        gate_virtual: bool,
+        /// The bed free only once the sleeper re-entered the loop (58f770cc's picker-sim).
+        #[arg(long)]
+        free_at_reentry: bool,
+        /// The dusk re-arm's spread: LO,HI gt after true dusk (uniform, drawn each night).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![0i64, 0])]
+        rearm_jitter: Vec<i64>,
+        /// Fault rows: this share of cycles has no golem ...
+        #[arg(long, default_value_t = 0.0)]
+        golemless: f64,
+        /// ... and the day counter counts golem events (else every controller beat).
+        #[arg(long)]
+        count_golems: bool,
+        /// A freeze of LEN gt just before day D's dusk: D,LEN.
+        #[arg(long, value_delimiter = ',')]
+        freeze: Vec<i64>,
+        /// Players sleep through night D (dayTime jumps to dawn mid-night).
+        #[arg(long)]
+        skip_night: Option<usize>,
+        /// With --skip-night: the observer-only sentinel (the early wake refused: ALARM the next night).
+        #[arg(long)]
+        skip_alarm: bool,
+        /// A missed (-1) or double (+1) pass edge at day D's 5th pick: D,F.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        pass_fault: Vec<i64>,
         /// Fix (a): releases skipped a day.
         #[arg(long, default_value_t = 0)]
         skip_per_day: usize,
@@ -3931,7 +3958,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+            let [jlo, jhi] = rearm_jitter[..] else { bail!("--rearm-jitter takes LO,HI") };
+            let freeze = match freeze[..] { [d, l] => Some((d as usize, l)), [] => None, _ => bail!("--freeze takes D,LEN") };
+            let pass_fault = match pass_fault[..] { [d, f] => Some((d as usize, f)), [] => None, _ => bail!("--pass-fault takes D,F") };
             use crate::napper::{Opts, Picker};
             let [lo, hi] = trip[..] else { bail!("--trip takes LO,HI") };
             let pk = match picker.as_str() {
@@ -3941,10 +3971,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "register" => Picker::Register(every),
                 s => bail!("--picker {s}: from-pick, from-return, anchored or register"),
             };
-            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing: 4, cross_at, dusk_at };
+            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing: 4, cross_at, dusk_at };
             let rows: Vec<(String, Opts)> = if table {
-                let reg = Opts { picker: Picker::Register(every), keep_place: true, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, skip_per_day: 0, ..base.clone() };
-                let grav = Opts { picker: Picker::FromPick(k), keep_place: false, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, skip_per_day: 0, trip: (200, 240), ..base.clone() };
+                let reg = Opts { picker: Picker::Register(every), keep_place: true, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, skip_per_day: 0, ..base.clone() };
+                let grav = Opts { picker: Picker::FromPick(k), keep_place: false, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, skip_per_day: 0, trip: (200, 240), ..base.clone() };
                 let mut v: Vec<(String, Opts)> = vec![
                     ("baseline".into(), reg.clone()),
                     ("baseline + (a)".into(), Opts { skip_per_day: 2, ..reg.clone() }),

@@ -6061,6 +6061,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     let mut next_visit = 0i64;
     let mut night_reports: Vec<String> = Vec::new();
     let mut slept_tonight: Vec<bool> = vec![false; riders.len()];
+    // (ironspec Nov 11 17:23: each rider's lie-down ticks, and the summon ticks lost because a stand
+    // rider's LAST_SLEPT had expired (all 3 at the stand, fewer than 3 willing, one 24,000 gt or more
+    // since its nap), by day)
+    let mut lie_downs: Vec<Vec<i64>> = vec![Vec::new(); riders.len()];
+    let mut was_asleep: Vec<bool> = vec![false; riders.len()];
+    let mut lost_expired: std::collections::BTreeMap<i64, u32> = std::collections::BTreeMap::new();
+    let (mut stand3_ticks, mut willing3_ticks) = (0u32, 0u32);
     let mut tod_was = -1i64;
     let mut home_at_start: Option<Vec<Option<BlockPos>>> = None;
     let mut visit_lines: Vec<String> = Vec::new();
@@ -9062,6 +9069,38 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         }
         // (with a pad: every golem's summon, its crossing into the Nether and its death there,
         // and the pulse at the design's `output.pulse`)
+        // (ironspec Nov 11 17:23: the summon ticks lost to an expired LAST_SLEPT, in any build, Nether
+        // part or not: the stand batch on the tick before the summon tick, each rider's cart at a stand
+        // place, willing or not, and why)
+        if (run.world.time + 1).rem_euclid(100) == 0 {
+            let t_next = run.world.time + 1;
+            let (mut want, mut at_stand, mut expired) = (0usize, 0usize, false);
+            for r in &riders {
+                let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+                if !run.world.entities.list[i].vehicle.is_some_and(|v| place_of(&run.world, v).is_some_and(|k| k >= q)) {
+                    continue;
+                }
+                at_stand += 1;
+                if let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
+                    && let Some(b) = m.brain.as_deref()
+                {
+                    if b.wants_golem(t_next) {
+                        want += 1;
+                    } else if b.last_slept.is_some_and(|s| t_next - s >= 24000) {
+                        expired = true;
+                    }
+                }
+            }
+            if at_stand >= 3 {
+                stand3_ticks += 1;
+                if want >= 3 {
+                    willing3_ticks += 1;
+                }
+            }
+            if at_stand >= 3 && want < 3 && expired {
+                *lost_expired.entry(t_next.div_euclid(24000)).or_default() += 1;
+            }
+        }
         if has_nether {
             let evs: Vec<redsim::entity::mob::MobEvent> = run.world.mob.events[ev_seen.min(run.world.mob.events.len())..].to_vec();
             ev_seen = run.world.mob.events.len();
@@ -9098,11 +9137,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             if (run.world.time + 1).rem_euclid(100) == 0 {
                 let t_next = run.world.time + 1;
                 let (mut want, mut panic, mut at_stand) = (0usize, 0usize, 0usize);
+                let mut expired_here = false;
                 for r in &riders {
                     let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
-                    let p = run.world.entities.list[i].pos;
-                    let (bx, by, bz) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
-                    if !lay.stand_cells.iter().chain(lay.pockets.iter().map(|(_, q)| q)).any(|q| q[0] == bx && q[2] == bz && (q[1] - by).abs() <= 1) {
+                    // (at the stand: its cart at one of the stand's places, as the slot-start count
+                    // finds them; cells or pockets don't match every build's frame)
+                    let cart_at_stand = run.world.entities.list[i].vehicle.is_some_and(|v| place_of(&run.world, v).is_some_and(|k| k >= q));
+                    if !cart_at_stand {
                         continue;
                     }
                     at_stand += 1;
@@ -9115,6 +9156,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             unwilling[0] += 1;
                         } else if b.last_slept.is_some_and(|s| t_next - s >= 24000) {
                             unwilling[1] += 1;
+                            expired_here = true;
                         } else {
                             unwilling[2] += 1;
                         }
@@ -9126,6 +9168,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 willing[want.min(3)] += 1;
                 panicking[panic.min(3)] += 1;
                 stand_count[at_stand.min(3)] += 1;
+                let _ = expired_here;
             }
             // (each release: G0 opening; locked to the grid when it opens 1..=20 gt after the
             // pad's pulse rose: pulse-triggered (day-1's stand REL comes about 14 gt after the
@@ -9256,6 +9299,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 if *a {
                     slept_tonight[k] = true;
                 }
+                if *a && !was_asleep[k] {
+                    lie_downs[k].push(run.world.time);
+                }
+                was_asleep[k] = *a;
             }
             // the bed's nearest awake villager while it is taken (ironspec 2026-11-11: a calm
             // villager within 16 of an occupied bed loses HOME for good; traced, every tick): from
@@ -10450,6 +10497,29 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         out.push(d);
     }
     out.extend(visit_lines_pre.iter().cloned());
+    // (ironspec Nov 11 17:23: the summons lost to an expired LAST_SLEPT, and each rider's naps;
+    // every run, Nether part or not)
+    {
+        let by_day: Vec<String> = lost_expired.iter().map(|(d, n)| format!("day {d} {n}")).collect();
+        out.push(format!("summon ticks lost to an expired LAST_SLEPT (all 3 at the stand, fewer than 3 willing, one 24,000 gt or more since its nap): {}; by day: {}; summon ticks with 3 riders at the stand {stand3_ticks}, all 3 willing {willing3_ticks}", lost_expired.values().sum::<u32>(), if by_day.is_empty() { "-".to_string() } else { by_day.join(", ") }));
+        let mut worst_all = 0i64;
+        let naps: Vec<String> = riders.iter().enumerate().map(|(k, id)| {
+            let mut s = format!("e{id}:");
+            let mut worst = 0i64;
+            for (j, t) in lie_downs[k].iter().enumerate() {
+                s.push_str(&format!(" day {} at {}", t.div_euclid(24000), t.rem_euclid(24000)));
+                if j > 0 {
+                    let d = t - lie_downs[k][j - 1] - 24000;
+                    worst = worst.max(d);
+                    s.push_str(&format!(" ({d:+})"));
+                }
+            }
+            worst_all = worst_all.max(worst);
+            s
+        }).collect();
+        out.push(format!("lie-downs per rider (day, day time; the change from 24,000 after the last): {}", naps.join("; ")));
+        out.push(format!("the worst night-to-night drift later: {worst_all} gt"));
+    }
     if tm.record_positions {
         out.push(format!("villager positions ({}): {}", villager_cells.len(), villager_cells.iter().map(|p| format!("{},{},{}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" ")));
     }
