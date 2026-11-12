@@ -46,6 +46,15 @@ pub struct GqOpts {
     pub freeze: Vec<(i64, i64)>,
     /// The hold's release: every hold gate open together this long (the rear cart passes them all).
     pub hold_pulse: i64,
+    /// (cc767b78) day-1's live-time cycle clock and liveness gate (`crate::liveness`): the cycle
+    /// restarts at each golem event (the column live at a summon boundary: a frozen column makes
+    /// none), every pulse (the hold's release at T+3, G_P and G0's openings, the tail chain's
+    /// release) ANDed with ALIVE at its rise, a risen pulse completing, the cycle's unfired
+    /// remainder dropped when ALIVE falls.
+    pub alive: bool,
+    /// (cc767b78) T,D: a real freeze: the whole bench at level 32 inside a forced ring of chunks
+    /// (redstone running, entities frozen) from tick T for D gt.
+    pub freeze32: Vec<(i64, i64)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -255,14 +264,53 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut launched_into_run: std::collections::BTreeSet<usize> = Default::default();
     let warm = 200i64;
     let ticks = warm + o.cycles * 100;
+    // (cc767b78, `alive`: day-1's gate on a virtual sealed ring in the hold's chunk (or
+    // `MCTAS_ALIVE_RING`); the cycle's pulses as offsets from its golem event: the hold at +3,
+    // G_P at A+6 and G0 at A+13 for A = 32, 56, 80; each opening completing once risen)
+    let col = g.hold_p.first().map_or((0.5, 0.5), |p| (p.0 as f64 + 0.5, 0.5));
+    let mut gate = crate::liveness::Liveness::from_config(crate::liveness::Ring::Virtual { x: col.0, z: col.1, period: 30, high: 20, phase: 0 });
+    const GP_AT: [i64; 3] = [38, 62, 86];
+    const G0_AT: [i64; 3] = [45, 69, 93];
+    let (mut gp_until, mut g0_until) = (i64::MIN / 2, i64::MIN / 2);
+    let mut golems: Vec<i64> = Vec::new();
+    let mut frozen32: Option<[i32; 4]> = None;
+    let mut tail_refusing = false;
+    let mut tail_refusals = 0usize;
     for t in 0..ticks {
+        let frz = o.freeze.iter().any(|(a, d)| t >= *a && t < a + d);
+        // (cc767b78: the real freeze: the whole bench at level 32 from T for D gt)
+        for (a, d) in &o.freeze32 {
+            if t == *a && frozen32.is_none() {
+                frozen32 = Some(crate::liveness::freeze32(&mut run.world));
+                gate.freeze_started(t);
+            }
+            if t == a + d
+                && let Some(pb) = frozen32.take()
+            {
+                crate::liveness::thaw32(&mut run.world, pb);
+            }
+        }
+        if o.freeze.iter().any(|(a, _)| t == *a) {
+            gate.freeze_started(t);
+        }
+        let real_frozen = !run.world.entity_ticks_at(col.0, col.1);
+        // (cc767b78: the climb back is part of the frozen column: a freeze defers every pending
+        // launch by its length (no cart spawned into, or rolling freely through, a frozen bench))
+        if frz || real_frozen {
+            for p in pending.iter_mut() {
+                if p.0 >= t {
+                    p.0 += 1;
+                }
+            }
+        }
         // (launches)
         let due: Vec<usize> = pending.iter().filter(|p| p.0 == t).map(|p| p.1).collect();
         pending.retain(|p| p.0 != t);
         for k in due {
             ids[k] = Some(spawn(&mut run, k, [g.launch.0, g.launch.1, 0.5], o.ret_speed)?);
         }
-        let frz = o.freeze.iter().any(|(a, d)| t >= *a && t < a + d);
+        gate.column_frozen = Some(frz || real_frozen);
+        let alive = gate.alive(&run.world, t);
         // (gates as targeted `wire` gt ago; a pocket's G slope powered with its gate)
         for gi in 0..n_gates {
             let want = if target_hist[gi].len() > o.wire as usize { target_hist[gi].pop_front().unwrap() } else { gate_open[gi] };
@@ -376,7 +424,17 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         // (the cycle: T = warm + 100 c; the hold at T+3; the escapement at A+6 / A+13)
         let ph = (t - warm - o.corner).rem_euclid(100);
         let in_cycles = t >= warm;
-        if in_cycles && ph == 3 && !frz {
+        // (`alive`: the golem event at the summon boundary, only with the column live: frozen
+        // villagers summon nothing; it restarts the cycle)
+        if o.alive && in_cycles && ph == 0 && !(frz || real_frozen) {
+            let mut offs = vec![3i64];
+            offs.extend(GP_AT);
+            offs.extend(G0_AT);
+            gate.start_with("cycle", t, &offs);
+            golems.push(t);
+        }
+        let hold_rise = if o.alive { gate.rise(&run.world, "cycle", 3, t) } else { in_cycles && ph == 3 && !frz };
+        if hold_rise {
             let held = occ_h.iter().filter(|b| **b).count();
             hold_at_release.push((t, held));
             hold_release_until = t + o.hold_pulse;
@@ -385,10 +443,43 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         // (the tail chain's release into the run: its front pocket latched, the run's top free by
         // the run's sensor (its second cell's detector rail off), the last release done)
         let run_busy = matches!(run.world.get(BlockPos::new(g.run_sensor.0, g.run_sensor.1, 0)), Block::DetectorRail { powered: true, .. });
-        if occ_t[nt - 1] && !run_busy && t >= tail_release_until + 4 && !frz {
+        let tail_ev = occ_t[nt - 1] && !run_busy && t >= tail_release_until + 4;
+        // (`alive`: the tail chain's release ANDed with ALIVE at its rise; a refusal counted once
+        // per wait)
+        let tail_go = if !tail_ev {
+            tail_refusing = false;
+            false
+        } else if o.alive {
+            if alive {
+                gate.allow_rise(&run.world, "tail release", t)
+            } else {
+                if !tail_refusing {
+                    tail_refusals += 1;
+                }
+                tail_refusing = true;
+                false
+            }
+        } else {
+            !frz
+        };
+        if tail_go {
+            tail_refusing = false;
             tail_release_until = t + o.pulse;
             occ_t[nt - 1] = false;
             count_q += 1;
+        }
+        // (`alive`: G_P's and G0's openings as the cycle's pulses, each completing once risen)
+        if o.alive {
+            for a in GP_AT {
+                if gate.rise(&run.world, "cycle", a, t) {
+                    gp_until = t + 11;
+                }
+            }
+            for a in G0_AT {
+                if gate.rise(&run.world, "cycle", a, t) {
+                    g0_until = t + 12;
+                }
+            }
         }
         for (gi, (role, _, _, _)) in g.gates.iter().enumerate() {
             let open = match role {
@@ -403,8 +494,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         !sh
                     }
                 }
-                Role::Gp => in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 6 && ph < a + 6 + 11) || (t - warm >= 100 && ph + 100 >= a + 6 && ph + 100 < a + 6 + 11)),
-                Role::G0 => in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12)),
+                Role::Gp => if o.alive { t < gp_until } else { in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 6 && ph < a + 6 + 11) || (t - warm >= 100 && ph + 100 >= a + 6 && ph + 100 < a + 6 + 11)) },
+                Role::G0 => if o.alive { t < g0_until } else { in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12)) },
                 Role::Hold(j) => {
                     if t < hold_release_until {
                         true
@@ -474,5 +565,30 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     ));
     l.push(format!("the pressed run's fill (carts on its slopes) at its emptiest after the first cycle: {} (t {}); the tail chain's most carts: {tail_max}", if run_min.0 == usize::MAX { 0 } else { run_min.0 }, run_min.1));
     l.push(format!("the hold at each release (latched carts): {}; carts through the sink: {sunk}", hold_at_release.iter().map(|(t, n)| format!("t {t}: {n}")).collect::<Vec<_>>().join(", ")));
+    if !o.freeze32.is_empty() {
+        l.push(format!("real freezes (the whole bench at level 32 inside a forced ring of chunks: redstone running, entities frozen): {:?}", o.freeze32));
+    }
+    if o.alive {
+        // (one release per cycle: each golem event's release at its +3, or none; the releases'
+        // phase against gameTime; cycles with no golem event (a frozen column))
+        let per: Vec<String> = golems
+            .iter()
+            .map(|g0| {
+                let n = hold_at_release.iter().filter(|(t, _)| *t >= *g0 && *t < g0 + 100).count();
+                let at: Vec<String> = hold_at_release.iter().filter(|(t, _)| *t >= *g0 && *t < g0 + 100).map(|(t, h)| format!("+{} ({h} carts)", t - g0)).collect();
+                format!("{g0}: {n}{}", if at.is_empty() { String::new() } else { format!(" {}", at.join(",")) })
+            })
+            .collect();
+        let boundaries = (0..o.cycles).map(|c| warm + o.corner + 100 * c).filter(|b| *b >= warm).count();
+        let off_phase = hold_at_release.iter().filter(|(t, _)| (t - warm - o.corner).rem_euclid(100) != 3).count();
+        let two = golems.iter().filter(|g0| hold_at_release.iter().filter(|(t, _)| *t >= **g0 && *t < **g0 + 100).count() > 1).count();
+        l.push(format!(
+            "live-time cycle clock (day-1's: the cycle restarts at each golem event, the column live at a summon boundary): {} golem events of {boundaries} boundaries; releases per cycle {}; releases off T+3 (out of phase) {off_phase}; cycles with two releases {two}; the tail chain's release refused (ALIVE low) {tail_refusals} times",
+            golems.len(),
+            if per.is_empty() { "-".to_string() } else { per.join(", ") }
+        ));
+        let (gl, _gp) = gate.lines();
+        l.extend(gl);
+    }
     Ok(l.join("\n"))
 }
