@@ -60,7 +60,8 @@ name: f1q2-module-stop9
 circuit: mob-farm iron_ingot
 placement-order-ts: -1,0,7=the merge T at lane -1 (never switched: no signal source and no detector reaches it; placed north_west after (-1,0,6) and (-2,0,7); pending the reach scan with the controller wired and the official module-check of the build order); 3,0,7=the merge T at lane 3 (never switched; placed north_west after (3,0,6) and (2,0,7); pending the same); 7,0,7=lane 7's merge curve, a T with the napper hold's line at (8,0,7) (never switched; placed north_west after (7,0,6) and (6,0,7); pending the same)
 waker-places: -3,-27,3=asleep in the bed, woken by F (2.04); -2,-27,3=standing up on the pickup cell and seated there (3.03); -2,-27,4+0,-27,4+1,-27,4+1,-28,4+2,-28,4=riding out past the hatch to R (3.08..6.66) (58f770cc's A6 b36302af8, its local cells + (0,-27,-1))
-keep-clear: -3,-26,3 -3,-25,3 -3,-24,3 -5,-24,3 (58f770cc's A6 header, + (0,-27,-1): the bed's column, and its cell (-5,-24,3) held by its own leaves)
+keep-clear: -3,-26,3 -3,-25,3 -3,-24,3 (58f770cc's A6 header, + (0,-27,-1): the bed's column, holding no block)
+keep-block: -5,-24,3=oak_leaves[distance=7,persistent=true] (58f770cc 13:59: the zombie's cover, A6's local (-5,3,4))
 riderless: 1,-26,-5+0,-27,-5+-1,-27,-5+-2,-27,-5+-2,-27,-4+-2,-27,-3+-2,-27,-2+-2,-27,-1+-2,-27,0+-2,-27,1+-2,-27,2=the stop's empty cart from its park to the pickup cell (A6: the napper leaves the cart at the activator (2,-25,-5) and is seated again at the pickup (-2,-27,3))
 positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0
 run-cells: P0 -1,0,0; D0 -1,0,2; H0 -1,16,0; P1 3,0,0; D1 3,0,2; H1 3,16,0; P2 7,0,0; D2 7,0,2; H2 7,16,0; PAD0 -3,-6,-6; PAD1 8,-6,-1
