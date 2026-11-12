@@ -74,6 +74,9 @@ pub fn load_window(version: &str, case: &str, runs: u32, design: Option<&std::pa
         "item-loop-early" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), 0))),
         // the same, the portals built 600 gt after the server's start (after start, or after building?)
         "item-loop-early-late" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), 600))),
+        // the same, the chunks force-loaded (so generated) only 600 gt after the start, and the
+        // portals built at once (the server's start, or the chunks' first load?)
+        "item-loop-early-fresh" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), 100_600))),
         _ => bail!("--case quiet, load, pearl, pearl-busy, portal-loop, item-loop, item-loop-build, item-loop-build-slab or item-loop-extremes"),
     };
     let jar = mctas::bridge::load_agent(version)?;
@@ -910,10 +913,15 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
     let n0 = [t[0].div_euclid(8), t[1], t[2].div_euclid(8)];
     let mut srv = VanillaServer::start(&opts(None))?;
     srv.cmd_ok("gamerule spawn_mobs false")?;
+    // item-loop-early-fresh (pre >= 100,000): the wait comes before the force-loads
+    if let Some((_, pre)) = corners.filter(|c| c.1 >= 100_000) {
+        srv.step(pre - 100_000)?;
+        println!("the chunks force-loaded {} gt after the start (game time {})", pre - 100_000, srv.game_time()?);
+    }
     srv.cmd_ok("forceload add 0 0 31 47")?;
     srv.cmd_ok("execute in minecraft:the_nether run forceload add -16 -16 31 31")?;
     srv.step(20)?;
-    if let Some((_, pre)) = corners.filter(|c| c.1 > 0) {
+    if let Some((_, pre)) = corners.filter(|c| c.1 > 0 && c.1 < 100_000) {
         srv.step(pre)?;
         println!("the portals built {pre} gt later than usual (game time {})", srv.game_time()?);
     }
