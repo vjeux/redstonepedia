@@ -512,4 +512,33 @@ fn golem_targets_seated_pillager() {
         }
     }
     assert!(targeted.is_some(), "a golem 12 off never targeted the seated pillager in 200 gt");
+    // (the negative cases, G1 on a60da59c8: one 18 off, beyond its 16, and one 12 off behind a glass
+    // wall it cannot see through, never target it)
+    for (gx, wall) in [(18.5, false), (12.5, true)] {
+        let mut w = world(4);
+        w.mob.ai.on = true;
+        for x in -3..=20 {
+            for z in -3..=3 {
+                put(&mut w, x, -1, z, "minecraft:stone");
+            }
+        }
+        if wall {
+            for y in 0..=4 {
+                for z in -3..=3 {
+                    put(&mut w, 6, y, z, "minecraft:glass");
+                }
+            }
+        }
+        let boat = crate::entity::spawn(&mut w, "minecraft:oak_boat", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b}]}"));
+        assert!(boat.is_ok(), "{boat:?}");
+        let pid = w.entities.list.iter().find(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Pillager)).map(|e| e.id).expect("the pillager");
+        let g = add(&mut w, MobType::IronGolem, Vec3::new(gx, 0.0, 0.5), true);
+        for _ in 0..40 {
+            w.tick();
+            let gi = crate::entity::index_of(&w, g).expect("the golem");
+            if let EntityKind::Mob(m) = &w.entities.list[gi].kind {
+                assert!(m.ai.as_deref().and_then(|a| a.target) != Some(pid), "a golem at x {gx} (wall {wall}) targeted the pillager");
+            }
+        }
+    }
 }
