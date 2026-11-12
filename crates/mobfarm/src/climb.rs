@@ -943,8 +943,27 @@ pub fn design_gravity_v4r(with_riders: [bool; 3]) -> String {
 /// batch, parked, is handed off at G_a down onechunk's re-laid descent (`design_gravity_v4r`'s cells)
 /// into the same pockets. Loop frame + (6,0,6).
 pub fn design_stand_cycle(dep: [bool; 3], arr: [bool; 3], east: i32, past: i32, dd: Option<char>, d2: bool) -> String {
+    design_stand_cycle_with(dep, arr, east, past, dd, d2, None)
+}
+
+/// The pockets' braked cells for the vertical drop (vjeux 21:00): P1 (13,-2), P2 (9,-1), P3 (5,0),
+/// each a powered rail ascending west (unpowered: a cart rests on it; powered at REL: it leaves),
+/// with its switched support under it; and the hold cells straight above them.
+pub const DROP_POCKETS: [(i32, i32); 3] = [(13, -2), (9, -1), (5, 0)];
+
+/// [`design_stand_cycle`], or with `drop` (the hold's trapdoor height) the vertical drop: no
+/// descent, no approach and no stand gates; the pockets' cells ([`DROP_POCKETS`]) powered rails
+/// braking on their switched supports (stone; the bench puts a redstone block there to release);
+/// the departing batch at rest mid-cell on them; the arriving batch off-rail on closed trapdoors at
+/// (x, `drop`, 6) straight above each pocket's cell, glass on the cell's four sides at the trapdoor's
+/// level (a fixed x, z), the shaft below clear.
+pub fn design_stand_cycle_with(dep: [bool; 3], arr: [bool; 3], east: i32, past: i32, dd: Option<char>, d2: bool, drop: Option<i32>) -> String {
     let mut b = Builder::new("stand-cycle-bench");
     for (x, y, s) in STRIP {
+        // (the drop keeps (4,1): the anchor that keeps P3's slope (5,0) ascending west)
+        if drop.is_some() && x < 4 {
+            continue;
+        }
         b.set(x, y, SZ, s);
         b.set(x, y - 1, SZ, "glass");
     }
@@ -952,14 +971,27 @@ pub fn design_stand_cycle(dep: [bool; 3], arr: [bool; 3], east: i32, past: i32, 
         // (7b90c3f1's D2: P2's flat a detector)
         b.set(8, 0, SZ, "detector_rail[powered=false,shape=east_west,waterlogged=false]");
     }
-    for (x, y) in GATES {
-        b.set(x, y, SZ, GATE_SHUT);
+    if let Some(h) = drop {
+        for (x, y) in DROP_POCKETS {
+            b.set(x, y, SZ, "powered_rail[powered=false,shape=ascending_west,waterlogged=false]");
+            b.set(x, y - 1, SZ, "stone");
+            b.set(x, h, SZ, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
+            for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                b.set(x + dx, h, SZ + dz, "glass");
+            }
+        }
+    } else {
+        for (x, y) in GATES {
+            b.set(x, y, SZ, GATE_SHUT);
+        }
     }
     for (x, y, z) in [(6, -2, 6), (10, -3, 6), (14, -3, 7)] {
         b.set(x, y, z, "stone");
     }
-    b.set(AX - 1, 2, SZ, "glass");
-    b.set(AX - 1, 3, SZ, "glass");
+    if drop.is_none() {
+        b.set(AX - 1, 2, SZ, "glass");
+        b.set(AX - 1, 3, SZ, "glass");
+    }
     let boost = |b: &mut Builder, x: i32, y: i32, z: i32, shape: &str| {
         b.set(x, y, z, &format!("powered_rail[powered=true,shape={shape},waterlogged=false]"));
         b.set(x, y - 1, z, "redstone_block");
@@ -1016,6 +1048,22 @@ pub fn design_stand_cycle(dep: [bool; 3], arr: [bool; 3], east: i32, past: i32, 
         flat(&mut b, 15, top, z, "north_south");
     }
     b.set(15, top, past + 1, "stone");
+    if let Some(h) = drop {
+        // the departing batch at rest mid-cell on the braked pockets, front first; the arriving
+        // batch off-rail on the hold's trapdoors straight above
+        for (k, (x, y)) in DROP_POCKETS.iter().enumerate() {
+            let nbt = if dep[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+            b.entity("minecart", [*x as f64 + 0.5, *y as f64 + 0.5625, SZ as f64 + 0.5], Some(nbt));
+        }
+        for (k, (x, _)) in DROP_POCKETS.iter().enumerate() {
+            let nbt = if arr[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+            b.entity("minecart", [*x as f64 + 0.5, h as f64 + 0.1875, SZ as f64 + 0.5], Some(nbt));
+        }
+        b.set(-8, 0, SZ, "glass");
+        b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+        b.d.ports.insert("output".into(), [-6, 1, SZ]);
+        return b.text(&["One-chunk's stand cycle with the vertical drop: the departing batch leaves the braked pockets at REL up the S3 departure and v4's climb back; the arriving batch drops from trapdoors straight above the pockets (supports and trapdoors bench-driven on explicit times)."]);
+    }
     // the approach from the committed crest down to the snap turn, and the re-laid descent
     b.set(AX, 6, 10, "rail[shape=north_south,waterlogged=false]");
     b.set(AX, 5, 10, "glass");
@@ -1114,6 +1162,11 @@ pub struct CycleOpts {
     pub above: f64,
     /// Carts absent from the run (departing 0..2, arriving 3..5): a batch of 1 or 2.
     pub absent: [bool; 6],
+    /// The vertical drop (vjeux 21:00; `design_stand_cycle_with`'s `drop` design): (the hold's
+    /// trapdoor y, the trapdoors open at REL + this, the pockets' supports and slope sources off at
+    /// REL + this), on the live clock; no gates, the pockets released by their supports at REL,
+    /// + G1's and G2's staggers.
+    pub drop: Option<(i32, i64, i64)>,
     pub ticks: i64,
     pub seed: i64,
     pub freeze: Option<(i64, i64)>,
@@ -1142,6 +1195,12 @@ pub struct CycleStats {
     pub unseated: usize,
     /// (d) The REL + arm arming's lead over the last departing cart's D2 rise.
     pub d2_arm_margin: Option<i64>,
+    /// The drop: the closest an arriving cart came to a departing one (hundredths of a block), the
+    /// longest fall (gt; i64::MAX: a cart never landed), the lowest rider's feet at the release
+    /// (hundredths).
+    pub drop_closest: Option<i64>,
+    pub drop_fall: Option<i64>,
+    pub drop_feet: Option<i64>,
 }
 
 /// One stand-cycle run's report lines: per gate the shut window (no earlier than the last passing
@@ -1257,6 +1316,14 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
     let mut d2_armed_rises = 0usize;
     let mut d2_pulses: Vec<(i64, Option<i64>)> = Vec::new();
     let mut last_dep_d2: Option<i64> = None;
+    // (the drop: the trapdoors' tick, each arriving cart's position then, its landing on its
+    // pocket's rail, the closest approach of an arriving cart to a departing one after the drop)
+    let mut drop_at: Option<i64> = None;
+    let mut drop_from: [Option<Vec3>; 3] = [None; 3];
+    let mut drop_feet: [Option<f64>; 3] = [None; 3];
+    let mut landed: [Option<(i64, f64)>; 3] = [None; 3];
+    let mut closest: Option<(f64, i64, usize, usize)> = None;
+    let mut fall_v: [f64; 3] = [0.0; 3];
     let mut arm_dt: Option<i64> = None;
     let mut retrig_cancels = 0usize;
     let n_dep = (0..3).filter(|n| !o.absent[*n]).count();
@@ -1272,9 +1339,32 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
             rel_dt = Some(dt);
         }
         for k in 0..3 {
+            if o.drop.is_some() {
+                break;
+            }
             if !frozen_now && !handed[k] && live >= hand[k] && !o.absent[3 + k] {
                 handed[k] = true;
                 place_at(&mut run.world, carts[3 + k], ga, Vec3::new(0.0, 0.0, o.hand_speeds.map_or(o.speed, |s| s[k])));
+            }
+        }
+        // (the vertical drop: the hold's trapdoors open at REL + `release`, live)
+        if let Some((h, release, _)) = o.drop
+            && !frozen_now
+            && !handed.iter().any(|x| *x)
+            && live >= o.rel + release
+        {
+            for (k, (x, _)) in DROP_POCKETS.iter().enumerate() {
+                let p = BlockPos::new(*x, h, SZ);
+                let open = run.world.get(p).to_string().replace("open=false", "open=true").replace("powered=false", "powered=true");
+                if let Ok(bk) = Block::parse(&open) {
+                    run.world.set_block(p, bk, redsim::world::flags::ALL);
+                }
+                if !o.absent[3 + k] {
+                    handed[k] = true;
+                    drop_at = Some(dt);
+                    drop_from[k] = pos(&run.world, carts[3 + k]).map(|(p, _)| p);
+                    drop_feet[k] = riders[3 + k].and_then(|r| run.world.entities.list.iter().find(|e| e.id == r && !e.removed)).map(|e| e.pos.y);
+                }
             }
         }
         // (the backstop: D1 never rose after REL (D1), Dd never rose (the restartable delay), no
@@ -1297,6 +1387,19 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
             }
         }
         for g in 0..3 {
+            // (the drop: no gates; each pocket's support and its slope's source powered from REL
+            // (+ the stagger) to REL + `off`)
+            if let Some((_, _, off)) = o.drop {
+                let on = live >= open_at[g] && live < o.rel + off;
+                let want_src = if on { rs.clone() } else { stone.clone() };
+                let (px, py) = DROP_POCKETS[g];
+                for p in [gsrc[g], BlockPos::new(px, py - 1, SZ)] {
+                    if run.world.get(p) != want_src {
+                        run.world.set_block(p, want_src.clone(), redsim::world::flags::ALL);
+                    }
+                }
+                continue;
+            }
             if !opened[g] && live >= open_at[g] {
                 opened[g] = true;
             }
@@ -1513,7 +1616,25 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
                     sink_now.push(n);
                 }
             } else if handed[n - 3] {
-                if s < 1e-3 && (p.z - (SZ as f64 + 0.5)).abs() < 0.6 && p.y < 3.0 {
+                // (the drop: at rest counts the fall's speed too; the landing: the first tick on
+                // the pocket's rail, the speed of the fall just before it)
+                let s3 = if o.drop.is_some() { (v.x * v.x + v.y * v.y + v.z * v.z).sqrt() } else { s };
+                if o.drop.is_some() {
+                    let (_, py) = DROP_POCKETS[n - 3];
+                    if landed[n - 3].is_none() && p.y < py as f64 + 1.0 {
+                        landed[n - 3] = Some((dt, fall_v[n - 3]));
+                    }
+                    fall_v[n - 3] = -v.y;
+                    for m in 0..3 {
+                        if let Some((pd, _)) = st[m] {
+                            let d = ((p.x - pd.x).powi(2) + (p.y - pd.y).powi(2) + (p.z - pd.z).powi(2)).sqrt();
+                            if closest.is_none_or(|c| d < c.0) {
+                                closest = Some((d, dt, n - 3, m));
+                            }
+                        }
+                    }
+                }
+                if s3 < 1e-3 && (p.z - (SZ as f64 + 0.5)).abs() < 0.6 && p.y < 3.0 {
                     rest_since[n - 3].get_or_insert(dt);
                 } else {
                     rest_since[n - 3] = None;
@@ -1608,6 +1729,27 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
             match (&early, late) { (Some(e), Some(l)) => format!(", window {} gt", l - e.0 + 1), _ => String::new() },
         ));
     }
+    if let Some((h, release, off)) = o.drop {
+        // (the drop's line instead of the gates' windows)
+        out.push(format!(
+            "vertical drop (REL T+{}, P2 +{}, P3 +{}; the hold's trapdoors y {h} open at REL+{release}{}, the pockets re-braked at REL+{off}): released {}; riders' feet then {}; landed {}; at rest {}; the closest an arriving cart came to a departing one {}",
+            o.rel,
+            o.g1_delay,
+            o.g2_delay,
+            drop_at.map_or(" (never)".to_string(), |t| format!(" = T+{t}")),
+            (0..3).map(|k| drop_from[k].map_or(format!("cart {k} -"), |p| format!("cart {k} at {:.3},{:.3},{:.3}", p.x, p.y, p.z))).collect::<Vec<_>>().join(", "),
+            (0..3).map(|k| drop_feet[k].map_or("-".to_string(), |y| format!("{y:.3}"))).collect::<Vec<_>>().join(", "),
+            (0..3).map(|k| match (landed[k], drop_at) {
+                (Some((t, v)), Some(d)) => format!("cart {k} T+{t} (fall {} gt, {v:.3} b/gt)", t - d),
+                _ => format!("cart {k} never"),
+            }).collect::<Vec<_>>().join(", "),
+            (0..3).map(|k| rest_since[k].map_or(format!("cart {k} NO"), |t| format!("cart {k} T+{t}"))).collect::<Vec<_>>().join(", "),
+            closest.map_or("-".to_string(), |(d, t, a, m)| format!("{d:.2} (arriving cart {a} to departing cart {m} at T+{t})"))
+        ));
+        stats.drop_closest = closest.map(|c| (c.0 * 100.0).floor() as i64);
+        stats.drop_fall = (0..3).map(|k| landed[k].zip(drop_at).map(|(l, d)| l.0 - d)).collect::<Option<Vec<_>>>().and_then(|v| v.into_iter().max()).or(Some(i64::MAX));
+        stats.drop_feet = (0..3).filter_map(|k| drop_feet[k]).map(|y| (y * 100.0).floor() as i64).min();
+    } else {
     out.push(format!(
         "stand cycle (REL T+{}, G1 +{}, G2 +{}, slopes +{}; the hold T+{}, hand-offs {}:{} at {}; G0 {:?}, fill {:?}{}): shut windows {}",
         o.rel,
@@ -1623,6 +1765,7 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
         if o.qualified { ", qualified edges" } else { "" },
         wins.join("; ")
     ));
+    }
     let cr = curves.report();
     out.push(format!("curve rule (follower entry minus leader clear, bar >= 0; no touching): {}", if cr.is_empty() { "no curve passed by two carts".to_string() } else { cr.join("; ") }));
     let pulses = |v: &[(i64, Option<i64>)]| v.iter().map(|(a, b)| format!("T+{a}..{}", b.map_or("-".to_string(), |b| format!("T+{b}")))).collect::<Vec<_>>().join(", ");
@@ -1638,7 +1781,7 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
         .iter()
         .enumerate()
         .filter_map(|(j, &k)| {
-            let want = [13.885, 9.885, 5.885][j];
+            let want = if o.drop.is_some() { DROP_POCKETS[j].0 as f64 + 0.5 } else { [13.885, 9.885, 5.885][j] };
             match st_final(&run.world, carts[3 + k]) {
                 Some(p) if (p.x - want).abs() < 0.3 && (p.z - (SZ as f64 + 0.5)).abs() < 0.3 => None,
                 Some(p) => Some(format!("arriving cart {k} at {:.2},{:.2},{:.2} (P{} expected)", p.x, p.y, p.z, j + 1)),
@@ -1649,6 +1792,9 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
     let last = (0..3).filter(|k| !o.absent[3 + *k]).map(|k| rest_since[k].unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
     let fmt = |a: &[Option<i64>; 3]| (0..3).map(|k| a[k].map_or("never".to_string(), |t| format!("T+{t}"))).collect::<Vec<_>>().join(", ");
     let last_above = (0..3).filter(|k| riders[*k].is_some() && !o.absent[*k]).map(|k| dep_above[k].unwrap_or(i64::MAX)).max();
+    // (the next summon: the first T+100k in game time at which the bench's entities tick; a freeze
+    // over T+100 skips that one, a freeze before it delays the carts but not the boundary)
+    let boundary = (1..10i64).map(|k| 100 * k).find(|b| (*b as usize) >= frozen_hist.len() || !frozen_hist[*b as usize]).unwrap_or(100);
     out.push(format!(
         "departing: riders above feet {} at {} ({}); crest {}, top {}",
         o.above,
@@ -1656,7 +1802,7 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
         match last_above {
             None => "no riders".to_string(),
             Some(i64::MAX) => "NOT ALL by the run's end".to_string(),
-            Some(t) => format!("all by T+{t}, margin {} gt before T+100", 100 - t),
+            Some(t) => format!("all by T+{t}, margin {} gt before the next summon T+{boundary}", boundary - t),
         },
         fmt(&dep_crest),
         fmt(&sunk)
@@ -1664,7 +1810,7 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
     out.push(format!(
         "arriving: {}; batch at rest {}; gate edges {}{}; contacts {} (the fastest {:.3}){}; riders hurt {hurt}, unseated ticks {unseated}",
         if wrong.is_empty() { "every cart in its own pocket".to_string() } else { format!("WRONG POCKET: {}", wrong.join("; ")) },
-        if last == i64::MAX { "NO".to_string() } else { format!("T+{last}, margin {} gt before T+100", 100 - last) },
+        if last == i64::MAX { "NO".to_string() } else { format!("T+{last}, margin {} gt before the next summon T+{boundary}", boundary - last) },
         edges.len(),
         if edges.is_empty() { String::new() } else { format!(" ({})", edges.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
         contacts.len(),
@@ -1675,8 +1821,8 @@ pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>,
     stats.wrong = wrong.len();
     stats.contacts = contacts.len();
     stats.contact_max = contact_max;
-    stats.climb = last_above.map(|t| if t == i64::MAX { i64::MIN } else { 100 - t });
-    stats.rest = if last == i64::MAX { i64::MIN } else { 100 - last };
+    stats.climb = last_above.map(|t| if t == i64::MAX { i64::MIN } else { boundary - t });
+    stats.rest = if last == i64::MAX { i64::MIN } else { boundary - last };
     let (cl, touch) = curves.least();
     stats.curve = if touch > 0 { Some(i64::MIN) } else { cl };
     stats.hurt = hurt;
@@ -1697,7 +1843,7 @@ pub fn cycle_summary(label: &str, runs: &[CycleStats]) -> String {
         Some(x) => x.to_string(),
     };
     format!(
-        "{label}: {} runs; least margins G0 after the leader {} / before the follower {}; G1 {} / {}; G2 {} / {}; gate edges {}, wrong pockets {}, contacts {} (the fastest {:.3}); departing riders over the height by T+100: least {}; arriving at rest: least {}; curve rule least {}; riders hurt {}, unseated ticks {}; D2 arming after the last departing D2 rise: least {}",
+        "{label}: {} runs; least margins G0 after the leader {} / before the follower {}; G1 {} / {}; G2 {} / {}; gate edges {}, wrong pockets {}, contacts {} (the fastest {:.3}); departing riders over the height by the next summon: least {}; arriving at rest: least {}; curve rule least {}; riders hurt {}, unseated ticks {}; D2 arming after the last departing D2 rise: least {}{}",
         runs.len(),
         show(mn(&|s| s.left[0])),
         show(mn(&|s| s.right[0])),
@@ -1714,7 +1860,17 @@ pub fn cycle_summary(label: &str, runs: &[CycleStats]) -> String {
         show(mn(&|s| s.curve)),
         runs.iter().map(|s| s.hurt).sum::<usize>(),
         runs.iter().map(|s| s.unseated).sum::<usize>(),
-        show(mn(&|s| s.d2_arm_margin))
+        show(mn(&|s| s.d2_arm_margin)),
+        if runs.iter().any(|s| s.drop_fall.is_some()) {
+            format!(
+                "; drop: the closest arriving-to-departing {}, the longest fall {} gt, the lowest waiting rider's feet {}",
+                mn(&|s| s.drop_closest).map_or("-".to_string(), |c| format!("{:.2}", c as f64 / 100.0)),
+                runs.iter().filter_map(|s| s.drop_fall).max().map_or("-".to_string(), |f| if f == i64::MAX { "NEVER LANDED".to_string() } else { f.to_string() }),
+                mn(&|s| s.drop_feet).map_or("-".to_string(), |c| format!("{:.2}", c as f64 / 100.0))
+            )
+        } else {
+            String::new()
+        }
     )
 }
 

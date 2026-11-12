@@ -1617,6 +1617,61 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// The vertical drop, M1 (vjeux 21:00; `mobfarm::drop`): the waiting batch on trapdoors
+    /// straight above three braked pockets drops into them while the batch in them leaves at REL;
+    /// the series layout (today's strip) or Q2's parallel lanes; each trapdoor gated on its pocket's
+    /// occupancy string with --occupancy. Per run the release positions, falls, landings against the
+    /// pockets' re-brake, rest against the next summon, contacts, riders, departures; the layout's
+    /// footprint and height.
+    DropBench {
+        /// `series` or `parallel:P` (Q2: lanes P apart in z), each ";"-separated.
+        #[arg(long, default_value = "series")]
+        layout: String,
+        /// The hold's trapdoor block y (the pockets' rails at y -2..0), each value.
+        #[arg(long, default_value = "15")]
+        hold_y: String,
+        /// REL, gt after T, each corner.
+        #[arg(long, default_value = "3,5,7")]
+        rel: String,
+        /// Each pocket's power after REL, front first.
+        #[arg(long, default_value = "0,0,2")]
+        stagger: String,
+        /// The pockets re-brake at REL + this, each value.
+        #[arg(long, default_value = "32")]
+        rebrake: String,
+        /// The trapdoors open at T + this, each value.
+        #[arg(long, default_value = "10")]
+        release: String,
+        /// The trapdoors shut this long after opening (0: stay open).
+        #[arg(long, default_value_t = 0)]
+        pulse: i64,
+        /// Gate each trapdoor on its own pocket's string (held 20 gt: occupied, wait).
+        #[arg(long)]
+        occupancy: bool,
+        #[arg(long, default_value = "1,1,1")]
+        dep_riders: String,
+        #[arg(long, default_value = "1,1,1")]
+        arr_riders: String,
+        /// Freezes, each one run: "FROM:LEN,..." (`-` unfrozen).
+        #[arg(long, default_value = "-")]
+        freezes: String,
+        /// A freeze sweep: "FROM,TO,STEP,LEN[,LEN...]".
+        #[arg(long, value_delimiter = ',')]
+        freeze_sweep: Vec<i64>,
+        #[arg(long, default_value_t = 200)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 1)]
+        seeds: i64,
+        /// Only the summary line per layout and hold height.
+        #[arg(long)]
+        summary: bool,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        trace: bool,
+    },
     /// One-chunk's stand cycle (farmopt 18:52): the departing batch leaves today's pockets at REL
     /// (the meter's slope power) up the S3 departure and v4's climb back while the arriving batch
     /// comes down onechunk's re-laid descent from the hold's release into the same pockets; the
@@ -1684,6 +1739,11 @@ pub enum MobfarmCmd {
         /// Only the overall line per G0 key (every freeze together), with --summary.
         #[arg(long)]
         overall_only: bool,
+        /// The vertical drop (vjeux 21:00), each set ";"-separated "H,R,O": the hold's trapdoors at
+        /// y H straight above the braked pockets, opened at REL + R, the pockets re-braked at REL +
+        /// O (live); no descent, no stand gates.
+        #[arg(long, default_value = "")]
+        drop: String,
         /// A freeze sweep instead of --freezes: "FROM,TO,STEP,LEN[,LEN...]" (each start and length one
         /// run set).
         #[arg(long, value_delimiter = ',')]
@@ -5030,7 +5090,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::StandCycle { rel, hold, g1_delay, g2_delay, slope_delay, h_every, speed, speeds, g0, fill, shut, backstop, qualified, dd, above, freezes, summary, overall_only, freeze_sweep, dep_riders, arr_riders, east, ticks, seed, seeds, out, trace } => {
+        MobfarmCmd::StandCycle { rel, hold, g1_delay, g2_delay, slope_delay, h_every, speed, speeds, g0, fill, shut, backstop, qualified, dd, above, freezes, summary, overall_only, drop, freeze_sweep, dep_riders, arr_riders, east, ticks, seed, seeds, out, trace } => {
             // (per-cart hand-off speed sets; none: --speed for every cart)
             let speed_sets: Vec<Option<[f64; 3]>> = if speeds.trim().is_empty() {
                 vec![None]
@@ -5122,6 +5182,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             anyhow::ensure!((1..=14).contains(&east), "--east 1..14");
             let past = 13;
+            // (the vertical drop's sets "H,R,O;...": the hold's trapdoor y, the trapdoors at REL + R,
+            // the pockets re-braked at REL + O; none: the descent and the gates)
+            let drops: Vec<Option<(i32, i64, i64)>> = if drop.trim().is_empty() {
+                vec![None]
+            } else {
+                drop.split(';')
+                    .map(|s| -> anyhow::Result<Option<(i32, i64, i64)>> {
+                        let v: Vec<&str> = s.split(',').map(|x| x.trim()).collect();
+                        anyhow::ensure!(v.len() == 3, "--drop H,R,O;...");
+                        Ok(Some((v[0].parse()?, v[1].parse()?, v[2].parse()?)))
+                    })
+                    .collect::<anyhow::Result<_>>()?
+            };
+            for dset in &drops {
             for leg in dd.split(',').map(|s| s.trim()) {
                 let (dd_design, dd_pos) = match leg {
                     "N" => (Some('N'), None),
@@ -5135,7 +5209,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let ((dep, dep_x), (arr, arr_x)) = (r3(dep_s)?, r3(arr_s)?);
                         let absent = [dep_x[0], dep_x[1], dep_x[2], arr_x[0], arr_x[1], arr_x[2]];
                         let d2_design = fill_d2 || keys.iter().any(|k| matches!(k, crate::climb::G0Key::D2Arm(_)));
-                        let text = crate::climb::design_stand_cycle(dep, arr, east, past, dd_design, d2_design);
+                        let text = crate::climb::design_stand_cycle_with(dep, arr, east, past, dd_design, d2_design, dset.map(|d| d.0));
                         let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("stand-cycle-{}.txt", std::process::id())));
                         std::fs::write(&path, &text)?;
                         let (_c, fspec) = load(version, &path)?;
@@ -5177,6 +5251,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                                         fill_d2,
                                                         above,
                                                         absent,
+                                                        drop: *dset,
                                                         ticks,
                                                         seed: s,
                                                         freeze: *f,
@@ -5212,7 +5287,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 println!(
                                     "{}",
                                     crate::climb::cycle_summary(
-                                        &format!("OVERALL leg {leg}, G0 {key:?}, fill {fill_key:?}{}{}, G2 +{g2}, departing {dep_s}, arriving {arr_s}, {} freezes", if fill_d2 { " (G2 on D2)" } else { "" }, if qualified { ", qualified" } else { "" }, frz.len()),
+                                        &format!("OVERALL leg {leg}{}, G0 {key:?}, fill {fill_key:?}{}{}, G2 +{g2}, departing {dep_s}, arriving {arr_s}, {} freezes", dset.map_or(String::new(), |(h, r, f)| format!(" (drop: hold y {h}, trapdoors REL+{r}, re-brake REL+{f})")), if fill_d2 { " (G2 on D2)" } else { "" }, if qualified { ", qualified" } else { "" }, frz.len()),
                                         &all_runs
                                     )
                                 );
@@ -5220,6 +5295,76 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             }
                         }
                     }
+                }
+            }
+            }
+        }
+        MobfarmCmd::DropBench { layout, hold_y, rel, stagger, rebrake, release, pulse, occupancy, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+            let list = |s: &str| s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
+            let r3 = |s: &str| -> anyhow::Result<[bool; 3]> {
+                let v: Vec<&str> = s.split(',').map(|x| x.trim()).collect();
+                anyhow::ensure!(v.len() == 3, "riders take three of 1 or 0");
+                Ok([v[0] == "1", v[1] == "1", v[2] == "1"])
+            };
+            let (dep, arr) = (r3(&dep_riders)?, r3(&arr_riders)?);
+            let st = list(&stagger)?;
+            anyhow::ensure!(st.len() == 3, "--stagger A,B,C");
+            let (rels, rebrakes, releases, holds) = (list(&rel)?, list(&rebrake)?, list(&release)?, list(&hold_y)?);
+            let mut frz: Vec<Option<(i64, i64)>> = freezes
+                .split(',')
+                .map(|s| -> anyhow::Result<Option<(i64, i64)>> {
+                    let s = s.trim();
+                    if s == "-" {
+                        return Ok(None);
+                    }
+                    let (a, b) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--freezes FROM:LEN,..."))?;
+                    Ok(Some((a.parse()?, b.parse()?)))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            if !freeze_sweep.is_empty() {
+                anyhow::ensure!(freeze_sweep.len() >= 4 && freeze_sweep[2] > 0, "--freeze-sweep FROM,TO,STEP,LEN[,LEN...]");
+                frz.clear();
+                for len in &freeze_sweep[3..] {
+                    let mut a = freeze_sweep[0];
+                    while a <= freeze_sweep[1] {
+                        frz.push(Some((a, *len)));
+                        a += freeze_sweep[2];
+                    }
+                }
+            }
+            for lay in layout.split(';').map(|s| s.trim()) {
+                let lo = match lay.split_once(':') {
+                    Some(("parallel", p)) => crate::drop::DropLayout::Parallel(p.parse()?),
+                    None if lay == "series" => crate::drop::DropLayout::Series,
+                    _ => anyhow::bail!("--layout series or parallel:P"),
+                };
+                for h in &holds {
+                    let text = crate::drop::design(lo, *h as i32, dep, arr);
+                    let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("drop-bench-{}.txt", std::process::id())));
+                    std::fs::write(&path, &text)?;
+                    let (_c, fspec) = load(version, &path)?;
+                    println!("drop bench {lo:?}, hold y {h}: {}", crate::drop::footprint(lo, *h as i32));
+                    let mut runs: Vec<crate::drop::DropStats> = Vec::new();
+                    for f in &frz {
+                        for r in &rels {
+                            for rb in &rebrakes {
+                                for rl in &releases {
+                                    for s in seed..seed + seeds {
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, ticks, seed: s, freeze: *f, trace };
+                                        let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                                        runs.push(stats);
+                                        if !summary {
+                                            println!("== freeze {}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)));
+                                            for l in lines {
+                                                println!("{l}");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    println!("{}", crate::drop::summary(&format!("SUMMARY {lo:?}, hold y {h}, REL {rel}, re-brake {rebrake}, trapdoors {release}{}, {} freezes", if occupancy { ", gated on the strings" } else { "" }, frz.len()), &runs));
                 }
             }
         }
