@@ -50,9 +50,9 @@ fn build(srv: &mut VanillaServer) -> Result<()> {
             srv.cmd_ok(&format!("setblock {} 64 {} minecraft:observer[facing=east]", x + 2, z + 2))?;
             srv.cmd_ok(&format!("setblock {} 64 {} minecraft:observer[facing=west]", x + 3, z + 2))?;
             srv.cmd_ok(&format!("setblock {} 64 {} minecraft:rail", x + 8, z + 8))?;
-            srv.cmd_ok(&format!("summon minecraft:minecart {}.5 64.0625 {}.5", x + 8, z + 8))?;
-            srv.cmd_ok(&format!("summon minecraft:oak_boat {}.5 64 {}.5 {{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", x + 11, z + 11))?;
-            srv.cmd_ok(&format!("summon minecraft:armor_stand {}.5 64 {}.5", x + 5, z + 12))?;
+            srv.cmd_ok(&format!("summon minecraft:minecart {} 64.0625 {}", (x + 8) as f64 + 0.5, (z + 8) as f64 + 0.5))?;
+            srv.cmd_ok(&format!("summon minecraft:oak_boat {} 64 {} {{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", (x + 11) as f64 + 0.5, (z + 11) as f64 + 0.5))?;
+            srv.cmd_ok(&format!("summon minecraft:armor_stand {} 64 {}", (x + 5) as f64 + 0.5, (z + 12) as f64 + 0.5))?;
         }
     }
     Ok(())
@@ -282,7 +282,7 @@ fn pearl_window(version: &str, runs: u32, busy: bool) -> Result<()> {
     build(&mut srv)?;
     for cx in FARM[0]..=FARM[2] {
         for cz in FARM[1]..=FARM[3] {
-            srv.cmd_ok(&format!("summon minecraft:ender_pearl {}.5 70 {}.5 {{NoGravity:1b,Motion:[0.0,0.0,0.0],Owner:[I;{uuid}]}}", cx * 16 + 8, cz * 16 + 8))?;
+            srv.cmd_ok(&format!("summon minecraft:ender_pearl {} 70 {} {{NoGravity:1b,Motion:[0.0,0.0,0.0],Owner:[I;{uuid}]}}", (cx * 16 + 8) as f64 + 0.5, (cz * 16 + 8) as f64 + 0.5))?;
         }
     }
     std::thread::sleep(std::time::Duration::from_secs(2));
@@ -417,7 +417,7 @@ fn portal_loop(version: &str, runs: u32) -> Result<()> {
     srv.cmd_ok("execute in minecraft:the_nether run fill 10 70 5 10 72 5 minecraft:obsidian")?;
     srv.cmd_ok("execute in minecraft:the_nether run fill 5 70 5 9 72 5 minecraft:nether_portal[axis=x]")?;
     for (k, x) in [(0, 40), (1, 42), (2, 44)] {
-        srv.cmd_ok(&format!("summon minecraft:minecart {x}.5 64 40.5 {{Tags:[\"loop{k}\"]}}"))?;
+        srv.cmd_ok(&format!("summon minecraft:minecart {} 64 40.5 {{Tags:[\"loop{k}\"]}}", x as f64 + 0.5))?;
         srv.step(100)?;
     }
     srv.step(200)?;

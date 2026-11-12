@@ -61,8 +61,10 @@ fn seat(srv: &mut VanillaServer, x: i32, z: i32, tag: &str, k: u32, last_slept: 
         mem.push(format!("\"minecraft:golem_detected_recently\":{{value:1b,ttl:{t}L}}"));
     }
     let u = [0, 0, 0, k as i32];
+    // (the cell's centre as a number: "{x}.5" read -13.5 for x = -13, the centre of the next cell)
+    let (cx, cz) = (x as f64 + 0.5, z as f64 + 0.5);
     srv.cmd_ok(&format!(
-        "summon minecraft:minecart {x}.5 64.0625 {z}.5 {{Passengers:[{{id:\"minecraft:villager\",Tags:[\"{tag}\"],UUID:[I;{},{},{},{}],PersistenceRequired:1b,Brain:{{memories:{{{}}}}}}}]}}",
+        "summon minecraft:minecart {cx} 64.0625 {cz} {{Passengers:[{{id:\"minecraft:villager\",Tags:[\"{tag}\"],UUID:[I;{},{},{},{}],PersistenceRequired:1b,Brain:{{memories:{{{}}}}}}}]}}",
         u[0],
         u[1],
         u[2],
@@ -77,7 +79,7 @@ fn seat(srv: &mut VanillaServer, x: i32, z: i32, tag: &str, k: u32, last_slept: 
 fn zombie(srv: &mut VanillaServer, x: i32, z: i32) -> Result<()> {
     let _ = srv.cmd(&format!("setblock {x} 63 {z} minecraft:stone"))?;
     let _ = srv.cmd(&format!("setblock {x} 67 {z} minecraft:stone"))?;
-    srv.cmd_ok(&format!("summon minecraft:oak_boat {x}.5 64 {z}.5 {{Passengers:[{{id:\"minecraft:zombie\",PersistenceRequired:1b}}]}}"))?;
+    srv.cmd_ok(&format!("summon minecraft:oak_boat {} 64 {} {{Passengers:[{{id:\"minecraft:zombie\",PersistenceRequired:1b}}]}}", x as f64 + 0.5, z as f64 + 0.5))?;
     Ok(())
 }
 

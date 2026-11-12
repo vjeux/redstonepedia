@@ -65,12 +65,13 @@ pub fn three_beds(version: &str) -> Result<()> {
     for (bed, x) in [("A", 0), ("B", 3), ("C", 6)] {
         srv.cmd_ok(&format!("setblock {x} 64 1 minecraft:red_bed[facing=north,part=foot]"))?;
         srv.cmd_ok(&format!("setblock {x} 64 0 minecraft:red_bed[facing=north,part=head]"))?;
-        srv.cmd_ok(&format!("summon minecraft:villager {x}.5 64 -1.5 {{Tags:[\"n{bed}\"],PersistenceRequired:1b,{}}}", brain_home(x)))?;
+        srv.cmd_ok(&format!("summon minecraft:villager {} 64 -1.5 {{Tags:[\"n{bed}\"],PersistenceRequired:1b,{}}}", x as f64 + 0.5, brain_home(x)))?;
     }
     for (tag, z, x) in [("VA", -4, 0), ("VB", 0, 3), ("VC", 4, 6)] {
         srv.cmd_ok(&format!("setblock 18 64 {z} minecraft:rail"))?;
         srv.cmd_ok(&format!(
-            "summon minecraft:minecart 18.5 64.0625 {z}.5 {{Passengers:[{{id:\"minecraft:villager\",Tags:[\"{tag}\"],PersistenceRequired:1b,{}}}]}}",
+            "summon minecraft:minecart 18.5 64.0625 {} {{Passengers:[{{id:\"minecraft:villager\",Tags:[\"{tag}\"],PersistenceRequired:1b,{}}}]}}",
+            z as f64 + 0.5,
             brain_home(x)
         ))?;
     }

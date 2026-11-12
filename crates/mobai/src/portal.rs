@@ -260,7 +260,7 @@ pub fn nether(version: &str, ticks: u32) -> Result<()> {
             }
         }
         let tag = format!("lava_{dim}");
-        srv.cmd_ok(&format!("{run} summon minecraft:iron_golem {}.5 63 {}.5 {{PersistenceRequired:1b,Tags:[\"{tag}\"]}}", bx, bz))?;
+        srv.cmd_ok(&format!("{run} summon minecraft:iron_golem {} 63 {} {{PersistenceRequired:1b,Tags:[\"{tag}\"]}}", bx as f64 + 0.5, bz as f64 + 0.5))?;
         let sel = format!("@e[type=minecraft:iron_golem,tag={tag},limit=1,distance=0..]");
         let mut line = Vec::new();
         for k in 1..=400u32 {
