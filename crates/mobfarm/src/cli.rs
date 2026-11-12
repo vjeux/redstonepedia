@@ -2169,6 +2169,47 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// The carousel's storage at the shared Nether kill room (b8949c96 2026-11-12, ironspec's
+    /// spec; `mobfarm::storage`): writes the design (the kill floor's hoppers into --lines hopper
+    /// lines, each a sorter-classic iron slice into an ironblock-v24 crafter, the iron blocks into
+    /// a one-level hall of --chests double chests, the poppies into lava) and benches it in redsim
+    /// at --modules modules' golem loot over --days game days (each --seeds seed in turn).
+    Storage {
+        /// Modules killing into the room (236 golems a game day each).
+        #[arg(long, default_value_t = 4)]
+        modules: u32,
+        /// Hopper lines (default: 1 to 2 modules, 2 above).
+        #[arg(long)]
+        lines: Option<usize>,
+        /// Double chests (default: 20 play-hours = 60 game days of iron blocks at --modules).
+        #[arg(long)]
+        chests: Option<usize>,
+        #[arg(long, default_value_t = 3.0)]
+        days: f64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 1)]
+        seeds: i64,
+        /// Iron blocks put in each double chest first (3456: the hall full, the full-storage row).
+        #[arg(long, default_value_t = 0)]
+        prefill: u32,
+        /// The sorters set to poppies (the mis-set filter control).
+        #[arg(long)]
+        misset: bool,
+        /// No enclosure round the hall (the ghast rule's walls, roof and slab floor: on by default).
+        #[arg(long)]
+        open: bool,
+        /// Write the design moved by X,Y,Z without the bench's kill-floor ring (onechunk's Nether
+        /// frame: the kill floor's 2 x 2 hoppers onto the kill room's), no bench.
+        #[arg(long, allow_hyphen_values = true)]
+        frame: Option<String>,
+        /// The design written here (default: a temp file).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Write the design only.
+        #[arg(long)]
+        no_bench: bool,
+    },
     /// The vertical drop, M1 (vjeux 21:00; `mobfarm::drop`; ironfarm's lane bench is
     /// `escape-bench`): the waiting batch on trapdoors straight above three braked pockets drops into
     /// them while the batch in them leaves at REL; the series layout (today's strip), Q2's parallel
@@ -6277,6 +6318,48 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
             }
+            }
+        }
+        MobfarmCmd::Storage { modules, lines, chests, days, seed, seeds, prefill, misset, open, frame, out, no_bench } => {
+            let lines = lines.unwrap_or(if modules <= 2 { 1 } else { 2 });
+            // 20 play-hours = 60 game days of iron blocks (ironspec 01:13)
+            let chests = chests.unwrap_or_else(|| ((modules as f64 * crate::storage::GOLEMS_A_DAY * 4.0 * 60.0 / 9.0).ceil() / 64.0 / 54.0).ceil() as usize);
+            let l = crate::storage::Layout { lines, chests, enclose: !open };
+            let b = crate::storage::design(&l).map_err(|e| anyhow::anyhow!(e))?;
+            if let Some(f) = frame {
+                let v: Vec<i32> = f.split(',').map(|s| s.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--frame X,Y,Z");
+                let (d, opener) = crate::storage::shifted(&b, [v[0], v[1], v[2]]);
+                let ex = crate::storage::exposed(&d, &opener);
+                let path = out.unwrap_or_else(|| std::env::temp_dir().join(format!("storage-framed-{lines}-{chests}.txt")));
+                std::fs::write(
+                    &path,
+                    format!(
+                        "# The storage (mobfarm storage, {lines} line(s), {chests} double chest(s)) moved by {f} into the Nether frame, without the bench's kill-floor ring and catch floor; {} blocks: the hall's enclosure {} (walls, roof, slab walkway, iron door and its 2 buttons), the shield {} (cobblestone bottom slabs on every empty cell a blast from outside reaches, 26-connected through cells under the 4.034 bar, beside a block under that bar); blocks under the 3.283 breaking bar a blast from outside reaches: {} (0 required; the door's 2 stone buttons, the opener, aside).\n{}",
+                        d.blocks.len(),
+                        b.enclosure,
+                        b.shield,
+                        ex.len(),
+                        d.to_text()
+                    ),
+                )?;
+                println!("{}", path.display());
+                println!("blocks under the 3.283 breaking bar a blast from outside reaches (26-connected through cells under 4.034): {} (0 required; the door's buttons aside); the enclosure {}, the shield {}, {} blocks", ex.len(), b.enclosure, b.shield, d.blocks.len());
+                for (p, s) in ex.iter().take(12) {
+                    println!("  reached: {s} at {p:?}");
+                }
+                return Ok(());
+            }
+            let path = out.unwrap_or_else(|| std::env::temp_dir().join(format!("storage-{}-{lines}-{chests}.txt", std::process::id())));
+            std::fs::write(&path, crate::storage::design_text(&l, &b))?;
+            println!("{}", path.display());
+            if !no_bench {
+                let (_c, spec) = load(version, &path)?;
+                for s in seed..seed + seeds.max(1) {
+                    let o = crate::storage::BenchOpts { modules, days, seed: s, prefill, misset };
+                    let t = crate::storage::bench(&spec, &b, &l, &o).map_err(|e| anyhow::anyhow!(e))?;
+                    print!("{}", crate::storage::report(&l, &o, &t));
+                }
             }
         }
         MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, reload_at, reload_sweep, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {

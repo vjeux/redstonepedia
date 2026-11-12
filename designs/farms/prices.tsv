@@ -56,6 +56,7 @@ minecart	150	50	10	5 iron
 rail	11.3	3.8	0.8	6 iron + 1 stick make 16
 redstone_block	0	18	4.5	9 redstone dust
 iron_trapdoor	120	40	8	4 iron
+iron_door	30	10	2	6 iron make 3 doors (2 iron a door), priced per half: the bill counts each of its two cells (b8949c96 2026-11-12: the storage hall's door)
 tripwire_hook	15.4	5.2	1.1	1 iron + 1 stick + 1 planks make 2
 tripwire	15	3	1	one string
 oak_leaves	2	0.5	0.2	a trip to the trees with shears (broken without shears, leaves drop saplings and sticks, never the block); the shears are a tool: 2 iron, once (each wood)
