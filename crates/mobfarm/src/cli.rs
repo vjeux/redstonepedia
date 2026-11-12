@@ -2322,6 +2322,9 @@ pub enum MobfarmCmd {
         /// --release-after past F at the latest (the missing napper's timeout).
         #[arg(long)]
         on_stand: bool,
+        /// F that many gt after the napper lies down (the bed's evidence), --f-at at the latest.
+        #[arg(long)]
+        after_sleep: Option<i64>,
     },
     /// (ironspec 17:32) The sentinel villager (its own bed, a sealed one-cell room, an observer on
     /// the bed's head): write its design (`--claim`: no HOME preset, it claims the bed itself).
@@ -4609,7 +4612,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, crate::bedtier::design(bench)?)?;
             println!("wrote {}", out.display());
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand, after_sleep } => {
             let (_c, spec) = load(version, &design)?;
             let sp: Vec<f64> = speeds.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
             let mut bad = 0;
@@ -4617,12 +4620,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for seed in from..=to {
                 for &v in &sp {
                     n += 1;
-                    match crate::bedtier::bench(&spec, seed, v, f_at, release_after, day, on_stand) {
+                    match crate::bedtier::bench(&spec, seed, v, f_at, release_after, day, on_stand, after_sleep) {
                         Ok(r) => {
                             if !r.problems.is_empty() {
                                 bad += 1;
                             }
-                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?}, R {:?}, out {:?}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.r_at, r.out_at, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?} at {:?} b/t, R {:?}, out {:?}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
                         }
                         Err(e) => {
                             bad += 1;
