@@ -193,10 +193,27 @@ pub fn tick(w: &mut World) {
         for j in others {
             push_pair(w, k, j, false);
         }
-        // Player.aiStep: the items within its box grown by (1, 0.5, 1) it would touch
+        // Player.aiStep: it touches every entity within its box grown by (1, 0.5, 1), in the
+        // level's order (mob-AI 2026-11-12, bed-plate-two-clusters build 9 t72593: the pushed AFK
+        // player took a zombie's rotten flesh): an item whose pickup delay ran out is picked up
+        // (ItemEntity.playerTouch; a creative player's inventory takes everything:
+        // `Inventory.add` with infinite materials empties the stack) and discarded; a mob's arrow
+        // is never picked up (Pickup.DISALLOWED); a survival player's inventory is not modeled
         let reach = bb(np).inflate(1.0, 0.5, 1.0);
-        if w.mob.ai.players[k].mode == super::GameMode::Survival && !w.get_entities(reach, |e| matches!(e.kind, EntityKind::Item(_)) && !e.removed).is_empty() {
-            legacy(w, "the AFK player picking up an item");
+        let items = w.get_entities(reach, |e| matches!(e.kind, EntityKind::Item(_)) && !e.removed);
+        if !items.is_empty() {
+            if w.mob.ai.players[k].mode == super::GameMode::Survival {
+                legacy(w, "the AFK player picking up an item");
+            } else {
+                for j in items {
+                    if let EntityKind::Item(s) = &w.entities.list[j].kind
+                        && s.pickup_delay == 0
+                        && !w.entities.list[j].removed
+                    {
+                        w.entities.list[j].removed = true;
+                    }
+                }
+            }
         }
     }
 }

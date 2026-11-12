@@ -501,7 +501,11 @@ pub fn tick_bolt(w: &mut World, k: usize) {
     let b = &w.weather.bolts[k];
     if b.life >= 0 && !b.visual_only {
         let (id, hit) = (b.id, b.hit_box());
-        let victims: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed && alive(e) && e.bb.intersects(hit)).map(|e| e.id).collect();
+        // (mob-AI 2026-11-12) `level.getEntities(bolt, box, isAlive)`: the level's order (each
+        // entity section's entry order), not the list's (bed-plate-two-sleepers build 4 t80470: a
+        // bolt killed a chicken, whose drops come first, then turned a pig into a zombified
+        // piglin)
+        let victims: Vec<u32> = w.get_entities(hit, alive).into_iter().map(|j| w.entities.list[j].id).collect();
         for v in victims {
             thunder_hit(w, id, v);
         }
@@ -607,6 +611,14 @@ fn lead_unmodeled(w: &mut World, i: usize, what: &str) {
 fn mob_thunder_hit(w: &mut World, i: usize) {
     use crate::entity::mob::{self, Damage, types::MobType};
     let t = w.time;
+    // (mob-AI 2026-11-12) Pig.thunderHit: not Peaceful, it becomes a zombified piglin (instead of
+    // the fire and the hurt)
+    if crate::entity::mob::ai::goal::animal::adult_of(mob::mob(w, i).ty.def().id) == Some("pig")
+        && w.weather.lightning.difficulty != Difficulty::Peaceful
+        && mob::natural::pig_to_zombified_piglin(w, i).is_some()
+    {
+        return;
+    }
     if mob::mob(w, i).ty == MobType::Villager && w.weather.lightning.difficulty != Difficulty::Peaceful {
         let id = w.entities.list[i].id;
         let (pos, yaw) = (w.entities.list[i].pos, w.entities.list[i].y_rot);

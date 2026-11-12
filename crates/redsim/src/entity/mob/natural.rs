@@ -2174,6 +2174,104 @@ pub fn zombie_to_drowned(w: &mut World, i: usize) -> Option<u32> {
     Some(d)
 }
 
+/// (mob-AI 2026-11-12) `Pig.thunderHit` of pig `i` (not Peaceful): `convertTo(ZOMBIFIED_PIGLIN,
+/// ConversionParams.single(keepEquipment false, preserveCanPickUpLoot true))`: a zombified piglin
+/// constructed (the bridge's construction seed counted; nothing drawn from it), `ConversionType
+/// .SINGLE`'s copies (position and rotation, motion, its vehicle, fall distance, hurt time, body
+/// yaw, on ground; `convertCommon`: effects, baby, the loot flag, left-handedness, persistence,
+/// invulnerable time), then the conversion's own finalizer: `populateDefaultEquipmentSlots(the
+/// PIG's random)` (a golden spear 1 in 20, else a golden sword: `nextInt(20)`) and
+/// `setPersistenceRequired`; no finalizeSpawn (its follow range at its base); added (its own
+/// random from the bridge's entering seed), the pig discarded. A pig with a rider or on a lead is
+/// named in the legacy list (their hand-over is not modeled). Its id.
+pub fn pig_to_zombified_piglin(w: &mut World, i: usize) -> Option<u32> {
+    use super::mob;
+    let pid = w.entities.list[i].id;
+    let baby = mob(w, i).ty.def().id == "baby_pig";
+    let zty = MobType::from_id(if baby { "baby_zombified_piglin" } else { "zombified_piglin" })?;
+    if !w.entities.list[i].passengers.is_empty() {
+        w.mob.ai.legacy.insert("a pig struck by lightning with a rider (the rider's hand-over)");
+    }
+    if w.entities.list[i].leash.is_some() {
+        w.mob.ai.legacy.insert("a pig struck by lightning on a lead (the lead's hand-over)");
+    }
+    if w.exact_seed.is_some() {
+        w.construct();
+    }
+    let (pos, y_rot, x_rot, motion, on_ground, fall) = {
+        let e = &w.entities.list[i];
+        (e.pos, e.y_rot, e.x_rot, e.delta_movement, e.on_ground, e.fall_distance)
+    };
+    let (hurt_time, effects, cooldown, loot, left) = {
+        let m = mob(w, i);
+        (m.hurt_time, m.effects, m.damage_cooldown, m.can_pick_up_loot, m.left_handed)
+    };
+    let body = mob(w, i).ai.as_deref().map(|a| a.y_body_rot).unwrap_or(y_rot);
+    let vehicle = w.entities.list[i].vehicle;
+    // the finalizer's draw: the pig's own random
+    let spear = match w.entities.list[i].random.as_mut() {
+        Some(r) => r.next_int(20) == 0,
+        None => {
+            w.mob.ai.legacy.insert("a pig struck by lightning without its own random (its piglin's weapon)");
+            false
+        }
+    };
+    let z = super::add(w, zty, pos, true);
+    let zi = crate::entity::index_of(w, z)?;
+    {
+        let e = &mut w.entities.list[zi];
+        e.y_rot = y_rot;
+        e.y_rot_o = y_rot;
+        e.x_rot = x_rot;
+        e.x_rot_o = x_rot;
+        // snapTo's setOldPosAndRot
+        (e.xo, e.yo, e.zo) = (pos.x, pos.y, pos.z);
+        (e.x_old, e.y_old, e.z_old) = (pos.x, pos.y, pos.z);
+        e.delta_movement = motion;
+        e.on_ground = on_ground;
+        e.fall_distance = fall;
+    }
+    if let Some(v) = vehicle {
+        crate::entity::stop_riding(w, i);
+        if let (Some(zi), Some(vi)) = (crate::entity::index_of(w, z), crate::entity::index_of(w, v)) {
+            w.entities.list[zi].vehicle = Some(v);
+            w.entities.list[vi].passengers.push(z);
+        }
+    }
+    if let Some(zi) = crate::entity::index_of(w, z)
+        && let EntityKind::Mob(m) = &mut w.entities.list[zi].kind
+    {
+        m.hurt_time = hurt_time;
+        m.effects = effects;
+        m.damage_cooldown = cooldown;
+        m.can_pick_up_loot = loot;
+        m.left_handed = left;
+        m.persistence_required = true;
+        let item = if spear { "minecraft:golden_spear" } else { "minecraft:golden_sword" };
+        m.mainhand = Some(super::Held { item: item.to_string(), count: 1, guaranteed: false, enchanted: false, ench: Vec::new() });
+        // no finalizeSpawn: no random spawn bonus on its follow range
+        m.follow_range = m.ty.def().follow_range;
+        if let Some(a) = m.ai.as_deref_mut() {
+            a.y_body_rot = body;
+            a.y_body_rot_o = body;
+        }
+    }
+    super::ai::refresh_path_budget(w, z, true);
+    // its head keeps the constructor's yaw draw (SINGLE copies the body only)
+    if let Some(yaw) = super::seed_entered(w, z)
+        && let Some(j) = crate::entity::index_of(w, z)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+        && let Some(a) = m.ai.as_deref_mut()
+    {
+        a.y_head_rot = yaw;
+        a.y_head_rot_o = yaw;
+    }
+    if let Some(pi) = crate::entity::index_of(w, pid) {
+        w.entities.list[pi].removed = true;
+    }
+    Some(z)
+}
+
 /// (mob-AI 2026-11-10) `Zombie.convertVillagerToZombieVillager` of villager `i` (its killer a
 /// zombie, `Zombie.killedEntity`): `villager.convertTo(ZOMBIE_VILLAGER, ConversionParams.single(
 /// keepEquipment, preserveCanPickUpLoot))`. A zombie villager constructed (the bridge's

@@ -186,8 +186,12 @@ fn passenger_data_is_validated() {
     let rider = w.entities.list.iter().find(|e| e.vehicle == Some(boat)).expect("the zombie rides the boat");
     assert!(matches!(&rider.kind, EntityKind::Mob(m) if m.persistence_required));
     for bad in ["{Passengers:[{id:\"minecraft:zombie\",NoAI:1b}]}", "{Passengers:[{id:\"minecraft:zombie\",IsBaby:1b}]}"] {
+        let before: Vec<u32> = w.entities.list.iter().map(|e| e.id).collect();
         let r = crate::entity::spawn(&mut w, "minecraft:oak_boat", [4.5, 0.0, 0.5], Some(bad));
         assert!(r.is_err(), "{bad} was accepted");
+        // (mob-AI 2026-11-12, mobviewer's stray boat) the refused line leaves no vehicle behind
+        let after: Vec<u32> = w.entities.list.iter().map(|e| e.id).collect();
+        assert_eq!(before, after, "{bad} left a stray in the world");
     }
     assert!(crate::entity::spawn(&mut w, "minecraft:zombie", [8.5, 0.0, 0.5], Some("{NoAI:1b}")).is_err());
 }

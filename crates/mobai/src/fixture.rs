@@ -7394,6 +7394,31 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // (mob-AI 2026-11-12) a creative player picks up the items it touches (Player.aiStep ->
+    // ItemEntity.playerTouch: within its box grown by (1, 0.5, 1), once the pickup delay runs
+    // out; a creative inventory takes everything): one item within reach (delay 10), one beyond
+    // it, one within reach that can never be picked up (delay 32767)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        v.push(Scene {
+            name: "player-pickup".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:item".into(), [25.5, 64.0, 24.5], Some("{Item:{id:\"minecraft:rotten_flesh\",count:2},PickupDelay:10s}".into())),
+                ("minecraft:item".into(), [27.2, 64.0, 24.5], Some("{Item:{id:\"minecraft:rotten_flesh\",count:1},PickupDelay:10s}".into())),
+                ("minecraft:item".into(), [24.5, 64.0, 25.6], Some("{Item:{id:\"minecraft:poppy\",count:1},PickupDelay:32767s}".into())),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 64.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 3,
+        });
+    }
     v
 }
 

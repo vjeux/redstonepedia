@@ -121,6 +121,7 @@ pane-water.rec	5df1a57f3634eb78		26.3	2026-11-12T06:56Z on c2235cf2b	mctas mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 plate-rider.rec	a6b89e2ef1c0d4b4		26.3	2026-11-11T19:23Z on d2663812b7	mctas mobai record plate-rider --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
+player-pickup.rec	b6666ac56f06b451		26.3	2026-11-12T15:59Z on 680a0bf7c	mctas mobai record player-pickup --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 queue-back-2-e.rec	cf0e3f185f119a55		26.3	2026-11-11T19:18Z on d2663812b7	mctas mobai record queue-back-2-e --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
 queue-back-2-r.rec	804569a1500f9242		26.3	2026-11-11T19:17Z on d2663812b7	mctas mobai record queue-back-2-r --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
 queue-back-3-e.rec	097a93638d89708f		26.3	2026-11-11T19:14Z on d2663812b7	mctas mobai record queue-back-3-e --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai

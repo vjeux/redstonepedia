@@ -694,12 +694,28 @@ pub fn spawn_hook(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>
     let mut rest = format!("{}{}", &n[..start], &n[end + 1..]);
     rest = rest.replace("{,", "{").replace(",}", "}").replace(",,", ",");
     let rest = if rest.trim() == "{}" { None } else { Some(rest) };
+    // (mob-AI 2026-11-12, mobviewer's stray boat) every passenger's type is checked before the
+    // vehicle spawns, and a passenger refused after it (its data) takes the vehicle and the riders
+    // spawned so far out again: a refused line leaves nothing in the world (a viewer matching
+    // entities by order would otherwise pair the next line with the stray)
+    for item in split_compounds(list) {
+        let Some(i) = item.find("id:") else { return Some(Err(format!("{type_id}: a passenger without an id: {item}"))) };
+        let pid: String = item[i + 3..].trim_start().trim_start_matches('"').chars().take_while(|c| *c != '"' && *c != ',' && *c != '}').collect();
+        if MobType::from_id(&pid).is_none() {
+            return Some(Err(format!("{type_id}: passenger {pid} is not modeled")));
+        }
+    }
     let vehicle = match crate::entity::spawn(w, type_id, pos, rest.as_deref()) {
         Ok(v) => v,
         Err(e) => return Some(Err(e)),
     };
+    let mut spawned = vec![vehicle];
+    let refuse = |w: &mut World, spawned: &[u32], e: String| -> Option<Result<u32, String>> {
+        w.entities.list.retain(|x| !spawned.contains(&x.id));
+        Some(Err(e))
+    };
     for item in split_compounds(list) {
-        let Some(i) = item.find("id:") else { return Some(Err(format!("{type_id}: a passenger without an id: {item}"))) };
+        let Some(i) = item.find("id:") else { return refuse(w, &spawned, format!("{type_id}: a passenger without an id: {item}")) };
         let pid: String = item[i + 3..].trim_start().trim_start_matches('"').chars().take_while(|c| *c != '"' && *c != ',' && *c != '}').collect();
         // the passenger's own data without its id, through the same contract as a summoned mob
         // (`spawn`: PersistenceRequired and Rotation only; NoAI and anything else refused)
@@ -708,16 +724,14 @@ pub fn spawn_hook(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>
         let mut rest = format!("{}{}", &item[..i], &item[id_end..]);
         rest = rest.replace("{,", "{").replace(",}", "}").replace(",,", ",");
         let rest = if rest.trim() == "{}" { None } else { Some(rest) };
-        if MobType::from_id(&pid).is_none() {
-            return Some(Err(format!("{type_id}: passenger {pid} is not modeled")));
-        }
         let rider = match spawn_inner(w, &pid, pos, rest.as_deref(), true) {
             Some(Ok(r)) => r,
-            Some(Err(e)) => return Some(Err(format!("{type_id}'s passenger: {e}"))),
-            None => return Some(Err(format!("{type_id}: passenger {pid} is not modeled"))),
+            Some(Err(e)) => return refuse(w, &spawned, format!("{type_id}'s passenger: {e}")),
+            None => return refuse(w, &spawned, format!("{type_id}: passenger {pid} is not modeled")),
         };
+        spawned.push(rider);
         if let Err(e) = mount(w, rider, vehicle) {
-            return Some(Err(e));
+            return refuse(w, &spawned, e);
         }
     }
     Some(Ok(vehicle))
@@ -1698,7 +1712,12 @@ pub fn mount(w: &mut World, rider: u32, vehicle: u32) -> Result<(), String> {
     w.entities.list[vi].passengers.push(rider);
     let off = rider_offset(&w.entities.list[vi].kind, mob(w, pi)).unwrap_or(0.0);
     let vp = w.entities.list[vi].pos;
-    w.entities.set_pos(pi, vp.add(0.0, off, 0.0));
+    let seat = vp.add(0.0, off, 0.0);
+    w.entities.set_pos(pi, seat);
+    // (mob-AI 2026-11-12, mobviewer's first picture) the old position at the seat too: a viewer
+    // lerps from it before the first tick, whose setOldPosAndRot sets it anyway (no run changes)
+    let e = &mut w.entities.list[pi];
+    (e.xo, e.yo, e.zo) = (seat.x, seat.y, seat.z);
     Ok(())
 }
 

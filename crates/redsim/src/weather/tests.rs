@@ -211,6 +211,31 @@ fn lightning_trap_horse() {
     assert!(crate::entity::index_of(&w, id).is_none_or(|j| w.entities.list[j].removed), "discarded after 18000 gt");
 }
 
+/// (mob-AI 2026-11-12) Pig.thunderHit: struck (not Peaceful), a pig becomes a persistent
+/// zombified piglin where it stood, holding a golden sword (a golden spear 1 in 20: the pig's own
+/// random), and the pig is gone (no fire, no hurt: the conversion replaces Entity.thunderHit).
+#[test]
+fn lightning_turns_a_pig_into_a_zombified_piglin() {
+    let mut w = stormy_world();
+    put(&mut w, 0, 1, 0, "minecraft:stone");
+    let pig = crate::entity::mob::add(&mut w, MobType::from_id("pig").unwrap(), Vec3::new(0.5, 2.0, 0.5), false);
+    let zp = |w: &World| w.entities.list.iter().position(|e| !e.removed && matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ty.def().id == "zombified_piglin"));
+    let mut tries = 0;
+    while zp(&w).is_none() && tries < 200 {
+        lightning::strike(&mut w, 0, 0);
+        w.tick();
+        tries += 1;
+    }
+    let j = zp(&w).expect("a struck pig within 200 strikes");
+    assert!(crate::entity::index_of(&w, pig).is_none_or(|i| w.entities.list[i].removed), "the pig is gone");
+    let e = &w.entities.list[j];
+    assert_eq!((e.pos.x, e.pos.z), (0.5, 0.5));
+    let crate::entity::EntityKind::Mob(m) = &e.kind else { unreachable!() };
+    assert!(m.persistence_required);
+    let held = m.mainhand.as_ref().map(|h| h.item.as_str());
+    assert!(matches!(held, Some("minecraft:golden_sword" | "minecraft:golden_spear")), "{held:?}");
+}
+
 /// A rod that tops its column takes the strike (one above it); one under a block does not count.
 #[test]
 fn lightning_rods() {
