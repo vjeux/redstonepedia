@@ -2534,6 +2534,13 @@ pub enum MobfarmCmd {
         /// The control for `--pulse-gate`: sample the delayed bit alone (must fire a phantom pulse).
         #[arg(long)]
         gate_delayed_only: bool,
+        /// `--napper-lift`: the lift's extra depth in levels (the stop N down; R at (4,-19-N,4)).
+        #[arg(long, default_value_t = 0)]
+        lift_depth: i32,
+        /// tick-exact's t-snap positive control: `official` (its geometry) or `mine` (this bench's
+        /// T and hold); prints its table's format and exits.
+        #[arg(long)]
+        t_snap: Option<String>,
         /// The arrival-phase sweep's bookkeeping: the waiting bit counts as consumed by the first
         /// arming whose E rise is at least this many gt after the napper's detection on (7,-3,4).
         #[arg(long, default_value_t = 36)]
@@ -6853,7 +6860,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let prelude = if napper_lift { 100 } else { 0 };
             let ticks = ticks + prelude;
             let starts = vec![starts[0], starts[1] + prelude];
-            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, out: None, k_relay: false, napper_lane: 3, napper_r: 0, release_pulse: 8, mirror_z: false, day1_taps: false, supp_open: 73, pulse_gate: None, gate_delayed_only: false, bit_delay: 36, tripwire: false, dep_keyed: false, trip_lag: 0 };
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, out: None, k_relay: false, napper_lane: 3, napper_r: 0, release_pulse: 8, mirror_z: false, day1_taps: false, supp_open: 73, pulse_gate: None, gate_delayed_only: false, lift_depth: 0, bit_delay: 36, tripwire: false, dep_keyed: false, trip_lag: 0 };
             let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max };
             let line = format!(
                 "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
@@ -6957,10 +6964,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if fails == 0 && gfails == 0 { "PASSES" } else { "FAILS" }
             );
         }
-        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep } => {
+        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, t_snap, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep } => {
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
-            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse };
-            if restart_sweep.len() == 2 {
+            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse };
+            if let Some(m) = t_snap {
+                println!("{}", crate::returnbench::t_snap(&m).map_err(|e| anyhow::anyhow!(e))?);
+            } else if restart_sweep.len() == 2 {
                 println!("{}", crate::returnbench::restart_sweep(&o, restart_sweep[0], restart_sweep[1]).map_err(|e| anyhow::anyhow!(e))?);
             } else if late_sweep.len() == 2 {
                 println!("{}", crate::returnbench::late_sweep(&o, late_sweep[0], late_sweep[1]).map_err(|e| anyhow::anyhow!(e))?);
