@@ -346,6 +346,46 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-12, ironspec: every rider's bed claim rests on it) A seated rider's
+    /// CANT_REACH_WALK_TARGET_SINCE stamp and HOME on the official server, in onechunk's module
+    /// (its bed): the brain agent logs every WALK_TARGET, stamp and HOME change with its source;
+    /// (1) pocket dwells with the lead posts, (2) a calm lane control, (3) continuous panic with a
+    /// pre-aged stamp
+    SeatClear {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// The module file (onechunk's a9a418d03, wip/onechunk/module/f1q2-module-first-assembly.txt)
+        #[arg(long, default_value = "designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-module-first-assembly.txt")]
+        module: std::path::PathBuf,
+        /// Row (1)'s dwells per lane
+        #[arg(long, default_value_t = 200)]
+        dwells: u32,
+        /// Row (1)'s lanes, x:dwell:away (gt) each (dfb89499's recorded station at s 12, REL T+4:
+        /// every lane rests 55 gt from landing to departure and is away 45 gt)
+        #[arg(long, default_value = "-1:55:45,3:55:45,7:55:45", allow_hyphen_values = true)]
+        lanes: String,
+        /// The rows to run (any of 1, 2, 3)
+        #[arg(long, default_value = "123")]
+        rows: String,
+        /// Row (1): the real departure's gt (the pocket's support powered, the cart rolling out on
+        /// the module's rails with the scarers present; 0: none; dfb89499: 25 gt to the merge row)
+        #[arg(long, default_value_t = 0)]
+        depart: u32,
+        /// Row (1): gt added to every turn (1: the cycle advances 1 gt a dwell against the 20-gt
+        /// sensors, every offset sampled)
+        #[arg(long, default_value_t = 0)]
+        drift: u32,
+        /// Row (1): glowstone floors laid first, x,y,z;x,y,z... (9fc3155f's extra stroll cells)
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        floors: String,
+        /// Row (1): glass floors laid first (the control: a cell over glass is never a stable
+        /// destination, so never drawn)
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        glass: String,
+        /// Row (3)'s stamp age when the zombie comes (gt)
+        #[arg(long, default_value_t = 1100)]
+        preage: u32,
+    },
     /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
     /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
     /// T2 (face-adjacent to the detector) the positive control that re-settles
@@ -604,6 +644,27 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::DesignDiff { old, new } => crate::designdiff::design_diff(&old, &new),
         MobaiCmd::PadGolems { version, station } => crate::padgolem::pad_golems(&version, &station),
         MobaiCmd::RailSlope { version } => crate::railslope::rail_slope(&version),
+        MobaiCmd::SeatClear { version, module, dwells, lanes, rows, preage, depart, drift, floors, glass } => {
+            let lanes: Vec<(i32, u32, u32)> = lanes
+                .split(',')
+                .map(|l| {
+                    let v: Vec<&str> = l.split(':').collect();
+                    anyhow::ensure!(v.len() == 3, "--lanes: x:dwell:away, got {l}");
+                    Ok((v[0].trim().parse()?, v[1].trim().parse()?, v[2].trim().parse()?))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let cells = |s: &str| -> anyhow::Result<Vec<[i32; 3]>> {
+                s.split(';')
+                    .filter(|f| !f.trim().is_empty())
+                    .map(|f| {
+                        let v: Vec<i32> = f.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "x,y,z;..., got {f}");
+                        Ok([v[0], v[1], v[2]])
+                    })
+                    .collect()
+            };
+            crate::seatclear::seat_clear(&version, &module, &rows, &lanes, dwells, preage, depart, drift, &cells(&floors)?, &cells(&glass)?)
+        }
         MobaiCmd::RailT { version } => crate::railt::rail_t(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
         MobaiCmd::Daylight { version, latency, levels, weather_row } => {

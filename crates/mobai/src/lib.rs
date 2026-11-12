@@ -10,6 +10,7 @@ pub mod railt;
 pub mod designdiff;
 pub mod padgolem;
 pub mod railslope;
+pub mod seatclear;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

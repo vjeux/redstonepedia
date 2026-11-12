@@ -82,6 +82,17 @@ pub fn target_agent(version: &str) -> Result<PathBuf> {
     agent_jar(version, TARGET_AGENT, "dev.vjeux.mctas.agent.TargetAgent", "target-agent")
 }
 
+/// (tickexact 2026-11-12, the seated-rider clear scene) The brain agent (`bridge/agent`): every
+/// change of a watched brain memory and every activity switch prints the change and the behaviour
+/// that made it to stderr; the watched memory ids (`minecraft:walk_target,...`) go after `=` in the
+/// `-javaagent:` value.
+pub const BRAIN_AGENT: (&str, &str) = ("dev/vjeux/mctas/agent/BrainAgent.java", include_str!("../../../bridge/agent/dev/vjeux/mctas/agent/BrainAgent.java"));
+
+/// The brain agent's jar for `version`'s Java (as [`golem_agent`]).
+pub fn brain_agent(version: &str) -> Result<PathBuf> {
+    agent_jar(version, BRAIN_AGENT, "dev.vjeux.mctas.agent.BrainAgent", "brain-agent")
+}
+
 /// A Java agent's jar for `version`'s Java (built with the JDK's own `javac` and `jar` next to the
 /// server's `java`, cached by a hash of the source).
 fn agent_jar(version: &str, (name, text): (&str, &str), main_class: &str, stem: &str) -> Result<PathBuf> {
