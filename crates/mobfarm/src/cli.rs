@@ -1253,6 +1253,25 @@ pub enum MobfarmCmd {
         /// The returns' speed on the split's flat branch (with --intake-flat).
         #[arg(long, default_value_t = 0.2)]
         v_in: f64,
+        /// The napper's lane-exact siding bench (9fc3155f's cells): one lane in the budget's
+        /// coordinates, with the branch, the merge and the siding.
+        #[arg(long)]
+        siding: bool,
+        /// The siding: release the napper this long after its predecessor's merge pass.
+        #[arg(long, default_value_t = 4)]
+        nap_k: i64,
+        /// The siding: every this many drops a napper (0: none).
+        #[arg(long, default_value_t = 3)]
+        nap_every: usize,
+        /// The siding: the napper's return onto the siding this long after its drop.
+        #[arg(long, default_value_t = 60)]
+        nap_ret: i64,
+        /// The siding: its slope powered this long at the release.
+        #[arg(long, default_value_t = 30)]
+        nap_pulse: i64,
+        /// The siding: the merge cell a north_west curve (else a straight flat on the branch).
+        #[arg(long)]
+        merge_curve: bool,
         #[arg(long)]
         r_boost: bool,
         #[arg(long)]
@@ -4212,7 +4231,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, r_boost, floor_bottom, empty, freeze32 } => {
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
@@ -4222,6 +4241,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let login: Vec<(i64, i64)> = login.iter().map(pair).collect::<anyhow::Result<_>>()?;
             let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
             let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32 };
+            if siding {
+                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve };
+                println!("{}", crate::sidingbench::siding_bench(&o, &so).map_err(|e| anyhow::anyhow!(e))?);
+                return Ok(());
+            }
             if login_matrix {
                 // (a login of 1..=3 gt landing at every phase of the third cycle)
                 let base = 300 + 2 * period;

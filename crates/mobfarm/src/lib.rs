@@ -42,6 +42,7 @@ pub mod contact_scene;
 pub mod combine;
 pub mod holdbench;
 pub mod switchbench;
+pub mod sidingbench;
 pub mod brigadebench;
 pub mod dropbench;
 pub mod lanesbench;
