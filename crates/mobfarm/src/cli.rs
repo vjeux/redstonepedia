@@ -4758,12 +4758,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 let (b, rt) = (bb[basis], rr[basis]);
                                 for i in 0..2 {
                                     let (sb, eb, xb) = b[i];
-                                    let (sf, ef, _) = rt[i];
+                                    let (sf, ef, xf) = rt[i];
                                     let Some(k) = (0..3).filter(|k| eb[*k] >= 0 && eb[*k] <= sb).max_by_key(|k| eb[*k]) else { continue };
                                     if sb < 0 || sf < 0 || ef[k] < 0 || xb[k] < 0 {
                                         continue;
                                     }
-                                    let (gap, dwell, drift) = (sb - eb[k], xb[k] - eb[k], (ef[k] - eb[k]) - (sf - sb));
+                                    // (the drift against the passing cart's exit, not its entry: a
+                                    // freeze between them holds the cart in the cell while a timer
+                                    // that has not locked yet runs on; a cart that never clears in
+                                    // the freeze run is held past the run's end)
+                                    let xfk = if xf[k] >= 0 { xf[k] } else { xb[k] + 9999 };
+                                    let (gap, dwell, drift) = (sb - eb[k], xb[k] - eb[k], (xfk - xb[k]) - (sf - sb));
                                     let c = &mut conds[basis][i];
                                     c.cart = Some(k);
                                     c.gap = Some(c.gap.map_or((gap, gap), |(a, z)| (a.min(gap), z.max(gap))));
@@ -4841,7 +4846,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 };
                 for (basis, what) in ["the gate's cell", "the shut gate's collision box"].iter().enumerate() {
                     let per: Vec<String> = conds[basis].iter().enumerate().map(|(i, c)| fmt_cond(c, ["G2", "G1"][i])).collect();
-                    println!("drift condition on {what} (per timed gate, against each corner's run without a freeze: the least gap from the passing cart's entry to the shut, minus its dwell, must exceed the drift, the shut coming that much earlier against the cart; and the shut must come no later than the next cart's arrival tick, whatever its lag: a shut on the arrival tick is set before the carts move that tick, block ticks running before entities): {}", per.join(" || "));
+                    println!("drift condition on {what} (per timed gate, against each corner's run without a freeze: the least gap from the passing cart's entry to the shut, minus its dwell, must exceed the drift, the shut coming that much earlier against the cart's exit (a cart frozen in the cell drifts by the freeze; 9999+: it never cleared); and the shut must come no later than the next cart's arrival tick, whatever its lag: a shut on the arrival tick is set before the carts move that tick, block ticks running before entities): {}", per.join(" || "));
                 }
                 if let Some(tm) = timer_model.filter(|_| alive_gate) {
                     println!(

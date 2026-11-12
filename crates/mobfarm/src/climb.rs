@@ -1359,6 +1359,8 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     let mut d1_was = matches!(run.world.get(d1_cell), Block::DetectorRail { powered: true, .. });
     let mut d1_edges: Vec<i64> = Vec::new();
     let mut d1_first: Option<i64> = None;
+    // (cc767b78: the tick of D1's first rising edge, the D1-keyed timers' key)
+    let mut d1_key: Option<i64> = None;
     let mut shut_dt: [Option<i64>; 3] = [None; 3];
     let mut gate_edges: Vec<String> = Vec::new();
     // (each cart's entry into each gate's cell, G2, G1, G0: the tick and its stored speed)
@@ -1546,11 +1548,13 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             }
         }
         // (7b90c3f1: D1-keyed shuts: D1's real powered state; its first rising edge starts both
-        // lockable delays (live time, paused while frozen))
+        // lockable delays (live time, paused while frozen); cc767b78's `alive` + `timer_model`:
+        // the delays as the fill's pausable timers keyed on that edge, locked while ALIVE is low)
         {
             let d1_on = matches!(run.world.get(d1_cell), Block::DetectorRail { powered: true, .. });
             let live = dt - frozen_ticks;
-            if d1_on && !d1_was {
+            let d1_rise = d1_on && !d1_was;
+            if d1_rise {
                 d1_edges.push(dt);
                 if d1_first.is_none() {
                     d1_first = Some(live);
@@ -1558,8 +1562,40 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             }
             d1_was = d1_on;
             if let Some((a1, a2)) = o.gate_shut_d1 {
-                open[1] = !d1_first.is_some_and(|e| live >= e + a1);
-                open[0] = !d1_first.is_some_and(|e| live >= e + a2);
+                if let (true, Some(tmod)) = (o.alive, o.timer_model) {
+                    let locked = alive_hist.len() > CHAIN_LOCK_D && !alive_hist[alive_hist.len() - 1 - CHAIN_LOCK_D];
+                    if d1_rise && d1_key.is_none() {
+                        d1_key = Some(dt);
+                        chains = [Some(Chain::start(a2, tmod, dt, locked)), Some(Chain::start(a1, tmod, dt, locked))];
+                    }
+                    // (the carts' live ticks since D1's edge, for the timers' early and late lag)
+                    if d1_key.is_some_and(|k| dt > k) && run.world.entity_ticks_at((chunks[0] * 16 + 8) as f64, (chunks[1] * 16 + 8) as f64) {
+                        carts_live += 1;
+                    }
+                    for i in 0..2 {
+                        let fired = match chains[i].as_mut() {
+                            Some(c) if d1_key != Some(dt) || c.due.is_none() => c.tick(dt, locked),
+                            _ => false,
+                        };
+                        if let Some(c) = chains[i].as_ref()
+                            && (!c.done || fired)
+                        {
+                            let d = c.progress(dt) - carts_live;
+                            excursion[i].0 = excursion[i].0.max(d);
+                            excursion[i].1 = excursion[i].1.max(-d);
+                        }
+                        if fired && !fill_shut[i] {
+                            fill_shut[i] = true;
+                            gate.fired_pulse(&run.world, ["D1 delay G2 (chain)", "D1 delay G1 (chain)"][i], dt);
+                            alive_log.push(format!("{} shut at T+{dt} (D1 + {}, chain{})", ["G2", "G1"][i], [a2, a1][i], chains[i].as_ref().map_or(String::new(), |c| if c.lost > 0 { format!(", {} stage completions lost to a lock", c.lost) } else { String::new() })));
+                        }
+                    }
+                    open[0] = !fill_shut[0];
+                    open[1] = !fill_shut[1];
+                } else {
+                    open[1] = !d1_first.is_some_and(|e| live >= e + a1);
+                    open[0] = !d1_first.is_some_and(|e| live >= e + a2);
+                }
             }
         }
         for i in 0..3 {
@@ -1858,7 +1894,7 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     // (cc767b78, ironspec's (b): per timed pulse, the least gap between a cart entering the
     // gate's cell and the gate's timed edge; the liveness latency must stay under it, so no timed
     // edge lands on a cart frozen mid-pass)
-    if o.gate_shut.is_some() {
+    if o.gate_shut.is_some() || o.gate_shut_d1.is_some() {
         let per: Vec<String> = (0..2)
             .map(|i| {
                 let name = ["G2", "G1"][i];
