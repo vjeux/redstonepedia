@@ -965,13 +965,18 @@ pub fn clearing_fix_pairs(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: 
 /// post covering the most still-uncovered points first, at most `max_posts`. Not checked here: the
 /// posts' reach from the golems (their hatches) and the pad golems' distance to a pillager; the
 /// laid result goes through the full flee-check (classes, the 6-8 gate).
-pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3], kind: &str, max_posts: usize, any_floor: bool, exclude: &[([i32; 3], [i32; 3])]) -> Result<Vec<String>, String> {
+pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3], kind: &str, max_posts: usize, any_floor: bool, exclude: &[([i32; 3], [i32; 3])], near: Option<f64>) -> Result<Vec<String>, String> {
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     while run.settle_tick() {}
     let w = &run.world;
     let pillager = kind == "pillager";
-    let (near_bar, far_bar) = if pillager { (8.0, 15.0) } else { (FLEE_BAR, PANIC_BAR) };
+    let (mut near_bar, far_bar) = if pillager { (8.0, 15.0) } else { (FLEE_BAR, PANIC_BAR) };
+    // (a margin over the bar, ironspec Nov 11 23:57: a boat bobs in its cell and the charge test runs
+    // on the true distance, so a pillager keeps every rider it sees >= 8.5)
+    if let Some(n) = near {
+        near_bar = n;
+    }
     let mut pts: Vec<(String, Vec3)> = Vec::new();
     for (c, b) in spec.blocks.iter() {
         let s = b.to_string();
@@ -1117,6 +1122,40 @@ pub fn golem_reach(spec: &FarmSpec, lo: [i32; 3], hi: [i32; 3], target: BlockPos
         reach.len(),
         tried,
         if reach.is_empty() { String::new() } else { format!(": {}", reach.iter().take(20).cloned().collect::<Vec<_>>().join(" ")) }
+    )])
+}
+
+/// A post's drift (ironspec Nov 11 23:57: pin the boat and print its position spread): a boat with
+/// a zombie (the stand-in seat: redsim does not spawn pillagers; the boat's motion does not read
+/// its passenger's kind) placed at `cell` in the settled world, ticked `ticks` times; the boat's and
+/// the seat's least and greatest coordinates.
+pub fn post_drift(spec: &FarmSpec, cell: BlockPos, ticks: u32) -> Result<Vec<String>, String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let boat = redsim::entity::spawn(&mut run.world, "minecraft:oak_boat", [cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
+    let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+    let mut seat_dy = (f64::MAX, f64::MIN);
+    for _ in 0..ticks {
+        run.tick();
+        let w = &run.world;
+        let Some(bi) = redsim::entity::index_of(w, boat) else { return Ok(vec![format!("post drift at {},{},{}: the boat is gone", cell.x, cell.y, cell.z)]) };
+        let p = w.entities.list[bi].pos;
+        for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+            lo[k] = lo[k].min(v);
+            hi[k] = hi[k].max(v);
+        }
+        if let Some(&zid) = w.entities.list[bi].passengers.first()
+            && let Some(zi) = redsim::entity::index_of(w, zid)
+        {
+            let d = w.entities.list[zi].pos.y - p.y;
+            seat_dy = (seat_dy.0.min(d), seat_dy.1.max(d));
+        }
+    }
+    Ok(vec![format!(
+        "post drift at {},{},{} over {ticks} ticks: the boat x {:.4}..{:.4} y {:.4}..{:.4} z {:.4}..{:.4} (spread {:.4} / {:.4} / {:.4}); its passenger {} the boat",
+        cell.x, cell.y, cell.z, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2],
+        if seat_dy.0 == f64::MAX { "left".to_string() } else { format!("stayed in, seat {:+.4}..{:+.4} over", seat_dy.0, seat_dy.1) }
     )])
 }
 
