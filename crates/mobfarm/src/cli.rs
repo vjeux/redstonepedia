@@ -2253,9 +2253,14 @@ pub enum MobfarmCmd {
         /// The sorters set to poppies (the mis-set filter control).
         #[arg(long)]
         misset: bool,
-        /// No enclosure round the hall (the ghast rule's walls, roof and slab floor: on by default).
+        /// No shell (the ghast rule's: the walkway and every block under the blast bar closed by
+        /// blast-resistant blocks; on by default).
         #[arg(long)]
         open: bool,
+        /// Add the first enclosure (a cobblestone room round the hall) under the shell, to price
+        /// it against the shell alone.
+        #[arg(long = "box")]
+        boxed: bool,
         /// Write the design moved by X,Y,Z without the bench's kill-floor ring (onechunk's Nether
         /// frame: the kill floor's 2 x 2 hoppers onto the kill room's), no bench.
         #[arg(long, allow_hyphen_values = true)]
@@ -6462,33 +6467,50 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             }
         }
-        MobfarmCmd::Storage { modules, lines, chests, days, seed, seeds, prefill, misset, open, frame, out, no_bench } => {
+        MobfarmCmd::Storage { modules, lines, chests, days, seed, seeds, prefill, misset, open, boxed, frame, out, no_bench } => {
             let lines = lines.unwrap_or(if modules <= 2 { 1 } else { 2 });
             // 20 play-hours = 60 game days of iron blocks (ironspec 01:13)
             let chests = chests.unwrap_or_else(|| ((modules as f64 * crate::storage::GOLEMS_A_DAY * 4.0 * 60.0 / 9.0).ceil() / 64.0 / 54.0).ceil() as usize);
-            let l = crate::storage::Layout { lines, chests, enclose: !open };
+            let l = crate::storage::Layout { lines, chests, enclose: !open, boxed };
             let b = crate::storage::design(&l).map_err(|e| anyhow::anyhow!(e))?;
             if let Some(f) = frame {
                 let v: Vec<i32> = f.split(',').map(|s| s.trim().parse::<i32>()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "--frame X,Y,Z");
-                let (d, opener) = crate::storage::shifted(&b, [v[0], v[1], v[2]]);
-                let ex = crate::storage::exposed(&d, &opener);
+                let (d, opener, walkway) = crate::storage::shifted(&b, [v[0], v[1], v[2]]);
+                let ex = crate::storage::exposed(&d, &opener, &walkway);
                 let path = out.unwrap_or_else(|| std::env::temp_dir().join(format!("storage-framed-{lines}-{chests}.txt")));
                 std::fs::write(
                     &path,
                     format!(
-                        "# The storage (mobfarm storage, {lines} line(s), {chests} double chest(s)) moved by {f} into the Nether frame, without the bench's kill-floor ring and catch floor; {} blocks: the hall's enclosure {} (walls, roof, slab walkway, iron door and its 2 buttons), the shield {} (cobblestone bottom slabs on every empty cell a blast from outside reaches, 26-connected through cells under the 4.034 bar, beside a block under that bar); blocks under the 3.283 breaking bar a blast from outside reaches: {} (0 required; the door's 2 stone buttons, the opener, aside).\n{}",
+                        "# The storage (mobfarm storage, {lines} line(s), {chests} double chest(s)) moved by {f} into the Nether frame, without the bench's kill-floor ring and catch floor; {} blocks: the door, its 2 buttons and their supports {}{}, the shell {} (cobblestone bottom slabs in every empty cell a blast from outside reaches, 26-connected through empty cells and blocks under the 3.283 breaking bar, beside a block under that bar or a walkway cell); blocks under the breaking bar and walkway cells a blast from outside reaches: {} (0 required; the door's 2 stone buttons, the opener, aside).\n{}",
                         d.blocks.len(),
                         b.enclosure,
+                        if l.boxed { " (with --box's room)" } else { "" },
                         b.shield,
                         ex.len(),
                         d.to_text()
                     ),
                 )?;
                 println!("{}", path.display());
-                println!("blocks under the 3.283 breaking bar a blast from outside reaches (26-connected through cells under 4.034): {} (0 required; the door's buttons aside); the enclosure {}, the shield {}, {} blocks", ex.len(), b.enclosure, b.shield, d.blocks.len());
+                println!("blocks under the 3.283 breaking bar and walkway cells a blast from outside reaches (26-connected through empty cells and blocks under 3.283): {} (0 required; the door's buttons aside); the door and supports {}{}, the shell {}, {} blocks", ex.len(), b.enclosure, if l.boxed { " (with --box's room)" } else { "" }, b.shield, d.blocks.len());
                 for (p, s) in ex.iter().take(12) {
                     println!("  reached: {s} at {p:?}");
+                }
+                // (per region, the slab wrap against a box round it: ironspec 2026-11-12)
+                let shell: std::collections::BTreeSet<[i32; 3]> = b.shell_at.iter().map(|p| [p[0] + v[0], p[1] + v[1], p[2] + v[2]]).collect();
+                let mut pre = d.clone();
+                pre.blocks.retain(|p, _| !shell.contains(p));
+                for r in crate::storage::regions(&pre, &opener, &walkway) {
+                    println!(
+                        "  region of {} cell(s) in {:?}..{:?}: the slab wrap {} cell(s), a box round it {} cell(s){}: {}",
+                        r.cells,
+                        r.lo,
+                        r.hi,
+                        r.wrap,
+                        r.boxed,
+                        if r.box_blocked { " (crossing the walkway)" } else { "" },
+                        if r.box_blocked || r.wrap <= r.boxed { "the wrap" } else { "the box" }
+                    );
                 }
                 return Ok(());
             }
