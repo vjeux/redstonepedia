@@ -2290,6 +2290,69 @@ pub enum MobfarmCmd {
     /// (the bed free, the night's count under the riders'), and comes back into the loop behind every
     /// cart that passed meanwhile; over many nights from random orders and night starts, how often
     /// every rider slept exactly once.
+    /// (ironspec 17:00) The one-chunk top tier's minimal bed stop (paper v2): write its design
+    /// (`--bench`: with a run-out and the visitor's cart parked far off).
+    Bedtier {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        bench: bool,
+    },
+    /// The minimal bed stop's unit benches: one visit a seed and speed, the bench driving F (the
+    /// hatch's control off), the release `--release-after` gt after F (the park's supports to
+    /// redstone blocks); prints where the eject lands, the park, the nap, the wake, every cell the
+    /// woken napper stands on, the cart's speed over the swept cells and the pickup.
+    BedtierBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        from: u64,
+        #[arg(long, default_value_t = 4)]
+        to: u64,
+        /// Entry speeds (b/t), comma-separated.
+        #[arg(long, default_value = "0.1,0.2,0.3,0.4")]
+        speeds: String,
+        #[arg(long, default_value_t = 55)]
+        f_at: i64,
+        #[arg(long, default_value_t = 32)]
+        release_after: i64,
+        /// By day (no nap).
+        #[arg(long)]
+        day: bool,
+        /// Release the park as soon as the woken napper stands on a swept cell (FC's evidence), or at
+        /// --release-after past F at the latest (the missing napper's timeout).
+        #[arg(long)]
+        on_stand: bool,
+    },
+    /// (ironspec 17:32) The sentinel villager (its own bed, a sealed one-cell room, an observer on
+    /// the bed's head): write its design (`--claim`: no HOME preset, it claims the bed itself).
+    Sentinel {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        claim: bool,
+    },
+    /// The sentinel's bench: the bed's lie-down and wake and the observer's pulses (day times) over
+    /// `--days` days per seed, where it stands up, panic and off-cell ticks; the faults: a level-32
+    /// freeze (`--freeze DAYTIME,LEN`), a save and reload (`--reload DAYTIME,LEN`), its death on
+    /// day 2 (`--kill DAYTIME`).
+    SentinelBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        from: u64,
+        #[arg(long, default_value_t = 4)]
+        to: u64,
+        #[arg(long, default_value_t = 6)]
+        days: i64,
+        #[arg(long)]
+        freeze: Option<String>,
+        #[arg(long)]
+        reload: Option<String>,
+        #[arg(long)]
+        kill: Option<i64>,
+        /// A villager with no HOME on the floor east of the room (it must never claim the bed).
+        #[arg(long)]
+        outsider: bool,
+    },
     PickerSim {
         #[arg(long, default_value_t = 21)]
         riders: usize,
@@ -4540,6 +4603,64 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for (toggle, f, hit) in crate::siding::sight(&spec, &fr, t).map_err(|e| anyhow::anyhow!(e))? {
                 let d = ((f[0] - t[0]).powi(2) + (f[1] - t[1]).powi(2) + (f[2] - t[2]).powi(2)).sqrt();
                 println!("trapdoors {}: {:.2},{:.2},{:.2} -> {:.2},{:.2},{:.2} ({d:.2}): {}", if toggle { "flipped" } else { "as built" }, f[0], f[1], f[2], t[0], t[1], t[2], match hit { None => "CLEAR".to_string(), Some(c) => format!("blocked at ({},{},{})", c[0], c[1], c[2]) });
+            }
+        }
+        MobfarmCmd::Bedtier { out, bench } => {
+            std::fs::write(&out, crate::bedtier::design(bench)?)?;
+            println!("wrote {}", out.display());
+        }
+        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand } => {
+            let (_c, spec) = load(version, &design)?;
+            let sp: Vec<f64> = speeds.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
+            let mut bad = 0;
+            let mut n = 0;
+            for seed in from..=to {
+                for &v in &sp {
+                    n += 1;
+                    match crate::bedtier::bench(&spec, seed, v, f_at, release_after, day, on_stand) {
+                        Ok(r) => {
+                            if !r.problems.is_empty() {
+                                bad += 1;
+                            }
+                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?}, R {:?}, out {:?}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.r_at, r.out_at, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                        }
+                        Err(e) => {
+                            bad += 1;
+                            println!("seed {seed} speed {v}: ERROR {e}");
+                        }
+                    }
+                }
+            }
+            println!("bed tier unit bench: {} of {n} visits clean", n - bad);
+        }
+        MobfarmCmd::Sentinel { out, claim } => {
+            std::fs::write(&out, crate::sentinel::design(!claim)?)?;
+            println!("wrote {}", out.display());
+        }
+        MobfarmCmd::SentinelBench { design, from, to, days, freeze, reload, kill, outsider } => {
+            let (_c, spec) = load(version, &design)?;
+            let two = |s: &Option<String>| -> Result<Option<(i64, i64)>> {
+                Ok(match s {
+                    Some(s) => {
+                        let v: Vec<i64> = s.split(',').map(|p| p.trim().parse()).collect::<std::result::Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 2, "DAYTIME,LEN");
+                        Some((v[0], v[1]))
+                    }
+                    None => None,
+                })
+            };
+            let f = crate::sentinel::Faults { freeze: two(&freeze)?, reload: two(&reload)?, kill, outsider };
+            for seed in from..=to {
+                match crate::sentinel::bench(&spec, seed, days, &f) {
+                    Ok(r) => {
+                        println!("seed {seed}: HOME {:?}; panic ticks {}, ticks off its cell awake {}; the head's free tickets at the end {:?}{}", r.home, r.panic_ticks, r.off_cell_ticks, r.head_free_tickets_end, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                        for e in &r.events {
+                            println!("  day {} dayTime {:5} (t {}): {}", e.day, e.day_time, e.t, e.what);
+                        }
+                        println!("  stood up at {:?}", r.stand_ups);
+                    }
+                    Err(e) => println!("seed {seed}: ERROR {e}"),
+                }
             }
         }
         MobfarmCmd::PickerSim { riders, batch, cycle, spacing, phase, jitter, k, away, nights, seed } => {

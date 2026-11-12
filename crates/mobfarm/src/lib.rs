@@ -20,6 +20,8 @@ pub mod queue;
 pub mod standlab;
 pub mod spawnrules;
 pub mod station;
+pub mod bedtier;
+pub mod sentinel;
 pub mod siding;
 pub mod tail_bench;
 pub mod merge;

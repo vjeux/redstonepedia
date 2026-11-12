@@ -1,0 +1,40 @@
+# A sentinel villager (ironspec 17:32): its own bed and a one-cell room beside it, sealed in stone; an observer facing the bed's head pulses at the lie-down and the wake.
+name: sentinel
+circuit: mob-farm iron_ingot
+port output: 6 0 6
+entity: minecraft:villager -0.5 0 1.5 {Brain:{memories:{"minecraft:home":{value:{dimension:"minecraft:overworld",pos:[I;0,0,1]}}}}}
+origin: -2 0 -2
+palette:
+  A minecraft:redstone_lamp[lit=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:red_bed[facing=south,occupied=false,part=foot]
+  S minecraft:stone
+  r minecraft:red_bed[facing=south,occupied=false,part=head]
+layer -1:
+  ......SSSSS
+  SSSS..SSSSS
+  SSSS..SSSSS
+  SSSS..SSSSS
+  SSSS..SSSSS
+  .
+layer 0:
+  .
+  SSSS
+  SSRS
+  S.rS
+  SSOS
+  ..A
+layer 1:
+  .
+  SSSS
+  SSSS
+  S.SS
+  SSSS
+  .
+layer 2:
+  .
+  SSSS
+  SSSS
+  SSSS
+  SSSS
+  .
