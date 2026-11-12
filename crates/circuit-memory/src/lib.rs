@@ -354,6 +354,28 @@ enum Cmd {
         /// loop's origin and wire its golem pulse into the controller (no bench pulse).
         #[arg(long)]
         pad: Option<PathBuf>,
+        /// The W build (the half-turned siding at (0,-21,19), ironspec Nov 11 14:48): its recipe as
+        /// run on Nov 11 (the siding box y -7..10, z from -4; F at the 1st release (NS2); one stem
+        /// brake; the kick 12 rt later; the kick route at 3 rt and F's route at 2 rt; the C24 core
+        /// with REL's exit and the chain head at 2 rt). The flags below override single knobs.
+        #[arg(long)]
+        w: bool,
+        /// The register stage F reads: 2 (NS2, F at the 1st release after a visit: the W default)
+        /// or 3 (NS3, the 2nd: the old value, for control rows).
+        #[arg(long)]
+        f_stage: Option<u8>,
+        /// The kick (KA) later by this many rt (the W default 12; 0 = the old kick).
+        #[arg(long)]
+        kick_extra_rt: Option<u8>,
+        /// Unpowered powered rails at the top of W's stem (the W default 1; 0 = none).
+        #[arg(long)]
+        stem_brakes: Option<u8>,
+        /// F's route repeaters' delay in rt (the W default 2; 1 = the old).
+        #[arg(long)]
+        f_delay_rt: Option<u8>,
+        /// The kick route's repeaters' delay in rt (the W default 3; KA's chain gives it back).
+        #[arg(long)]
+        kick_route_rt: Option<u8>,
     },
     /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
     LoopGen {
@@ -567,6 +589,44 @@ enum Cmd {
 }
 
 /// `mctas circuit memory <args...>`.
+/// release-gen's named knobs (ironspec Nov 11 14:48: the W build's knobs as flags, its defaults under
+/// `--w`, the old values reachable for control rows). The generator reads them where they are used;
+/// each one set here is printed.
+fn release_knobs(w: bool, f_stage: Option<u8>, kick_extra_rt: Option<u8>, stem_brakes: Option<u8>, f_delay_rt: Option<u8>, kick_route_rt: Option<u8>) {
+    let mut set: Vec<(&str, String)> = Vec::new();
+    if w {
+        for (k, v) in [
+            ("MCTAS_SIDING_W", "1"),
+            ("MCTAS_SIDING_YLO", "-7"),
+            ("MCTAS_SIDING_YHI", "10"),
+            ("MCTAS_SIDING_ZLO", "-4"),
+            ("MCTAS_SIDING_PROBE_MORE", "1"),
+            ("MCTAS_STAND_REL_SHIFT_RT", "0"),
+            ("MCTAS_MODULE_REL_SHIFT_RT", "0"),
+            ("MCTAS_CHAIN_HEAD_RT", "2"),
+            ("MCTAS_REL_EXIT", "1"),
+            ("MCTAS_C24", "1"),
+            ("MCTAS_F_STAGE", "2"),
+            ("MCTAS_KA_EXTRA_RT", "12"),
+            ("MCTAS_W_STEM_BRAKES", "1"),
+            ("MCTAS_F_DELAY_RT", "2"),
+            ("MCTAS_KICK_ROUTE_RT", "3"),
+        ] {
+            set.push((k, v.to_string()));
+        }
+    }
+    for (k, v) in [("MCTAS_F_STAGE", f_stage), ("MCTAS_KA_EXTRA_RT", kick_extra_rt), ("MCTAS_W_STEM_BRAKES", stem_brakes), ("MCTAS_F_DELAY_RT", f_delay_rt), ("MCTAS_KICK_ROUTE_RT", kick_route_rt)] {
+        if let Some(v) = v {
+            set.push((k, v.to_string()));
+        }
+    }
+    for (k, v) in set {
+        eprintln!("release-gen knob: {k}={v}");
+        // SAFETY: set at the command's start, before the generator spawns any thread.
+        unsafe { std::env::set_var(k, v) };
+    }
+}
+
 pub fn run(args: Vec<String>) -> Result<()> {
     let a = match Args::try_parse_from(std::iter::once("mctas circuit memory".to_string()).chain(args)) {
         Ok(a) => a,
@@ -672,8 +732,11 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::DropTest { speed, occupied, ticks, no_stop, staged } => {
             droptest::run(speed, occupied, ticks, !no_stop, staged)?;
         }
-        Cmd::ReleaseGen { out, offdelay, loop_file, siding, siding_ctl, pad } => match loop_file {
-            Some(l) => releasegen::generate_loop(&out, &l, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref())?,
+        Cmd::ReleaseGen { out, offdelay, loop_file, siding, siding_ctl, pad, w, f_stage, kick_extra_rt, stem_brakes, f_delay_rt, kick_route_rt } => match loop_file {
+            Some(l) => {
+                release_knobs(w, f_stage, kick_extra_rt, stem_brakes, f_delay_rt, kick_route_rt);
+                releasegen::generate_loop(&out, &l, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref())?
+            }
             None => releasegen::generate(&out, &offdelay)?,
         },
         Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns, placed_raw } => {
