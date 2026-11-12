@@ -802,9 +802,13 @@ pub enum MobfarmCmd {
         at: Vec<String>,
     },
     /// (9fc3155f, ironspec Nov 12 00:11) The static push-range scan: every cell where a cart rests
-    /// or creeps (--rest cells, and every unpowered powered rail and detector rail unless --no-auto)
-    /// against every rail cell of another track within push range (boxes 0.98 wide and 0.7 tall,
-    /// the resting one inflated 0.2 in x and z, y ranges overlapping; a slope's box spans its rise).
+    /// or creeps (--rest cells, and every unpowered powered rail unless --no-auto; detector rails
+    /// only as --rest cells) against every rail cell of another track within push range (boxes 0.98
+    /// wide and 0.7 tall, the resting one inflated 0.2 in x and z and 0.5 along its axis, y ranges
+    /// overlapping; a slope's box spans its rise). Then the rail-T scan (each 3-connection plain
+    /// rail's reaching signal-source updates, from redsim's block model), the switched-cell scan
+    /// (every source powering each switched cell) and the placement-order scan (every rail vanilla
+    /// placement would not give its designed shape, with the fix).
     PushScan {
         design: PathBuf,
         /// A rest or creep cell x,y,z (repeatable).
@@ -817,6 +821,9 @@ pub enum MobfarmCmd {
         /// the T beside it; every other source beside a T is undeclared.
         #[arg(long, allow_hyphen_values = true)]
         switch: Vec<String>,
+        /// Print the rail-T scan's positive controls (one per source type) first.
+        #[arg(long)]
+        controls: bool,
     },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
@@ -8648,8 +8655,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::PushScan { design, rest, no_auto, switch } => {
+        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls } => {
             let (_c, spec) = load(version, &design)?;
+            if controls {
+                let cl = crate::pushscan::tee_controls();
+                println!("rail-T scan controls (a 3-connection T at 0,0,0; each source type in its update reach, then moved out of it): {} of {} pass", cl.iter().filter(|l| l.ends_with("PASS")).count(), cl.len());
+                for l in &cl {
+                    println!("{l}");
+                }
+            }
             let mut rests = Vec::new();
             for r in &rest {
                 let v: Vec<i32> = r.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
@@ -8664,13 +8678,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             let (lines, n, tracks) = crate::pushscan::scan(&spec, &rests, !no_auto);
             let flagged = lines.iter().filter(|l| l.contains("PUSH")).count();
-            println!("push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z): {flagged} pairs within push range");
+            println!("push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis): {flagged} pairs within push range");
             for l in &lines {
                 println!("{l}");
             }
             let (tl, undeclared) = crate::pushscan::tees(&spec, &switches);
-            println!("rail-T scan (plain rails with 3+ potential connections; the signal sources beside each must be declared switches): {} Ts, {undeclared} undeclared sources", tl.len());
+            println!("rail-T scan (plain rails with 3+ potential connections; the signal-source updates reaching each (redsim's source set, each type's 26.3 update pattern) must be declared switches; a 4-way crossing is listed, not counted): {} Ts, {undeclared} undeclared sources", tl.len());
             for l in &tl {
+                println!("{l}");
+            }
+            let (sl, su) = crate::pushscan::switched(&spec, &switches);
+            println!("switched-cell scan (every 3-connection plain rail, powered or activator rail and trapdoor: every source that can power it, only declared --switch sources allowed, a design's own redstone block listed as fixed; each detector's and its below-block's face neighbours): {su} undeclared");
+            for l in &sl {
+                println!("{l}");
+            }
+            let pl = crate::pushscan::placement(&spec);
+            println!("placement-order scan (every rail vanilla placement would not give its designed shape with the rest laid, or whose placement re-shapes a laid neighbour; the fix): {} cells", pl.len());
+            for l in &pl {
                 println!("{l}");
             }
         }
