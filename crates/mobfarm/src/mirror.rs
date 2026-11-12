@@ -5,6 +5,11 @@
 //! front-to-back mirror, which together swap north and south; entities z -> 1 - z), and every cell the
 //! bench drives or reads goes through `bp` / `at`, so the bench's logic and its printed cells stay in its
 //! own frame.
+//!
+//! Limits (G1 on 47bf6d024): entities' SNBT is copied as is, so an entity spawned with z motion or a yaw
+//! needs its `Motion` z negated and its `Rotation` yaw mirrored by the bench itself; the switch is one
+//! static for the process, so unit tests exercise `state()` only (cargo runs tests in parallel threads);
+//! and these runs show redsim's update order is mirror-safe for a circuit, not the game's.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

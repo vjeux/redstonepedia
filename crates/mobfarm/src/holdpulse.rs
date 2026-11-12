@@ -2,15 +2,16 @@
 //! hold's drive from 7b90c3f1, accepted 07:34): a pulse every cycle, 8 gt long, never a latch. ARM3 (the
 //! third cart's detector rail, (5,0,7), up >= 20 gt a cycle) is cut to 8 gt by an edge comparator E
 //! (subtract: ARM3's dust in its rear, ARM3 through a delay-4 repeater on its side, as the divert's E), then
-//! four 1-tick repeaters, the last powering the drive's input cell (7,-1,8) from ARM3 + 10 (D 10, as
-//! 7b90c3f1's bench emulates it). 7b90c3f1's own repeater (8,-1,8) facing west reads that cell and strongly
-//! powers the stone (9,-1,8) under the hold rail (9,0,8) (no repeater beside the rail: its input would be a
-//! face of lane 7's merge T). The bench drives ARM3 through a repeater for 20 gt every 100 gt (a repeater's
-//! output, like a detector rail's, turns on inside a game tick), checks at every phase when the input cell
-//! and the rail are powered after ARM3 (and for how long, one pulse a cycle), and places a cart with a
-//! villager at rest on the hold rail at every gt between two measured pulses: it must leave the hold cell at
-//! the next pulse (a repeater drive >= 6 gt), never before. Arrivals during a pulse come with momentum
-//! (7b90c3f1's bench).
+//! four 1-tick repeaters, the last powering the drive's input cell (7,-1,8) from ARM3 + 10. 7b90c3f1's own
+//! repeater (8,-1,8) facing west reads that cell and strongly powers the stone (9,-1,8) under the hold rail
+//! (9,0,8), so the rail rises at ARM3 + 12: D is the rail's rise (7b90c3f1 08:30: its bench powers the
+//! rail at ARM3 + D, the input block at ARM3 + D - 2), and D 12 (`D` below). (No repeater beside the rail:
+//! its input would be a face of lane 7's merge T.) The bench drives ARM3 through a repeater for 20 gt every
+//! repeater's output, like a detector rail's, turns on inside a game tick), checks at every phase when the
+//! input cell and the rail are powered after ARM3 (and for how long, one pulse a cycle), and places a cart
+//! with a villager at rest on the hold rail at every gt between two measured pulses: it must leave the hold
+//! cell at the next pulse (a repeater drive >= 6 gt), never before. Arrivals during a pulse come with
+//! momentum (7b90c3f1's bench).
 
 use redsim::block::Block;
 use redsim::entity::EntityKind;
@@ -24,8 +25,11 @@ const ARM3: [i32; 3] = [0, 0, 5];
 const OUT: [i32; 3] = [0, 0, -1];
 /// 7b90c3f1's repeater (8,-1,8), the stone under the hold (9,-1,8), the hold rail (9,0,8).
 const HOLD: [i32; 3] = [2, 1, -2];
-/// The design: the input cell powered at ARM3 + D for WIDTH gt, every CYCLE.
-pub const D: i64 = 10;
+/// The design: the rail powered at ARM3 + D (the input cell at ARM3 + D - 2) for WIDTH gt, every CYCLE.
+/// D 12 (day-1 08:33, on 7b90c3f1's K re-lay: behind = D + 17, ahead = 41 - D against the bars 21 + 2 /
+/// 16 + 2; D 10's 27 / 31 left the tightest margin 4, D 12's 29 / 29 leaves 6 / 11; D 11 is off this
+/// chain's 2-gt grid).
+pub const D: i64 = 12;
 pub const WIDTH: i64 = 8;
 pub const CYCLE: i64 = 100;
 
@@ -189,8 +193,9 @@ pub fn bench(step: i64) -> Result<Vec<String>, String> {
     let row = |m: &Hist| m.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(" ");
     Ok(vec![
         format!(
-            "split9's hold release (ARM3's edge cut to {WIDTH} gt by a subtract comparator with a delay-4 side, four 1-tick repeaters into the input cell (7,-1,8); 7b90c3f1's repeater (8,-1,8) into the stone under the hold rail; ARM3 a repeater's output, inside the tick as a detector rail's): over 20 ARM3 phases x 5 cycles the input cell is powered at ARM3 + (gt:count) {} (design {D}) for (gt:count) {} (design {WIDTH}); the hold rail at ARM3 + {} for {}; {}",
+            "split9's hold release (ARM3's edge cut to {WIDTH} gt by a subtract comparator with a delay-4 side, four 1-tick repeaters into the input cell (7,-1,8); 7b90c3f1's repeater (8,-1,8) into the stone under the hold rail; ARM3 a repeater's output, inside the tick as a detector rail's): over 20 ARM3 phases x 5 cycles the input cell is powered at ARM3 + (gt:count) {} (design {}) for (gt:count) {} (design {WIDTH}); the hold rail at ARM3 + {} (design D {D}: the rail's rise) for {}; {}",
             row(&out_rise),
+            D - 2,
             row(&out_w),
             row(&rail_rise),
             row(&rail_w),
