@@ -1,0 +1,45 @@
+# F1 + Q2 summoner scarers, the 2-post line (9fc3155f's set as relayed by farmopt 03:18; laid by onechunk, Nov 12): loop frame. A pillager seated in a boat at (-5,-1,-5) and a zombie seated in a boat at (-5,-4,-2), each post open east: a glass floor under the boat, a glass roof two above it, two-high glass walls north, south and west (glass: no golem spawn on its top; stone posts would add 8 off-pad spawn cells). 16 blocks + 2 boats. The station's hold zombie at (2,16,-6) comes out (static (c): 0 never-clearing places without it). Pending onechunk's runtime run (condition (i)), the adoption gate. (Empty rows are written as "." so the parser keeps them.)
+name: f1q2-scarers-2post
+circuit: mob-farm iron_ingot
+origin: -6 0 -6
+palette:
+  g minecraft:glass
+entity: minecraft:oak_boat -4.5 -1 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -4.5 -4 -1.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+layer -5:
+  .
+  .
+  .
+  .
+  .g
+layer -4:
+  .
+  .
+  .
+  .g
+  g
+  .g
+layer -3:
+  .
+  .
+  .
+  .g
+  g
+  .g
+layer -2:
+  .
+  .g
+  .
+  .
+  .g
+layer -1:
+  .g
+  g
+  .g
+layer 0:
+  .g
+  g
+  .g
+layer 1:
+  .
+  .g
