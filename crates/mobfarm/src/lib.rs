@@ -16,6 +16,7 @@ pub mod gate;
 pub mod hold;
 pub mod layouts;
 pub mod naps;
+pub mod napper;
 pub mod parts;
 pub mod placing;
 pub mod queue;

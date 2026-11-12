@@ -6,6 +6,76 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum MobfarmCmd {
+    /// The gravity queue's napper picker, modelled on the loop's order alone (`napper.rs`): the
+    /// switch on top of the climb diverts a cart to the bed, it re-enters the tail chain after its
+    /// trip; does every rider nap exactly once a night, night after night? Prints one line per picker
+    /// (`--sweep`: every k from 1 to 2 x carts, both counting rules).
+    NapperPicker {
+        #[arg(long, default_value_t = 21)]
+        carts: usize,
+        #[arg(long, default_value_t = 21)]
+        visits: usize,
+        /// from-pick, from-return, anchored (fix (b)) or register (today's baseline).
+        #[arg(long, default_value = "from-pick")]
+        picker: String,
+        #[arg(long, default_value_t = 11)]
+        k: usize,
+        /// (anchored) the first pick this many places after last night's last napper.
+        #[arg(long, default_value_t = 1)]
+        offset: usize,
+        /// (register) a visit every this many releases.
+        #[arg(long, default_value_t = 4)]
+        every: usize,
+        /// The napper keeps its place (its slot a travelling hole: the register).
+        #[arg(long)]
+        keep_place: bool,
+        /// Fix (c): the sleeper re-enters after exactly M passes since its pick.
+        #[arg(long)]
+        gate_m: Option<usize>,
+        /// Fix (c'): the lap-exact gate (re-enter right behind the cart that crossed just before it,
+        /// on its next lap: carts - 1 - (nappers already away) passes).
+        #[arg(long)]
+        gate_lap: bool,
+        /// 58f770cc's gate: re-enter just after the N-th batch following the pick passed the switch.
+        #[arg(long)]
+        gate_batches: Option<usize>,
+        /// With --gate-lap: the picker counts each re-entry as a pass (a virtual hole).
+        #[arg(long)]
+        virtual_count: bool,
+        /// (a negative control) Passes added to the lap-exact gate's count.
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        gate_lap_off: i64,
+        /// Fix (a): releases skipped a day.
+        #[arg(long, default_value_t = 0)]
+        skip_per_day: usize,
+        /// A nap's trip, the switch to its re-entry point: LO,HI gt (uniform).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![200i64, 260])]
+        trip: Vec<i64>,
+        /// Lie-down (LAST_SLEEP) this many gt after the pick.
+        #[arg(long, default_value_t = 40)]
+        sleep_at: i64,
+        #[arg(long, default_value_t = 30)]
+        days: usize,
+        #[arg(long, default_value_t = 2)]
+        warmup: usize,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// The night window (gt; day time 13,670..22,330).
+        #[arg(long, default_value_t = 8660)]
+        night_gt: i64,
+        /// The batch's first pass of the pick point, gt into the golem cycle.
+        #[arg(long, default_value_t = 60)]
+        cross_at: i64,
+        /// Dusk, gt into a golem cycle (a day is 240 cycles, so it falls there every night).
+        #[arg(long, default_value_t = 0)]
+        dusk_at: i64,
+        /// The comparison: today's register, gravity's pickers, and fixes (a), (b), (c).
+        #[arg(long)]
+        table: bool,
+        /// The given row at every k from 1 to 2 x carts.
+        #[arg(long)]
+        sweep_k: bool,
+    },
     /// Write a layout's design file: `l1` (the obvious bar), `l2` (a pad around a wet hole, a drop
     /// out of range), `l2d` (the dry-hole module: middle and fastest tiers), `l3` (day 1: spawn
     /// pits that burn the golems in place), `l4` (two banks of fence-gated platforms), `l5` (a
@@ -3859,6 +3929,52 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(gap_step > 0.0, "--gap-step must be positive");
             for l in crate::ledge_sweep::sweep(&spec, &fl, &speeds, gap_from, gap_to, gap_step, &ridden, ticks).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
+            }
+        }
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+            use crate::napper::{Opts, Picker};
+            let [lo, hi] = trip[..] else { bail!("--trip takes LO,HI") };
+            let pk = match picker.as_str() {
+                "from-pick" => Picker::FromPick(k),
+                "from-return" => Picker::FromReturn(k),
+                "anchored" => Picker::Anchored(k, offset),
+                "register" => Picker::Register(every),
+                s => bail!("--picker {s}: from-pick, from-return, anchored or register"),
+            };
+            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing: 4, cross_at, dusk_at };
+            let rows: Vec<(String, Opts)> = if table {
+                let reg = Opts { picker: Picker::Register(every), keep_place: true, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, skip_per_day: 0, ..base.clone() };
+                let grav = Opts { picker: Picker::FromPick(k), keep_place: false, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, skip_per_day: 0, trip: (200, 240), ..base.clone() };
+                let mut v: Vec<(String, Opts)> = vec![
+                    ("baseline".into(), reg.clone()),
+                    ("baseline + (a)".into(), Opts { skip_per_day: 2, ..reg.clone() }),
+                    ("gravity".into(), grav.clone()),
+                    ("gravity + (b)".into(), Opts { picker: Picker::Anchored(k, offset), ..grav.clone() }),
+                    ("gravity + (c) D=6, a trip inside 7 passes (the math's control)".into(), Opts { gate_m: Some(7), trip: (150, 190), ..grav.clone() }),
+                    ("gravity + (c) D=6".into(), Opts { gate_m: Some(7), ..grav.clone() }),
+                    ("gravity + (c) D=27".into(), Opts { gate_m: Some(28), ..grav.clone() }),
+                    ("gravity + (c) D=21 + (a)".into(), Opts { gate_m: Some(22), skip_per_day: 2, ..grav.clone() }),
+                ];
+                for s in 0..4 {
+                    v.push((format!("gravity + (c') lap-exact gate, {s} skipped"), Opts { gate_lap: true, skip_per_day: s, ..grav.clone() }));
+                }
+                for s in 0..4 {
+                    v.push((format!("gravity, 58f770cc's picker (k 1, re-entry after the 2nd batch), {s} skipped"), Opts { picker: Picker::FromPick(1), gate_batches: Some(2), skip_per_day: s, ..grav.clone() }));
+                }
+                v.push(("gravity + (c') lap-exact gate, register-timed picks, 2 skipped".into(), Opts { picker: Picker::Register(every), gate_lap: true, skip_per_day: 2, ..grav.clone() }));
+                for kk in [11usize, 13] {
+                    for s in [0usize, 2] {
+                        v.push((format!("gravity + (c'') lap-exact gate + the virtual count, k {kk}, {s} skipped"), Opts { picker: Picker::FromPick(kk), gate_lap: true, virtual_count: true, skip_per_day: s, ..grav.clone() }));
+                    }
+                }
+                v
+            } else if sweep_k {
+                (1..=2 * carts).map(|kk| (format!("k {kk}"), Opts { picker: match base.picker { Picker::FromPick(_) => Picker::FromPick(kk), Picker::FromReturn(_) => Picker::FromReturn(kk), Picker::Anchored(_, o) => Picker::Anchored(kk, o), p => p }, ..base.clone() })).collect()
+            } else {
+                vec![("row".into(), base)]
+            };
+            for (label, o) in &rows {
+                println!("{}", crate::napper::line(label, o, &crate::napper::simulate(o)));
             }
         }
         MobfarmCmd::PostSearch { design, remove, panic, area, margin, max_posts, in_box } => {
