@@ -6,8 +6,9 @@
 //! cart stops anywhere along its cell); the y ranges must overlap. Tracks: rail cells
 //! joined where each one's shape exits toward the other (a level or a one-up neighbour); a rest
 //! cell's own route (exempt) is what it reaches without entering a junction (a rail with 3+
-//! potential connections: routes a junction joins are different tracks, ironspec Nov 12 05:52, the
-//! K contact). Rest or
+//! potential connections, of any kind: a straight powered, detector or activator rail with three
+//! rail neighbours counts too, conservatively, since a cart entering from its side is snapped onto
+//! it; routes a junction joins are different tracks, ironspec Nov 12 05:52, the K contact). Rest or
 //! creep cells: the `--rest` cells (the queue's slopes, holds, D cells, the queue cell) and, unless
 //! turned off, every unpowered powered rail (a brake).
 
@@ -164,7 +165,7 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool) -> (Vec<String>, us
                     p.x,
                     p.y,
                     p.z,
-                    if pt == rt { "the same track beyond a junction" } else { "another track" },
+                    if junction(p) { "the junction" } else if pt == rt { "the same track beyond a junction" } else { "another track" },
                     short(ps)
                 ));
             }
