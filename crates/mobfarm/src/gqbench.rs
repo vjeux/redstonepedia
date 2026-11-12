@@ -66,6 +66,17 @@ pub struct GqOpts {
     /// The run filled pressed from G0's rest up to this far past the last tail gate's cell x (0: one
     /// cart a cell).
     pub back_at: f64,
+    /// The edge-triggered escapement (ironspec's ruling (a)): G0 on the staged cart's pass into the
+    /// hold, G_P on staged AND the hold's entry pocket free AND the release window past.
+    pub edge_esc: bool,
+    /// Edge escapement: live gt from G0's opening to the staged latch.
+    pub stage_delay: i64,
+    /// Edge escapement: gt after the hold's release before G_P may fire (the first fill reaches Ga
+    /// after it shuts).
+    pub fill_after: i64,
+    /// Edge escapement: the least gt between G_P firings (the 3 admissions spread through the fill
+    /// window, ironspec 18:11 (ii)).
+    pub esc_gap: i64,
     /// (cc767b78) day-1's live-time cycle clock and liveness gate (`crate::liveness`): the cycle
     /// restarts at each golem event (the column live at a summon boundary: a frozen column makes
     /// none), every pulse (the hold's release at T+3, G_P and G0's openings, the tail chain's
@@ -89,6 +100,8 @@ struct Geo {
     gates: Vec<(Role, i32, i32, Option<(i32, i32)>)>,
     tail_p: Vec<(i32, i32)>,
     hold_p: Vec<(i32, i32)>,
+    /// The descent's first cell, a pass detector: the hold's front pocket left.
+    ds: (i32, i32),
     run_x: (f64, f64),
     g0_plane: f64,
     gp_plane: f64,
@@ -114,7 +127,7 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     // (the track: x the next cell, lv the rail's height at its west edge)
     let top = 2 * (o.tail as i32 + 6) + o.run + 8;
     let (mut x, mut lv) = (0i32, top);
-    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0) };
+    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0), ds: (0, 0) };
     let mut put = |blocks: &mut Vec<(BlockPos, Block)>, x: i32, y: i32, b: &Block| {
         blocks.push((BlockPos::new(x, y, 0), b.clone()));
         blocks.push((BlockPos::new(x, y - 1, 0), glass.clone()));
@@ -193,8 +206,10 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
         g.hold_p.push(p);
         g.gates.push((Role::Hold(j), gc.0, gc.1, Some(gg)));
     }
-    // (the descent and the sink: a flat first, at the front pocket's U top, then slopes down)
-    put(&mut blocks, x, lv, &flat);
+    // (the descent and the sink: a flat first, at the front pocket's U top (a detector rail: the
+    // front pocket's leaving edge, 7b90c3f1's per-pocket latch clear), then slopes down)
+    put(&mut blocks, x, lv, &det);
+    g.ds = (x, lv);
     x += 1;
     for _ in 0..3 {
         put(&mut blocks, x, lv - 1, &down);
@@ -299,7 +314,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let n_gates = g.gates.len();
     let mut target_hist: Vec<std::collections::VecDeque<bool>> = vec![std::collections::VecDeque::new(); n_gates];
     let mut gate_open: Vec<bool> = vec![false; n_gates];
-    let sensors: Vec<(i32, i32)> = g.tail_p.iter().chain(g.hold_p.iter()).copied().collect();
+    let sensors: Vec<(i32, i32)> = g.tail_p.iter().chain(g.hold_p.iter()).copied().chain([g.ds]).collect();
     let nt = g.tail_p.len();
     let mut was_on = vec![false; sensors.len()];
     let mut occ_t = vec![false; nt];
@@ -309,6 +324,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut g0_was = false;
     let mut g0_prev_w = false;
     let mut owed: i64 = 0;
+    let mut egp_until: i64 = -1;
+    let mut eg0_until: i64 = -1;
+    let mut staged_at: Option<i64> = None;
+    let mut staged = false;
+    let mut gp_cond_was = false;
+    let mut last_gp: i64 = i64::MIN / 2;
     let mut owed_at: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
     let mut pool: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
     let mut next_spawn_ok: i64 = 0;
@@ -535,12 +556,23 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     }
                 } else {
                     let h = si - nt;
+                    if h == 3 {
+                        // (Ds: the hold's front pocket left)
+                        occ_h[2] = false;
+                    } else {
                     occ_h[h] = true;
                     if h > 0 {
                         occ_h[h - 1] = false;
                     }
                     if h == 0 {
                         count_q -= 1;
+                        // (edge-triggered escapement, ironspec's ruling (a): G0 opens on the staged
+                        // cart's pass edge into the hold)
+                        if o.edge_esc && !frz {
+                            eg0_until = t + 12;
+                            staged_at = Some(t);
+                        }
+                    }
                     }
                 }
             }
@@ -570,7 +602,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             hold_at_release.push((t, held));
             hold_release_until = t + o.hold_pulse;
             hold_release_at = t;
-            occ_h = [false; 3];
+            occ_h = if o.edge_esc { occ_h } else { [false; 3] };
             // (the carts released: those in the hold now; the rear-clear tracking restarts)
             let hx0 = g.hold_p[0].0 as f64;
             released = now.iter().enumerate().filter(|(_, c)| c.is_some_and(|(x, _, _)| x >= hx0 && x < h2_face + 0.2)).map(|(k, _)| k).collect();
@@ -678,6 +710,32 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 }
             }
         }
+        // (the edge-triggered escapement, ironspec's ruling (a): the staged latch set `stage_delay`
+        // live gt after G0's opening (the admitted cart at rest on P against G_P); G_P fires on the
+        // rising edge of staged AND the hold's entry pocket latched free AND the hold's release
+        // window past `fill_after` gt (the first fill reaches Ga after it shuts); G0 fires on the
+        // staged cart's pass into the hold (P_h0's edge, above); one kick at the first cycle)
+        if o.edge_esc {
+            if t == warm {
+                eg0_until = t + 12;
+                staged_at = Some(t);
+            }
+            if let Some(s) = staged_at
+                && t - s >= o.stage_delay
+            {
+                staged = true;
+                staged_at = None;
+            }
+            let quiet = hold_release_at < 0 || t >= hold_release_at + o.fill_after;
+            let spaced = t >= last_gp + o.esc_gap;
+            let cond = staged && !occ_h[0] && quiet && spaced && !frz && t >= warm;
+            if cond && !gp_cond_was {
+                egp_until = t + 11;
+                staged = false;
+                last_gp = t;
+            }
+            gp_cond_was = cond;
+        }
         for (gi, (role, _, _, _)) in g.gates.iter().enumerate() {
             let open = match role {
                 Role::Tail(j) if o.overfill && *j + 1 == nt => last_open,
@@ -693,6 +751,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                         !sh
                     }
                 }
+                Role::Gp if o.edge_esc => t < egp_until,
+                Role::G0 if o.edge_esc => t < eg0_until,
                 Role::Gp => if o.alive { t < gp_until } else { in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 6 && ph < a + 6 + 11) || (t - warm >= 100 && ph + 100 >= a + 6 && ph + 100 < a + 6 + 11)) },
                 Role::G0 => if o.alive { t < g0_until } else { in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12)) },
                 Role::Hold(j) => {
@@ -872,6 +932,22 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             let rest_x = last_tail_face - 0.49;
             let v: Vec<String> = contacts_arr.iter().chain(contacts_mov.iter()).filter(|c| c.intake.is_some() && c.t >= warm).take(10).map(|c| format!("{:.2}->{:.3}", c.x - rest_x, c.pv)).collect();
             if v.is_empty() { "-".to_string() } else { v.join(", ") }
+        }
+    ));
+    // (the intake contacts by pair type, ironspec 18:11: mover ridden or empty, struck ridden or
+    // empty: count and range)
+    l.push(format!(
+        "intake contacts by pair (mover-struck, R ridden / E empty): {}",
+        {
+            let mut by: std::collections::BTreeMap<String, (usize, f64, f64)> = Default::default();
+            for c in contacts_arr.iter().chain(contacts_mov.iter()).filter(|c| c.intake.is_some() && c.t >= warm) {
+                let key = format!("{}{}", if ridden_k(c.k) { "R" } else { "E" }, if ridden_k(c.j) { "R" } else { "E" });
+                let e = by.entry(key).or_insert((0, f64::INFINITY, 0.0));
+                e.0 += 1;
+                e.1 = e.1.min(c.pv);
+                e.2 = e.2.max(c.pv);
+            }
+            if by.is_empty() { "-".to_string() } else { by.iter().map(|(k, (n, a, b))| format!("{k} {n}: {a:.3}..{b:.3}")).collect::<Vec<_>>().join(", ") }
         }
     ));
     l.push(format!(
