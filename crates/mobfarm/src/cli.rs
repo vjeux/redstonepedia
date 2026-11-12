@@ -539,6 +539,15 @@ pub enum MobfarmCmd {
     JunctionCheck {
         design: PathBuf,
     },
+    /// (9fc3155f, ironspec Nov 11 20:55: tiling) The cross-module margins of the design tiled with
+    /// a copy of itself: per --at offset (`dx,dy,dz`, or `dx,dy,dz,m` mirrored in z first), (a) a
+    /// golem on one pad sensed by the other's riders, (b) a summon marking the other's riders, (e)
+    /// zombies within 6.05 of the other's riders, (f) the beds' distance, (g) chunk alignment.
+    TileMargins {
+        design: PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        at: Vec<String>,
+    },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
     /// 16/7 and stroll 2/2, IDLE's stroll 10/7 and walks to villagers within 8, job-site / bell walks,
@@ -6794,6 +6803,26 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (_c, spec) = load(version, &design)?;
             for l in crate::siding::check(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
+            }
+        }
+        MobfarmCmd::TileMargins { design, at } => {
+            let (_c, spec) = load(version, &design)?;
+            let s = crate::tile::sets(&spec).map_err(|e| anyhow::anyhow!(e))?;
+            println!(
+                "module: {} rider positions, {} waiting riders, summoners {}, {} golem cells (feet y {}), {} zombies, beds {}",
+                s.riders.len(),
+                s.waiting.len(),
+                s.summoners.iter().map(|p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" "),
+                s.golems.len(),
+                s.golems.iter().map(|g| g.y as i64).min().map_or("-".into(), |a| format!("{a}..{}", s.golems.iter().map(|g| g.y as i64).max().unwrap_or(a))),
+                s.zombies.len(),
+                s.beds.iter().map(|b| format!("{},{},{}", b.x, b.y, b.z)).collect::<Vec<_>>().join(" ")
+            );
+            for a in &at {
+                let v: Vec<&str> = a.split(',').collect();
+                anyhow::ensure!(v.len() == 3 || v.len() == 4, "--at dx,dy,dz[,m]");
+                let o = [v[0].trim().parse::<i32>()?, v[1].trim().parse::<i32>()?, v[2].trim().parse::<i32>()?];
+                println!("{}", crate::tile::candidate(&s, o, v.len() == 4));
             }
         }
         MobfarmCmd::JunctionCheck { design } => {

@@ -47,6 +47,7 @@ pub mod validate;
 pub mod weathercheck;
 pub mod sitecheck;
 pub mod fleecheck;
+pub mod tile;
 pub mod ground;
 pub mod ledge_sweep;
 pub mod contact_scene;
