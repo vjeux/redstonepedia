@@ -334,7 +334,9 @@ impl Liveness {
 /// The whole part frozen at level 32 (the player just outside its chunks): a forced ring of chunks
 /// kept around the part's chunk box, the part's own chunks unforced (level 32 next to the ring,
 /// redstone running, entities frozen; 33 further in, nothing). Returns the part's chunk box, to
-/// pass to [`thaw32`].
+/// pass to [`thaw32`]. (cc767b78, G1 2026-11-12) Asserts that every chunk of the part reads level 32
+/// ([`levels`]): a part three or more chunks across in both axes has an interior past the ring at 33,
+/// which is no freeze a judge may count.
 pub fn freeze32(w: &mut World) -> [i32; 4] {
     if w.entity_chunks.is_none() {
         let (mn, sz) = (w.min, w.size);
@@ -343,6 +345,8 @@ pub fn freeze32(w: &mut World) -> [i32; 4] {
     let pb = w.entity_chunks.unwrap_or([0; 4]);
     w.entity_chunks = Some([pb[0] - 1, pb[1] - 1, pb[2] + 1, pb[3] + 1]);
     redsim::reload::unload_some(w, pb);
+    let (lo, hi) = levels(w, pb);
+    assert!(lo == 32 && hi == 32, "freeze32: the part's chunks {pb:?} read levels {lo}..{hi}, not all 32");
     pb
 }
 
