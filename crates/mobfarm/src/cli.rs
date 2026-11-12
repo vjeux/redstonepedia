@@ -629,6 +629,31 @@ pub enum MobfarmCmd {
         /// The part's origin in the base (x,y,z).
         #[arg(long, default_value = "0,0,0", allow_hyphen_values = true)]
         at: String,
+        /// Only the part's blocks, block entities and entities inside this box of the part's own
+        /// frame (X0,Y0,Z0,X1,Y1,Z1, inclusive): a copy of one area of a design (a second stand
+        /// area pasted into its own design, say).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        r#box: Vec<i32>,
+        /// The part's overworld cells only: no ports, no Nether part, no build, station, declared
+        /// or flights lines (a copy that shares the base's controls and Nether side).
+        #[arg(long)]
+        overworld_only: bool,
+        /// The part mirrored in z (z to -z, then moved by --at), its blocks' north/south
+        /// properties swapped (facing, rail shapes, wire sides): a stand copied facing the other way.
+        #[arg(long)]
+        mirror_z: bool,
+        /// `--keep base`'s older name (S3's recipes, wip/s3/README.md): a contested cell keeps the
+        /// base's block, listed.
+        #[arg(long)]
+        keep_base: bool,
+        /// One box of the base cleared first (X0,Y0,Z0,X1,Y1,Z1, the base's frame): `--clear` with
+        /// one box, by its older name (S3's recipes, wip/s3/README.md).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        remove_box: Vec<i32>,
+        /// Set (or move) one of the result's ports, NAME=x,y,z (repeatable): a moved part's port
+        /// (the bed's `home`) in the base's frame.
+        #[arg(long, allow_hyphen_values = true)]
+        set_port: Vec<String>,
         #[arg(long)]
         out: PathBuf,
         /// A contested cell (both designs hold it, with different blocks), a port both name, a cell
@@ -731,6 +756,48 @@ pub enum MobfarmCmd {
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
+    },
+    /// A design's overworld box: its extents, volume, the chunk columns it crosses (X >> 4,
+    /// Z >> 4 of its cells as written) and its blocks by kind, within `--box` if given.
+    Box {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        r#box: Vec<i32>,
+        /// Every block in the box too, one per line: x y z state (the design's own frame)
+        #[arg(long)]
+        list: bool,
+    },
+    /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
+    /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
+    /// position the flee check tries (three points along each rail cell, the cart's y: `fleecheck`)
+    /// and the resting riders `--rest` (x,y,z,...): the nearest rider position (bar > 6), the
+    /// farthest resting rider (bar <= 8), and whether a straight line from each resting rider's eye to
+    /// the zombie's head crosses only see-through blocks. The best `--top` printed.
+    ZombieCells {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        region: Vec<i32>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        rest: Vec<f64>,
+        #[arg(long, default_value_t = 12)]
+        top: usize,
+    },
+    /// A part made of straight runs, to price a route before it is designed: each option a list of
+    /// segments `x0,y0,z0>x1,y1,z1` (`;`-separated; along x or z, y moving one block per cell toward
+    /// y1 until it gets there) laid as plain rails on glass (`--rail`), boosters on redstone blocks
+    /// (`--booster`) or dust on stone with a repeater every 15 cells (`--wire`), plus single blocks
+    /// (`--block "x,y,z=state;..."`). Written as a design to paste (`paste --overworld-only`).
+    Lines {
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        rail: String,
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        booster: String,
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        wire: String,
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        block: String,
+        #[arg(long)]
+        out: PathBuf,
     },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
@@ -860,6 +927,36 @@ pub enum MobfarmCmd {
         /// the release run plain).
         #[arg(long)]
         approach_climb_boost: bool,
+        /// With --approach 5: C''', a plain hump after the run's --boost-first boosters, its flat
+        /// top this many blocks above the dip; the dip's plain flat across the line z 9|10, a plain
+        /// climb to T (6 high at z 4), T and approach 5's descent; the queue's head moves north
+        /// as far as the run needs.
+        #[arg(long, default_value_t = 0)]
+        hump: u32,
+        /// With --hump: the dip's height (2: z 9 flat, four slopes up to T).
+        #[arg(long, default_value_t = 2)]
+        dip_y: u32,
+        /// With --hump: the dip's flat cells, z 9 and north.
+        #[arg(long, default_value_t = 2)]
+        dip_flat: u32,
+        /// With --hump: the run's boosters as the hump's first slopes up (not flat).
+        #[arg(long)]
+        boost_slopes: bool,
+        /// With --boost-slopes: the first this many boosters flat at the head's height, the rest as
+        /// slopes (S3's DP cell two before the hump's top clear of the boosters; at hump 4, 1).
+        #[arg(long, default_value_t = 0)]
+        boost_flat: u32,
+        /// With --hump: the hump's flat top this many cells long.
+        #[arg(long, default_value_t = 1)]
+        top_flat: u32,
+        /// With --hump: the top's flat cells boosters (backward carts never reach them).
+        #[arg(long)]
+        top_boost: bool,
+        /// The hump's path with no hump (ironspec's h0, with --approach 5): the run's boosters,
+        /// `--top-flat` plain flat cells at the run's level (S's), one slope up to the dip at
+        /// `--dip-y`, the dip's flat across the line z 9|10, the boosted climb.
+        #[arg(long)]
+        dip_run: bool,
         /// With --depart-crest: the dip past the line as plain flat rails (the boosted rise
         /// climbs alone).
         #[arg(long)]
@@ -946,6 +1043,16 @@ pub enum MobfarmCmd {
         /// The top queue slope a detector too: the landing latch's reset (the cart moved on).
         #[arg(long)]
         adm_latch_reset: bool,
+        /// S2, the comb stand (with --stand-stop --approach 5, not --stand-wired): each pocket on
+        /// its own branch through stem-in switches flipped by single-cart detector edges
+        /// (`mobfarm::comb`): 1 the stem-in S_y, 2 the straight S_y (wrong-side entry, pending
+        /// its bridge). Emulation: the latches and gates bench-driven, the junctions real.
+        #[arg(long, default_value_t = 0)]
+        stand_comb: u32,
+        /// With --stand-comb: the gravity pockets (gate slopes plain, the cells past G2 and G1
+        /// detector rails).
+        #[arg(long)]
+        comb_gravity: bool,
         /// Admission control's x-queue (ironspec's R1): N plain slopes down west along z 24, the
         /// curve north and one flat transition cell, all upstream of the forced chunk border z
         /// 25|26, then the --tail-esc slopes north into G0 and P.
@@ -1511,7 +1618,7 @@ pub enum MobfarmCmd {
         /// summon tick (gameTime % 100 == 0). Default 93, the farm frame: the controller's slot
         /// starts on input.golem, which day-1's wired c24pad measured at summon +7 (the pad's pulse
         /// +1, its 243-cell line +6; ironspec Nov 11 12:12). 99 is a controller on the pad's pulse
-        /// itself. Every run prints its frame.
+        /// itself. Every run prints its frame (`--head-perm` too).
         #[arg(long, allow_hyphen_values = true)]
         summon_at: Option<i64>,
         /// No summon alignment (the slots start wherever the settle leaves them): every margin
@@ -1947,6 +2054,29 @@ pub enum MobfarmCmd {
         /// last release.
         #[arg(long)]
         hold_progress: bool,
+        /// S3(ii)'s metered stand, emulated: D12,D23,CLOSE,DEP,HOLD_ON[,CHAIN[,FALLBACK[,MISS_D1[,VB[,OPEN_LEN[,WIRED_H[,H_DELAY[,GUARD[,G2_DELAY[,G1_DELAY]]]]]]]]]]
+        /// (`queue::MeterHold`: the stand's circuit cut, the bench driving G0..G2, their slopes
+        /// and a hold gate over the snap turn from detector edges only; VB 1: a virtual stand B
+        /// takes the odd GOs' trains, so the stand cycles every 200 gt, VB 2: the wired second
+        /// stand; OPEN_LEN: H's fixed short opening; GUARD 1: a chained opening waits for the
+        /// previous cart's L edge; G2_DELAY (default 6, ironspec's nominal) and G1_DELAY
+        /// (default 0): at REL, G2 or G1 opens that many gt after G0, the departure gaps).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        meter_hold: Vec<i64>,
+        /// With --meter-hold: H's fixed opening swept at every gt step: L0,L1[,S0,S1] (open lengths,
+        /// and start shifts: HOLD_ON and D12/D23 each + S), one run per combination on --jobs
+        /// threads, the openings passing 0 / 1 / 2+ carts and the follower's margin per combination.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        meter_sweep: Vec<i64>,
+        /// With --meter-hold: the freeze rows: SLOT,DT0,DT1,N[,X0,Z0,X1,Z1]: one run per gt from
+        /// SLOT +DT0 to +DT1, each with the chunk box (default the stand's chunk 0,0..0,0) unloaded
+        /// N gt from that gt; per run H's openings, its shuts, any gate shut on a cart.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        meter_freeze: Vec<i64>,
+        /// With --meter-freeze: N0,N1: sweep the freeze's length from N0 to N1 gt at the fixed
+        /// start SLOT +DT0 (DT1 and N ignored).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        meter_freeze_n: Vec<i64>,
         /// The register's cart interlock, ideal sensors (bench-driven): an advance moves a cart
         /// only into an empty slot, the head releases only into an empty stand, the tail launches
         /// only into an empty slot 0 (the advance spacing is --advance-every).
@@ -2157,6 +2287,20 @@ pub enum MobfarmCmd {
         /// "R1,R2,R3,R4,RIN,RS1;..." (redstone ticks), the design generated again with each.
         #[arg(long, default_value = "")]
         cprime_variants: String,
+        /// With --fault-table: the cases' fault slot (5 by default; with --meter-hold's virtual
+        /// stand B an even slot puts the fault on stand A's own train).
+        #[arg(long, default_value_t = 5)]
+        fault_slot: i64,
+        /// With --fault-table and --meter-hold: every case at S3's 27 summon-margin corners (the
+        /// launch ±2 gt, H's opening start ±2 (HOLD_ON, D12 and D23 together), H's fixed opening
+        /// length ±2).
+        #[arg(long)]
+        meter_corners: bool,
+        /// Router S's cell X,Y,Z[,DX,DY,DZ] (loop frame; with --head-perm's router), and DP's:
+        /// at each router flip, the carts whose centre is in S's cell, ridden or empty (an empty
+        /// one with the gt since it left DP's cell): ironspec's interlock rows.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        s_cell: Vec<i32>,
         /// The shared bed's head block X,Y,Z (loop frame): print the riders' closest approach to
         /// it, over the run and on the approach (farmopt's approach lab).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
@@ -2180,6 +2324,177 @@ pub enum MobfarmCmd {
         /// the first cart's edge, 3 = the last's).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         head_latch: Vec<i32>,
+        /// S3(ii)'s per-stand head permissions, emulated on one stand (`mobfarm::headperm`):
+        /// AX,AY,AZ,HX,HY,HZ[,G[,R[,BC0,BN]]]: D_arr (the hold's upper descent slope) and Dh
+        /// (pocket 3's entry slope), loop frame; G 1: the latches gate the head's release (else
+        /// observed only); R 1: the router emulated, phase-locked (A on even cycles, B on odd;
+        /// this stand A, a virtual stand B), B's permission held from cycle BC0 for BN cycles.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        head_perm: Vec<i32>,
+        /// Riderless trains: X,Y,Z[,S0,S1[,K]]: every rider of a cart entering the cell X,Y,Z (loop
+        /// frame) in slots S0..=S1 (default all) removed, the cart running on empty; K > 0: only
+        /// the K-th cart to enter the cell in each slot.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        strip_riders: Vec<i64>,
+        /// Two carts traced per tick: A,B,T0,T1 (entity ids, the run's gt): their gap, stored and
+        /// visible motion, and every push on either (mob on cart; cart on cart with the alignment
+        /// test and the motions before and after).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        trace_pair: Vec<i64>,
+        /// day-1's RETRY-only head on `--head-perm`'s router (G 1, R 1): ON[,AC0,AN[,LOST]]: A's
+        /// stand REL only with a launch for A, or by RETRY (an EXPIRE GO: no raw pad pulse of A's
+        /// in the 60 gt before its GO; A's stand not emptied since its last launch; no train in
+        /// flight); A forced held from cycle AC0 for AN of its GOs; LOST: A's REL lost at that slot.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        head_retry: Vec<i64>,
+        /// A partial train: SLOT,K: at that slot's launch only the front K release slopes go (a
+        /// K-cart train; the other carts stay as stragglers for the next launch).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        train_size: Vec<i64>,
+        /// The pulse-driven router on `--head-perm` (day-1's ports: R set by each stand's raw pad
+        /// pulse, EXPIRE toggling it with none, a double tick toggling it, one train):
+        /// BMISS1,BMISS2,BDOUBLE1,BDOUBLE2,WRONG (slots; -1 none): B's tick missed at those slots,
+        /// B's pulse also at those (A's) slots, a forced wrong-stand GO (the positive control).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        router_pulses: Vec<i64>,
+        /// Day-1's DEP_X, ideal: the loop z of a plane on the stand's approach column that a cart
+        /// crosses going down toward the hold (after VB's parking point, z 15); with
+        /// `--head-retry`, ARR_X/EMP_X re-arm on it instead of on the launch.
+        #[arg(long)]
+        dep_x: Option<f64>,
+        /// A train that never arrives: SLOT,DT,Z0,Z1[,N]: from that tick for N ticks (default 1)
+        /// every cart on the stand's approach column between loop z Z0 and Z1 is removed with its
+        /// rider.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        vanish: Vec<f64>,
+        /// A CANCEL_X stand-in until day-1's spec: with `--head-retry`, ARR_X armed this many gt
+        /// with no D_arr edge is cleared (a train that never arrives releases the hold).
+        #[arg(long)]
+        cancel_x: Option<i64>,
+        /// Day-1's stale-ARR clear with `--head-retry --dep-x`: ARR_X still set at the second
+        /// EXPIRE edge since DEP_X, with no Dh3_X between, and no cart on the branch (emulated:
+        /// the approach column between DEP_X and the hold), is cleared.
+        #[arg(long)]
+        stale_clear: bool,
+        /// The stale-ARR clear without BRANCH_EMPTY_X's gate: the time-only fallback.
+        #[arg(long)]
+        stale_ungated: bool,
+        /// The stale-ARR clear without its "no Dh3_X between" condition (the branch gate alone).
+        #[arg(long)]
+        stale_ignore_dh3: bool,
+        /// ironspec's ruling on the ARR gap, (ii): the stale-ARR clear without the "no Dh3_X
+        /// between" condition, guarded by the liveness gate (EXPIRE edges counted only while no
+        /// branch chunk is frozen; emulated), no branch gate.
+        #[arg(long)]
+        stale_live: bool,
+        /// ironspec's ruling on the ARR gap, (i): GO toward A also requires D_arr low.
+        #[arg(long)]
+        darr_gate: bool,
+        /// With `--head-perm`'s router: the GO decides this many gt before the release acts
+        /// (day-1's GO S+9 to core REL S+11: 2).
+        #[arg(long, default_value_t = 0)]
+        go_lead: i64,
+        /// An emulated freeze of K carts alone: SLOT,DT,Z0,Z1,N,K: the K highest carts on A's
+        /// approach column between loop z Z0 and Z1 at that tick held in place for N gt.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        hold_cart: Vec<f64>,
+        /// A fix candidate for `--darr-gate`'s drain: day-1's RETRY (a REL alone) also fires on an
+        /// EXPIRE GO while D_arr is on (carts waiting at H), not only while EMP_X is armed. Now
+        /// the head model's default with `--head-retry` (day-1 builds it); kept for old command
+        /// lines.
+        #[arg(long)]
+        retry_darr: bool,
+        /// With `--head-retry`: day-1's original RETRY (EXPIRE and EMP_X armed only), the D_arr
+        /// term off (an opt-out of the default).
+        #[arg(long)]
+        retry_emp_only: bool,
+        /// With `--head-retry`: ironspec's ARR-gap rules off ((i) the D_arr gate and (ii) the
+        /// liveness-gated stale clear, both the head model's default): an opt-out.
+        #[arg(long)]
+        no_arr_rules: bool,
+        /// A fault: SLOT,LEVEL: the head's D_arr read stuck at LEVEL (0 off, 1 on) from slot SLOT.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        darr_stuck: Vec<i64>,
+        /// A cart lost in transit: SLOT,DT,X0,X1,Z0,Z1[,K]: from SLOT +DT, the first K carts (1)
+        /// found in that loop box (any height) removed with their riders.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        vanish_box: Vec<f64>,
+        /// A slow transit: SLOT,DT,X0,X1,Z0,Z1,N: the first cart found in that loop box from SLOT
+        /// +DT held in place (position and stored motion) N gt.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        hold_box: Vec<f64>,
+        /// The head model's summon tick S as the bench sees it (one tick after the slot +93 line):
+        /// an opt-out of day-1's count (S the slot +93 line, the edges reading GO S+9, core REL
+        /// S+11, stand REL S+21 on the validated set with `--go-lead 2`).
+        #[arg(long)]
+        summon_raw: bool,
+        /// Passages logged at up to 8 cells ("x,y,z;x,y,z", loop frame): each cart's box entry and
+        /// exit, ridden or empty, its stored speed in and its least inside; per cell the corner gaps
+        /// (the follower's entry after the leader's exit) for empty and ridden followers.
+        #[arg(long, default_value = "")]
+        cell_log: String,
+        /// Up to 4 loop boxes ("x0,x1,z0,z1;..."): any empty cart at rest >= 10 gt inside one is
+        /// logged with its cell, the rail there and the powered rails beside it, and how it moved
+        /// again (a cart-cart push: the next cart pushed it through; or by itself), or never.
+        #[arg(long, default_value = "")]
+        stall_box: String,
+        /// The riderless matrix: "STAGGERS;KS" (e.g. "2,3,4,5,6;0,1,2,3"): each release stagger x
+        /// each empty-cart position (0: every cart; k: the k-th cart of each train, at
+        /// --strip-riders' cell), run in parallel (--jobs); per run the --cell-log cells' empty
+        /// passages, the --stall-box stalls, backward entries, merges, the closest centres by rest
+        /// place, T-cell crossings.
+        #[arg(long, default_value = "")]
+        riderless_rows: String,
+        /// The head model's ARR SET on every DEP_X pulse (the old model), instead of day-1's
+        /// one-shot (L_X: only the first DEP_X after a launch arms ARR_X).
+        #[arg(long)]
+        lx_off: bool,
+        /// A fault: SLOT,LEVEL[,N]: day-1's L_X read stuck at LEVEL (1 high: every DEP_X pulse
+        /// arms; 0 low: no DEP_X arms) over N slots from slot SLOT (default: to the end).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        lx_stuck: Vec<i64>,
+        /// The old EMP_X read at DEP_X (the occupancy snapshot of the last REL, stale after SE): a
+        /// positive control for the live E_X read.
+        #[arg(long)]
+        emp_snapshot: bool,
+        /// A fault: SLOT,DT: a stray DEP_X pulse at that tick (no cart crossing).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        dep_pulse: Vec<i64>,
+        /// A junction watched: X,Y,Z (loop frame): while any cart sits in its cell, its state per
+        /// tick (a re-settle under the cart is a problem), the carts in it, the closest other cart.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        t_watch: Vec<i32>,
+        /// A fault on P2's transit latch: SLOT,LEVEL[,N]: stuck set (1) or clear (0) over N slots
+        /// from slot SLOT (default: to the end); a stuck-set latch still times out and re-sets.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        p2_stuck: Vec<i64>,
+        /// The head's RETRY fires even while P2 holds an earlier REL of the stand (the old model;
+        /// by default a pending REL suppresses RETRY: never two RELs in one cycle).
+        #[arg(long)]
+        retry_over_pending: bool,
+        /// A candidate rule (iii): GO toward A also requires every branch chunk live (emulated:
+        /// no chunk of the approach column between H and DEP_X frozen).
+        #[arg(long)]
+        live_go: bool,
+        /// Every first contact anywhere between a moving cart and one at rest (a cart-cart push or
+        /// a dead stop at a rider's box), with the mover's stored speed; the count over 0.2.
+        #[arg(long)]
+        contacts_all: bool,
+        /// The whole-column freeze matrix: "SLOT,DT0,DT1,STEP;N1,N2,..": one run per start (SLOT
+        /// +DT0..+DT1 every STEP gt) and length N, each with the whole part frozen at level 32
+        /// (redstone running, entities frozen: `--act SLOT,DT,freeze32,N`), in parallel (--jobs);
+        /// per run the bars: stand RELs per cycle, merges, contacts over 0.2, gates shut on a cart,
+        /// backward entries, the head's holds and its edges after the thaw, carts lost, the
+        /// detection latency.
+        #[arg(long, default_value = "")]
+        freeze_matrix: String,
+        /// The pausing controller clock, an emulated liveness gate: X,Z[,RESYNC] (a loop cell of
+        /// the column): the bench's slot clock and every emulated timer and pulse (the release,
+        /// the stand's gates, the meter, the head) advance only while that cell's chunk ticks
+        /// entities; during a freeze the world ticks alone, redstone running; RESYNC 1: after a
+        /// pause, wait until the slot clock is back in phase with gameTime (the next summon).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        pause_clock: Vec<i32>,
         /// The tolerance corners instead of a run: REL nominal, early and late x staggers 2, 3, 4, 6.
         #[arg(long)]
         corner_table: bool,
@@ -3251,20 +3566,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Paste { base, part, at, out, keep, clear, no_settle } => {
+        MobfarmCmd::Paste { base, part, at, r#box, overworld_only, mirror_z, keep_base, remove_box, set_port, out, keep, clear, no_settle } => {
             let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(o.len() == 3, "--at x,y,z");
+            anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
+            anyhow::ensure!(remove_box.is_empty() || remove_box.len() == 6, "--remove-box X0,Y0,Z0,X1,Y1,Z1");
+            anyhow::ensure!(!(keep_base && keep.is_some()), "--keep-base is `--keep base`: one of them");
             let keep_part = match keep.as_deref() {
+                None if keep_base => Some(false),
                 None => None,
                 Some("base") => Some(false),
                 Some("part") => Some(true),
                 Some(k) => anyhow::bail!("--keep {k}: base or part"),
             };
             let mut d = mctas::design::Design::parse(&std::fs::read_to_string(&base)?)?;
-            let p = mctas::design::Design::parse(&std::fs::read_to_string(&part)?)?;
-            // (`--clear`: the base's boxes emptied first, the cells the part replaces)
+            // (`--clear`: the base's boxes emptied first, the cells the part replaces; `--remove-box`
+            // one more box, by its older name)
             let mut cleared: Vec<String> = Vec::new();
-            for bx in clear.as_deref().unwrap_or("").split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            let remove_one = (remove_box.len() == 6).then(|| remove_box.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","));
+            for bx in clear.as_deref().unwrap_or("").split(';').map(str::trim).filter(|s| !s.is_empty()).map(String::from).chain(remove_one) {
                 let v: Vec<i32> = bx.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 6, "--clear takes X0,Y0,Z0,X1,Y1,Z1 boxes: {bx}");
                 let (lo, hi) = ([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]);
@@ -3275,6 +3595,62 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let ne = d.entities.len();
                 d.entities.retain(|e| !inside(&[e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]));
                 cleared.push(format!("{},{},{}..{},{},{}: {} blocks, {} entities", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], nb - d.blocks.len(), ne - d.entities.len()));
+            }
+            let mut p = mctas::design::Design::parse(&std::fs::read_to_string(&part)?)?;
+            // (`--box`: only the part's cells and entities inside the box, its own frame)
+            if r#box.len() == 6 {
+                let b = r#box.clone();
+                let inside = |c: &[i32; 3]| (0..3).all(|k| c[k] >= b[k].min(b[k + 3]) && c[k] <= b[k].max(b[k + 3]));
+                p.blocks.retain(|c, _| inside(c));
+                p.block_entities.retain(|c, _| inside(c));
+                p.entities.retain(|e| inside(&[e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]));
+            }
+            // (`--overworld-only`: the copy shares the base's ports, controls and Nether side)
+            if overworld_only {
+                p.ports.clear();
+                p.nether_blocks.clear();
+                p.nether_block_entities.clear();
+                p.nether_ports.clear();
+                for k in ["build", "station", "declared", "flights"] {
+                    p.meta.remove(k);
+                }
+            }
+            // (`--mirror-z`: z to -z in the part's frame, north and south swapped in each state)
+            if mirror_z {
+                let flip = |s: &str| -> String {
+                    let Some((name, rest)) = s.split_once('[') else { return s.to_string() };
+                    let props = rest.trim_end_matches(']');
+                    let swap = |v: &str| match v {
+                        "north" => "south".to_string(),
+                        "south" => "north".to_string(),
+                        "ascending_north" => "ascending_south".to_string(),
+                        "ascending_south" => "ascending_north".to_string(),
+                        "north_east" => "south_east".to_string(),
+                        "south_east" => "north_east".to_string(),
+                        "north_west" => "south_west".to_string(),
+                        "south_west" => "north_west".to_string(),
+                        v => v.to_string(),
+                    };
+                    let kv: Vec<(String, String)> = props.split(',').filter_map(|p| p.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+                    let get = |k: &str| kv.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone());
+                    let (n, so) = (get("north"), get("south"));
+                    let out: Vec<String> = kv.iter().map(|(k, v)| match k.as_str() {
+                        "north" => format!("north={}", so.clone().unwrap_or_else(|| v.clone())),
+                        "south" => format!("south={}", n.clone().unwrap_or_else(|| v.clone())),
+                        "facing" | "shape" | "axis" => format!("{k}={}", swap(v)),
+                        _ => format!("{k}={v}"),
+                    }).collect();
+                    format!("{name}[{}]", out.join(","))
+                };
+                p.blocks = p.blocks.iter().map(|(c, s)| ([c[0], c[1], -c[2]], flip(s))).collect();
+                p.block_entities = p.block_entities.iter().map(|(c, s)| ([c[0], c[1], -c[2]], s.clone())).collect();
+                for e in &mut p.entities {
+                    // (cell z goes to cell -z, i.e. [z, z+1) to [-z, 1-z): a point p to 1 - p)
+                    e.pos[2] = 1.0 - e.pos[2];
+                }
+                for c in p.ports.values_mut() {
+                    c[2] = -c[2];
+                }
             }
             let mv = |c: &[i32; 3]| [c[0] + o[0], c[1] + o[1], c[2] + o[2]];
             let mut clashes = Vec::new();
@@ -3391,6 +3767,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if d.meta.contains_key("flights") || p.meta.contains_key("flights") {
                 d.meta.insert("flights".into(), crate::flight::format(&fl));
             }
+            for sp in &set_port {
+                let (k, v) = sp.split_once('=').ok_or_else(|| anyhow::anyhow!("--set-port NAME=x,y,z: {sp}"))?;
+                let c: Vec<i32> = v.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(c.len() == 3, "--set-port NAME=x,y,z: {sp}");
+                d.ports.insert(k.to_string(), [c[0], c[1], c[2]]);
+            }
             let head: String = std::fs::read_to_string(&base)?.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
             let conflict_lines: String = cleared.iter().map(|c| format!("# - cleared before {} at {},{},{}: {c}\n", p.name, o[0], o[1], o[2])).chain(conflicts.iter().map(|c| format!("# conflict ({} at {},{},{}): {c}\n", p.name, o[0], o[1], o[2]))).collect();
             std::fs::write(&out, format!("{head}# + {} pasted at {},{},{} ({} blocks{}{}{})\n{conflict_lines}{}", p.name, o[0], o[1], o[2], p.blocks.len(), if p.nether_blocks.is_empty() { String::new() } else { format!(", its Nether part's {}", p.nether_blocks.len()) }, if merged_entities == 0 { String::new() } else { format!("; {merged_entities} entities the base already held") }, if conflicts.is_empty() { String::new() } else { format!("; {} conflicts", conflicts.len()) }, d.to_text()))?;
@@ -3495,7 +3877,160 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 column_write(version, &out, d, &head, &f, ground, shift, no_settle)?;
             }
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, row_a, tail_posts, approach, depart_crest, cprime, approach_boost, part_departure, crest_plain_dip, crest_descent, part_handoff, approach_climb_boost, part_allowed, out } => {
+        MobfarmCmd::Box { design, r#box, list } => {
+            anyhow::ensure!(r#box.is_empty() || r#box.len() == 6, "--box X0,Y0,Z0,X1,Y1,Z1");
+            let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            let b = r#box.clone();
+            let inside = |c: &[i32; 3]| b.len() != 6 || (0..3).all(|k| c[k] >= b[k].min(b[k + 3]) && c[k] <= b[k].max(b[k + 3]));
+            let cells: Vec<(&[i32; 3], &String)> = d.blocks.iter().filter(|(c, s)| inside(c) && s.trim_start_matches("minecraft:") != "air").collect();
+            anyhow::ensure!(!cells.is_empty(), "no block in the box");
+            let lo = |k: usize| cells.iter().map(|(c, _)| c[k]).min().unwrap_or(0);
+            let hi = |k: usize| cells.iter().map(|(c, _)| c[k]).max().unwrap_or(0);
+            let ext = [hi(0) - lo(0) + 1, hi(1) - lo(1) + 1, hi(2) - lo(2) + 1];
+            let chunks: std::collections::BTreeSet<(i32, i32)> = cells.iter().map(|(c, _)| (c[0].div_euclid(16), c[2].div_euclid(16))).collect();
+            let (cx0, cx1) = (chunks.iter().map(|c| c.0).min().unwrap_or(0), chunks.iter().map(|c| c.0).max().unwrap_or(0));
+            let (cz0, cz1) = (chunks.iter().map(|c| c.1).min().unwrap_or(0), chunks.iter().map(|c| c.1).max().unwrap_or(0));
+            let mut kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            for (_, s) in &cells {
+                *kinds.entry(s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string()).or_default() += 1;
+            }
+            let ents = d.entities.iter().filter(|e| inside(&[e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32])).count();
+            println!("{}: {} overworld blocks{}, box x {}..{} y {}..{} z {}..{} = {}x{}x{} = {} volume; chunk columns X {}..{} Z {}..{} ({} with blocks of {} in the box); {} entities", design.display(), cells.len(), if b.len() == 6 { format!(" in the box {:?}", b) } else { String::new() }, lo(0), hi(0), lo(1), hi(1), lo(2), hi(2), ext[0], ext[1], ext[2], ext[0] as i64 * ext[1] as i64 * ext[2] as i64, cx0, cx1, cz0, cz1, chunks.len(), (cx1 - cx0 + 1) * (cz1 - cz0 + 1), ents);
+            let mut v: Vec<(String, usize)> = kinds.into_iter().collect();
+            v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            println!("  {}", v.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "));
+            if list {
+                let mut cs = cells.clone();
+                cs.sort_by_key(|(c, _)| (c[1], c[2], c[0]));
+                for (c, s) in cs {
+                    println!("{} {} {} {}", c[0], c[1], c[2], s.trim_start_matches("minecraft:"));
+                }
+            }
+        }
+        MobfarmCmd::ZombieCells { design, region, rest, top } => {
+            anyhow::ensure!(region.len() == 6, "--region X0,Y0,Z0,X1,Y1,Z1");
+            anyhow::ensure!(rest.len() % 3 == 0 && !rest.is_empty(), "--rest x,y,z,...");
+            let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            // (the rider positions: three points along each rail cell's axis, at the cart's y)
+            let mut riders: Vec<[f64; 3]> = Vec::new();
+            for (c, s) in &d.blocks {
+                if !s.contains("rail") {
+                    continue;
+                }
+                let (x, y, z) = (c[0] as f64, c[1] as f64 + 0.0625, c[2] as f64);
+                for t in [0.1, 0.5, 0.9] {
+                    riders.push(if s.contains("east_west") || s.contains("ascending_east") || s.contains("ascending_west") {
+                        [x + t, y, z + 0.5]
+                    } else if s.contains("north_south") || s.contains("ascending_north") || s.contains("ascending_south") {
+                        [x + 0.5, y, z + t]
+                    } else {
+                        [x + 0.5, y, z + 0.5]
+                    });
+                }
+            }
+            let rests: Vec<[f64; 3]> = rest.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
+            let dist = |a: [f64; 3], b: [f64; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+            // (sight: sample the segment every 0.1; a mob's line of sight is clipped by every block
+            // with a collision shape (ClipContext.Block.COLLIDER: glass and leaves block it), so only
+            // air, rails, dust, torches, tripwire, buttons, levers and plates let it through)
+            let clear = |s: &str| {
+                let n = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("");
+                n == "air" || n.contains("rail") || n == "redstone_wire" || n.contains("torch") || n.contains("tripwire") || n.contains("button") || n.contains("lever") || n.contains("pressure_plate") || (n.contains("fence_gate") && s.contains("open=true"))
+            };
+            let sees = |eye: [f64; 3], head: [f64; 3]| -> bool {
+                let n = (dist(eye, head) / 0.1).ceil() as usize;
+                (1..n).all(|k| {
+                    let f = k as f64 / n as f64;
+                    let p = [eye[0] + (head[0] - eye[0]) * f, eye[1] + (head[1] - eye[1]) * f, eye[2] + (head[2] - eye[2]) * f];
+                    let c = [p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32];
+                    d.blocks.get(&c).is_none_or(|s| clear(s))
+                })
+            };
+            let r = &region;
+            let mut rows: Vec<(f64, f64, [i32; 3], usize)> = Vec::new();
+            for x in r[0].min(r[3])..=r[0].max(r[3]) {
+                for y in r[1].min(r[4])..=r[1].max(r[4]) {
+                    for z in r[2].min(r[5])..=r[2].max(r[5]) {
+                        if d.blocks.get(&[x, y, z]).is_some_and(|s| !clear(s)) {
+                            continue;
+                        }
+                        let f = [x as f64 + 0.5, y as f64, z as f64 + 0.5];
+                        let near = riders.iter().map(|p| dist(*p, f)).fold(f64::MAX, f64::min);
+                        let far = rests.iter().map(|p| dist(*p, f)).fold(0.0, f64::max);
+                        if near > 6.0 && far <= 8.0 {
+                            let seen = rests.iter().filter(|p| sees([p[0], p[1] + 1.62, p[2]], [f[0], f[1] + 1.74, f[2]])).count();
+                            rows.push((near, far, [x, y, z], seen));
+                        }
+                    }
+                }
+            }
+            rows.sort_by(|a, b| (b.3, (b.0 - 6.0).min(8.0 - b.1)).partial_cmp(&(a.3, (a.0 - 6.0).min(8.0 - a.1))).unwrap_or(std::cmp::Ordering::Equal));
+            println!("{}: {} rider positions, {} resting riders; {} candidate cells meet > 6 from every rider position and <= 8 from every resting rider", design.display(), riders.len(), rests.len(), rows.len());
+            for (near, far, c, seen) in rows.iter().take(top) {
+                println!("  zombie feet at {:.1},{},{:.1}: nearest rider position {:.2} (margin {:.2}), farthest resting rider {:.2} (margin {:.2}), sight to {seen} of {} resting riders", c[0] as f64 + 0.5, c[1], c[2] as f64 + 0.5, near, near - 6.0, far, 8.0 - far, rests.len());
+            }
+        }
+        MobfarmCmd::Lines { rail, booster, wire, block, out } => {
+            let mut cells: std::collections::BTreeMap<[i32; 3], String> = std::collections::BTreeMap::new();
+            let pt = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "a point is x,y,z: {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            // (each segment's cells, along x or z, y stepping toward y1 one block per cell)
+            let walk = |seg: &str| -> anyhow::Result<Vec<([i32; 3], &'static str)>> {
+                let (a, b) = seg.split_once('>').ok_or_else(|| anyhow::anyhow!("a segment is x0,y0,z0>x1,y1,z1: {seg}"))?;
+                let (a, b) = (pt(a)?, pt(b)?);
+                anyhow::ensure!(a[0] == b[0] || a[2] == b[2], "a segment runs along x or z: {seg}");
+                let (dx, dz) = ((b[0] - a[0]).signum(), (b[2] - a[2]).signum());
+                let n = (b[0] - a[0]).abs().max((b[2] - a[2]).abs());
+                let mut y = a[1];
+                let mut v = Vec::new();
+                for i in 0..=n {
+                    let dy = if i < n { (b[1] - y).signum() } else { 0 };
+                    let shape = match (dx, dz, dy) {
+                        (_, _, 0) => if dx != 0 { "east_west" } else { "north_south" },
+                        (1, _, 1) | (-1, _, -1) => "ascending_east",
+                        (-1, _, 1) | (1, _, -1) => "ascending_west",
+                        (_, 1, 1) | (_, -1, -1) => "ascending_south",
+                        _ => "ascending_north",
+                    };
+                    v.push(([a[0] + dx * i, y, a[2] + dz * i], shape));
+                    y += dy;
+                }
+                Ok(v)
+            };
+            for (list, top, support) in [(&rail, "rail", "minecraft:glass"), (&booster, "powered_rail", "minecraft:redstone_block")] {
+                for seg in list.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                    for (c, shape) in walk(seg)? {
+                        let st = if top == "rail" { format!("minecraft:rail[shape={shape},waterlogged=false]") } else { format!("minecraft:powered_rail[powered=true,shape={shape},waterlogged=false]") };
+                        cells.insert(c, st);
+                        cells.entry([c[0], c[1] - 1, c[2]]).or_insert_with(|| support.to_string());
+                    }
+                }
+            }
+            for seg in wire.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                for (i, (c, shape)) in walk(seg)?.into_iter().enumerate() {
+                    let facing = if shape.contains("east") || shape.contains("west") { "east" } else { "south" };
+                    let st = if i > 0 && i % 15 == 0 { format!("minecraft:repeater[delay=1,facing={facing},locked=false,powered=false]") } else { "minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]".to_string() };
+                    cells.insert(c, st);
+                    cells.entry([c[0], c[1] - 1, c[2]]).or_insert_with(|| "minecraft:stone".to_string());
+                }
+            }
+            for t in block.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                let (p, s) = t.split_once('=').ok_or_else(|| anyhow::anyhow!("a block is x,y,z=state: {t}"))?;
+                cells.insert(pt(p)?, if s.starts_with("minecraft:") { s.to_string() } else { format!("minecraft:{s}") });
+            }
+            anyhow::ensure!(!cells.is_empty(), "no cells");
+            let mut d = mctas::design::Design::parse("name: lines\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\norigin: 0 0 0\npalette:\n  G minecraft:glass\nlayer 0:\n  G\n")?;
+            d.blocks.clear();
+            for (c, s) in cells {
+                d.blocks.insert(c, s);
+            }
+            std::fs::write(&out, d.to_text())?;
+            println!("{}: {} blocks", out.display(), d.blocks.len());
+        }
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, row_a, tail_posts, approach, depart_crest, cprime, approach_boost, part_departure, crest_plain_dip, crest_descent, part_handoff, approach_climb_boost, part_allowed, hump, dip_y, dip_flat, boost_slopes, boost_flat, top_flat, top_boost, dip_run, stand_comb, comb_gravity, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
             let slots = if line && slots == 18 { 15 } else { slots };
             let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired: stand_wired && stand_stop, stand_guard: stand_guard && stand_wired && stand_stop, shift: match shift.as_deref() {
@@ -3513,7 +4048,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     a[i] = Some([n[0], n[1], n[2]]);
                 }
                 a
-            }, approach, depart_crest, cprime: match cprime.as_slice() { [a, b, c, d, e, f] => Some([*a, *b, *c, *d, *e, *f]), [] => None, _ => anyhow::bail!("--cprime takes six delays") }, approach_boost, crest_plain_dip, crest_descent, approach_climb_boost };
+            }, approach, depart_crest, cprime: match cprime.as_slice() { [a, b, c, d, e, f] => Some([*a, *b, *c, *d, *e, *f]), [] => None, _ => anyhow::bail!("--cprime takes six delays") }, approach_boost, crest_plain_dip, crest_descent, approach_climb_boost, hump, dip_y, dip_flat, boost_slopes, boost_flat, top_flat, top_boost, dip_run, stand_comb: if stand_stop && approach == 5 && !stand_wired { stand_comb } else { 0 }, comb_gravity: comb_gravity && stand_comb > 0 };
+            // (C''''s flags: no unused or contradictory flag; the dip covers z 9 and 10, the line
+            // z 9|10 on its flat)
+            let humped = hump > 0 || dip_run;
+            anyhow::ensure!(!dip_run || (hump == 0 && !boost_slopes && !top_boost), "--dip-run: no --hump, --boost-slopes or --top-boost (S's flat is plain, at the run's level)");
+            anyhow::ensure!(!humped || approach == 4 || approach == 5, "--hump and --dip-run need --approach 5 (T at (-3,6,4), approach 5's descent) or 4 (C''s T)");
+            anyhow::ensure!(humped || (dip_y == 2 && dip_flat == 2 && !boost_slopes && top_flat == 1 && !top_boost), "--dip-y, --dip-flat, --boost-slopes, --top-flat and --top-boost need --hump or --dip-run");
+            anyhow::ensure!(boost_flat == 0 || (boost_slopes && boost_flat as i32 <= boost_first), "--boost-flat needs --boost-slopes and at most --boost-first boosters");
+            anyhow::ensure!(top_flat >= 1, "--top-flat takes 1 or more");
+            anyhow::ensure!(!humped || !approach_boost, "--hump, --dip-run: drop --approach-boost");
+            anyhow::ensure!(!humped || (dip_flat >= 1 && dip_y >= 1 && dip_y <= approach), "--dip-flat takes 1 or more, --dip-y 1..=approach (the climb to T)");
+            anyhow::ensure!(!humped || (2 * approach as i64 - dip_y as i64 + 1 <= 9 && 2 * approach as i64 - dip_y as i64 + dip_flat as i64 >= 10), "--hump: the dip's flat must cover z 9 and 10 (the line z 9|10 on flat track)");
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             if let Some(pd) = &part_departure {
                 let ho = match part_handoff.as_slice() { [y, z] => Some((*y, *z)), [] => None, _ => anyhow::bail!("--part-handoff takes Y,Z") };
@@ -3531,6 +4077,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("stand S1 S2 S3: {}", fmt(&lay.stand));
             if let Some(r) = lay.stand_rel {
                 println!("wired pocket stand: REL input cell ({},{},{}): a redstone block opens the three gates and resets the latch, glass lets it count", r.x, r.y, r.z);
+            }
+            // (the approach's column from the head's peak to the snap turn, loop frame: z:y and the
+            // cell's kind (B a booster, D the detector, - plain))
+            if o.approach > 0 && o.stand_stop {
+                let head = lay.slot_cells.last().map_or(0, |c| c[2]);
+                let col: Vec<String> = lay.path.iter().filter(|(p, _)| p[0] == -o.row_gap + o.shift[0] && p[2] < head - 1).map(|(p, k)| format!("{}:{}{}", p[2] - o.shift[1], p[1], match k { crate::queue::Cell::Boost => "B", crate::queue::Cell::Detector => "D", _ => "" })).collect();
+                println!("approach column x {} (loop z:y, B booster, D detector), the head slot at z {}{}: {}", -o.row_gap, head - o.shift[1], if crate::queue::hump_pad(&o) > 0 { format!(" (moved north {} by the hump)", crate::queue::hump_pad(&o)) } else { String::new() }, col.join(" "));
             }
         }
         MobfarmCmd::SiteCheck { design, terrain, positions, rails, rod, no_controls, afk, speeds } => {
@@ -4073,12 +4626,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, cross_list, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_computed, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check, no_peak_check, esc_bands, no_blind_check, blind_all, freeze_rows, freeze_for, freeze_after, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, takeoff_z, fault_table, perfect_tail, all_corners, rel_sweep, cprime_variants, bed_distance, approach_trace, rel_clear, head_wait, head_latch, corner_table, speeds_out, rise_list } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, cross_list, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_computed, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check, no_peak_check, esc_bands, no_blind_check, blind_all, freeze_rows, freeze_for, freeze_after, place_rest, rest_speeds, c_prime, rel_ext, rel_min, late_hold, rel_gate, split, interlock, interlock_launch, interlock_arrivals, stand_hold, depart_space, rel_end_n, rel_end_count, rel_end_rear, unset_quiet, q_needs_p1, chain_study, release_gaps, gate_delay, g2_tripwire, stand_meter, takeoff_z, fault_table, perfect_tail, all_corners, rel_sweep, cprime_variants, bed_distance, approach_trace, rel_clear, head_wait, head_latch, corner_table, speeds_out, rise_list, meter_hold, meter_sweep, meter_freeze, meter_freeze_n, head_perm, strip_riders, trace_pair, head_retry, train_size, router_pulses, dep_x, vanish, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, stale_live, darr_gate, go_lead, hold_cart, retry_darr, darr_stuck, retry_emp_only, no_arr_rules, fault_slot, meter_corners, s_cell, vanish_box, hold_box, summon_raw, cell_log, stall_box, riderless_rows, lx_off, lx_stuck, emp_snapshot, dep_pulse, t_watch, p2_stuck, retry_over_pending, live_go, contacts_all, freeze_matrix, pause_clock } => {
             let (c, mut spec) = load(version, &design)?;
             // (every run reports the design's chunk-line crossings: ironspec's placement rule,
             // Nov 11; a report, the failing crossings listed)
             println!("{}", crate::borders::summary(&c.clock.design.blocks, [0, 0], 12));
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
+            // (a static S3 file, `s3:` header: B's offset, mirror, delta, S's z and the liveness
+            // clocks' probes as KEY=VALUE, the same as the MCTAS_* variables, which still win)
+            if let Some(h) = c.clock.design.meta.get("s3") {
+                for kv in h.split_whitespace() {
+                    let Some((k, v)) = kv.split_once('=') else { continue };
+                    let var = match k {
+                        "b_off" => "MCTAS_WIRED_B_OFF",
+                        "mirror" => "MCTAS_WIRED_B_MIRROR",
+                        "delta" => "MCTAS_WIRED_B_DELTA",
+                        "router_z" => "MCTAS_ROUTER_Z",
+                        "clocks" => "MCTAS_CLOCK_PROBES",
+                        _ => anyhow::bail!("s3: unknown key {k}"),
+                    };
+                    if std::env::var(var).is_err() {
+                        // SAFETY: set once at startup, before the runner starts any thread
+                        unsafe { std::env::set_var(var, v) };
+                    }
+                }
+            }
             // (the design's own declared states and flights; a pasted part's join them, moved and
             // turned as its blocks)
             let mut hdr = crate::queue::headers_of(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
@@ -4201,7 +4773,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     a[i] = match s.split(',').map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>()?.as_slice() { [slot, dt] => Some((*slot, *dt)), _ => anyhow::bail!("--adm-skip-req {s}: SLOT,DT") };
                 }
                 a
-            }, arrivals: arrivals_out.is_some(), speeds: speeds_out.is_some(), rise_list, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match (release_computed, release_offs.as_slice()) { (true, _) | (false, []) => None, (false, [a, b, c]) => Some([*a, *b, *c]), _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, release_from, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] | [s, t, l, _] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,D,L[,U]") }, rel_gate_unset: rel_gate.get(3).copied().unwrap_or(0), split: match split.as_slice() { [x, y, z, w] => Some(([*x as i32, *y as i32, *z as i32], *w)), [] => None, _ => anyhow::bail!("--split takes X,Y,Z,W") }, interlock, interlock_launch, interlock_arrivals, stand_hold: match stand_hold.as_slice() { [x, y, z] => Some([*x, *y, *z]), [x, y, z, _] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--stand-hold takes X,Y,Z[,H]") }, stand_hold_after: stand_hold.get(3).map(|h| *h as i64).unwrap_or(0), depart_space, rel_end_n: match rel_end_n.as_slice() { [d, to] => Some((*d, *to)), [] => None, _ => anyhow::bail!("--rel-end-n takes DELAY,TIMEOUT") }, rel_end_count: match rel_end_count.as_slice() { [k, to] => Some((*k, *to)), [] => None, _ => anyhow::bail!("--rel-end-count takes K,TIMEOUT") }, rel_end_rear: match rel_end_rear.as_slice() { [x, y, z, d, to] => Some(([*x as i32, *y as i32, *z as i32], *d, *to)), [] => None, _ => anyhow::bail!("--rel-end-rear takes X,Y,Z,D,TIMEOUT") }, unset_quiet, q_needs_p1, chain_study, release_gaps: match release_gaps.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--release-gaps takes G12,G23") }, gate_delay, g2_tripwire, stand_meter, takeoff_z, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, ..Default::default() };
+            }, arrivals: arrivals_out.is_some(), speeds: speeds_out.is_some(), rise_list, verbose_tail, tail_trace: match tail_trace.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--tail-trace takes C0,C1") }, pulse_at: c.clock.design.ports.get("output.pulse").map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])), release_start, bench_release, release_offs: match (release_computed, release_offs.as_slice()) { (true, _) | (false, []) => None, (false, [a, b, c]) => Some([*a, *b, *c]), _ => anyhow::bail!("--release-offs takes Q15,Q16,Q17") }, release_from, c_prime: match c_prime.as_slice() { [x, y, z, d, f] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, 40)), [x, y, z, d, f, l] => Some(([*x as i32, *y as i32, *z as i32], *d, *f, *l)), [] => None, _ => anyhow::bail!("--c-prime takes X,Y,Z,DELAY,FOR[,LOCK]") }, rel_ext, rel_min, late_hold: { anyhow::ensure!((late_hold.len() % 6 == 0 && late_hold.len() <= 18) || late_hold.len() == 5, "--late-hold takes X,Y,Z,N,W[,K] (K the gate: 2 = G2, 1 = G1), up to 3 as one list of sixes"); let mut a = [None; 3]; if late_hold.len() == 5 { a[0] = Some(([late_hold[0] as i32, late_hold[1] as i32, late_hold[2] as i32], late_hold[3], late_hold[4], 2)); } else { for (i, c) in late_hold.chunks(6).enumerate() { a[i] = Some(([c[0] as i32, c[1] as i32, c[2] as i32], c[3], c[4], c[5] as usize)); } } a }, rel_gate: match rel_gate.as_slice() { [s, t, l] | [s, t, l, _] => Some((*s, *t, *l)), [] => None, _ => anyhow::bail!("--rel-gate takes S,D,L[,U]") }, rel_gate_unset: rel_gate.get(3).copied().unwrap_or(0), split: match split.as_slice() { [x, y, z, w] => Some(([*x as i32, *y as i32, *z as i32], *w)), [] => None, _ => anyhow::bail!("--split takes X,Y,Z,W") }, interlock, interlock_launch, interlock_arrivals, stand_hold: match stand_hold.as_slice() { [x, y, z] => Some([*x, *y, *z]), [x, y, z, _] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--stand-hold takes X,Y,Z[,H]") }, stand_hold_after: stand_hold.get(3).map(|h| *h as i64).unwrap_or(0), depart_space, rel_end_n: match rel_end_n.as_slice() { [d, to] => Some((*d, *to)), [] => None, _ => anyhow::bail!("--rel-end-n takes DELAY,TIMEOUT") }, rel_end_count: match rel_end_count.as_slice() { [k, to] => Some((*k, *to)), [] => None, _ => anyhow::bail!("--rel-end-count takes K,TIMEOUT") }, rel_end_rear: match rel_end_rear.as_slice() { [x, y, z, d, to] => Some(([*x as i32, *y as i32, *z as i32], *d, *to)), [] => None, _ => anyhow::bail!("--rel-end-rear takes X,Y,Z,D,TIMEOUT") }, unset_quiet, q_needs_p1, chain_study, release_gaps: match release_gaps.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--release-gaps takes G12,G23") }, gate_delay, g2_tripwire, stand_meter, takeoff_z, bed_at: match bed_distance.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--bed-distance takes X,Y,Z") }, approach_trace: match approach_trace.as_slice() { [a, b] => Some((*a, *b, None)), [a, b, x] => Some((*a, *b, Some(*x as i32))), [] => None, _ => anyhow::bail!("--approach-trace takes C0,C1[,X]") }, rel_clear: match rel_clear.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--rel-clear takes X,Y,Z") }, head_wait, head_latch: match head_latch.as_slice() { [k, x, y, z] => Some((*k as usize, [*x, *y, *z])), [] => None, _ => anyhow::bail!("--head-latch takes K,X,Y,Z") }, s_cell: match s_cell.as_slice() { [x, y, z] => Some(([*x, *y, *z], None)), [x, y, z, a, b, d] => Some(([*x, *y, *z], Some([*a, *b, *d]))), [] => None, _ => anyhow::bail!("--s-cell takes X,Y,Z[,DX,DY,DZ]") }, meter: match meter_hold.as_slice() { [] => None, [d12, d23, close, dep, hold_on, rest @ ..] => Some(crate::queue::MeterHold { d12: *d12, d23: *d23, close: *close, dep: *dep, hold_on: *hold_on, chain: rest.first().copied().unwrap_or(0), fallback: rest.get(1).copied().unwrap_or(0), miss_d1: rest.get(2).copied().unwrap_or(-1), vb: rest.get(3).copied().unwrap_or(0) == 1, wired_b: rest.get(3).copied().unwrap_or(0) == 2, open_len: rest.get(4).copied().unwrap_or(0), wired_h: rest.get(5).copied().unwrap_or(0), h_delay: rest.get(6).copied().unwrap_or(0).max(0), guard: rest.get(7).copied().unwrap_or(0) != 0, g2_delay: rest.get(8).copied().unwrap_or(6).max(0), g1_delay: rest.get(9).copied().unwrap_or(0).max(0), p2: rest.get(10).copied().unwrap_or(1) != 0, t_live: rest.get(11).copied().unwrap_or(50).max(1) }), _ => anyhow::bail!("--meter-hold takes D12,D23,CLOSE,DEP,HOLD_ON[,CHAIN[,FALLBACK[,MISS_D1]]]") }, head_perm: match head_perm.as_slice() { [a, b, c, d, e, f] => Some(([*a, *b, *c], [*d, *e, *f], false, false, None)), [a, b, c, d, e, f, g] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, false, None)), [a, b, c, d, e, f, g, r] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, *r != 0, None)), [a, b, c, d, e, f, g, r, c0, n] => Some(([*a, *b, *c], [*d, *e, *f], *g != 0, *r != 0, Some((*c0 as i64, *n as i64)))), [] => None, _ => anyhow::bail!("--head-perm takes AX,AY,AZ,HX,HY,HZ[,G[,R[,BC0,BN]]]") }, strip_riders: match strip_riders.as_slice() { [x, y, z] => Some(([*x as i32, *y as i32, *z as i32], 0, i64::MAX, 0)), [x, y, z, s0, s1] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, 0)), [x, y, z, s0, s1, k] => Some(([*x as i32, *y as i32, *z as i32], *s0, *s1, *k as usize)), [] => None, _ => anyhow::bail!("--strip-riders takes X,Y,Z[,S0,S1[,K]]") }, trace_pair: match trace_pair.as_slice() { [a, b, t0, t1] => Some((*a as u32, *b as u32, *t0, *t1)), [] => None, _ => anyhow::bail!("--trace-pair takes A,B,T0,T1") }, head_retry: match head_retry.as_slice() { [] | [0] => None, [_] => Some((None, None)), [_, c0, n] => Some((Some((*c0, *n)), None)), [_, c0, n, lost] => Some((if *n > 0 { Some((*c0, *n)) } else { None }, Some(*lost))), _ => anyhow::bail!("--head-retry takes ON[,AC0,AN[,LOST]]") }, train_size: match train_size.as_slice() { [s, k] => Some((*s, *k)), [] => None, _ => anyhow::bail!("--train-size takes SLOT,K") }, router_pulses: match router_pulses.as_slice() { [a, b, c, d, e] => Some([*a, *b, *c, *d, *e]), [] => None, _ => anyhow::bail!("--router-pulses takes BMISS1,BMISS2,BDOUBLE1,BDOUBLE2,WRONG (-1 none)") }, dep_x, vanish: match vanish.as_slice() { [s, d, z0, z1] => Some((*s as i64, *d as i64, *z0, *z1, 1)), [s, d, z0, z1, n] => Some((*s as i64, *d as i64, *z0, *z1, *n as i64)), [] => None, _ => anyhow::bail!("--vanish takes SLOT,DT,Z0,Z1[,N]") }, cancel_x, stale_clear, stale_ungated, stale_ignore_dh3, stale_live: stale_live || (!head_retry.is_empty() && head_retry[0] != 0 && !no_arr_rules && !stale_clear && !stale_ungated && !stale_ignore_dh3), darr_gate: darr_gate || (!head_retry.is_empty() && head_retry[0] != 0 && !no_arr_rules), go_lead, hold_cart: match hold_cart.as_slice() { [s, d, z0, z1, n, k] => Some((*s as i64, *d as i64, *z0, *z1, *n as i64, *k as i64)), [] => None, _ => anyhow::bail!("--hold-cart takes SLOT,DT,Z0,Z1,N,K") }, retry_darr: retry_darr || (!head_retry.is_empty() && head_retry[0] != 0 && !retry_emp_only), darr_stuck: match darr_stuck.as_slice() { [s, lv] => Some((*s, *lv != 0)), [] => None, _ => anyhow::bail!("--darr-stuck takes SLOT,LEVEL") }, vanish_box: match vanish_box.as_slice() { [s, d, x0, x1, z0, z1] => Some((*s as i64, *d as i64, *x0, *x1, *z0, *z1, 1)), [s, d, x0, x1, z0, z1, k] => Some((*s as i64, *d as i64, *x0, *x1, *z0, *z1, *k as i64)), [] => None, _ => anyhow::bail!("--vanish-box takes SLOT,DT,X0,X1,Z0,Z1[,K]") }, hold_box: match hold_box.as_slice() { [s, d, x0, x1, z0, z1, n] => Some((*s as i64, *d as i64, *x0, *x1, *z0, *z1, *n as i64)), [] => None, _ => anyhow::bail!("--hold-box takes SLOT,DT,X0,X1,Z0,Z1,N") }, summon_raw, cell_log: { let mut a = [None; 8]; for (i, s) in cell_log.split(';').filter(|s| !s.trim().is_empty()).enumerate() { anyhow::ensure!(i < 8, "--cell-log: at most 8 cells"); let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--cell-log: {e}"))?; anyhow::ensure!(v.len() == 3, "--cell-log takes x,y,z;x,y,z"); a[i] = Some([v[0], v[1], v[2]]); } a }, stall_box: { let mut a = [None; 4]; for (i, s) in stall_box.split(';').filter(|s| !s.trim().is_empty()).enumerate() { anyhow::ensure!(i < 4, "--stall-box: at most 4 boxes"); let v: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--stall-box: {e}"))?; anyhow::ensure!(v.len() == 4, "--stall-box takes x0,x1,z0,z1;..."); a[i] = Some((v[0], v[1], v[2], v[3])); } a }, lx_off, lx_stuck: match lx_stuck.as_slice() { [s, lv] => Some((*s, *lv != 0, i64::MAX)), [s, lv, n] => Some((*s, *lv != 0, *n)), [] => None, _ => anyhow::bail!("--lx-stuck takes SLOT,LEVEL[,N]") }, emp_snapshot, dep_pulse: match dep_pulse.as_slice() { [s, d] => Some((*s, *d)), [] => None, _ => anyhow::bail!("--dep-pulse takes SLOT,DT") }, t_watch: match t_watch.as_slice() { [x, y, z] => Some([*x, *y, *z]), [] => None, _ => anyhow::bail!("--t-watch takes X,Y,Z") }, p2_stuck: match p2_stuck.as_slice() { [s, lv] => Some((*s, *lv != 0, i64::MAX)), [s, lv, n] => Some((*s, *lv != 0, *n)), [] => None, _ => anyhow::bail!("--p2-stuck takes SLOT,LEVEL[,N]") }, retry_over_pending, live_go, contacts_all: contacts_all || !freeze_matrix.is_empty(), pause_clock: match pause_clock.as_slice() { [x, z] => Some((*x, *z, false)), [x, z, r] => Some((*x, *z, *r != 0)), [] => None, _ => anyhow::bail!("--pause-clock takes X,Z[,RESYNC]") }, ..Default::default() };
             // (`--place-rest`: the approach's rest check instead of a run)
             if let Some(pr) = &place_rest {
                 let cells: Vec<[i32; 3]> = if pr == "approach" {
@@ -4250,7 +4822,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             (o2, s2)
                         }
                     };
-                    println!("{}", crate::approach::fault_table(&spec2, &o2, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners, match rel_sweep.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--rel-sweep takes A,B") }).map_err(|e| anyhow::anyhow!(e))?);
+                    println!("{}", crate::approach::fault_table(&spec2, &o2, &t, &seed_list, cycles, jobs, perfect_tail, if f.is_empty() { None } else { Some(f.as_str()) }, all_corners, match rel_sweep.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--rel-sweep takes A,B") }, fault_slot, meter_corners).map_err(|e| anyhow::anyhow!(e))?);
                 }
                 return Ok(());
             }
@@ -4346,6 +4918,277 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             if let Some(f) = &force_phase {
                 tm.phase_force = Some(crate::queue::parse_phase_force(f).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            // (`--meter-sweep L0,L1[,S0,S1]`: H's fixed opening swept at every gt step: each open
+            // length L (OPEN_LEN) with every start shift S (each opening's start S gt later: HOLD_ON
+            // and D12/D23 each + S, so H1 = the train's Darr-on + HOLD_ON + S, H2/H3 = the previous
+            // Dh edge + D + S), one run each on `jobs` threads; per combination the openings that
+            // passed 0 / 1 / 2+ carts, the carts in H's box at its shuts, the follower's margin,
+            // the window line and the problems: the band where every opening passes exactly one
+            // cart and no cart is in H's cell at the shut)
+            if !meter_sweep.is_empty() {
+                let base = tm.meter.ok_or_else(|| anyhow::anyhow!("--meter-sweep needs --meter-hold"))?;
+                let (w0, w1, d0, d1) = match meter_sweep.as_slice() {
+                    [a, b] => (*a, *b, 0, 0),
+                    [a, b, c, d] => (*a, *b, *c, *d),
+                    _ => anyhow::bail!("--meter-sweep takes L0,L1[,S0,S1]"),
+                };
+                let combos: Vec<(i64, i64)> = (w0..=w1).flat_map(|w| (d0..=d1).map(move |d| (w, d))).collect();
+                println!("meter sweep: open lengths {w0}..{w1} gt, start shifts {d0}..{d1} gt on HOLD_ON {} D12 {} D23 {} ({} runs, seed {seed}, {cycles} cycles)", base.hold_on, base.d12, base.d23, combos.len());
+                for chunk in combos.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(w, d)| {
+                                let (spec, o, hdr) = (&spec, &o, &hdr);
+                                let mut t2 = tm.clone();
+                                t2.meter = Some(crate::queue::MeterHold { open_len: w, hold_on: base.hold_on + d, d12: base.d12 + d, d23: base.d23 + d, ..base });
+                                sc.spawn(move || ((w, d), crate::queue::run_loop_hdr(spec, o, &t2, hdr, cycles, seed, false, None, None)))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((w, d), r) in got {
+                        let r = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let pick = |p: &str| r.lines().filter(|l| l.starts_with(p)).map(|l| l.trim_start_matches(p).trim().to_string()).collect::<Vec<_>>().join(" | ");
+                        let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
+                        let touch = r.lines().find_map(|l| l.split("H closes, gt until a cart touches its face ").nth(1)).and_then(|x| x.split(';').next()).unwrap_or("-");
+                        let merges = r.lines().find(|l| l.contains("merged carts:")).map(|l| l.trim().chars().take(60).collect::<String>()).unwrap_or_default();
+                        let back = r.lines().find_map(|l| l.split("back travel up to ").nth(1)).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
+                        let contact = r.lines().find_map(|l| l.strip_prefix("meter arrivals at a waiting cart (first contact on the hold's column: a push, or a dead stop at a rider's box): ")).map(|x| x.split("; the worst:").next().unwrap_or(x)).unwrap_or("-");
+                        println!("L {w} S {d:+}: {} | shuts: {} | clear..follower window: {} | shut to the next cart at H's face: {touch} | back: {back} | contact: {contact} | {probs}{}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), r.lines().find_map(|l| l.split("common window ").nth(1)).unwrap_or("-"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
+                    }
+                }
+                return Ok(());
+            }
+            // (`--meter-freeze SLOT,DT0,DT1,N[,X0,Z0,X1,Z1]`: one run per gt from SLOT +DT0 to +DT1,
+            // each with the chunk box (default the stand's chunk 0,0..0,0) unloaded N gt from that
+            // gt (ironspec's freeze rows at every gt of an opening); per run H's openings, its
+            // shuts, the gates shut on a cart and the problems)
+            if !meter_freeze.is_empty() {
+                let (slot, a, b, n, bx) = match meter_freeze.as_slice() {
+                    [s, a, b, n] => (*s, *a, *b, *n, [0i64, 0, 0, 0]),
+                    [s, a, b, n, x0, z0, x1, z1] => (*s, *a, *b, *n, [*x0, *z0, *x1, *z1]),
+                    _ => anyhow::bail!("--meter-freeze takes SLOT,DT0,DT1,N[,X0,Z0,X1,Z1]"),
+                };
+                let free = tm.acts.iter().position(|x| x.is_none()).ok_or_else(|| anyhow::anyhow!("--meter-freeze: all 8 act slots taken"))?;
+                // (`--meter-freeze-n N0,N1`: the freeze's length swept at the fixed start +DT0)
+                let runs: Vec<(i64, i64)> = match meter_freeze_n.as_slice() {
+                    [n0, n1] => (*n0..=*n1).map(|nn| (a, nn)).collect(),
+                    [] => (a..=b).map(|dt| (dt, n)).collect(),
+                    _ => anyhow::bail!("--meter-freeze-n takes N0,N1"),
+                };
+                if meter_freeze_n.is_empty() {
+                    println!("meter freeze: the chunk box {},{}..{},{} unloaded {n} gt from slot {slot} +{a}..+{b} ({} runs, seed {seed}, {cycles} cycles)", bx[0], bx[1], bx[2], bx[3], runs.len());
+                } else {
+                    println!("meter freeze: the chunk box {},{}..{},{} unloaded from slot {slot} +{a} for {}..{} gt ({} runs, seed {seed}, {cycles} cycles)", bx[0], bx[1], bx[2], bx[3], meter_freeze_n[0], meter_freeze_n[1], runs.len());
+                }
+                for chunk in runs.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(dt, nn)| {
+                                let (spec, o, hdr) = (&spec, &o, &hdr);
+                                let mut t2 = tm.clone();
+                                let act = crate::queue::parse_act(&format!("{slot},{dt},unload,{},{},{},{},{nn}", bx[0], bx[1], bx[2], bx[3]));
+                                sc.spawn(move || {
+                                    let r = act.map(|x| {
+                                        t2.acts[free] = Some(x);
+                                    });
+                                    ((dt, nn), r.and_then(|_| crate::queue::run_loop_hdr(spec, o, &t2, hdr, cycles, seed, false, None, None)))
+                                })
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((dt, nn), r) in got {
+                        let r = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let pick = |p: &str| r.lines().filter(|l| l.starts_with(p)).map(|l| l.trim_start_matches(p).trim().to_string()).collect::<Vec<_>>().join(" | ");
+                        let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
+                        let merges = r.lines().find(|l| l.contains("merged carts:")).map(|l| l.trim().chars().take(60).collect::<String>()).unwrap_or_default();
+                        let back = r.lines().find_map(|l| l.split("back travel up to ").nth(1)).map(|x| x.split(';').next().unwrap_or("").to_string()).unwrap_or_default();
+                        let contact = r.lines().find_map(|l| l.strip_prefix("meter arrivals at a waiting cart (first contact on the hold's column: a push, or a dead stop at a rider's box): ")).map(|x| x.split("; the worst:").next().unwrap_or(x)).unwrap_or("-");
+                        // (by rest place, each arrival's stored speed, T-cell crossings)
+                        let places = r.lines().find_map(|l| l.strip_prefix("meter arrivals by rest place: ")).unwrap_or("-");
+                        let t_cross = r.lines().find_map(|l| l.split("backward crossings into T's cell: ").nth(1)).unwrap_or("-");
+                        // (the head model's summary, when it runs: holds, RETRYs, D_arr holds,
+                        // ARR at the end, trains onto waiting carts, stand RELs twice in a slot)
+                        let head = if r.lines().any(|l| l.starts_with("head-perm router")) {
+                            let holds = r.lines().find_map(|l| l.strip_prefix("head-perm router (phase-locked): ")).and_then(|x| x.split(" holds").next()).unwrap_or("?").to_string();
+                            let retries = r.lines().find(|l| l.starts_with("head-perm stand REL")).map_or(0, |l| l.matches("RETRY (").count());
+                            let darr = r.lines().find_map(|l| l.split("A's GOs held by it: ").nth(1)).unwrap_or("-").to_string();
+                            let arr_end = r.lines().find_map(|l| l.split("ARR_X at the run's end: ").nth(1)).unwrap_or("-").to_string();
+                            let second = r.lines().find_map(|l| l.split("a train reaching H while earlier carts still waited there: ").nth(1)).map(|x| x.split(';').next().unwrap_or(x).to_string()).unwrap_or_default();
+                            let twice = r.lines().find_map(|l| l.split("slots with two or more: ").nth(1)).unwrap_or("-").to_string();
+                            let last_go = r.lines().find_map(|l| l.strip_prefix("head-perm router (phase-locked): ")).and_then(|x| x.split("GO by GO: ").nth(1)).map(|x| x.split(' ').filter(|w| w.contains(':')).last().unwrap_or("").to_string()).unwrap_or_default();
+                            format!(" | head: holds {holds}, RETRYs {retries}, D_arr holds {darr}, ARR at the end {arr_end}, trains onto waiting carts {second}, two stand RELs in a slot {twice}, last GO {last_go}")
+                        } else {
+                            String::new()
+                        };
+                        println!("freeze at +{dt} for {nn}: {} | shuts: {} | on a cart: {} | back: {back} | T crossings: {t_cross} | contact: {contact} | by place: {places} | {probs}{}{head}", pick("meter H opening "), pick("meter H shuts: carts in H's box at the shut 0/1/2+:"), pick("meter: gates shut on a cart:"), if merges.is_empty() { String::new() } else { format!(" | {merges}") });
+                    }
+                }
+                return Ok(());
+            }
+            // (cc767b78, `--riderless-rows STAGGERS;KS`: the riderless matrix in parallel: each
+            // release stagger x each empty-cart position K (0 every cart, k the k-th cart of each
+            // train, via --strip-riders' cell); per run each --cell-log cell's empty passages (their
+            // stored speed in, least inside, the least corner gap with an empty follower), the
+            // stalls (and those the no-meetings rule bars or no cart pushed on), backward entries,
+            // merges, the closest centres by rest place, T-cell crossings, problems)
+            if !riderless_rows.is_empty() {
+                let (ss, ks) = riderless_rows.split_once(';').ok_or_else(|| anyhow::anyhow!("--riderless-rows takes STAGGERS;KS, e.g. 2,3,4,5,6;0,1,2,3"))?;
+                let parse = |s: &str| s.split(',').filter(|x| !x.trim().is_empty()).map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
+                let (ss, ks) = (parse(ss)?, parse(ks)?);
+                let Some((cell, s0, s1, _)) = tm.strip_riders else { anyhow::bail!("--riderless-rows needs --strip-riders X,Y,Z[,S0,S1] for the stripping cell") };
+                let runs: Vec<(i64, i64)> = ss.iter().flat_map(|s| ks.iter().map(move |k| (*s, *k))).collect();
+                println!("riderless rows: release staggers {:?} x empty-cart positions {:?} (0: every cart; k: the k-th cart of each train), riders stripped at {},{},{} ({} runs, seed {seed}, {cycles} cycles)", ss, ks, cell[0], cell[1], cell[2], runs.len());
+                let mut agg: std::collections::BTreeMap<String, (usize, f64, f64, Option<(i64, String)>)> = std::collections::BTreeMap::new();
+                for chunk in runs.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(st, k)| {
+                                let (spec, o, hdr) = (&spec, &o, &hdr);
+                                let mut t2 = tm.clone();
+                                t2.release_stagger = st;
+                                t2.strip_riders = Some((cell, s0, s1, k as usize));
+                                sc.spawn(move || ((st, k), crate::queue::run_loop_hdr(spec, o, &t2, hdr, cycles, seed, false, None, None)))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((st, k), r) in got {
+                        let r = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("0 problems").to_string();
+                        let mut cells_txt: Vec<String> = Vec::new();
+                        for l in r.lines().filter(|l| l.starts_with("cell-log (")) {
+                            let name = l.split(':').next().unwrap_or("").trim_start_matches("cell-log ").to_string();
+                            let passages = l.split("passages: ").nth(1).unwrap_or("");
+                            let empties: Vec<(f64, f64)> = passages
+                                .split(" | ")
+                                .filter(|p| p.contains(" empty in "))
+                                .filter_map(|p| {
+                                    let sv = p.split("stored ").nth(1)?.split(' ').next()?.parse::<f64>().ok()?;
+                                    let lv = p.split("least ").nth(1)?.split(' ').next()?.parse::<f64>().ok()?;
+                                    Some((sv, lv))
+                                })
+                                .collect();
+                            let gap = l.split("empty follower: ").nth(1).and_then(|x| x.split(';').next()).unwrap_or("-").to_string();
+                            let gap_n = gap.split(' ').nth(1).and_then(|x| x.parse::<i64>().ok());
+                            let (smin, lmin) = (empties.iter().map(|e| e.0).fold(f64::MAX, f64::min), empties.iter().map(|e| e.1).fold(f64::MAX, f64::min));
+                            cells_txt.push(if empties.is_empty() { format!("{name}: no empties") } else { format!("{name}: {} empties, stored in {:.3}..{:.3}, least {:.3}, empty-follower gap {gap}", empties.len(), smin, empties.iter().map(|e| e.0).fold(0.0f64, f64::max), lmin) });
+                            let a = agg.entry(name).or_insert((0, f64::MAX, f64::MAX, None));
+                            a.0 += empties.len();
+                            a.1 = a.1.min(smin);
+                            a.2 = a.2.min(lmin);
+                            if let Some(g) = gap_n
+                                && a.3.as_ref().is_none_or(|x| g < x.0)
+                            {
+                                a.3 = Some((g, format!("stagger {st} K {k}: {gap}")));
+                            }
+                        }
+                        let stalls = r.lines().find_map(|l| l.strip_prefix("empty carts at rest >= 10 gt in the stall boxes: ")).map(|x| x.split(" where the no-meetings").next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
+                        let back = r.lines().find_map(|l| l.strip_prefix("meter backward entries through a stand gate or H: ")).map(|x| x.split(' ').next().unwrap_or(x).trim_end_matches(';').to_string()).unwrap_or("-".to_string());
+                        let merged = r.lines().find_map(|l| l.split("; merged ").nth(1)).map(|x| x.split(';').next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
+                        let places = r.lines().find_map(|l| l.strip_prefix("meter arrivals by rest place: ")).map(|x| x.split("; each arrival").next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
+                        let t_cross = r.lines().find_map(|l| l.split("backward crossings into T's cell: ").nth(1)).map(|x| x.split(' ').next().unwrap_or(x).to_string()).unwrap_or("-".to_string());
+                        // (7b90c3f1's curve-spacing line: each curve's least margin, tick-exact's
+                        // curve-pair rule; the first three curves listed (least first))
+                        let curves = r.lines().find_map(|l| l.split("least first): ").nth(1).filter(|_| l.starts_with("curve spacing ("))).map(|x| x.split("); ").take(3).collect::<Vec<_>>().join("); ")).unwrap_or("-".to_string());
+                        let curves_e = r.lines().find_map(|l| l.strip_prefix("curve spacing with an empty cart (the least margin with an empty leader, and with an empty follower; least first): ")).map(|x| x.split("); (").take(3).collect::<Vec<_>>().join("); (")).unwrap_or("-".to_string());
+                        // (each stopped empty: where and how long, or never moved again)
+                        let stall_list = r.lines().find_map(|l| l.strip_prefix("empty carts at rest >= 10 gt in the stall boxes: ")).and_then(|x| x.split_once("): ").map(|(_, rest)| rest.to_string())).map(|rest| {
+                            rest.split(" | ")
+                                .map(|s| {
+                                    let at = s.split("at loop ").nth(1).map(|x| x.split(' ').next().unwrap_or(x)).unwrap_or("?");
+                                    let wait = if s.contains("never moved again") { "never moved again".to_string() } else { s.split(" gt)").next().and_then(|x| x.rsplit('(').next()).map(|x| format!("{x} gt")).unwrap_or_default() };
+                                    let how = if s.contains("by a cart-cart push") { ", pushed on" } else if s.contains("by itself") { ", by itself" } else { "" };
+                                    format!("{at} {wait}{how}")
+                                })
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        }).unwrap_or_default();
+                        println!("stagger {st} K {k}: stalls {stalls}){} | backward entries {back} | merged {merged} | T crossings {t_cross} | curves: {curves}) | empty-cart curves: {curves_e} | by place: {places} | {probs} | {}", if stall_list.is_empty() { String::new() } else { format!(" [{stall_list}]") }, cells_txt.join(" | "));
+                    }
+                }
+                for (name, a) in &agg {
+                    println!("over the matrix, {name}: {} empty passages, stored in from {:.3}, least inside {:.3}; the least empty-follower corner gap {}", a.0, if a.0 == 0 { f64::NAN } else { a.1 }, if a.0 == 0 { f64::NAN } else { a.2 }, a.3.as_ref().map_or("-".to_string(), |x| x.1.clone()));
+                }
+                return Ok(());
+            }
+            // (cc767b78, `--freeze-matrix SLOT,DT0,DT1,STEP;N1,N2,..`: the whole-column freeze at
+            // every phase: the whole part at level 32 (redstone running) from each start for each
+            // length, in parallel; per run the bars)
+            if !freeze_matrix.is_empty() {
+                let (starts, lens) = freeze_matrix.split_once(';').ok_or_else(|| anyhow::anyhow!("--freeze-matrix takes SLOT,DT0,DT1,STEP;N1,N2,.."))?;
+                let sv: Vec<i64> = starts.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                let [slot, d0, d1, step] = sv.as_slice() else { anyhow::bail!("--freeze-matrix takes SLOT,DT0,DT1,STEP;N1,N2,..") };
+                let ns: Vec<i64> = lens.split(',').filter(|x| !x.trim().is_empty()).map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                let free = tm.acts.iter().position(|x| x.is_none()).ok_or_else(|| anyhow::anyhow!("--freeze-matrix: all 8 act slots taken"))?;
+                let runs: Vec<(i64, i64)> = (*d0..=*d1).step_by((*step).max(1) as usize).flat_map(|dt| ns.iter().map(move |n| (dt, *n))).collect();
+                println!("freeze matrix: the whole part at level 32 (redstone running, entities frozen) from slot {slot} +{d0}..+{d1} every {step} gt for {:?} gt ({} runs, seed {seed}, {cycles} cycles)", ns, runs.len());
+                let (slot, step) = (*slot, *step);
+                let _ = step;
+                for chunk in runs.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64), Result<String, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(dt, n)| {
+                                let (spec, o, hdr) = (&spec, &o, &hdr);
+                                let mut t2 = tm.clone();
+                                let act = crate::queue::parse_act(&format!("{slot},{dt},freeze32,{n}"));
+                                sc.spawn(move || {
+                                    let r = act.map(|x| {
+                                        t2.acts[free] = Some(x);
+                                    });
+                                    ((dt, n), r.and_then(|_| crate::queue::run_loop_hdr(spec, o, &t2, hdr, cycles, seed, false, None, None)))
+                                })
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((dt, n), r) in got {
+                        let r = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let after = |l: &str, key: &str| l.split(key).nth(1).map(|x| x.to_string());
+                        let first_num = |s: &str| s.trim().split(|c: char| !c.is_ascii_digit()).next().unwrap_or("").to_string();
+                        let find = |key: &str| r.lines().find_map(|l| after(l, key));
+                        let s_rel = r.lines().find(|l| l.starts_with("freeze at t ")).and_then(|l| l.split(", S+").nth(1)).map(|x| format!("S+{}", first_num(x))).unwrap_or_default();
+                        let holds = find("head-perm router (phase-locked): ").map(|x| first_num(&x)).unwrap_or("-".to_string());
+                        let last_go = find("GO by GO: ").map(|x| x.split(' ').filter(|w| w.contains(':')).last().unwrap_or("").to_string()).unwrap_or_default();
+                        let rels = r.lines().find_map(|l| l.strip_prefix("head-perm stand RELs: ")).map(|x| x.to_string()).unwrap_or("-".to_string());
+                        let arr = find("ARR_X at the run's end: ").map(|x| x.split(' ').next().unwrap_or("").to_string()).unwrap_or("-".to_string());
+                        let merged = r.lines().find(|l| l.starts_with("merged carts")).and_then(|l| after(l, "them): ")).map(|x| first_num(&x)).unwrap_or("-".to_string());
+                        let contacts = find("over 0.2").is_some().then(|| r.lines().find_map(|l| l.strip_prefix("contacts anywhere (a moving cart's first contact with a cart at rest: a push, or a dead stop at a rider's box; the mover's stored speed before): ")).map(|x| x.split(';').next().unwrap_or(x).to_string()).unwrap_or_default()).unwrap_or("-".to_string());
+                        let gates = r.lines().find_map(|l| l.strip_prefix("meter: gates shut on a cart:")).map(|x| first_num(x)).unwrap_or("0".to_string());
+                        let back = find("meter backward entries through a stand gate or H: ").map(|x| first_num(&x)).unwrap_or("-".to_string());
+                        let t_cross = find("backward crossings into T's cell: ").map(|x| first_num(&x)).unwrap_or("-".to_string());
+                        let curve = find("must be 0): ").map(|x| first_num(&x)).unwrap_or("-".to_string());
+                        let carts_end = find(" at the start, ").map(|x| x.split(" at the end").next().unwrap_or("").to_string()).unwrap_or("-".to_string());
+                        let p2 = r.lines().find_map(|l| l.split("timeout): ").nth(1).filter(|_| l.starts_with("meter P2"))).map(|x| x.to_string()).unwrap_or("-".to_string());
+                        // (the head's edges after the freeze: the launches whose offsets differ from
+                        // the run's most common ones)
+                        let edges = r.lines().find(|l| l.starts_with("head-perm edges vs the summon tick S")).map(|l| {
+                            let rows: Vec<(String, String)> = l.split("): ").last().unwrap_or("").split("; ").filter_map(|x| x.split_once(": ").map(|(a, b)| (a.to_string(), b.to_string()))).filter(|(_, b)| b.starts_with("GO")).collect();
+                            let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+                            for (_, b) in &rows {
+                                *counts.entry(b.as_str()).or_default() += 1;
+                            }
+                            let mode = counts.iter().max_by_key(|x| x.1).map(|x| x.0.to_string()).unwrap_or_default();
+                            let off: Vec<String> = rows.iter().filter(|(_, b)| *b != mode).map(|(a, b)| format!("{a}: {b}")).collect();
+                            if off.is_empty() { format!("all {} launches at {mode}", rows.len()) } else { format!("{} of {} off ({})", off.len(), rows.len(), off.join("; ")) }
+                        }).unwrap_or("-".to_string());
+                        let latency = r.lines().find(|l| l.starts_with("freeze at t ")).map(|l| {
+                            let ls: Vec<String> = l.split("detection latency ").skip(1).map(|x| first_num(x)).collect();
+                            if ls.is_empty() { "0 (emulated gate)".to_string() } else { format!("{} gt", ls.join("/")) }
+                        }).unwrap_or("-".to_string());
+                        let vox = find("voxel-stop moves: ").map(|x| first_num(&x)).unwrap_or("-".to_string());
+                        let pause = r.lines().find_map(|l| l.split("day-1's gate semantics pending): ").nth(1).filter(|_| l.starts_with("controller pause"))).map(|x| x.replace("controller paused at ", "").replace("the slot clock's phase against gameTime now ", "phase ")).unwrap_or("no pause clock".to_string());
+                        let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("0 problems").to_string();
+                        println!("freeze +{dt} ({s_rel}) for {n}: stand RELs {rels} | holds {holds}, last GO {last_go}, ARR at the end {arr} | merges {merged} | contacts {contacts} | gates shut on a cart {gates} | backward entries {back} | T crossings {t_cross} | curve contact {curve} | carts at the end {carts_end} | P2 {p2} | edges {edges} | detection latency {latency} | pause: {pause} | voxel-stop {vox} | {probs}");
+                    }
+                }
+                return Ok(());
             }
             if let Some(sw) = &phase_sweep {
                 return phase_sweep_cmd(&spec, &o, &tm, &hdr, sw, &reload_orders, cycles, seed, jobs);

@@ -565,6 +565,15 @@ fn push_by(w: &mut World, j: usize, i: usize) {
     let mut za = other.pos.z - this.pos.z;
     let mut dd = xa * xa + za * za;
     if !(dd >= 1.0e-4f32 as f64) {
+        // (cc767b78, the riderless merge: a cart-on-cart push skipped because the centres
+        // coincide, logged when asked)
+        if matches!(other.kind, entity::EntityKind::Minecart(_)) && w.mob.cart_cart_pushes.is_some() {
+            let (tm, om) = (this.delta_movement, other.delta_movement);
+            let p = crate::entity::mob::CartCartPush { t: w.time, this: this.id, other: other.id, dist: dd.sqrt(), dot: f64::NAN, what: "merged", before: [tm.x, tm.z, om.x, om.z], after: [tm.x, tm.z, om.x, om.z] };
+            if let Some(log) = w.mob.cart_cart_pushes.as_mut() {
+                log.push(p);
+            }
+        }
         return;
     }
     dd = dd.sqrt();
@@ -625,7 +634,21 @@ fn push_other_minecart(w: &mut World, j: usize, i: usize, xa: f64, za: f64) {
     let r = this.y_rot * ((std::f64::consts::PI / 180.0) as f32);
     let facing = Vec3::new(mth::cos(r as f64) as f64, 0.0, mth::sin(r as f64) as f64).normalize();
     let dot = dir.dot(facing).abs();
+    // (cc767b78, the riderless merge: every cart-on-cart push logged when asked, with its
+    // alignment test and the motions before and after)
+    let logging = w.mob.cart_cart_pushes.is_some();
+    let rec = logging.then(|| (w.time, this.id, other.id, ((other.pos.x - this.pos.x).powi(2) + (other.pos.z - this.pos.z).powi(2)).sqrt(), [this.delta_movement.x, this.delta_movement.z, other.delta_movement.x, other.delta_movement.z]));
+    let log = |w: &mut World, what: &'static str| {
+        if let Some((t, a, b, dist, before)) = rec {
+            let (ma, mb) = (w.entities.list[j].delta_movement, w.entities.list[i].delta_movement);
+            let p = crate::entity::mob::CartCartPush { t, this: a, other: b, dist, dot, what, before, after: [ma.x, ma.z, mb.x, mb.z] };
+            if let Some(l) = w.mob.cart_cart_pushes.as_mut() {
+                l.push(p);
+            }
+        }
+    };
     if dot < 0.8f32 as f64 {
+        log(w, "misaligned");
         return;
     }
     let movement = this.delta_movement;
@@ -635,4 +658,19 @@ fn push_other_minecart(w: &mut World, j: usize, i: usize, xa: f64, za: f64) {
     let push = |v: Vec3, x: f64, z: f64| if x.is_finite() && z.is_finite() { v.add(x, 0.0, z) } else { v };
     w.entities.list[j].delta_movement = push(movement.multiply(0.2, 1.0, 0.2), xdd - xa, zdd - za);
     w.entities.list[i].delta_movement = push(entity_movement.multiply(0.2, 1.0, 0.2), xdd + xa, zdd + za);
+    log(w, "applied");
+}
+
+/// (cc767b78) Start logging every minecart-on-minecart push (`MobWorld::cart_cart_pushes`; a
+/// diagnostic, no model state).
+pub fn log_cart_cart_pushes(w: &mut World) {
+    if w.mob.cart_cart_pushes.is_none() {
+        w.mob.cart_cart_pushes = Some(Vec::new());
+    }
+}
+
+/// The minecart-on-minecart pushes logged since the last call (empty unless
+/// [`log_cart_cart_pushes`] ran).
+pub fn take_cart_cart_pushes(w: &mut World) -> Vec<crate::entity::mob::CartCartPush> {
+    w.mob.cart_cart_pushes.as_mut().map(std::mem::take).unwrap_or_default()
 }
