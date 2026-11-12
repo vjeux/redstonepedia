@@ -342,6 +342,11 @@ impl Worker {
         let mut cmd = Command::new(&build.install.java);
         cmd.arg(format!("-Xmx{}m", cfg.heap_mb))
             .arg("-XX:+UseSerialGC")
+            // (farmopt 2026-11-11, a bridge flake on a shared box) no hsperfdata file: several JVMs of
+            // one user raced on /tmp/hsperfdata_<user>/<pid>, and the JVM's "[warning][perf,memops]
+            // Cannot use file ... because it is locked by another process" on stdout was read as a
+            // protocol line
+            .arg("-XX:-UsePerfData")
             .arg(format!("-XX:ActiveProcessorCount={}", cfg.cpus.max(1)))
             .arg("-XX:+IgnoreUnrecognizedVMOptions")
             .arg("--enable-native-access=ALL-UNNAMED")
