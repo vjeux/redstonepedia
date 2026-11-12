@@ -121,6 +121,30 @@ pub struct Opts {
     pub empty_trip: Option<(i64, i64)>,
     /// Releases skipped a day (fix (a): 2, so 714 = 34 x 21 carts pass a day).
     pub skip_per_day: usize,
+    /// Event-driven cycles (G1's lock-up catch, ironspec Nov 11 20:37/20:38): a cycle starts only at a
+    /// golem event (a summon tick, gameTime % 100 = 0, where the stand's batch is all eligible, not
+    /// golem-locked, and its pad roll succeeds) or at the watchdog (`watchdog` live gt after the last
+    /// cycle start); a failed roll keeps the batch at the stand to retry at the next tick. Off: a
+    /// cycle every `period` gt whatever the summon (the old model).
+    pub events: bool,
+    /// The watchdog's W (live gt after the last cycle start); None with `events`: no watchdog (the
+    /// lock-up's positive control).
+    pub watchdog: Option<i64>,
+    /// A summon's pad roll: the chance an eligible batch's summon finds its golem (P = 0.99).
+    pub pad_roll: f64,
+    /// The batch reaches the stand this many gt after its cycle start (its first summon tick is the
+    /// first one at or after it).
+    pub arrive: i64,
+    /// Event-driven cycles only from this day on (a warm start: the farm ran healthy on fixed beats
+    /// before it); 0 = from the start (the cold start).
+    pub events_from: usize,
+    /// A recovery picker mode (a candidate, off = None): after a watchdog fire inside the night
+    /// window, the picker counts K' passes instead of k for the rest of that night.
+    pub recover_k: Option<usize>,
+    /// The player away (the farm unloaded) on day D from DT gt after dusk for LEN gt: no cycles, the
+    /// nappers in the tier frozen with it (their returns LEN later), the watchdog's live count paused,
+    /// game time and every LAST_SLEEP's age running on.
+    pub absence: Option<(usize, i64, i64)>,
     /// A nap's trip, the switch to its re-entry point, uniform in [lo, hi] gt; lie-down this many gt
     /// after the pick (LAST_SLEEP).
     pub trip: (i64, i64),
@@ -177,6 +201,14 @@ pub struct Score {
     pub waiting_max: usize,
     /// Rider-nights in the scored days with no nap.
     pub missed: usize,
+    /// Event-driven cycles: golems made each day (every day from day 0), the watchdog's fires, the
+    /// failed pad rolls, the first golem after the absence ends (gt after), and each night's distinct
+    /// nappers (day, count).
+    pub golems_by_day: Vec<usize>,
+    pub wd_fires: usize,
+    pub failed_rolls: usize,
+    pub first_golem_after: Option<i64>,
+    pub naps_by_night: Vec<(i64, usize)>,
     /// The scored days that lost more than the scheduled skips: (day, summons lost beyond them).
     pub bad_days: Vec<(i64, usize)>,
     /// Each rider's worst night-to-night drift (gt, 0 = never later).
@@ -208,8 +240,101 @@ pub fn simulate(o: &Opts) -> Score {
     let cycles_per_day = o.day_gt / o.period;
     let skip_from = cycles_per_day * 2 / 3;
     let total_cycles = cycles_per_day * o.days as i64;
-    for c in 0..total_cycles {
-        let t0 = c * o.period;
+    // (event-driven cycles: the last cycle start (the watchdog counts live gt from it), the stand
+    // batch's first summon try, the absence's end (the cold start: 0), the day of the last held start
+    // (fix (a)'s skips))
+    let end_t = total_cycles * o.period;
+    let mut last_start: i64 = -o.period;
+    let mut stand_from: i64 = 0;
+    let mut absence_done = false;
+    let mut absence_end: Option<i64> = if o.events && o.absence.is_none() && o.events_from == 0 { Some(0) } else { None };
+    let mut skip_day: i64 = i64::MIN;
+    let mut night_wd = false;
+    sc.golems_by_day = vec![0; o.days + 1];
+    let mut t0: i64 = -o.period;
+    loop {
+        let mut golem = true;
+        let ev = o.events && t0 + o.period >= o.events_from as i64 * o.day_gt;
+        if ev {
+            let w = o.watchdog.unwrap_or(i64::MAX / 4);
+            let stand: Vec<usize> = fifo.iter().take(o.batch).copied().collect();
+            let mut s = stand_from.div_euclid(100) * 100;
+            if s < stand_from {
+                s += 100;
+            }
+            let mut found = None;
+            while s < last_start.saturating_add(w) && s < end_t {
+                let elig = stand.len() == o.batch && stand.iter().all(|&b| !(o.empty_cart && b == 0) && last_sleep[b].is_some_and(|ls| s - ls < 24000));
+                if elig {
+                    if (rng.next() % 1_000_000) as f64 / 1_000_000.0 < o.pad_roll {
+                        found = Some(s);
+                        break;
+                    }
+                    sc.failed_rolls += 1;
+                }
+                s += 100;
+            }
+            let next = found.unwrap_or(last_start.saturating_add(w));
+            // (the player away from `at` for LEN gt: the farm frozen, game time running: the
+            // watchdog's live count, the stand batch's tries and the tier's nappers resume LEN later)
+            if let Some((d, dt, len)) = o.absence
+                && !absence_done
+            {
+                let at = o.dusk_at + d as i64 * o.day_gt + dt;
+                if next >= at {
+                    absence_done = true;
+                    absence_end = Some(at + len);
+                    last_start += len;
+                    stand_from = stand_from.max(at) + len;
+                    for a in away.iter_mut() {
+                        if a.1 > at {
+                            a.1 += len;
+                        }
+                    }
+                    continue;
+                }
+            }
+            if next >= end_t {
+                break;
+            }
+            t0 = next;
+            golem = found.is_some();
+            if golem {
+                if let Some(di) = usize::try_from(t0.div_euclid(o.day_gt)).ok().filter(|d| *d < sc.golems_by_day.len()) {
+                    sc.golems_by_day[di] += 1;
+                }
+                if let Some(e) = absence_end
+                    && t0 >= e
+                    && sc.first_golem_after.is_none()
+                {
+                    sc.first_golem_after = Some(t0 - e);
+                }
+                // (fix (a)'s skips, ironspec's P/B shape: from N_s each day, the first golem event's
+                // start is held: stage 1 blocked `skip_per_day` beats (live gt), P latched, then the
+                // held start fires; the batch stays at the stand through it (locked by its golem),
+                // so `skip_per_day` summon ticks find no new batch and the day keeps 238 releases)
+                let rel_s = t0 - o.dusk_at + shift;
+                let (sd, sin) = (rel_s.div_euclid(o.day_gt), rel_s.rem_euclid(o.day_gt) / o.period);
+                if o.skip_per_day > 0 && sin >= skip_from && skip_day != sd {
+                    skip_day = sd;
+                    day_lost[2] += o.skip_per_day;
+                    t0 += o.skip_per_day as i64 * o.period;
+                    golem = false;
+                    if t0 >= end_t {
+                        break;
+                    }
+                }
+            } else {
+                sc.wd_fires += 1;
+            }
+        } else {
+            t0 += o.period;
+            if t0 >= end_t {
+                break;
+            }
+            last_start = t0;
+            stand_from = t0 + o.arrive;
+        }
         let rel = t0 - o.dusk_at + shift;
         let day = rel.div_euclid(o.day_gt);
         let in_day = rel.rem_euclid(o.day_gt);
@@ -261,8 +386,10 @@ pub fn simulate(o: &Opts) -> Score {
             shift = o.day_gt - o.night_gt / 2 - 13670;
         }
         let in_night = !alarm && in_day >= jit && in_day < o.night_gt && !(o.skip_night.is_some_and(|d| day == d as i64) && in_day >= o.night_gt / 2);
-        // (frozen: no passes and no summons for the freeze's length before dusk)
+        // (frozen: no passes and no summons for the freeze's length before dusk; event-driven cycles
+        // use `absence` instead)
         if let Some((d, len)) = o.freeze
+            && !ev
             && day + 1 == d as i64
             && in_day >= o.day_gt - len
         {
@@ -274,12 +401,17 @@ pub fn simulate(o: &Opts) -> Score {
             night_picks.clear();
             night_releases = 0;
             count = 0;
+            night_wd = false;
+        }
+        if in_night && ev && !golem {
+            night_wd = true;
         }
         if !in_night && night_idx == Some(day) && night_picks.len() < usize::MAX {
             // (the night just ended: score it once)
+            let mut seen = vec![false; o.carts];
+            night_picks.iter().for_each(|&p| seen[p] = true);
+            sc.naps_by_night.push((day, seen.iter().filter(|s| **s).count()));
             if day >= o.warmup as i64 {
-                let mut seen = vec![false; o.carts];
-                night_picks.iter().for_each(|&p| seen[p] = true);
                 sc.least_distinct = sc.least_distinct.min(seen.iter().filter(|s| **s).count());
                 if night_picks.len() < o.visits {
                     sc.short_nights += 1;
@@ -287,7 +419,12 @@ pub fn simulate(o: &Opts) -> Score {
             }
             night_idx = Some(-1 - day);
         }
-        if o.skip_per_day > 0 && cyc_in_day >= skip_from && cyc_in_day < skip_from + o.skip_per_day as i64 {
+        if ev {
+            // (event-driven: fix (a)'s skips are the held start above; this start resets the
+            // watchdog's count and brings the next batch to the stand)
+            last_start = t0;
+            stand_from = t0 + o.arrive;
+        } else if o.skip_per_day > 0 && cyc_in_day >= skip_from && cyc_in_day < skip_from + o.skip_per_day as i64 {
             day_lost[2] += 1;
             continue;
         }
@@ -343,7 +480,7 @@ pub fn simulate(o: &Opts) -> Score {
             let elig = !(o.empty_cart && cart == 0) && last_sleep[cart].is_some_and(|ls| t0 - ls < 24000);
             let bed_free = if o.free_at_reentry { away.is_empty() } else { away.iter().all(|a| a.1 <= t) };
             let want = in_night && bed_free && night_picks.len() < o.visits && !hole && match o.picker {
-                Picker::FromPick(k) | Picker::FromReturn(k) => count >= k,
+                Picker::FromPick(k) | Picker::FromReturn(k) => count >= if night_wd { o.recover_k.unwrap_or(k) } else { k },
                 Picker::Anchored(k, off) => if night_picks.is_empty() { anchor.is_none() && count >= k || anchor.is_some() && anchor_passes % o.carts == off % o.carts } else { count >= k },
                 Picker::Register(every) => j == (if o.register_carry { total_picks } else { night_picks.len() }) % 3 && night_releases % every == 0,
             };
@@ -402,7 +539,14 @@ pub fn simulate(o: &Opts) -> Score {
         if in_night {
             night_releases += 1;
         }
-        let ok = members.len() == o.batch && members.iter().all(|m| *m == Some(true));
+        let ok = if ev { golem } else { members.len() == o.batch && members.iter().all(|m| *m == Some(true)) };
+        // (fixed beats: a golem when the batch is all eligible; event-driven: counted at the event)
+        if ok
+            && !ev
+            && let Some(di) = usize::try_from(t0.div_euclid(o.day_gt)).ok().filter(|d| *d < sc.golems_by_day.len())
+        {
+            sc.golems_by_day[di] += 1;
+        }
         if !ok {
             if members.iter().any(|m| m.is_none()) { day_lost[1] += 1 } else { day_lost[0] += 1 }
         }
@@ -439,6 +583,40 @@ pub fn simulate(o: &Opts) -> Score {
         sc.least_distinct = 0;
     }
     sc
+}
+
+/// Event-driven cycles' report: golems a day over the scored days, the watchdog's fires and the failed
+/// rolls a day, and from the event (the absence's end, else the start): the first golem, each night's
+/// distinct nappers, each day's golems, and the golems lost against `normal` a day (default: the mean
+/// of the scored days before the event).
+pub fn event_line(label: &str, o: &Opts, s: &Score, normal: Option<f64>) -> String {
+    let g = &s.golems_by_day;
+    let scored: Vec<usize> = g.iter().copied().skip(o.warmup).take(o.days.saturating_sub(o.warmup)).collect();
+    let mean = |v: &[usize]| if v.is_empty() { 0.0 } else { v.iter().sum::<usize>() as f64 / v.len() as f64 };
+    let ev_t = o.absence.map_or(0, |(d, dt, len)| o.dusk_at + d as i64 * o.day_gt + dt + len);
+    let ev_day = (ev_t.div_euclid(o.day_gt)).max(0) as usize;
+    let before: Vec<usize> = g.iter().copied().skip(o.warmup).take(ev_day.saturating_sub(o.warmup)).collect();
+    let norm = normal.unwrap_or(mean(&before));
+    let after: Vec<usize> = g.iter().copied().skip(ev_day).take(5).collect();
+    let lost: f64 = after.iter().map(|&x| (norm - x as f64).max(0.0)).sum();
+    let nights: Vec<(i64, usize)> = s.naps_by_night.iter().copied().filter(|(d, _)| *d >= ev_day as i64).take(5).collect();
+    let full = nights.iter().position(|(_, n)| *n >= o.carts.min(o.visits));
+    let days_n = o.days as f64;
+    format!(
+        "  {label}: golems a day {:.1} (scored days: least {}, most {}); watchdog fires {:.2} a day, failed pad rolls {:.2} a day; from the event (t {ev_t}, day {ev_day}): first golem {}; distinct nappers each night {}; golems each day {}; golems lost over those days {:.0} (against {:.1} a day); all {} napped in a night {}",
+        mean(&scored),
+        scored.iter().min().copied().unwrap_or(0),
+        scored.iter().max().copied().unwrap_or(0),
+        s.wd_fires as f64 / days_n,
+        s.failed_rolls as f64 / days_n,
+        s.first_golem_after.map_or("never".to_string(), |t| format!("{t} gt after")),
+        nights.iter().map(|(d, n)| format!("n{d} {n}")).collect::<Vec<_>>().join(", "),
+        after.iter().enumerate().map(|(i, x)| format!("d{} {x}", ev_day + i)).collect::<Vec<_>>().join(", "),
+        lost,
+        norm,
+        o.carts.min(o.visits),
+        full.map_or("not within 5 nights".to_string(), |i| format!("on the {} night from the event", ["1st", "2nd", "3rd", "4th", "5th"][i]))
+    )
 }
 
 /// The report line for one row.

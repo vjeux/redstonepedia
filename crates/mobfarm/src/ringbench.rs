@@ -47,7 +47,32 @@ pub fn loop_cells() -> Vec<([i32; 3], Role, &'static str)> {
 /// interior solid at y 1, a wall round the outside at y 1, a roof over every rail at y 2 (an empty
 /// cart is 0.7 tall), so no mob can stand, spawn or reach a cart.
 pub fn design(speed: f64, carts: usize, sealed: bool) -> Design {
-    let mut d = Design { name: format!("liveness-ring-8x{carts}{}", if sealed { "-sealed" } else { "" }), ..Default::default() };
+    design_alive(speed, carts, sealed, false)
+}
+
+/// The detector's outward direction (out of the loop's square) on each side.
+fn outward(c: [i32; 3]) -> ([i32; 3], &'static str) {
+    if c[2] == 0 {
+        ([0, 0, -1], "south")
+    } else if c[0] == 6 {
+        ([1, 0, 0], "west")
+    } else if c[2] == 6 {
+        ([0, 0, 1], "north")
+    } else {
+        ([-1, 0, 0], "east")
+    }
+}
+
+/// `alive`: each detector's rising edge made a pulse in blocks: a waxed copper bulb in the wall cell
+/// beside it (full block: the seal holds) toggles `lit` on the detector's rising edge only (a bulb
+/// toggles on a rising input; the detector's late fall changes only its `powered`), a comparator one
+/// cell further out reads the bulb's analog output (15 lit, 0 unlit: `lit` alone, not `powered`), and
+/// an observer beyond it, facing the comparator, fires a 2-gt pulse at every change of the
+/// comparator's output. (An observer on the bulb itself fired twice a cart, Nov 11 20:57: it sees the
+/// bulb's `powered` drop at the detector's fall too.) The 8 observers' outputs ORed are ALIVE's raw
+/// line (a repeater stretcher after it, as built, closes its gaps).
+pub fn design_alive(speed: f64, carts: usize, sealed: bool, alive: bool) -> Design {
+    let mut d = Design { name: format!("liveness-ring-8x{carts}{}{}", if sealed { "-sealed" } else { "" }, if alive { "-alive" } else { "" }), ..Default::default() };
     d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     for (c, role, shape) in loop_cells() {
         let (rail, under) = match role {
@@ -70,6 +95,18 @@ pub fn design(speed: f64, carts: usize, sealed: bool) -> Design {
                     d.blocks.insert([x, 1, z], "minecraft:stone".into());
                 }
             }
+        }
+    }
+    if alive {
+        for (c, role, _) in loop_cells() {
+            if role != Role::Detector {
+                continue;
+            }
+            let (o, face) = outward(c);
+            d.blocks.insert([c[0] + o[0], 1, c[2] + o[2]], "minecraft:waxed_copper_bulb[lit=false,powered=false]".into());
+            d.blocks.insert([c[0] + 2 * o[0], 1, c[2] + 2 * o[2]], format!("minecraft:comparator[facing={face},mode=compare,powered=false]"));
+            d.blocks.insert([c[0] + 2 * o[0], 0, c[2] + 2 * o[2]], "minecraft:stone".into());
+            d.blocks.insert([c[0] + 3 * o[0], 1, c[2] + 3 * o[2]], format!("minecraft:observer[facing={face},powered=false]"));
         }
     }
     // (cell 2 runs +x; the second cart 13.5 cells behind it (12 is half the lap, the extra 1.5 cells
@@ -112,6 +149,12 @@ pub fn bench(spec: &FarmSpec, ticks: u32, stretch: i64, gone_at: Option<u32>) ->
     let mut in_corner: Vec<bool> = vec![false; ids.len()];
     let mut corner_at: Vec<Option<i64>> = vec![None; ids.len()];
     let mut laps: Vec<(i64, i64)> = vec![(i64::MAX, 0); ids.len()];
+    // (the built ALIVE when the design has it: each observer beside its bulb, its 2-gt pulses)
+    let obs: Vec<BlockPos> = loop_cells().iter().filter(|c| c.1 == Role::Detector).map(|c| { let (o, _) = outward(c.0); BlockPos::new(c.0[0] + 3 * o[0], 1, c.0[2] + 3 * o[2]) }).collect();
+    let built = run.world.get(obs[0]).to_string().contains("observer");
+    let mut raw: Vec<bool> = Vec::new();
+    let mut obs_prev = vec![false; obs.len()];
+    let mut pulses = 0u64;
     for t in 0..ticks as i64 {
         if gone_at.is_some_and(|g| g as i64 == t) {
             for id in &ids {
@@ -148,6 +191,18 @@ pub fn bench(spec: &FarmSpec, ticks: u32, stretch: i64, gone_at: Option<u32>) ->
             }
             prev[k] = on;
         }
+        if built {
+            let mut any = false;
+            for (k, p) in obs.iter().enumerate() {
+                let on = run.world.get(*p).to_string().contains("powered=true");
+                if on && !obs_prev[k] {
+                    pulses += 1;
+                }
+                obs_prev[k] = on;
+                any |= on;
+            }
+            raw.push(any);
+        }
         for (ci, id) in ids.iter().enumerate() {
             if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
                 speed_sum += e.delta_movement.x.hypot(e.delta_movement.z);
@@ -176,6 +231,55 @@ pub fn bench(spec: &FarmSpec, ticks: u32, stretch: i64, gone_at: Option<u32>) ->
     if let Some(g) = gone_t {
         let drop = last_edge.map(|l| l + stretch);
         out.push(format!("positive control: the carts removed at t {g}; rising edges after it {edges_after_gone}; the last rising edge t {}; ALIVE drops at t {} (latency {} gt after the carts stopped)", last_edge.map_or("-".into(), |l| l.to_string()), drop.map_or("-".into(), |d| d.to_string()), drop.map_or("-".into(), |d| (d - g).to_string())));
+    }
+    if built {
+        // (the stretcher as built: a repeater of `delay` ticks on the raw OR line: it turns on `delay`
+        // gt after its input rises (a shorter pulse is lengthened), and off `delay` gt after its input
+        // falls only if the input is still off then (DiodeBlock.tick re-checks its input))
+        let rep = |delay: i64| -> Vec<bool> {
+            let (mut out, mut pending): (bool, Option<i64>) = (false, None);
+            let mut res = vec![false; raw.len()];
+            for (t, &input) in raw.iter().enumerate() {
+                let t = t as i64;
+                if pending == Some(t) {
+                    pending = None;
+                    if out && !input {
+                        out = false;
+                    } else if !out {
+                        out = true;
+                        if !input {
+                            pending = Some(t + delay);
+                        }
+                    }
+                }
+                if pending.is_none() && input != out {
+                    pending = Some(t + delay);
+                }
+                res[t as usize] = out;
+            }
+            res
+        };
+        let warm = 200usize;
+        let end = gone_t.map_or(raw.len(), |g| g as usize);
+        let mut gaps_raw: std::collections::BTreeMap<usize, u64> = std::collections::BTreeMap::new();
+        let mut run_off = 0usize;
+        for &r in raw.iter().take(end).skip(warm) {
+            if r {
+                if run_off > 0 {
+                    *gaps_raw.entry(run_off).or_default() += 1;
+                }
+                run_off = 0;
+            } else {
+                run_off += 1;
+            }
+        }
+        out.push(format!("built ALIVE (a waxed copper bulb beside each detector, a comparator on the bulb, an observer on the comparator): {pulses} observer pulses for {edges} detector rising edges (a falling edge must make none); the raw OR line's off-gaps after the first lap (gt:count) {}", gaps_raw.iter().map(|(g, n)| format!("{g}:{n}")).collect::<Vec<_>>().join(" ")));
+        for delay in [2i64, 4, 6] {
+            let a = rep(delay);
+            let drops = (warm.max(1)..end).filter(|&t| !a[t] && a[t - 1]).count();
+            let fall = gone_t.and_then(|g| (g as usize..a.len()).find(|&t| !a[t]).map(|t| t as i64 - g));
+            out.push(format!("  with a {}-tick repeater stretcher ({delay} gt): false drops after the first lap {drops}; after the carts were removed ALIVE falls {} gt later", delay / 2, fall.map_or("-".into(), |f| f.to_string())));
+        }
     }
     Ok(out)
 }

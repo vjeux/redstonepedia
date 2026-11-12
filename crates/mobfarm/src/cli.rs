@@ -49,6 +49,9 @@ pub enum MobfarmCmd {
         /// The ring sealed against mobs (solid interior, outer wall, a roof over the rails).
         #[arg(long)]
         sealed: bool,
+        /// ALIVE built: a waxed copper bulb beside each detector and an observer on it.
+        #[arg(long)]
+        alive: bool,
     },
     /// The gravity queue's napper picker, modelled on the loop's order alone (`napper.rs`): the
     /// switch on top of the climb diverts a cart to the bed, it re-enters the tail chain after its
@@ -145,6 +148,33 @@ pub enum MobfarmCmd {
         /// Fix (a): releases skipped a day.
         #[arg(long, default_value_t = 0)]
         skip_per_day: usize,
+        /// Event-driven cycles: a cycle starts only at a golem event or the watchdog (G1's lock-up).
+        #[arg(long)]
+        events: bool,
+        /// The watchdog's W, live gt after the last cycle start (implies --events).
+        #[arg(long)]
+        watchdog: Option<i64>,
+        /// A summon's pad roll: the chance an eligible batch's summon finds its golem.
+        #[arg(long, default_value_t = 1.0)]
+        pad_roll: f64,
+        /// The batch reaches the stand this many gt after its cycle start.
+        #[arg(long, default_value_t = 60)]
+        arrive: i64,
+        /// Event-driven cycles only from this day (a warm start: healthy fixed beats before it).
+        #[arg(long, default_value_t = 0)]
+        events_from: usize,
+        /// A recovery picker mode (candidate): after a watchdog fire inside the night window, the
+        /// picker counts K' passes instead of k for the rest of that night.
+        #[arg(long)]
+        recover_k: Option<usize>,
+        /// The player away (the farm unloaded): day D from DT gt after dusk for LEN gt: D,DT,LEN.
+        #[arg(long, value_delimiter = ',')]
+        absence: Vec<i64>,
+        /// ironspec's watchdog rows (Nov 11 20:38), each W of the list: normal running with P = 0.99
+        /// rolls, a 30,000-gt absence returning by day and mid-night, the first start with never-slept
+        /// riders; plus the lock-up's control (no watchdog).
+        #[arg(long, value_delimiter = ',')]
+        watchdog_table: Vec<i64>,
         /// A nap's trip, the switch to its re-entry point: LO,HI gt (uniform).
         #[arg(long, value_delimiter = ',', default_values_t = vec![200i64, 260])]
         trip: Vec<i64>,
@@ -6023,7 +6053,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, events, watchdog, pad_roll, arrive, events_from, recover_k, absence, watchdog_table, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+            let absence = match absence.as_slice() {
+                [] => None,
+                [d, dt, len] => Some((*d as usize, *dt, *len)),
+                _ => bail!("--absence D,DT,LEN"),
+            };
             let empty_trip = match empty_trip.as_slice() {
                 [] => None,
                 [a, b] => Some((*a, *b)),
@@ -6046,7 +6081,42 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "register" => Picker::Register(every),
                 s => bail!("--picker {s}: from-pick, from-return, anchored or register"),
             };
-            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, slow_visit, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing, cross_at, dusk_at };
+            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, slow_visit, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, events: events || watchdog.is_some(), watchdog, pad_roll, arrive, events_from, recover_k, absence, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing, cross_at, dusk_at };
+            if !watchdog_table.is_empty() {
+                // (ironspec Nov 11 20:38: W > 200 so a failed roll's batch retries at the next tick;
+                // the rows per W, scored from day `warmup`: a warm start (healthy fixed beats before
+                // `warmup`, event-driven after) at P 1 (the model's control: it must match the fixed
+                // beats) and at P 0.99; the first start with never-slept riders (event-driven from
+                // day 0); 30,000-gt absences on day 10 returning on day 11 mid-day (in_day 16,000) and
+                // on day 12 mid-night (in_day 4,300); each with and without the recovery picker k' 5)
+                let ev = Opts { events: true, pad_roll: 0.99, absence: None, events_from: warmup, recover_k: None, ..base.clone() };
+                let mut ws: Vec<Option<i64>> = watchdog_table.iter().map(|w| Some(*w)).collect();
+                ws.push(None);
+                for w in ws {
+                    let wl = w.map_or("no watchdog (the lock-up's control)".to_string(), |w| format!("W {w}"));
+                    println!("{wl}:");
+                    let chk = Opts { watchdog: w, pad_roll: 1.0, ..ev.clone() };
+                    let chk_s = crate::napper::simulate(&chk);
+                    println!("{}", crate::napper::event_line("warm start, P 1 (the model's control: the fixed beats' golems)", &chk, &chk_s, None));
+                    let normal_o = Opts { watchdog: w, ..ev.clone() };
+                    let normal_s = crate::napper::simulate(&normal_o);
+                    let g = &normal_s.golems_by_day;
+                    let sc_days: Vec<usize> = g.iter().copied().skip(warmup).take(days.saturating_sub(warmup)).collect();
+                    let norm = if sc_days.is_empty() { 0.0 } else { sc_days.iter().sum::<usize>() as f64 / sc_days.len() as f64 };
+                    println!("{}", crate::napper::event_line("normal running, warm start, P 0.99", &normal_o, &normal_s, None));
+                    for rk in [None, Some(5usize)] {
+                        let tag = rk.map_or(String::new(), |k| format!(", recovery picker k' {k}"));
+                        let cold = Opts { watchdog: w, events_from: 0, recover_k: rk, ..ev.clone() };
+                        println!("{}", crate::napper::event_line(&format!("the first start, never-slept riders{tag}"), &cold, &crate::napper::simulate(&cold), Some(norm)));
+                        for (lab, ab) in [("a 30,000-gt absence returning mid-day", (10usize, 10_000i64, 30_000i64)), ("a 30,000-gt absence returning mid-night", (10, 22_300, 30_000)), ("a 2,000-gt freeze mid-night", (10, 4_000, 2_000)), ("a 2,000-gt freeze mid-day", (10, 14_000, 2_000)), ("a 20,000-gt absence from mid-day", (10, 14_000, 20_000))] {
+                            let o = Opts { watchdog: w, absence: Some(ab), recover_k: rk, ..ev.clone() };
+                            let s = crate::napper::simulate(&o);
+                            println!("{}", crate::napper::event_line(&format!("{lab}{tag}"), &o, &s, Some(norm)));
+                        }
+                    }
+                }
+                return Ok(());
+            }
             let rows: Vec<(String, Opts)> = if table {
                 let reg = Opts { picker: Picker::Register(every), keep_place: true, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, register_carry: false, skip_per_day: 0, ..base.clone() };
                 let built = Opts { register_carry: true, visits: 99, spacing: 10, register_after: true, ..reg.clone() };
@@ -6083,7 +6153,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 vec![("row".into(), base)]
             };
             for (label, o) in &rows {
-                println!("{}", crate::napper::line(label, o, &crate::napper::simulate(o)));
+                let sc_row = crate::napper::simulate(o);
+                println!("{}", crate::napper::line(label, o, &sc_row));
+                if o.events {
+                    println!("{}", crate::napper::event_line(label, o, &sc_row, None));
+                }
                 if trip_bound {
                     // (G1 Nov 11 18:27: each row's longest zero-loss trip, fixed trips scanned up in
                     // 5-gt steps from 100: a design checks its measured trip against it)
@@ -6111,8 +6185,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::RingBench { out, ticks, stretch, gone_at, speed, carts, sealed } => {
-            let d = crate::ringbench::design(speed, carts, sealed);
+        MobfarmCmd::RingBench { out, ticks, stretch, gone_at, speed, carts, sealed, alive } => {
+            let d = crate::ringbench::design_alive(speed, carts, sealed, alive);
             std::fs::write(&out, format!("# The fast liveness ring: 24 rail cells (7 x 7), 8 detector rails every 3 cells, {carts} empty cart(s) (mctas mobfarm ring-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
             for l in crate::ringbench::bench(&spec, ticks, stretch, gone_at).map_err(|e| anyhow::anyhow!(e))? {

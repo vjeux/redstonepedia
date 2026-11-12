@@ -139,22 +139,61 @@ pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i6
     let (mut rise, mut fall): (std::collections::BTreeMap<i64, u64>, std::collections::BTreeMap<i64, u64>) = Default::default();
     let mut broken = 0u64;
     let mut broken_ex: Option<String> = None;
-    let (mut trig_phases, mut trig_waves, mut trig_dropped) = (0u64, 0u64, 0u64);
+    let (mut trig_phases, mut trig_dropped, mut trig_carried, mut trig_broken) = (0u64, 0u64, 0u64, 0u64);
+    let mut trig_short = 0u64;
+    let mut trig_lag: std::collections::BTreeMap<i64, u64> = std::collections::BTreeMap::new();
+    let mut trig_width: std::collections::BTreeMap<i64, u64> = std::collections::BTreeMap::new();
+    let mut trig_broken_ex: Option<String> = None;
+    let mut phase_lines: Vec<String> = Vec::new();
+    let mut tap_least: Vec<i64> = vec![i64::MAX; stages.max(0) as usize];
     // (the paused ideal of an edge due d live gt after its wave starts at s: the frozen time between s
     // and the edge is added; a freeze wholly before s delays nothing)
     let paused = |s: i64, d: i64, f: i64| -> i64 { s + d + if f < s + d { (f + len - f.max(s)).max(0) } else { 0 } };
     for f in 0..every + 2 * stages as i64 {
         let tr = run_one(Some((f, len)))?;
-        // (a trigger pulse inside the freeze is a cycle-start pulse: rule 1 drops it or cuts it; those
-        // phases are reported apart: how many stages still carry every wave)
-        let trig_in = (0..pulses).any(|p| { let s = base + p * every; s < f + len && s + width > f });
-        if trig_in {
+        // (a trigger pulse that overlaps the lock's effective window [f + 2, f + len + 2) (the lockers
+        // take 2 gt) is a cycle-start pulse cut by the freeze (G1 Nov 11 20:19, ironspec 20:43): each
+        // such phase, one line: dropped whole (every stage misses that wave); carried whole (every
+        // stage carries it at full width or wider: its rise and fall lag against the paused ideal and
+        // its width); carried late and shortened (every stage carries it, some narrower than the
+        // trigger's width); broken (some stages carry it, some don't): 0. And each tap's least width)
+        let over: Vec<i64> = (0..pulses).filter(|p| { let s = p * every; s < f + len + 2 && s + width > f + 2 }).collect();
+        if !over.is_empty() {
             trig_phases += 1;
-            for v in &tr {
-                if v.len() as i64 == 2 * pulses {
-                    trig_waves += 1;
+            let full = tr.iter().filter(|v| v.len() as i64 == 2 * pulses).count();
+            let short = tr.iter().filter(|v| v.len() as i64 == 2 * (pulses - over.len() as i64)).count();
+            if full == tr.len() {
+                let (mut rl, mut rh, mut fl, mut fh, mut wl, mut wh) = (i64::MAX, i64::MIN, i64::MAX, i64::MIN, i64::MAX, i64::MIN);
+                for (k, v) in tr.iter().enumerate() {
+                    for &p in &over {
+                        let s = base + p * every;
+                        let d = 2 * (k as i64 + 1);
+                        let r = v[2 * p as usize].0 - paused(s, d, f);
+                        let fa = v[2 * p as usize + 1].0 - paused(s, d + width, f);
+                        let w = v[2 * p as usize + 1].0 - v[2 * p as usize].0;
+                        *trig_lag.entry(r).or_default() += 1;
+                        *trig_width.entry(w).or_default() += 1;
+                        (rl, rh, fl, fh, wl, wh) = (rl.min(r), rh.max(r), fl.min(fa), fh.max(fa), wl.min(w), wh.max(w));
+                        if let Some(t) = tap_least.get_mut(k) {
+                            *t = (*t).min(w);
+                        }
+                    }
+                }
+                if wl < width {
+                    trig_short += 1;
                 } else {
-                    trig_dropped += 1;
+                    trig_carried += 1;
+                }
+                phase_lines.push(format!("  freeze at +{f}: carried {} (rise lag {rl}..{rh}, fall lag {fl}..{fh} against the paused ideal; width {wl}..{wh} gt)", if wl < width { "late and shortened" } else { "whole" }));
+            } else if short == tr.len() {
+                trig_dropped += 1;
+                phase_lines.push(format!("  freeze at +{f}: dropped whole"));
+            } else {
+                trig_broken += 1;
+                let e = format!("freeze at +{f}: {full} stages carry every wave, {short} miss the cut one, {} other", tr.len() - full - short);
+                phase_lines.push(format!("  {e}: BROKEN"));
+                if trig_broken_ex.is_none() {
+                    trig_broken_ex = Some(e);
                 }
             }
             continue;
@@ -177,7 +216,9 @@ pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i6
     }
     let fmt = |m: &std::collections::BTreeMap<i64, u64>| m.iter().map(|(l, n)| format!("{l}:{n}")).collect::<Vec<_>>().join(" ");
     out.push(format!("a {len}-gt freeze begun at every phase 0..{} with no trigger inside it: rise lag (lag:count) {}; fall lag {}; stages whose waves broke (not one rise and one fall per pulse) {broken}{}", every + 2 * stages as i64, fmt(&rise), fmt(&fall), broken_ex.map_or(String::new(), |e| format!(" (first: {e})"))));
-    out.push(format!("phases with a trigger pulse inside the freeze (a cycle-start pulse: rule 1 drops it): {trig_phases}; stage-trials still carrying every wave {trig_waves}, missing a wave {trig_dropped}"));
+    out.push(format!("phases whose trigger pulse overlaps the lock's effective window [f + 2, f + len + 2) (a cycle-start pulse cut by the freeze): {trig_phases}: dropped whole {trig_dropped}; carried whole {trig_carried}; carried late and shortened {trig_short} (all carried: rise lag against the paused ideal {}; width {}); broken (some stages carry it, some don't) {trig_broken}{}", fmt(&trig_lag), fmt(&trig_width), trig_broken_ex.map_or(String::new(), |e| format!(" (first: {e})"))));
+    out.push(format!("the least carried width at each tap (stage 1..{stages}, gt): {}", tap_least.iter().map(|w| if *w == i64::MAX { "-".to_string() } else { w.to_string() }).collect::<Vec<_>>().join(" ")));
+    out.extend(phase_lines);
     Ok(out)
 }
 
