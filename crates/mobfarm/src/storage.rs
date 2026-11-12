@@ -50,10 +50,13 @@ pub const DOUBLE_CHEST: u32 = 3456;
 pub struct Layout {
     pub lines: usize,
     pub chests: usize,
-    /// The ghast rule's enclosure (ironspec 2026-11-12): blast-resistant walls and roof round the
-    /// hall and its walkway (cobblestone; hoppers count), the walkway's floor unspawnable (bottom
-    /// slabs), a doorway at the hall's east end for the player's way in.
+    /// The ghast rule's shell (ironspec 2026-11-12): the walkway and every block under the blast
+    /// bar closed by blast-resistant blocks tight in the 26-neighbourhood, the walkway's floor
+    /// unspawnable (bottom slabs), an iron door at the walkway's east end for the player's way in.
     pub enclose: bool,
+    /// `--box`: the first enclosure (a cobblestone room round the hall) under the shell, kept to
+    /// price against it.
+    pub boxed: bool,
 }
 
 /// The design and the places the bench reads.
@@ -73,10 +76,14 @@ pub struct Built {
     pub chests: Vec<P>,
     /// The bench's own blocks (the kill floor's glass ring), left out of a framed copy.
     pub bench_only: BTreeSet<P>,
-    /// The enclosure's blocks (walls, roof and floor round the hall, the door and its buttons).
+    /// The door, its 2 buttons and their supports (and `--box`'s room when asked).
     pub enclosure: usize,
     /// The door's buttons (left on the outside: the opener).
     pub opener: BTreeSet<P>,
+    /// The walkway's cells (the player's space the shell keeps closed).
+    pub walkway: BTreeSet<P>,
+    /// The shell's cells (the slabs it placed).
+    pub shell_at: BTreeSet<P>,
     /// The shield blocks (cobblestone on the faces of the blocks under the explosion bar).
     pub shield: usize,
 }
@@ -114,8 +121,11 @@ fn twenty_six() -> impl Iterator<Item = P> {
     (-1..=1).flat_map(|x| (-1..=1).flat_map(move |y| (-1..=1).map(move |z| [x, y, z]))).filter(|v| *v != [0, 0, 0])
 }
 
-/// The cells a blast from outside the design's box (one cell round it) reaches through cells
-/// under the explosion bar (empty, or a block under 4.034), 26-connected (G1 2026-11-12).
+/// The cells a blast from outside the design's box (one cell round it) reaches, 26-connected (G1
+/// 2026-11-12), through empty cells and blocks under the breaking bar: a full block of 3.283 or
+/// more (crafters, droppers: 3.5) kills any power-1 ray that samples it (its second sample has at
+/// most 1.075 left against a cost of 1.14, and a fireball's centre can't sit inside a full block),
+/// so it is a wall here (G1's saving, measured against the 4.034 flood).
 fn reach26(d: &Design) -> BTreeSet<P> {
     let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
     for p in d.blocks.keys() {
@@ -125,7 +135,7 @@ fn reach26(d: &Design) -> BTreeSet<P> {
         }
     }
     let inside = |p: P| (0..3).all(|i| p[i] >= lo[i] && p[i] <= hi[i]);
-    let passable = |p: &P| d.blocks.get(p).is_none_or(|s| resistance(s) < BLAST_BAR);
+    let passable = |p: &P| d.blocks.get(p).is_none_or(|s| resistance(s) < BREAK_BAR);
     let mut seen: BTreeSet<P> = BTreeSet::new();
     let mut queue: std::collections::VecDeque<P> = std::collections::VecDeque::new();
     for x in lo[0]..=hi[0] {
@@ -150,18 +160,17 @@ fn reach26(d: &Design) -> BTreeSet<P> {
 }
 
 /// Where shields go: every empty cell a blast reaches (`reach26`) that is a 26-neighbour of a
-/// block under the explosion bar (the opener's aside), so the blast meets a shield before any
-/// such block, edges and corners included.
-fn shield_cells(d: &Design, opener: &BTreeSet<P>) -> BTreeSet<P> {
+/// block under the breaking bar (the opener's aside) or of a cell of `keep` (the walkway: the
+/// player's space, kept empty and closed), so the blast meets a shield first, edges and corners
+/// included.
+fn shield_cells(d: &Design, opener: &BTreeSet<P>, keep: &BTreeSet<P>) -> BTreeSet<P> {
     let reach = reach26(d);
     let mut out = BTreeSet::new();
-    for (p, s) in &d.blocks {
-        if resistance(s) >= BLAST_BAR || opener.contains(p) {
-            continue;
-        }
+    let weak = d.blocks.iter().filter(|(p, s)| resistance(s) < BREAK_BAR && !opener.contains(*p)).map(|(p, _)| *p);
+    for p in weak.chain(keep.iter().copied()) {
         for v in twenty_six() {
             let q = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
-            if !d.blocks.contains_key(&q) && reach.contains(&q) {
+            if !d.blocks.contains_key(&q) && !keep.contains(&q) && reach.contains(&q) {
                 out.insert(q);
             }
         }
@@ -169,16 +178,88 @@ fn shield_cells(d: &Design, opener: &BTreeSet<P>) -> BTreeSet<P> {
     out
 }
 
-/// Every block under the breaking bar a blast from outside reaches (`reach26`; the opener's
-/// aside): `(the block, its state)`; 0 required (G1 2026-11-12).
-pub fn exposed(d: &Design, opener: &BTreeSet<P>) -> Vec<(P, String)> {
+/// Every block under the breaking bar, and every cell of `keep` (the walkway), that a blast from
+/// outside reaches (`reach26`; the opener's aside): `(the cell, its state or "walkway")`; 0
+/// required (G1 2026-11-12).
+pub fn exposed(d: &Design, opener: &BTreeSet<P>, keep: &BTreeSet<P>) -> Vec<(P, String)> {
     let reach = reach26(d);
-    d.blocks.iter().filter(|(p, s)| resistance(s) < BREAK_BAR && !opener.contains(*p) && reach.contains(*p)).map(|(p, s)| (*p, s.clone())).collect()
+    let mut out: Vec<(P, String)> = d.blocks.iter().filter(|(p, s)| resistance(s) < BREAK_BAR && !opener.contains(*p) && reach.contains(*p)).map(|(p, s)| (*p, s.clone())).collect();
+    out.extend(keep.iter().filter(|p| reach.contains(*p)).map(|p| (*p, "walkway".to_string())));
+    out
+}
+
+/// One region of the shell (ironspec 2026-11-12: per region, the cheaper of the slab wrap and a
+/// box round it): the region's cells (26-connected blocks under the breaking bar and walkway
+/// cells), its box (the cells' bounds, one cell out), the wrap's cells (`shield_cells` beside the
+/// region) and the box's (its surface's empty cells), and whether the box's surface would cross
+/// a walkway cell (then the box cannot be built).
+pub struct Region {
+    pub cells: usize,
+    pub lo: P,
+    pub hi: P,
+    pub wrap: usize,
+    pub boxed: usize,
+    pub box_blocked: bool,
+}
+
+/// The shell's regions on the design without its shell (`d` before `shield_cells` went in).
+pub fn regions(d: &Design, opener: &BTreeSet<P>, keep: &BTreeSet<P>) -> Vec<Region> {
+    let reach = reach26(d);
+    let mut todo: BTreeSet<P> = d.blocks.iter().filter(|(p, s)| resistance(s) < BREAK_BAR && !opener.contains(*p)).map(|(p, _)| *p).collect();
+    todo.extend(keep.iter().copied());
+    let mut out = Vec::new();
+    while let Some(&start) = todo.iter().next() {
+        let mut part = BTreeSet::new();
+        let mut stack = vec![start];
+        todo.remove(&start);
+        while let Some(p) = stack.pop() {
+            part.insert(p);
+            for v in twenty_six() {
+                let q = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
+                if todo.remove(&q) {
+                    stack.push(q);
+                }
+            }
+        }
+        let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+        for p in &part {
+            for i in 0..3 {
+                lo[i] = lo[i].min(p[i] - 1);
+                hi[i] = hi[i].max(p[i] + 1);
+            }
+        }
+        let mut wrap = BTreeSet::new();
+        for p in &part {
+            for v in twenty_six() {
+                let q = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
+                if !d.blocks.contains_key(&q) && !keep.contains(&q) && reach.contains(&q) {
+                    wrap.insert(q);
+                }
+            }
+        }
+        let (mut boxed, mut box_blocked) = (0, false);
+        for x in lo[0]..=hi[0] {
+            for y in lo[1]..=hi[1] {
+                for z in lo[2]..=hi[2] {
+                    let surface = x == lo[0] || x == hi[0] || y == lo[1] || y == hi[1] || z == lo[2] || z == hi[2];
+                    if !surface || d.blocks.contains_key(&[x, y, z]) {
+                        continue;
+                    }
+                    if keep.contains(&[x, y, z]) {
+                        box_blocked = true;
+                    }
+                    boxed += 1;
+                }
+            }
+        }
+        out.push(Region { cells: part.len(), lo, hi, wrap: wrap.len(), boxed, box_blocked });
+    }
+    out
 }
 
 /// The design moved by `off` without the bench's own blocks (onechunk's Nether frame), and its
-/// opener moved likewise.
-pub fn shifted(b: &Built, off: P) -> (Design, BTreeSet<P>) {
+/// opener and walkway moved likewise.
+pub fn shifted(b: &Built, off: P) -> (Design, BTreeSet<P>, BTreeSet<P>) {
     let mv = |p: &P| [p[0] + off[0], p[1] + off[1], p[2] + off[2]];
     let mut d = Design { name: format!("{}-framed", b.design.name), meta: b.design.meta.clone(), ..Default::default() };
     for (p, s) in &b.design.blocks {
@@ -192,7 +273,7 @@ pub fn shifted(b: &Built, off: P) -> (Design, BTreeSet<P>) {
     for (k, p) in &b.design.ports {
         d.ports.insert(k.clone(), mv(p));
     }
-    (d, b.opener.iter().map(mv).collect())
+    (d, b.opener.iter().map(mv).collect(), b.walkway.iter().map(mv).collect())
 }
 
 /// North and south swapped in a block state (the crafter mirrored in z).
@@ -220,7 +301,7 @@ pub fn design(l: &Layout) -> Result<Built, String> {
         d.blocks.insert(p, s.to_string());
         Ok(())
     };
-    let mut b = Built { design: Design::default(), floor: Vec::new(), intake: Vec::new(), recipes: Vec::new(), crafters: Vec::new(), kick: [7, 1, 0], chests: Vec::new(), bench_only: BTreeSet::new(), enclosure: 0, opener: BTreeSet::new(), shield: 0 };
+    let mut b = Built { design: Design::default(), floor: Vec::new(), intake: Vec::new(), recipes: Vec::new(), crafters: Vec::new(), kick: [7, 1, 0], chests: Vec::new(), bench_only: BTreeSet::new(), enclosure: 0, opener: BTreeSet::new(), walkway: BTreeSet::new(), shell_at: BTreeSet::new(), shield: 0 };
     let zs: Vec<i32> = (0..l.lines as i32).map(|i| 7 * i).collect();
     for &z0 in &zs {
         // the sorter slice as archived (L at y 3, A, B, its redstone south of it at x 0), its
@@ -337,10 +418,11 @@ pub fn design(l: &Layout) -> Result<Built, String> {
         b.chests.push([x, -3, -2]);
         b.chests.push([x, -3, -3]);
     }
-    if l.enclose {
-        // the hall's room: x 5..6+D, z -5..-1, y -4 (floor) .. 0 (roof); the walkway (z -4, y -3
-        // and -2) floored with bottom slabs, the chests' floor cobblestone; the doorway at the
-        // east wall's walkway cells; a cell a hopper of the lines already holds stays a hopper
+    if l.enclose && l.boxed {
+        // (--box, the first enclosure, kept to price against the shell: the hall's room x 5..6+D,
+        // z -5..-1, y -4 (floor) .. 0 (roof); the walkway (z -4, y -3 and -2) floored with bottom
+        // slabs, the chests' floor cobblestone; the doorway at the east wall's walkway cells; a
+        // cell a hopper of the lines already holds stays a hopper)
         let x1 = 6 + l.chests as i32;
         for y in -4..=0 {
             for z in -5..=-1 {
@@ -358,33 +440,62 @@ pub fn design(l: &Layout) -> Result<Built, String> {
                 }
             }
         }
-        // the doorway closed by an iron door (blast resistance 5.0, G1), a stone button each side
-        // to open it (the opener: the only blocks left on the outside, a button being 0.5)
-        put(&mut d, [x1, -3, -4], "minecraft:iron_door[facing=west,half=lower,hinge=left,open=false,powered=false]")?;
-        put(&mut d, [x1, -2, -4], "minecraft:iron_door[facing=west,half=upper,hinge=left,open=false,powered=false]")?;
+    }
+    if l.enclose {
+        // the walkway (z -4, feet y -3, head y -2, x 6..5+D beside the chests' outer halves) is
+        // the player's own space: the shell keeps it closed like the blocks under the bar
+        let x1 = 6 + l.chests as i32;
+        for x in 6..x1 {
+            for y in [-3, -2] {
+                b.walkway.insert([x, y, -4]);
+            }
+        }
+        // the doorway at the walkway's east end closed by an iron door (blast resistance 5.0,
+        // G1) on a cobblestone (a door needs a full top under it), a stone button each side on a
+        // cobblestone (a button needs a full face): the opener, the only blocks left outside (a
+        // button is 0.5; the guide keeps a spare)
+        for (p, s) in [
+            ([x1, -4, -4], "minecraft:cobblestone"),
+            ([x1, -3, -4], "minecraft:iron_door[facing=west,half=lower,hinge=left,open=false,powered=false]"),
+            ([x1, -2, -4], "minecraft:iron_door[facing=west,half=upper,hinge=left,open=false,powered=false]"),
+            ([x1 - 1, -2, -5], "minecraft:cobblestone"),
+            ([x1, -2, -5], "minecraft:cobblestone"),
+        ] {
+            if !d.blocks.contains_key(&p) {
+                put(&mut d, p, s)?;
+                b.enclosure += 1;
+            }
+        }
         put(&mut d, [x1 - 1, -2, -4], "minecraft:stone_button[face=wall,facing=south,powered=false]")?;
         put(&mut d, [x1 + 1, -2, -5], "minecraft:stone_button[face=wall,facing=east,powered=false]")?;
         b.opener.insert([x1 - 1, -2, -4]);
         b.opener.insert([x1 + 1, -2, -5]);
-        b.enclosure += 4;
-        // every block under the explosion bar (blast resistance 4.034: a ghast fireball's power-1
-        // blast) shielded: a cobblestone slab in every empty cell a blast from outside reaches
-        // (26-connected through cells under the bar: a ray samples every 0.3 blocks and can cut a
-        // corner) beside such a block, so no block under the 3.283 breaking bar is reachable (G1
-        // 2026-11-12, the loader's strict rule); hoppers (4.8) and the walls count as shields;
-        // reckoned on the design without the bench's own blocks (the framed copy's outside)
+        // (the inside button's cell stays in the walkway: a button is no wall, and the shell must
+        // close round it like the rest of the player's space)
+        b.enclosure += 2;
+        // the shell (ironspec 2026-11-12: the enclosure is the shield): a cobblestone bottom slab
+        // in every empty cell a blast from outside reaches (26-connected: a ray samples every 0.3
+        // blocks and can cut a corner; through empty cells and blocks under the 3.283 breaking
+        // bar, a full block above it, crafters and the dropper, killing any ray) beside a block
+        // under that bar or a walkway cell, so no block under the breaking bar and no walkway
+        // cell is reachable (G1 2026-11-12, the loader's strict rule); hoppers (4.8), the
+        // crafters and dropper (3.5), the door and the lava count as shell; reckoned on the
+        // design without the bench's own blocks (the framed copy's outside); the walkway's floor
+        // comes out as slabs (unspawnable)
         let mut real = Design::default();
         for (p, s) in &d.blocks {
             if !b.bench_only.contains(p) {
                 real.blocks.insert(*p, s.clone());
             }
         }
-        for p in shield_cells(&real, &b.opener) {
+        for p in shield_cells(&real, &b.opener, &b.walkway) {
             if !d.blocks.contains_key(&p) {
                 // (a bottom slab, blast resistance 6.0 like cobblestone, but no redstone
                 // conductor: a full block here cut a dust step and locked the sorter's drain for
-                // good, the shield's first bench run; a slab neither cuts dust nor takes power)
+                // good, the shield's first bench run; a slab neither cuts dust nor takes power,
+                // and a chest under one still opens)
                 put(&mut d, p, "minecraft:cobblestone_slab[type=bottom,waterlogged=false]")?;
+                b.shell_at.insert(p);
                 b.shield += 1;
             }
         }
