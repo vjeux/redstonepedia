@@ -146,14 +146,21 @@ pub fn bars(text: &str) -> Bars {
             b.families.insert(label);
         }
         if l.starts_with("arrivals at the lanes' backs") {
-            // (`...: N, M above X, the hardest H`)
-            if let Some(i) = l.find(" above ") {
-                let head = &l[..i];
-                let m = head.rsplit(", ").next().map(first_num).unwrap_or(0);
+            // (`...: N, M above X[ (why)], K above Y[ (why)], the hardest H`: every `M above X` clause
+            // its own family, so each bar the bench prints is judged (G1 2026-11-12 04:22: ironfarm's
+            // port prints both the gravity-run 0.46 and the hold's contact 0.2))
+            let mut from = 0;
+            while let Some(k) = l[from..].find(" above ") {
+                let i = from + k;
+                let m = l[..i].rsplit([' ', ',']).find(|t| !t.is_empty()).map(first_num).unwrap_or(0);
                 let lim: String = l[i + 7..].chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
-                let label = format!("arrivals at the lanes' backs above {lim}");
-                *b.zero.entry(label.clone()).or_default() += m;
-                b.families.insert(label);
+                let lim = lim.trim_end_matches('.').to_string();
+                if !lim.is_empty() {
+                    let label = format!("arrivals at the lanes' backs above {lim}");
+                    *b.zero.entry(label.clone()).or_default() += m;
+                    b.families.insert(label);
+                }
+                from = i + 7;
             }
         }
         if let Some(rest) = l.strip_prefix("the riders' eye blocks: ") {
@@ -424,6 +431,22 @@ mod tests {
         let run = bars(&ctl.replace("30, 0 above 0.2, the hardest 0.180", "31, 1 above 0.2, the hardest 0.241"));
         assert_eq!(run.beyond(&c), vec![("arrivals at the lanes' backs above 0.2".to_string(), 1)]);
         assert!(bars(ctl).beyond(&c).is_empty());
+        // (ironfarm's port 0fc16639d: two clauses on the line, each its own family, each judged)
+        let two = "carts per lane per opening (exactly 1): 1 carts: 24\n\
+                   gate shuts onto a cart (the bar: 0): 0\n\
+                   arrivals at the lanes' backs (the intakes and the trains closing up): 30, 0 above 0.46 (the brief's gravity-run bar), 2 above 0.2 (the hold brief's contact bar), the hardest 0.241\n";
+        let t2 = bars(two);
+        for f in LANES_FAMILIES {
+            assert!(t2.families.contains(*f), "the port's line still carries {f:?}");
+        }
+        assert_eq!(t2.zero.get("arrivals at the lanes' backs above 0.46"), Some(&0));
+        assert_eq!(t2.zero.get("arrivals at the lanes' backs above 0.2"), Some(&2));
+        let worse = bars(&two.replace("0 above 0.46 (the", "1 above 0.46 (the"));
+        assert_eq!(worse.beyond(&t2), vec![("arrivals at the lanes' backs above 0.46".to_string(), 1)]);
+        // (the switched-R port's line: one clause, more after a "; ")
+        let sw = bars("arrivals at the lanes' backs (each arrival's first contact in the lane): 40, 3 above 0.46, the hardest 0.501; the fewest carts queued on the slopes behind R_1's cart at an arrival 2\n");
+        assert_eq!(sw.zero.get("arrivals at the lanes' backs above 0.46"), Some(&3));
+        assert_eq!(sw.zero.len(), 1);
     }
 
     /// An artefact line covers only the dirt whose kind starts with its label.
