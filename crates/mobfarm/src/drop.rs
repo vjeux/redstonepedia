@@ -42,6 +42,11 @@ pub enum DropLayout {
     /// Q2: three side-by-side pockets at x 0, y 0, z 0 / p / 2p, each leaving east on its own
     /// straight boosted track.
     Parallel(i32),
+    /// The F1 + Q2 station in 9fc3155f's budget (explore/farmopt-c3-borders ae287a4cd,
+    /// wip/c3/f1q2-budget.txt; written in the file frame = loop + (6,0,6)): level pockets at loop
+    /// (-1,0,0), (3,0,0), (7,0,0), each leaving +z into the merge (a boosted stand-in for it here),
+    /// the holds over them, the pad under the summoners' overlap.
+    Station,
 }
 
 impl DropLayout {
@@ -50,13 +55,15 @@ impl DropLayout {
         match self {
             DropLayout::Series => [(13, -2, 0), (9, -1, 0), (5, 0, 0)],
             DropLayout::Parallel(p) => [(0, 0, 0), (0, 0, *p), (0, 0, 2 * p)],
+            DropLayout::Station => [(5, 0, 6), (9, 0, 6), (13, 0, 6)],
         }
     }
-    /// The departing carts' sink: x past which a departing cart has left (removed), mid-exit.
-    fn sink_x(&self) -> f64 {
+    /// Whether a departing cart at `p` has left (removed), mid-exit.
+    fn departed(&self, p: Vec3) -> bool {
         match self {
-            DropLayout::Series => 17.5,
-            DropLayout::Parallel(_) => 3.5,
+            DropLayout::Series => p.x > 17.5,
+            DropLayout::Parallel(_) => p.x > 3.5,
+            DropLayout::Station => p.z > 9.5,
         }
     }
 }
@@ -89,6 +96,14 @@ const TRAPDOOR_OPEN: &str = "oak_trapdoor[facing=north,half=bottom,open=true,pow
 /// block's y; in the series layout one plane over all three), the occupancy strings, the departing
 /// batch at rest mid-cell in the pockets and the waiting batch on the trapdoors.
 pub fn design(layout: DropLayout, hold_y: i32, dep: [bool; 3], arr: [bool; 3]) -> String {
+    design_with(layout, hold_y, dep, arr, false)
+}
+
+/// [`design`], with `pad` (the parallel layout) the golem pad under the summoners' overlap.
+pub fn design_with(layout: DropLayout, hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool) -> String {
+    if layout == DropLayout::Station {
+        return station_design(hold_y, dep, arr, pad);
+    }
     let mut b = Builder::new("drop-bench");
     let pockets = layout.pockets();
     match layout {
@@ -127,6 +142,7 @@ pub fn design(layout: DropLayout, hold_y: i32, dep: [bool; 3], arr: [bool; 3]) -
                 b.set(x + 7, y, z, "glass");
             }
         }
+        DropLayout::Station => unreachable!(),
     }
     for (x, y, z) in pockets {
         b.set(x, y, z, "powered_rail[powered=false,shape=ascending_west,waterlogged=false]");
@@ -145,8 +161,43 @@ pub fn design(layout: DropLayout, hold_y: i32, dep: [bool; 3], arr: [bool; 3]) -
         b.set(x, y + 1, z, "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]");
         b.set(x, y + 1, z - 1, "tripwire_hook[attached=true,facing=south,powered=false]");
         b.set(x, y + 1, z + 1, "tripwire_hook[attached=true,facing=north,powered=false]");
-        b.set(x, y + 1, z - 2, "stone");
-        b.set(x, y + 1, z + 2, "stone");
+        // (glass: no stone top in the summoners' scan offers a golem a stray spot)
+        b.set(x, y + 1, z - 2, "glass");
+        b.set(x, y + 1, z + 2, "glass");
+    }
+    if pad && let DropLayout::Parallel(p) = layout {
+        // the pad (v4's 44-spot pattern moved under Q2's summoners' overlap, x -8..8, z 0..2p):
+        // two x-axis portals 9 wide (x -4..4, y -8..-6) on rows z p/2 and p/2 + 3, obsidian frames
+        // (sides x -5 and 5, bottom y -9, top y -5), the floor rows (cobblestone x -5..5 at y -7)
+        // on either side of each: golem feet at -6 on 4 rows x 11 = 44 spots, every golem's box
+        // over a portal; strings on the portals' tops (hooks at x -5 and 5 on glass at x -6 and 6)
+        // keep golems off the frames
+        let z0 = p / 2 - 1;
+        let rows_portal = [z0 + 1, z0 + 4];
+        let rows_floor = [z0, z0 + 2, z0 + 3, z0 + 5];
+        for zr in rows_portal {
+            for x in -4..=4 {
+                b.set(x, -9, zr, "obsidian");
+                b.set(x, -5, zr, "obsidian");
+                for y in -8..=-6 {
+                    b.set(x, y, zr, "nether_portal[axis=x]");
+                }
+                b.set(x, -4, zr, "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]");
+            }
+            for y in -8..=-6 {
+                b.set(-5, y, zr, "obsidian");
+                b.set(5, y, zr, "obsidian");
+            }
+            b.set(-5, -4, zr, "tripwire_hook[attached=true,facing=east,powered=false]");
+            b.set(5, -4, zr, "tripwire_hook[attached=true,facing=west,powered=false]");
+            b.set(-6, -4, zr, "glass");
+            b.set(6, -4, zr, "glass");
+        }
+        for zr in rows_floor {
+            for x in -5..=5 {
+                b.set(x, -7, zr, "cobblestone");
+            }
+        }
     }
     let rider = "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}";
     let empty = "{Rotation:[0f,0f]}";
@@ -170,6 +221,7 @@ pub fn footprint(layout: DropLayout, hold_y: i32) -> String {
     let (x0, x1) = match layout {
         DropLayout::Series => (4, 21),
         DropLayout::Parallel(_) => (-1, 7),
+        DropLayout::Station => return station_footprint(hold_y),
     };
     let zs: Vec<i32> = pockets.iter().map(|p| p.2).collect();
     let (z0, z1) = (zs.iter().min().unwrap() - 2, zs.iter().max().unwrap() + 2);
@@ -184,6 +236,104 @@ pub fn footprint(layout: DropLayout, hold_y: i32) -> String {
         feet + 1.95,
         pockets.iter().map(|(_, y, _)| format!("{:.2}", feet - (*y as f64 + 0.5625))).collect::<Vec<_>>().join(", "),
         pockets.iter().map(|(_, y, _)| (hold_y - y - 2).to_string()).collect::<Vec<_>>().join("/")
+    )
+}
+
+/// The F1 + Q2 station (9fc3155f's budget; written in the file frame = loop + (6,0,6), the
+/// budget's loop cells + 6 in x and z): per lane k at loop x -1 / 3 / 7 (file 5 / 9 / 13), z 0
+/// (file 6): the level pocket (a powered rail ascending north on its switched support, leaving +z;
+/// the anchor rail up-north on glass keeps its slope), the string over it (east-west, hooks at x
+/// +-1, glass supports at x +-2 shared between lanes), the 1 x 1 shaft (file y 1..hold-1), the hold
+/// (a bottom-half trapdoor at `hold_y`, the 3 x 3 glass ring); with `pad`, the golem pad under the
+/// summoners' overlap (v4's pattern: x-axis portals 10 wide, file x 4..13 / loop -2..7, on rows file
+/// z 1 and 4 / loop -5 and -2, obsidian frames x 3 and 14, bottom y -9, top y -5; cobblestone floor
+/// rows file z 0, 2, 3, 5 / loop -6, -4, -3, -1 at y -7, x 3..14 / loop -3..8: golem feet -6, 48
+/// spots; glass over the frames' tops at y -4 so no golem stands on them) and a one-block Nether
+/// part (a portal needs one); the merge's cells (loop z 1..9, 7b90c3f1's) a boosted stand-in: a
+/// plain flat, four boosters, a plain flat and a stop per lane.
+pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool) -> String {
+    let mut b = Builder::new("f1q2-station");
+    let pockets = DropLayout::Station.pockets();
+    for (x, y, z) in pockets {
+        b.set(x, y, z, "powered_rail[powered=false,shape=ascending_north,waterlogged=false]");
+        b.set(x, y - 1, z, "stone");
+        b.set(x, y + 1, z - 1, "rail[shape=ascending_north,waterlogged=false]");
+        b.set(x, y, z - 1, "glass");
+        b.set(x, y + 1, z, "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]");
+        b.set(x - 1, y + 1, z, "tripwire_hook[attached=true,facing=east,powered=false]");
+        b.set(x + 1, y + 1, z, "tripwire_hook[attached=true,facing=west,powered=false]");
+        b.set(x - 2, y + 1, z, "glass");
+        b.set(x + 2, y + 1, z, "glass");
+        b.set(x, hold_y, z, TRAPDOOR_SHUT);
+        for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            b.set(x + dx, hold_y, z + dz, "glass");
+        }
+        b.set(x, y, z + 1, "rail[shape=north_south,waterlogged=false]");
+        b.set(x, y - 1, z + 1, "glass");
+        for dz in 2..=5 {
+            b.set(x, y, z + dz, "powered_rail[powered=true,shape=north_south,waterlogged=false]");
+            b.set(x, y - 1, z + dz, "redstone_block");
+        }
+        b.set(x, y, z + 6, "rail[shape=north_south,waterlogged=false]");
+        b.set(x, y - 1, z + 6, "glass");
+        b.set(x, y, z + 7, "glass");
+    }
+    if pad {
+        for zr in [1, 4] {
+            for x in 4..=13 {
+                b.set(x, -9, zr, "obsidian");
+                b.set(x, -5, zr, "obsidian");
+                for y in -8..=-6 {
+                    b.set(x, y, zr, "nether_portal[axis=x]");
+                }
+            }
+            for y in -8..=-5 {
+                b.set(3, y, zr, "obsidian");
+                b.set(14, y, zr, "obsidian");
+            }
+            for x in 3..=14 {
+                b.set(x, -4, zr, "glass");
+            }
+        }
+        for zr in [0, 2, 3, 5] {
+            for x in 3..=14 {
+                b.set(x, -7, zr, "cobblestone");
+            }
+        }
+    }
+    let rider = "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}";
+    let empty = "{Rotation:[0f,0f]}";
+    for (k, (x, y, z)) in pockets.iter().enumerate() {
+        b.entity("minecart", [*x as f64 + 0.5, *y as f64 + 0.5625, *z as f64 + 0.5], Some(if dep[k] { rider } else { empty }));
+    }
+    for (k, (x, _, z)) in pockets.iter().enumerate() {
+        b.entity("minecart", [*x as f64 + 0.5, hold_y as f64 + 0.1875, *z as f64 + 0.5], Some(if arr[k] { rider } else { empty }));
+    }
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [0, 1, 0]);
+    let mut text = b.text(&["The F1 + Q2 station (dfb89499, 9fc3155f's budget; file = loop + (6,0,6)): three level pockets at loop x -1 / 3 / 7 z 0 under M1 drops from holds at y 16, the golem pad under the summoners' overlap (golem feet -6), the merge a boosted stand-in."]);
+    if pad {
+        // (a portal needs a Nether part that links: a 2 x 3 x-axis portal in obsidian at the
+        // Nether's origin)
+        let letter = |id: &str| text.lines().find(|l| l.trim_end().ends_with(&format!(" minecraft:{id}"))).and_then(|l| l.trim_start().chars().next());
+        if let (Some(o), Some(p)) = (letter("obsidian"), letter("nether_portal[axis=x]")) {
+            let mut nether = String::from("nether-origin: 0 0 0\n");
+            nether.push_str(&format!("nether layer 64:\n  .{o}{o}\n"));
+            for y in 65..=67 {
+                nether.push_str(&format!("nether layer {y}:\n  {o}{p}{p}{o}\n"));
+            }
+            nether.push_str(&format!("nether layer 68:\n  .{o}{o}\n"));
+            text.push_str(&nether);
+        }
+    }
+    text
+}
+
+/// The station's box against the budget's (static).
+fn station_footprint(hold_y: i32) -> String {
+    format!(
+        "the station's blocks: file x 3..15 y -9..{hold_y} z 0..7 (loop x -3..9, z -6..1: the glass rings' z +1 cells sit in the lanes' box, as the budget lists them), the waiting riders' heads at {:.2}; the budget's box: loop x -3..9 y -11..19 z -6..0; the merge's stand-in: file z 7..13 (loop 1..7, the merge's box)",
+        hold_y as f64 + 0.1875 + 1.95
     )
 }
 
@@ -374,7 +524,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
         for n in 0..6 {
             let Some((p, v)) = st[n] else { continue };
             if n < 3 {
-                if exits[n].is_none() && p.x > o.layout.sink_x() {
+                if exits[n].is_none() && o.layout.departed(p) {
                     exits[n] = Some((dt, (v.x * v.x + v.z * v.z).sqrt()));
                     sink_now.push(n);
                 }

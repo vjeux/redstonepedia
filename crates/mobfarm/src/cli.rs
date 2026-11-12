@@ -1652,6 +1652,9 @@ pub enum MobfarmCmd {
         /// strings' positive control.
         #[arg(long)]
         release_world: bool,
+        /// The parallel layout's golem pad under the summoners' overlap (v4's 44-spot pattern).
+        #[arg(long)]
+        pad: bool,
         #[arg(long, default_value = "1,1,1")]
         dep_riders: String,
         #[arg(long, default_value = "1,1,1")]
@@ -5303,7 +5306,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             }
         }
-        MobfarmCmd::DropBench { layout, hold_y, rel, stagger, rebrake, release, pulse, occupancy, release_world, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, hold_y, rel, stagger, rebrake, release, pulse, occupancy, release_world, pad, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let list = |s: &str| s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
             let r3 = |s: &str| -> anyhow::Result<[bool; 3]> {
                 let v: Vec<&str> = s.split(',').map(|x| x.trim()).collect();
@@ -5340,10 +5343,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let lo = match lay.split_once(':') {
                     Some(("parallel", p)) => crate::drop::DropLayout::Parallel(p.parse()?),
                     None if lay == "series" => crate::drop::DropLayout::Series,
-                    _ => anyhow::bail!("--layout series or parallel:P"),
+                    None if lay == "station" => crate::drop::DropLayout::Station,
+                    _ => anyhow::bail!("--layout series, parallel:P or station"),
                 };
                 for h in &holds {
-                    let text = crate::drop::design(lo, *h as i32, dep, arr);
+                    let text = crate::drop::design_with(lo, *h as i32, dep, arr, pad);
                     let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("drop-bench-{}.txt", std::process::id())));
                     std::fs::write(&path, &text)?;
                     let (_c, fspec) = load(version, &path)?;
