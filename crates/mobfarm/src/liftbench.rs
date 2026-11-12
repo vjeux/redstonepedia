@@ -29,6 +29,8 @@ pub struct LiftOpts {
     pub trace: Option<usize>,
     /// A glass block this many cells over the shaft's top water (0: none).
     pub ceiling: i32,
+    /// Cells descending west right after the exit's landing cell (0: a flat exit line).
+    pub exit_slope: i32,
     /// The bench frozen (its chunks at level 32: blocks tick, entities don't) from tick FROM for LEN
     /// gt; the carts' launches wait it out.
     pub freeze: Option<(i64, i64)>,
@@ -62,12 +64,27 @@ fn build(o: &LiftOpts) -> Result<FarmSpec, String> {
         blocks.push((BlockPos::new(x, -1, 0), glass.clone()));
     }
     if exit_rail || o.exit == "current" || o.exit == "piston" {
-        for x in -8..=-1 {
-            blocks.push((BlockPos::new(x, h, 0), flat.clone()));
-            blocks.push((BlockPos::new(x, h - 1, 0), glass.clone()));
+        // (the exit line west of the landing cell: flat, or `exit_slope` cells descending west
+        // right after it (each cart pulling away from the next to land), then flats to a stop)
+        let up_east = Block::parse("minecraft:rail[shape=ascending_east,waterlogged=false]")?;
+        let mut y = h;
+        let mut x = -1;
+        blocks.push((BlockPos::new(x, y, 0), flat.clone()));
+        blocks.push((BlockPos::new(x, y - 1, 0), glass.clone()));
+        for _ in 0..o.exit_slope {
+            x -= 1;
+            y -= 1;
+            blocks.push((BlockPos::new(x, y, 0), up_east.clone()));
+            blocks.push((BlockPos::new(x, y - 1, 0), glass.clone()));
+            blocks.push((BlockPos::new(x + 1, y, 0), glass.clone()));
+        }
+        for _ in 0..(14 - o.exit_slope).max(7) {
+            x -= 1;
+            blocks.push((BlockPos::new(x, y, 0), flat.clone()));
+            blocks.push((BlockPos::new(x, y - 1, 0), glass.clone()));
         }
         // (the exit line's end: a glass stop, the carts queueing against it)
-        blocks.push((BlockPos::new(-9, h, 0), glass.clone()));
+        blocks.push((BlockPos::new(x - 1, y, 0), glass.clone()));
     }
     if o.exit == "current" {
         // (a water source east of the shaft's top air cell, glass-boxed: its flow into (0,h,0)
@@ -95,7 +112,7 @@ fn build(o: &LiftOpts) -> Result<FarmSpec, String> {
         blocks,
         entities: Vec::new(),
         output: BlockPos::new(o.entry_len + 3, 0, 3),
-        lo: BlockPos::new(-20, -4, -4),
+        lo: BlockPos::new(-40, -4, -4),
         hi: BlockPos::new(o.entry_len + 4, h + 8, 4),
         block_entities: Vec::new(),
         rock: false,
@@ -168,10 +185,10 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
                     let (mn, sz) = (run.world.min, run.world.size);
                     run.world.entity_chunks = Some([mn.x.div_euclid(16), mn.z.div_euclid(16), (mn.x + sz[0] - 1).div_euclid(16), (mn.z + sz[2] - 1).div_euclid(16)]);
                 }
-                redsim::reload::unload_some(&mut run.world, [-1, -1, 0, 0]);
+                redsim::reload::unload_some(&mut run.world, [-2, -1, 0, 0]);
             }
             if t == from + len {
-                redsim::reload::load_some(&mut run.world, [-1, -1, 0, 0]);
+                redsim::reload::load_some(&mut run.world, [-2, -1, 0, 0]);
             }
         }
         if frozen_now {
