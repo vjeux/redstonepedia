@@ -69,6 +69,7 @@ pub const SLEPT_WITHIN: i64 = 24000;
 fn hostile_distance(ty: MobType) -> Option<f32> {
     match ty {
         MobType::Zombie => Some(8.0),
+        MobType::Pillager => Some(15.0),
         _ => None,
     }
 }

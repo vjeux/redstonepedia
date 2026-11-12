@@ -1124,7 +1124,7 @@ fn has_ambient_sound(w: &World, i: usize) -> bool {
     match m.ty {
         MobType::IronGolem => false,
         MobType::Villager => m.sleeping_pos.is_none(),
-        MobType::Zombie | MobType::Witch => true,
+        MobType::Zombie | MobType::Witch | MobType::Pillager => true,
         // the creeper and the cube mobs (AbstractCubeMob: none) have no ambient sound
         MobType::Natural(_) => !matches!(m.ty.def().id, "creeper" | "sulfur_cube" | "sulfur_cube_2" | "slime" | "slime_2" | "slime_4"),
     }

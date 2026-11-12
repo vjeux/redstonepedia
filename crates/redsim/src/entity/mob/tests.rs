@@ -444,3 +444,29 @@ fn daylight_detector_follows_the_day() {
     }
     assert!(matches!(w.get(BlockPos::new(0, 0, 0)), Block::DaylightDetector { power: 11, .. }), "midnight: {}", w.get(BlockPos::new(0, 0, 0)));
 }
+
+/// (9fc3155f, ironspec Nov 12 04:32) A pillager is modeled only seated: on its own its spawn is
+/// refused; seated in a boat it rides, villagers beyond its crossbow's 8 change nothing, and a
+/// villager it sees inside 8 is a model error (its AI would charge and shoot).
+#[test]
+fn seated_pillager() {
+    let mut w = world(1);
+    assert!(matches!(spawn(&mut w, "minecraft:pillager", [0.5, 0.0, 0.5], None), Some(Err(_))));
+    for x in -3..=14 {
+        put(&mut w, x, -1, 0, "minecraft:glass");
+    }
+    let boat = crate::entity::spawn(&mut w, "minecraft:oak_boat", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b}]}"));
+    assert!(boat.is_ok(), "{boat:?}");
+    let seated = w.entities.list.iter().any(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Pillager) && e.vehicle.is_some());
+    assert!(seated, "the pillager rides its boat");
+    add(&mut w, MobType::Villager, Vec3::new(10.5, 0.0, 0.5), true);
+    for _ in 0..40 {
+        w.tick();
+    }
+    assert!(!w.errors.iter().any(|e| e.contains("seated pillager")), "a villager 10 off: {:?}", w.errors);
+    add(&mut w, MobType::Villager, Vec3::new(5.5, 0.0, 0.5), true);
+    for _ in 0..5 {
+        w.tick();
+    }
+    assert!(w.errors.iter().any(|e| e.contains("seated pillager")), "a villager 5 off: {:?}", w.errors);
+}

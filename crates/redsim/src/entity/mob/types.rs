@@ -13,6 +13,13 @@ pub enum MobType {
     /// What lightning turns a villager into (`Villager.thunderHit`): its dimensions and
     /// attributes only, no AI (a witch in a farm fails the run).
     Witch,
+    /// (9fc3155f, ironspec Nov 12 04:32) A pillager seated in a vehicle (a farm's scarer post):
+    /// its dimensions, attributes and seat only. Its AI (Pillager.registerGoals: the crossbow,
+    /// its targets) is not modeled: one standing on its own is refused at its spawn, and a
+    /// villager, an iron golem or a player it sees within its crossbow's 8
+    /// (RangedCrossbowAttackGoal's attack radius) is a model error (it would charge and shoot).
+    /// Villagers sense it as a hostile (VillagerHostilesSensor: 15) and golems as an Enemy.
+    Pillager,
     /// A natural mob of the terrain mode (NaturalSpawner's): its row in
     /// [`super::natural::DEFS`] (the terrain track's table), by index.
     Natural(u16),
@@ -151,6 +158,31 @@ pub static TYPES: &[TypeDef] = &[
         max_health: 26.0,
         speed: 0.25,
         follow_range: 16.0,
+        step: 0.6,
+        knockback_resistance: 0.0,
+        armor: 0.0,
+        fire_immune: false,
+        fall_immune: false,
+        drowns: true,
+        burns_in_daylight: false,
+        monster: true,
+        loot: &[],
+    },
+    // EntityTypes.PILLAGER.sized(0.6F, 1.95F).ridingOffset(-0.6F) (eye 1.95 x 0.85),
+    // MobCategory.MONSTER; Pillager.createAttributes: Monster.createMonsterAttributes() +
+    // MOVEMENT_SPEED 0.35, MAX_HEALTH 24, ATTACK_DAMAGE 5, FOLLOW_RANGE 32 (seated only, no AI
+    // and no loot modeled)
+    TypeDef {
+        ty: MobType::Pillager,
+        id: "pillager",
+        game_id: "minecraft:pillager",
+        width: 0.6,
+        height: 1.95,
+        eye: 1.6575,
+        riding_offset: -0.6,
+        max_health: 24.0,
+        speed: 0.35,
+        follow_range: 32.0,
         step: 0.6,
         knockback_resistance: 0.0,
         armor: 0.0,

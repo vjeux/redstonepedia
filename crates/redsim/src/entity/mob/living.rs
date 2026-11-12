@@ -508,11 +508,47 @@ fn server_ai_step(w: &mut World, i: usize) {
     }
     match mob(w, i).ty {
         MobType::Villager => super::villager::brain_tick(w, i),
+        MobType::Pillager => pillager_check(w, i),
         _ => super::walk::apply(w, i),
     }
 }
 
 /// `LivingEntity.aiStep`'s jump: from the ground (no jump delay), or in a liquid.
+/// (9fc3155f, ironspec Nov 12 04:32) A seated pillager's tick: its AI is not modeled
+/// (Pillager.registerGoals), so a villager or an iron golem it sees within its crossbow's 8
+/// (RangedCrossbowAttackGoal: `distanceToSqr <= 8 x 8` and `hasLineOfSight`, eye to eye; it targets
+/// both, NearestAttackableTargetGoal) is a model error: it would charge and shoot. A target farther
+/// out only turns its head and its navigation (a boat's passenger: it can't move), both unmodeled
+/// and changing nothing.
+fn pillager_check(w: &mut World, i: usize) {
+    let (p, eye) = {
+        let e = &w.entities.list[i];
+        (e.pos, Vec3::new(e.pos.x, e.pos.y + mob(w, i).eye() as f64, e.pos.z))
+    };
+    let mut seen: Option<String> = None;
+    for e in &w.entities.list {
+        let EntityKind::Mob(m) = &e.kind else { continue };
+        if e.removed || !matches!(m.ty, MobType::Villager | MobType::IronGolem) {
+            continue;
+        }
+        let d2 = (e.pos.x - p.x).powi(2) + (e.pos.y - p.y).powi(2) + (e.pos.z - p.z).powi(2);
+        if d2 > 64.0 {
+            continue;
+        }
+        let te = Vec3::new(e.pos.x, e.pos.y + m.eye() as f64, e.pos.z);
+        if super::los::has_line_of_sight(w, eye, te) {
+            seen = Some(format!("{} #{} at {:.2},{:.2},{:.2}, {:.2} away", m.ty.def().id, e.id, e.pos.x, e.pos.y, e.pos.z, d2.sqrt()));
+            break;
+        }
+    }
+    if let Some(s) = seen {
+        let why = format!("gt {}: the seated pillager #{} at {:.2},{:.2},{:.2} sees a {s} inside its crossbow's 8: its AI (charge and shoot) is not modeled", w.time, w.entities.list[i].id, p.x, p.y, p.z);
+        if !w.errors.contains(&why) {
+            w.errors.push(why);
+        }
+    }
+}
+
 fn jump(w: &mut World, i: usize) {
     if !mob(w, i).jumping {
         mob_mut(w, i).no_jump_delay = 0;

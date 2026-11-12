@@ -1300,7 +1300,7 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
             MobType::Zombie => {}
             // (a witch, a struck villager, and natural mobs: the weather and terrain tracks'
             // checks)
-            MobType::Witch | MobType::Natural(_) => {}
+            MobType::Witch | MobType::Pillager | MobType::Natural(_) => {}
         }
     }
     // (tickexact 2026-11-10, the portal pad) the farm's golems in the Nether: inside its Nether

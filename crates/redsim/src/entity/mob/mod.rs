@@ -706,7 +706,7 @@ pub fn spawn_hook(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>
         if MobType::from_id(&pid).is_none() {
             return Some(Err(format!("{type_id}: passenger {pid} is not modeled")));
         }
-        let rider = match spawn(w, &pid, pos, rest.as_deref()) {
+        let rider = match spawn_inner(w, &pid, pos, rest.as_deref(), true) {
             Some(Ok(r)) => r,
             Some(Err(e)) => return Some(Err(format!("{type_id}'s passenger: {e}"))),
             None => return Some(Err(format!("{type_id}: passenger {pid} is not modeled"))),
@@ -799,6 +799,14 @@ fn base_attack_damage_of(ty: MobType) -> f32 {
 /// follow-range bonus come from [`MobWorld::rng`]: the judge models a mob the player brought in
 /// (its `finalizeSpawn` ran where it spawned), not a `/summon` with data.
 pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> Option<Result<u32, String>> {
+    spawn_inner(w, type_id, pos, nbt, false)
+}
+
+/// [`spawn`], `seated` when the mob is a vehicle's passenger (a pillager is modeled only so).
+fn spawn_inner(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>, seated: bool) -> Option<Result<u32, String>> {
+    if !seated && MobType::from_id(type_id) == Some(MobType::Pillager) {
+        return Some(Err(format!("{type_id}: a pillager on its own is not modeled (its AI): seat it in a boat")));
+    }
     let mut ty = MobType::from_id(type_id)?;
     let mut persistent = false;
     let mut can_break_doors = false;
@@ -1223,8 +1231,9 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
     };
     let mut st = MobState::new(ty, bonus);
     st.persistence_required = persistent;
-    // ---- mob AI (the mob-AI lane): `registerGoals`; `LivingEntity.speed` starts at 0 ----
-    if w.mob.ai.on {
+    // ---- mob AI (the mob-AI lane): `registerGoals`; `LivingEntity.speed` starts at 0 (a seated
+    // pillager's goals are not modeled: it has none, and its own check errors when they'd act) ----
+    if w.mob.ai.on && ty != MobType::Pillager {
         st.ai = Some(Box::new(ai::MobAi::new(ty, y_rot)));
         st.speed = 0.0;
     }
