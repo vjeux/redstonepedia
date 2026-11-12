@@ -34,6 +34,7 @@ pub mod queue;
 pub mod standlab;
 pub mod climb;
 pub mod drop;
+pub mod stationjudge;
 pub mod liftbench;
 pub mod spawnrules;
 pub mod station;
