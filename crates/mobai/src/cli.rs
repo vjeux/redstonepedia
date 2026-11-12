@@ -391,6 +391,122 @@ pub enum MobaiCmd {
     /// per seat name:x,y,z (a slope seat of lane x fills its pressed queue from R_1 (x,17,1)), until
     /// `--draws` stroll draws: P_null, q, the landed cells, MoveToTargetSink at the panic onset, the
     /// pillagers' charged ticks; `--rail-glow`: each seat rail's floor glowstone too
+    /// (tickexact 2026-11-12, ironspec) A zombified piglin in the sealed pad's portal rows on the
+    /// official server: portal-spawned (summoned with the cooldown a portal spawn sets) or crossed
+    /// back from the Nether; per player distance (under 32, 32..128, over 128, in the Nether):
+    /// where it is every 100 gt (inside a portal cell or not), its PortalCooldown, its despawn tick
+    /// (tickexact 2026-11-12, ironspec: the continuous-loop term) One lane's queue as built on the
+    /// official server (H plus the pressed slope, F3 laid): every `--every` gt the front cart out of
+    /// H and its rider back at the top (ironfarm's traced entry: off C over the drop, stopped by the
+    /// wall at z 6.49, falling onto the top slope from a standstill); per rest
+    /// position P_null and the landed cells, per rider per lap panic ticks and clears, the sink at
+    /// every panic onset, the riders' rest positions
+    LaneRun {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-module-first-assembly.txt")]
+        module: std::path::PathBuf,
+        #[arg(long, default_value_t = 3, allow_hyphen_values = true)]
+        x: i32,
+        #[arg(long, default_value_t = 7)]
+        riders: usize,
+        #[arg(long, default_value_t = 4000)]
+        ticks: u32,
+        #[arg(long, default_value_t = 100)]
+        every: u32,
+        #[arg(long)]
+        post: bool,
+        /// Glowstone floors, x,y,z;...
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        glow: String,
+        /// A part file laid over the module (9fc3155f's F3 scarer part: its glass, glowstone and
+        /// seated pillager)
+        #[arg(long)]
+        part: Option<std::path::PathBuf>,
+        /// The per-draw log's file (tick, rider cell, nearest hostile, target, outcome, path)
+        #[arg(long)]
+        draws_out: Option<std::path::PathBuf>,
+    },
+    /// (tickexact 2026-11-12, ironspec: the bed stop's merge) A villager walking to its bed at night
+    /// on the official server, `/time set 0` when it is `--at` blocks from the head; every tick to
+    /// day time `--until`: activity, WALK_TARGET, PATH, position, asleep
+    DayJump {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value_t = 2.0)]
+        at: f64,
+        #[arg(long, default_value_t = 40)]
+        until: i64,
+    },
+    /// (tickexact 2026-11-12, ironspec and G1) The halt bridge on the official server: whether an
+    /// unpowered powered rail holds a cart against another pressing it (rows hold-empty,
+    /// hold-ridden, pair-empty, pair-ridden-V, flat-ridden), every tick both carts, their yaw, the
+    /// boxes' vertical gap, the push search and its |cos|
+    HaltBridge {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "hold-empty,hold-ridden,pair-empty,pair-ridden-0.106,pair-ridden-0.197,pair-ridden-0.332,pair-ridden-0.392,pair-ridden-0.459,flat-ridden")]
+        rows: String,
+        #[arg(long, default_value_t = 400)]
+        ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec's ruling for onechunk's loader) The loader's freeze rows on
+    /// the official server: the landed item-loop loader in chunk (1,1) with 1 or 4 farm modules
+    /// around it, the player beyond simulation distance + 1 or in the Nether: (a) the loop running,
+    /// per farm chunk its best ticket level, entity ticking, frozen block ticks; (b) a restart there
+    FreezeRows {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "designs/farms/iron/carousel-assembly/wip/onechunk/loader/l1-item-loop-bench.txt")]
+        loader: std::path::PathBuf,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        /// 1 or 4 modules
+        #[arg(long, default_value_t = 1)]
+        modules: u32,
+        /// far (13 chunks off) or nether
+        #[arg(long, default_value = "far")]
+        place: String,
+        /// Row (a)'s run (gt)
+        #[arg(long, default_value_t = 2000)]
+        ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec) df472311b's queue fill on the strict-placed module, printed
+    /// every tick on the official server: R_1's power, H's trapdoor, every cart and rider; the
+    /// resting pitch
+    QueueFill {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        /// Every cart ridden (else empty carts, the last ridden: df472311b's procedure)
+        #[arg(long)]
+        ridden: bool,
+    },
+    /// (tickexact 2026-11-12, ironspec) A seated villager's position minus its cart's on the
+    /// official server, both read in the same tick, on a flat and an ascending rail, at rest and moving
+    SeatOffset {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
+    /// (tickexact 2026-11-12) The module placed both ways on the official server (rails with their
+    /// onPlace, and `strict` as the file states them); 20 gt later every block that differs from
+    /// the file
+    ModuleCheck {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+    },
+    PadPiglins {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// The sealed pad's station file (dfb89499's, explore/farmopt-m1-restart 4bce82b85)
+        #[arg(long, default_value = "designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt")]
+        station: std::path::PathBuf,
+        #[arg(long, default_value_t = 3000)]
+        ticks: u32,
+    },
     SeatF3 {
         #[arg(long, default_value = "26.3")]
         version: String,
@@ -408,6 +524,13 @@ pub enum MobaiCmd {
         rail_glow: bool,
         #[arg(long, default_value_t = 200)]
         draws: u32,
+        /// Part files laid over the module in order, a,b,c (blocks as stated, entities summoned);
+        /// each file's cells are checked against the world after everything is placed
+        #[arg(long, default_value = "")]
+        parts: String,
+        /// The rider's cart at x,y,z (else the seat cell's centre 0.5 up)
+        #[arg(long, allow_hyphen_values = true)]
+        cart: Option<String>,
     },
     /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
     /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
@@ -688,7 +811,26 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             };
             crate::seatclear::seat_clear(&version, &module, &rows, &lanes, dwells, preage, depart, drift, &cells(&floors)?, &cells(&glass)?)
         }
-        MobaiCmd::SeatF3 { version, module, seats, post, glow, rail_glow, draws } => {
+        MobaiCmd::LaneRun { version, module, x, riders, ticks, every, post, glow, part, draws_out } => {
+            let glow: Vec<[i32; 3]> = glow
+                .split(';')
+                .filter(|f| !f.trim().is_empty())
+                .map(|f| {
+                    let v: Vec<i32> = f.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--glow x,y,z;..., got {f}");
+                    Ok([v[0], v[1], v[2]])
+                })
+                .collect::<anyhow::Result<_>>()?;
+            crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
+        }
+        MobaiCmd::DayJump { version, at, until } => crate::dayjump::day_jump(&version, at, until),
+        MobaiCmd::HaltBridge { version, rows, ticks } => crate::haltbridge::halt_bridge(&version, &rows, ticks),
+        MobaiCmd::FreezeRows { version, loader, module, modules, place, ticks } => crate::freeze::freeze_rows(&version, &loader, &module, modules, &place, ticks),
+        MobaiCmd::QueueFill { version, module, ridden } => crate::seatclear::queue_fill(&version, &module, ridden),
+        MobaiCmd::SeatOffset { version } => crate::seatoffset::seat_offset(&version),
+        MobaiCmd::ModuleCheck { version, module } => crate::seatclear::module_check(&version, &module),
+        MobaiCmd::PadPiglins { version, station, ticks } => crate::padpiglin::pad_piglins(&version, &station, ticks),
+        MobaiCmd::SeatF3 { version, module, seats, post, glow, rail_glow, draws, parts, cart } => {
             let cells = |s: &str| -> anyhow::Result<Vec<[i32; 3]>> {
                 s.split(';')
                     .filter(|f| !f.trim().is_empty())
@@ -700,12 +842,21 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                     .collect()
             };
             let glow = cells(&glow)?;
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            let cart: Option<[f64; 3]> = match cart {
+                Some(c) => {
+                    let v: Vec<f64> = c.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--cart x,y,z, got {c}");
+                    Some([v[0], v[1], v[2]])
+                }
+                None => None,
+            };
             for s in seats.split(';').filter(|s| !s.trim().is_empty()) {
                 let (name, c) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--seats name:x,y,z, got {s}"))?;
                 let seat = cells(c)?.first().copied().ok_or_else(|| anyhow::anyhow!("--seats name:x,y,z, got {s}"))?;
                 // a lane slope seat (x,17+i,1+i): its queue from R_1 up to the cell ahead of it
                 let fill: Vec<[i32; 3]> = if (17..=22).contains(&seat[1]) && seat[2] == seat[1] - 16 { (17..seat[1]).map(|y| [seat[0], y, y - 16]).collect() } else { Vec::new() };
-                crate::seatclear::f3_seat(&version, &module, name, seat, &fill, post, &glow, rail_glow, draws)?;
+                crate::seatclear::f3_seat_parts(&version, &module, name, seat, &fill, post, &glow, rail_glow, draws, &parts, cart)?;
             }
             Ok(())
         }

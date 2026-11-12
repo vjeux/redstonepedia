@@ -41,6 +41,7 @@ public final class BrainAgent {
         System.getProperties().put(SET, (BiConsumer<Object, Object>) BrainAgent::onSet);
         System.getProperties().put(ACTIVITY, (BiConsumer<Object, Object>) BrainAgent::onActivity);
         System.getProperties().put(MARK, (BiConsumer<Object, Object>) BrainAgent::onMark);
+        System.getProperties().put(OWNER, (BiConsumer<Object, Object>) BrainAgent::onOwner);
         inst.addTransformer(new ClassFileTransformer() {
             @Override
             public byte[] transform(ClassLoader loader, String name, Class<?> redefined, ProtectionDomain domain, byte[] bytes) {
@@ -64,14 +65,36 @@ public final class BrainAgent {
     }
 
     private static final String MARK = "mctas.brain.mark";
+    private static final String OWNER = "mctas.brain.owner";
     private static final String LAND = "net/minecraft/world/entity/ai/util/LandRandomPos";
     private static final String DEFAULT = "net/minecraft/world/entity/ai/util/DefaultRandomPos";
+    /** The mob whose brain is ticking (each line names it: several villagers in one world). */
+    private static final ThreadLocal<String> CURRENT = new ThreadLocal<>();
+
+    static void onOwner(Object brain, Object body) {
+        try {
+            CURRENT.set((String) body.getClass().getMethod("getStringUUID").invoke(body));
+        } catch (ReflectiveOperationException e) {
+            CURRENT.set("?");
+        }
+    }
+
+    /** " @<uuid>" of the mob whose brain is ticking, or " @none" outside any brain tick (a summon,
+     * a command, a brain rebuilt on load: the thread-local would still name the last mob ticked). */
+    private static String owner() {
+        String u = CURRENT.get();
+        if (u == null) {
+            return " @none";
+        }
+        boolean inTick = StackWalker.getInstance().walk(s -> s.anyMatch(f -> f.getMethodName().equals("tick") && f.getClassName().equals("net.minecraft.world.entity.ai.Brain")));
+        return inTick ? " @" + u : " @none";
+    }
 
     /** A random-position draw (its method), printed when VillageBoundRandomStroll made it. */
     static void onMark(Object method, Object unused) {
         for (StackTraceElement e : new Throwable().getStackTrace()) {
             if (e.getClassName().endsWith(".VillageBoundRandomStroll")) {
-                System.err.println("mctas brain agent: random pos " + method + " by VillageBoundRandomStroll");
+                System.err.println("mctas brain agent: random pos " + method + " by VillageBoundRandomStroll" + owner());
                 return;
             }
         }
@@ -159,7 +182,12 @@ public final class BrainAgent {
                 Object target = v.getClass().getMethod("getTarget").invoke(v);
                 Object nodes = v.getClass().getMethod("getNodeCount").invoke(v);
                 Object reach = v.getClass().getMethod("canReach").invoke(v);
-                return "path to " + target + " nodes " + nodes + " reach " + reach;
+                String end = "";
+                Object node = v.getClass().getMethod("getEndNode").invoke(v);
+                if (node != null) {
+                    end = " end (" + node.getClass().getField("x").get(node) + ", " + node.getClass().getField("y").get(node) + ", " + node.getClass().getField("z").get(node) + ")";
+                }
+                return "path to " + target + " nodes " + nodes + " reach " + reach + end;
             }
         } catch (ReflectiveOperationException e) {
             return String.valueOf(v);
@@ -180,14 +208,14 @@ public final class BrainAgent {
         } catch (ReflectiveOperationException e) {
             had = " (?)";
         }
-        System.err.println("mctas brain agent: erase " + type + had + " by " + source());
+        System.err.println("mctas brain agent: erase " + type + had + " by " + source() + owner());
     }
 
     static void onSet(Object type, Object value) {
         if (!watched(type)) {
             return;
         }
-        System.err.println("mctas brain agent: " + (value == null ? "erase " + type : "set " + type + " = " + describe(value)) + " by " + source());
+        System.err.println("mctas brain agent: " + (value == null ? "erase " + type : "set " + type + " = " + describe(value)) + " by " + source() + owner());
     }
 
     static void onActivity(Object brain, Object activity) {
@@ -199,7 +227,7 @@ public final class BrainAgent {
         } catch (ReflectiveOperationException e) {
             // print it anyway
         }
-        System.err.println("mctas brain agent: activity " + activity + " by " + source() + sink(brain));
+        System.err.println("mctas brain agent: activity " + activity + " by " + source() + sink(brain) + owner());
     }
 
     /** MoveToTargetSink's state (its status, remainingCooldown), read from the brain's behaviours. */
@@ -264,6 +292,10 @@ public final class BrainAgent {
                     key = ACTIVITY;
                     a = 0;
                     c = 1;
+                } else if (n.equals("tick") && d.startsWith("(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/LivingEntity;)")) {
+                    key = OWNER;
+                    a = 0;
+                    c = 2;
                 } else {
                     cb.with(ce);
                     return;
@@ -288,8 +320,8 @@ public final class BrainAgent {
                 cb.with(ce);
             }
         });
-        if (done[0] < 4) {
-            throw new IllegalStateException("Brain: " + done[0] + " of 4 methods found (eraseMemory, two setMemoryInternal, setActiveActivity)");
+        if (done[0] < 5) {
+            throw new IllegalStateException("Brain: " + done[0] + " of 5 methods found (eraseMemory, two setMemoryInternal, setActiveActivity, tick)");
         }
         return out;
     }

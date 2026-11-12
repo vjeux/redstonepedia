@@ -31,19 +31,19 @@ use mctas::vanilla::{VanillaOptions, VanillaServer};
 use std::io::{Read, Seek, SeekFrom};
 
 const DY: i32 = 80;
-const MEMS: &str = "minecraft:walk_target,minecraft:cant_reach_walk_target_since,minecraft:home,minecraft:path";
+pub(crate) const MEMS: &str = "minecraft:walk_target,minecraft:cant_reach_walk_target_since,minecraft:home,minecraft:path,minecraft:nearest_hostile";
 
 fn at(x: f64, y: f64, z: f64) -> String {
     format!("{} {} {}", x, y + DY as f64, z)
 }
 
 /// The brain agent's lines since the last call.
-struct Agent {
-    at: u64,
+pub(crate) struct Agent {
+    pub(crate) at: u64,
 }
 
 impl Agent {
-    fn drain(&mut self, srv: &VanillaServer) -> Result<Vec<String>> {
+    pub(crate) fn drain(&mut self, srv: &VanillaServer) -> Result<Vec<String>> {
         let mut f = std::fs::File::open(&srv.log).with_context(|| format!("open {}", srv.log.display()))?;
         f.seek(SeekFrom::Start(self.at))?;
         let mut s = String::new();
@@ -57,6 +57,16 @@ impl Agent {
 /// Places the module's overworld part (rails after the other blocks, portals last) in cleared air;
 /// returns its bed head's cell.
 fn place_module(srv: &mut VanillaServer, module: &std::path::Path) -> Result<[i32; 3]> {
+    place_module_with(srv, module, true)
+}
+
+/// Places the module (rails after the other blocks, portals last). With `strict_rails` every rail
+/// goes in as the file states it, without its onPlace (`setblock ... strict`: no `RailState.place`
+/// re-shaping it from its neighbours of the moment), which is the built state the guide's
+/// placement order produces (the top slope's helper order, C's powered placement); without it a
+/// rail takes whatever shape its neighbours give it when placed (the top slope (x,22,6) then
+/// settles flat). Returns the bed's head.
+pub(crate) fn place_module_with(srv: &mut VanillaServer, module: &std::path::Path, strict_rails: bool) -> Result<[i32; 3]> {
     for y0 in (DY - 24..DY + 34).step_by(16) {
         srv.cmd_ok(&format!("fill -16 {y0} -16 19 {} 20 minecraft:air", (y0 + 15).min(DY + 33)))?;
     }
@@ -77,10 +87,37 @@ fn place_module(srv: &mut VanillaServer, module: &std::path::Path) -> Result<[i3
             if s.contains("_bed") && s.contains("part=head") {
                 bed = Some(*p);
             }
-            srv.cmd_ok(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
+            let mode = if kind == 1 && strict_rails { " strict" } else { "" };
+            srv.cmd_ok(&format!("setblock {} {} {} {s}{mode}", p[0], p[1] + DY, p[2]))?;
         }
     }
     bed.context("the module has no bed")
+}
+
+/// Every block of the module that differs in the world from the file (its position and the
+/// file's state).
+pub(crate) fn module_mismatches(srv: &mut VanillaServer, module: &std::path::Path) -> Result<Vec<String>> {
+    let d = mctas::design::Design::load(module)?;
+    let mut out = Vec::new();
+    for (p, s) in d.blocks.iter() {
+        if !srv.cmd_long(&format!("execute if block {} {} {} {s}", p[0], p[1] + DY, p[2]))?.contains("passed") {
+            out.push(format!("({},{},{}) {s}", p[0], p[1], p[2]));
+        }
+    }
+    Ok(out)
+}
+
+/// `mctas mobai module-check`: the module placed both ways (rails with their onPlace, and strict),
+/// 20 gt later every block that differs from the file.
+pub fn module_check(version: &str, module: &std::path::Path) -> Result<()> {
+    for strict in [false, true] {
+        let (mut r, _bed) = start_placed(version, module, strict)?;
+        r.srv.step(20)?;
+        let m = module_mismatches(&mut r.srv, module)?;
+        println!("== {} rails: {} blocks differ from the file 20 gt after placing: {}", if strict { "strict" } else { "onPlace" }, m.len(), m.join("; "));
+        let _ = std::fs::remove_dir_all(&r.srv.dir);
+    }
+    Ok(())
 }
 
 fn rider_summon(srv: &mut VanillaServer, seat: [f64; 3], bed: [i32; 3], tag: &str) -> Result<()> {
@@ -202,6 +239,53 @@ impl Counts {
 }
 
 /// A two-sided 95% Wilson interval of a proportion `k` of `n`.
+/// The two-sided 95% Wilson interval (for the lane run).
+pub(crate) fn wilson95_pub(k: u32, n: u32) -> (f64, f64) {
+    wilson95(k, n)
+}
+
+/// A part file laid over the module (9fc3155f's F3 scarer part: its glass and glowstone, its seated
+/// pillager): blocks as the file states them, entities summoned at their positions. A pillager
+/// summoned as a passenger gets no `finalizeSpawn`, so it is given the crossbow a natural one
+/// carries, and the tag f3 (its charge state is read).
+pub(crate) fn place_part(srv: &mut VanillaServer, part: &std::path::Path) -> Result<()> {
+    let d = mctas::design::Design::load(part)?;
+    for (p, s) in d.blocks.iter() {
+        srv.cmd_ok(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
+    }
+    for e in &d.entities {
+        let nbt = e.nbt.clone().unwrap_or_default().replace(
+            "id:\"minecraft:pillager\"",
+            "id:\"minecraft:pillager\",Tags:[\"f3\"],equipment:{mainhand:{id:\"minecraft:crossbow\",count:1}}",
+        );
+        srv.cmd_ok(&format!("summon {} {} {nbt}", e.kind, at(e.pos[0], e.pos[1], e.pos[2])))?;
+    }
+    Ok(())
+}
+
+/// The module placed with F3's scarers (the lead pair, the napper post with `post`) and `glow`
+/// glowstone floors, the brain agent's lines drained: (the server, its agent reader, the bed).
+pub(crate) fn start_world(version: &str, module: &std::path::Path, post: bool, glow: &[[i32; 3]]) -> Result<(VanillaServer, Agent, [i32; 3])> {
+    start_world_part(version, module, post, glow, None)
+}
+
+/// As [`start_world`], with a part file laid over the module too.
+pub(crate) fn start_world_part(version: &str, module: &std::path::Path, post: bool, glow: &[[i32; 3]], part: Option<&std::path::Path>) -> Result<(VanillaServer, Agent, [i32; 3])> {
+    let (r, bed) = start(version, module)?;
+    let Run { mut srv, agent, .. } = r;
+    posts(&mut srv)?;
+    if post {
+        f3_post(&mut srv)?;
+    }
+    for f in glow {
+        srv.cmd_ok(&format!("setblock {} {} {} minecraft:glowstone", f[0], f[1] + DY, f[2]))?;
+    }
+    if let Some(p) = part {
+        place_part(&mut srv, p)?;
+    }
+    Ok((srv, agent, bed))
+}
+
 fn wilson95(k: u32, n: u32) -> (f64, f64) {
     let (n, p, z) = (n.max(1) as f64, k as f64 / n.max(1) as f64, 1.96f64);
     let c = (p + z * z / (2.0 * n)) / (1.0 + z * z / n);
@@ -257,6 +341,10 @@ impl Run {
 }
 
 fn start(version: &str, module: &std::path::Path) -> Result<(Run, [i32; 3])> {
+    start_placed(version, module, true)
+}
+
+fn start_placed(version: &str, module: &std::path::Path, strict_rails: bool) -> Result<(Run, [i32; 3])> {
     let jar = mctas::bridge::brain_agent(version)?;
     let mut srv = VanillaServer::start(&VanillaOptions {
         version: version.to_string(),
@@ -272,7 +360,7 @@ fn start(version: &str, module: &std::path::Path) -> Result<(Run, [i32; 3])> {
     srv.cmd_ok("time set 18000")?;
     srv.cmd_ok("forceload add -16 -16 79 79")?;
     srv.step(20)?;
-    let bed = place_module(&mut srv, module)?;
+    let bed = place_module_with(&mut srv, module, strict_rails)?;
     // the away seat: an enclosed cart at (60, 0, 60), glass all round
     srv.cmd_ok(&format!("fill 58 {} 58 62 {} 62 minecraft:glass hollow", DY - 1, DY + 3))?;
     srv.cmd_ok(&format!("setblock 60 {DY} 60 minecraft:rail"))?;
@@ -425,13 +513,13 @@ fn pos_in_cart(srv: &mut VanillaServer) -> Result<Option<f64>> {
 /// LandRandomPos; "bias": DefaultRandomPos.getPosTowards the village section), its landed cell
 /// relative to the rider's block (None: a null draw), its outcome ("null", "reached", "complete",
 /// "partial", "no path", "open"), how long its WALK_TARGET stayed set, whether it cleared the stamp.
-struct Draw {
-    t: u32,
-    branch: &'static str,
-    cell: Option<[i32; 3]>,
-    outcome: &'static str,
-    hold: Option<u32>,
-    cleared: bool,
+pub(crate) struct Draw {
+    pub(crate) t: u32,
+    pub(crate) branch: &'static str,
+    pub(crate) cell: Option<[i32; 3]>,
+    pub(crate) outcome: &'static str,
+    pub(crate) hold: Option<u32>,
+    pub(crate) cleared: bool,
 }
 
 /// A dwell's draws from its agent lines (`t0`: the dwell's first tick less one).
@@ -441,7 +529,7 @@ fn draw_seq(ev: &[(u32, String)], t0: u32, origin: [i32; 3]) -> Vec<Draw> {
 
 /// As [`draw_seq`], each landed cell relative to the rider's block at its draw tick where `moving`
 /// has one (the departure: the rider rolling out), else to `origin`.
-fn draw_seq_moving(ev: &[(u32, String)], t0: u32, origin: [i32; 3], moving: &std::collections::BTreeMap<u32, [i32; 3]>) -> Vec<Draw> {
+pub(crate) fn draw_seq_moving(ev: &[(u32, String)], t0: u32, origin: [i32; 3], moving: &std::collections::BTreeMap<u32, [i32; 3]>) -> Vec<Draw> {
     let mut out: Vec<Draw> = Vec::new();
     let mut branch = "";
     let mut open: Option<usize> = None;
@@ -834,22 +922,54 @@ fn f3_post(srv: &mut VanillaServer) -> Result<()> {
 /// cells by branch and outcome, MoveToTargetSink's state at the panic onset, the pillagers'
 /// charged ticks.
 pub fn f3_seat(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32) -> Result<()> {
+    f3_seat_parts(version, module, name, seat, fill, post, glow, rail_glow, draws, &[], None)
+}
+
+/// As [`f3_seat`], with part files laid over the module in order (blocks as stated, entities
+/// summoned: [`place_part`]) and the rider's cart at `cart` (else the seat cell's centre 0.5 up);
+/// each file's cells checked against the world after everything is placed (module-check).
+#[allow(clippy::too_many_arguments)]
+pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32, parts: &[std::path::PathBuf], cart: Option<[f64; 3]>) -> Result<()> {
     println!(
-        "== seat {name} ({},{},{}){}: the lead pair{}, {} glowstone floors; the queue filled at {fill:?}",
+        "== seat {name} ({},{},{}){}: the lead pair{}, {} glowstone floors{}; the queue filled at {fill:?}",
         seat[0],
         seat[1],
         seat[2],
         if rail_glow { ", its rail's floor glowstone" } else { "" },
         if post { " and F3's napper post (1,24,-5)" } else { "" },
-        glow.len()
+        glow.len(),
+        if parts.is_empty() { String::new() } else { format!("; parts laid over the module: {}", parts.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")) }
     );
     let (mut r, bed) = start(version, module)?;
     posts(&mut r.srv)?;
     if post {
         f3_post(&mut r.srv)?;
     }
+    for p in parts {
+        place_part(&mut r.srv, p)?;
+    }
     for f in glow {
         r.srv.cmd_ok(&format!("setblock {} {} {} minecraft:glowstone", f[0], f[1] + DY, f[2]))?;
+    }
+    if !parts.is_empty() {
+        r.srv.step(20)?;
+        // module-check, file by file: a cell a later file re-lays is the later file's
+        let files: Vec<&std::path::Path> = std::iter::once(module).chain(parts.iter().map(|p| p.as_path())).collect();
+        let designs: Vec<mctas::design::Design> = files.iter().map(|f| mctas::design::Design::load(f)).collect::<Result<_>>()?;
+        for (i, f) in files.iter().enumerate() {
+            let m = module_mismatches(&mut r.srv, f)?;
+            let (later, own): (Vec<&String>, Vec<&String>) = m.iter().partition(|s| {
+                let cell: Vec<i32> = s.trim_start_matches('(').split(')').next().unwrap_or("").split(',').filter_map(|v| v.parse().ok()).collect();
+                cell.len() == 3 && designs[i + 1..].iter().any(|d| d.blocks.contains_key(&[cell[0], cell[1], cell[2]]))
+            });
+            println!(
+                "  module-check {}: {} cells differ from the file, {} of them re-laid by a later file; the rest: {}",
+                f.display(),
+                m.len(),
+                later.len(),
+                if own.is_empty() { "none".to_string() } else { own.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ") }
+            );
+        }
     }
     if rail_glow {
         r.srv.cmd_ok(&format!("setblock {} {} {} minecraft:glowstone", seat[0], seat[1] - 1 + DY, seat[2]))?;
@@ -863,7 +983,7 @@ pub fn f3_seat(version: &str, module: &std::path::Path, name: &str, seat: [i32; 
         r.srv.cmd_ok(&format!("summon minecraft:minecart {} {{Tags:[\"queue\"]}}", at(f[0] as f64 + 0.5, f[1] as f64 + 0.5, f[2] as f64 + 0.5)))?;
         r.srv.step(10)?;
     }
-    rider_summon(&mut r.srv, [seat[0] as f64 + 0.5, seat[1] as f64 + 0.5, seat[2] as f64 + 0.5], bed, "seat")?;
+    rider_summon(&mut r.srv, cart.unwrap_or([seat[0] as f64 + 0.5, seat[1] as f64 + 0.5, seat[2] as f64 + 0.5]), bed, "seat")?;
     r.srv.step(40)?;
     // every cart of the queue after settling (where a pressed queue really rests)
     let carts = r.srv.cmd_long(&format!("execute as @e[type=minecraft:minecart,x={},y={},z=-2,dx=1,dy=10,dz=12] run data get entity @s Pos", seat[0], 15 + DY))?;
@@ -915,6 +1035,66 @@ pub fn f3_seat(version: &str, module: &std::path::Path, name: &str, seat: [i32; 
         c.reach_path,
         cells.iter().map(|((cl, b, o), k)| format!("({},{},{}) {b} {o}: {k}", cl[0], cl[1], cl[2])).collect::<Vec<_>>().join(", ")
     );
+    let _ = std::fs::remove_dir_all(&r.srv.dir);
+    Ok(())
+}
+
+/// An entity's raw position (y less `DY`) by selector.
+fn ent_pos(srv: &mut VanillaServer, sel: &str) -> Result<Option<[f64; 3]>> {
+    let out = srv.cmd_long(&format!("data get entity {sel} Pos"))?;
+    let Some(rest) = out.split("entity data: ").nth(1) else { return Ok(None) };
+    let v: Vec<f64> = rest.trim().trim_matches(|c| c == '[' || c == ']').split(',').filter_map(|s| s.trim().trim_end_matches('d').parse().ok()).collect();
+    Ok((v.len() == 3).then(|| [v[0], v[1] - DY as f64, v[2]]))
+}
+
+/// (tickexact 2026-11-12, ironspec: the queue geometry the statics use) `mctas mobai queue-fill`:
+/// df472311b's fill procedure on the strict-placed module (the top slope as built): carts summoned
+/// at each fill cell's centre 0.5 up, (3,17,1) to (3,21,5), 10 gt apart (empty, or each with a
+/// villager when `ridden`), then a ridden cart at the top cell (3,22,6), then 40 gt. Every tick: R_1's
+/// powered state, H's trapdoor, every cart's position and its rider's; at the end the resting
+/// pitch between neighbours.
+pub fn queue_fill(version: &str, module: &std::path::Path, ridden: bool) -> Result<()> {
+    let (mut r, _bed) = start(version, module)?;
+    let m = module_mismatches(&mut r.srv, module)?;
+    println!(
+        "== queue-fill on the official {version} server ({}; module-check: {} blocks differ from the file{})",
+        if ridden { "every cart ridden" } else { "empty carts, the last ridden (df472311b's procedure)" },
+        m.len(),
+        if m.iter().any(|s| s.contains("rail")) { ", rails among them" } else { ", no rail" }
+    );
+    let fill: [[i32; 3]; 6] = [[3, 17, 1], [3, 18, 2], [3, 19, 3], [3, 20, 4], [3, 21, 5], [3, 22, 6]];
+    let mut t = 0u32;
+    for (i, f) in fill.iter().enumerate() {
+        let last = i == fill.len() - 1;
+        let pass = if ridden || last { format!(",Passengers:[{{id:\"minecraft:villager\",Tags:[\"qv{i}\"],NoAI:1b}}]") } else { String::new() };
+        r.srv.cmd_ok(&format!("summon minecraft:minecart {} {{Tags:[\"q{i}\"]{pass}}}", at(f[0] as f64 + 0.5, f[1] as f64 + 0.5, f[2] as f64 + 0.5)))?;
+        for _ in 0..(if last { 40 } else { 10 }) {
+            r.srv.step(1)?;
+            t += 1;
+            let r1 = r.srv.cmd_long(&format!("execute if block 3 {} 1 minecraft:powered_rail[powered=true]", 17 + DY))?.contains("passed");
+            let shut = r.srv.cmd_long(&format!("execute if block 3 {} 0 minecraft:oak_trapdoor[open=false]", 16 + DY))?.contains("passed");
+            let mut row = Vec::new();
+            for k in 0..=i {
+                let c = ent_pos(&mut r.srv, &format!("@e[tag=q{k},limit=1]"))?;
+                let v = ent_pos(&mut r.srv, &format!("@e[tag=qv{k},limit=1]"))?;
+                row.push(match (c, v) {
+                    (Some(c), Some(v)) => format!("c{k} ({:.4},{:.4},{:.4}) rider {:+.4}", c[0], c[1], c[2], v[1] - c[1]),
+                    (Some(c), None) => format!("c{k} ({:.4},{:.4},{:.4})", c[0], c[1], c[2]),
+                    _ => format!("c{k} gone"),
+                });
+            }
+            println!("  t{t} R_1 {} H {}: {}", if r1 { "POWERED" } else { "unpowered" }, if shut { "shut" } else { "OPEN" }, row.join("; "));
+        }
+    }
+    let mut ps: Vec<[f64; 3]> = Vec::new();
+    for k in 0..fill.len() {
+        if let Some(c) = ent_pos(&mut r.srv, &format!("@e[tag=q{k},limit=1]"))? {
+            ps.push(c);
+        }
+    }
+    ps.sort_by(|a, b| a[2].total_cmp(&b[2]));
+    let pitch: Vec<String> = ps.windows(2).map(|w| format!("({:+.3},{:+.3})", w[1][1] - w[0][1], w[1][2] - w[0][2])).collect();
+    println!("  at rest, by z: {}; the pitch (dy, dz) between neighbours: {}", ps.iter().map(|p| format!("({:.3},{:.3})", p[1], p[2])).collect::<Vec<_>>().join(" "), pitch.join(" "));
     let _ = std::fs::remove_dir_all(&r.srv.dir);
     Ok(())
 }

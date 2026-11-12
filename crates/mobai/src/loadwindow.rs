@@ -18,9 +18,9 @@ const FARM: [i32; 4] = [2, 2, 3, 2];
 const TICKS: u32 = 300;
 
 /// One run's line per tick: (tick, game time, per chunk (cx, cz, st, bt, el, et, sched, ents)).
-type Line = (u32, i64, Vec<(i32, i32, bool, bool, bool, bool, u32, u32)>);
+pub(crate) type Line = (u32, i64, Vec<(i32, i32, bool, bool, bool, bool, u32, u32)>);
 
-fn parse(log: &str) -> Vec<Line> {
+pub(crate) fn parse(log: &str) -> Vec<Line> {
     let mut out = Vec::new();
     for l in log.lines() {
         let Some(rest) = l.split("mctas-load tick ").nth(1) else { continue };
@@ -177,21 +177,21 @@ pub fn load_window(version: &str, case: &str, runs: u32, design: Option<&std::pa
 /// One load of a farm chunk out of the agent's lines: from the first tick any of its flags is on
 /// (after a tick with all off) until its entities tick.
 #[derive(Debug, Default, Clone)]
-struct Episode {
-    cx: i32,
-    cz: i32,
-    start: u32,
-    bt: Option<u32>,
-    el: Option<u32>,
-    st: Option<u32>,
-    et: Option<u32>,
+pub(crate) struct Episode {
+    pub(crate) cx: i32,
+    pub(crate) cz: i32,
+    pub(crate) start: u32,
+    pub(crate) bt: Option<u32>,
+    pub(crate) el: Option<u32>,
+    pub(crate) st: Option<u32>,
+    pub(crate) et: Option<u32>,
     /// Ticks with scheduled ticks or block events on and entities frozen.
-    window: u32,
+    pub(crate) window: u32,
     /// Scheduled ticks the chunk ran with its entities frozen.
-    sched_frozen: u32,
+    pub(crate) sched_frozen: u32,
 }
 
-fn episodes(lines: &[Line]) -> Vec<Episode> {
+pub(crate) fn episodes(lines: &[Line]) -> Vec<Episode> {
     let mut out = Vec::new();
     let mut open: std::collections::BTreeMap<(i32, i32), Episode> = std::collections::BTreeMap::new();
     let mut was_off: std::collections::BTreeMap<(i32, i32), bool> = std::collections::BTreeMap::new();
