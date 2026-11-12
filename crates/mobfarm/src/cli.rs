@@ -6878,9 +6878,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 0..=17 => vec![("none (idle slots)".into(), 0, 0, false)],
                                 18 => vec![
                                     ("(a) lap gate".into(), 0, match q { Queue::Q1(_) => 70, _ => 75 }, false),
-                                    ("(b) equal-length bypass".into(), 120, 20, false),
+                                    // (onechunk's paper price: the return re-laid as a free fall into the
+                                    // hold's rear pocket, net ~+15 blocks; the merge sync a 4-stage shift
+                                    // register ~37 redstone)
+                                    ("(b) equal-length bypass".into(), 15, 37, false),
                                 ],
-                                19..=21 => vec![("lap gate + skip hold".into(), 0, match q { Queue::Q1(_) => 70, _ => 75 }, false)],
+                                19..=21 => vec![
+                                    ("(a) lap gate + skip hold".into(), 0, match q { Queue::Q1(_) => 70, _ => 75 }, false),
+                                    // (onechunk: 600-gt laps are free, so the bypass costs nothing at 21)
+                                    ("(b) none: 600-gt laps free".into(), 0, 0, false),
+                                ],
                                 _ => match q {
                                     Queue::Q2(..) => vec![("(c) Z4, a bed a lane".into(), 0, 0, true), ("skip-free, 1 bed".into(), 0, 0, false)],
                                     _ => vec![("skip-free, 1 bed".into(), 0, 0, false)],
@@ -6906,7 +6913,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 let tier_extra = if z4 { 400 - 152 + 3 * 34 * 2 } else { 0 };
                                 let blocks = crate::envelope::blocks(out_n + 3 * linger, tr + track, ctrl, 13) + tier_extra;
                                 // (the exit's margin: out of range by T + 100 (1 + the lingering summons))
-                                let t_out = match f.as_str() { "F1" => 32, "F2" => 46, _ => 42 };
+                                // (falls: onechunk's correction, 26 blocks ~52 gt)
+                                let t_out = match f.as_str() { "F1" => 32, "F2" => 46, _ => 53 };
                                 let margin = 100 * (1 + linger as i64) - t_out;
                                 rows.push(Row {
                                     n,
