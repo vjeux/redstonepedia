@@ -1774,16 +1774,22 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
-    /// The vertical drop, M1 (vjeux 21:00; `mobfarm::drop`): the waiting batch on trapdoors
-    /// straight above three braked pockets drops into them while the batch in them leaves at REL;
-    /// the series layout (today's strip) or Q2's parallel lanes; each trapdoor gated on its pocket's
-    /// occupancy string with --occupancy. Per run the release positions, falls, landings against the
-    /// pockets' re-brake, rest against the next summon, contacts, riders, departures; the layout's
+    /// The vertical drop, M1 (vjeux 21:00; `mobfarm::drop`; ironfarm's lane bench is
+    /// `escape-bench`): the waiting batch on trapdoors straight above three braked pockets drops into
+    /// them while the batch in them leaves at REL; the series layout (today's strip), Q2's parallel
+    /// lanes or the F1 + Q2 station (`--layout station`, 9fc3155f's budget); each trapdoor gated on
+    /// its pocket's occupancy string (--occupancy) or exit detector (--exit-gate). Per run the
+    /// release positions, falls, landings against the pockets' re-brake, rest against the next
+    /// summon, contacts, riders, departures, the refill, the night-panic coverage; the layout's
     /// footprint and height.
     DropBench {
-        /// `series` or `parallel:P` (Q2: lanes P apart in z), each ";"-separated.
+        /// `series`, `parallel:P` (Q2: lanes P apart in z) or `station`, each ";"-separated.
         #[arg(long, default_value = "series")]
         layout: String,
+        /// Logins T,D (ironfarm's): the entities frozen for D gt from T while the redstone runs
+        /// (repeatable; in every run, on top of --freezes).
+        #[arg(long)]
+        login: Vec<String>,
         /// The hold's trapdoor block y (the pockets' rails at y -2..0), each value.
         #[arg(long, default_value = "15")]
         hold_y: String,
@@ -1812,6 +1818,21 @@ pub enum MobfarmCmd {
         /// The parallel layout's golem pad under the summoners' overlap (v4's 44-spot pattern).
         #[arg(long)]
         pad: bool,
+        /// Each pocket re-brakes --rebrake after its own release (Q2's lanes), not after REL.
+        #[arg(long)]
+        rebrake_each: bool,
+        /// (the station) Gate each trapdoor on its pocket's exit detector (the merge's first cell)
+        /// having risen after that pocket's release, instead of on its string.
+        #[arg(long)]
+        exit_gate: bool,
+        /// Scarers for the night-panic coverage print: "z:x,y,z;p:x,y,z" (a zombie's or a pillager's
+        /// feet, the design's frame).
+        #[arg(long, default_value = "")]
+        scarers: String,
+        /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
+        /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
+        #[arg(long, default_value = "")]
+        refill: String,
         #[arg(long, default_value = "1,1,1")]
         dep_riders: String,
         #[arg(long, default_value = "1,1,1")]
@@ -5683,7 +5704,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             }
         }
-        MobfarmCmd::DropBench { layout, hold_y, rel, stagger, rebrake, release, pulse, occupancy, release_world, pad, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+            let logins_v: Vec<(i64, i64)> = login
+                .iter()
+                .map(|s| -> anyhow::Result<(i64, i64)> {
+                    let (a, b) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--login T,D"))?;
+                    Ok((a.trim().parse()?, b.trim().parse()?))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let refill_v: Option<(i64, i64)> = if refill.trim().is_empty() {
+                None
+            } else {
+                let v: Vec<i64> = refill.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 2 && pulse > 0, "--refill D,L (with --pulse)");
+                Some((v[0], v[1]))
+            };
+            // (scarers "z:x,y,z;p:x,y,z": a zombie's or a pillager's feet)
+            let scarers_v: Vec<(char, redsim::entity::Vec3)> = scarers
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| -> anyhow::Result<(char, redsim::entity::Vec3)> {
+                    let (k, v) = s.trim().split_once(':').ok_or_else(|| anyhow::anyhow!("--scarers z:x,y,z;p:x,y,z"))?;
+                    let c: Vec<f64> = v.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(c.len() == 3 && (k == "z" || k == "p"), "--scarers z:x,y,z;p:x,y,z");
+                    Ok((k.chars().next().unwrap(), redsim::entity::Vec3::new(c[0], c[1], c[2])))
+                })
+                .collect::<anyhow::Result<_>>()?;
             let list = |s: &str| s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
             let r3 = |s: &str| -> anyhow::Result<[bool; 3]> {
                 let v: Vec<&str> = s.split(',').map(|x| x.trim()).collect();
@@ -5724,7 +5770,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     _ => anyhow::bail!("--layout series, parallel:P or station"),
                 };
                 for h in &holds {
-                    let text = crate::drop::design_with(lo, *h as i32, dep, arr, pad);
+                    let text = crate::drop::design_full(lo, *h as i32, dep, arr, pad, refill_v.is_some());
                     let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("drop-bench-{}.txt", std::process::id())));
                     std::fs::write(&path, &text)?;
                     let (_c, fspec) = load(version, &path)?;
@@ -5735,7 +5781,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, release_world, ticks, seed: s, freeze: *f, trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         runs.push(stats);
                                         if !summary {

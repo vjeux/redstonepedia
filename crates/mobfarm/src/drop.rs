@@ -63,7 +63,7 @@ impl DropLayout {
         match self {
             DropLayout::Series => p.x > 17.5,
             DropLayout::Parallel(_) => p.x > 3.5,
-            DropLayout::Station => p.z > 9.5,
+            DropLayout::Station => p.z > 10.5,
         }
     }
 }
@@ -101,8 +101,20 @@ pub fn design(layout: DropLayout, hold_y: i32, dep: [bool; 3], arr: [bool; 3]) -
 
 /// [`design`], with `pad` (the parallel layout) the golem pad under the summoners' overlap.
 pub fn design_with(layout: DropLayout, hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool) -> String {
+    design_full(layout, hold_y, dep, arr, pad, false)
+}
+
+/// [`design_with`], with `refill` (the station) the lanes' R_1 cells and the next batch on them.
+pub fn design_full(layout: DropLayout, hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, refill: bool) -> String {
     if layout == DropLayout::Station {
-        return station_design(hold_y, dep, arr, pad);
+        return station_design(hold_y, dep, arr, pad, refill);
+    }
+    design_body(layout, hold_y, dep, arr, pad)
+}
+
+fn design_body(layout: DropLayout, hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool) -> String {
+    if layout == DropLayout::Station {
+        return station_design(hold_y, dep, arr, pad, false);
     }
     let mut b = Builder::new("drop-bench");
     let pockets = layout.pockets();
@@ -251,14 +263,20 @@ pub fn footprint(layout: DropLayout, hold_y: i32) -> String {
 /// spots; glass over the frames' tops at y -4 so no golem stands on them) and a one-block Nether
 /// part (a portal needs one); the merge's cells (loop z 1..9, 7b90c3f1's) a boosted stand-in: a
 /// plain flat, four boosters, a plain flat and a stop per lane.
-pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool) -> String {
+pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, refill: bool) -> String {
     let mut b = Builder::new("f1q2-station");
     let pockets = DropLayout::Station.pockets();
     for (x, y, z) in pockets {
-        b.set(x, y, z, "powered_rail[powered=false,shape=ascending_north,waterlogged=false]");
+        // the pocket: a flat powered rail on its switched support (unpowered it holds the cart;
+        // powered, the stone at its north end kicks the cart south and it boosts away): no anchor
+        // rail behind it (9fc3155f's flee check: a rail cell no rider leaves arms a stamp); glass
+        // on the stone so no golem stands on it
+        b.set(x, y, z, "powered_rail[powered=false,shape=north_south,waterlogged=false]");
         b.set(x, y - 1, z, "stone");
-        b.set(x, y + 1, z - 1, "rail[shape=ascending_north,waterlogged=false]");
-        b.set(x, y, z - 1, "glass");
+        b.set(x, y, z - 1, "stone");
+        // (an unattached string on the launcher's stone: no golem stands on it, and unlike glass it
+        // passes the pocket rider's sight north)
+        b.set(x, y + 1, z - 1, "tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]");
         b.set(x, y + 1, z, "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]");
         b.set(x - 1, y + 1, z, "tripwire_hook[attached=true,facing=east,powered=false]");
         b.set(x + 1, y + 1, z, "tripwire_hook[attached=true,facing=west,powered=false]");
@@ -268,15 +286,42 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool) ->
         for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
             b.set(x + dx, hold_y, z + dz, "glass");
         }
+        if refill {
+            // the lane's front cell R_1 (loop (x,17,1)): a powered rail ascending south (the cart
+            // rolls north into the hold) resting on the ring's south glass, powered from the side
+            // at (x+1,17,1) (glass off, a redstone block on: never through its support, which
+            // touches the trapdoor; glass over it so no golem stands on it), R_2's rail up-south on
+            // glass as its anchor (ironfarm's lane); the hold's north wall one higher, so the cart
+            // coming off R_1 at ~0.5 b/t drops into the hold rather than over the ring; the hold's
+            // string at rider height (x,17,0), hooks at x +-1, glass at x +-2 (ironfarm's release gate)
+            b.set(x, hold_y + 1, z + 1, "powered_rail[powered=false,shape=ascending_south,waterlogged=false]");
+            b.set(x + 1, hold_y + 1, z + 1, "glass");
+            b.set(x + 1, hold_y + 2, z + 1, "glass");
+            b.set(x, hold_y + 2, z + 2, "rail[shape=ascending_south,waterlogged=false]");
+            b.set(x, hold_y + 1, z + 2, "glass");
+            b.set(x, hold_y + 1, z - 1, "glass");
+            b.set(x, hold_y + 1, z, "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]");
+            b.set(x - 1, hold_y + 1, z, "tripwire_hook[attached=true,facing=east,powered=false]");
+            b.set(x + 1, hold_y + 1, z, "tripwire_hook[attached=true,facing=west,powered=false]");
+            b.set(x - 2, hold_y + 1, z, "glass");
+            b.set(x + 2, hold_y + 1, z, "glass");
+        }
+        // the merge's cells (a stand-in): a plain rail, then the exit detector (no face on a powered
+        // rail or a junction: plain rails north and south of it; its rising edge is the departing
+        // cart's exit, the --exit-gate evidence), a plain rail, four boosters, a plain rail, a stop
         b.set(x, y, z + 1, "rail[shape=north_south,waterlogged=false]");
         b.set(x, y - 1, z + 1, "glass");
-        for dz in 2..=5 {
+        b.set(x, y, z + 2, "detector_rail[powered=false,shape=north_south,waterlogged=false]");
+        b.set(x, y - 1, z + 2, "glass");
+        b.set(x, y, z + 3, "rail[shape=north_south,waterlogged=false]");
+        b.set(x, y - 1, z + 3, "glass");
+        for dz in 4..=7 {
             b.set(x, y, z + dz, "powered_rail[powered=true,shape=north_south,waterlogged=false]");
             b.set(x, y - 1, z + dz, "redstone_block");
         }
-        b.set(x, y, z + 6, "rail[shape=north_south,waterlogged=false]");
-        b.set(x, y - 1, z + 6, "glass");
-        b.set(x, y, z + 7, "glass");
+        b.set(x, y, z + 8, "rail[shape=north_south,waterlogged=false]");
+        b.set(x, y - 1, z + 8, "glass");
+        b.set(x, y, z + 9, "glass");
     }
     if pad {
         for zr in [1, 4] {
@@ -304,10 +349,16 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool) ->
     let rider = "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}";
     let empty = "{Rotation:[0f,0f]}";
     for (k, (x, y, z)) in pockets.iter().enumerate() {
-        b.entity("minecart", [*x as f64 + 0.5, *y as f64 + 0.5625, *z as f64 + 0.5], Some(if dep[k] { rider } else { empty }));
+        b.entity("minecart", [*x as f64 + 0.5, *y as f64 + 0.0625, *z as f64 + 0.5], Some(if dep[k] { rider } else { empty }));
     }
     for (k, (x, _, z)) in pockets.iter().enumerate() {
         b.entity("minecart", [*x as f64 + 0.5, hold_y as f64 + 0.1875, *z as f64 + 0.5], Some(if arr[k] { rider } else { empty }));
+    }
+    if refill {
+        // the next batch's carts at rest mid-cell on R_1 (braked)
+        for (x, _, z) in pockets.iter() {
+            b.entity("minecart", [*x as f64 + 0.5, hold_y as f64 + 1.5625, *z as f64 + 1.5], Some(rider));
+        }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.ports.insert("output".into(), [0, 1, 0]);
@@ -332,7 +383,7 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool) ->
 /// The station's box against the budget's (static).
 fn station_footprint(hold_y: i32) -> String {
     format!(
-        "the station's blocks: file x 3..15 y -9..{hold_y} z 0..7 (loop x -3..9, z -6..1: the glass rings' z +1 cells sit in the lanes' box, as the budget lists them), the waiting riders' heads at {:.2}; the budget's box: loop x -3..9 y -11..19 z -6..0; the merge's stand-in: file z 7..13 (loop 1..7, the merge's box)",
+        "the station's blocks: file x 3..15 y -9..{hold_y} z 0..7 (loop x -3..9, z -6..1: the glass rings' z +1 cells sit in the lanes' box, as the budget lists them), the waiting riders' heads at {:.2}; the budget's box: loop x -3..9 y -11..19 z -6..0; the merge's stand-in: file z 7..15 (loop 1..9, the merge's box); each exit detector at loop (x,0,2): faces north (x,0,1) a plain rail, south (x,0,3) a plain rail, east and west air, down glass, up air (no powered rail, gate or junction)",
         hold_y as f64 + 0.1875 + 1.95
     )
 }
@@ -352,12 +403,29 @@ pub struct DropOpts {
     /// The trapdoors shut this long after opening (0: they stay open).
     pub pulse: i64,
     pub occupancy: bool,
+    /// (the station) Gate each trapdoor instead on its pocket's exit detector (the merge's first
+    /// cell) having risen after that pocket's release: the departing cart has left.
+    pub exit_gate: bool,
     /// The trapdoors' timer on world ticks (a plain redstone clock running through a freeze), not
     /// the live clock: the positive control for the strings.
     pub release_world: bool,
+    /// Each pocket re-brakes `rebrake` after its own release (REL + stagger), not after REL: Q2's
+    /// lanes, where no other lane's cart crosses a pocket.
+    pub rebrake_each: bool,
+    /// Scarers for the night-panic coverage print (ironspec 22:39): ('z' a zombie, 'p' a
+    /// pillager, its feet), in the design's frame; panic when within 8 (zombie) / 15 (pillager)
+    /// and in sight eye to eye (`LivingEntity.hasLineOfSight`, COLLIDER).
+    pub scarers: Vec<(char, Vec3)>,
+    /// (the station with `design_full`'s refill) The R line: every lane's R_1 powered from its side
+    /// (x+1, hold+1, z+1) for (.1) gt starting (.0) gt after the last trapdoor shut again (needs
+    /// `pulse`): the next batch rolls into the holds.
+    pub refill: Option<(i64, i64)>,
     pub ticks: i64,
     pub seed: i64,
     pub freeze: Option<(i64, i64)>,
+    /// Logins (ironfarm's `--login T,D`): more level-32 freezes in the same run, the entities
+    /// frozen for D gt from T while the redstone runs.
+    pub logins: Vec<(i64, i64)>,
     pub trace: bool,
 }
 
@@ -385,6 +453,18 @@ pub struct DropStats {
     pub waited: i64,
     /// The waiting riders' lowest feet at the release (hundredths).
     pub feet: i64,
+    /// With scarers: the longest stretch (gt) a rider went without a scarer in range and sight, per
+    /// phase: [the hold, the fall, the pocket (resting or landed), the departure]; the nearest a
+    /// pillager came to a villager it could see (hundredths); the nearest zombie to a rider it
+    /// covered (hundredths).
+    pub calm: Option<[i64; 4]>,
+    pub pillager_near: Option<i64>,
+    pub zombie_near: Option<i64>,
+    /// With the refill: next-batch carts not at rest in their hold (fallen through or stuck).
+    pub refill_fail: usize,
+    /// The closest a pocket's departing cart was to its pocket's centre (horizontal, hundredths) as
+    /// that pocket's trapdoor opened (i64::MAX: already gone).
+    pub gap_at_open: Option<i64>,
 }
 
 fn summon_boundary(frozen: &[bool]) -> i64 {
@@ -402,12 +482,14 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     }
     run.own = (first..run.world.entities.next_id).collect();
     let carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Minecart(_))).map(|e| e.id).collect();
-    if carts.len() != 6 {
+    if carts.len() != 6 && carts.len() != 9 {
         return Err(format!("{} carts", carts.len()));
     }
+    let next_carts: Vec<u32> = carts[6.min(carts.len())..].to_vec();
+    let carts: Vec<u32> = carts[..6].to_vec();
     let riders: Vec<Option<u32>> = carts.iter().map(|id| run.world.entities.list.iter().find(|e| e.id == *id).and_then(|e| e.passengers.first().copied())).collect();
     let parse = |s: &str| Block::parse(&format!("minecraft:{s}")).map_err(|e| e.to_string());
-    let (rs, stone, td_open, td_shut) = (parse("redstone_block")?, parse("stone")?, parse(TRAPDOOR_OPEN)?, parse(TRAPDOOR_SHUT)?);
+    let (rs, stone, td_open, td_shut, glass) = (parse("redstone_block")?, parse("stone")?, parse(TRAPDOOR_OPEN)?, parse(TRAPDOOR_SHUT)?, parse("glass")?);
     for t in 0..400 {
         run.tick();
         if t >= 60 && run.world.time % 100 == 0 {
@@ -439,6 +521,21 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     let mut fall_v = [0.0f64; 3];
     let mut rest_since: [Option<i64>; 3] = [None; 3];
     let mut rebrake_dt: Option<i64> = None;
+    let mut rebrake_at: [Option<i64>; 3] = [None; 3];
+    let mut calm_run = [0i64; 6];
+    let mut all_shut: Option<i64> = None;
+    let mut r_from: Option<i64> = None;
+    let mut r_to: Option<i64> = None;
+    let mut next_rest: [Option<(i64, Vec3)>; 3] = [None; 3];
+    let mut next_fell = [false; 3];
+    let mut next_closest: Option<f64> = None;
+    let mut gap_at_open: [Option<f64>; 3] = [None; 3];
+    let mut exit_seen = [false; 3];
+    let mut exit_was = [false; 3];
+    let mut calm_max = [0i64; 4];
+    let mut calm_y: [Option<(f64, f64)>; 3] = [None; 3];
+    let mut pillager_near: Option<f64> = None;
+    let mut zombie_near: Option<f64> = None;
     let mut exits: [Option<(i64, f64)>; 3] = [None; 3];
     let mut prev_v = [0.0f64; 6];
     let mut touching = [[false; 6]; 6];
@@ -450,11 +547,15 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     let mut unseated = 0usize;
     let mut out: Vec<String> = Vec::new();
     for dt in 0..o.ticks {
-        let frozen_now = o.freeze.is_some_and(|(f, l)| dt >= f && dt < f + l);
+        let frozen_now = o.freeze.iter().chain(o.logins.iter()).any(|(f, l)| dt >= *f && dt < f + l);
         let live = dt - frozen_ticks;
         // the pockets' supports (and the series layout's gate slopes): REL + stagger .. REL + rebrake
         for k in 0..3 {
-            let on = live >= o.rel + o.stagger[k] && live < o.rel + o.rebrake;
+            let off_at = o.rel + o.rebrake + if o.rebrake_each { o.stagger[k] } else { 0 };
+            let on = live >= o.rel + o.stagger[k] && live < off_at;
+            if rebrake_at[k].is_none() && live >= off_at {
+                rebrake_at[k] = Some(dt);
+            }
             let want = if on { rs.clone() } else { stone.clone() };
             let (x, y, z) = pockets[k];
             let mut cells = vec![BlockPos::new(x, y - 1, z)];
@@ -475,7 +576,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
         for k in 0..3 {
             let (x, _, z) = pockets[k];
             let cell = BlockPos::new(x, o.hold_y, z);
-            let occupied = o.occupancy && on_since[k].is_some_and(|s| live - s >= 20);
+            let occupied = if o.exit_gate { !exit_seen[k] } else { o.occupancy && on_since[k].is_some_and(|s| live - s >= 20) };
             let due = if o.release_world { dt >= o.release } else { !frozen_now && live >= o.release };
             if opened[k].is_none() && due {
                 if occupied {
@@ -484,6 +585,10 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
                     opened[k] = Some(dt);
                     opened_live[k] = live;
                     from[k] = pos(&run.world, carts[3 + k]).map(|(p, _)| p);
+                    // (the closest case: where this pocket's departing cart was as its trapdoor
+                    // opened; gone: removed past the exit)
+                    let (px, _, pz) = pockets[k];
+                    gap_at_open[k] = Some(pos(&run.world, carts[k]).map_or(f64::INFINITY, |(p, _)| ((p.x - (px as f64 + 0.5)).powi(2) + (p.z - (pz as f64 + 0.5)).powi(2)).sqrt()));
                     feet[k] = feet_of(&run.world, riders[3 + k]);
                     run.world.set_block(cell, td_open.clone(), redsim::world::flags::ALL);
                 }
@@ -493,11 +598,34 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
                 run.world.set_block(cell, td_shut.clone(), redsim::world::flags::ALL);
             }
         }
-        if let Some((f, len)) = o.freeze {
-            if frozen_now {
-                frozen_ticks += 1;
+        // the R line (the refill): every R_1 powered from its side once every trapdoor has shut
+        // again, + the delay, for the length
+        if let Some((delay, len)) = o.refill
+            && !next_carts.is_empty()
+        {
+            if all_shut.is_none() && (0..3).all(|k| shut_again[k]) {
+                all_shut = Some(live);
             }
-            if dt == f {
+            let on = all_shut.is_some_and(|s| live >= s + delay && live < s + delay + len);
+            if on && r_from.is_none() {
+                r_from = Some(dt);
+            }
+            if !on && r_from.is_some() && r_to.is_none() {
+                r_to = Some(dt);
+            }
+            for (x, _, z) in pockets {
+                let p = BlockPos::new(x + 1, o.hold_y + 1, z + 1);
+                let want = if on { rs.clone() } else { glass.clone() };
+                if run.world.get(p) != want {
+                    run.world.set_block(p, want, redsim::world::flags::ALL);
+                }
+            }
+        }
+        if frozen_now {
+            frozen_ticks += 1;
+        }
+        for (f, len) in o.freeze.iter().chain(o.logins.iter()) {
+            if dt == *f {
                 if run.world.entity_chunks.is_none() {
                     let (mn, sz) = (run.world.min, run.world.size);
                     run.world.entity_chunks = Some([mn.x.div_euclid(16), mn.z.div_euclid(16), (mn.x + sz[0] - 1).div_euclid(16), (mn.z + sz[2] - 1).div_euclid(16)]);
@@ -517,8 +645,38 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             } else {
                 on_since[k] = None;
             }
+            // (the exit detector: risen after this pocket's release)
+            if o.layout == DropLayout::Station {
+                let (x, y, z) = pockets[k];
+                let on = run.world.get(BlockPos::new(x, y, z + 2)).to_string().contains("powered=true");
+                if on && !exit_was[k] && live_after > o.rel + o.stagger[k] {
+                    exit_seen[k] = true;
+                }
+                exit_was[k] = on;
+            }
         }
         let w = &run.world;
+        // (the next batch: in the hold at rest, or fallen through)
+        for (j, id) in next_carts.iter().enumerate() {
+            let Some((p, v)) = pos(w, *id) else { continue };
+            let s3 = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
+            if r_from.is_some() {
+                if p.y < o.hold_y as f64 - 0.5 {
+                    next_fell[j] = true;
+                }
+                if next_rest[j].is_none() && s3 < 1e-3 && p.y >= o.hold_y as f64 && p.y < o.hold_y as f64 + 0.5 {
+                    next_rest[j] = Some((dt, p));
+                }
+                for id2 in carts.iter() {
+                    if let Some((q, _)) = pos(w, *id2) {
+                        let d = ((p.x - q.x).powi(2) + (p.y - q.y).powi(2) + (p.z - q.z).powi(2)).sqrt();
+                        if next_closest.is_none_or(|c| d < c) {
+                            next_closest = Some(d);
+                        }
+                    }
+                }
+            }
+        }
         let st: Vec<Option<(Vec3, Vec3)>> = carts.iter().map(|id| pos(w, *id)).collect();
         let mut sink_now: Vec<usize> = Vec::new();
         for n in 0..6 {
@@ -555,6 +713,61 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             }
         }
         let live_cart = |n: usize| n < 3 || opened[n - 3].is_some();
+        // (the night-panic coverage: each rider's phase, whether a scarer is in range and sight)
+        if !o.scarers.is_empty() {
+            for n in 0..6 {
+                let Some(r) = riders[n] else { continue };
+                let Some(e) = w.entities.list.iter().find(|e| e.id == r && !e.removed) else { continue };
+                let Some((p, _)) = st[n] else { continue };
+                let phase = if n < 3 {
+                    if exits[n].is_some() {
+                        continue;
+                    }
+                    let (_, py, pz) = pockets[n];
+                    if (p.z - (pz as f64 + 0.5)).abs() < 0.6 && (p.x - (pockets[n].0 as f64 + 0.5)).abs() < 0.6 && p.y < py as f64 + 1.0 { 2 } else { 3 }
+                } else {
+                    let k = n - 3;
+                    if opened[k].is_none() {
+                        0
+                    } else if landed[k].is_none() {
+                        1
+                    } else {
+                        2
+                    }
+                };
+                let eye = Vec3::new(e.pos.x, e.pos.y + 1.62, e.pos.z);
+                let mut covered = false;
+                for (kind, s) in &o.scarers {
+                    let d = ((e.pos.x - s.x).powi(2) + (e.pos.y - s.y).powi(2) + (e.pos.z - s.z).powi(2)).sqrt();
+                    let s_eye = Vec3::new(s.x, s.y + if *kind == 'z' { 1.74 } else { 1.62 }, s.z);
+                    let range = if *kind == 'z' { 8.0 } else { 15.0 };
+                    if d > range && (*kind != 'p' || d > 8.0) {
+                        continue;
+                    }
+                    if !redsim::entity::mob::los::has_line_of_sight(w, eye, s_eye) {
+                        continue;
+                    }
+                    if *kind == 'p' {
+                        pillager_near = Some(pillager_near.map_or(d, |m: f64| m.min(d)));
+                    }
+                    if d <= range {
+                        covered = true;
+                        if *kind == 'z' {
+                            zombie_near = Some(zombie_near.map_or(d, |m: f64| m.min(d)));
+                        }
+                    }
+                }
+                if covered {
+                    calm_run[n] = 0;
+                } else {
+                    calm_run[n] += 1;
+                    calm_max[phase] = calm_max[phase].max(calm_run[n]);
+                    if phase == 1 {
+                        calm_y[n - 3] = Some(calm_y[n - 3].map_or((e.pos.y, e.pos.y), |(a, b): (f64, f64)| (a.min(e.pos.y), b.max(e.pos.y))));
+                    }
+                }
+            }
+        }
         for a in 0..6 {
             for c in 0..6 {
                 if a == c || !live_cart(a) || !live_cart(c) {
@@ -615,7 +828,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
         .max()
         .unwrap_or(0);
     stats.fall = (0..3).map(|k| landed[k].zip(opened[k]).map_or(i64::MAX, |(l, d)| l.0 - d)).max().unwrap_or(i64::MAX);
-    stats.brake_lead = (0..3).filter_map(|k| landed[k].zip(rebrake_dt).map(|(l, r)| l.0 - r)).min();
+    stats.brake_lead = (0..3).filter_map(|k| landed[k].zip(rebrake_at[k]).map(|(l, r)| l.0 - r)).min();
     let last_rest = (0..3).map(|k| rest_since[k].unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
     stats.rest = if last_rest == i64::MAX { i64::MIN } else { boundary - last_rest };
     stats.wrong = wrong.len();
@@ -658,6 +871,43 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
         contact_max,
         if contacts.is_empty() { String::new() } else { format!(" ({})", contacts.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) }
     ));
+    if !next_carts.is_empty() {
+        out.push(format!(
+            "refill (the R line{}): {}; the closest a next cart came to another {}",
+            match (r_from, r_to) {
+                (Some(a), Some(b)) => format!(" T+{a}..T+{b}"),
+                (Some(a), None) => format!(" from T+{a}"),
+                _ => " NEVER (the trapdoors never all shut)".to_string(),
+            },
+            (0..next_carts.len().min(3))
+                .map(|j| if next_fell[j] {
+                    format!("next cart {j} FELL THROUGH")
+                } else {
+                    next_rest[j].map_or(format!("next cart {j} NOT IN its hold"), |(t, p)| format!("next cart {j} at rest in its hold T+{t} at {:.3},{:.3},{:.3}", p.x, p.y, p.z))
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+            next_closest.map_or("-".to_string(), |d| format!("{d:.2}"))
+        ));
+        stats.refill_fail = (0..next_carts.len().min(3)).filter(|j| next_fell[*j] || next_rest[*j].is_none()).count();
+    }
+    stats.gap_at_open = (0..3).filter_map(|k| gap_at_open[k]).map(|g| if g.is_finite() { (g * 100.0).floor() as i64 } else { i64::MAX }).min();
+    if !o.scarers.is_empty() {
+        out.push(format!(
+            "night panic ({} scarers): the longest stretch without a scarer in range and sight: the hold {} gt, the fall {} gt{}, the pocket {} gt, the departure {} gt; the nearest zombie to a rider it covers {}; the nearest pillager to a villager it sees {}",
+            o.scarers.len(),
+            calm_max[0],
+            calm_max[1],
+            if calm_y.iter().any(|c| c.is_some()) { format!(" (uncovered feet {})", (0..3).map(|k| calm_y[k].map_or(format!("lane {k} -"), |(a, b)| format!("lane {k} y {a:.1}..{b:.1}"))).collect::<Vec<_>>().join(", ")) } else { String::new() },
+            calm_max[2],
+            calm_max[3],
+            zombie_near.map_or("-".to_string(), |d| format!("{d:.2}")),
+            pillager_near.map_or("-".to_string(), |d| format!("{d:.2}{}", if d <= 8.0 { " (WITHIN 8)" } else { "" }))
+        ));
+        stats.calm = Some(calm_max);
+        stats.pillager_near = pillager_near.map(|d| (d * 100.0).floor() as i64);
+        stats.zombie_near = zombie_near.map(|d| (d * 100.0).floor() as i64);
+    }
     Ok((out, stats))
 }
 
@@ -665,7 +915,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
 pub fn summary(label: &str, runs: &[DropStats]) -> String {
     let show = |v: i64| if v == i64::MIN { "FAIL".to_string() } else { v.to_string() };
     format!(
-        "{label}: {} runs; the widest release spread {:.2}; the longest fall {}; the least landing lead over its pocket's re-brake {}; arriving at rest: least {} before the next summon; wrong pockets {}, contacts {} (the fastest {:.3}), the closest arriving-to-departing {}; riders hurt {}, unseated ticks {}; departing carts stuck {}; the longest wait on a string {} gt; the lowest waiting rider's feet {:.2}",
+        "{label}: {} runs; the widest release spread {:.2}; the longest fall {}; the least landing lead over its pocket's re-brake {}; arriving at rest: least {} before the next summon; wrong pockets {}, contacts {} (the fastest {:.3}), the closest arriving-to-departing {}; riders hurt {}, unseated ticks {}; departing carts stuck {}; the longest wait on a string {} gt; the lowest waiting rider's feet {:.2}{}{}{}",
         runs.len(),
         runs.iter().map(|s| s.spread).max().unwrap_or(0) as f64 / 100.0,
         runs.iter().map(|s| s.fall).max().map_or("-".to_string(), |f| if f == i64::MAX { "NEVER LANDED".to_string() } else { format!("{f} gt") }),
@@ -679,6 +929,26 @@ pub fn summary(label: &str, runs: &[DropStats]) -> String {
         runs.iter().map(|s| s.unseated).sum::<usize>(),
         runs.iter().map(|s| s.stuck).sum::<usize>(),
         runs.iter().map(|s| s.waited).max().unwrap_or(0),
-        runs.iter().map(|s| s.feet).min().unwrap_or(0) as f64 / 100.0
+        runs.iter().map(|s| s.feet).min().unwrap_or(0) as f64 / 100.0,
+        if runs.iter().any(|s| s.calm.is_some()) {
+            let mx = |i: usize| runs.iter().filter_map(|s| s.calm.map(|c| c[i])).max().unwrap_or(0);
+            format!(
+                "; night panic: the longest uncovered stretch the hold {} gt, the fall {} gt, the pocket {} gt, the departure {} gt; the nearest zombie {}, the nearest pillager to a seen villager {}",
+                mx(0),
+                mx(1),
+                mx(2),
+                mx(3),
+                runs.iter().filter_map(|s| s.zombie_near).min().map_or("-".to_string(), |c| format!("{:.2}", c as f64 / 100.0)),
+                runs.iter().filter_map(|s| s.pillager_near).min().map_or("-".to_string(), |c| format!("{:.2}", c as f64 / 100.0))
+            )
+        } else {
+            String::new()
+        },
+        if runs.iter().any(|s| s.refill_fail > 0) { format!("; REFILL FAILED in {} runs", runs.iter().filter(|s| s.refill_fail > 0).count()) } else { String::new() },
+        match runs.iter().filter_map(|s| s.gap_at_open).min() {
+            Some(i64::MAX) => "; at every trapdoor's opening its pocket's departing cart was gone".to_string(),
+            Some(g) => format!("; the closest a pocket's departing cart was to its pocket as the trapdoor opened: {:.2}", g as f64 / 100.0),
+            None => String::new(),
+        }
     )
 }
