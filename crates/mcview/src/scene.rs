@@ -554,18 +554,61 @@ pub fn entity_yaw(nbt: Option<&str>) -> f32 {
     num.parse().unwrap_or(0.0)
 }
 
-/// A design entity's passengers' ids (`Passengers:[{id:"minecraft:villager"},...]`).
-pub fn passenger_ids(nbt: Option<&str>) -> Vec<String> {
+/// A design entity's passengers (`Passengers:[{id:"minecraft:villager"},...]`): each one's id and
+/// its own data, the list's top-level compounds (an item's `id` in a passenger's `equipment` is
+/// not another passenger: a scarer post's pillager holding its crossbow).
+pub fn passengers(nbt: Option<&str>) -> Vec<(String, String)> {
     let Some(s) = nbt else { return Vec::new() };
     let Some(i) = s.find("Passengers:[") else { return Vec::new() };
+    let list = &s[i + "Passengers:[".len()..];
     let mut out = Vec::new();
-    let mut rest = &s[i + "Passengers:[".len()..];
-    while let Some(j) = rest.find("id:\"") {
-        let after = &rest[j + 4..];
-        let Some(end) = after.find('"') else { break };
-        let id = &after[..end];
-        out.push(if id.contains(':') { id.to_string() } else { format!("minecraft:{id}") });
-        rest = &after[end..];
+    let (mut depth, mut start) = (0i32, None);
+    let mut quoted = false;
+    for (k, c) in list.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            _ if quoted => {}
+            '{' | '[' => {
+                if depth == 0 && c == '{' {
+                    start = Some(k);
+                }
+                depth += 1;
+            }
+            '}' | ']' => {
+                depth -= 1;
+                if depth < 0 {
+                    break;
+                }
+                if depth == 0 && c == '}' {
+                    if let Some(a) = start.take() {
+                        let data = &list[a..=k];
+                        // the compound's own id (its first at its top level: equipment's come later,
+                        // nested)
+                        let mut d = 0i32;
+                        let mut id = None;
+                        let mut q = false;
+                        for (p, ch) in data.char_indices() {
+                            match ch {
+                                '"' => q = !q,
+                                _ if q => {}
+                                '{' | '[' => d += 1,
+                                '}' | ']' => d -= 1,
+                                _ if d == 1 && data[p..].starts_with("id:\"") => {
+                                    let after = &data[p + 4..];
+                                    id = after.find('"').map(|e| after[..e].to_string());
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+                        if let Some(id) = id {
+                            out.push((if id.contains(':') { id } else { format!("minecraft:{id}") }, data.to_string()));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
     }
     out
 }
@@ -581,9 +624,10 @@ fn design_entity(b: &mut Builder, kind: &str, at: [f64; 3], nbt: Option<&str>) {
     let mob = still_mob(kind, yaw, false, nbt);
     let probe = mob.as_ref().map(|m| [pos[0], pos[1] + m.eye_standing, pos[2]]);
     b.entity(&EntityDraw { kind: kind.to_string(), pos, yaw, mob, probe, ..Default::default() });
-    for id in passenger_ids(nbt) {
+    for (id, data) in passengers(nbt) {
         let up = if kind.ends_with("boat") || kind.ends_with("raft") { 0.25 } else { 0.1875 };
-        let mob = still_mob(&id, yaw, true, None);
+        // (the passenger's own data: its equipment, its handedness)
+        let mob = still_mob(&id, yaw, true, Some(&data));
         let probe = mob.as_ref().map(|m| [pos[0], pos[1] + up + m.eye_standing, pos[2]]);
         b.entity(&EntityDraw { kind: id.clone(), pos: [pos[0], pos[1] + up, pos[2]], yaw, mob, probe, ..Default::default() });
     }
@@ -2006,6 +2050,14 @@ mod tests {
         let (held, armor) = still_equipment(Some(r#"{Passengers:[{id:"minecraft:skeleton",equipment:{mainhand:{id:"minecraft:bow",count:1}}}]}"#));
         assert_eq!((held, armor), (None, [None; 4]), "the rider's bow is not the spider's");
         assert_eq!(still_equipment(None), (None, [None; 4]));
+        // a scarer post: a pillager holding its crossbow seated in a boat: one passenger (the
+        // crossbow's id is its item's, not another passenger's), its own data its crossbow
+        let boat = r#"{Rotation:[0f,0f],Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:crossbow",count:1}}}]}"#;
+        let p = passengers(Some(boat));
+        assert_eq!(p.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["minecraft:pillager"]);
+        assert_eq!(still_equipment(Some(&p[0].1)).0.as_deref(), Some("minecraft:crossbow"));
+        let two = r#"{Passengers:[{id:"minecraft:villager"},{id:"zombie",equipment:{head:{id:"minecraft:iron_helmet"}}}]}"#;
+        assert_eq!(passengers(Some(two)).iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["minecraft:villager", "minecraft:zombie"]);
     }
 
     /// A mob is lit by the light at its eye (the parent 2026-11-11, "light each mob the way the

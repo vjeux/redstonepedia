@@ -713,7 +713,16 @@ each build's page.
   arms, the legs and a waist, two feet hung from the legs; the deformations (-0.1, 0.5, 0.3) and,
   for the legs, (-0.1, 0.3, 0.3): `Cube::grow_axes`) with the `humanoid_baby` textures (every
   slot), posed by the baby model's own `setupAnim`; test `a_baby_wears_the_baby_armor` (no baby
-  in the farms' runs wears any). Not
+  in the farms' runs wears any). A seated pillager (a farm's scarer post: the F1 + Q2 module's,
+  in a boat; redsim's `MobType::Pillager`, its AI unmodeled) draws with `IllagerModel`
+  (`entity/illager/pillager`, scaled 0.9375 like a villager: `villagerLikeScale`; its hat
+  hidden), a passenger's legs forward, its arms CROSSBOW_HOLD holding its crossbow
+  (`Pillager.getArmPose`, `AnimationUtils.animateCrossbowHold`; the crossbow uncharged:
+  `item/crossbow`, its sprite `crossbow_standby` and its own third-person display), else
+  NEUTRAL (both arms shown, the crossed ones hidden); test `a_seated_pillager_is_drawn`. A
+  design's passengers keep their own data (`scene::passengers`: each top-level compound of
+  `Passengers:[...]`, so an item's id in a passenger's `equipment` is no second passenger, and
+  the passenger's equipment and handedness are drawn). Not
   drawn yet: a zombie
   villager's profession (redsim keeps none), the farm animals' warm and cold variants (every
   terrain site is temperate), a sulfur cube's swallowed block (redsim refuses one), a boat's

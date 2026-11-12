@@ -480,6 +480,43 @@ fn llama(d: &crate::mesh::MobDraw, g: f32) -> Vec<EPart> {
     ]
 }
 
+/// `IllagerModel.createBodyLayer` (texture 64 x 64) scaled 0.9375 like a villager
+/// (`LayerDefinitions`: `illagerBodyLayer`, `villagerLikeScale`): the head with its nose (its hat
+/// hidden: `hat.visible = false`), the body and its robe, the arms, the legs; posed by
+/// `setupAnim`: the head's yaw and pitch, a passenger's arms at -π/5 and legs forward
+/// (`isRiding`), else the walk (arms and legs at half the humanoid's swing); its arms by its
+/// `IllagerArmPose`, a pillager's (`Pillager.getArmPose`): CROSSBOW_HOLD holding its crossbow (not
+/// charging: redsim models no pillager AI, so never charging nor aggressive), else NEUTRAL, the
+/// two arms shown and the crossed ones hidden. (A farm's scarer post: a pillager caught from a
+/// patrol keeps its crossbow, ironspec 2026-11-12; the design's `equipment` says what it holds.)
+fn illager(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos * 0.6662, d.walk_speed);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let nose = part(vec![cube(24.0, 0.0, [-1.0, -1.0, -6.0], [2.0, 4.0, 2.0])], [0.0, -2.0, 0.0], [0.0; 3]);
+    let head = part_with(vec![cube(0.0, 0.0, [-4.0, -10.0, -4.0], [8.0, 10.0, 8.0])], [0.0; 3], [hx, hy, 0.0], vec![nose]);
+    let body = part(vec![cube(16.0, 20.0, [-4.0, 0.0, -3.0], [8.0, 12.0, 6.0]), cube_grown(0.0, 38.0, [-4.0, 0.0, -3.0], [8.0, 20.0, 6.0], 0.5)], [0.0; 3], [0.0; 3]);
+    let (ra, la, rl, ll) = if d.riding {
+        ([-PI / 5.0, 0.0, 0.0], [-PI / 5.0, 0.0, 0.0], [-1.4137167, PI / 10.0, 0.07853982], [-1.4137167, -PI / 10.0, -0.07853982])
+    } else {
+        (
+            [(pos + PI).cos() * 2.0 * speed * 0.5, 0.0, 0.0],
+            [pos.cos() * 2.0 * speed * 0.5, 0.0, 0.0],
+            [pos.cos() * 1.4 * speed * 0.5, 0.0, 0.0],
+            [(pos + PI).cos() * 1.4 * speed * 0.5, 0.0, 0.0],
+        )
+    };
+    // CROSSBOW_HOLD (a pillager holding its crossbow, not charging it: `Pillager.getArmPose`):
+    // `AnimationUtils.animateCrossbowHold` with the right arm holding (IllagerModel always
+    // passes true), both arms along the look
+    let crossbow = d.held.as_deref().is_some_and(|h| h.trim_start_matches("minecraft:") == "crossbow");
+    let (ra, la) = if crossbow { ([-PI / 2.0 + hx + 0.1, -0.3 + hy, ra[2]], [-1.5 + hx, 0.6 + hy, la[2]]) } else { (ra, la) };
+    let right_arm = part(vec![cube(40.0, 46.0, [-3.0, -2.0, -2.0], [4.0, 12.0, 4.0])], [-5.0, 2.0, 0.0], ra);
+    let left_arm = part(vec![cube_mirrored(40.0, 46.0, [-1.0, -2.0, -2.0], [4.0, 12.0, 4.0])], [5.0, 2.0, 0.0], la);
+    let right_leg = part(vec![cube(0.0, 22.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [-2.0, 12.0, 0.0], rl);
+    let left_leg = part(vec![cube_mirrored(0.0, 22.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [2.0, 12.0, 0.0], ll);
+    scaled(0.9375, vec![head, body, right_arm, left_arm, right_leg, left_leg])
+}
+
 /// `VillagerModel.createBodyModel` (texture 64 x 64) with the villagers' `MeshTransformer.scaling
 /// (0.9375)` (`LayerDefinitions`: the root part scaled, 1.501 px down), posed by `setupAnim`: the
 /// head's yaw and pitch, the legs swinging with the walk (never unhappy: no trades).
@@ -1009,6 +1046,8 @@ pub fn mob_texture(kind: &str, crack: u8, variant: Option<&str>) -> Option<(Stri
         "enderman" => Some(("entity/enderman/enderman".to_string(), [64.0, 32.0])),
         "bat" => Some(("entity/bat/bat".to_string(), [32.0, 32.0])),
         "witch" => Some(("entity/witch/witch".to_string(), [64.0, 128.0])),
+        // `PillagerRenderer`: `textures/entity/illager/pillager.png`
+        "pillager" => Some(("entity/illager/pillager".to_string(), [64.0, 64.0])),
         "chicken" => Some(("entity/chicken/chicken_temperate".to_string(), [64.0, 32.0])),
         "sheep" => Some(("entity/sheep/sheep".to_string(), [64.0, 32.0])),
         "zombie_horse" => Some(("entity/horse/horse_zombie".to_string(), [64.0, 64.0])),
@@ -1067,6 +1106,8 @@ pub const MOB_TEXTURES: &[&str] = &[
     "entity/enderman/enderman_eyes",
     "entity/bat/bat",
     "entity/witch/witch",
+    // a farm's scarer post: a pillager seated in a boat (`PillagerRenderer`)
+    "entity/illager/pillager",
     "entity/chicken/chicken_temperate",
     "entity/sheep/sheep",
     "entity/sheep/sheep_wool",
@@ -1349,6 +1390,11 @@ fn held_display(id: &str, left: bool, use_remaining: Option<i32>) -> ([f32; 3], 
         (([-80.0, 260.0, -40.0], [-1.0, -2.0, 2.5], [0.9; 3]), ([-80.0, -280.0, 40.0], [-1.0, -2.0, 2.5], [0.9; 3]), tex)
     } else if name.ends_with("_spear") {
         (([5.0, 270.0, -40.0], [0.0, 2.0, 2.0], [1.7, 1.7, 0.85]), ([5.0, -270.0, 40.0], [0.0, 2.0, 2.0], [1.7, 1.7, 0.85]), format!("item/{name}_in_hand"))
+    } else if name == "crossbow" {
+        // `items/crossbow.json`: uncharged and not in use, `item/crossbow` (its sprite
+        // `crossbow_standby`, its own third-person displays; a charge is not kept: redsim models no
+        // pillager's crossbow)
+        (([-90.0, 0.0, -60.0], [2.0, 0.1, -3.0], [0.9; 3]), ([-90.0, 0.0, 30.0], [2.0, 0.1, -3.0], [0.9; 3]), "item/crossbow_standby".to_string())
     } else if handheld {
         (([0.0, -90.0, 55.0], [0.0, 4.0, 0.5], [0.85; 3]), ([0.0, 90.0, -55.0], [0.0, 4.0, 0.5], [0.85; 3]), format!("item/{name}"))
     } else {
@@ -1414,6 +1460,7 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
         "enderman" => enderman(d),
         "bat" => bat(d),
         "witch" => witch(d),
+        "pillager" => illager(d),
         "chicken" => chicken(d),
         "sheep" => sheep(d, false),
         "zombie_horse" => zombie_horse(d),
@@ -1493,12 +1540,15 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
         }
     }
     // the item in its main hand (`ItemInHandLayer`, `NO_OVERLAY`; a left-handed mob's left):
-    // its sprite, flat (the game extrudes a generated item's sprite a pixel deep)
-    if let (Some(item), true) = (&d.held, matches!(k, "zombie" | "baby_zombie" | "skeleton" | "zombie_villager" | "baby_zombie_villager") && parts.len() >= 4) {
-        let (arm, side) = if d.left_handed { (&parts[3], -1.0) } else { (&parts[2], 1.0) };
+    // its sprite, flat (the game extrudes a generated item's sprite a pixel deep); an illager's
+    // hand through its scaled root first (`IllagerModel.translateToHand`: the root, then the arm)
+    let illager = k == "pillager" && parts.len() == 1 && parts[0].children.len() >= 4;
+    if let (Some(item), true) = (&d.held, (matches!(k, "zombie" | "baby_zombie" | "skeleton" | "zombie_villager" | "baby_zombie_villager") && parts.len() >= 4) || illager) {
+        let (base, arms) = if illager { (part_pose(&m, &parts[0]), &parts[0].children[..]) } else { (m, &parts[..]) };
+        let (arm, side) = if d.left_handed { (&arms[3], -1.0) } else { (&arms[2], 1.0) };
         let offset = if k == "skeleton" { [arm.offset[0] + side, arm.offset[1], arm.offset[2]] } else { arm.offset };
         let display = held_display(item, d.left_handed, d.use_remaining);
-        let hm = held_transform(&m, offset, arm.rot, matches!(k, "baby_zombie" | "baby_zombie_villager"), d.left_handed, &display);
+        let hm = held_transform(&base, offset, arm.rot, matches!(k, "baby_zombie" | "baby_zombie_villager"), d.left_handed, &display);
         if let Some(mut t) = sprite_triangles_of(g, &display.3, &hm) {
             // an enchanted item's glint (`FoilType.STANDARD`: `itemGlintRenderType`)
             if d.foil[0] {
@@ -1937,6 +1987,52 @@ mod tests {
             let feet = t.len() - 2 * 36..;
             assert!(t[feet.clone()].iter().zip(&w[feet]).any(|(a, b)| (a.pos[2] - b.pos[2]).abs() > 0.02), "{k}: the feet swing");
         }
+    }
+
+    /// A seated pillager (a farm's scarer post: the F1 + Q2 module's, in a boat) draws with
+    /// `IllagerModel` and its own texture: the head and nose, the body and robe, two arms (NEUTRAL:
+    /// no crossbow) and two legs, 8 boxes; seated, its legs reach forward and its arms rise
+    /// (`isRiding`: -1.41 and -π/5 about x), standing they hang.
+    #[test]
+    fn a_seated_pillager_is_drawn() {
+        let g = browser_game();
+        let r = rect(&g, "entity/illager/pillager").expect("packed");
+        let inside = |v: &crate::mesh::Vertex| {
+            let (u, w) = (v.uv[0] * g.width as f32, v.uv[1] * g.height as f32);
+            u >= r[0] as f32 - 0.5 && u <= (r[0] + r[2]) as f32 + 0.5 && w >= r[1] as f32 - 0.5 && w <= (r[1] + r[3]) as f32 + 0.5
+        };
+        let standing = crate::mesh::MobDraw { eye_standing: 1.6575, ..Default::default() };
+        let seated = crate::mesh::MobDraw { riding: true, ..standing.clone() };
+        let (a, b) = (mob_triangles(&g, "minecraft:pillager", [0.0; 3], &standing).unwrap(), mob_triangles(&g, "minecraft:pillager", [0.0; 3], &seated).unwrap());
+        assert_eq!(a.len(), 8 * 36, "8 boxes");
+        assert!(a.iter().chain(&b).all(inside), "every face in its texture");
+        // facing +z at body yaw 0: a seated pillager's feet reach out in front of it
+        let (lo_a, hi_a) = bounds(&a);
+        let (lo_b, hi_b) = bounds(&b);
+        assert!(hi_b[2] - lo_b[2] > hi_a[2] - lo_a[2] + 0.3, "seated, its legs reach forward: {lo_b:?}..{hi_b:?} vs standing {lo_a:?}..{hi_a:?}");
+        // a villager-like scale: 0.9375 of the model's 34 pixels (the head's top at -10 to the
+        // feet at 24)
+        assert!((hi_a[1] - lo_a[1] - 34.0 / 16.0 * 0.9375).abs() < 0.01, "its height {}", hi_a[1] - lo_a[1]);
+        // holding its crossbow (CROSSBOW_HOLD): both arms up along its look, the crossbow's
+        // sprite (`crossbow_standby`) in its right hand, in front of it
+        let armed = crate::mesh::MobDraw { held: Some("minecraft:crossbow".into()), ..seated.clone() };
+        let c = mob_triangles(&g, "minecraft:pillager", [0.0; 3], &armed).unwrap();
+        let ir = rect(&g, "item/crossbow_standby").expect("the crossbow's sprite");
+        let in_item = |v: &crate::mesh::Vertex| {
+            let (u, w) = (v.uv[0] * g.width as f32, v.uv[1] * g.height as f32);
+            u >= ir[0] as f32 - 0.5 && u <= (ir[0] + ir[2]) as f32 + 0.5 && w >= ir[1] as f32 - 0.5 && w <= (ir[1] + ir[3]) as f32 + 0.5
+        };
+        assert_eq!(c[..b.len()].iter().filter(|v| inside(v)).count(), b.len(), "the model first");
+        let item = &c[b.len()..];
+        assert!(!item.is_empty() && item.iter().all(in_item), "then the crossbow, {} vertices", item.len());
+        let (ilo, _) = bounds(item);
+        let (_, bhi) = bounds(&b);
+        assert!(bounds(item).1[2] > 0.3, "the crossbow held out in front: {ilo:?}");
+        // the arms raised: their lowest point higher and their hands further out in front than
+        // seated without it (-π/2 + 0.1 and -1.5 about x, against the passenger's -π/5)
+        let arms = |t: &[crate::mesh::Vertex]| bounds(&t[4 * 36..6 * 36]);
+        let ((clo, chi), (blo, bhi2)) = (arms(&c), arms(&b));
+        assert!(clo[1] > blo[1] + 0.25 && chi[2] > bhi2[2] + 0.1, "arms along its look: {clo:?}..{chi:?} vs {blo:?}..{bhi2:?} (model top {bhi:?})");
     }
 
     /// A zombie villager (the census: d1u-side's, adult and baby) draws with its own model and
