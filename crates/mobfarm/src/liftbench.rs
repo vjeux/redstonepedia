@@ -31,6 +31,9 @@ pub struct LiftOpts {
     pub ceiling: i32,
     /// Cells descending west right after the exit's landing cell (0: a flat exit line).
     pub exit_slope: i32,
+    /// Q2's merge: three entry lanes (A the entry line, B and C joining it through passive T
+    /// junctions), carts launched on A, B, C in turn.
+    pub merge3: bool,
     /// The bench frozen (its chunks at level 32: blocks tick, entities don't) from tick FROM for LEN
     /// gt; the carts' launches wait it out.
     pub freeze: Option<(i64, i64)>,
@@ -62,6 +65,26 @@ fn build(o: &LiftOpts) -> Result<FarmSpec, String> {
     for x in 1..=o.entry_len {
         blocks.push((BlockPos::new(x, 0, 0), flat.clone()));
         blocks.push((BlockPos::new(x, -1, 0), glass.clone()));
+    }
+    if o.merge3 {
+        // (Q2's merge, farmopt 21:43: lane A the entry line itself; lane B along z 2 joining it at
+        // x jB = entry_len - 6 through a passive T (the junction a south_west curve: the branch from
+        // the south into the downstream west), lane C along z -2 joining at jC = entry_len - 2
+        // through a north_west T; A, B and C launched at each lane's east end; C passes jB's T
+        // from its unconnected (east) side)
+        let ns = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]")?;
+        let (jb, jc) = (o.entry_len - 6, o.entry_len - 2);
+        for (j, side, junction, corner) in [(jb, 1, "south_west", "north_east"), (jc, -1, "north_west", "south_east")] {
+            blocks.push((BlockPos::new(j, 0, 0), Block::parse(&format!("minecraft:rail[shape={junction},waterlogged=false]"))?));
+            blocks.push((BlockPos::new(j, 0, side), ns.clone()));
+            blocks.push((BlockPos::new(j, -1, side), glass.clone()));
+            blocks.push((BlockPos::new(j, 0, 2 * side), Block::parse(&format!("minecraft:rail[shape={corner},waterlogged=false]"))?));
+            blocks.push((BlockPos::new(j, -1, 2 * side), glass.clone()));
+            for x in j + 1..=o.entry_len {
+                blocks.push((BlockPos::new(x, 0, 2 * side), flat.clone()));
+                blocks.push((BlockPos::new(x, -1, 2 * side), glass.clone()));
+            }
+        }
     }
     if exit_rail || o.exit == "current" || o.exit == "piston" {
         // (the exit line west of the landing cell: flat, or `exit_slope` cells descending west
@@ -222,7 +245,9 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         for (k, lg) in logs.iter_mut().enumerate() {
             if lg.id.is_none() && !frozen_now && live >= k as i64 * o.spacing {
                 let nbt = format!("{{Motion:[{:.4}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", -o.speed);
-                let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [o.entry_len as f64 - 0.5, 0.0625, 0.5], Some(&nbt))?;
+                // (--merge3: cart k on lane A, B, C in turn: z 0, 2, -2)
+                let lane_z = if o.merge3 { [0.5, 2.5, -1.5][k % 3] } else { 0.5 };
+                let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [o.entry_len as f64 - 0.5, 0.0625, lane_z], Some(&nbt))?;
                 lg.id = Some(id);
                 lg.launch = Some(t);
                 lg.launch_live = live;

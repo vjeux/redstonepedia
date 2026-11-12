@@ -1461,6 +1461,10 @@ pub enum MobfarmCmd {
         /// Cells descending west right after the exit's landing cell (the carts pulling apart).
         #[arg(long, default_value_t = 0)]
         exit_slope: i32,
+        /// Q2's merge: lanes B (z 2) and C (z -2) joining the entry line through passive T
+        /// junctions, carts launched on A, B, C in turn (use --entry-len 14 or more).
+        #[arg(long)]
+        merge3: bool,
     },
     ClimbBench {
         #[arg(long, default_value_t = 14)]
@@ -4872,8 +4876,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope } => {
-            let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope };
+        MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3 } => {
+            let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3 };
             println!("{}", crate::liftbench::lift_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, speeds, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
