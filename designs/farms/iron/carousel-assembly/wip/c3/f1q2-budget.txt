@@ -1,0 +1,26 @@
+# F1 + Q2 (24 villagers) part budgets (9fc3155f, Nov 11 2026; ironspec's lead): rules-only space budget, every part a reserved box for its owner to lay into. Loop frame (the module's chunk x -6..9 z -6..9, as onechunk's skeletons; the file frame is loop + (6,0,6)); y = the level pocket rails (M1).
+# Rules behind it (mctas mobfarm envelope, explore/farmopt-c3-borders 03deed973; worst-case constants): golem feet exactly -6 (the window: the hold's waiting floor needs <= -5.35, the summon scan >= -6); every waiting rider's feet >= 14.54 (+1 margin 15.54); every non-napper >= 17 from the bed head's centre; the departing batch out of range by T+300 (2 lingering summons at 24: in range on the merge allowed).
+# Envelope (one bed, the L1 loader shared): x -6..9, y -20..25, z -6..9 = 16 x 46 x 16 = 11,776 blocks^3 (the loader inside: y -24..25, 12,800). Z4 stacked (3 beds): y -34..25 = 16 x 60 x 16 = 15,360 (+30%).
+# station (dfb89499): level pockets (-1,0,0) (3,0,0) (7,0,0) (powered rails on switched supports; strings over them with hooks at x +-1, supports shared between pockets), the pad's 44 cells x -2..7 z -6..-1 at golem feet -6 (floor y -7), the portal frame x -3..8 y -11..-7 z -6..0, the M1 drops: 1x1 shafts x -1/3/7 z 0 y 1..15, the holds' trapdoors at y 15, hold carts at y 16 (feet 16.19), 3x3 glass rings at y 16 (x -2..0 / 2..4 / 6..8, z -1..1), the stand's posts (S1) inside the box.
+# lanes (ironfarm): lane k at x -1 / 3 / 7 (pitch 4): its hold (x,16,0) (the station's top), 4 waiting cells (x,17..20,1..4) (one up and one along each), the intake (x,21,5) and its buffer (x,22,6); per-lane strings over the rest cells (hooks x +-1, supports shared at x 1 and 5); 5 out of range a lane (hold + 4).
+# return (7b90c3f1): the merge from the pockets' +z exits at y -1..2, z 1..9 (the 2 lingering batches a lane ride it in range) into the shared lift at x -6..-4 z 7..9 (soul sand at y -20 for the napper's re-entry; the merge enters at y 0; H to the top ~44); its exit at y 22..23 onto the split (x -6..9, y 21..25, z 7..9) feeding the three intakes; every napper re-enters its own lane (the bed stop's exit routing yours).
+# bedstop (58f770cc): its 11 x 14 x 7 under the station: head (-3,-18,3) (one lower than the envelope table's -17: the merge riders at y 0 straight above need 17.56), box x -6..4 y -20..-14 z -6..7; least non-napper 17.56 (the merge and the stand); entry booster at head + (6,2,-8) = (3,-16,-5), exit R's detector at head + (7,-1,2) = (4,-19,5) -> west to the lift's bottom (-5,-20,8).
+# scarers: S1 zombies or S2's pillager per flee-check class (to run on the laid parts): the stand's posts in the station box; the lanes' panic from a pillager glass cell (x 7..9, y 3..14, z 7..9: every villager and golem it sees > 8 away, the lanes' far ends > 15 need S1 posts in x -6..-4 y 16..23 z -6..-1).
+# controller (day-1): ~195 blocks (Q2, L1: no ring) in x -6..-3 y 3..14 z -6..5 (576 cells), between the station's top and the lanes, west of the drop shafts.
+# loader (onechunk; tick-exact: parked carts do not bounce, so L1 = per side an exit track + a 2-pocket gated queue on a 320-gt timer + a booster back, ~125 blocks for both sides + 3 carts): (a) inside: x 5..9 y -24..-17 z 0..9 (10 below the pad portal's frame; outside every pad cell and below every summoner's scan; +3 rows under the bed stop's floor); (b) shared: the empty gap chunk (1,2) of the mirrored-z pair lattice (x pitch 32; pairs at 16 / 48: chunks x 16..31 z 32..47), its 3x3 covering 4 modules, 0 module volume.
+# Z4 (3 beds, the fallback): the stop stacked 11 x 21 x 14: heads (-3,-18,3) (-3,-25,3) (-3,-32,3), box x -6..4 y -34..-14 z -6..7; each lane's riders >= 17 from its own bed only (tick-exact): every rider is >= 17.56 from the top bed, so the stack holds; the side-by-side 31 x 14 x 7 doesn't fit the 16-wide chunk; the lift's bottom drops to -34 for the lower beds' re-entry (+112 lift blocks) unless their exits rise by their own legs.
+# reserved (no blocks): station x -3..9 y -11..19 z -6..0
+# reserved (no blocks): lanes x -2..8 y 16..23 z 1..6
+# reserved (no blocks): merge x -6..9 y -1..2 z 1..9
+# reserved (no blocks): lift x -6..-4 y -20..25 z 7..9
+# reserved (no blocks): split x -3..9 y 21..25 z 7..9
+# reserved (no blocks): bedstop x -6..4 y -20..-14 z -6..7
+# reserved (no blocks): controller x -6..-3 y 3..14 z -6..5
+# reserved (no blocks): scarer-cell x 7..9 y 3..14 z 7..9
+# reserved (no blocks): scarer-posts x -6..-4 y 16..23 z -6..-1
+# reserved (no blocks): loader-inside x 5..9 y -24..-17 z 0..9
+name: c3-f1q2-budget
+circuit: mob-farm iron_ingot
+origin: 0 0 0
+palette:
+layer 0:
