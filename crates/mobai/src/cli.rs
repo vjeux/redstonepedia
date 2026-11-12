@@ -427,6 +427,55 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, push-scan's bridge) The pairs' neighbourhood hashes of a composition
+    /// from its files alone (no server); --list prints each cube's non-air cells
+    BridgeHash {
+        #[arg(long)]
+        module: Option<std::path::PathBuf>,
+        #[arg(long, default_value = "")]
+        parts: String,
+        /// x,y,z~x,y,z;...
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        pairs: String,
+        #[arg(long)]
+        list: bool,
+        /// The hash's own checks (FNV vectors, the cube's order and bytes, ironfarm's lane 3 value)
+        #[arg(long)]
+        selftest: bool,
+    },
+    /// (tickexact 2026-11-12, ironspec: the queue post's sight lines) Villagers seated in hovering
+    /// carts at given points; after the sensors ran, whether each saw a hostile (NEAREST_HOSTILE)
+    SightCheck {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, default_value = "")]
+        parts: String,
+        /// Entities summoned after the parts, "kind x y z {nbt}" separated by ';;'
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        summon: String,
+        /// name:x,y,z;... (a cart's position: the rider sits there)
+        #[arg(long, allow_hyphen_values = true)]
+        points: String,
+        #[arg(long, default_value_t = 60)]
+        ticks: u32,
+        /// The villagers alone (moved by what moves them there, a bubble lift), not in hovering carts
+        #[arg(long)]
+        free: bool,
+        /// Every tick: each villager's position, its distance to the nearest zombie, its lines
+        #[arg(long)]
+        trace: bool,
+        /// Each point's villager summoned this many times (rides at every sensor phase)
+        #[arg(long, default_value_t = 1)]
+        repeat: u32,
+        /// The gt between two rides of a point
+        #[arg(long, default_value_t = 7)]
+        every: u32,
+        /// The gt each ride lives
+        #[arg(long, default_value_t = 40)]
+        life: u32,
+    },
     /// (tickexact 2026-11-12, the row-draws run's out-of-frame riders) A ridden cart through the
     /// composition: every tick its position and motion, its rider, whether it still rides
     CartTrace {
@@ -624,6 +673,9 @@ pub enum MobaiCmd {
         version: String,
         #[arg(long)]
         module: std::path::PathBuf,
+        /// Also every empty cell of the file's bounding box (strict placement): a fluid's flow
+        #[arg(long)]
+        with_air: bool,
     },
     PadPiglins {
         #[arg(long, default_value = "26.3")]
@@ -963,6 +1015,42 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::BridgeHash { module, parts, pairs, list, selftest } => {
+            if selftest {
+                return crate::bridgehash::checks::all();
+            }
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            let cell = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let pairs: Vec<([i32; 3], [i32; 3])> = pairs
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    let (a, b) = s.split_once('~').ok_or_else(|| anyhow::anyhow!("--pairs x,y,z~x,y,z;..., got {s}"))?;
+                    Ok((cell(a)?, cell(b)?))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let module = module.ok_or_else(|| anyhow::anyhow!("--module is required (or --selftest)"))?;
+            crate::bridgehash::bridge_hash_files(&module, &parts, &pairs, list)
+        }
+        MobaiCmd::SightCheck { version, module, parts, summon, points, ticks, free, trace, repeat, every, life } => {
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            let summon: Vec<String> = summon.split(";;").map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
+            let points: Vec<(String, [f64; 3])> = points
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    let (name, c) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--points name:x,y,z;..., got {s}"))?;
+                    let v: Vec<f64> = c.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--points name:x,y,z;..., got {s}");
+                    Ok((name.to_string(), [v[0], v[1], v[2]]))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            crate::sightcheck::sight_check(&version, &module, &parts, &summon, &points, &crate::sightcheck::SightOpts { ticks, free, trace, repeat, every, life })
+        }
         MobaiCmd::CartTrace { version, module, parts, start, motion, ticks, still, probe } => {
             let f3v = |s: &str, what: &str| -> anyhow::Result<[f64; 3]> {
                 let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
@@ -1041,7 +1129,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::FreezeRows { version, loader, module, modules, place, ticks, group, mirrored, pocket } => crate::freeze::freeze_rows(&version, &loader, &module, modules, &place, ticks, group.as_deref(), mirrored.as_deref(), pocket),
         MobaiCmd::QueueFill { version, module, ridden } => crate::seatclear::queue_fill(&version, &module, ridden),
         MobaiCmd::SeatOffset { version } => crate::seatoffset::seat_offset(&version),
-        MobaiCmd::ModuleCheck { version, module } => crate::seatclear::module_check(&version, &module),
+        MobaiCmd::ModuleCheck { version, module, with_air } => crate::seatclear::module_check(&version, &module, with_air),
         MobaiCmd::PadPiglins { version, station, ticks } => crate::padpiglin::pad_piglins(&version, &station, ticks),
         MobaiCmd::SeatF3 { version, module, seats, post, glow, rail_glow, draws, parts, cart, air, summon, watch, max_ticks } => {
             let cells = |s: &str| -> anyhow::Result<Vec<[i32; 3]>> {

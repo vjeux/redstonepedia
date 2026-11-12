@@ -108,13 +108,48 @@ pub(crate) fn module_mismatches(srv: &mut VanillaServer, module: &std::path::Pat
 }
 
 /// `mctas mobai module-check`: the module placed both ways (rails with their onPlace, and strict),
-/// 20 gt later every block that differs from the file.
-pub fn module_check(version: &str, module: &std::path::Path) -> Result<()> {
+/// 20 gt later every block that differs from the file; `with_air`: with the strict placement, also
+/// every cell the file leaves empty inside its bounding box (a fluid's flow, a block's drop), each
+/// differing one identified.
+pub fn module_check(version: &str, module: &std::path::Path, with_air: bool) -> Result<()> {
     for strict in [false, true] {
         let (mut r, _bed) = start_placed(version, module, strict)?;
         r.srv.step(20)?;
         let m = module_mismatches(&mut r.srv, module)?;
         println!("== {} rails: {} blocks differ from the file 20 gt after placing: {}", if strict { "strict" } else { "onPlace" }, m.len(), m.join("; "));
+        if strict && with_air {
+            let d = mctas::design::Design::load(module)?;
+            let keys: Vec<[i32; 3]> = d.blocks.iter().map(|(p, _)| [p[0], p[1], p[2]]).collect();
+            let lo = (0..3).map(|k| keys.iter().map(|p| p[k]).min().unwrap_or(0)).collect::<Vec<_>>();
+            let hi = (0..3).map(|k| keys.iter().map(|p| p[k]).max().unwrap_or(0)).collect::<Vec<_>>();
+            let listed: std::collections::BTreeSet<[i32; 3]> = keys.into_iter().collect();
+            let (mut n, mut bad) = (0u32, Vec::new());
+            for x in lo[0]..=hi[0] {
+                for y in lo[1]..=hi[1] {
+                    for z in lo[2]..=hi[2] {
+                        if listed.contains(&[x, y, z]) {
+                            continue;
+                        }
+                        n += 1;
+                        if !r.srv.cmd_long(&format!("execute if block {x} {} {z} minecraft:air", y + DY))?.contains("passed") {
+                            let found = crate::bridgehash::identify(&mut r.srv, [x, y, z])?;
+                            bad.push(format!("({x},{y},{z}) {}", found.as_deref().unwrap_or("(not among the candidates)")));
+                        }
+                    }
+                }
+            }
+            println!(
+                "== strict rails, the file's empty cells inside x {}..{} y {}..{} z {}..{}: {} of {n} are not air: {}",
+                lo[0],
+                hi[0],
+                lo[1],
+                hi[1],
+                lo[2],
+                hi[2],
+                bad.len(),
+                bad.join("; ")
+            );
+        }
         let _ = std::fs::remove_dir_all(&r.srv.dir);
     }
     Ok(())
