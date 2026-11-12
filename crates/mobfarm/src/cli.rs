@@ -1272,6 +1272,27 @@ pub enum MobfarmCmd {
         /// The siding: the merge cell a north_west curve (else a straight flat on the branch).
         #[arg(long)]
         merge_curve: bool,
+        /// The siding bench: the lane's plain slopes behind R_1.
+        #[arg(long, default_value_t = 4)]
+        slopes: i32,
+        /// The siding: a guard string over the branch cell before the merge (release while off).
+        #[arg(long)]
+        nap_guard: bool,
+        /// The siding: release only after a predecessor pass seen while the napper waits.
+        #[arg(long)]
+        nap_early: bool,
+        /// The siding's distance west of the lane (1: adjacent to the branch, as laid).
+        #[arg(long, default_value_t = 1)]
+        siding_dx: i32,
+        /// The siding's rest raised one level (9fc3155f's re-laid siding).
+        #[arg(long, default_value_t = 0)]
+        siding_dy: i32,
+        /// The merge string north-south on glass supports.
+        #[arg(long)]
+        ns_merge: bool,
+        /// The siding's guard as a detector rail in the branch cell before the merge's neighbour.
+        #[arg(long)]
+        guard_det: bool,
         #[arg(long)]
         r_boost: bool,
         #[arg(long)]
@@ -4231,7 +4252,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, r_boost, floor_bottom, empty, freeze32 } => {
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
@@ -4242,7 +4263,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
             let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32 };
             if siding {
-                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve };
+                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, siding_dx, siding_dy, ns_merge, guard_det };
                 println!("{}", crate::sidingbench::siding_bench(&o, &so).map_err(|e| anyhow::anyhow!(e))?);
                 return Ok(());
             }

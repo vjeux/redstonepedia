@@ -166,15 +166,16 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     let mut eye_r: std::collections::BTreeMap<String, usize> = Default::default();
     let mut frozen32: Option<[i32; 4]> = None;
     for t in 0..ticks {
-        for (a, d) in o.login.iter().chain(o.freeze32.iter()) {
-            if t == *a && frozen32.is_none() {
-                frozen32 = Some(crate::liveness::freeze32(&mut run.world));
-            }
-            if t == a + d
-                && let Some(pb) = frozen32.take()
-            {
-                crate::liveness::thaw32(&mut run.world, pb);
-            }
+        // (the logins and freezes as one schedule: frozen while any interval covers t, so overlapping
+        // ones neither drop a start nor thaw early)
+        let want_frozen = o.login.iter().chain(o.freeze32.iter()).any(|(a, d)| t >= *a && t < a + d);
+        if want_frozen && frozen32.is_none() {
+            frozen32 = Some(crate::liveness::freeze32(&mut run.world));
+        }
+        if !want_frozen
+            && let Some(pb) = frozen32.take()
+        {
+            crate::liveness::thaw32(&mut run.world, pb);
         }
         let hk: Vec<bool> = (0..nl).map(|l| matches!(run.world.get(hook(l)), Block::TripwireHook { powered: true, .. })).collect();
         for l in 0..nl {
