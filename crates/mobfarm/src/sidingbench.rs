@@ -20,6 +20,47 @@ use redsim::block::Block;
 use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
 use redsim::pos::BlockPos;
 
+/// The bed stop's bed head in the loop frame (58f770cc's stop, head (-3,-18,3)): the riders' HOME
+/// with --nap-ai.
+const BED: (i32, i32, i32) = (-3, -18, 3);
+
+/// The napper's brain over its siding wait (--nap-ai).
+#[derive(Clone, Debug, Default)]
+struct NapBrain {
+    rest: i64,
+    panic: i64,
+    calm_run: i64,
+    calm_run_max: i64,
+    stamp_at_arrival: Option<i64>,
+    stamp_calm_max: Option<i64>,
+    home_lost_at: Option<i64>,
+    tracking: bool,
+}
+
+/// The rider (the first passenger) of cart `id`: its entity index.
+fn rider_index(w: &redsim::world::World, id: u32) -> Option<usize> {
+    let ci = redsim::entity::index_of(w, id)?;
+    let rid = *w.entities.list[ci].passengers.first()?;
+    redsim::entity::index_of(w, rid)
+}
+
+/// A spawned rider made a farm villager (--nap-ai): HOME the shared bed, slept last night; with
+/// `stamp_age`, its CANT_REACH stamp armed that many gt ago (the napper's leg from the bed's exit R
+/// to its siding, ridden in REST with no reachable walk).
+fn farm_rider(w: &mut redsim::world::World, cart: u32, bed: BlockPos, stamp_age: Option<i64>) {
+    use redsim::entity::mob::ai::brain;
+    let Some(ri) = rider_index(w, cart) else { return };
+    let now = w.time;
+    let b = brain::brain_mut(w, ri);
+    b.home = Some(bed);
+    b.last_slept = Some(now - 100);
+    if let Some(a) = stamp_age
+        && brain::has_exact(w, ri)
+    {
+        brain::ex_mut(w, ri).mem.cant_reach_since = Some(now - a);
+    }
+}
+
 fn st(w: &redsim::world::World, id: u32) -> Option<(f64, f64, f64, f64)> {
     redsim::entity::index_of(w, id).map(|i| {
         let e = &w.entities.list[i];
@@ -52,6 +93,17 @@ pub struct SidingOpts {
     /// Day-1's option (ii): release K after ANY cart's pass that finds the napper waiting (the
     /// napper-present sample at the pass), behind whichever cart passed.
     pub any_pass: bool,
+    /// Day-1's ring (option (ii)'s windows): ring positions (0: off; 10 for day-1's ring), the
+    /// napper's pick position, its window `win_du` positions later, opening `win_tap` gt after that
+    /// release for one beat.
+    pub ring: i64,
+    pub pick_u: i64,
+    pub win_du: i64,
+    pub win_tap: i64,
+    /// The riders' AI on at night with HOME the bed stop's bed (the napper's calm-REST age, its
+    /// CANT_REACH stamp, HOME kept); the napper's stamp pre-aged at its siding arrival (gt).
+    pub ai: bool,
+    pub stamp_at_arrival: Option<i64>,
     /// The siding's distance west of the lane (1: adjacent to the branch, as laid; 2: one cell clear).
     pub siding_dx: i32,
     /// The siding's rest raised this many levels (9fc3155f: 1, out of the branch carts' push range).
@@ -248,10 +300,24 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         put(lx - 2, m + 1, mz + 1, &stone);
         put(lx + 2, m + 1, mz + 1, &stone);
     }
-    let spec = FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(lx + 6, 30, 12), lo: BlockPos::new(lx - 6, -12, -6), hi: BlockPos::new(lx + 6, 30, 14), block_entities: Vec::new(), rock: false, nether: None, land: false };
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    // (--nap-ai: the shared bed at the bed stop's head, loop frame (-3,-18,3), facing north (its foot
+    // at z + 1): every rider's HOME, its one ticket taken (the build's claims); the bench's box grows
+    // to hold it; the run at night (day time 13,300 at the first bench tick: REST all along))
+    let bed = BlockPos::new(BED.0, BED.1, BED.2);
+    if so.ai {
+        put(BED.0, BED.1, BED.2, &b("minecraft:red_bed[facing=north,occupied=false,part=head]")?);
+        put(BED.0, BED.1, BED.2 + 1, &b("minecraft:red_bed[facing=north,occupied=false,part=foot]")?);
+        put(BED.0, BED.1 - 1, BED.2, &stone);
+        put(BED.0, BED.1 - 1, BED.2 + 1, &stone);
+    }
+    let lo = if so.ai { BlockPos::new((lx - 6).min(BED.0 - 3), (-12).min(BED.1 - 3), -6) } else { BlockPos::new(lx - 6, -12, -6) };
+    let spec = FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(lx + 6, 30, 12), lo, hi: BlockPos::new(lx + 6, 30, 14), block_entities: Vec::new(), rock: false, nether: None, land: false };
+    let ro = if so.ai { RunOpts { ai: true, day0: 13_300, ..RunOpts::steady(1, 0, WalkMode::Random) } } else { RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) } };
     let mut run = Run::start(&spec, &ro)?;
     while run.settle_tick() {}
+    if so.ai {
+        redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+    }
     // (every rail back to its laid shape without placement logic: in the bench all blocks go down at
     // once, so a rail placed beside another can be reshaped by the connection rule (the branch flat
     // beside the raised siding's lower slope turned toward it); the build places them in order)
@@ -299,7 +365,11 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             pending.push((20 + 25 * k as i64, carts.len() - 1, false));
             continue;
         }
-        carts.push(Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [zc, slope_y(z), z], Some(&nbt0))?));
+        let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [zc, slope_y(z), z], Some(&nbt0))?;
+        if so.ai {
+            farm_rider(&mut run.world, id, bed, None);
+        }
+        carts.push(Some(id));
     }
     let n = carts.len();
     let warm = 300i64;
@@ -361,6 +431,18 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut nap_wait_max = 0i64;
     let mut last_any_pass: Option<(i64, usize)> = None;
     let mut release_lead: Option<usize> = None;
+    let mut release_window: Option<usize> = None;
+    let mut rel_times: Vec<i64> = Vec::new();
+    let mut nap_pick_i: i64 = -1;
+    // (the riders' brains (--nap-ai): the napper's over its siding wait: its REST and panic ticks,
+    // its longest calm-REST run, its CANT_REACH stamp age at arrival, at release and the oldest at a
+    // calm REST tick, HOME kept)
+    let mut nap_brain: NapBrain = NapBrain::default();
+    let mut brain_rows: Vec<String> = Vec::new();
+    let mut stamp_calm_max = -1i64;
+    let mut calm_rest_max = 0i64;
+    let mut home_lost_siding = 0usize;
+    let mut stamp_over_1000 = 0usize;
     let mut switch_last_on = -1000i64;
     let mut stray_power = 0usize;
     let mut stray_with_guard = 0usize;
@@ -439,10 +521,20 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             so.guard && matches!(run.world.get(BlockPos::new(lx - 1, m + 1, mz + 1)), Block::TripwireHook { powered: true, .. })
         };
         // (day-1's option (ii), --nap-any-pass (ironspec 04:19): the napper-present sample at a pass:
-        // a napper resting on the siding when any cart's pass edge comes is released K after that pass
-        // (held while the guard is powered), behind whichever cart passed; in this one-lane bench every
-        // pass is the lane's own, inside its ring window)
-        if so.any_pass {
+        // a napper resting on the siding when a cart's pass edge comes is released K after that pass
+        // (held while the guard is powered), behind whichever cart passed. Without --nap-ring every
+        // pass of the lane samples (the merge physics at every phase; its waits are not (ii)'s); with
+        // --nap-ring the lane's window is open at one ring position in `ring` (day-1's ring: the
+        // napper picked at ring position --nap-pick-u, its window --nap-win-du positions later, one
+        // beat wide from that release + --nap-win-tap), so only the window's pass samples)
+        let window_open = |pp: i64, rel_times: &Vec<i64>| -> Option<usize> {
+            if so.ring <= 0 {
+                return Some(usize::MAX);
+            }
+            let win_u = (so.pick_u + so.win_du).rem_euclid(so.ring);
+            rel_times.iter().enumerate().find(|(j, rt)| (*j as i64).rem_euclid(so.ring) == win_u && pp >= **rt + so.win_tap && pp < **rt + so.win_tap + o.period).map(|(j, _)| j)
+        };
+        if so.any_pass || so.ring > 0 {
             if nap.is_some()
                 && released_at.is_none()
                 && nap_ready
@@ -450,11 +542,13 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 && let Some((pp, pc)) = last_any_pass
                 && t >= pp + so.k
                 && nap_rested_at.is_some_and(|r| r <= pp)
+                && let Some(wj) = window_open(pp, &rel_times)
             {
                 s_until = t + so.nap_pulse;
                 released_at = Some(t);
                 pred_pass = Some(pp);
                 release_lead = Some(pc);
+                release_window = (wj != usize::MAX).then_some(wj);
             }
         } else if let Some((nc, pred)) = nap
             && released_at.is_none()
@@ -481,6 +575,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         if t >= warm && t < rel_end && ph == 0 {
             trap_until = t + o.drop_w;
             per_release.push(0);
+            rel_times.push(t);
             restage_from = Some(t);
         }
         let want_trap = t < trap_until;
@@ -524,6 +619,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         for (c, is_nap) in due {
             if is_nap {
                 let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [sx as f64 + 0.5, rest_y as f64 + 0.5 + 0.0625, rest_z as f64 + 0.5], Some(&nbt0))?;
+                if so.ai {
+                    farm_rider(&mut run.world, id, bed, so.stamp_at_arrival);
+                }
                 carts[c] = Some(id);
                 pending.retain(|p| p.1 != c);
                 continue;
@@ -531,7 +629,11 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             let zs = mz as f64 + 2.5;
             let clear = carts.iter().all(|id| id.and_then(|id| st(&run.world, id)).is_none_or(|(x, y, z, _)| !(y > m as f64 - 0.5 && (z - zs).abs() < 1.3 && (x - zc).abs() < 0.9)));
             if clear {
-                carts[c] = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [zc, m as f64 + 0.0625, zs], Some(&nbt_in))?);
+                let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [zc, m as f64 + 0.0625, zs], Some(&nbt_in))?;
+                if so.ai {
+                    farm_rider(&mut run.world, id, bed, None);
+                }
+                carts[c] = Some(id);
                 pending.retain(|p| p.1 != c);
             }
         }
@@ -549,6 +651,40 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         run.tick();
         let now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| id.and_then(|id| st(&run.world, id))).collect();
+        // (--nap-ai: the napper's brain each tick it waits on the siding (from coming to rest there
+        // to its release): its activity, calm or panicking, its CANT_REACH stamp's age, HOME)
+        if so.ai
+            && let Some((nc, _)) = nap
+            && released_at.is_none()
+            && nap_rested_at.is_some()
+            && let Some(ri) = carts[nc].and_then(|id| rider_index(&run.world, id))
+            && redsim::entity::mob::ai::brain::has_exact(&run.world, ri)
+        {
+            use redsim::entity::mob::ai::brain::{self, Act};
+            let now = run.world.time;
+            let x = brain::ex(&run.world, ri);
+            let stamp = x.mem.cant_reach_since.map(|s| now - s);
+            if !nap_brain.tracking {
+                nap_brain.tracking = true;
+                nap_brain.stamp_at_arrival = stamp;
+            }
+            if x.active == Act::Panic {
+                nap_brain.panic += 1;
+                nap_brain.calm_run = 0;
+            } else if x.active == Act::Rest {
+                nap_brain.rest += 1;
+                nap_brain.calm_run += 1;
+                nap_brain.calm_run_max = nap_brain.calm_run_max.max(nap_brain.calm_run);
+                if let Some(a) = stamp {
+                    nap_brain.stamp_calm_max = Some(nap_brain.stamp_calm_max.map_or(a, |m| m.max(a)));
+                }
+            } else {
+                nap_brain.calm_run = 0;
+            }
+            if nap_brain.home_lost_at.is_none() && brain::brain(&run.world, ri).home != Some(bed) {
+                nap_brain.home_lost_at = Some(t);
+            }
+        }
         // (the riders: the block at every rider's eye (air, string, hooks and rails are fine; anything
         // else is a wall or a side the eye is inside) and the lowest health seen)
         for id in carts.iter().flatten() {
@@ -732,10 +868,14 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     }
                     drop_count += 1;
                     drops.push((t, c));
-                    // (the napper: every nap_every-th drop, if none waits; its predecessor = the cart
-                    // dropped one cycle before)
-                    let is_nap = so.nap_every > 0 && drop_count % so.nap_every == 0 && nap.is_none() && drops.len() >= 2;
+                    // (the napper: with --nap-ring, the cart of the release at ring position
+                    // --nap-pick-u (one a ring); else every nap_every-th drop; none while one waits;
+                    // its predecessor = the cart dropped one release before)
+                    let rel_i = per_release.len() as i64 - 1;
+                    let picked = if so.ring > 0 { rel_i >= 0 && rel_i.rem_euclid(so.ring) == so.pick_u.rem_euclid(so.ring) } else { so.nap_every > 0 && drop_count % so.nap_every == 0 };
+                    let is_nap = picked && nap.is_none() && drops.len() >= 2;
                     if is_nap {
+                        nap_pick_i = rel_i;
                         let pred = drops[drops.len() - 2].1;
                         nap = Some((c, pred));
                         pred_pass = None;
@@ -747,6 +887,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                         nap_rested_at = None;
                         knocked_this = false;
                         release_lead = None;
+                        release_window = None;
+                        nap_brain = NapBrain::default();
                     }
                     pending.push((t + if is_nap { so.nap_ret } else { o.ret }, c, is_nap));
                 }
@@ -766,9 +908,11 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 && (x - zc).abs() < 0.6
             {
                 // (the leader it followed through the merge: its predecessor, or under option (ii) the
-                // cart whose pass released it; a late rejoin is behind a cart other than its predecessor)
+                // cart whose pass released it; late: with --nap-ring, released at a window later than
+                // its first one (pick + win_du); without it, behind a cart other than its predecessor)
                 let lead = release_lead.unwrap_or(pred);
-                let late_rejoin = so.any_pass && lead != pred;
+                let first_window = nap_pick_i + so.win_du;
+                let late_rejoin = if so.ring > 0 { release_window.is_some_and(|wj| wj as i64 > first_window) } else { so.any_pass && lead != pred };
                 let m_pred = merge_occ.iter().rev().find(|mo| mo.0 == lead && mo.1 <= ra).and_then(|mo| mo.2);
                 let m_nap = merge_occ.iter().rev().find(|mo| mo.0 == c).map(|mo| mo.1);
                 let curve_rule = match (m_pred, m_nap) { (Some(cl), Some(en)) => format!("{}", en - cl), _ => "-".to_string() };
@@ -784,6 +928,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     "napper cart {c} (predecessor {pred}){}: the predecessor over the merge string t {}, at rest on the siding t {}, released t {ra} (waited {} gt on the siding), at the lane's back t {t} (z {z:.2}); the merge's curve rule (its entry minus the predecessor's clear) {curve_rule} gt; its contact {c_nap:.3} at q {q_nap}; braked creep {creep:.4}",
                     if lap_wait {
                         " (late: its successor passed first, it waited a lane-lap)".to_string()
+                    } else if late_rejoin && so.ring > 0 {
+                        format!(" (late: missed its first window (release {first_window}), rejoined at the window of release {} behind cart {lead})", release_window.unwrap_or(0))
                     } else if late_rejoin {
                         format!(" (late: rejoined behind cart {lead}, whose pass found it waiting)")
                     } else {
@@ -795,6 +941,31 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 ));
                 if lap_wait || late_rejoin {
                     late_naps += 1;
+                }
+                // (--nap-ai: its brain over the wait)
+                if so.ai && nap_brain.tracking {
+                    let fmt = |v: Option<i64>| v.map_or("none".to_string(), |a| format!("{a} gt"));
+                    let stamp_release = nap_brain.stamp_calm_max;
+                    brain_rows.push(format!(
+                        "napper cart {c}: waited {} gt; REST {} ticks (panic {}), the longest calm-REST run {} gt; CANT_REACH stamp at arrival {}, the oldest at a calm REST tick {}; HOME {}",
+                        waited.map_or("-".to_string(), |w| w.to_string()),
+                        nap_brain.rest,
+                        nap_brain.panic,
+                        nap_brain.calm_run_max,
+                        fmt(nap_brain.stamp_at_arrival),
+                        fmt(stamp_release),
+                        nap_brain.home_lost_at.map_or("kept".to_string(), |h| format!("LOST at t {h}"))
+                    ));
+                    calm_rest_max = calm_rest_max.max(nap_brain.calm_run_max);
+                    if let Some(a) = nap_brain.stamp_calm_max {
+                        stamp_calm_max = stamp_calm_max.max(a);
+                        if a > 1000 {
+                            stamp_over_1000 += 1;
+                        }
+                    }
+                    if nap_brain.home_lost_at.is_some() {
+                        home_lost_siding += 1;
+                    }
                 }
                 nap = None;
             }
@@ -826,7 +997,25 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     )];
     lines.push(format!("carts per release (exactly 1): {}; empty releases after the first (golems lost: a batch of 2 can't summon): {empty_releases}; late nappers (a lane-lap wait): {late_naps}", ph.iter().map(|(a, b2)| format!("{a}: {b2}")).collect::<Vec<_>>().join(", ")));
     lines.push(format!("nappers through the siding: {}", if nap_rows.is_empty() { "none".to_string() } else { nap_rows.join(" | ") }));
-    lines.push(format!("the longest napper wait on the siding (at rest there to its release): {nap_wait_max} gt"));
+    lines.push(format!(
+        "the longest napper wait on the siding (at rest there to its release): {nap_wait_max} gt [{}]",
+        if so.ring > 0 {
+            format!("day-1's ring: {} positions of {} gt, the napper picked at position {}, its window {} positions later, one beat from that release + {} gt", so.ring, o.period, so.pick_u, so.win_du, so.win_tap)
+        } else if so.any_pass {
+            "the any-pass bench: every pass of the lane samples, not (ii)'s window; a late napper waits up to a ring period more".to_string()
+        } else {
+            "the predecessor's pass".to_string()
+        }
+    ));
+    if so.ai {
+        lines.push(format!(
+            "the nappers' brains over their siding waits (the riders' AI on at night, HOME the bed {:?} with its ticket taken; the napper's stamp at its arrival {}): the oldest CANT_REACH stamp at a calm REST tick {} (above 1,000 gt (the stamp rule): {stamp_over_1000} nappers; HOME is released past 1,200), the longest calm-REST run {calm_rest_max} gt, nappers that lost HOME on the siding (the bar: 0): {home_lost_siding}{}",
+            BED,
+            so.stamp_at_arrival.map_or("armed by its own first failed path on the siding".to_string(), |a| format!("pre-aged {a} gt (the leg from R in REST)")),
+            if stamp_calm_max < 0 { "none".to_string() } else { format!("{stamp_calm_max} gt") },
+            if brain_rows.is_empty() { String::new() } else { format!(" ({})", brain_rows.join(" | ")) }
+        ));
+    }
     lines.push(format!(
         "the siding rest powered with its declared switch off (a stray power; the bar: 0): {stray_power} ticks, {stray_with_guard} of them with the guard detector powered; ticks the guard was powered while a napper waited: {guard_on_waiting}; the side power {}",
         match so.side_ctl.as_deref() {
@@ -895,7 +1084,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         // (a napper still waiting at the end is stuck only past a lane-lap and two beats since it came
         // back (day-1's late rule waits up to one lane-lap); else it is a wait the run's end cut)
         let waited = ticks - nap_since;
-        let lap = (o.per_lane as i64 + 2) * o.period;
+        let lap = if so.ring > 0 { (so.ring + 1) * o.period + so.k } else { (o.per_lane as i64 + 2) * o.period };
         lines.push(format!(
             "a napper still waiting at the end: cart {c} (predecessor pass {:?}, released {:?}), {waited} gt since its drop{}",
             pred_pass,
@@ -1178,6 +1367,12 @@ pub struct SidingRow {
     pub nap_cr: Vec<i64>,
     /// The longest napper wait on the siding (gt).
     pub nap_wait_max: i64,
+    /// (--nap-ai) The oldest CANT_REACH stamp at a waiting napper's calm REST tick (-1: none), the
+    /// nappers above 1,000 gt, the longest calm-REST run, nappers that lost HOME on the siding.
+    pub stamp_calm_max: i64,
+    pub stamp_over_1000: usize,
+    pub calm_rest_max: i64,
+    pub home_lost: usize,
     pub wrong: usize,
     pub knocked: usize,
     /// Rails popped at placement (no rigid support).
@@ -1206,7 +1401,7 @@ pub struct SidingRow {
 /// The bench's numbers read back from its own text (one source of truth: the printed lines).
 pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
     let text = siding_bench(o, so)?;
-    let mut r = SidingRow { min_health: f32::MAX, ..Default::default() };
+    let mut r = SidingRow { min_health: f32::MAX, stamp_calm_max: -1, ..Default::default() };
     let num_after = |s: &str, key: &str| -> Option<f64> {
         let i = s.find(key)? + key.len();
         let t: String = s[i..].trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
@@ -1239,6 +1434,11 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
             }
         } else if l.starts_with("the longest napper wait on the siding") {
             r.nap_wait_max = req(l, "to its release): ")? as i64;
+        } else if l.starts_with("the nappers' brains over their siding waits") {
+            r.stamp_calm_max = num_after(l, "the oldest CANT_REACH stamp at a calm REST tick ").map_or(-1, |v| v as i64);
+            r.home_lost = req(l, "nappers that lost HOME on the siding (the bar: 0): ")? as usize;
+            r.calm_rest_max = req(l, "the longest calm-REST run ")? as i64;
+            r.stamp_over_1000 = req(l, "above 1,000 gt (the stamp rule): ")? as usize;
         } else if l.starts_with("the napper heading the wrong way") {
             r.wrong = req(l, "(the bar: 0): ")? as usize;
         } else if l.starts_with("nappers knocked loose") {
