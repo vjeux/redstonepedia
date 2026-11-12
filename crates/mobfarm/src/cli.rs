@@ -536,6 +536,26 @@ pub enum MobfarmCmd {
     /// (ironspec 2026-11-11 12:50) The rail-junction check: every plain rail joined to three or four
     /// rails, its stored shape against the game's settle order for its signal at rest (both power
     /// states printed); exit status 1 when a stored shape would re-settle at its first update.
+    /// (9fc3155f, ironspec Nov 11 21:24: the smallest one-bed farm) The rules-only envelope of each
+    /// layout family (F1 stack, F2 side, F3 inverted stack, F5 close) with each queue (Q1 one lane
+    /// of N waiting carts, Q2 L lanes x P): the station (v4's 3 summoners and 44 golem cells), the
+    /// waiting villagers out of every lockout, the bed >= 17 from every non-napper, the envelope's
+    /// box and volume, the binding part per axis, the tiling pitch per axis (out of phase).
+    Envelope {
+        #[arg(long, value_delimiter = ',', default_values_t = ["F1".to_string(), "F2".to_string(), "F3".to_string(), "F5".to_string()])]
+        families: Vec<String>,
+        /// Q1 sizes (waiting carts).
+        #[arg(long, value_delimiter = ',', default_values_t = [21usize])]
+        q1: Vec<usize>,
+        /// Q2 sizes, LxP (lanes x waiting carts per lane).
+        #[arg(long, value_delimiter = ',', default_values_t = ["3x7".to_string()])]
+        q2: Vec<String>,
+        /// The Pareto table instead: one row per villager count N (and family, queue, nap option):
+        /// the out-of-range group min(N - 3, 15) (the batches past the floor's 6 linger in range),
+        /// golems a day (51b2aacd's derived rows), the envelope, blocks, redstone, tiling area.
+        #[arg(long, value_delimiter = ',')]
+        villagers: Vec<usize>,
+    },
     JunctionCheck {
         design: PathBuf,
     },
@@ -6823,6 +6843,197 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3 || v.len() == 4, "--at dx,dy,dz[,m]");
                 let o = [v[0].trim().parse::<i32>()?, v[1].trim().parse::<i32>()?, v[2].trim().parse::<i32>()?];
                 println!("{}", crate::tile::candidate(&s, o, v.len() == 4));
+            }
+        }
+        MobfarmCmd::Envelope { families, q1, q2, villagers } => {
+            use crate::envelope::{C, Queue};
+            if !villagers.is_empty() {
+                let st = crate::envelope::station_v4();
+                let al = |p: i32| ((p + 15) / 16) * 16;
+                // (golems a day by count: 51b2aacd's derived table, with tick-exact's re-mark price at
+                // 18 (~3-4.5% lost: ~229) and the skip hold at 21 (~236); day-1 to confirm)
+                let gpd = |n: usize| -> f64 { match n { 0..=17 => 0.99 * 40.0 * n as f64 / 3.0, 18 => 229.0, 19..=21 => 236.0, _ => 238.0 } };
+                struct Row { n: usize, fam: String, queue: String, nap: String, gpd: f64, vol: i64, blocks: i64, red: i64, area: f64, dims: String, margin: i64 }
+                let mut rows: Vec<Row> = Vec::new();
+                for &n in &villagers {
+                    let b = n / 3;
+                    let linger = b.saturating_sub(6);
+                    let out = (n - 3).min(15).max(n.saturating_sub(3).min(15));
+                    let out_n = if n >= 18 { 15 } else { n - 3 };
+                    let _ = out;
+                    for f in &families {
+                        if f == "F5" {
+                            continue;
+                        }
+                        let mut qs: Vec<(Queue, String)> = vec![(Queue::Q1(out_n), format!("Q1 {out_n} out of range"))];
+                        if n % 3 == 0 && out_n % 3 == 0 {
+                            qs.push((Queue::Q2(3, out_n / 3), format!("Q2 3 x {}", out_n / 3)));
+                        }
+                        for (q, qn) in qs {
+                            // (nap options: none below 18 (idle slots absorb the napper); at 18 (a) the
+                            // lap-exact re-entry gate (Q1 70 / Q2 75) or (b) the equal-length bypass
+                            // (~60 cells at 2 + a keyed gate 20); at 21 the skip hold (in the
+                            // controller); at 24 Q2 + Z4 (3 beds) or Q1 skip-free)
+                            let naps: Vec<(String, i64, i64, bool)> = match n {
+                                0..=17 => vec![("none (idle slots)".into(), 0, 0, false)],
+                                18 => vec![
+                                    ("(a) lap gate".into(), 0, match q { Queue::Q1(_) => 70, _ => 75 }, false),
+                                    ("(b) equal-length bypass".into(), 120, 20, false),
+                                ],
+                                19..=21 => vec![("lap gate + skip hold".into(), 0, match q { Queue::Q1(_) => 70, _ => 75 }, false)],
+                                _ => match q {
+                                    Queue::Q2(..) => vec![("(c) Z4, a bed a lane".into(), 0, 0, true), ("skip-free, 1 bed".into(), 0, 0, false)],
+                                    _ => vec![("skip-free, 1 bed".into(), 0, 0, false)],
+                                },
+                            };
+                            for (nap, track, nap_red, z4) in naps {
+                                let lay = crate::envelope::layout(f, q, &st, z4).map_err(|e| anyhow::anyhow!(e))?;
+                                let (lo, hi) = crate::envelope::bound(&lay.boxes);
+                                let (px, pz) = (crate::envelope::pitch(&lay, &st, 0), crate::envelope::pitch(&lay, &st, 2));
+                                let (_, mper) = crate::envelope::pitch_mirror_z(&lay, &st);
+                                let area = (al(px) as f64 * al(pz) as f64).min(if mper > 0 { al(px) as f64 * mper as f64 / 2.0 } else { f64::MAX });
+                                let (mut tr, _) = crate::envelope::transport_blocks(f, q, &lay, &st);
+                                // (Q2 shares one lift with a merge and a split: 7b90c3f1's ~420 at H 41)
+                                if let Queue::Q2(..) = q
+                                    && (f == "F1" || f == "F3")
+                                {
+                                    let top = lay.riders.iter().map(|r| r.y).fold(f64::MIN, f64::max);
+                                    let bot = lay.riders.iter().map(|r| r.y).fold(f64::MAX, f64::min);
+                                    let h = if f == "F1" { top + 4.0 } else { 4.0 - bot }.ceil() as i64;
+                                    tr = 8 * h + 30 + 60 + if f == "F1" { 90 } else { 30 };
+                                }
+                                let ctrl = match q { Queue::Q1(_) => 338, Queue::Q2(..) => 195 } + nap_red;
+                                let tier_extra = if z4 { 400 - 152 + 3 * 34 * 2 } else { 0 };
+                                let blocks = crate::envelope::blocks(out_n + 3 * linger, tr + track, ctrl, 13) + tier_extra;
+                                // (the exit's margin: out of range by T + 100 (1 + the lingering summons))
+                                let t_out = match f.as_str() { "F1" => 32, "F2" => 46, _ => 42 };
+                                let margin = 100 * (1 + linger as i64) - t_out;
+                                rows.push(Row {
+                                    n,
+                                    fam: lay.family.to_string(),
+                                    queue: qn.clone(),
+                                    nap,
+                                    gpd: gpd(n),
+                                    vol: crate::envelope::vol(lo, hi),
+                                    blocks,
+                                    red: ctrl,
+                                    area,
+                                    dims: format!("{}x{}x{}", hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1),
+                                    margin,
+                                });
+                            }
+                        }
+                    }
+                }
+                // (the Pareto set: fewer villagers, more golems, less volume, fewer blocks, less
+                // redstone, less tiling area)
+                let dominated = |a: &Row| rows.iter().any(|b| {
+                    let le = b.n <= a.n && b.gpd >= a.gpd && b.vol <= a.vol && b.blocks <= a.blocks && b.red <= a.red && b.area <= a.area;
+                    let lt = b.n < a.n || b.gpd > a.gpd || b.vol < a.vol || b.blocks < a.blocks || b.red < a.red || b.area < a.area;
+                    le && lt
+                });
+                println!("N | golems/day | family | queue | naps | envelope (blocks^3) | blocks (L1) | redstone | tiling area/module | exit margin (gt) | Pareto");
+                for r in &rows {
+                    println!(
+                        "{} | {:.0} | {} | {} | {} | {} ({}) | {} | {} | {:.0} | {} | {}",
+                        r.n, r.gpd, r.fam, r.queue, r.nap, r.dims, r.vol, r.blocks, r.red, r.area, r.margin, if dominated(r) { "" } else { "PARETO" }
+                    );
+                }
+                return Ok(());
+            }
+            let st = crate::envelope::station_v4();
+            let cb = crate::envelope::clear_bounds(&st);
+            println!(
+                "constants: sight {} sideways, {} above / {} below a golem's feet; mark {} / {} (inside the sight box); bed radius {}; margin {}; lift {} b/t; cart {} b/t; bed tier {}x{}x{}; S1 posts {} beside [code: 26.3 GolemSensor / spawnGolemIfNeeded at the worst-case follow range 17.84; derived: bed, posts]",
+                C.sight_side, C.sight_above, C.sight_below, C.mark_side, C.mark_vert, C.bed_r, C.margin, C.lift, C.cart, C.tier[0], C.tier[1], C.tier[2], C.posts
+            );
+            println!(
+                "station (v4's, file frame): summoners {}; 44 golem cells x 4..13 z 0..5 feet -6; blocks x {}..{} y {}..{} z {}..{}; out of range: x <= {:.2} or >= {:.2}, z <= {:.2} or >= {:.2}, feet >= {:.2} or <= {:.2}",
+                st.summoners.iter().map(|p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" "),
+                st.lo[0], st.hi[0], st.lo[1], st.hi[1], st.lo[2], st.hi[2], cb[0], cb[1], cb[2], cb[3], cb[4], cb[5]
+            );
+            let mut qs: Vec<Queue> = q1.iter().map(|n| Queue::Q1(*n)).collect();
+            for s in &q2 {
+                let (l, p) = s.split_once('x').ok_or_else(|| anyhow::anyhow!("--q2 LxP"))?;
+                qs.push(Queue::Q2(l.parse()?, p.parse()?));
+            }
+            for f in &families {
+                for q in &qs {
+                  for z4 in [false, true] {
+                    let lay = crate::envelope::layout(f, *q, &st, z4).map_err(|e| anyhow::anyhow!(e))?;
+                    let (lo, hi) = crate::envelope::bound(&lay.boxes);
+                    let bind = crate::envelope::binding(&lay);
+                    let (px, pz) = (crate::envelope::pitch(&lay, &st, 0), crate::envelope::pitch(&lay, &st, 2));
+                    let (mp, mper) = crate::envelope::pitch_mirror_z(&lay, &st);
+                    let al = |p: i32| ((p + 15) / 16) * 16;
+                    println!(
+                        "{} with {}{}: envelope {} x {} x {} (x {}..{}, y {}..{}, z {}..{}) = {} blocks^3; binding x: {}; y: {}; z: {}; pitch x {} ({} chunk-aligned), z {} ({})",
+                        lay.family,
+                        match q { Queue::Q1(n) => format!("Q1 {n} waiting"), Queue::Q2(l, p) => format!("Q2 {l} x {p} waiting") },
+                        if z4 { " + Z4 (3 beds)" } else { " + 1 bed" },
+                        hi[0] - lo[0] + 1,
+                        hi[1] - lo[1] + 1,
+                        hi[2] - lo[2] + 1,
+                        lo[0], hi[0], lo[1], hi[1], lo[2], hi[2],
+                        crate::envelope::vol(lo, hi),
+                        bind[0], bind[1], bind[2],
+                        px, al(px), pz, al(pz)
+                    );
+                    for (a, b, n) in &lay.boxes {
+                        println!("  box {n}: x {}..{} y {}..{} z {}..{}", a[0], b[0], a[1], b[1], a[2], b[2]);
+                    }
+                    let (lo2, hi2) = crate::envelope::bound(&lay.boxes);
+                    let depth = hi2[2] - lo2[2] + 1;
+                    println!(
+                        "  mirrored in z: the pair's copy at z' = {} - z (gap {}), the next pair {} on: {} modules per {} blocks of z ({:.1} a module), against {} plain",
+                        mp,
+                        mp - 2 * hi2[2] - 1,
+                        mper,
+                        2,
+                        mper,
+                        mper as f64 / 2.0,
+                        pz.max(depth)
+                    );
+                    println!(
+                        "  controller (day-1's estimate, outside the envelope: it fills a gap): {} blocks + the liveness ring 192 (retirable with pearl loading, pending)",
+                        match q { Queue::Q1(_) => 408, Queue::Q2(..) => 270 }
+                    );
+                    // (the blocks, L1 and L2: the controller without the re-entry gate at 24
+                    // villagers (Q1 408 - 70, Q2 270 - 75); L2 the pearl per chunk with the ring,
+                    // ALIVE and counters (~330); L1 the portal-loop loader (~40) shared by the
+                    // modules of a 3 x 3 of chunks, no ring; the Nether kill room (124) shared)
+                    let n_wait = lay.riders.len();
+                    let (tr, trs) = crate::envelope::transport_blocks(f, *q, &lay, &st);
+                    let ctrl = match q { Queue::Q1(_) => 338, Queue::Q2(..) => 195 };
+                    let area_plain = (al(px) * al(pz)) as f64;
+                    let area_mirror = if mper > 0 { al(px) as f64 * mper as f64 / 2.0 } else { area_plain };
+                    let per_loader = (2304.0 / area_mirror.min(area_plain)).max(1.0);
+                    let tier_extra = if z4 { 400 - 152 + 3 * 34 * 2 } else { 0 };
+                    let b_l2 = crate::envelope::blocks(n_wait, tr, ctrl, 330) + tier_extra;
+                    let b_l1 = crate::envelope::blocks(n_wait, tr, ctrl, (40.0 / per_loader).round() as i64) + tier_extra;
+                    println!(
+                        "  blocks (estimates): station 401 + queue {} + bed tier {} + transport {} [{}] + controller {}; L2 (pearl a chunk, ring/ALIVE/counters 330): {}; L1 (portal-loop loader shared by {:.1} modules in a 3x3, no ring): {} (saves {}); golems a day per block (235.7 a module, the shared 124-block Nether kill room over 4 modules): L2 {:.3}, L1 {:.3}; area a module {:.0} (plain {} x {}) or {:.0} (mirrored-z pairs)",
+                        3 * n_wait,
+                        200 + tier_extra,
+                        tr,
+                        trs,
+                        ctrl,
+                        b_l2,
+                        per_loader,
+                        b_l1,
+                        b_l2 - b_l1,
+                        235.7 / (b_l2 as f64 + 31.0),
+                        235.7 / (b_l1 as f64 + 31.0),
+                        area_plain,
+                        al(px),
+                        al(pz),
+                        area_mirror
+                    );
+                    for n in &lay.notes {
+                        println!("  note: {n}");
+                    }
+                  }
+                }
             }
         }
         MobfarmCmd::JunctionCheck { design } => {
