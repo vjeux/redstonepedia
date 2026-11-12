@@ -190,6 +190,20 @@ pub enum MobfarmCmd {
     /// box walking, jumping 1.25, dropping up to 3; fence gates open): the highest floor reached
     /// against the ground layer (a built-in access must reach it).
     Climb { design: PathBuf },
+    /// The chunk-line crossings of a design's rails (ironspec's placement rule, Nov 11): each pair
+    /// of connected rail cells in different chunk columns, both cells' block, shape and powered
+    /// state as placed, and walking away from the line on each side the distance to the first
+    /// climb, drop, peak and powered rail; a crossing passes with plain flat cells on both sides
+    /// and no climb within 2 cells. queue-loop-run prints its summary on every run.
+    Borders {
+        design: PathBuf,
+        /// World = design + X,Z (0,0: the design's own frame is the world's).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        offset: Vec<i32>,
+        /// How far along the track each side is walked.
+        #[arg(long, default_value_t = 12)]
+        depth: usize,
+    },
     /// The farm built into a terrain sample, then the terrain track's worst-case checks for
     /// natural mobs (`hostile::check`): each channel's exposure (brief revision 8: a card line,
     /// never a refusal).
@@ -3592,6 +3606,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, stagger_common_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, reload_orders, force_phase, phase_sweep, gate_close_delay, visit, visits_nightly, visit_release_k, visit_release_cells, visit_t_at_release, visit_k_mod3, visits_observe, divert_branch, divert_at, divert_cell, t1_cell, t2_cell, siding_release_cell, rel_for, pocket_trigger, no_summons, calm, reach_probe, exposure_out, record_positions, golem_miss, no_inject, start_random, fifo_intake, esc_b, verbose_tail, tail_trace, verbose, watch, watch_cells, cross_list, watch_mob, watch_mob_slots, golem_jitter, golem_late, day_only, slept, summon_at, summon_unaligned, no_cross_push_check, placed_yaw, act, reset_queue_at, reset_stragglers, reset_stand_carts, reset_queue_every, drive_out, esc_adm, adm_k2, adm_evidence, adm_rpulse, rider_space_control, sight, p_always, adm_fault, entry_hold, hold_landing_rest, hold_strand_t, hold_progress, reg_interlock, l33_delay, adm_skip_req, arrivals_out, arrival_log, hold_back, bench_release, release_start, release_offs, release_computed, release_from, flee_gate, no_flee_check, no_eye_check, takeoff_list, calm_list, no_junction_check, esc_bands, no_blind_check, blind_all, freeze_rows, freeze_for, freeze_after, place_rest, rest_speeds, c_prime, rel_ext, rel_min, fault_table, perfect_tail, all_corners, cprime_variants, bed_distance, approach_trace, rel_clear, head_wait, head_latch, corner_table, speeds_out, rise_list } => {
             let (c, mut spec) = load(version, &design)?;
+            // (every run reports the design's chunk-line crossings: ironspec's placement rule,
+            // Nov 11; a report, the failing crossings listed)
+            println!("{}", crate::borders::summary(&c.clock.design.blocks, [0, 0], 12));
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             // (the design's own declared states and flights; a pasted part's join them, moved and
             // turned as its blocks)
@@ -5655,6 +5672,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
         }
         MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
+        MobfarmCmd::Borders { design, offset, depth } => {
+            let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            let off = match offset.as_slice() { [x, z] => [*x, *z], [] => [0, 0], _ => anyhow::bail!("--offset takes X,Z") };
+            println!("{}", crate::borders::report(&d.blocks, off, depth));
+        }
         MobfarmCmd::Trim { design, out, threads, days, runs } => crate::trim::trim_cmd(&crate::trim::TrimArgs { design, out, threads, days, runs })?,
         MobfarmCmd::Climb { design } => crate::trim::climb_cmd(&design)?,
         MobfarmCmd::Bury { design, out, cover, seeds, ticks } => {

@@ -5,6 +5,7 @@
 
 pub mod bury;
 pub mod approach;
+pub mod borders;
 pub mod carousel;
 pub mod cli;
 pub mod day1;
