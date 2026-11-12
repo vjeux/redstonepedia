@@ -37,6 +37,9 @@ pub enum MobfarmCmd {
         /// Empty carts on the ring (1, or 2 half a lap apart).
         #[arg(long, default_value_t = 1)]
         carts: usize,
+        /// The ring sealed against mobs (solid interior, outer wall, a roof over the rails).
+        #[arg(long)]
+        sealed: bool,
     },
     /// The gravity queue's napper picker, modelled on the loop's order alone (`napper.rs`): the
     /// switch on top of the climb diverts a cart to the bed, it re-enters the tail chain after its
@@ -121,6 +124,12 @@ pub enum MobfarmCmd {
         /// cart or a stranded napper).
         #[arg(long)]
         gate_carts: Option<usize>,
+        /// Cart 0 rides empty (a riderless cart carried in the loop, diverted like any pick).
+        #[arg(long)]
+        empty_cart: bool,
+        /// The register diverts the stand's cart after its batch's summon (the built W).
+        #[arg(long)]
+        register_after: bool,
         /// Fix (a): releases skipped a day.
         #[arg(long, default_value_t = 0)]
         skip_per_day: usize,
@@ -4940,7 +4949,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
             let slow_visit = match slow_visit.as_slice() {
                 [] => None,
                 [e, t] => Some((*e as usize, *t)),
@@ -4958,17 +4967,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "register" => Picker::Register(every),
                 s => bail!("--picker {s}: from-pick, from-return, anchored or register"),
             };
-            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, slow_visit, gate_carts, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing, cross_at, dusk_at };
+            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, slow_visit, gate_carts, empty_cart, register_after, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing, cross_at, dusk_at };
             let rows: Vec<(String, Opts)> = if table {
                 let reg = Opts { picker: Picker::Register(every), keep_place: true, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, register_carry: false, skip_per_day: 0, ..base.clone() };
-                let built = Opts { register_carry: true, visits: 99, spacing: 10, ..reg.clone() };
+                let built = Opts { register_carry: true, visits: 99, spacing: 10, register_after: true, ..reg.clone() };
                 let grav = Opts { picker: Picker::FromPick(k), keep_place: false, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, register_carry: false, skip_per_day: 0, trip: (200, 240), ..base.clone() };
                 let mut v: Vec<(String, Opts)> = vec![
-                    ("register as built (calibration: 22 visits a night, the cart index carried)".into(), built.clone()),
+                    ("register as built (calibration: after-stand divert, 22 visits a night, the cart index carried)".into(), built.clone()),
                     ("register as built + (a)".into(), Opts { skip_per_day: 2, ..built.clone() }),
                     ("register as built + (a) + the 21 cap".into(), Opts { skip_per_day: 2, visits: 21, ..built.clone() }),
-                    ("baseline (index reset at dusk, 21 cap)".into(), reg.clone()),
-                    ("baseline + (a)".into(), Opts { skip_per_day: 2, ..reg.clone() }),
+                    ("register, before-stand divert (index reset at dusk, 21 cap)".into(), reg.clone()),
+                    ("register, before-stand divert + (a)".into(), Opts { skip_per_day: 2, ..reg.clone() }),
                     ("gravity".into(), grav.clone()),
                     ("gravity + (b)".into(), Opts { picker: Picker::Anchored(k, offset), ..grav.clone() }),
                     ("gravity + (c) D=6, a trip inside 7 passes (the math's control)".into(), Opts { gate_m: Some(7), trip: (150, 190), ..grav.clone() }),
@@ -5022,8 +5031,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::RingBench { out, ticks, stretch, gone_at, speed, carts } => {
-            let d = crate::ringbench::design(speed, carts);
+        MobfarmCmd::RingBench { out, ticks, stretch, gone_at, speed, carts, sealed } => {
+            let d = crate::ringbench::design(speed, carts, sealed);
             std::fs::write(&out, format!("# The fast liveness ring: 24 rail cells (7 x 7), 8 detector rails every 3 cells, {carts} empty cart(s) (mctas mobfarm ring-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
             for l in crate::ringbench::bench(&spec, ticks, stretch, gone_at).map_err(|e| anyhow::anyhow!(e))? {

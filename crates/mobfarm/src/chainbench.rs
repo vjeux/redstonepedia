@@ -103,6 +103,9 @@ pub fn bench(spec: &FarmSpec, stages: i32, len: i64) -> Result<Vec<String>, Stri
     let base = free[0].unwrap_or(2) - 2;
     let (mut lo, mut hi) = (i64::MAX, i64::MIN);
     let mut hist: std::collections::BTreeMap<i64, u64> = std::collections::BTreeMap::new();
+    // (G1 Nov 11 19:43: the lag by how far after the bus rose each stage was due: d = 2(k+1) - f
+    // = 0, 1, 2 (the lockers take their own 2 gt to lock), 3..; d <= 0 is a stage already risen)
+    let mut by_d: std::collections::BTreeMap<i64, std::collections::BTreeMap<i64, u64>> = std::collections::BTreeMap::new();
     let mut worst: Vec<String> = Vec::new();
     let mut missing = 0u64;
     for f in 0..=(2 * stages as i64 + 2) {
@@ -113,6 +116,8 @@ pub fn bench(spec: &FarmSpec, stages: i32, len: i64) -> Result<Vec<String>, Stri
                 Some(m) => {
                     let lag = m - ideal;
                     *hist.entry(lag).or_default() += 1;
+                    let d = (2 * (k as i64 + 1) - f).clamp(-1, 4);
+                    *by_d.entry(d).or_default().entry(lag).or_default() += 1;
                     if lag > hi {
                         hi = lag;
                         worst.push(format!("freeze at +{f}: stage {} at {m} (ideal {ideal}, lag {lag})", k + 1));
@@ -125,6 +130,12 @@ pub fn bench(spec: &FarmSpec, stages: i32, len: i64) -> Result<Vec<String>, Stri
     }
     let h: Vec<String> = hist.iter().map(|(l, n)| format!("{l}:{n}")).collect();
     out.push(format!("a {len}-gt freeze begun at every phase 0..={} (each stage against an ideal pausable timer): lag {lo}..{hi} gt over {} stage-trials (lag:count {}); stages that never rose {missing}; the worst: {}", 2 * stages + 2, hist.values().sum::<u64>(), h.join(" "), worst.last().cloned().unwrap_or_default()));
+    let rows: Vec<String> = by_d.iter().map(|(d, m)| {
+        let label = match d { -1 => "risen before the bus (d <= 0)".to_string(), 4 => "due 4+ gt after".to_string(), d => format!("due {d} gt after") };
+        format!("{label}: {}", m.iter().map(|(l, n)| format!("{l}:{n}")).collect::<Vec<_>>().join(" "))
+    }).collect();
+    out.push(format!("the lag by when each stage was due after the bus rose (lag:count; a stage due within the lockers' own 2 gt fires unpaused, lag -{len}): {}", rows.join("; ")));
+    out.push(format!("the pause latency from a freeze: ALIVE's drop (the ring's last rising edge + the 5-gt stretcher: 3..5 gt) + the bus trunk's delay + the lockers' 2 gt; a timed stage due inside it still fires"));
     let ctl = trial(spec, stages, Some((1, 200)), 2 * stages as i64 + 260)?;
     let during = ctl.iter().filter(|r| r.is_some_and(|t| t > 3 && t <= 201)).count();
     let first_after = ctl.iter().filter_map(|r| *r).filter(|t| *t > 201).min();
