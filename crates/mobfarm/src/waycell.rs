@@ -133,22 +133,66 @@ fn feet_of(p: &P) -> Vec3 {
     Vec3::new(p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5)
 }
 
+/// Every cell placed, or the run fails naming the cells outside the world's box (ironspec 11:05:
+/// nothing silently dropped; `World::place_raw` skips a cell outside its box without a word, which
+/// let the first east ride's casing vanish).
+fn place_checked(w: &mut redsim::world::World, cells: &[(BlockPos, Block)]) -> Result<(), String> {
+    let inside = |p: &BlockPos| p.x >= w.min.x && p.x < w.min.x + w.size[0] && p.y >= w.min.y && p.y < w.min.y + w.size[1] && p.z >= w.min.z && p.z < w.min.z + w.size[2];
+    let out: Vec<BlockPos> = cells.iter().map(|(p, _)| *p).filter(|p| !inside(p)).collect();
+    if !out.is_empty() {
+        return Err(format!(
+            "{} way-in cell(s) outside the world's box {}..{}: {}",
+            out.len(),
+            w.min,
+            BlockPos::new(w.min.x + w.size[0] - 1, w.min.y + w.size[1] - 1, w.min.z + w.size[2] - 1),
+            out.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    w.place_raw(cells);
+    Ok(())
+}
+
+/// The design's box grown to hold every cell the way-in lays (the queue, the extra cells, the scan's
+/// chunk, a margin): redsim's world is the design's box, and a cell outside it is never placed (the
+/// east gap chunk's shaft, casing and queue).
+fn widened(spec: &FarmSpec, o: &Opts) -> FarmSpec {
+    let mut s = spec.clone();
+    let mut grow = |p: P| {
+        s.lo = BlockPos::new(s.lo.x.min(p[0] - 3), s.lo.y.min(p[1] - 4), s.lo.z.min(p[2] - 3));
+        s.hi = BlockPos::new(s.hi.x.max(p[0] + 3), s.hi.y.max(p[1] + 4), s.hi.z.max(p[2] + 3));
+    };
+    grow(o.queue);
+    for (p, _) in &o.extra {
+        grow(*p);
+    }
+    if let Some(p) = o.post {
+        grow(p);
+    }
+    let [x0, z0, x1, z1] = o.chunk;
+    grow([x0, o.queue[1], z0]);
+    grow([x1, o.queue[1], z1]);
+    s
+}
+
 /// The module built as the judge places it, with the post's glass and leaves and its zombie boat
 /// when given, and the queue cart with its rider; a few ticks to settle. The rider's and the
 /// zombie's (feet, eye), the world.
 fn scene(spec: &FarmSpec, o: &Opts, post: Option<P>) -> Result<(redsim::world::World, (Vec3, Vec3), Option<(Vec3, Vec3)>), String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
-    let (run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let (run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let mut w = run.world;
     // (the extra cells: the run, an occluder)
     let extra = o.extra.iter().map(|(p, b)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| format!("{b}: {e}"))?))).collect::<Result<Vec<_>, String>>()?;
-    w.place_raw(&extra);
+    place_checked(&mut w, &extra)?;
     if let Some(p) = post {
         if !o.custom_post {
-            w.place_raw(&[
-                (BlockPos::new(p[0], p[1] - 1, p[2]), Block::parse("minecraft:glass").map_err(|e| e.to_string())?),
-                (BlockPos::new(p[0], p[1] + 3, p[2]), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").map_err(|e| e.to_string())?),
-            ]);
+            place_checked(
+                &mut w,
+                &[
+                    (BlockPos::new(p[0], p[1] - 1, p[2]), Block::parse("minecraft:glass").map_err(|e| e.to_string())?),
+                    (BlockPos::new(p[0], p[1] + 3, p[2]), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").map_err(|e| e.to_string())?),
+                ],
+            )?;
         }
         redsim::entity::spawn(&mut w, "minecraft:oak_boat", [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     }
@@ -156,11 +200,12 @@ fn scene(spec: &FarmSpec, o: &Opts, post: Option<P>) -> Result<(redsim::world::W
     // (the queue cell: a shut bottom-half iron trapdoor the cart rests on, 3/16 high; or with
     // `rail`, a powered rail on glowstone ascending to the east, the cart at its middle)
     let qy = if o.rail {
-        w.place_raw(&rail_cells(q).iter().map(|(p, b, _)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| e.to_string())?))).collect::<Result<Vec<_>, String>>()?);
+        let cells = rail_cells(q).iter().map(|(p, b, _)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| e.to_string())?))).collect::<Result<Vec<_>, String>>()?;
+        place_checked(&mut w, &cells)?;
         q[1] as f64 + 0.5625
     } else {
         if w.get(BlockPos::new(q[0], q[1], q[2])).is_air() {
-            w.place_raw(&[(BlockPos::new(q[0], q[1], q[2]), Block::parse("minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]").map_err(|e| e.to_string())?)]);
+            place_checked(&mut w, &[(BlockPos::new(q[0], q[1], q[2]), Block::parse("minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]").map_err(|e| e.to_string())?)])?;
         }
         q[1] as f64 + 0.1875
     };
@@ -450,13 +495,13 @@ pub fn rail_cells(q: P) -> Vec<(P, &'static str, &'static str)> {
 /// `entry` (the stop's first rail), the rider still seated.
 pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec<String>, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
-    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
     for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
         cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
     }
-    run.world.place_raw(&cells);
+    place_checked(&mut run.world, &cells)?;
     let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
     // settle on the braked rail, then release
     for _ in 0..40 {
@@ -499,7 +544,7 @@ pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec
 /// (the most, and the most at a calm REST tick: the bar 1,000).
 pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, bed: P) -> Result<Vec<String>, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
-    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
     for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
@@ -509,7 +554,7 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
         cells.push((BlockPos::new(post[0], post[1] - 1, post[2]), Block::parse("minecraft:glass").map_err(|e| e.to_string())?));
         cells.push((BlockPos::new(post[0], post[1] + 3, post[2]), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").map_err(|e| e.to_string())?));
     }
-    run.world.place_raw(&cells);
+    place_checked(&mut run.world, &cells)?;
     redsim::entity::spawn(&mut run.world, "minecraft:oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     let nbt = format!(
         "{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}",
@@ -578,13 +623,13 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
 /// 16-ball), the tick it reaches the arrival detector and the queue cell: HOLD's lead.
 pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], hold: P, bed: P, ticks: u32) -> Result<Vec<String>, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
-    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
     for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
         cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
     }
-    run.world.place_raw(&cells);
+    place_checked(&mut run.world, &cells)?;
     let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{{id:\"minecraft:villager\"}}]}}", motion[0], motion[1], motion[2])))?;
     let head = Vec3::new(bed[0] as f64 + 0.5, bed[1] as f64 + 0.5625, bed[2] as f64 + 0.5);
     let arrival = [q[0] + 1, q[1] + 1, q[2]];
@@ -713,4 +758,22 @@ pub fn scan(spec: &FarmSpec, o: &Opts) -> Result<Vec<String>, String> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// (ironspec 11:05: nothing silently dropped) a way-in cell outside the world's box fails the
+    /// run, naming the cell; one inside is placed.
+    #[test]
+    fn a_cell_outside_the_world_fails() {
+        let mut w = redsim::world::World::new(BlockPos::new(0, 0, 0), [4, 4, 4]);
+        let g = Block::parse("minecraft:glass").unwrap();
+        assert!(place_checked(&mut w, &[(BlockPos::new(1, 1, 1), g)]).is_ok());
+        assert!(!w.get(BlockPos::new(1, 1, 1)).is_air());
+        let e = place_checked(&mut w, &[(BlockPos::new(2, 2, 2), g), (BlockPos::new(9, 1, 1), g)]).unwrap_err();
+        assert!(e.contains("1 way-in cell(s) outside"), "{e}");
+        assert!(w.get(BlockPos::new(2, 2, 2)).is_air(), "nothing placed when any cell is outside");
+    }
 }

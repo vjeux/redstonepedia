@@ -17,8 +17,8 @@ entity: minecraft:oak_boat -4.5 -18 3.5 {Passengers:[{id:"minecraft:zombie",Pers
 entity: minecraft:oak_boat -4.5 -1 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat -4.5 -4 -1.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 1.5 25 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
-entity: minecraft:minecart 8.5 -13.4375 -5.5 {Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
-entity: minecraft:oak_boat 6.5 -11 1.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:minecart 13.5 -13.4375 -5.5 {Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 15.5 -20 -3.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 origin: -6 0 -6
 palette:
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
@@ -72,6 +72,23 @@ palette:
   w minecraft:tripwire_hook[attached=true,facing=east,powered=false]
   x minecraft:tripwire_hook[attached=true,facing=west,powered=false]
   y minecraft:water[level=0]
+layer -21:
+  .
+  .
+  .....................g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
 layer -20:
   .
   .
@@ -124,9 +141,9 @@ layer -18:
   .
   .
 layer -17:
-  ..........qqg
-  ....gI.pqjq
-  ....g...H
+  ..........gggggggg
+  ....gI.pqjg
+  ....g...H............o
   ....g...H
   ....g...H
   ....ggHHH
@@ -141,7 +158,7 @@ layer -17:
   .
   .
 layer -16:
-  ........j.cYrg
+  ........j.cYYYYYYrg
   .....t..AUb
   .......g.g
   .......g.g
@@ -158,7 +175,7 @@ layer -16:
   .
   .
 layer -15:
-  ........g....dH
+  ........g.........dH
   .......gII
   .......g.g
   .......g.g
@@ -175,7 +192,7 @@ layer -15:
   .
   .
 layer -14:
-  ..............pg
+  ...................pg
   ........gg
   .
   .
@@ -192,7 +209,7 @@ layer -14:
   .
   .
 layer -13:
-  ...............d
+  ....................d
   .
   .
   .
@@ -216,7 +233,7 @@ layer -12:
   .
   .
   .
-  ............g
+  .
   .
   ............g
   ...........gBg
@@ -227,14 +244,14 @@ layer -12:
   .
 layer -11:
   .
-  ..............g
   .
   .
   .
   .
   .
-  ...........g.g
-  ............g
+  .
+  .
+  .
   ............g
   ...........gBg
   ............g
@@ -249,9 +266,9 @@ layer -10:
   .
   .
   .
-  .............g
-  ...........g.g
-  ............g
+  .
+  .
+  .
   ............g
   ...........gBg
   ............g
@@ -267,7 +284,7 @@ layer -9:
   ....PPPPPPPPPP
   .
   .
-  ............g
+  .
   .
   ............g
   ...........gBg
@@ -770,36 +787,36 @@ layer 20:
   .g
   .
 layer 21:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ..HHHW...W...W
+  ...............ggggg.g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ..HHHW...W...W.g
   .g...gH..gH..g
   gBg...H...H
   .g....H...H
   .
 layer 22:
-  .
-  .
-  .
-  .........g
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .g...W...W...W
+  ...............cYYYY.g
+  ...............a
+  ...............a
+  .........g.....a
+  ...............a
+  ...............a
+  ...............a
+  ...............a
+  ...............a
+  ...............a
+  ...............a
+  ...............W
+  .g...W...W...W.g
   gBg..g...g...g
   .g.g...g...g
   .
@@ -816,8 +833,8 @@ layer 23:
   .
   .
   .g
-  gyggg..gg..gg
-  g.gqgg.qgg.qgg
+  gyggg..gg..gg..W
+  g.gqgg.qgg.qgg.g
   jT.k.g.k.g.k.g
   .gg
 layer 24:
@@ -834,8 +851,8 @@ layer 24:
   .
   .....g...g...g
   .g.ce..ce..ce
-  .g.QZb.QZb.QZb
-  g..g.E.g.E.g.E
+  .g.QZb.QZb.QZb.W
+  g..g.E.g.E.g.E.g
   .Zrggggggggggggg
 layer 25:
   .......g
@@ -852,8 +869,8 @@ layer 25:
   .
   .
   .
-  ...a...a...a
-  ...ZYZYZYZYZYbYY
+  ...a...a...a...a
+  ...ZYZYZYZYZYbYb
 layer 26:
   .......g
   ......g.g
