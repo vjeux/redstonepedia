@@ -34,6 +34,9 @@ type P = [i32; 3];
 pub const ITEM: &str = "cobblestone";
 /// The piglin's reach: its box (1.95) over the frame's bottom obsidian (y 10).
 pub const PIGLIN_REACH_Y: f64 = 11.95;
+/// A jumping baby's (tick-exact: a Nether baby piglin that crossed and zombified, empty-handed with
+/// loot pickup): its 0.975 box at the jump's apex reaches 2.227 over the portal's floor.
+pub const PIGLIN_JUMP_REACH_Y: f64 = 12.227;
 
 /// One side: `s` (+1: its dropper and floor at z >= 1, -1: z <= -1), its dropper column, the
 /// other side's column (where this side's arrivals come out).
@@ -45,35 +48,36 @@ pub struct Side {
     /// The firing dropper's y (12, or 13 in a 4-row portal: items start a row higher), fed from
     /// y 11 by up-facing droppers.
     pub fire_y: i32,
+    /// The far face's walled rows from the bottom (2: the bottom two, the rule; the height: all).
+    pub far_rows: i32,
 }
 
 impl Side {
     pub fn d2(&self) -> P {
         [self.col, self.fire_y, self.s]
     }
-    pub fn d1(&self) -> P {
-        [self.col, 11, self.s]
+    /// The pocket floor's cells' y (its top 1 above): 2 under the firing row (5 rows, fire 14:
+    /// floor 12, its top 3.0 over the portal's floor (y 10), out of a jumping baby's reach, 2.227).
+    pub fn floor_y(&self) -> i32 {
+        self.fire_y - 2
     }
-    /// The observer pair: O1 (output into D2) and O2.
+    /// The bottom feeder (the hopper row feeds it).
+    pub fn d1(&self) -> P {
+        [self.col, self.floor_y(), self.s]
+    }
+    /// The observer pair: O1 (its output into the feeder under D2) and O2.
     pub fn observers(&self) -> [P; 2] {
-        [[self.col, 12, 2 * self.s], [self.col, 12, 3 * self.s]]
+        [[self.col, self.fire_y - 1, 2 * self.s], [self.col, self.fire_y - 1, 3 * self.s]]
     }
     /// The floor columns: the other side's column and its two neighbours (in the portal, not D2's).
     pub fn floor_cols(&self, width: i32) -> Vec<i32> {
         ((self.other - 1)..=(self.other + 1)).filter(|x| *x >= 0 && *x < width && *x != self.col).collect()
     }
-    /// The collecting hoppers (y 11, two off the plane: beyond a bottom-row piglin's 1-block reach,
-    /// z 0.2..0.8 + 1), under the flowing water; the one under O1 feeds D1.
-    pub fn floor(&self, width: i32) -> Vec<P> {
-        let mut v: Vec<P> = self.floor_cols(width).into_iter().map(|x| [x, 11, 2 * self.s]).collect();
-        v.push([self.col, 11, 2 * self.s]);
-        v
-    }
-    fn blocks(&self, width: i32, height: i32, out: &mut BTreeMap<P, String>, be: &mut BTreeMap<P, String>, items: u32) {
+    fn blocks(&self, width: i32, height: i32, hopper_floor: bool, out: &mut BTreeMap<P, String>, be: &mut BTreeMap<P, String>, items: u32) {
         let glass = "minecraft:glass".to_string();
         let (s, c) = (self.s, self.col);
-        // (the portal's interior rows y 10 .. 9 + height; the frame's top at 10 + height: with 4
-        // rows a slow item fired in the third row arcs under the top before it reaches the face)
+        let fy = self.floor_y();
+        // (the portal's interior rows y 10 .. 9 + height; the frame's top at 10 + height)
         let (top, cap) = (9 + height, 10 + height);
         for y in 10..=top {
             out.insert([-1, y, 0], "minecraft:obsidian".into());
@@ -84,17 +88,21 @@ impl Side {
             out.insert([x, cap, 0], "minecraft:obsidian".into());
             for y in 10..=top {
                 out.insert([x, y, 0], "minecraft:nether_portal[axis=x]".into());
-                // the far face walled: nothing leaves the plane there, and a piglin in the bottom
-                // row can't step out that way
-                out.insert([x, y, -s], glass.clone());
+                // the far face walled in its bottom `far_rows` rows: a mob in the bottom rows
+                // can't step out that way (nothing leaves the plane there: the side's own items
+                // cross at once, the arrivals move to the exit face)
+                if y < 10 + self.far_rows {
+                    out.insert([x, y, -s], glass.clone());
+                }
             }
         }
         let toward = if s > 0 { "north" } else { "south" };
         let away = if s > 0 { "south" } else { "north" };
         out.insert(self.d2(), format!("minecraft:dropper[facing={toward},triggered=false]"));
-        // (the feeders: up-facing droppers from y 11 to under D2; O1 powers the one at y 12 (D2
-        // itself when it fires at 12), which as a conductor powers the droppers next to it)
-        for y in 11..self.fire_y {
+        // (the feeders: up-facing droppers from the floor's y to under D2; O1 powers the one under
+        // D2, which as a conductor powers D2 and the one under it, and O1's front update reaches
+        // both on the falling edge)
+        for y in fy..self.fire_y {
             out.insert([c, y, s], "minecraft:dropper[facing=up,triggered=false]".into());
         }
         let half = items / 2;
@@ -103,52 +111,56 @@ impl Side {
             be.insert(self.d1(), format!("{{Items:[{{Slot:0b,id:\"minecraft:{ITEM}\",count:{}}}]}}", half - 1));
         }
         let cols = self.floor_cols(width);
-        // the near row (z s): the portal's bottom two rows closed on this face (y 10 glass, y 11
-        // full blocks: D1, ice or glass; ironspec 00:30: a baby or a chicken jockey fits a 1-high
-        // gap), so a mob in the bottom rows never leaves; the items come out of the top row onto
-        // ICE in the floor columns (top 12, out of a bottom-row mob's reach; ice: no spawns but a
-        // polar bear's; slippery, so an item that lands slides on to the hoppers), glass elsewhere
+        let along = |x: i32| if x > c { "west" } else { "east" };
+        // the near row (z s): the exit face closed below the floor (y 10 .. fy - 1 glass) and at
+        // the floor (hoppers in the floor columns, glass elsewhere, the feeder in c), so a mob in
+        // the bottom rows never leaves; the items come out of the rows over the floor onto it: with
+        // `hopper_floor` hoppers along x into the bottom feeder (no spawns on a hopper; an item in
+        // the bowl sits at fy + 0.6875, over a jumping baby's reach), else packed ice (the 4-row
+        // variant: an item slides on to the hopper row)
         for x in -1..=width {
-            out.insert([x, 10, s], glass.clone());
+            for y in 10..fy {
+                out.insert([x, y, s], glass.clone());
+            }
             if x == c {
                 continue;
             }
-            // (packed ice: redsim models its friction, 0.98, not plain ice's; plain ice takes no
-            // spawn but a polar bear's, packed ice takes them: the build's floor is tick-exact's
-            // cells, this one benches the clock and the flow)
-            out.insert([x, 11, s], if cols.contains(&x) { "minecraft:packed_ice".into() } else { glass.clone() });
-            if !cols.contains(&x) {
-                for y in 12..=top {
+            if cols.contains(&x) {
+                out.insert([x, fy, s], if hopper_floor { format!("minecraft:hopper[enabled=true,facing={}]", along(x)) } else { "minecraft:packed_ice".into() });
+            } else {
+                out.insert([x, fy, s], glass.clone());
+                for y in fy + 1..=top {
                     out.insert([x, y, s], glass.clone());
                 }
             }
         }
-        // the hopper row (z 2s): the floor columns' hoppers point along x toward the one under O1,
-        // which points into D1; glass in the other columns at y 11 and 12 (the water's bounds)
-        for p in self.floor(width) {
-            let facing = if p[0] == c {
-                toward
-            } else if p[0] > c {
-                "west"
-            } else {
-                "east"
-            };
-            out.insert(p, format!("minecraft:hopper[enabled=true,facing={facing}]"));
+        // the hopper row (z 2s): with a hopper floor, its hoppers point back into the near row's;
+        // else they point along x toward the one in c, which points into the bottom feeder; glass in
+        // the other columns at fy and fy + 1 (the row's bounds)
+        for x in cols.iter().copied() {
+            let facing = if hopper_floor { toward } else { along(x) };
+            out.insert([x, fy, 2 * s], format!("minecraft:hopper[enabled=true,facing={facing}]"));
+        }
+        if hopper_floor {
+            out.insert([c, fy, 2 * s], glass.clone());
+        } else {
+            out.insert([c, fy, 2 * s], format!("minecraft:hopper[enabled=true,facing={toward}]"));
         }
         for x in -1..=width {
             if x == c || cols.contains(&x) {
                 continue;
             }
-            out.insert([x, 11, 2 * s], glass.clone());
-            out.insert([x, 12, 2 * s], glass.clone());
+            out.insert([x, fy, 2 * s], glass.clone());
+            out.insert([x, fy + 1, 2 * s], glass.clone());
         }
-        // the backstop (z 3s, y 12..13) over the whole width, O2's cell aside; the enclosure: a
-        // glass roof at y 13 over the near and hopper rows, walls at x -1 and x width (y 10..13),
-        // so nothing walks in and no floor inside takes a spawn (ice, hoppers, glass; the
-        // droppers' and observers' tops under the roof)
+        // the backstop (z 3s, fy + 1 .. cap) over the whole width, O2's cell aside; the enclosure:
+        // a glass roof at the cap over the near and hopper rows, walls at x -1 and x width (y 10 ..
+        // cap), so nothing walks in and no floor inside takes a spawn (hoppers, glass; the droppers'
+        // and observers' tops under the roof)
+        let [o1, o2] = self.observers();
         for x in -1..=width {
-            for y in 12..=cap {
-                if x == c && y == 12 {
+            for y in fy + 1..=cap {
+                if [x, y, 3 * s] == o2 {
                     continue;
                 }
                 out.insert([x, y, 3 * s], glass.clone());
@@ -163,27 +175,26 @@ impl Side {
                 out.insert([width, y, z], glass.clone());
             }
         }
-        // the clock: O1 faces O2 (its back, the output, into D2), O2 faces O1
-        let [o1, o2] = self.observers();
+        // the clock: O1 faces O2 (its back, the output, into the feeder under D2), O2 faces O1
         out.insert(o1, format!("minecraft:observer[facing={away},powered=false]"));
         out.insert(o2, format!("minecraft:observer[facing={toward},powered=false]"));
     }
 }
 
-pub fn sides(width: i32, fire_y: i32) -> (Side, Side) {
-    (Side { s: 1, col: 1, other: width - 2, fire_y }, Side { s: -1, col: width - 2, other: 1, fire_y })
+pub fn sides(width: i32, fire_y: i32, far_rows: i32) -> (Side, Side) {
+    (Side { s: 1, col: 1, other: width - 2, fire_y, far_rows }, Side { s: -1, col: width - 2, other: 1, fire_y, far_rows })
 }
 
-pub fn design_text(width: i32, height: i32, fire_y: i32, items: u32) -> String {
-    let (a, b) = sides(width, fire_y);
+pub fn design_text(width: i32, height: i32, fire_y: i32, far_rows: i32, hopper_floor: bool, items: u32) -> String {
+    let (a, b) = sides(width, fire_y, far_rows);
     let mut d = Design { name: "l1-item-loop-bench".into(), ..Default::default() };
-    a.blocks(width, height, &mut d.blocks, &mut d.block_entities, items);
-    b.blocks(width, height, &mut d.nether_blocks, &mut d.nether_block_entities, items);
+    a.blocks(width, height, hopper_floor, &mut d.blocks, &mut d.block_entities, items);
+    b.blocks(width, height, hopper_floor, &mut d.nether_blocks, &mut d.nether_block_entities, items);
     d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     d.ports.insert("output".into(), [width + 6, 10, 8]);
     d.ports.insert("nether-anchor".into(), [0, 0, 0]);
     d.ports.insert("nether-axis".into(), [1, 0, 0]);
-    let mut t = format!("# L1''' item-loop loader bench (onechunk, Nov 12): portals {width} x {height}; on each side a firing dropper at y 12 (above a bottom-row mob's reach) fed by an up-facing dropper, the exit side's bottom two rows closed, packed ice and a hopper row past the frame at y 11, a far-face wall, a backstop, and the clock: two observers facing each other behind the firing dropper (REAL, not emulated); {items} items\n");
+    let mut t = format!("# L1''' item-loop loader bench (onechunk, Nov 12): portals {width} x {height}; on each side a firing dropper at y {fire_y} (the top row) fed by up-facing droppers, the exit face closed below and at the pocket floor (its top at y {}), the floor {} and a hopper row past the frame, the far face closed in its bottom {far_rows} rows, a backstop, a glass enclosure, and the clock: two observers facing each other behind the firing column (REAL, not emulated); {items} items\n", fire_y - 1, if hopper_floor { "hoppers" } else { "packed ice" });
     t.push_str(&d.to_text());
     t
 }
@@ -195,6 +206,10 @@ pub struct Opts {
     pub height: i32,
     /// The firing dropper's y (12, or 13 with 4 rows).
     pub fire_y: i32,
+    /// The far face's walled rows from the bottom.
+    pub far_rows: i32,
+    /// The pocket floor: hoppers (the ruling: no spawnable floor) or packed ice.
+    pub hopper_floor: bool,
     pub items: u32,
     pub ticks: i64,
     /// (from, len, worlds: 1 overworld, 2 Nether, 3 both): redsim's level-32 freeze.
@@ -208,6 +223,8 @@ pub struct Opts {
     /// A mob placed in a bottom row at column X at time T (AI on), on side bits (1 A, 2 B, 3 both),
     /// kind 0 an adult zombified piglin, 1 a baby, 2 a chicken jockey.
     pub piglins: Vec<(i64, i32, u8, u8)>,
+    /// Every N gt each mob on the ground jumps (its box toward the jump's reach).
+    pub mob_jump: Option<i64>,
     pub seeds: Vec<i64>,
     pub trace: bool,
 }
@@ -263,7 +280,16 @@ pub struct RunOut {
     pub spread: [[f64; 4]; 2],
     /// The flight's least clearance per side: to the frame's sides (x), to the top frame (y 13),
     /// and to a piglin's reach (11.95) while within 2.3 of the plane on the arrival side.
-    pub clear: [[f64; 3]; 2],
+    pub clear: [[f64; 4]; 2],
+    /// Each arrival's largest drift from its column's centre outside the plane, per side: the
+    /// arrivals tracked, past 0.375 (a 1-cell pocket's edge), past 0.875, at a wall (1.37+).
+    pub drift: [[usize; 4]; 2],
+    pub drift_max: [f64; 2],
+    /// At the face crossing (the first tick an arrival's box reaches the exit face; G1: a 1-cell
+    /// pocket loses it if its box meets the glass beside the opening then): per side, the arrivals
+    /// seen crossing, those past 0.375 from the column's centre, the largest offset, and the
+    /// flight time from the arrival (min, max, sum).
+    pub face: [(usize, usize, f64, i64, i64, i64); 2],
     pub errors: Vec<String>,
     pub log: Vec<String>,
     pub stuck_log: Vec<String>,
@@ -290,7 +316,7 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
         w.drop_seed = Some(seed ^ k);
         w.entity_chunks = Some([-2, -2, 1, 1]);
     }
-    let (a, b) = sides(width, o.fire_y);
+    let (a, b) = sides(width, o.fire_y, o.far_rows);
     let air = Block::parse("minecraft:air")?;
     // the clocks' start: O2 taken and put back (O1 sees it; in the build, O2 placed last)
     for (wi, side) in [(0usize, &a), (1usize, &b)] {
@@ -302,7 +328,7 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
         w.set_block(p, st, redsim::world::flags::ALL);
     }
     let start = run.world.time;
-    let mut out = RunOut { seed, spread: [[f64::MAX, f64::MIN, f64::MAX, f64::MIN]; 2], clear: [[f64::MAX; 3]; 2], ..Default::default() };
+    let mut out = RunOut { seed, spread: [[f64::MAX, f64::MIN, f64::MAX, f64::MIN]; 2], clear: [[f64::MAX; 4]; 2], ..Default::default() };
     let mut seen: [BTreeSet<u32>; 2] = [BTreeSet::new(), BTreeSet::new()];
     let mut arrivals: [Vec<i64>; 2] = [Vec::new(), Vec::new()];
     let mut arriving: [BTreeSet<u32>; 2] = [BTreeSet::new(), BTreeSet::new()];
@@ -312,6 +338,9 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
     let mut login_until: i64 = i64::MIN;
     let mut min_count = u32::MAX;
     let mut mobs_out: BTreeSet<(usize, u32)> = BTreeSet::new();
+    let mut drift: BTreeMap<(usize, u32), f64> = BTreeMap::new();
+    let mut arrived_at: BTreeMap<(usize, u32), i64> = BTreeMap::new();
+    let mut crossed: BTreeSet<(usize, u32)> = BTreeSet::new();
     for _ in 0..o.ticks {
         let t = run.world.time;
         let rel = t - start;
@@ -325,7 +354,8 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
                     let w = world_mut(&mut run, wi);
                     let at = [x as f64 + 0.5, 10.0, 0.5];
                     let loot = Some("{CanPickUpLoot:1b,PortalCooldown:300}");
-                    let (id, what) = match kind {
+                    let armed = kind & 4 != 0;
+                    let (id, what) = match kind & 3 {
                         1 => (redsim::entity::spawn(w, "baby_zombified_piglin", at, loot)?, "a baby zombified piglin"),
                         2 => {
                             let ch = redsim::entity::spawn(w, "minecraft:chicken", at, Some("{IsChickenJockey:1b,PortalCooldown:300}"))?;
@@ -335,10 +365,29 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
                         }
                         _ => (redsim::entity::spawn(w, "minecraft:zombified_piglin", at, loot)?, "an adult zombified piglin"),
                     };
-                    // (the positive control: a stone item at its feet, inside its reach, which it
-                    // must take: the pickup is modeled)
-                    redsim::entity::spawn(w, "minecraft:item", [x as f64 + 0.5, 10.1, 0.5], Some("{Item:{id:\"minecraft:stone\",count:1},PickupDelay:0}"))?;
-                    out.control.push(format!("t {rel}: {what} (id {id}, loot pickup on, empty hand) placed in {}'s bottom row at column {x}, a stone item at its feet (the control)", if wi == 0 { "A" } else { "B" }));
+                    // (armed: as a portal piglin spawns, a golden sword in its main hand
+                    // (populateDefaultEquipmentSlots), loot pickup forced on)
+                    if armed {
+                        redsim::entity::mob::set_hand(w, id, true, Some(("minecraft:golden_sword", false)), &[]);
+                    }
+                    // (the positive control at its feet, inside its reach: an empty-handed mob must
+                    // take a stone; an armed one an iron sword (a better weapon): the pickup is
+                    // modeled and in reach)
+                    let ctl = if armed { "iron_sword" } else { "stone" };
+                    redsim::entity::spawn(w, "minecraft:item", [x as f64 + 0.5, 10.1, 0.5], Some(&format!("{{Item:{{id:\"minecraft:{ctl}\",count:1}},PickupDelay:0}}")))?;
+                    out.control.push(format!("t {rel}: {what} (id {id}, loot pickup on, {}) placed in {}'s bottom row at column {x}, a {ctl} item at its feet (the control)", if armed { "a golden sword in hand" } else { "empty hand" }, if wi == 0 { "A" } else { "B" }));
+                }
+            }
+        }
+        // (forced jumps: every `mob_jump` gt each mob on the ground jumps, its box lifted toward the
+        // jump's reach)
+        if let Some(n) = o.mob_jump
+            && rel % n == 0
+        {
+            for wi in 0..2usize {
+                let w = world_mut(&mut run, wi);
+                for e in w.entities.list.iter_mut().filter(|e| !e.removed && e.on_ground && matches!(e.kind, EntityKind::Mob(_))) {
+                    e.delta_movement.y = 0.42;
                 }
             }
         }
@@ -406,6 +455,7 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
                     if e.3 > 0 {
                         // a crossing's copy
                         arriving[wi].insert(e.0);
+                        arrived_at.insert((wi, e.0), t);
                         if wi == 0 {
                             arrivals[0].push(rel);
                         }
@@ -428,6 +478,23 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
                     inside_since.remove(&(wi, e.0));
                 }
                 if arriving[wi].contains(&e.0) {
+                    // the face crossing: the first tick its box reaches the exit face (A's at z 1,
+                    // B's at z 0)
+                    let at_face = if side.s > 0 { e.1[2] + 0.125 >= 1.0 } else { e.1[2] - 0.125 <= 0.0 };
+                    if at_face && !crossed.contains(&(wi, e.0)) {
+                        crossed.insert((wi, e.0));
+                        let off = (e.1[0] - (side.other as f64 + 0.5)).abs();
+                        let ft = t - arrived_at.get(&(wi, e.0)).copied().unwrap_or(t);
+                        let f = &mut out.face[wi];
+                        f.0 += 1;
+                        if off > 0.375 {
+                            f.1 += 1;
+                        }
+                        f.2 = f.2.max(off);
+                        f.3 = if f.0 == 1 { ft } else { f.3.min(ft) };
+                        f.4 = f.4.max(ft);
+                        f.5 += ft;
+                    }
                     let az = e.1[2] * side.s as f64;
                     let c = &mut out.clear[wi];
                     // in the plane (its box within z 0..1): the frame's sides and top
@@ -435,11 +502,13 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
                         c[0] = c[0].min((e.1[0] - 0.125).min(width as f64 - (e.1[0] + 0.125)));
                         c[1] = c[1].min((10 + o.height) as f64 - (e.1[1] + 0.25));
                     }
-                    // a piglin standing anywhere in the bottom row (its box z 0.2..0.8, 1.95 tall)
-                    // takes items inside its box inflated 1 on x and z (0 on y): an item whose box
-                    // (half 0.125) meets z -0.8..1.8, against y 11.95
-                    if e.1[2] > -0.925 && e.1[2] < 1.925 {
+                    // a mob standing anywhere in the bottom row (its box anywhere in the cell's
+                    // depth z 0..1, 1.95 tall) takes items inside its box inflated 1 on x and z (0
+                    // on y): an item whose box (half 0.125) meets z -1..2, against y 11.95; a
+                    // jumping one's box reaches ~13.2 (the jump's 1.25 over the floor)
+                    if e.1[2] > -1.125 && e.1[2] < 2.125 {
                         c[2] = c[2].min(e.1[1] - PIGLIN_REACH_Y);
+                        c[3] = c[3].min(e.1[1] - PIGLIN_JUMP_REACH_Y);
                     }
                     if az > 1.125 {
                         let sp = &mut out.spread[wi];
@@ -447,6 +516,9 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
                         sp[1] = sp[1].max(e.1[0]);
                         sp[2] = sp[2].min(az);
                         sp[3] = sp[3].max(az);
+                        let d = (e.1[0] - (side.other as f64 + 0.5)).abs();
+                        let m = drift.entry((wi, e.0)).or_insert(0.0);
+                        *m = m.max(d);
                     }
                 }
             }
@@ -474,6 +546,20 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
     let end_total = items_in(&run.world).0 + items_in(n).0;
     out.held_by_mob = held_in(&run.world) + held_in(n);
     out.mobs_out = mobs_out.len();
+    for ((wi, _), d) in &drift {
+        let k = &mut out.drift[*wi];
+        k[0] += 1;
+        if *d > 0.375 {
+            k[1] += 1;
+        }
+        if *d > 0.875 {
+            k[2] += 1;
+        }
+        if *d >= 1.37 {
+            k[3] += 1;
+        }
+        out.drift_max[*wi] = out.drift_max[*wi].max(*d);
+    }
     if !o.piglins.is_empty() {
         let mut piglins = 0;
         let mut with_stone = 0;
@@ -483,12 +569,12 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
                     continue;
                 }
                 piglins += 1;
-                if redsim::entity::mob::mob(w, i).mainhand.as_ref().is_some_and(|h| h.item.trim_start_matches("minecraft:") == "stone") {
+                if redsim::entity::mob::mob(w, i).mainhand.as_ref().is_some_and(|h| matches!(h.item.trim_start_matches("minecraft:"), "stone" | "iron_sword")) {
                     with_stone += 1;
                 }
             }
         }
-        out.control.push(format!("the control at the end: {with_stone} of {piglins} piglins hold the stone placed at their feet (the pickup modeled{}); {} hold a loop item", if with_stone > 0 { "" } else { ": NOT SEEN" }, out.held_by_mob));
+        out.control.push(format!("the control at the end: {with_stone} of {piglins} mobs hold the control item placed at their feet (a stone, or an iron sword for an armed one: the pickup modeled{}); {} hold a loop item", if with_stone > 0 { "" } else { ": NOT SEEN" }, out.held_by_mob));
     }
     // (lost: gone from the loop, an item a mob holds included)
     out.lost = o.items.saturating_sub(end_total.min(min_count)) + out.held_by_mob;
@@ -573,11 +659,14 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
         let worst = runs.iter().map(|r| r.worst_gap[wi]).max().unwrap_or(0);
         let arr: Vec<usize> = runs.iter().map(|r| r.arrivals[wi]).collect();
         let sp = runs.iter().fold([f64::MAX, f64::MIN, f64::MAX, f64::MIN], |a, r| [a[0].min(r.spread[wi][0]), a[1].max(r.spread[wi][1]), a[2].min(r.spread[wi][2]), a[3].max(r.spread[wi][3])]);
-        let cl = runs.iter().fold([f64::MAX; 3], |a, r| [a[0].min(r.clear[wi][0]), a[1].min(r.clear[wi][1]), a[2].min(r.clear[wi][2])]);
-        let side = if wi == 0 { sides(o.width, o.fire_y).0 } else { sides(o.width, o.fire_y).1 };
+        let cl = runs.iter().fold([f64::MAX; 4], |a, r| [a[0].min(r.clear[wi][0]), a[1].min(r.clear[wi][1]), a[2].min(r.clear[wi][2]), a[3].min(r.clear[wi][3])]);
+        let dr = runs.iter().fold([0usize; 4], |a, r| [a[0] + r.drift[wi][0], a[1] + r.drift[wi][1], a[2] + r.drift[wi][2], a[3] + r.drift[wi][3]]);
+        let dmax = runs.iter().map(|r| r.drift_max[wi]).fold(0.0f64, f64::max);
+        let side = if wi == 0 { sides(o.width, o.fire_y, o.far_rows).0 } else { sides(o.width, o.fire_y, o.far_rows).1 };
         let (fx0, fx1) = ((side.other - 1).max(0) as f64, ((side.other + 1).min(o.width - 1) + 1) as f64);
+        let pct = |k: usize| if dr[0] == 0 { 0.0 } else { 100.0 * k as f64 / dr[0] as f64 };
         s.push_str(&format!(
-            "side {name}: arrivals a seed {}..{}; worst gap {} gt (margin {} to 300)\n  landing spread x {:.2}..{:.2}, |z| {:.2}..{:.2} against the floor x {:.0}..{:.0} (margins {:.2} / {:.2}) and the backstop at |z| 3 (margin {:.2}); the flight's least clearance: frame sides {:.3}, top frame {:.3}, a piglin's reach {:.3}\n",
+            "side {name}: arrivals a seed {}..{}; worst gap {} gt (margin {} to 300)\n  landing spread x {:.2}..{:.2}, |z| {:.2}..{:.2} against the floor x {:.0}..{:.0} (margins {:.2} / {:.2}) and the backstop at |z| 3 (margin {:.2}); the flight's least clearance: frame sides {:.3}, top frame {:.3}, a standing bottom-row mob's reach (11.95) {:.3}, a jumping baby's (12.227) {:.3}\n  each arrival's largest drift from its column's centre (x {}.5) outside the plane: {} arrivals; past 0.375 (a 1-cell pocket's edge) {} ({:.2}%), past 0.875 {} ({:.2}%), at a wall (1.37+) {} ({:.2}%); the largest {:.3}\n",
             arr.iter().min().unwrap_or(&0),
             arr.iter().max().unwrap_or(&0),
             worst,
@@ -586,7 +675,16 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
             fx0, fx1,
             sp[0] - fx0, fx1 - sp[1],
             3.0 - (sp[3] + 0.125),
-            cl[0], cl[1], cl[2]
+            cl[0], cl[1], cl[2], cl[3],
+            side.other, dr[0], dr[1], pct(dr[1]), dr[2], pct(dr[2]), dr[3], pct(dr[3]), dmax
+        ));
+        let fc = runs.iter().fold((0usize, 0usize, 0.0f64, i64::MAX, 0i64, 0i64), |a, r| {
+            let f = r.face[wi];
+            (a.0 + f.0, a.1 + f.1, a.2.max(f.2), if f.0 > 0 { a.3.min(f.3) } else { a.3 }, a.4.max(f.4), a.5 + f.5)
+        });
+        s.push_str(&format!(
+            "  at the face crossing (the first tick an arrival's box reaches the exit face): {} arrivals; offset from the column's centre past 0.375 {} ({:.3}%); the largest {:.3}; flight time from the arrival {}..{} gt (mean {:.1})\n",
+            fc.0, fc.1, if fc.0 == 0 { 0.0 } else { 100.0 * fc.1 as f64 / fc.0 as f64 }, fc.2, if fc.3 == i64::MAX { 0 } else { fc.3 }, fc.4, if fc.0 == 0 { 0.0 } else { fc.5 as f64 / fc.0 as f64 }
         ));
     }
     for r in fails.iter().take(6) {

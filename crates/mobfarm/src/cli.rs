@@ -1126,12 +1126,13 @@ pub enum MobfarmCmd {
     },
     /// (onechunk 2026-11-11/12; farmopt 22:22, tick-exact's code reads, G1's CHANGES 4) L1‴, the
     /// item-loop loader, benched in redsim (`mobfarm::l1items`): a same-axis portal pair; on each
-    /// side a firing dropper in the top row's height fed by an up-facing dropper, water and a
-    /// hopper row past the frame (the exit side sealed over the bottom row), a far-face wall, a
-    /// backstop and a REAL observer clock; dedicated items. Over many seeds (threads): failures
-    /// with their Wilson interval, each side's worst gap against the 300-gt ticket, items lost or
-    /// held by a mob, items held in a portal, the landing spread against the floor and backstop,
-    /// the flight's clearance to the frame and to a bottom-row piglin's reach.
+    /// side a firing dropper at y 12 or 13 (`--fire-y`) fed by up-facing droppers, the exit face's
+    /// bottom two rows closed, packed ice and a hopper row past the frame, a far-face wall
+    /// (`--far-rows`), a backstop, a glass enclosure and a REAL observer clock; dedicated items.
+    /// Over many seeds (threads): failures with their Wilson interval, each side's worst gap
+    /// against the 300-gt ticket, items lost or held by a mob, items held in a portal, the landing
+    /// spread against the floor and backstop and each arrival's drift from its column's centre,
+    /// the flight's clearance to the frame and to a bottom-row mob's reach (standing and jumping).
     L1ItemBench {
         #[arg(long)]
         design_out: Option<PathBuf>,
@@ -1140,11 +1141,19 @@ pub enum MobfarmCmd {
         width: i32,
         /// The portals' interior rows (3: the firing dropper's y 12 is the top row; 4: a row over
         /// it, room for a slow item's arc).
-        #[arg(long, default_value_t = 3)]
+        #[arg(long, default_value_t = 5)]
         height: i32,
-        /// The firing dropper's y (12: the top row of 3; 13: the top row of 4, items a row higher).
-        #[arg(long, default_value_t = 12)]
+        /// The firing dropper's y: the top row (13 in 4 rows, 14 in 5: the ruling); the pocket floor 2 under it.
+        #[arg(long, default_value_t = 14)]
         fire_y: i32,
+        /// The far face's walled rows from the bottom (2: the bottom two only, the trim; default
+        /// every row).
+        #[arg(long)]
+        far_rows: Option<i32>,
+        /// The pocket floor: hoppers (no spawnable floor: the ruling) or ice (packed ice: redsim's
+        /// slippery block, the 4-row variant).
+        #[arg(long, default_value = "hoppers")]
+        floor: String,
         #[arg(long, default_value_t = 4)]
         items: u32,
         /// Game ticks a seed.
@@ -1173,9 +1182,13 @@ pub enum MobfarmCmd {
         stop_every: Option<i64>,
         /// A mob (loot pickup on, empty hand) placed in a bottom row at column X at time T, on
         /// SIDE (a, b or both; default both), KIND adult (default), baby or jockey (a baby on a
-        /// chicken): T,X[,SIDE[,KIND]], repeatable (AI on).
+        /// chicken), armed `sword` (a golden sword in hand, as portal piglins spawn):
+        /// T,X[,SIDE[,KIND[,sword]]], repeatable (AI on).
         #[arg(long)]
         piglin: Vec<String>,
+        /// Every N gt each mob on the ground jumps (a forced jump: its box toward ~13.2).
+        #[arg(long)]
+        mob_jump: Option<i64>,
         #[arg(long)]
         trace: bool,
     },
@@ -5239,10 +5252,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             print!("{}", crate::portallinks::report(&ow, &nether, &ex, margin));
         }
-        MobfarmCmd::L1ItemBench { design_out, width, height, fire_y, items, ticks, seeds, freeze, login_each, login_before_arrival, stop, stop_every, piglin, trace } => {
+        MobfarmCmd::L1ItemBench { design_out, width, height, fire_y, far_rows, floor, items, ticks, seeds, freeze, login_each, login_before_arrival, stop, stop_every, piglin, mob_jump, trace } => {
             let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-item-bench-{}.txt", std::process::id())));
-            anyhow::ensure!((12..=9 + height).contains(&fire_y), "--fire-y between 12 and the top row (9 + height)");
-            std::fs::write(&path, crate::l1items::design_text(width, height, fire_y, items))?;
+            anyhow::ensure!((13..=9 + height).contains(&fire_y), "--fire-y between 13 and the top row (9 + height)");
+            let far_rows = far_rows.unwrap_or(height).clamp(2, height);
+            let hopper_floor = match floor.as_str() {
+                "hoppers" => true,
+                "ice" => false,
+                o => anyhow::bail!("--floor {o}: hoppers or ice"),
+            };
+            std::fs::write(&path, crate::l1items::design_text(width, height, fire_y, far_rows, hopper_floor, items))?;
             let (_c, spec) = load(version, &path)?;
             let freezes = parse_freezes(&freeze)?;
             let seeds: Vec<i64> = match seeds.split_once("..") {
@@ -5251,7 +5270,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let piglins: Vec<(i64, i32, u8, u8)> = piglin.iter().map(|p| {
                 let f: Vec<&str> = p.split(',').map(|s| s.trim()).collect();
-                anyhow::ensure!((2..=4).contains(&f.len()), "--piglin T,X[,a|b|both[,adult|baby|jockey]]");
+                anyhow::ensure!((2..=5).contains(&f.len()), "--piglin T,X[,a|b|both[,adult|baby|jockey[,sword]]]");
                 let side = match f.get(2).copied().unwrap_or("both") {
                     "a" => 1u8,
                     "b" => 2,
@@ -5264,7 +5283,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     "jockey" => 2,
                     o => anyhow::bail!("--piglin kind {o}: adult, baby or jockey"),
                 };
-                Ok((f[0].parse()?, f[1].parse()?, side, kind))
+                let armed = match f.get(4).copied() {
+                    None | Some("") => 0u8,
+                    Some("sword") => 4,
+                    Some(o) => anyhow::bail!("--piglin armed {o}: sword or nothing"),
+                };
+                Ok((f[0].parse()?, f[1].parse()?, side, kind | armed))
             }).collect::<Result<_>>()?;
             let mut stops = stop;
             if let Some(n) = stop_every {
@@ -5277,7 +5301,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     t = (k + 1) * n + k;
                 }
             }
-            let o = crate::l1items::Opts { width, height, fire_y, items, ticks, freezes, login_each, login_before_arrival, stops, piglins, seeds, trace };
+            let o = crate::l1items::Opts { width, height, fire_y, far_rows, hopper_floor, items, ticks, freezes, login_each, login_before_arrival, stops, piglins, mob_jump, seeds, trace };
             println!("{}", path.display());
             print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }

@@ -222,19 +222,24 @@ The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] 
 track into a 2-pocket queue, 3 empty carts, each released `hold` gt after it arrived; EMULATED and
 listed in the report and the design header: pocket 1's release pulse, which also powers the release
 line's two boosters, pocket 2's 2-gt nudge once pocket 1 and the line are clear, each release timed
-from that cart's own arrival) and `mctas mobfarm l1-item-bench [--width 5] [--height 3|4]
-[--items 4] [--ticks 24000] [--seeds N|A..B] [--stop T]... [--stop-every N] [--login-each N]
-[--login-before-arrival] [--freeze T,D[,WORLD]]... [--piglin T,X[,a|b|both[,adult|baby|jockey]]]...
-[--design-out F]` (L1‴, the item loop: same-axis portals; on each side a firing dropper at y 12,
-above a bottom-row mob's reach, fed by an up-facing dropper, the exit face's bottom two rows closed,
-packed ice and a hopper row past the frame, a backstop, a glass enclosure, and a REAL clock: an
-observer pair behind the firing dropper) write their design and run it: each side's arrivals
-against the 300-gt PORTAL ticket (the worst gap), the Nether's ticket lapsing, carts or items held
-inside a portal (the cooldown restarting every tick inside), the carts or items counted (an item a
-mob holds is lost); L1‴ over many seeds (threads) with the failures' Wilson interval, the landing
-spread against the floor's and backstop's edges, the flight's clearance to the frame and to a
-bottom-row mob's reach (y 11.95), mobs out of the portal's cells, and a positive control for the
-mobs' pickup (a stone at each placed mob's feet). Crossings, the cooldown restart, the
+from that cart's own arrival) and `mctas mobfarm l1-item-bench [--width 5] [--height 5]
+[--fire-y 14] [--far-rows 2] [--floor hoppers|ice] [--items 4] [--ticks 24000] [--seeds N|A..B]
+[--stop T]... [--stop-every N] [--login-each N] [--login-before-arrival] [--freeze T,D[,WORLD]]...
+[--piglin T,X[,a|b|both[,adult|baby|jockey[,sword]]]]... [--mob-jump N] [--design-out F]` (L1‴, the
+item loop: same-axis portals; on each side a firing dropper in the top row (y 14 of a 5-row
+portal: 4.34 over its floor) fed by up-facing droppers, the exit face closed below and at the
+pocket floor (its top 3.0 over the portal's floor: hoppers, no spawnable block), a 3-wide walled
+pocket and a hopper row past the frame, the far face closed in its bottom `--far-rows` rows, a
+backstop, a glass enclosure, and a REAL clock: an observer pair behind the firing column) write
+their design and run it: each side's arrivals against the 300-gt PORTAL ticket (the worst gap), the
+Nether's ticket lapsing, carts or items held inside a portal (the cooldown restarting every tick
+inside), the carts or items counted (an item a mob holds is lost); L1‴ over many seeds (threads)
+with the failures' Wilson interval, the landing spread against the floor's and backstop's edges,
+each arrival's drift from its column's centre (over the flight and at the face crossing, with the
+flight time), the flight's clearance to the frame and to a bottom-row mob's reach (standing 11.95,
+a jumping baby's 12.227), mobs out of the portal's cells, and a positive control for the mobs'
+pickup (a stone at each placed mob's feet; an iron sword for one placed armed with a golden sword,
+as portal piglins spawn; `--mob-jump` forces jumps). Crossings, the cooldown restart, the
 closest-portal search and the Nether ticket are redsim's. `--freeze` is redsim's level-32 freeze
 (`reload::unload_some`: entities skip, blocks run) per world; `--stop` unloads both worlds and loads
 them again a tick later (`reload::unload_all` / `load_all`: scheduled ticks kept);

@@ -834,7 +834,7 @@ pub fn path_bed_radius(paths: &[(String, Vec<P>)], bed: P, exempt: &[String]) ->
     for (name, cells) in paths {
         let mut best: Option<(f64, P)> = None;
         for c in cells {
-            let q = [centre[0].clamp(c[0] as f64, c[0] as f64 + 1.0), c[1] as f64, centre[2].clamp(c[2] as f64, c[2] as f64 + 1.0)];
+            let q = [centre[0].clamp(c[0] as f64, c[0] as f64 + 1.0), centre[1].clamp(c[1] as f64, c[1] as f64 + 0.999), centre[2].clamp(c[2] as f64, c[2] as f64 + 1.0)];
             let dd = ((q[0] - centre[0]).powi(2) + (q[1] - centre[1]).powi(2) + (q[2] - centre[2]).powi(2)).sqrt();
             if best.is_none_or(|(m, _)| dd < m) {
                 best = Some((dd, *c));
