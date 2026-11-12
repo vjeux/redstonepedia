@@ -575,8 +575,6 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
 /// face neighbours (the block under it among them) with each rail's potential connections. Returns
 /// the lines and the failures.
 pub fn static_gates(base: &ReturnOpts, path: &str) -> Result<(Vec<String>, usize), String> {
-    use redsim::block::Block;
-    use redsim::pos::{BlockPos, Dir};
     let mut lo = base.clone();
     lo.out = Some(path.to_string());
     lo.trace = None;
@@ -587,6 +585,15 @@ pub fn static_gates(base: &ReturnOpts, path: &str) -> Result<(Vec<String>, usize
         Err(e) => return Err(e),
         Ok(_) => {}
     }
+    file_gates(path)
+}
+
+/// The file's own gates ([`static_gates`] after the bench writes it; also on a committed design file):
+/// parse, would-pop over every rail, the bench's T verdicts classified, every detector's reach set,
+/// ironspec's rule on every switched T.
+pub fn file_gates(path: &str) -> Result<(Vec<String>, usize), String> {
+    use redsim::block::Block;
+    use redsim::pos::{BlockPos, Dir};
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
     let d = mctas::design::Design::parse(&text).map_err(|e| format!("{path}: parse(write()): {e}"))?;
     let mut fails = 0usize;
@@ -633,7 +640,7 @@ pub fn static_gates(base: &ReturnOpts, path: &str) -> Result<(Vec<String>, usize
     };
     fails += verdict_kinds.get("UNCLASSIFIED").copied().unwrap_or(0);
     out.push(format!(
-        "static gates on the emitted split file ({path}): parse(write()) {} cells; would-pop {} of {} rails{}{}; {} T(s) (the bench's verdicts: {})",
+        "static gates on the split file ({path}): parse {} cells; would-pop {} of {} rails{}{}; {} T(s) (the bench's verdicts: {})",
         d.blocks.len(),
         pops.len(),
         rails.len(),
@@ -700,7 +707,61 @@ pub fn static_gates(base: &ReturnOpts, path: &str) -> Result<(Vec<String>, usize
             if undeclared.is_empty() { String::new() } else { format!(" -> FAIL: undeclared T(s) {}", undeclared.join(", ")) }
         ));
     }
+    // (ironspec's T rule on every switched T: [`t_rule`])
+    for p in &rails {
+        let Some((line, bad)) = t_rule(&w, &d.blocks, *p) else { continue };
+        fails += usize::from(!bad.is_empty());
+        out.push(format!("  {line}: {}", if bad.is_empty() { "ok".to_string() } else { format!("FAIL ({})", bad.join("; ")) }));
+    }
     Ok((out, fails))
+}
+
+/// ironspec's T rule (farmopt 2026-11-12 07:29) on the rail at `p` when it is a switched T (a T with a
+/// lever over it, the latch's output): it stores the shape the game settles it to for its lever's
+/// stored state; its two settle shapes (powered, unpowered) are the two curves through its stem (the
+/// shapes the routes use: the stem with the entry side to turn into the branch, with the far side to
+/// pass along the row); a stored non-settle shape fails (the game settles an arms-N/W/E T north_east
+/// unpowered, north_west powered). Returns its description and failures; `None` if it is no switched T.
+pub fn t_rule(w: &redsim::world::World, blocks: &BTreeMap<[i32; 3], String>, p: redsim::pos::BlockPos) -> Option<(String, Vec<String>)> {
+    use redsim::pos::Dir;
+    let j = redsim::rails::junction_at(w, p)?;
+    let lever = blocks.get(&[p.x, p.y + 1, p.z]).filter(|b| b.contains("lever"))?;
+    let on = lever.contains("powered=true");
+    let want = if on { j.powered } else { j.unpowered };
+    let mut bad: Vec<String> = Vec::new();
+    if j.stored != j.unpowered && j.stored != j.powered {
+        bad.push(format!("stored {}, which no settle gives", j.stored.name()));
+    } else if j.stored != want {
+        bad.push(format!("stored {}, the other settle than its lever's state ({}) gives", j.stored.name(), if on { "on" } else { "off" }));
+    }
+    let curve = |a: Dir, b: Dir| -> Option<String> {
+        let ns = [a, b].into_iter().find(|d| matches!(d, Dir::North | Dir::South))?;
+        let ew = [a, b].into_iter().find(|d| matches!(d, Dir::West | Dir::East))?;
+        Some(format!("{}_{}", if ns == Dir::North { "north" } else { "south" }, if ew == Dir::West { "west" } else { "east" }))
+    };
+    // (the stem: the arm whose opposite is not an arm; the routes' curves: the stem with each other arm)
+    let stems: Vec<Dir> = j.arms.iter().copied().filter(|a| !j.arms.contains(&a.opposite())).collect();
+    let routes: Vec<String> = match stems.as_slice() {
+        [s] => j.arms.iter().filter(|a| *a != s).filter_map(|a| curve(*s, *a)).collect(),
+        _ => Vec::new(),
+    };
+    let settles = [j.unpowered.name().to_string(), j.powered.name().to_string()];
+    if routes.len() != 2 || !routes.iter().all(|r| settles.contains(r)) || settles[0] == settles[1] {
+        bad.push(format!("its settle shapes {} / {} are not the routes' curves through its stem ({})", settles[0], settles[1], if routes.is_empty() { "no single stem".to_string() } else { routes.join(", ") }));
+    }
+    let line = format!(
+        "switched T ({},{},{}): arms {}, its lever {}, stored {}; settles {} unpowered, {} powered; the routes' curves through its stem {}",
+        p.x,
+        p.y,
+        p.z,
+        j.arms.iter().map(|a| a.name()).collect::<Vec<_>>().join("/"),
+        if on { "on" } else { "off" },
+        j.stored.name(),
+        j.unpowered.name(),
+        j.powered.name(),
+        if routes.is_empty() { "-".to_string() } else { routes.join(", ") }
+    );
+    Some((line, bad))
 }
 
 /// The solve's inputs (ironspec 2026-11-12 04:10..04:12): the launch steps to try (offsets 0, s, 2s),
@@ -994,5 +1055,44 @@ mod tests {
         let off = read(&T.replace("; lane 3, at its branch flat 153 live gt after release; branch speed 0.420 (entering the merge cell 0.360)", "; NEVER at a lane (ends at 1.00,2.00,3.00); branch speed -"), true);
         assert!(off.errors.is_empty(), "{:?}", off.errors);
         assert!(fails(&off, &bars(), true).iter().any(|x| x.contains("never at a lane")));
+    }
+
+    /// ironspec's T rule bites (a positive control): a switched T with arms N/W/E (a row along x, its
+    /// stem north) stored east_west fails (no settle gives it); stored north_east with its lever off
+    /// passes (the unpowered settle); stored north_west with its lever off fails (the other settle);
+    /// stored north_west with its lever on passes; a T without a lever is no switched T.
+    #[test]
+    fn t_rule_bites() {
+        use redsim::block::Block;
+        use redsim::pos::BlockPos;
+        let tee = |stored: &str, lever: Option<bool>| -> Option<(String, Vec<String>)> {
+            let mut blocks: BTreeMap<[i32; 3], String> = BTreeMap::new();
+            for x in -1..=1 {
+                blocks.insert([x, -1, 0], "minecraft:stone".into());
+            }
+            blocks.insert([0, -1, -1], "minecraft:stone".into());
+            blocks.insert([-1, 0, 0], "minecraft:rail[shape=east_west,waterlogged=false]".into());
+            blocks.insert([1, 0, 0], "minecraft:rail[shape=east_west,waterlogged=false]".into());
+            blocks.insert([0, 0, -1], "minecraft:rail[shape=north_south,waterlogged=false]".into());
+            blocks.insert([0, 0, 0], format!("minecraft:rail[shape={stored},waterlogged=false]"));
+            if let Some(on) = lever {
+                blocks.insert([0, 1, 0], format!("minecraft:lever[face=ceiling,facing=north,powered={on}]"));
+                blocks.insert([0, 2, 0], "minecraft:glass".into());
+            }
+            let mut w = redsim::world::World::new(BlockPos::new(-3, -3, -3), [7, 7, 7]);
+            let cells: Vec<(BlockPos, Block)> = blocks.iter().map(|(k, s)| (BlockPos::new(k[0], k[1], k[2]), Block::parse(s).expect("a block"))).collect();
+            w.place_raw(&cells);
+            t_rule(&w, &blocks, BlockPos::new(0, 0, 0))
+        };
+        let (line, bad) = tee("east_west", Some(false)).expect("a switched T");
+        assert!(bad.iter().any(|b| b.contains("which no settle gives")), "{line}: {bad:?}");
+        let (line, bad) = tee("north_east", Some(false)).expect("a switched T");
+        assert!(bad.is_empty(), "{line}: {bad:?}");
+        assert!(line.contains("settles north_east unpowered, north_west powered") && line.contains("north_west, north_east") || line.contains("north_east, north_west"), "{line}");
+        let (line, bad) = tee("north_west", Some(false)).expect("a switched T");
+        assert!(bad.iter().any(|b| b.contains("the other settle")), "{line}: {bad:?}");
+        let (line, bad) = tee("north_west", Some(true)).expect("a switched T");
+        assert!(bad.is_empty(), "{line}: {bad:?}");
+        assert!(tee("north_east", None).is_none());
     }
 }

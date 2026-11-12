@@ -2239,6 +2239,9 @@ pub enum MobfarmCmd {
         /// Where the static gates' split file goes (default: a temporary file).
         #[arg(long)]
         gates_out: Option<String>,
+        /// A committed design file to gate as well (its own gates, and its cells against the bench's).
+        #[arg(long)]
+        design_file: Option<String>,
         /// The solve instead of the matrix: these launch steps (offsets 0, s, 2s), the napper's delays
         /// --solve-ds; the smallest step whose every gt bar keeps --margin gt beyond the corners.
         #[arg(long, value_delimiter = ',')]
@@ -6511,7 +6514,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, margin, gates_out, solve_steps, solve_ds, solve_table, jobs } => {
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
             anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
@@ -6550,7 +6553,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             // (the static gates on the emitted split file, on the nominal line)
             let gpath = gates_out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("return-judge-split-{}.txt", std::process::id())).display().to_string());
-            let (glines, gfails) = crate::returnjudge::static_gates(&base, &gpath).map_err(|e| anyhow::anyhow!(e))?;
+            let (mut glines, mut gfails) = crate::returnjudge::static_gates(&base, &gpath).map_err(|e| anyhow::anyhow!(e))?;
+            // (`--design-file`: the committed file's own gates, and its cells the bench's)
+            if let Some(df) = &design_file {
+                let (l2, f2) = crate::returnjudge::file_gates(df).map_err(|e| anyhow::anyhow!(e))?;
+                glines.push(format!("the committed design file {df}:"));
+                glines.extend(l2.into_iter().map(|l| format!("  {l}")));
+                gfails += f2;
+                let cells = |p: &str| -> anyhow::Result<std::collections::BTreeMap<[i32; 3], String>> { Ok(mctas::design::Design::parse(&std::fs::read_to_string(p)?).map_err(|e| anyhow::anyhow!("{p}: {e}"))?.blocks) };
+                let (a, b) = (cells(df)?, cells(&gpath)?);
+                let differ: Vec<String> = a.keys().chain(b.keys()).collect::<std::collections::BTreeSet<_>>().into_iter().filter(|k| a.get(*k) != b.get(*k)).take(8).map(|k| format!("({},{},{}) {} vs {}", k[0], k[1], k[2], a.get(k).map_or("-", |s| s.as_str()), b.get(k).map_or("-", |s| s.as_str()))).collect();
+                gfails += usize::from(!differ.is_empty());
+                glines.push(format!("  its cells against the bench's emitted file: {}", if differ.is_empty() { format!("the same ({} cells)", a.len()) } else { format!("DIFFER: {}", differ.join("; ")) }));
+            }
             // (what the napper's D means: the bench's --napper-delay)
             let d_means = if napper_lift {
                 "the napper's D: the hold rail's power rise D gt after the arming detector's first rise (the bench's --napper-delay with --napper-lift: a redstone block placed under the hold rail (9,-1,8) and kept — a permanent power, not day-1's 8-gt pulse; the napper at rest starts 1 gt after the rise and clears the hold at +7, so its departure is D + 1)"
