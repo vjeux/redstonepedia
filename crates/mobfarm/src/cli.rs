@@ -6,6 +6,26 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum MobfarmCmd {
+    /// The fast liveness ring (`ringbench.rs`): writes its design (24 rail cells, 8 detectors, 2
+    /// carts) to `--out`, runs it `--ticks` gt and prints the gaps between the detectors' rising
+    /// edges, the false drops of a `--stretch` gt stretcher, each detector's own spacing, the carts'
+    /// speed; `--gone-at T`: the carts removed at T (the positive control: the edges stop).
+    RingBench {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value_t = 240000)]
+        ticks: u32,
+        #[arg(long, default_value_t = 5)]
+        stretch: i64,
+        #[arg(long)]
+        gone_at: Option<u32>,
+        /// The carts' starting speed (b/t).
+        #[arg(long, default_value_t = 0.4)]
+        speed: f64,
+        /// Empty carts on the ring (1, or 2 half a lap apart).
+        #[arg(long, default_value_t = 1)]
+        carts: usize,
+    },
     /// The gravity queue's napper picker, modelled on the loop's order alone (`napper.rs`): the
     /// switch on top of the climb diverts a cart to the bed, it re-enters the tail chain after its
     /// trip; does every rider nap exactly once a night, night after night? Prints one line per picker
@@ -4938,6 +4958,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             for (label, o) in &rows {
                 println!("{}", crate::napper::line(label, o, &crate::napper::simulate(o)));
+            }
+        }
+        MobfarmCmd::RingBench { out, ticks, stretch, gone_at, speed, carts } => {
+            let d = crate::ringbench::design(speed, carts);
+            std::fs::write(&out, format!("# The fast liveness ring: 24 rail cells (7 x 7), 8 detector rails every 3 cells, {carts} empty cart(s) (mctas mobfarm ring-bench).\n{}", d.to_text()))?;
+            let (_c, spec) = load(version, &out)?;
+            for l in crate::ringbench::bench(&spec, ticks, stretch, gone_at).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
             }
         }
         MobfarmCmd::PostSearch { design, remove, panic, area, margin, max_posts, in_box } => {
