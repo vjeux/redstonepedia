@@ -1480,6 +1480,9 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     if a.relight {
         return relight(&repo, &a.farm, &a.stage, &a.designs);
     }
+    if a.reexpose {
+        return reexpose(&repo, &a.farm, &a.stage, &a.designs);
+    }
     let study = "mobfarm";
     let dir = repo.join("designs/farms").join(&a.farm).join(&a.stage);
     std::fs::create_dir_all(&dir)?;
@@ -1603,6 +1606,88 @@ fn lightning_part(metrics: &str) -> Option<&str> {
     let end = start + metrics[start..].find(", sunburn ")?;
     let part = &metrics[start..end];
     part.contains(", thunder loss ").then_some(part)
+}
+
+/// `site variation --reexpose`: the worst-case natural-mob lines (`hostile::check`: `exposures`
+/// and `hostile break days`) of each variation named (or of every row of the stage) measured again
+/// on redsim, replaced in its row and in its design's `# CIRCUIT:` line, nothing else touched: the
+/// row's other metrics (the real-game gate's lines among them) and its date stay (the parent
+/// 2026-11-11: the flood's fall through a one-block roof fixed; each card's change printed, before
+/// and after). A row with no exposures line is left as it is, and said so.
+fn reexpose(repo: &Path, farm: &str, stage: &str, designs: &[PathBuf]) -> Result<()> {
+    let dir = repo.join("designs/farms").join(farm).join(stage);
+    let mut rows = circuit::archive::read_rows(&dir)?;
+    let paths: Vec<PathBuf> = if designs.is_empty() { rows.iter().map(|r| dir.join(&r.file)).collect() } else { designs.to_vec() };
+    let (mut changed, mut same, mut left) = (0, 0, Vec::new());
+    for path in &paths {
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let c = circuit::Circuit::load(path)?;
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let file = format!("{stem}.txt");
+        let Some(row) = rows.iter_mut().find(|r| r.file == file) else { bail!("{file}: no row in {stage}'s verdicts.tsv to re-expose") };
+        let olds: Vec<String> = [exposures_part(&row.metrics), breaks_part(&row.metrics)].into_iter().flatten().map(str::to_string).collect();
+        if olds.len() < 2 {
+            // (an exposures metric in another order than the judge writes is an error, not a card
+            // without one: G1 2026-11-12)
+            if row.metrics.contains("exposures ") || row.metrics.contains("hostile break days ") {
+                bail!("{file}: its card holds an exposures or hostile-break-days metric --reexpose can't read (not followed by \", build minutes flat \"): fix the card's order first");
+            }
+            println!("{file}: no exposures line on its card: left as it is");
+            left.push(file);
+            continue;
+        }
+        let judged = judge_for_stage(path, &text, &c, stage, &file, false).map_err(|why| anyhow::anyhow!("{}: {why}", path.display()))?;
+        let news: Vec<String> = [exposures_part(&judged.metrics), breaks_part(&judged.metrics)].into_iter().flatten().map(str::to_string).collect();
+        if news.len() < 2 {
+            bail!("{file}: its judge printed no exposures or hostile break days line");
+        }
+        let design = dir.join(&file);
+        let mut body = std::fs::read_to_string(&design).with_context(|| format!("reading {}", design.display()))?;
+        for (old, new) in olds.iter().zip(&news) {
+            row.metrics = row.metrics.replacen(old.as_str(), new, 1);
+            row.summary = row.summary.replacen(old.as_str(), new, 1);
+            // (its design's `# CIRCUIT:` line carries the same metrics, or an older judge's: its
+            // own part is replaced either way)
+            if let Some(first) = body.lines().next().filter(|l| l.starts_with("# CIRCUIT: ")).map(str::to_string) {
+                let mine = if old.starts_with("exposures ") { exposures_part(&first) } else { breaks_part(&first) };
+                if let Some(mine) = mine
+                    && mine != new
+                {
+                    let line = first.replacen(mine, new, 1);
+                    body = body.replacen(&first, &line, 1);
+                }
+            }
+        }
+        std::fs::write(&design, &body)?;
+        if olds == news {
+            println!("{file}: unchanged");
+            same += 1;
+        } else {
+            for (old, new) in olds.iter().zip(&news).filter(|(o, n)| o != n) {
+                println!("{file}:\n  before: {old}\n  after:  {new}");
+            }
+            changed += 1;
+        }
+    }
+    write_verdicts(&dir, &rows)?;
+    println!("{stage}: {changed} cards changed, {same} unchanged{}", if left.is_empty() { String::new() } else { format!("; no exposures line on {} ({})", left.len(), left.join(" ")) });
+    Ok(())
+}
+
+/// The `exposures …` part of a mob farm's metrics: up to its `build minutes flat` metric, the next
+/// one the judge writes (the line holds ", " itself).
+fn exposures_part(metrics: &str) -> Option<&str> {
+    let start = metrics.find(", exposures ").map(|i| i + 2).or_else(|| metrics.starts_with("exposures ").then_some(0))?;
+    let end = start + metrics[start..].find(", build minutes flat ")?;
+    Some(&metrics[start..end])
+}
+
+/// The `hostile break days …` part of a mob farm's metrics: to the next metric or the end (its
+/// value holds no ", ").
+fn breaks_part(metrics: &str) -> Option<&str> {
+    let start = metrics.find(", hostile break days ")? + 2;
+    let end = metrics[start..].find(", ").map_or(metrics.len(), |e| start + e);
+    Some(&metrics[start..end])
 }
 
 /// The pick `site variation` sets: `yes` for `--pick`, the fork value of `--pick-for` (a word:

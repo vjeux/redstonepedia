@@ -244,14 +244,19 @@ impl Reach {
 
 /// How a flood picks its starts. `Worst`: the bounds' outer ring, every position a natural type of
 /// the body can spawn at whatever the light (block light 0 for monsters), every position for
-/// endermen (they teleport). `SpawnRules` (ironspec 2026-11-11, vjeux's normal-operation scope:
-/// a source is a cell where the game can spawn the mob): the ring as before (anything from beyond
-/// walks in across it), monsters and endermen at block light 0 on their spawn floor, a trap
-/// skeleton on any strike cell at any light, patrol pillagers only on the surface
-/// (`PatrolSpawner`: the MOTION_BLOCKING_NO_LEAVES top, block light 8 or less), slimes only in
-/// slime chunks below y 40 (`Slime.checkSlimeSpawnRules`; the world seed's chunks), bats below
-/// sea level at light 3 or less (`Bat.checkBatSpawnRules`), foxes at light 9 or more
-/// (`Animal`'s rule on their spawn floor).
+/// endermen outside `exclude`, then their teleport reach (into `exclude` too: see [`flood`]). `SpawnRules` (ironspec and G1 2026-11-11, vjeux's normal-operation
+/// scope: a source is a cell where the game can spawn the mob): the ring as before (anything from
+/// beyond walks in across it); every natural start with the type's spawn box free at the cell's
+/// bottom; monsters at block light 0 on their spawn floor; endermen the same, then every spot
+/// their teleport reaches (32 sideways, -32..+31 vertically, onto a motion-blocking floor with the
+/// box free); a trap skeleton on every strike cell at any light (today's tops and the caller's
+/// lasting ones), unless a lightning rod topping its column within 128 (a sphere) takes the
+/// strike; patrol pillagers only on the surface (`PatrolSpawner`: the MOTION_BLOCKING_NO_LEAVES
+/// top, block light 8 or less); slimes in slime chunks below y 40 (`Slime.checkSlimeSpawnRules`;
+/// the world seed's chunks) and in swamps at y 51 to 69 at night light 7 or less (where the biome
+/// isn't known, there too); bats under the world surface at night light 6 or less
+/// (`Bat.checkBatSpawnRules`: Halloween's limit, counted whatever the date); foxes at light 9 or
+/// more (`Animal`'s rule on their spawn floor).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Seeding {
     Worst,
@@ -259,8 +264,11 @@ pub enum Seeding {
 }
 
 /// Flood a body over the world from every standable position outside `exclude` (the farm's
-/// interior): walks (step or a 1.25 jump up, any fall down), swims, climbs (spiders), flies (any
-/// air). Positions inside `exclude` are reached too (that is the entry channel).
+/// interior): walks (step or a 1.25 jump up, a step down past an open cell beside it, any fall
+/// down an open column, stopping at a block; the side cell's head, a block up, isn't checked for a
+/// step down or a fall: an over-reach the worst case keeps), swims, climbs (spiders), flies (any
+/// air), and for endermen teleports (32 sideways, -32..+31 vertically, onto a motion-blocking floor
+/// with the box free). Positions inside `exclude` are reached too (that is the entry channel).
 pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos, BlockPos)) -> Reach {
     flood_with(w, b, exclude, bounds, Seeding::Worst)
 }
@@ -449,40 +457,29 @@ pub fn flood_from(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (Bloc
                 if dx != 0 && dz != 0 && !(pos_of(p.offset(dx, 0, 0)).is_some() || pos_of(p.offset(0, 0, dz)).is_some()) {
                     continue;
                 }
-                // (spawn rules: a step down or a fall passes the cell beside the mob, which must be
-                // open, and a fall stops at a block; the worst case keeps its fall straight down
-                // the neighbour column from one below, through any block with air under it, which
-                // the judge's `check` cards read: b8949c96 2026-11-11, flagged to its owner)
+                // (a step down or a fall passes the cell beside the mob, which must be open, and a
+                // fall stops at a block: the fall went straight down the neighbour column from one
+                // below, through any block with air under it, so a mob on a one-block roof reached
+                // the closed room under it; the parent and ironspec 2026-11-11: fixed in both modes)
                 let side = p.offset(dx, 0, dz);
                 let side_open = !crate::behavior::collides(&w.get(side));
                 for dy in -1..=1 {
-                    if rules && dy == -1 && !side_open {
+                    if dy == -1 && !side_open {
                         continue;
                     }
                     next.push(p.offset(dx, dy, dz));
                 }
-                if rules {
-                    // a fall: off the edge into the open column beside, straight down through
-                    // open cells to the first floor
-                    if side_open && floor_in(w, side).is_none() {
-                        let mut q = side.below();
-                        let mut n = 0;
-                        while q.y > w.min.y && floor_in(w, q).is_none() && !crate::behavior::collides(&w.get(q)) && n < 384 {
-                            q = q.below();
-                            n += 1;
-                        }
-                        next.push(q);
+                // a fall: off the edge into the open column beside, straight down through open
+                // cells to the first floor
+                if side_open && floor_in(w, side).is_none() {
+                    let mut q = side.below();
+                    let mut n = 0;
+                    while q.y > w.min.y && floor_in(w, q).is_none() && !crate::behavior::collides(&w.get(q)) && n < 384 {
+                        q = q.below();
+                        n += 1;
                     }
-                    continue;
+                    next.push(q);
                 }
-                // a fall: straight down the neighbour column
-                let mut q = p.offset(dx, -1, dz);
-                let mut n = 0;
-                while q.y > w.min.y && floor_in(w, q).is_none() && n < 384 {
-                    q = q.below();
-                    n += 1;
-                }
-                next.push(q);
             }
             // swimming and climbing: straight up and down
             if fluid(w, p) || (b.climbs && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dz)| crate::behavior::collides(&w.get(p.offset(*dx, 0, *dz))))) {
@@ -504,32 +501,52 @@ pub fn flood_from(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (Bloc
             queue.push_back((q, g));
         }
     }
-    // (spawn rules: an enderman teleports, `EnderMan.teleport` / `LivingEntity.randomTeleport`, to
-    // a random spot within 32 on each horizontal axis and -32..+31 vertically from any spot it
-    // reaches, dropping to the first motion-blocking non-fluid floor below and landing only where
-    // its box is free of blocks and fluid, light and floor type aside; its landings walk on, until
-    // no landing is new: G1 and ironspec 2026-11-11, the brief's teleport reach)
-    if !(rules && b.name == "enderman") {
+    // (an enderman teleports, `EnderMan.teleport` / `LivingEntity.randomTeleport`, to a random
+    // spot within 32 on each horizontal axis and -32..+31 vertically from any spot it reaches,
+    // dropping to the first motion-blocking non-fluid floor below and landing only where its box is
+    // free of blocks and fluid, light and floor type aside; its landings walk on, until no landing
+    // is new: G1 and ironspec 2026-11-11, the brief's teleport reach; in both seedings, the worst
+    // case seeding no spot inside `exclude` and so reaching the farm's space by teleport alone:
+    // G1 and ironspec 2026-11-12)
+    if b.name != "enderman" {
         break;
     }
-    let mut band: std::collections::HashMap<(i32, i32), (i32, i32)> = std::collections::HashMap::new();
+    // the reached spots' y range per column, then its min and max over the 65-wide window of
+    // columns round each (x first, then z)
+    let (nx, nz) = ((hi.x - lo.x + 1) as usize, (hi.z - lo.z + 1) as usize);
+    let mut mn = vec![i32::MAX; nx * nz];
+    let mut mx = vec![i32::MIN; nx * nz];
     for (p, _) in &cells {
-        let e = band.entry((p.x, p.z)).or_insert((i32::MAX, i32::MIN));
-        *e = (e.0.min(p.y), e.1.max(p.y));
+        let i = (p.x - lo.x) as usize * nz + (p.z - lo.z) as usize;
+        mn[i] = mn[i].min(p.y);
+        mx[i] = mx[i].max(p.y);
     }
+    let window = |a: &[i32], low: bool| -> Vec<i32> {
+        let pick = |v: i32, u: i32| if low { v.min(u) } else { v.max(u) };
+        let none = if low { i32::MAX } else { i32::MIN };
+        let mut along = vec![none; nx * nz];
+        for xi in 0..nx {
+            for zi in 0..nz {
+                along[xi * nz + zi] = (xi.saturating_sub(32)..=(xi + 32).min(nx - 1)).fold(none, |v, xj| pick(v, a[xj * nz + zi]));
+            }
+        }
+        let mut out = vec![none; nx * nz];
+        for xi in 0..nx {
+            for zi in 0..nz {
+                out[xi * nz + zi] = (zi.saturating_sub(32)..=(zi + 32).min(nz - 1)).fold(none, |v, zj| pick(v, along[xi * nz + zj]));
+            }
+        }
+        out
+    };
+    let (wmn, wmx) = (window(&mn, true), window(&mx, false));
     let mut landed = Vec::new();
     for z in lo.z..=hi.z {
         for x in lo.x..=hi.x {
-            let (mut ymin, mut ymax) = (i32::MAX, i32::MIN);
-            for (&(cx, cz), &(mn, mx)) in &band {
-                if (cx - x).abs() <= 32 && (cz - z).abs() <= 32 {
-                    ymin = ymin.min(mn - 32);
-                    ymax = ymax.max(mx + 31);
-                }
-            }
-            if ymin > ymax {
+            let i = (x - lo.x) as usize * nz + (z - lo.z) as usize;
+            if wmn[i] == i32::MAX {
                 continue;
             }
+            let (ymin, ymax) = (wmn[i] - 32, wmx[i] + 31);
             // every floor in the band, then the first floor under it
             let mut y = ymax.min(hi.y);
             while y >= lo.y {
@@ -1091,6 +1108,17 @@ mod tests {
         assert!(reaches(PILLAGER, rules, BlockPos::new(5, 71, 5)), "the surface starts a patrol's pillager");
         assert!(reaches(ENDERMAN, rules, d), "an enderman teleports into the glass-floored room 5 over the ground");
         assert!(!reaches(ENDERMAN, rules, e), "no enderman teleports into the room 40 over the ground");
+        // the worst case too (G1 and ironspec 2026-11-12): with the room's inside excluded from its
+        // starts, as the judge excludes a farm's, an enderman still teleports in
+        let mut d_inside = HashSet::new();
+        for y in 76..=78 {
+            for z in 40..=44 {
+                for x in 40..=44 {
+                    d_inside.insert(BlockPos::new(x, y, z));
+                }
+            }
+        }
+        assert!(flood_with(&w, ENDERMAN, &d_inside, bounds, Seeding::Worst).contains(d), "the worst case: an enderman teleports into the excluded room 5 over the ground");
     }
 
     /// G1 2026-11-11: a lightning rod takes the strikes within 128 of it as a sphere
@@ -1114,5 +1142,56 @@ mod tests {
         let trap = |w: &World| flood_with(w, SKELETON, &none, bounds, rules).contains(strike);
         assert!(trap(&with_rod(100)), "a rod 141 away takes no strike: the trap starts");
         assert!(!trap(&with_rod(60)), "a rod 85 away takes the strike: no trap");
+    }
+
+    /// The parent and ironspec 2026-11-11: a flood's fall stops at a block, in both modes. A pit
+    /// with a glass floor (no spawn floor) and stone walls 3 high: a zombie on the wall's top falls
+    /// in when the pit is open (the positive control); with a one-block stone roof over the pit, a
+    /// zombie on the roof no longer falls through it into the closed pit (the negative one; the old
+    /// fall went straight down the neighbour column from one below, through any block with air
+    /// under it, and reached the pit).
+    #[test]
+    fn a_fall_stops_at_a_block() {
+        let pit = |roofed: bool| -> World {
+            let mut w = World::new(BlockPos::new(0, 60, 0), [40, 20, 40]);
+            let stone = Block::parse("minecraft:stone").expect("stone");
+            let glass = Block::parse("minecraft:glass").expect("glass");
+            let mut cells = Vec::new();
+            for z in 0..40 {
+                for x in 0..40 {
+                    let inside = (18..=22).contains(&x) && (18..=22).contains(&z);
+                    cells.push((BlockPos::new(x, 64, z), if inside { glass } else { stone }));
+                }
+            }
+            for y in 65..=67 {
+                for z in 17..=23 {
+                    for x in 17..=23 {
+                        if !((18..=22).contains(&x) && (18..=22).contains(&z)) {
+                            cells.push((BlockPos::new(x, y, z), stone));
+                        }
+                    }
+                }
+            }
+            if roofed {
+                for z in 17..=23 {
+                    for x in 17..=23 {
+                        cells.push((BlockPos::new(x, 68, z), stone));
+                    }
+                }
+            }
+            w.place_raw(&cells);
+            w
+        };
+        let none = HashSet::new();
+        let bounds = (BlockPos::new(0, 61, 0), BlockPos::new(39, 79, 39));
+        let floor = BlockPos::new(20, 65, 20);
+        for s in [Seeding::Worst, Seeding::SpawnRules { seed: None }] {
+            let open = pit(false);
+            assert!(flood_with(&open, ZOMBIE, &none, bounds, s).contains(floor), "{s:?}: a zombie on the open pit's wall falls in");
+            let roofed = pit(true);
+            let reach = flood_with(&roofed, ZOMBIE, &none, bounds, s);
+            assert!(reach.contains(BlockPos::new(20, 69, 20)), "{s:?}: a zombie stands on the roof");
+            assert!(!reach.contains(floor), "{s:?}: no zombie falls through the one-block roof into the closed pit");
+        }
     }
 }
