@@ -2340,13 +2340,13 @@ pub enum MobfarmCmd {
         /// A level-32 freeze: START,LEN in gt after the entry.
         #[arg(long)]
         freeze: Option<String>,
+        /// A save and reload: START,LEN in gt after the entry.
+        #[arg(long)]
+        reload: Option<String>,
         /// The trip (a `bedtier --trip` design): the cart starts on the switch flat heading up the
         /// divert; the visit ends at the re-entry's waiting cell.
         #[arg(long)]
         trip: bool,
-        /// RIDER_ALARM already set: a stranded napper's riderless cart is held, not released.
-        #[arg(long)]
-        alarm: bool,
     },
     /// (ironspec 17:32) The sentinel villager (its own bed, a sealed one-cell room, an observer on
     /// the bed's head): write its design (`--claim`: no HOME preset, it claims the bed itself).
@@ -4640,20 +4640,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, crate::bedtier::design_with(bench, trip)?)?;
             println!("wrote {}", out.display());
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand, after_sleep, empty, no_home, hide_after_wake, freeze, trip, alarm } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand, after_sleep, empty, no_home, hide_after_wake, freeze, reload, trip } => {
             let (_c, spec) = load(version, &design)?;
             let sp: Vec<f64> = speeds.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
-            let freeze = match freeze {
-                Some(s) => {
-                    let v: Vec<i64> = s.split(',').map(|x| x.trim().parse()).collect::<std::result::Result<_, _>>()?;
-                    if v.len() != 2 {
-                        anyhow::bail!("--freeze START,LEN");
+            let pair = |s: Option<String>, what: &str| -> Result<Option<(i64, i64)>> {
+                match s {
+                    Some(s) => {
+                        let v: Vec<i64> = s.split(',').map(|x| x.trim().parse()).collect::<std::result::Result<_, _>>()?;
+                        if v.len() != 2 {
+                            anyhow::bail!("--{what} START,LEN");
+                        }
+                        Ok(Some((v[0], v[1])))
                     }
-                    Some((v[0], v[1]))
+                    None => Ok(None),
                 }
-                None => None,
             };
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, freeze, trip, alarm };
+            let freeze = pair(freeze, "freeze")?;
+            let reload = pair(reload, "reload")?;
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, freeze, reload, trip };
             let mut bad = 0;
             let mut n = 0;
             for seed in from..=to {
@@ -4664,7 +4668,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             if !r.problems.is_empty() {
                                 bad += 1;
                             }
-                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?} at {:?} b/t, entry {:?} at {:?}, R {:?}, out {:?} seated {}, held {:?}, entry ridden {:?}, released empty {:?}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.entry_at, r.entry_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, r.held, r.entry_ridden, r.released_empty, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?} at {:?} b/t, entry {:?} at {:?}, R {:?}, out {:?} seated {}, held {:?}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.entry_at, r.entry_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, r.held, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
                         }
                         Err(e) => {
                             bad += 1;

@@ -9,28 +9,22 @@ origin: -6 0 -5
 palette:
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
-  C minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  C minecraft:rail[shape=north_east,waterlogged=false]
   D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  F minecraft:rail[shape=north_east,waterlogged=false]
+  E minecraft:rail[shape=north_south,waterlogged=false]
+  F minecraft:rail[shape=south_east,waterlogged=false]
   G minecraft:glass
-  H minecraft:rail[shape=north_south,waterlogged=false]
+  H minecraft:red_bed[facing=south,occupied=false,part=foot]
   I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
-  J minecraft:rail[shape=south_east,waterlogged=false]
-  K minecraft:red_bed[facing=south,occupied=false,part=foot]
-  L minecraft:red_bed[facing=south,occupied=false,part=head]
-  M minecraft:redstone_block
-  N minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  J minecraft:red_bed[facing=south,occupied=false,part=head]
+  K minecraft:redstone_block
   O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  Q minecraft:tripwire_hook[attached=true,facing=south,powered=false]
   R minecraft:rail[shape=ascending_west,waterlogged=false]
   S minecraft:stone
-  T minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
   i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
-  p minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  p minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
   r minecraft:rail[shape=east_west,waterlogged=false]
-  t minecraft:tripwire_hook[attached=true,facing=north,powered=false]
 layer -2:
   .
   .
@@ -44,8 +38,6 @@ layer -2:
   .
   .
   .......SGGSGGGGGG
-  .........S
-  .........S
 layer -1:
   .
   ....GGS
@@ -57,28 +49,24 @@ layer -1:
   ....G
   ...GG
   .GGGG
-  ....M
-  ....GGGRrpDrrrrrrG
-  .........N
-  .........N
+  ....G
+  ....GGGRrrDrrrrrrG
 layer 0:
   .
-  ....JrPS
-  ....H
-  ....H
-  ....H
-  ....HG
-  ....HG
-  ...GHG
-  .GMKHG
-  G.iLHG...S
-  .GGGEG...Q
-  ....Frr..T
-  .........t
-  .........S
+  ....FrPS
+  ....E
+  ....E
+  ....E
+  ....EG
+  ....EG
+  ...GEG
+  .GKHEG
+  G.iJEG
+  .GGGEG
+  ....Crr
 layer 1:
   .
-  ....II.PSM
+  ....II.PSK
   ....I...S
   ....I...S
   ....I...S
@@ -89,11 +77,9 @@ layer 1:
   G.BI.G
   .GGGIG
   ....III
-  .
-  .
 layer 2:
-  ........M
-  ........AC
+  ........K
+  ........Ap
   .......G.G
   .......G.G
   .....GGG.G
@@ -101,10 +87,8 @@ layer 2:
   ....G.GGG
   ...GG.G
   ..G...G
-  .GM..G
+  .GK..G
   ...G
-  .
-  .
   .
 layer 3:
   .
@@ -118,6 +102,4 @@ layer 3:
   ..G...G
   .OG..G
   ...G
-  .
-  .
   .

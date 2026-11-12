@@ -97,11 +97,20 @@ pub fn trip_cells() -> (Vec<([i32; 3], &'static str, bool)>, Vec<([i32; 3], &'st
     for lap in 0..4 {
         ret.push(([6, y - 1, 6], "ascending_west"));
         ret.push(([7, y - 1, 6], "south_west"));
-        ret.push(([7, y - 2, 7], "ascending_north"));
         if lap == 3 {
-            ret.push(([7, y - 3, 8], "ascending_north"));
+            // (the last lap's end: the re-entry gate, two braked powered rails on its slopes (the
+            // south slope (7,-15,7) and, past the corner west, the slope down west (6,-16,8)): the
+            // returning cart, fast off the helix, stops on one of them and waits for its gap; the
+            // gate's control powers both. Then the corner south into the T on the tail's z 9 flats
+            // at (5,-16,9): west of 7b90c3f1's receiver exit detector (8,-16,9), nothing powered on
+            // its faces)
+            ret.push(([7, y - 2, 7], "gate_s"));
+            ret.push(([7, y - 2, 8], "north_west"));
+            ret.push(([6, y - 3, 8], "gate"));
+            ret.push(([5, y - 3, 8], "south_east"));
             break;
         }
+        ret.push(([7, y - 2, 7], "ascending_north"));
         ret.push(([7, y - 2, 8], "north_west"));
         ret.push(([6, y - 3, 8], "ascending_east"));
         ret.push(([5, y - 3, 8], "north_east"));
@@ -112,8 +121,12 @@ pub fn trip_cells() -> (Vec<([i32; 3], &'static str, bool)>, Vec<([i32; 3], &'st
     (divert, ret)
 }
 
-/// The re-entry's waiting cell (the T on the tail's z 9 flats; on the bench a braked rail).
-pub const WAIT: [i32; 3] = [7, -16, 9];
+/// The re-entry gate (a braked powered rail on the slope down west, the returning cart waits on it
+/// for its gap; the T past it on the tail's z 9 flats at (5,-16,9)).
+pub const GATE: [i32; 3] = [6, -16, 8];
+/// The T on the tail's z 9 flats (on the bench a stop past the gate).
+
+pub const WAIT: [i32; 3] = [5, -16, 9];
 /// The divert's first cell past the switch (the bench's cart starts on it, heading west).
 pub const DIVERT0: [i32; 3] = [8, -14, -1];
 
@@ -139,10 +152,16 @@ fn trip_legs(b: &mut Builder) -> Result<()> {
         put(b, under, if block { "redstone_block" } else { "glass" })?;
     }
     for (c, shape) in &ret {
+        if *shape == "gate" || *shape == "gate_s" {
+            put(b, *c, &format!("powered_rail[powered=false,shape={},waterlogged=false]", if *shape == "gate" { "ascending_east" } else { "ascending_north" }))?;
+            put(b, [c[0], c[1] - 1, c[2]], "stone")?;
+            continue;
+        }
         put(b, *c, &format!("rail[shape={shape},waterlogged=false]"))?;
         put(b, [c[0], c[1] - 1, c[2]], "glass")?;
     }
-    put(b, WAIT, "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
+    // (the T's cell on the bench: a plain rail and a stop past it)
+    put(b, WAIT, "rail[shape=north_south,waterlogged=false]")?;
     put(b, [WAIT[0], WAIT[1] - 1, WAIT[2]], "stone")?;
     put(b, [WAIT[0], WAIT[1], WAIT[2] + 1], "stone")?;
     // (the switch flat itself, the cart's start behind it)
@@ -162,7 +181,7 @@ pub fn design_with(bench: bool, trip: bool) -> Result<String> {
         }
         Ok(())
     };
-    // the arrival, west along z -1: the entry a booster (always on), the activator (always on),
+    // the arrival, west along z -4: the entry a booster (always on), the activator (always on),
     // both capped (top-half trapdoors: a rider passes, nobody stands there)
     put(&mut b, ENTRY, "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
     put(&mut b, [ENTRY[0], 1, ENTRY[2]], "redstone_block")?;
@@ -193,16 +212,8 @@ pub fn design_with(bench: bool, trip: bool) -> Result<String> {
     // five capped flats down x -2, the pickup cell (the bed's head west of it), a capped booster,
     // the curve east, two capped flats east along z 6
     for z in za + 1..=5 {
-        // (the cell after the pickup a booster, always on: an empty cart, slowing past the pickup
-        // cell on its 0.96 drag, would stall on the flats before the hold; its redstone block under
-        // it touches no other rail)
-        if z == SWEPT[0][2] + 1 {
-            put(&mut b, [-2, 0, z], "powered_rail[powered=true,shape=north_south,waterlogged=false]")?;
-            put(&mut b, [-2, -1, z], "redstone_block")?;
-        } else {
-            put(&mut b, [-2, 0, z], &rail("north_south"))?;
-            put(&mut b, [-2, -1, z], "glass")?;
-        }
+        put(&mut b, [-2, 0, z], &rail("north_south"))?;
+        put(&mut b, [-2, -1, z], "glass")?;
         if z != SWEPT[0][2] {
             put(&mut b, [-2, 1, z], cap)?;
         }
@@ -215,27 +226,13 @@ pub fn design_with(bench: bool, trip: bool) -> Result<String> {
         put(&mut b, [x, -1, 6], "glass")?;
         put(&mut b, [x, 1, 6], cap)?;
     }
-    // the exit: a plain slope down east, a flat, the hold under the rider check (a tripwire at
-    // rider height across the hold's own cell, hooks (3,0,5) and (3,0,7): a seated rider's box
-    // crosses its band from the moment the cart nears the hold until it has left it, an empty
-    // cart's never does; the string over the hold itself, not a cell before it: the string's
-    // 10-gt re-check could drop the power while a fast cart is still on the hold), powered from
-    // the south hook's block by dust (3,-1,8), (3,-1,7) pointing north into it, then R
+    // the exit: a plain slope down east, two flats, R (normal operation only: no rider check, no
+    // hold; a riderless cart is not a normal case)
     put(&mut b, [1, -1, 6], &rail("ascending_west"))?;
     put(&mut b, [1, -2, 6], "stone")?;
     put(&mut b, [2, -1, 6], &rail("east_west"))?;
     put(&mut b, [2, -2, 6], "glass")?;
-    put(&mut b, [3, 0, 6], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
-    put(&mut b, [3, 0, 5], "tripwire_hook[attached=true,facing=south,powered=false]")?;
-    put(&mut b, [3, 0, 4], "stone")?;
-    put(&mut b, [3, 0, 7], "tripwire_hook[attached=true,facing=north,powered=false]")?;
-    put(&mut b, [3, 0, 8], "stone")?;
-    let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
-    for c in [[3, -1, 8], [3, -1, 7]] {
-        put(&mut b, [c[0], c[1] - 1, c[2]], "stone")?;
-        put(&mut b, c, dust)?;
-    }
-    put(&mut b, HOLD, "powered_rail[powered=false,shape=east_west,waterlogged=false]")?;
+    put(&mut b, HOLD, &rail("east_west"))?;
     put(&mut b, [HOLD[0], -2, HOLD[2]], "glass")?;
     put(&mut b, EXIT_DET, "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
     put(&mut b, [EXIT_DET[0], -2, EXIT_DET[2]], "stone")?;
@@ -360,11 +357,6 @@ pub struct Row {
     /// (the trip) The cart onto the tier's entry, gt after the start.
     pub entry_at: Option<i64>,
     pub entry_speed: Option<f64>,
-    /// The entry rider check: the cart arrived with a rider.
-    pub entry_ridden: Option<bool>,
-    /// The hold released a riderless cart: it arrived empty, or (a stranded napper) RIDER_ALARM
-    /// was clear and is now set.
-    pub released_empty: Option<&'static str>,
     /// Whether the cart left with the napper seated.
     pub seated_out: bool,
     pub problems: Vec<String>,
@@ -384,12 +376,11 @@ pub struct Faults {
     /// A level-32 freeze (the tier's entities stop ticking) from this gt after the entry, for this
     /// many gt.
     pub freeze: Option<(i64, i64)>,
+    /// A save and reload (the whole world unloaded) from this gt after the entry, for this many gt.
+    pub reload: Option<(i64, i64)>,
     /// The trip: the cart starts on the switch flat heading west up the divert, and the visit ends
     /// at the re-entry's waiting cell past the return.
     pub trip: bool,
-    /// RIDER_ALARM already set (a stranded napper's empty cart released earlier): a second
-    /// riderless departure is held.
-    pub alarm: bool,
 }
 
 fn block(s: &str) -> Block {
@@ -434,8 +425,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
         format!("{{Rotation:[0f,0f],Passengers:[{{id:\"minecraft:villager\",Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}", h[0], h[1], h[2])
     };
     let start = if f.trip { [9.5, -14.0 + 0.0625, -0.5] } else { [ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5] };
-    let cart_id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&nbt))?;
-    let vill = run.world.entities.list.iter().find(|e| e.id == cart_id).and_then(|e| e.passengers.first().copied());
+    let mut cart_id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&nbt))?;
+    let mut vill = run.world.entities.list.iter().find(|e| e.id == cart_id).and_then(|e| e.passengers.first().copied());
     if vill.is_none() && !f.empty {
         return Err("no rider".into());
     }
@@ -474,7 +465,20 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
                 run.world.entity_chunks = None;
             }
         }
-        let frozen = f.freeze.is_some_and(|(a, l)| t >= a && t < a + l);
+        // (a save and reload: the whole world unloaded, everything stops, entities back as new
+        // objects in the save's order)
+        if let Some((at, len)) = f.reload {
+            if t == at {
+                redsim::reload::unload_all(&mut run.world);
+            }
+            if t == at + len {
+                redsim::reload::load_all_ordered(&mut run.world, redsim::reload::Order::Save);
+                cart_id = run.world.renumbered.get(&cart_id).copied().unwrap_or(cart_id);
+                vill = vill.map(|v| run.world.renumbered.get(&v).copied().unwrap_or(v));
+            }
+        }
+        let away = f.reload.is_some_and(|(a, l)| t >= a && t < a + l);
+        let frozen = away || f.freeze.is_some_and(|(a, l)| t >= a && t < a + l);
         if !frozen {
             live += 1;
         }
@@ -484,11 +488,6 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
             && live <= s + d
         {
             f_at = s + d;
-        }
-        // (day-1's final rule: the entry rider check saw no rider, so the give-up comes at once:
-        // F as soon as the cart is parked)
-        if row.entry_ridden == Some(false) && row.parked.is_some() && !f_fired && live < f_at {
-            f_at = live;
         }
         if !frozen && !f_fired && live == f_at {
             f_fired = true;
@@ -509,6 +508,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
         }
         let before = idx(&run.world, cart_id).map(|i| run.world.entities.list[i].pos);
         run.tick();
+        if away {
+            continue;
+        }
         let w = &run.world;
         let Some(ci) = idx(w, cart_id) else {
             row.problems.push(format!("t {t}: the cart is gone"));
@@ -546,7 +548,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
                 let b = brain::brain(w, vi);
                 let act = brain::has_exact(w, vi).then(|| {
                     let x = brain::ex(w, vi);
-                    format!("{:?} cant_reach {:?}", x.active, x.mem.cant_reach_since)
+                    let path = x.mem.path.as_ref().map(|p| format!("next {} of {} {:?} reached {}", p.next_node_index, p.nodes.len(), p.nodes.iter().skip(p.next_node_index).take(3).map(|n| (n.x, n.y, n.z)).collect::<Vec<_>>(), p.reached));
+                    format!("{:?} cant_reach {:?} wt {:?} path {:?}", x.active, x.mem.cant_reach_since, x.mem.walk_target.map(|t| t.target), path)
                 });
                 eprintln!("t {t}: villager {:.2} {:.2} {:.2} riding {riding} asleep {asleep} act {act:?} home {:?} hostile {:?} | cart {:.2} {:.2} {:.2} v {:.3} {:.3} {:.3}", v.pos.x, v.pos.y, v.pos.z, b.home, b.nearest_hostile, c.pos.x, c.pos.y, c.pos.z, c.delta_movement.x, c.delta_movement.y, c.delta_movement.z);
             }
@@ -587,49 +590,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
         if on_exit_row && c.pos.x > EXIT_DET[0] as f64 + 0.5 && row.r_at.is_none() {
             row.r_at = Some(t);
         }
-        // the entry rider check (day-1's final rule; its string and latch emulated): at the entry,
-        // with a rider or not
-        let at_entry = (c.pos.z - (ENTRY[2] as f64 + 0.5)).abs() < 0.3 && c.pos.x < ENTRY[0] as f64 + 0.9 && c.pos.y > 1.5;
-        if row.entry_ridden.is_none() && (at_entry || (!f.trip && t == 1)) {
-            row.entry_ridden = Some(riding);
-        }
-        // the hold's other input (emulated: a redstone block beside the hold while the cart is on
-        // the flat before it): a riderless cart is released when it arrived empty, or, a stranded
-        // napper's, when RIDER_ALARM is clear (which it then sets); else the hold holds it
         let ccell = [c.pos.x.floor() as i32, (c.pos.y + 0.01).floor() as i32, c.pos.z.floor() as i32];
-        if row.release_at.is_some() && !riding && ccell == [HOLD[0] - 1, HOLD[1], HOLD[2]] && row.released_empty.is_none() {
-            let why = if row.entry_ridden == Some(false) {
-                Some("arrived empty")
-            } else if !f.alarm {
-                Some("stranded napper, RIDER_ALARM was clear (now set)")
-            } else {
-                None
-            };
-            if let Some(w) = why {
-                row.released_empty = Some(w);
-                set(&mut run.world, [HOLD[0], HOLD[1], HOLD[2] - 1], "redstone_block");
-            }
-        }
-        if row.released_empty.is_some() && row.r_at.is_some() {
-            set(&mut run.world, [HOLD[0], HOLD[1], HOLD[2] - 1], "air");
-        }
-        let w = &run.world;
-        let Some(ci) = idx(w, cart_id) else {
-            row.problems.push(format!("t {t}: the cart is gone"));
-            break;
-        };
-        let c = &w.entities.list[ci];
-        // the rider check's hold: the cart still on HOLD for 40 gt after the release is the alarm
-        if row.release_at.is_some() && still >= 40 && ccell == HOLD {
-            row.held = Some(t - 40);
-            break;
-        }
         if f.trip && row.entry_at.is_none() && (c.pos.z - (ENTRY[2] as f64 + 0.5)).abs() < 0.3 && c.pos.x < ENTRY[0] as f64 + 0.5 && c.pos.y > 1.5 {
             row.entry_at = Some(t);
             row.entry_speed = Some(c.delta_movement.x.hypot(c.delta_movement.z));
         }
         if f.trip {
-            if ccell == WAIT && still >= 5 {
+            if ((ccell[0], ccell[2]) == (GATE[0], GATE[2]) || (ccell[0], ccell[2]) == (7, 7)) && still >= 5 && c.pos.y < -10.0 {
                 row.out_at = Some(t - 5);
                 row.seated_out = riding;
                 break;
@@ -643,7 +610,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
     if row.out_at.is_none() && row.held.is_none() {
         row.problems.push("the cart neither out nor held in 1200 gt".into());
     }
-    if row.out_at.is_some() && !row.seated_out && row.released_empty.is_none() {
+    if row.out_at.is_some() && !row.seated_out {
         row.problems.push("a riderless cart left the tier (not held)".into());
     }
     let expect_seated = !f.empty && !f.no_home && !f.hide_after_wake;
