@@ -412,38 +412,115 @@ pub fn design_with(cells: i32, crest: i32, pattern: &str, with_riders: [bool; 3]
 /// ALIVE falls and unlocks this many gt after it rises (one 1-tick repeater into the chain's sides).
 pub const CHAIN_LOCK_D: usize = 2;
 
-/// (cc767b78) One fill timer as a lockable repeater chain: its stages (gt), the stage running, its
-/// completion tick (None: waiting for the unlock to schedule it), whether it has fired, and the
-/// completions lost to a lock.
+/// (cc767b78) A pausable timer's build, for the stand's fill (`--timer-model`): stages of `stage`
+/// gt; `resume`: a lock holds a stage's partial progress (a pause with no lag) instead of the
+/// stage running its full delay again from the unlock (a locked repeater's lost tick: a lag of up
+/// to one stage); `free`: the stages are a free-running clock's periods with this phase at T (a
+/// counter of clock pulses: the first count at the clock's next pulse after the release, the
+/// total rounded to whole periods) instead of a chain keyed on the release edge (exact).
+#[derive(Clone, Copy, Debug)]
+pub struct TimerModel {
+    pub stage: i64,
+    pub resume: bool,
+    pub free: Option<i64>,
+}
+
+impl TimerModel {
+    /// "chain:S[,resume][,free=P]" (or a bare S).
+    pub fn parse(s: &str) -> Result<TimerModel, String> {
+        let body = s.strip_prefix("chain:").unwrap_or(s);
+        let mut parts = body.split(',');
+        let stage: i64 = parts.next().unwrap_or("").trim().parse().map_err(|_| format!("--timer-model {s}: chain:S[,resume][,free=P]"))?;
+        let mut m = TimerModel { stage: stage.max(1), resume: false, free: None };
+        for p in parts {
+            match p.trim() {
+                "resume" => m.resume = true,
+                x if x.starts_with("free=") => m.free = Some(x[5..].parse().map_err(|_| format!("--timer-model {s}: free=P"))?),
+                x => return Err(format!("--timer-model {s}: unknown option {x}")),
+            }
+        }
+        Ok(m)
+    }
+
+    pub fn label(&self) -> String {
+        format!(
+            "{} of {} gt stages{}",
+            if self.free.is_some() { "a counter of a free-running clock's pulses" } else { "a lockable chain keyed on the release edge" },
+            self.stage,
+            match (self.resume, self.free) {
+                (true, Some(p)) => format!(" (the clock's phase {p} at T; a lock holds a period's progress)"),
+                (false, Some(p)) => format!(" (the clock's phase {p} at T; a period caught by a lock runs again in full from the unlock)"),
+                (true, None) => " (a lock holds a stage's progress)".to_string(),
+                (false, None) => " (a stage completing while locked runs its full delay again from the unlock)".to_string(),
+            }
+        )
+    }
+}
+
+/// (cc767b78) One fill timer as a lockable chain (or a counter of a clock's pulses): its stages
+/// (gt), the stage running, its completion tick (None: waiting for the unlock to schedule it), the
+/// running stage's progress left (`resume`), whether it has fired, and the completions lost to a
+/// lock.
 #[derive(Clone, Debug)]
 struct Chain {
     stages: Vec<i64>,
     j: usize,
     due: Option<i64>,
+    rem: i64,
+    resume: bool,
     done: bool,
     lost: usize,
 }
 
 impl Chain {
-    /// A chain of `total` gt in stages of `stage` gt (a remainder stage first), its first stage's
-    /// input rising at `t` (scheduled only if unlocked).
-    fn start(total: i64, stage: i64, t: i64, locked: bool) -> Chain {
-        let s = stage.max(1);
+    /// A timer of `total` gt built as `m`, its first stage's input rising at `t` (the release;
+    /// scheduled only if unlocked): keyed, a remainder stage first and whole stages after (exact);
+    /// free-running, the first count at the clock's next pulse, then whole periods (the total
+    /// rounded to periods).
+    fn start(total: i64, m: TimerModel, t: i64, locked: bool) -> Chain {
+        let s = m.stage.max(1);
         let mut stages = Vec::new();
-        if total % s > 0 {
-            stages.push(total % s);
+        match m.free {
+            None => {
+                if total % s > 0 {
+                    stages.push(total % s);
+                }
+                stages.extend(std::iter::repeat_n(s, (total / s) as usize));
+            }
+            Some(p) => {
+                let first = s - (t + p).rem_euclid(s);
+                let n = ((total + s / 2) / s).max(1);
+                stages.push(first);
+                stages.extend(std::iter::repeat_n(s, (n - 1) as usize));
+            }
         }
-        stages.extend(std::iter::repeat_n(s, (total / s) as usize));
         if stages.is_empty() {
             stages.push(1);
         }
         let due = (!locked).then(|| t + stages[0]);
-        Chain { stages, j: 0, due, done: false, lost: 0 }
+        Chain { rem: stages[0], stages, j: 0, due, resume: m.resume, done: false, lost: 0 }
     }
 
     /// One tick: true on the tick the chain's last stage completes (its output rises).
     fn tick(&mut self, t: i64, locked: bool) -> bool {
         if self.done {
+            return false;
+        }
+        if self.resume {
+            // (a pause: the stage's progress held while locked)
+            if locked {
+                return false;
+            }
+            self.rem -= 1;
+            if self.rem > 0 {
+                return false;
+            }
+            self.j += 1;
+            if self.j == self.stages.len() {
+                self.done = true;
+                return true;
+            }
+            self.rem = self.stages[self.j];
             return false;
         }
         match self.due {
@@ -513,12 +590,13 @@ pub struct ClimbOpts {
     /// (cc767b78) With `alive`: the stand's fill timers pause while ALIVE is low and resume on its
     /// return (a live clock counted on ALIVE, the detection latency included) instead of dropping.
     pub alive_pause: bool,
-    /// (cc767b78) With `alive`: the stand's fill timers as lockable repeater chains of stages of
-    /// this many gt (a remainder stage first), keyed on the hold's release edge and locked while
-    /// ALIVE is low (the lock line [`CHAIN_LOCK_D`] gt behind ALIVE): a stage whose completion
-    /// falls while locked is lost and runs its full delay again from the unlock (a repeater's
-    /// scheduled tick does nothing while locked; the unlock reschedules it).
-    pub chain_stage: Option<i64>,
+    /// (cc767b78) With `alive`: the stand's fill timers as pausable builds ([`TimerModel`]: a
+    /// lockable repeater chain keyed on the hold's release edge, or a counter of a clock's pulses),
+    /// locked while ALIVE is low (the lock line [`CHAIN_LOCK_D`] gt behind ALIVE): a stage whose
+    /// completion falls while locked is lost and runs its full delay again from the unlock (a
+    /// repeater's scheduled tick does nothing while locked; the unlock reschedules it), unless the
+    /// build holds its progress (`resume`).
+    pub timer_model: Option<TimerModel>,
     pub trace: bool,
 }
 
@@ -602,12 +680,14 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     let mut fill_shut = [false; 2];
     // (`alive_pause`: the fill's live clock, ticks with ALIVE high since the release)
     let mut fill_live = 0i64;
-    // (`chain_stage`: the fill's two lockable repeater chains, G2 and G1, and ALIVE's recent
+    // (`timer_model`: the fill's two pausable timers, G2 and G1, and ALIVE's recent
     // values for the lock line)
     let mut chains: [Option<Chain>; 2] = [None, None];
     let mut alive_hist: std::collections::VecDeque<bool> = std::collections::VecDeque::new();
     // (each cart's exit from each gate's cell: its box clear of the cell, past it)
     let mut gate_exit: [[Option<i64>; 3]; 3] = [[None; 3]; 3];
+    // (each cart against each shut gate's collision box: its near face reached, its far face cleared)
+    let mut gate_face: [[(Option<i64>, Option<i64>); 3]; 3] = [[(None, None); 3]; 3];
     let mut alive_log: Vec<String> = Vec::new();
     let mut handed = [false; 3];
     let mut gate_edges: Vec<String> = Vec::new();
@@ -723,13 +803,13 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         // bench position triggers (`alive`: the fill sequence's shuts, each ANDed with ALIVE at
         // its rise, the unfired remainder dropped when ALIVE falls, restarted at a golem event)
         if let Some((a, b)) = o.gate_shut {
-            if let (true, Some(stage)) = (o.alive, o.chain_stage) {
+            if let (true, Some(tmod)) = (o.alive, o.timer_model) {
                 // (the fill as lockable repeater chains keyed on the release edge: locked while
                 // ALIVE was low CHAIN_LOCK_D gt ago; a completion that falls while locked is lost
                 // and runs its full stage again from the unlock)
                 let locked = alive_hist.len() > CHAIN_LOCK_D && !alive_hist[alive_hist.len() - 1 - CHAIN_LOCK_D];
                 if release_t == Some(dt) {
-                    chains = [Some(Chain::start(a, stage, dt, locked)), Some(Chain::start(b, stage, dt, locked))];
+                    chains = [Some(Chain::start(a, tmod, dt, locked)), Some(Chain::start(b, tmod, dt, locked))];
                 }
                 for i in 0..2 {
                     let fired = match chains[i].as_mut() {
@@ -837,6 +917,15 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                     // (cc767b78: the exit, the cart's box clear of the cell past it)
                     if gate_entry[k][g].is_some() && gate_exit[k][g].is_none() && p.x - 0.49 >= *gx as f64 + 1.0 {
                         gate_exit[k][g] = Some(dt);
+                    }
+                    // (cc767b78: the shut gate's collision box, 6/16..10/16 of its cell along the
+                    // track: the tick a cart's box first reaches its near face (within 0.01: the
+                    // contact a shut gate stops it at), and the tick it clears its far face)
+                    if gate_face[k][g].0.is_none() && p.x + 0.49 >= *gx as f64 + 0.375 - 0.01 && p.x < *gx as f64 + 1.0 {
+                        gate_face[k][g].0 = Some(dt);
+                    }
+                    if gate_face[k][g].0.is_some() && gate_face[k][g].1.is_none() && p.x - 0.49 >= *gx as f64 + 0.625 {
+                        gate_face[k][g].1 = Some(dt);
                     }
                 }
             }
@@ -1059,18 +1148,22 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         let tl: Vec<String> = (0..2)
             .map(|i| {
                 format!(
-                    "{} shut {} entries {} exits {}",
+                    "{} shut {} entries {} exits {} faces {} cleared {}",
                     ["G2", "G1"][i],
                     shut_at[i].unwrap_or(-1),
                     (0..3).map(|k| gate_entry[k][i].map_or(-1, |(t, _)| t).to_string()).collect::<Vec<_>>().join(","),
-                    (0..3).map(|k| gate_exit[k][i].unwrap_or(-1).to_string()).collect::<Vec<_>>().join(",")
+                    (0..3).map(|k| gate_exit[k][i].unwrap_or(-1).to_string()).collect::<Vec<_>>().join(","),
+                    (0..3).map(|k| gate_face[k][i].0.unwrap_or(-1).to_string()).collect::<Vec<_>>().join(","),
+                    (0..3).map(|k| gate_face[k][i].1.unwrap_or(-1).to_string()).collect::<Vec<_>>().join(",")
                 )
             })
             .collect();
         out.push(format!("gate timing: {}", tl.join("; ")));
-        if let Some(stage) = o.chain_stage.filter(|_| o.alive) {
+        if let Some(tmod) = o.timer_model.filter(|_| o.alive) {
             out.push(format!(
-                "the fill as lockable repeater chains (stages of {stage} gt, a remainder stage first; locked {CHAIN_LOCK_D} gt behind ALIVE; a completion while locked lost and run again in full from the unlock): {}",
+                "the fill as pausable timers ({}; locked {CHAIN_LOCK_D} gt behind ALIVE; the lag after an unlock at most {} gt): {}",
+                tmod.label(),
+                if tmod.resume { 0 } else { tmod.stage },
                 chains.iter().enumerate().map(|(i, c)| c.as_ref().map_or(format!("{} not started", ["G2", "G1"][i]), |c| format!("{} {} stages {:?}, completions lost {}", ["G2", "G1"][i], c.stages.len(), c.stages, c.lost))).collect::<Vec<_>>().join("; ")
             ));
         }

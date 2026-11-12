@@ -967,6 +967,13 @@ pub enum MobfarmCmd {
         /// from the unlock.
         #[arg(long)]
         chain_stage: Option<i64>,
+        /// (cc767b78) With --alive-gate: the stand's fill timers' pausable build, general:
+        /// "chain:S[,resume][,free=P]": stages of S gt keyed on the release edge (a lockable
+        /// repeater chain: a stage caught by a lock runs again in full from the unlock), `resume`
+        /// (a lock holds a stage's progress), `free=P` (a counter of a free-running clock of period
+        /// S, its phase P at T). Overrides --chain-stage.
+        #[arg(long)]
+        timer_model: Option<String>,
         /// (cc767b78) The freeze matrix: "F0,F1,STEP;L1,L2,..": one run per freeze start (T + F0
         /// .. T + F1 every STEP gt) and length, every H-open corner and seed, in parallel
         /// (--jobs); one line per run with the bars.
@@ -3455,7 +3462,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, freeze_matrix, jobs } => {
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, timer_model, freeze_matrix, jobs } => {
+            let timer_model: Option<crate::climb::TimerModel> = match (&timer_model, chain_stage) {
+                (Some(s), _) => Some(crate::climb::TimerModel::parse(s).map_err(|e| anyhow::anyhow!(e))?),
+                (None, Some(st)) => Some(crate::climb::TimerModel { stage: st.max(1), resume: false, free: None }),
+                _ => None,
+            };
             anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
             anyhow::ensure!(gate_shut.is_empty() || gate_shut.len() == 2, "--gate-shut A,B");
             // (7b90c3f1's meter timer fill, MCTAS_TIMER_FILL=T1,T2: G1 stays open T1 and G2 T2
@@ -3529,7 +3541,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 trace,
                 alive: alive_gate,
                 alive_pause,
-                chain_stage,
+                timer_model,
             };
             // (cc767b78, `--freeze-matrix F0,F1,STEP;L1,..`: every freeze start and length at every
             // corner and seed, in parallel; one line per run with the bars)
@@ -3559,11 +3571,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let mut ring_line: Option<String> = None;
                 // (cc767b78, the drift condition: each (spacing, corner, seed)'s run without a
                 // freeze, its timed gates' shut ticks and every cart's entry into and exit from
-                // their cells)
-                type Timing = [(i64, [i64; 3], [i64; 3]); 2];
+                // each gate, on two bases: the gate's cell, and the shut gate's collision box)
+                type Timing = [[(i64, [i64; 3], [i64; 3]); 2]; 2];
                 let timing = |lines: &[String]| -> Option<Timing> {
                     let l = lines.iter().find_map(|x| x.strip_prefix("gate timing: "))?;
-                    let mut out: Timing = [(-1, [-1; 3], [-1; 3]); 2];
+                    let mut out: Timing = [[(-1, [-1; 3], [-1; 3]); 2]; 2];
                     for (i, part) in l.split("; ").enumerate().take(2) {
                         let w: Vec<&str> = part.split(' ').collect();
                         let num = |s: &str| s.parse::<i64>().unwrap_or(-1);
@@ -3571,7 +3583,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             let v: Vec<i64> = s.split(',').map(num).collect();
                             [v.first().copied().unwrap_or(-1), v.get(1).copied().unwrap_or(-1), v.get(2).copied().unwrap_or(-1)]
                         };
-                        out[i] = (num(w.get(2)?), tri(w.get(4)?), tri(w.get(6)?));
+                        let shut = num(w.get(2)?);
+                        out[0][i] = (shut, tri(w.get(4)?), tri(w.get(6)?));
+                        out[1][i] = (shut, tri(w.get(8)?), tri(w.get(10)?));
                     }
                     Some(out)
                 };
@@ -3620,7 +3634,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     late_fails: usize,
                     next: Option<usize>,
                 }
-                let mut conds: [Cond; 2] = Default::default();
+                let mut conds: [[Cond; 2]; 2] = Default::default();
                 for chunk in runs.chunks(jobs.max(1)) {
                     let got: Vec<((i64, i64, i64, i64, i64), Result<Vec<String>, String>)> = std::thread::scope(|sc| {
                         let hs: Vec<_> = chunk
@@ -3688,7 +3702,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         // (the drift condition against this run's baseline: the cart that entered
                         // each timed gate's cell last before its shut there; the drift is how much
                         // earlier the shut came against that cart's entry)
-                        if let (Some(b), Some(rt)) = (bases.get(&(e, h, s)), timing(&lines)) {
+                        if let (Some(bb), Some(rr)) = (bases.get(&(e, h, s)), timing(&lines)) {
+                          for basis in 0..2 {
+                            let (b, rt) = (bb[basis], rr[basis]);
                             for i in 0..2 {
                                 let (sb, eb, xb) = b[i];
                                 let (sf, ef, _) = rt[i];
@@ -3697,7 +3713,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                     continue;
                                 }
                                 let (gap, dwell, drift) = (sb - eb[k], xb[k] - eb[k], (ef[k] - eb[k]) - (sf - sb));
-                                let c = &mut conds[i];
+                                let c = &mut conds[basis][i];
                                 c.cart = Some(k);
                                 c.gap = Some(c.gap.map_or((gap, gap), |(a, z)| (a.min(gap), z.max(gap))));
                                 c.dwell = Some(c.dwell.map_or((dwell, dwell), |(a, z)| (a.min(dwell), z.max(dwell))));
@@ -3729,11 +3745,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                     if c.late_worst.as_ref().is_none_or(|(w, _)| m < *w) {
                                         c.late_worst = Some((m, label));
                                     }
-                                    if m <= 0 {
+                                    // (a shut on the arrival tick itself is in time: the gate's
+                                    // block update runs before the carts move in that tick (block
+                                    // ticks before entities), so the cart meets it shut)
+                                    if m < 0 {
                                         c.late_fails += 1;
                                     }
                                 }
                             }
+                          }
                         }
                     }
                 }
@@ -3744,37 +3764,49 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     if failing.is_empty() { "none".to_string() } else { failing.iter().map(|((f, l), c)| format!("T+{f}/{l}: {c}")).collect::<Vec<_>>().join(", ") }
                 );
                 // (cc767b78, ironspec's drift condition per timed gate: the least gap minus the
-                // cart's dwell in the cell must exceed the largest freeze drift)
-                let per: Vec<String> = conds
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        let name = ["G2", "G1"][i];
-                        let late = match (&c.late, &c.lag, &c.late_worst) {
-                            (Some(a), Some((lg, ll)), Some((w, wl))) => format!(
-                                "; late side (cart {}): its arrival {}..{} gt after the shut, the largest lag {lg} gt ({ll}); the worst arrival - shut - lag {w} gt ({wl}): {}",
-                                c.next.unwrap_or(0),
-                                a.0,
-                                a.1,
-                                if c.late_fails == 0 { "PASS".to_string() } else { format!("FAIL in {} runs", c.late_fails) }
-                            ),
-                            _ => String::new(),
-                        };
-                        match (&c.gap, &c.dwell, &c.drift, &c.worst) {
-                            (Some(g), Some(d), Some((dr, dl)), Some((w, wl))) => format!(
-                                "{name} (cart {}): gap {}..{} gt, dwell {}..{} gt, the largest drift {dr} gt ({dl}); the worst gap - dwell - drift {w} gt ({wl}): {}{late}",
-                                c.cart.unwrap_or(0),
-                                g.0,
-                                g.1,
-                                d.0,
-                                d.1,
-                                if c.fails == 0 { "PASS".to_string() } else { format!("FAIL in {} runs", c.fails) }
-                            ),
-                            _ => format!("{name}: not timed (or no baseline)"),
-                        }
-                    })
-                    .collect();
-                println!("drift condition (per timed gate, against each corner's run without a freeze: the least gap from the passing cart's entry to the shut, minus its dwell in the cell, must exceed the drift, the shut coming that much earlier against the cart; and the shut must still precede the next cart's arrival, whatever its lag): {}", per.join(" || "));
+                // cart's dwell must exceed the largest freeze drift, and the shut must precede the
+                // next cart's arrival whatever its lag; on the gate's cell (conservative) and on the
+                // shut gate's collision box (6/16..10/16 of the cell: what a shut can land on); and
+                // the build's per-stage lag bound against the least late margin)
+                let fmt_cond = |c: &Cond, name: &str| -> String {
+                    let late = match (&c.late, &c.lag, &c.late_worst) {
+                        (Some(a), Some((lg, ll)), Some((w, wl))) => format!(
+                            "; late side (cart {}): its arrival {}..{} gt after the shut, the largest lag {lg} gt ({ll}); the worst arrival - shut - lag {w} gt ({wl}): {}",
+                            c.next.unwrap_or(0),
+                            a.0,
+                            a.1,
+                            if c.late_fails == 0 { "PASS".to_string() } else { format!("FAIL in {} runs", c.late_fails) }
+                        ),
+                        _ => String::new(),
+                    };
+                    match (&c.gap, &c.dwell, &c.drift, &c.worst) {
+                        (Some(g), Some(d), Some((dr, dl)), Some((w, wl))) => format!(
+                            "{name} (cart {}): gap {}..{} gt, dwell {}..{} gt, the largest drift {dr} gt ({dl}); the worst gap - dwell - drift {w} gt ({wl}): {}{late}",
+                            c.cart.unwrap_or(0),
+                            g.0,
+                            g.1,
+                            d.0,
+                            d.1,
+                            if c.fails == 0 { "PASS".to_string() } else { format!("FAIL in {} runs", c.fails) }
+                        ),
+                        _ => format!("{name}: not timed (or no baseline)"),
+                    }
+                };
+                for (basis, what) in ["the gate's cell", "the shut gate's collision box"].iter().enumerate() {
+                    let per: Vec<String> = conds[basis].iter().enumerate().map(|(i, c)| fmt_cond(c, ["G2", "G1"][i])).collect();
+                    println!("drift condition on {what} (per timed gate, against each corner's run without a freeze: the least gap from the passing cart's entry to the shut, minus its dwell, must exceed the drift, the shut coming that much earlier against the cart; and the shut must come no later than the next cart's arrival tick, whatever its lag: a shut on the arrival tick is set before the carts move that tick, block ticks running before entities): {}", per.join(" || "));
+                }
+                if let Some(tm) = timer_model.filter(|_| alive_gate) {
+                    let bound = if tm.resume { 0 } else { tm.stage };
+                    let least = |basis: usize| conds[basis].iter().filter_map(|c| c.late.map(|(a, _)| a)).min();
+                    let verdict = |m: Option<i64>| m.map_or("-".to_string(), |m| format!("{m} gt: {}", if bound <= m && bound <= 2 { "PASS" } else if bound <= m { "PASS against the margin, FAIL against ironspec's 2-gt cap" } else { "FAIL" }));
+                    println!(
+                        "per-stage lag (ironspec: at most the late margin, and at most 2 gt after an unlock): {} lags at most {bound} gt; the least late margin on the cell {}, on the collision box {}",
+                        tm.label(),
+                        verdict(least(0)),
+                        verdict(least(1))
+                    );
+                }
                 if out.is_none() {
                     let _ = std::fs::remove_file(&path);
                 }
