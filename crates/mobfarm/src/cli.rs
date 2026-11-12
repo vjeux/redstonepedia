@@ -1268,6 +1268,16 @@ pub enum MobfarmCmd {
         /// + A, G2 at the edge + B (live time, paused while frozen); "A,B" (ironspec: 2,11).
         #[arg(long, value_delimiter = ',')]
         gate_shut_d1: Vec<i64>,
+        /// (7b90c3f1) With --gate-shut-d1 A,B: G2 keyed on P2's flat (8,0,6) laid as a detector
+        /// rail, on its rising edge while G1 is already shut (the batch's second cart) + B.
+        #[arg(long)]
+        p2_key: bool,
+        /// (7b90c3f1) (A), ironspec 19:52: the stand's three gates on zero-delay evidence keys: G0
+        /// (open at the start) on D2's first rise after T + REL + 40 live, G1 on D1's first rise, G2
+        /// on D2's rise while G1 is shut (P2's flat laid as the detector D2); REL the stand's release
+        /// tick after T (5).
+        #[arg(long)]
+        a_keys: Option<i64>,
         /// (7b90c3f1) A fault row: cart K (0 the front) is never handed off (removed at T: the
         /// cart that never arrives).
         #[arg(long)]
@@ -4460,7 +4470,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, gate_shut_d1, missing, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, timer_model, stagger_chain, freeze_matrix, jobs } => {
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, gate_shut_d1, p2_key, a_keys, missing, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, timer_model, stagger_chain, freeze_matrix, jobs } => {
             let timer_model: Option<crate::climb::TimerModel> = match (&timer_model, chain_stage) {
                 (Some(s), _) => Some(crate::climb::TimerModel::parse(s).map_err(|e| anyhow::anyhow!(e))?),
                 (None, Some(st)) => Some(crate::climb::TimerModel { stage: st.max(1), resume: false, free: None }),
@@ -4574,6 +4584,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     hand_off_2: e2,
                     gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
                     gate_shut_d1: (gate_shut_d1.len() == 2).then(|| (gate_shut_d1[0], gate_shut_d1[1])),
+                    p2_key,
+                    a_rel: a_keys,
                     missing,
                     n_carts: carts,
                     trace,
@@ -4675,6 +4687,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let mut conds: [[Cond; 2]; 2] = Default::default();
                 // (the timers' largest early and late lag over the matrix, per gate, with its run)
                 let mut tlag: [((i64, String), (i64, String)); 2] = Default::default();
+                // ((A): the least arming margin (G0's key minus its arming tick) over the matrix,
+                // runs with no G0 key, and runs whose G2 key was not taken)
+                let mut a_margin: Option<(i64, String)> = None;
+                let (mut a_nokey, mut a_g2_missed, mut a_runs) = (0usize, 0usize, 0usize);
                 for chunk in runs.chunks(jobs.max(1)) {
                     let got: Vec<((i64, i64, i64, i64, i64), Result<Vec<String>, String>)> = std::thread::scope(|sc| {
                         let hs: Vec<_> = chunk
@@ -4704,6 +4720,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let lat = lines.iter().find_map(|x| x.split("detection latency ").nth(1)).unwrap_or("-").to_string();
                         let into = lines.iter().find_map(|x| x.split("must be 0): ").nth(1)).map(|x| x.split(' ').next().unwrap_or("").to_string()).unwrap_or("-".to_string());
                         let lost = lines.iter().find_map(|x| x.strip_prefix("releases lost (armed at a golem event, refused at their rise with ALIVE low; a consequence row): ")).unwrap_or("-").to_string();
+                        if let Some(ak) = lines.iter().find(|x| x.starts_with("(A) keys: ")) {
+                            a_runs += 1;
+                            let m = ak.split("(margin ").nth(1).and_then(|x| x.split(')').next()).and_then(|x| x.trim().parse::<i64>().ok());
+                            match m {
+                                Some(m) => {
+                                    if a_margin.as_ref().is_none_or(|(w, _)| m < *w) {
+                                        a_margin = Some((m, format!("freeze T+{f}/{l}, H T+{h}, every {e}, seed {s}")));
+                                    }
+                                }
+                                None => a_nokey += 1,
+                            }
+                            if ak.contains("G2's key NOT TAKEN") {
+                                a_g2_missed += 1;
+                            }
+                        }
                         let gaps = lines
                             .iter()
                             .find_map(|x| x.strip_prefix("timed edges (the liveness latency must stay under each least gap): "))
@@ -4853,6 +4884,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for (basis, what) in ["the gate's cell", "the shut gate's collision box"].iter().enumerate() {
                     let per: Vec<String> = conds[basis].iter().enumerate().map(|(i, c)| fmt_cond(c, ["G2", "G1"][i])).collect();
                     println!("drift condition on {what} (per timed gate, against each corner's run without a freeze: the least gap from the passing cart's entry to the shut, minus its dwell, must exceed the drift, the shut coming that much earlier against the cart's exit (a cart frozen in the cell drifts by the freeze; 9999+: it never cleared); and the shut must come no later than the next cart's arrival tick, whatever its lag: a shut on the arrival tick is set before the carts move that tick, block ticks running before entities): {}", per.join(" || "));
+                }
+                if a_runs > 0 {
+                    println!(
+                        "(A) over the matrix: {a_runs} runs; the least arming margin (G0's key, the new cart 0's D2 rise, minus the arming at REL + 40 with the ring's lag) {}; runs with no G0 key {a_nokey}; runs whose G2 key was not taken {a_g2_missed}",
+                        a_margin.map_or("-".to_string(), |(m, l)| format!("{m} gt ({l})"))
+                    );
                 }
                 if let Some(tm) = timer_model.filter(|_| alive_gate) {
                     println!(
