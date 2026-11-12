@@ -1,25 +1,25 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -16..31 z -16..31.
-# the per-group Nether layout (onechunk, Nov 12; pocket 110; Nether frame, mirrored 16/48 tiling, the group around gap chunk (1,2)): b8949c96's N = 4 storage (820a3f174 / 252209db0's framed cells: 2 hopper lines, 8 double chests, the 26-connected cobblestone shield) replacing v4's collection; v4's kill chamber above it (its 2 x 3 axis-z portal at x 2, z 4..5, y 102..104), the kill floor's 2 x 2 hoppers the storage's, closed for ghasts by 14 cobblestone (wip/onechunk/nether/f1q2-killroom-shield-p110.txt: the portal's west face, the chamber's walls at its top row and its roof) and the edge cells below; the L1''' loop's twin (the loader's cased Nether side, main e37e893c0 / 59d96295d) 13 above at x -1..3, z 4, y 117..121; the cobblestone behind the twin's O2 at (2,120,0) is powered on every O2 pulse: its other faces hold nothing. All inside the 3 x 3 chunks of the kill room's and the twin's arrival tickets (chunk 0,0); nothing above y 122 (the roof's bedrock from 123). Bench, tool unreviewed.
-# + storage: /tmp/onechunk/parts/storage-n4-v3.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
-# + kill: designs/farms/iron/carousel-assembly/wip/onechunk/skeleton-v4-inverted.txt moved by 2,38,4 into the frame, then 0,0,0 into its tier (its cells -3,61,-4..4,67,4 kept)
-# + shield: designs/farms/iron/carousel-assembly/wip/onechunk/nether/f1q2-killroom-shield-p110.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
-# + twin: designs/farms/iron/carousel-assembly/wip/onechunk/loader/l1-item-loop-bench.txt moved by -1,107,4 into the frame, then 0,0,0 into its tier
-# cleared first (committed cells a lane re-lays): x 3..4 y 99..99 z 4..5
-# closed for ghasts (mctas mobfarm ghast-check --close): 46 cobblestone in the outside cells with an edge or a corner on a weak cell inside: (1,101,3) (1,101,6) (1,102,3) (1,102,6) (1,103,3) (1,103,6) (1,104,3) (1,104,6) (1,105,3) (1,105,4) (1,105,5) (1,105,6) (2,99,3) (2,99,4) (2,99,5) (2,99,6) (2,100,3) (2,100,6) (2,101,3) (2,101,6) (2,105,3) (2,105,6) (3,99,3) (3,99,6) (3,105,3) (3,105,6) (4,105,3) (4,105,6) (5,99,3) (5,99,4) (5,99,5) (5,99,6) (5,100,3) (5,100,6) (5,101,3) (5,101,6) (5,102,3) (5,102,6) (5,103,3) (5,103,6) (5,104,3) (5,104,6) (5,105,3) (5,105,4) (5,105,5) (5,105,6)
+# the per-group Nether layout (onechunk, Nov 12; pocket 110; Nether frame; re-placed 07:32 for the budget's tiling, the loader in the overworld gap chunk (1,1) and the modules on the even chunks, the southern ones mirrored in z at N = 4: the kill room, its storage and its shield moved 4 north (z - 4), the twin 2 north (z - 2), so every pad portal block links to the kill room and the loader's items link to the twin and back at N = 1 and N = 4 mirrored, least margins 8.49 (golems) and 16.72 (items), mobfarm portal-links): b8949c96's N = 4 storage with the cheaper shell (8f1969d37's framed cells: 2 hopper lines, 8 double chests, its 26-connected shield) replacing v4's collection; v4's kill chamber above it (its 2 x 3 axis-z portal at x 2, z 0..1, y 102..104), the kill floor's 2 x 2 hoppers the storage's, closed for ghasts by 14 cobblestone (wip/onechunk/nether/f1q2-killroom-shield-p110.txt moved 4 north: the portal's west face, the chamber's top-row walls, its roof at y 105, the chamber's 3-high headroom kept) and the edge cells below; the L1''' loop's twin (the loader's cased Nether side, main e37e893c0 / 59d96295d) 13 above at x -1..3, z 2, y 117..121 (its items cross at (2,121,2)); the cobblestone behind the twin's O2 is powered on every O2 pulse: only cobblestone on its other faces. All inside the 3 x 3 chunks of the kill room's and the twin's arrival tickets (chunk 0,0; the kill portal and the items' crossing cell in it); nothing above y 122 (the roof's bedrock from 123). Bench, tool unreviewed.
+# + storage: /tmp/onechunk/parts/storage-n4-v4.txt moved by 0,0,-4 into the frame, then 0,0,0 into its tier
+# + kill: designs/farms/iron/carousel-assembly/wip/onechunk/skeleton-v4-inverted.txt moved by 2,38,0 into the frame, then 0,0,0 into its tier (its cells -3,61,-4..4,67,4 kept)
+# + shield: /tmp/onechunk/shield-p110.txt moved by 0,0,-4 into the frame, then 0,0,0 into its tier
+# + twin: designs/farms/iron/carousel-assembly/wip/onechunk/loader/l1-item-loop-bench.txt moved by -1,107,2 into the frame, then 0,0,0 into its tier
+# cleared first (committed cells a lane re-lays): x 3..4 y 99..99 z 0..1
+# closed for ghasts (mctas mobfarm ghast-check --close): 63 cobblestone in the outside cells with an edge or a corner on a weak cell inside: (1,101,-1) (1,101,2) (1,102,-1) (1,102,2) (1,103,-1) (1,103,2) (1,104,-1) (1,104,2) (1,105,-1) (1,105,0) (1,105,1) (1,105,2) (2,99,-1) (2,99,0) (2,99,1) (2,99,2) (2,100,-1) (2,100,2) (2,101,-1) (2,101,2) (2,105,-1) (2,105,2) (3,99,-1) (3,99,2) (3,105,-1) (3,105,2) (4,95,-5) (4,95,-4) (4,95,3) (4,96,-5) (4,96,-4) (4,96,3) (4,97,-5) (4,97,-4) (4,97,3) (4,105,-1) (4,105,2) (5,99,-1) (5,99,0) (5,99,1) (5,99,2) (5,100,-1) (5,100,2) (5,101,-1) (5,101,2) (5,102,-1) (5,102,2) (5,103,-1) (5,103,2) (5,104,-1) (5,104,2) (5,105,-1) (5,105,0) (5,105,1) (5,105,2) (11,99,-4) (11,99,-3) (11,99,-2) (12,99,-4) (12,99,-3) (12,99,-2) (13,99,-4) (13,99,-2)
 name: f1q2-nether-group-p110
 circuit: mob-farm iron_ingot
-run-cells: kill.Pa 15,55,12; kill.Pb 15,56,7; kill.Pc 12,57,5; kill.Ds 15,52,15; kill.ESC 5,57,5; kill.RUNTOP 4,69,18; kill.Pesc 4,58,7; kill.P1 17,76,6; kill.P2 17,75,11; kill.P3 17,74,15; kill.P4 11,73,19; kill.P5 7,72,19; kill.Ra 15,54,13; kill.Rb 15,55,8; kill.Rc 13,56,5; kill.R1 17,75,7; kill.R2 17,74,12; kill.R3 17,73,16; kill.R4 10,72,19; kill.R5 6,71,19; kill.S0r 15,36,10; kill.S1r 11,37,10; kill.S2r 7,38,10; kill.STRIP0 5,35,10; kill.STRIP1 17,40,10; kill.X 16,72,19; kill.PAD0 6,32,4; kill.PAD1 16,32,9
-run-gates: kill.Ga 15,54,14/15,52,14; kill.Gb 15,55,9/15,53,9; kill.Gc 14,56,5/14,54,5; kill.G0e 4,59,7; kill.GP 4,58,6; kill.S0 16,36,10/16,35,11; kill.S1 12,37,10/12,35,10; kill.S2 8,38,10/8,36,10; kill.T1 17,75,8/17,73,8; kill.T2 17,74,13/17,72,13; kill.T3 17,73,17/17,71,17; kill.T4 9,72,19/9,70,19; kill.T5 5,71,19
-port output: -1 103 -3
-nbt: 2 119 3 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
-nbt: 2 121 3 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
-nbt: 5 96 0 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
-nbt: 5 96 1 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}}]}
-nbt: 5 96 7 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
-nbt: 5 96 8 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}}]}
-nbt: 5 97 1 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}}]}
-nbt: 5 97 8 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}}]}
-origin: -2 0 -4
+run-cells: kill.Pa 15,55,8; kill.Pb 15,56,3; kill.Pc 12,57,1; kill.Ds 15,52,11; kill.ESC 5,57,1; kill.RUNTOP 4,69,14; kill.Pesc 4,58,3; kill.P1 17,76,2; kill.P2 17,75,7; kill.P3 17,74,11; kill.P4 11,73,15; kill.P5 7,72,15; kill.Ra 15,54,9; kill.Rb 15,55,4; kill.Rc 13,56,1; kill.R1 17,75,3; kill.R2 17,74,8; kill.R3 17,73,12; kill.R4 10,72,15; kill.R5 6,71,15; kill.S0r 15,36,6; kill.S1r 11,37,6; kill.S2r 7,38,6; kill.STRIP0 5,35,6; kill.STRIP1 17,40,6; kill.X 16,72,15; kill.PAD0 6,32,0; kill.PAD1 16,32,5
+run-gates: kill.Ga 15,54,10/15,52,10; kill.Gb 15,55,5/15,53,5; kill.Gc 14,56,1/14,54,1; kill.G0e 4,59,3; kill.GP 4,58,2; kill.S0 16,36,6/16,35,7; kill.S1 12,37,6/12,35,6; kill.S2 8,38,6/8,36,6; kill.T1 17,75,4/17,73,4; kill.T2 17,74,9/17,72,9; kill.T3 17,73,13/17,71,13; kill.T4 9,72,15/9,70,15; kill.T5 5,71,15
+port output: -1 103 -11
+nbt: 2 119 1 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+nbt: 2 121 1 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+nbt: 5 96 -4 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
+nbt: 5 96 -3 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}}]}
+nbt: 5 96 3 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
+nbt: 5 96 4 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}}]}
+nbt: 5 97 -3 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}}]}
+nbt: 5 97 4 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}}]}
+origin: -2 0 -8
 palette:
   A minecraft:chest[facing=west,type=right,waterlogged=false]
   B minecraft:cobblestone
@@ -60,11 +60,11 @@ palette:
   r minecraft:redstone_wall_torch[facing=north,lit=true]
   s minecraft:stone
 layer 91:
-  ............BBBBBBBBBB
-  ............BDDDDDDDDB
-  ............BBBBBBBBBB
-  ............BBBBBBBBBB
-  ............BBBBBBBBBB
+  ............DDDDDDDDDD
+  ............DDDDDDDDDB
+  ............DDDDDDDDDD
+  ............DDDDDDDDDD
+  ............DDDDDDDDDD
   .
   .
   .
@@ -79,11 +79,11 @@ layer 91:
   .
   .
 layer 92:
-  ............BBBBBBBBBB
-  ............B........i
-  ............BAAAAAAAAB
-  ............BccccccccB
-  ............BBBBBBBBBB
+  ............DDDDDDDDDD
+  ............D........i
+  ............DAAAAAAAAD
+  ............DccccccccD
+  ............DDDDDDDDDD
   .
   .
   .
@@ -98,11 +98,11 @@ layer 92:
   .
   .
 layer 93:
-  ............BBBBBBBBBBa
-  ............B.......bO
-  ............B........B
-  ............BKKKKKKKKB
-  ............BBBBBBBBBB
+  ............DDDDDDDDBBa
+  ............D.......bO
+  ............DDDDDDDDDD
+  ............DKKKKKKKKD
+  ............DDDDDDDDDD
   .
   .
   .
@@ -117,11 +117,11 @@ layer 93:
   .
   .
 layer 94:
-  ............BBBBBBBBBB
-  ............B........B
-  ............B........B
-  ........LLLLLLLLLLLLLB
-  .......DMD..MBBBBBBBBB
+  ............DDDDDDDDDD
+  ............DDDDDDDDDD
+  ............DDDDDDDDDD
+  ........LLLLLLLLLLLLL
+  .......DMD..M
   ......DDMD..M
   ......DDDD..M
   ......DDD...M
@@ -136,18 +136,18 @@ layer 94:
   ......DDD
   .
 layer 95:
-  ............BBBBBBBBBB
-  ............BBBBBBBBBB
-  ............BBBBBBBBBB
-  ......DDDDD.BBBBBBBBBB
-  ......DDssDDBBBBBBBBBB
+  .
+  .
+  .
+  ......BDDDD
+  ......BDssDD.DDD
   ......DDCssD.DDD
   ......DrDssD.DDD
   ......DsDDDD
   ......DZD
   ......DsD
   ......DDDDD
-  ......DDssDD
+  ......BDssDD
   ......DDCssD
   ......DrDssD
   ......DsDDDD
@@ -158,15 +158,15 @@ layer 96:
   .
   .
   .
-  ......DDDDD
-  ......DHFXDD.DDD
+  ......BDDDD
+  ......BHFXDD.DDD
   ......DhGFXD.DVD
   ......DssYXD.DDD
   ......DsDDDD
   ......DsD
   ......DXD
   ......DDDDD
-  ......DHFXDD
+  ......BHFXDD
   ......DhGFXD
   ......DssYXD
   ......DsDDDD
@@ -177,15 +177,15 @@ layer 97:
   .
   .
   .
-  ......DDDDD
-  ......DDDDDD.DDD
+  ......BDDDD
+  ......BDDDDD.DDD
   ......DKDDDD.DSB
   ......DEDDDD.DDD
   ......DXDDDD
   ......DXD
   ......DDD
   ......DDDDD
-  ......DDDDDD
+  ......BDDDDD
   ......DKDDDD
   ......DEDDDD
   ......DXDDDD
@@ -216,9 +216,9 @@ layer 99:
   .
   .
   .
-  .............DDD
-  ......K......DDB
-  ......M......DDD
+  .............BBB
+  ......K......BBB
+  ......M......BBB
   ....BBMB
   ..B.BLMB
   ....BLNB
@@ -542,6 +542,8 @@ layer 116:
   .
   .
   .
+  .
+  .
   BBBBBBB
   BWWWWWB
   BBBBBBB
@@ -551,9 +553,9 @@ layer 116:
   .
   .
   .
-  .
-  .
 layer 117:
+  .
+  .
   .
   .
   .
@@ -570,9 +572,9 @@ layer 117:
   .
   .
   .
-  .
-  .
 layer 118:
+  .
+  .
   .
   .
   .
@@ -589,9 +591,9 @@ layer 118:
   .
   .
   .
-  .
-  .
 layer 119:
+  .
+  .
   .
   .
   .
@@ -608,9 +610,9 @@ layer 119:
   .
   .
   .
-  .
-  .
 layer 120:
+  .
+  .
   .
   .
   .
@@ -627,9 +629,9 @@ layer 120:
   .
   .
   .
-  .
-  .
 layer 121:
+  .
+  .
   .
   .
   .
@@ -646,9 +648,9 @@ layer 121:
   .
   .
   .
-  .
-  .
 layer 122:
+  .
+  .
   .
   .
   .
@@ -659,8 +661,6 @@ layer 122:
   BBBBBBB
   BWWWWWB
   BBBBBBB
-  .
-  .
   .
   .
   .
