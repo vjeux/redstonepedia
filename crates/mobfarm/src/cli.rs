@@ -1375,6 +1375,15 @@ pub enum MobfarmCmd {
         /// The controller's clock counts ring edges (every Q live gt; 34 = 3 and 4 in turn; 0 = game tick).
         #[arg(long, default_value_t = 0)]
         ring_q: i64,
+        /// The hold opens at T+3 only when all three pockets are latched (else the release is skipped).
+        #[arg(long)]
+        release_full: bool,
+        /// The release fires on a pending start (the golem event) AND the hold settled (evidence).
+        #[arg(long)]
+        settled: bool,
+        /// 9fc3155f's drive fix: the rear gate Gc shuts on the rear cart's P_b rise until the release ends.
+        #[arg(long)]
+        gc_pb: bool,
         /// Edge escapement: G_P only after no hold sensor edge for this many gt.
         #[arg(long, default_value_t = 0)]
         fill_quiet: i64,
@@ -3995,7 +4004,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, ring_q, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, ring_q, release_full, settled, gc_pb, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
             let pairs = |v: &[String], what: &str| -> anyhow::Result<Vec<(i64, i64)>> {
                 v.iter()
                     .map(|s| {
@@ -4006,7 +4015,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let fr = pairs(&freeze, "freeze")?;
             let fr32 = pairs(&freeze32, "freeze32")?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, ring_q, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, ring_q, release_full, settled, gc_pb, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
             if !freeze_matrix.is_empty() {
                 let parts: Vec<&str> = freeze_matrix.split(';').collect();
                 let sv: Vec<i64> = parts.first().unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();
@@ -4084,7 +4093,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             }
                             by.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", ")
                         }).unwrap_or_default();
-                        println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts}{} | hold margins {margins} | last fill {lastfill} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped} | releases lost {lost}", if which.is_empty() { String::new() } else { format!(" ({which})") });
+                        let settled_s = r.lines().find_map(|l| l.strip_prefix("the settled start: ")).map(|x| {
+                            let late = x.split("(the latest ").nth(1).and_then(|y| y.split(' ').next()).unwrap_or("-").to_string();
+                            let lost = x.split("(cycles lost) ").nth(1).and_then(|y| y.split(',').next()).unwrap_or("-").to_string();
+                            let pend = x.split("pending at the end ").nth(1).and_then(|y| y.split(';').next()).unwrap_or("-").to_string();
+                            let waits: Vec<i64> = x.split("waits from a thaw to settled: ").nth(1).unwrap_or("").split(", ").filter_map(|w| w.split(": ").nth(1)).filter_map(|w| w.trim_end_matches(" gt").parse().ok()).collect();
+                            format!("start late max {late} gt, cycles lost {lost}, pending at end {pend}, thaw->settled {}", waits.iter().max().map_or("-".to_string(), |w| format!("{w} gt")))
+                        }).unwrap_or_default();
+                        println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts}{} | hold margins {margins} | last fill {lastfill} | {settled_s} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped} | releases lost {lost}", if which.is_empty() { String::new() } else { format!(" ({which})") });
                         continue;
                         println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped} | releases lost {lost}");
                     }

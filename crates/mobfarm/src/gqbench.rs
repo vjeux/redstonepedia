@@ -101,6 +101,12 @@ pub struct GqOpts {
     /// The controller's clock counts ring edges (every Q live gt; 34 = 3 and 4 in turn), pausing
     /// exactly with the carts (0: the game tick).
     pub ring_q: i64,
+    /// The hold opens at T+3 only when all three pockets are latched (else the release is skipped).
+    pub release_full: bool,
+    /// The release fires on a pending start (the golem event) AND the hold settled (evidence).
+    pub settled: bool,
+    /// 9fc3155f's drive fix: the rear gate Gc shuts on the rear cart's P_b rise until the release ends.
+    pub gc_pb: bool,
     /// Edge escapement: G_P only after no hold sensor edge for this many gt (the hold settled).
     pub fill_quiet: i64,
     /// The start state: the run empty, carts admitted seated one at a time until N are on it.
@@ -636,6 +642,17 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut gp_waiting: Option<i64> = None;
     let mut gp_wait_live: i64 = 0;
     let mut gp_retries: usize = 0;
+    let mut skipped_releases: Vec<(i64, usize)> = Vec::new();
+    let mut in_transit = false;
+    let mut release_active = false;
+    let mut fill_in_c = false;
+    let mut was_settled = false;
+    let mut was_frozen_col = false;
+    let mut thaw_pending: Option<i64> = None;
+    let mut settle_waits: Vec<(i64, i64)> = Vec::new();
+    let mut start_pending: Option<i64> = None;
+    let mut start_late: Vec<(i64, i64)> = Vec::new();
+    let mut starts_merged: usize = 0;
     let mut ds_first_at: Option<i64> = None;
     let mut gone: Vec<bool> = vec![false; o.carts];
     let mut reset_log = String::new();
@@ -925,9 +942,17 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 } else {
                     let h = si - nt;
                     last_hold_edge = t;
+                    // (--settled: the in-transit latch, set by G_P's opening, clears on the next pocket
+                    // latch rising: the admitted cart has reached the hold's pockets)
+                    if h < 3 {
+                        in_transit = false;
+                    }
                     if h == 3 {
-                        // (Ds: the hold's front pocket left)
-                        occ_h[2] = false;
+                        // (Ds: the hold's front pocket left; with --settled the batch's passes during
+                        // its release leave the latches alone: they were cleared at the release)
+                        if !release_active || !o.settled {
+                            occ_h[2] = false;
+                        }
                         ds_since += 1;
                         // (--hold-stagger-ds: cart 0's rising edge at Ds opens the middle and rear gates)
                         if hold_release_at >= 0 && t > hold_release_at && ds_first_at.is_none() {
@@ -937,7 +962,15 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                             eprintln!("t {t}: Ds edge (count {ds_since} of {release_n} since the release at {hold_release_at})");
                         }
                     } else {
-                    occ_h[h] = true;
+                    let batch_pass = false;
+                    if h == 0 && release_active {
+                        // (a P_c rise during a release is a fill arriving: the batch's rear cart leaves
+                        // through P_b, never P_c)
+                        fill_in_c = true;
+                    }
+                    if !batch_pass {
+                        occ_h[h] = true;
+                    }
                     // (--hold-close-pb D: the rear cart's pass over the middle pocket's detector (P_b),
                     // the only cart to cross it during a release, keys Ga's close D gt later)
                     if h == 1 && o.hold_close_pb > 0 && hold_release_at >= 0 && t > hold_release_at && t < hold_release_at + o.hold_pulse && pb_close_at.is_none() {
@@ -948,7 +981,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                             eprintln!("t {t}: P_b edge in the release at {hold_release_at}: Ga closes at {}", t + o.hold_close_pb);
                         }
                     }
-                    if h > 0 {
+                    if h > 0 && !batch_pass {
                         occ_h[h - 1] = false;
                     }
                     if h == 0 {
@@ -1055,6 +1088,69 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             golems.push(t);
         }
         let hold_rise = if o.alive { gate.rise(&run.world, "cycle", 3, t) } else { in_cycles && ph == 3 && !frz };
+        // (--release-full: the hold opens at T+3 only when all three pockets are latched (evidence);
+        // otherwise the golem event's release is skipped and the batch waits for the next one (a cold
+        // start's first cycle, or a fill still in transit): never a short batch or a fill run through.
+        // --settled (ironspec 20:48, (a) at the chain's trigger): the golem event's rise sets a pending
+        // start (one, refractory); the release fires when a start is pending AND the hold is settled:
+        // all three pocket latches set, nothing in transit, G_P and G0 shut. A late start shifts the
+        // cycle; the next golem event re-phases it)
+        let latched_now = occ_h.iter().filter(|b| **b).count();
+        // (a release in progress: from its start until its gates' close (the rear cart's P_b + D, or
+        // the cap))
+        if release_active {
+            let capped = if o.ring_q > 0 { ct - hold_release_ct >= 2 * o.hold_ripple.max(0) + o.hold_pulse } else { t >= hold_release_at + 2 * o.hold_ripple.max(0) + o.hold_pulse };
+            if capped || (pb_armed && pb_live >= o.hold_close_pb && o.hold_close_pb > 0) {
+                release_active = false;
+                // (--settled: the release's end resyncs the pocket latches from evidence: the batch
+                // (every cart latched at the start) has left pockets a and b; pocket c holds a fill
+                // only if P_c rose during the release)
+                if o.settled {
+                    occ_h = [fill_in_c, false, false];
+                }
+            }
+        }
+        let settled = latched_now == 3 && !in_transit && ct >= egp_until && ct >= eg0_until && !release_active;
+        if settled && !was_settled && thaw_pending.is_some() {
+            if let Some(tt) = thaw_pending.take() {
+                settle_waits.push((tt, t - tt));
+            }
+        }
+        was_settled = settled;
+        if !(frz || real_frozen) && was_frozen_col {
+            thaw_pending = Some(t);
+        }
+        was_frozen_col = frz || real_frozen;
+        let hold_rise = if o.settled {
+            if hold_rise {
+                if start_pending.is_some() {
+                    starts_merged += 1;
+                } else {
+                    start_pending = Some(t);
+                }
+            }
+            if let Some(ts) = start_pending
+                && settled
+                && !(frz || real_frozen)
+            {
+                start_pending = None;
+                start_late.push((t, t - ts));
+                true
+            } else {
+                false
+            }
+        } else {
+            hold_rise
+        };
+        let hold_rise = hold_rise && {
+            let held_now = occ_h.iter().filter(|b| **b).count();
+            if o.release_full && held_now < 3 {
+                skipped_releases.push((t, held_now));
+                false
+            } else {
+                true
+            }
+        };
         if hold_rise {
             // (the last release's margins: the shut after the rear cleared, the next cart after
             // the shut)
@@ -1074,8 +1170,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             hold_release_until = t + o.hold_pulse;
             hold_release_at = t;
             hold_release_ct = ct;
+            release_active = true;
             fills_since = 0;
             occ_h = if o.edge_esc { occ_h } else { [false; 3] };
+            fill_in_c = false;
             // (the carts released: those in the hold now; the rear-clear tracking restarts)
             let hx0 = g.hold_p[0].0 as f64;
             released = now.iter().enumerate().filter(|(_, c)| c.is_some_and(|(x, _, _)| x >= hx0 && x < h2_face + 0.2)).map(|(k, _)| k).collect();
@@ -1293,7 +1391,11 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             let spaced = t >= last_gp + o.esc_gap;
             // (--fill-count: the hold's room by count (fills since the last release under 3) instead
             // of its entry pocket's latch, so fills may follow each other into the hold)
-            let room = if o.fill_count { fills_since < 3 } else { !occ_h[0] };
+            let room = if o.settled {
+                // (the fill drives toward settled on its own: admit while fewer than 3 pocket latches
+                // are set and nothing is in transit)
+                occ_h.iter().filter(|b| **b).count() < 3 && !in_transit
+            } else if o.fill_count { fills_since < 3 } else { !occ_h[0] };
             // (--fill-quiet: the hold settled: no hold sensor edge in the last Q gt, so a fill never
             // follows a cart shifting between pockets through a gate that is about to shut)
             let room = room && t - last_hold_edge >= o.fill_quiet;
@@ -1307,6 +1409,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 last_gp = t;
                 fills_since += 1;
                 gp_waiting = Some(t);
+                in_transit = true;
                 gp_wait_live = 0;
                 if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
                     eprintln!("t {t} (ph {ph}): G_P fires; occ_h {occ_h:?}");
@@ -1362,7 +1465,12 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     if pb_armed && pb_live >= o.hold_close_pb {
                         until = until.min(t);
                     }
-                    if hold_release_at >= 0 && t >= from && t < until {
+                    if o.gc_pb && *j == 0 && pb_armed && hold_release_at >= 0 && t < until {
+                        // (--gc-pb, 9fc3155f's drive fix: the rear gate Gc (and its R* power) shuts on the
+                        // rear cart's own P_b rise, zero delay, until the release ends: a fill admitted
+                        // during the release waits at Gc's face in the entry pocket)
+                        false
+                    } else if hold_release_at >= 0 && t >= from && t < until {
                         true
                     } else if *j == 2 {
                         false
@@ -1572,6 +1680,21 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     }
     if o.edge_esc {
         l.push(format!("the edge escapement's G_P retries (an opening whose cart never reached the escapement sensor, re-armed after 31 live gt): {gp_retries}"));
+        if o.release_full {
+            l.push(format!("releases skipped (the hold not full at T+3; --release-full): {}{}", skipped_releases.len(), if skipped_releases.is_empty() { String::new() } else { format!(" ({})", skipped_releases.iter().take(12).map(|(t, h)| format!("t {t}: {h} latched")).collect::<Vec<_>>().join(", ")) }));
+        }
+        if o.settled {
+            let late_max = start_late.iter().map(|x| x.1).max().unwrap_or(0);
+            let late_n = start_late.iter().filter(|x| x.1 > 0).count();
+            l.push(format!(
+                "the settled start: {} releases, {} late (the latest {} gt: {}), golem events merged into a pending start (cycles lost) {}, a start still pending at the end {}; waits from a thaw to settled: {}",
+                start_late.len(), late_n, late_max,
+                start_late.iter().filter(|x| x.1 > 0).take(6).map(|(t, d)| format!("t {t} +{d}")).collect::<Vec<_>>().join(", "),
+                starts_merged,
+                if start_pending.is_some() { "yes" } else { "no" },
+                if settle_waits.is_empty() { "-".to_string() } else { settle_waits.iter().map(|(t, d)| format!("thaw t {t}: {d} gt")).collect::<Vec<_>>().join(", ") }
+            ));
+        }
     }
     l.push(format!("merges (two carts' centres within 0.5; separated when 0.9 apart): {}{}", merge_log.len(), if merge_log.is_empty() { String::new() } else { format!(" ({})", merge_log.iter().take(if o.cycles > 200 { 400 } else { 12 }).cloned().collect::<Vec<_>>().join("; ")) }));
     l.push(format!(
