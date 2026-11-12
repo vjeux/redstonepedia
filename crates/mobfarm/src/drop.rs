@@ -412,10 +412,46 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
     text
 }
 
+/// The station as a committed design in the loop frame (onechunk's module, farmopt 01:30): the
+/// bench's station file (written at loop + (6,0,6)) moved by (-6,0,-6); the next batch on R_1 and
+/// R_2's rail and glass left to the lanes' file; `positions:` the villager positions (the pockets'
+/// and the holds' rider cells; the shafts are never occupied at a summon tick: the falls run
+/// within T+21..T+64); `run-cells:` the cells the runner reads (P0..2 the pockets' rest cells,
+/// D0..2 the exit detectors, H0..2 the holds' rest cells, PAD0/PAD1 the pad's golem feet box);
+/// `header` written first as comment lines.
+pub fn station_loop_text(file_text: &str, hold_y: i32, header: &[String]) -> Result<String, String> {
+    let d = mctas::design::Design::parse(file_text).map_err(|e| e.to_string())?;
+    let mut m = d.translated([-6, 0, -6]);
+    let pockets: Vec<(i32, i32, i32)> = DropLayout::Station.pockets().iter().map(|(x, y, z)| (x - 6, *y, z - 6)).collect();
+    for (x, _, z) in &pockets {
+        m.blocks.remove(&[*x, hold_y + 2, z + 2]);
+        m.blocks.remove(&[*x, hold_y + 1, z + 2]);
+    }
+    m.entities.retain(|e| !(e.kind.ends_with("minecart") && e.pos[1] > hold_y as f64 + 1.0));
+    m.meta.insert("positions".into(), pockets.iter().flat_map(|(x, y, z)| [format!("{x},{y},{z}"), format!("{x},{hold_y},{z}")]).collect::<Vec<_>>().join(" "));
+    let mut cells = Vec::new();
+    for (k, (x, y, z)) in pockets.iter().enumerate() {
+        cells.push(format!("P{k} {x},{y},{z}"));
+        cells.push(format!("D{k} {x},{y},{}", z + 2));
+        cells.push(format!("H{k} {x},{hold_y},{z}"));
+    }
+    cells.push("PAD0 -3,-6,-6".into());
+    cells.push("PAD1 8,-6,-1".into());
+    m.meta.insert("run-cells".into(), cells.join("; "));
+    let mut s = String::new();
+    for l in header {
+        s.push_str("# ");
+        s.push_str(l);
+        s.push('\n');
+    }
+    s.push_str(&m.to_text());
+    Ok(s)
+}
+
 /// The station's box against the budget's (static).
 fn station_footprint(hold_y: i32) -> String {
     format!(
-        "the station's blocks: file x 3..15 y -9..{hold_y} z 0..7 (loop x -3..9, z -6..1: the glass rings' z +1 cells sit in the lanes' box, as the budget lists them), the waiting riders' heads at {:.2}; the budget's box: loop x -3..9 y -11..19 z -6..0; the merge's stand-in: file z 7..15 (loop 1..9, the merge's box); each exit detector at loop (x,0,2): faces north (x,0,1) a plain rail, south (x,0,3) a plain rail, east and west air, down glass, up air (no powered rail, gate or junction)",
+        "the station's blocks: file x 3..15 y -9..{hold_y} z 0..7 (loop x -3..9, z -6..1: the glass rings' z +1 cells sit in the lanes' box, as the budget lists them), the waiting riders' heads at {:.2}; the budget's box: loop x -3..9 y -11..19 z -6..0; the departure: file z 7..12 (loop 1..6), the merge row at loop z 7; each exit detector at loop (x,0,2): faces north (x,0,1) a plain rail, south (x,0,3) a plain rail, east and west air, down glass, up air (no powered rail, gate or junction)",
         hold_y as f64 + 0.1875 + 1.95
     )
 }
@@ -514,6 +550,14 @@ pub struct DropStats {
     pub hold_lane: [i64; 3],
     /// With the refill: next-batch carts not at rest in their hold (fallen through or stuck).
     pub refill_fail: usize,
+    /// The closest zombie-to-villager approach (its distance, and where: the tick, the lane and
+    /// phase, the rider's feet, the zombie), for the bridge check.
+    pub zombie_any_at: Option<(f64, String)>,
+    /// The R line's first tick, the tick the last next-batch cart came to rest in its hold, the
+    /// last trapdoor's shut tick (world ticks after T).
+    pub r_from: Option<i64>,
+    pub next_in: Option<i64>,
+    pub shut_last: Option<i64>,
     /// The closest a pocket's departing cart was to its pocket's centre (horizontal, hundredths) as
     /// that pocket's trapdoor opened (i64::MAX: already gone).
     pub gap_at_open: Option<i64>,
@@ -523,6 +567,23 @@ pub struct DropStats {
     /// entities were frozen.
     pub shut_onto: usize,
     pub r_frozen: usize,
+}
+
+/// The closest zombie-to-villager approach's place, for the bridge check: the tick after T, the
+/// lane (front first: loop x -1, 3, 7), whose rider (this batch or the next) and in which phase,
+/// the rider's feet and the zombie's seat (file frame).
+fn closest_text(a: (i64, usize, Vec3, Vec3, Option<usize>)) -> String {
+    let (dt, slot, p, z, phase) = a;
+    let lane = if slot >= 6 { slot - 6 } else { slot % 3 };
+    let who = if slot >= 6 { "the next batch's" } else if slot >= 3 { "the arriving" } else { "the departing" };
+    let ph = match phase {
+        Some(0) => "in its hold",
+        Some(1) => "falling",
+        Some(2) => "in its pocket",
+        Some(3) => "departing",
+        _ => "on R_1",
+    };
+    format!(" (T+{dt}, {who} rider of lane {lane} {ph}, feet {:.4},{:.4},{:.4}; the zombie {:.4},{:.4},{:.4})", p.x, p.y, p.z, z.x, z.y, z.z)
 }
 
 fn summon_boundary(frozen: &[bool]) -> i64 {
@@ -616,6 +677,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     let mut pillager_near: Option<f64> = None;
     let mut zombie_near: Option<f64> = None;
     let mut zombie_any: Option<f64> = None;
+    let mut zombie_any_at: Option<(i64, usize, Vec3, Vec3, Option<usize>)> = None;
     let mut hold_lane = [0i64; 3];
     let mut exits: [Option<(i64, f64)>; 3] = [None; 3];
     let mut prev_v = [0.0f64; 6];
@@ -887,8 +949,11 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
                     let mut every = true;
                     for q in &samples {
                         let d = ((e.pos.x - q.x).powi(2) + (e.pos.y - q.y).powi(2) + (e.pos.z - q.z).powi(2)).sqrt();
-                        if zombie {
-                            zombie_any = Some(zombie_any.map_or(d, |m: f64| m.min(d)));
+                        if zombie && zombie_any.is_none_or(|m: f64| d < m) {
+                            zombie_any = Some(d);
+                            // (where: the tick, the lane (slot 3..5 arriving, 6..8 the next
+                            // batch), the rider's feet, the zombie, the rider's phase)
+                            zombie_any_at = Some((dt, slot, e.pos, *q, phase));
                         }
                         if d > 16.0 {
                             every = false;
@@ -1092,15 +1157,19 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             calm_max[2],
             calm_max[3],
             zombie_near.map_or("-".to_string(), |d| format!("{d:.2}")),
-            zombie_any.map_or("-".to_string(), |d| format!("{d:.2}{}", if d < 6.05 { " (INSIDE 6.05)" } else { "" })),
+            zombie_any.map_or("-".to_string(), |d| format!("{d:.4}{}{}", if d < 6.05 { " (INSIDE 6.05)" } else { "" }, zombie_any_at.map_or(String::new(), |a| closest_text(a)))),
             pillager_near.map_or("-".to_string(), |d| format!("{d:.2}{}", if d < 8.5 { " (INSIDE 8.5)" } else { "" }))
         ));
         stats.calm = Some(calm_max);
         stats.pillager_near = pillager_near.map(|d| (d * 100.0).floor() as i64);
         stats.zombie_near = zombie_near.map(|d| (d * 100.0).floor() as i64);
         stats.zombie_any = zombie_any.map(|d| (d * 100.0).floor() as i64);
+        stats.zombie_any_at = zombie_any.zip(zombie_any_at).map(|(d, a)| (d, closest_text(a)));
         stats.hold_lane = hold_lane;
     }
+    stats.r_from = r_from;
+    stats.next_in = if next_carts.is_empty() { None } else { (0..next_carts.len().min(3)).map(|j| next_rest[j].map(|r| r.0)).collect::<Option<Vec<_>>>().and_then(|v| v.into_iter().max()) };
+    stats.shut_last = (0..3).filter_map(|k| opened[k].map(|t| t + o.pulse)).max();
     Ok((out, stats))
 }
 
@@ -1108,7 +1177,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
 pub fn summary(label: &str, runs: &[DropStats]) -> String {
     let show = |v: i64| if v == i64::MIN { "FAIL".to_string() } else { v.to_string() };
     format!(
-        "{label}: {} runs; the widest release spread {:.2}; the longest fall {}; the least landing lead over its pocket's re-brake {}; arriving at rest: least {} before the next summon; wrong pockets {}, contacts {} (the fastest {:.3}), the closest arriving-to-departing {}; riders hurt {}, unseated ticks {}; departing carts stuck {}; the longest wait on a string {} gt; the lowest waiting rider's feet {:.2}{}{}{}{}{}{}",
+        "{label}: {} runs; the widest release spread {:.2}; the longest fall {}; the least landing lead over its pocket's re-brake {}; arriving at rest: least {} before the next summon; wrong pockets {}, contacts {} (the fastest {:.3}), the closest arriving-to-departing {}; riders hurt {}, unseated ticks {}; departing carts stuck {}; the longest wait on a string {} gt; the lowest waiting rider's feet {:.2}{}{}{}{}{}{}{}",
         runs.len(),
         runs.iter().map(|s| s.spread).max().unwrap_or(0) as f64 / 100.0,
         runs.iter().map(|s| s.fall).max().map_or("-".to_string(), |f| if f == i64::MAX { "NEVER LANDED".to_string() } else { format!("{f} gt") }),
@@ -1148,7 +1217,29 @@ pub fn summary(label: &str, runs: &[DropStats]) -> String {
         {
             let hl: Vec<i64> = (0..3).map(|k| runs.iter().map(|s| s.hold_lane[k]).max().unwrap_or(0)).collect();
             if runs.iter().any(|s| s.calm.is_some()) {
-                format!("; the holds' longest uncovered stretch per lane (x -1/3/7) {}/{}/{} gt; the nearest zombie to any villager {}", hl[0], hl[1], hl[2], runs.iter().filter_map(|s| s.zombie_any).min().map_or("-".to_string(), |c| format!("{:.2}", c as f64 / 100.0)))
+                format!(
+                    "; the holds' longest uncovered stretch per lane (x -1/3/7) {}/{}/{} gt; the nearest zombie to any villager {}",
+                    hl[0],
+                    hl[1],
+                    hl[2],
+                    runs.iter().filter_map(|s| s.zombie_any_at.clone()).min_by(|a, b| a.0.total_cmp(&b.0)).map_or("-".to_string(), |(d, at)| format!("{d:.4}{at}"))
+                )
+            } else {
+                String::new()
+            }
+        },
+        {
+            // (the R line's timing: the last trapdoor's shut, the R line's first tick, the next
+            // batch all in its holds; earliest..latest over the runs)
+            let span = |f: &dyn Fn(&DropStats) -> Option<i64>| {
+                let v: Vec<i64> = runs.iter().filter_map(f).collect();
+                match (v.iter().min(), v.iter().max()) {
+                    (Some(a), Some(b)) => format!("T+{a}..T+{b}"),
+                    _ => "-".to_string(),
+                }
+            };
+            if runs.iter().any(|s| s.r_from.is_some()) {
+                format!("; the last trapdoor shut {}, the R line from {}, the next batch in its holds by {}", span(&|s| s.shut_last), span(&|s| s.r_from), span(&|s| s.next_in))
             } else {
                 String::new()
             }
