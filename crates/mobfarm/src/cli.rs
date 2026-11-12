@@ -64,6 +64,44 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         jitter: Vec<i64>,
     },
+    /// The controller's day counter, re-phase logic (`ctlcounter.rs`, day-1 Nov 12, ironspec's item
+    /// 3): the units ring fast-forwarded to u 0 at its own step rate on RISE / trigger 2 (each at the
+    /// next release), a pending-step latch for a release during the FF, the trigger-2 gate; every
+    /// release phase x detector phase x starting units phase over normal days, skips and rain.
+    CtlCounterBench {
+        /// The FF clock's period (the ring steps correctly at >= 18 gt).
+        #[arg(long, default_value_t = 18)]
+        ff_period: i64,
+        /// No pending-step latch (a release during the FF is absorbed).
+        #[arg(long)]
+        no_pend: bool,
+        #[arg(long, default_value_t = 141)]
+        window_open: i64,
+        #[arg(long, default_value_t = 221)]
+        window_close: i64,
+        /// Trigger 2 accepted at C >= gate_hi or C <= gate_lo.
+        #[arg(long, default_value_t = 136)]
+        gate_hi: i64,
+        #[arg(long, default_value_t = 15)]
+        gate_lo: i64,
+        /// C loaded by trigger 2 (FF: units 0 or 9; no-reset: its tens at the first wrap) and RISE.
+        #[arg(long, default_value_t = 19)]
+        load2: i64,
+        #[arg(long, default_value_t = 0)]
+        load1: i64,
+        /// The first napper at the bed stop's entry this long after the window's first release.
+        #[arg(long, default_value_t = 120)]
+        to_bed: i64,
+        /// The bed stop takes an arrival up to this long before clear beds (12,523).
+        #[arg(long, default_value_t = 60)]
+        early_tol: i64,
+        /// The latest lie-down this long after the window opens (the worst trip).
+        #[arg(long, default_value_t = 8200)]
+        last_nap: i64,
+        /// Picks also need the daylight level < L (the morning-pick inhibit; linear level model).
+        #[arg(long)]
+        day_inhibit: Option<i64>,
+    },
     /// The fast liveness ring (`ringbench.rs`): writes its design (24 rail cells, 8 detectors, 2
     /// carts) to `--out`, runs it `--ticks` gt and prints the gaps between the detectors' rising
     /// edges, the false drops of a `--stretch` gt stretcher, each detector's own spacing, the carts'
@@ -6873,6 +6911,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 crate::chainbench::bench(&spec, stages, freeze_len)
             };
             for l in lines.map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit } => {
+            let o = crate::ctlcounter::CounterOpts {
+                ff_period,
+                pend: !no_pend,
+                window: (window_open, window_close),
+                gate: (gate_hi, gate_lo),
+                load2,
+                load1,
+                to_bed,
+                early_tol,
+                last_nap,
+                day_inhibit,
+                ..Default::default()
+            };
+            for l in crate::ctlcounter::bench(&o) {
                 println!("{l}");
             }
         }

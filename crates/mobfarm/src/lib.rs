@@ -26,6 +26,7 @@ pub mod naps;
 pub mod napper;
 pub mod ringbench;
 pub mod chainbench;
+pub mod ctlcounter;
 pub mod ctlring;
 pub mod parts;
 pub mod placing;

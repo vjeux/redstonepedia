@@ -162,11 +162,15 @@ pub fn bench(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i6
             }
         }
     }
-    // (the ring's items: four tokens, none lost)
-    let items: usize = DROPPERS.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();
+    // (the ring's items: four tokens, none lost; droppers and hoppers both, so a token caught in a
+    // hopper shows too (G1 on d36a61b59))
+    let hoppers: Vec<P> = design().blocks.iter().filter(|(_, s)| s.contains("hopper")).map(|(p, _)| *p).collect();
+    let in_droppers: usize = DROPPERS.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();
+    let in_hoppers: usize = hoppers.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();
+    let items = in_droppers + in_hoppers;
     let lv_str: Vec<String> = levels.iter().take(20).map(|l| l.to_string()).collect();
     Ok(vec![
         format!("units ring (10 droppers, 4 tokens: the unstackable at D{TAP}, stones at D{}, D{}, D{}; the tap on D{TAP}): {cycles} pulses {width} gt wide every {period} gt (jitter {:?}): the tap's level before each pulse matched (2 at u 0, 1 at u 3/6/7, 0 otherwise) {ok} of {}{}", token_droppers()[1], token_droppers()[2], token_droppers()[3], jitter, levels.len(), if bad.is_empty() { String::new() } else { format!(" (FAIL: {})", bad.join("; ")) }),
-        format!("  the tap's levels before the first 20 pulses: {}; the latest change after a pulse {settle_max} gt (the step settles within {settle_max} gt of the clock); droppers holding a token at the end {items} (4 expected: none lost)", lv_str.join(" ")),
+        format!("  the tap's levels before the first 20 pulses: {}; the latest change after a pulse {settle_max} gt (the step settles within {settle_max} gt of the clock); containers holding a token at the end {items} ({in_droppers} droppers + {in_hoppers} hoppers; 4 expected: none lost)", lv_str.join(" ")),
     ])
 }
