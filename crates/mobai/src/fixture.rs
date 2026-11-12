@@ -5626,6 +5626,81 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-12, ironspec and G1: the halt bridge, recorded so redsim's cart push is
+    // checked against it) cart pairs against an unpowered powered rail, each row its own copy of a
+    // lane's foot along +z at x = 2, 6, 10, 14, 18 (H: a closed bottom-half oak trapdoor on glass at
+    // (x,64,1), glass walls; R_1: an unpowered powered rail ascending south at (x,65,2) on glass;
+    // plain rails ascending south up to (x,69,6), each on glass; stone at the high end), and a flat
+    // brake at x 22 (an unpowered powered rail north_south at (22,64,2) on glass, plain flat rails
+    // to z 9): x 2 an empty cart at rest on R_1 and a second empty one at rest 3 cells up (it rolls
+    // down onto it: the held cart is pushed off the brake into H); x 6 the same, both ridden (they
+    // hold at 0.79, the boxes 0.09 apart vertically); x 10 ridden, the second 1 cell up moving down
+    // at 0.106 (the lane's slowest contact); x 14 ridden, the second 3 cells up at 0.459 (contact
+    // 0.59); x 18 one empty cart alone on R_1 (holds); x 22 a ridden cart held on the flat brake and
+    // a ridden one rolling onto it at 0.3 (one shove of 0.01, the roller rebounds)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 62, stone);
+        for x in [2, 6, 10, 14, 18] {
+            b.push(([x, 63, 1], "minecraft:glass".to_string()));
+            b.push(([x, 64, 1], "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]".to_string()));
+            for (dx, dz) in [(-1, 0), (1, 0), (-1, 1), (1, 1), (0, 0)] {
+                for y in 64..=65 {
+                    let (cx, cz) = (x + dx, if dz == 0 { 0 } else { 1 });
+                    if dz == 1 && dx == 0 {
+                        continue;
+                    }
+                    b.push(([cx, y, cz], "minecraft:glass".to_string()));
+                }
+            }
+            for k in 1..=5 {
+                b.push(([x, 63 + k, 1 + k], "minecraft:glass".to_string()));
+                let s = if k == 1 { "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]" } else { "minecraft:rail[shape=ascending_south,waterlogged=false]" };
+                b.push(([x, 64 + k, 1 + k], s.to_string()));
+            }
+            b.push(([x, 69, 7], stone.to_string()));
+        }
+        for z in 1..=9 {
+            b.push(([22, 63, z], "minecraft:glass".to_string()));
+        }
+        b.push(([22, 64, 1], "minecraft:glass".to_string()));
+        b.push(([22, 64, 2], "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]".to_string()));
+        for z in 3..=9 {
+            b.push(([22, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        }
+        let ridden = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string();
+        let rolling = |v: f64, rider: bool| {
+            let p = if rider { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+            format!("{{Motion:[0.0d,0.0d,{}d]{p}}}", -v)
+        };
+        let held = |x: i32| [x as f64 + 0.5, 65.5625, 2.5];
+        let mobs = vec![
+            ("minecraft:minecart".to_string(), held(2), None),
+            ("minecraft:minecart".to_string(), [2.5, 68.5625, 5.5], None),
+            ("minecraft:minecart".to_string(), held(6), Some(ridden.clone())),
+            ("minecraft:minecart".to_string(), [6.5, 68.5625, 5.5], Some(ridden.clone())),
+            ("minecraft:minecart".to_string(), held(10), Some(ridden.clone())),
+            ("minecraft:minecart".to_string(), [10.5, 66.5625, 3.5], Some(rolling(0.106, true))),
+            ("minecraft:minecart".to_string(), held(14), Some(ridden.clone())),
+            ("minecraft:minecart".to_string(), [14.5, 68.5625, 5.5], Some(rolling(0.459, true))),
+            ("minecraft:minecart".to_string(), held(18), None),
+            ("minecraft:minecart".to_string(), [22.5, 64.0625, 2.5], Some(ridden.clone())),
+            ("minecraft:minecart".to_string(), [22.5, 64.0625, 6.5], Some(rolling(0.3, true))),
+        ];
+        v.push(Scene {
+            name: "cart-pairs".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [24, 71, 10]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, the pane walls' water for 7b90c3f1's lift) a 1 x 1 water column over
     // soul sand (16, 64..68, 16) walled by 4 dry unconnected glass panes per layer (its corners
     // air), its sources placed at t5 (the soul sand makes it a bubble column); a waterlogged pane

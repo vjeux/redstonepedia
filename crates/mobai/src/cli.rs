@@ -427,6 +427,13 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironfarm via farmopt) The mirrored module's C on the official server:
+    /// its placement orders (the helper unpowered; the unmirrored redstone-block recipe), C's shape
+    /// after each step, D pressed and released, a restart
+    MirrorC {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-12, onechunk via farmopt) Riders at lane 3's S-bend R, rolling on the
     /// split row and dropped onto the lane tops, on the official server; every stroll draw's
     /// target, its first path (complete or partial, its end) and WALK_TARGET's hold
@@ -462,9 +469,12 @@ pub enum MobaiCmd {
         /// Cells cleared to air after the parts, x,y,z;...
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         air: String,
-        /// The napper cart at rest, x,y,z
+        /// The napper carts at rest, x,y,z;x,y,z (one composition each)
         #[arg(long, allow_hyphen_values = true)]
         napper: String,
+        /// The through-carts' start x offsets, a,b,c (one pass per offset and speed)
+        #[arg(long, default_value = "0", allow_hyphen_values = true)]
+        offsets: String,
         /// The through-carts' start, x,y,z
         #[arg(long, allow_hyphen_values = true)]
         through: String,
@@ -891,6 +901,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::MirrorC { version } => crate::mirrorc::mirror_c(&version),
         MobaiCmd::RowDraws { version, module, parts, air, row_speeds, every, ticks, draws_out } => {
             let air: Vec<[i32; 3]> = air
                 .split(';')
@@ -905,7 +916,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let speeds: Vec<f64> = row_speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             crate::rowdraws::row_draws(&version, &module, &parts, &air, &speeds, every, ticks, draws_out.as_deref())
         }
-        MobaiCmd::Crossing { version, module, parts, air, napper, through, speeds, ticks } => {
+        MobaiCmd::Crossing { version, module, parts, air, napper, offsets, through, speeds, ticks } => {
             let f3 = |s: &str, what: &str| -> anyhow::Result<[f64; 3]> {
                 let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "--{what} x,y,z, got {s}");
@@ -922,7 +933,17 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
             let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            crate::crossing::crossing(&version, &module, &parts, &air, f3(&napper, "napper")?, f3(&through, "through")?, &speeds, ticks)
+            let nappers: Vec<([f64; 3], f64)> = napper
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3 || v.len() == 4, "--napper x,y,z[,vz];..., got {s}");
+                    Ok(([v[0], v[1], v[2]], v.get(3).copied().unwrap_or(0.0)))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let offsets: Vec<f64> = offsets.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::crossing::crossing(&version, &module, &parts, &air, &nappers, f3(&through, "through")?, &offsets, &speeds, ticks)
         }
         MobaiCmd::JunctionProbe { version } => crate::junction::junction_probe(&version),
         MobaiCmd::DayJump { version, at, until } => crate::dayjump::day_jump(&version, at, until),

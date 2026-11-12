@@ -20,6 +20,7 @@ pub mod dayjump;
 pub mod junction;
 pub mod crossing;
 pub mod rowdraws;
+pub mod mirrorc;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;
