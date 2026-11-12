@@ -8825,7 +8825,10 @@ pub fn scene_lint(names: &[String]) -> Result<()> {
     Ok(())
 }
 
-pub fn replay(paths: &[std::path::PathBuf]) -> Result<()> {
+/// `mctas mobai replay`: every recording under `paths` replayed on redsim, `jobs` at a time (0: the
+/// machine's cores, at most 8; tickexact 2026-11-11: the recordings had grown past the 300 s
+/// `mctas test` gives them one after another), each's lines printed in file order.
+pub fn replay(paths: &[std::path::PathBuf], jobs: usize) -> Result<()> {
     let mut files = Vec::new();
     for p in paths {
         if p.is_dir() {
@@ -8835,42 +8838,29 @@ pub fn replay(paths: &[std::path::PathBuf]) -> Result<()> {
         }
     }
     let all = scenes();
+    let jobs = if jobs == 0 { std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(8) } else { jobs };
+    // each file's printed lines and its failure, if any, filled by whichever thread replays it
+    let outcomes: Vec<std::sync::Mutex<Option<(String, Option<String>)>>> = files.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|sc| {
+        for _ in 0..jobs.clamp(1, files.len().max(1)) {
+            sc.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some(f) = files.get(i) else { break };
+                    let out = replay_one(f, &all).unwrap_or_else(|e| (String::new(), Some(format!("{}: {e}", f.display()))));
+                    if let Ok(mut o) = outcomes[i].lock() {
+                        *o = Some(out);
+                    }
+                }
+            });
+        }
+    });
     let mut failed = Vec::new();
-    for f in &files {
-        let t0 = std::time::Instant::now();
-        let text = mctas::recorded::read_text(f)?;
-        let mut lines = text.lines();
-        let header: serde_json::Value = serde_json::from_str(lines.next().unwrap_or("")).map_err(|e| anyhow!("{}: header: {e}", f.display()))?;
-        if header["kind"] != "mobai-fixture" {
-            continue;
-        }
-        let name = header["scene"].as_str().unwrap_or("");
-        let Some(s) = all.iter().find(|s| s.name == name) else {
-            failed.push(format!("{}: no scene {name} any more", f.display()));
-            continue;
-        };
-        if header["scene_hash"].as_str() != Some(s.hash().as_str()) {
-            failed.push(format!("{}: STALE: the scene {name} changed since it was recorded (record it again: `{}`)", f.display(), header["how"].as_str().unwrap_or("mctas mobai record")));
-            continue;
-        }
-        let list = |k: &str| -> Vec<[i32; 2]> { header[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
-        let frames: std::collections::VecDeque<serde_json::Value> = lines.map(serde_json::from_str).collect::<std::result::Result<_, _>>().map_err(|e| anyhow!("{}: a frame: {e}", f.display()))?;
-        let ticks = frames.len() as u32;
-        let mut src = Source::Recorded {
-            frames,
-            game_ids: header["game_ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default(),
-            ticking: list("ticking"),
-            spawning: list("spawning"),
-            poi_hashes: header_poi_hashes(&header),
-        };
-        let seed = header["seed"].as_i64().unwrap_or(1);
-        let c = compare_source(&mut src, s, seed, ticks, 100, false, false, None)?;
-        match &c.first {
-            None => println!("PASS {name}: {ticks} ticks, 0 differences ({:.1} s)", t0.elapsed().as_secs_f64()),
-            Some(_) => {
-                print!("{}", c.report());
-                failed.push(format!("{}: differs from the game", f.display()));
-            }
+    for o in outcomes {
+        if let Some((text, fail)) = o.into_inner().ok().flatten() {
+            print!("{text}");
+            failed.extend(fail);
         }
     }
     for l in &failed {
@@ -8880,4 +8870,39 @@ pub fn replay(paths: &[std::path::PathBuf]) -> Result<()> {
     anyhow::ensure!(failed.is_empty(), "{} of {n} mob AI recordings failed", failed.len());
     println!("REPLAY: {n}/{n} mob AI recordings exact");
     Ok(())
+}
+
+/// One recording replayed on redsim: the lines to print, and its failure if it differs from the
+/// game (or is stale, or its scene is gone).
+fn replay_one(f: &std::path::Path, all: &[Scene]) -> Result<(String, Option<String>)> {
+    let t0 = std::time::Instant::now();
+    let text = mctas::recorded::read_text(f)?;
+    let mut lines = text.lines();
+    let header: serde_json::Value = serde_json::from_str(lines.next().unwrap_or("")).map_err(|e| anyhow!("{}: header: {e}", f.display()))?;
+    if header["kind"] != "mobai-fixture" {
+        return Ok((String::new(), None));
+    }
+    let name = header["scene"].as_str().unwrap_or("");
+    let Some(s) = all.iter().find(|s| s.name == name) else {
+        return Ok((String::new(), Some(format!("{}: no scene {name} any more", f.display()))));
+    };
+    if header["scene_hash"].as_str() != Some(s.hash().as_str()) {
+        return Ok((String::new(), Some(format!("{}: STALE: the scene {name} changed since it was recorded (record it again: `{}`)", f.display(), header["how"].as_str().unwrap_or("mctas mobai record")))));
+    }
+    let list = |k: &str| -> Vec<[i32; 2]> { header[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
+    let frames: std::collections::VecDeque<serde_json::Value> = lines.map(serde_json::from_str).collect::<std::result::Result<_, _>>().map_err(|e| anyhow!("{}: a frame: {e}", f.display()))?;
+    let ticks = frames.len() as u32;
+    let mut src = Source::Recorded {
+        frames,
+        game_ids: header["game_ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default(),
+        ticking: list("ticking"),
+        spawning: list("spawning"),
+        poi_hashes: header_poi_hashes(&header),
+    };
+    let seed = header["seed"].as_i64().unwrap_or(1);
+    let c = compare_source(&mut src, s, seed, ticks, 100, false, false, None)?;
+    Ok(match &c.first {
+        None => (format!("PASS {name}: {ticks} ticks, 0 differences ({:.1} s)\n", t0.elapsed().as_secs_f64()), None),
+        Some(_) => (c.report(), Some(format!("{}: differs from the game", f.display()))),
+    })
 }

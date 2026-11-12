@@ -186,6 +186,9 @@ pub enum MobaiCmd {
     Replay {
         /// Recording files or directories of them.
         paths: Vec<std::path::PathBuf>,
+        /// Recordings replayed at once (each on its own thread); 0: the machine's cores, at most 8.
+        #[arg(long, default_value_t = 0)]
+        jobs: usize,
     },
     /// (tickexact 2026-11-11, ironspec's slope merge) A recorded scene's minecarts lane by lane
     /// (the carts sharing a block x): positions, speeds, riders, the gaps between neighbours
@@ -418,7 +421,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let [x, y, z] = cell[..] else { anyhow::bail!("--cell takes x,y,z") };
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
         }
-        MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
+        MobaiCmd::Replay { paths, jobs } => crate::fixture::replay(&paths, jobs),
         MobaiCmd::RecCarts { path, every, band, summary, xz } => crate::fixture::rec_carts(&path, every, band, summary, xz),
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
