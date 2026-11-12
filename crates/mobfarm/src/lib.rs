@@ -18,6 +18,7 @@ pub mod parts;
 pub mod placing;
 pub mod queue;
 pub mod standlab;
+pub mod climb;
 pub mod spawnrules;
 pub mod station;
 pub mod siding;

@@ -874,6 +874,54 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         stand: String,
     },
+    /// One-chunk (b), the climb bench (ironspec and farmopt 2026-11-11, paper v0): one batch of 3
+    /// ridden carts from rest at the foot hold H up a straight powered climb of `--cells` boosters
+    /// to today's approach top, the snap turn and today's 3 pockets (the S3 file's cells; gates
+    /// bench-driven), H opened at T + `--h-open` (T a world time multiple of 100); each cart's rest
+    /// tick and margin before T+100, arrival speeds into waiting carts, riders' damage, dismounts,
+    /// eye point inside a block, the golem box gap, and a freeze span; at every H-open corner and
+    /// seed.
+    ClimbBench {
+        #[arg(long, default_value_t = 14)]
+        cells: i32,
+        /// T's height (today's approach top 5; 3, the lowest with today's snap turn).
+        #[arg(long, default_value_t = 5)]
+        crest: i32,
+        /// H's opening, gt after T, each corner ("1,2,3,4,5").
+        #[arg(long, default_value = "1,2,3,4,5")]
+        h_open: String,
+        /// H shuts again this many gt after it opened (0: never).
+        #[arg(long, default_value_t = 0)]
+        h_for: i64,
+        /// The per-gate hold's release spacing emulated (gt; 0: the batch queued back to back at
+        /// H): cart k set at rest at Ga at T + h-open + k * this, each corner ("15,23").
+        #[arg(long, default_value = "0")]
+        h_every: String,
+        /// The climb's pattern from its foot (`B` booster, `P` plain; empty: all boosters).
+        #[arg(long, default_value = "")]
+        pattern: String,
+        #[arg(long, default_value_t = 1.29)]
+        close_at: f64,
+        #[arg(long, default_value_t = 160)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 3)]
+        seeds: i64,
+        /// Which carts carry a rider, front first ("1,1,1"; "0,1,1": the front cart empty).
+        #[arg(long, default_value = "1,1,1")]
+        riders: String,
+        /// The golem's box (design frame) while a golem exists (T..T+2): x0,y0,z0,x1,y1,z1.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        golem_box: Vec<f64>,
+        /// The freeze: the bench's chunks at level 32 from T + FROM for LEN gt ("FROM,LEN").
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        freeze: Vec<i64>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        trace: bool,
+    },
     /// The stop-based stand's lab (farmopt): a run, the stand's cells from a spec (`mobfarm::
     /// standlab`), three ridden carts moving +x at each speed of a sweep: where they rest, when,
     /// whether they stay put; then the departure (the spec's `c` cells powered) and how they leave.
@@ -3328,6 +3376,47 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
+            anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
+            let rd: Vec<bool> = riders.split(',').map(|s| s.trim() != "0").collect();
+            anyhow::ensure!(rd.len() == 3, "--riders takes three 0/1");
+            let everys: Vec<i64> = h_every.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+            let spaced = everys.iter().any(|e| *e > 0);
+            anyhow::ensure!(!spaced || everys.iter().all(|e| *e > 0), "--h-every: all spaced (> 0) or 0");
+            anyhow::ensure!(pattern.is_empty() || pattern.len() == cells as usize, "--pattern: one letter per climb cell");
+            let text = crate::climb::design_with(cells, crest, &pattern, [rd[0], rd[1], rd[2]], spaced);
+            let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("climb-bench-{}.txt", std::process::id())));
+            std::fs::write(&path, &text)?;
+            let (_c, fspec) = load(version, &path)?;
+            anyhow::ensure!(golem_box.is_empty() || golem_box.len() == 6, "--golem-box x0,y0,z0,x1,y1,z1");
+            anyhow::ensure!(freeze.is_empty() || freeze.len() == 2, "--freeze FROM,LEN");
+            let opens: Vec<i64> = h_open.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+            println!("climb bench: {} cells{}, the design {}", cells, if pattern.is_empty() { String::new() } else { format!(" ({pattern})") }, path.display());
+            for e in &everys {
+                for h in &opens {
+                    for s in seed..seed + seeds {
+                        let o = crate::climb::ClimbOpts {
+                            cells,
+                            crest,
+                            h_open: *h,
+                            h_for,
+                            h_every: *e,
+                            close_at,
+                            ticks,
+                            seed: s,
+                            golem_box: (golem_box.len() == 6).then(|| [golem_box[0], golem_box[1], golem_box[2], golem_box[3], golem_box[4], golem_box[5]]),
+                            freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])),
+                            trace,
+                        };
+                        let lines = crate::climb::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                        println!("== H open T+{h}, every {e} gt, seed {s}");
+                        for l in lines {
+                            println!("{l}");
+                        }
+                    }
+                }
+            }
         }
         MobfarmCmd::StandLab { spec, speeds, skew, ai, reverse, gaps, start_x, depart_at, hold_at, release_at, meter, close_at, pockets, stand_open_at, stand_close_at, releases, ticks, out, trace } => {
             let text = crate::standlab::design(&spec)?;
