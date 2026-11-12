@@ -30,6 +30,7 @@ pub mod ctlcounter;
 pub mod ctldivert;
 pub mod ctljunction;
 pub mod ctllatch;
+pub mod holdpulse;
 pub mod oddtap;
 pub mod ctlring;
 pub mod parts;

@@ -82,8 +82,9 @@ pub enum MobfarmCmd {
     /// piston pushing a redstone block beside it (3 gt), with the drive a pulse of each width or held until
     /// the cart leaves, at every phase.
     OddTapBench {
-        /// The drive's pulse widths (gt); the held drive always runs too. 2 is P's control (a spat block).
-        #[arg(long, value_delimiter = ',', default_values_t = vec![2i64, 4, 6, 10])]
+        /// The drive's pulse widths (gt); the held drive always runs too. 2 is P's control (a spat block);
+        /// 5 and 8 are the creeping edges (R's and P's), 6 and 9 the first clean launches.
+        #[arg(long, value_delimiter = ',', default_values_t = vec![2i64, 4, 5, 6, 7, 8, 9, 10])]
         pulse: Vec<i64>,
     },
     /// The J/K junction drivers (`ctljunction.rs`, ironspec Nov 12 05:35): the napper-present latch's
@@ -92,6 +93,14 @@ pub enum MobfarmCmd {
     CtlJunctionBench {
         #[arg(long)]
         out: PathBuf,
+    },
+    /// split9's napper hold release (`holdpulse.rs`, ironspec Nov 12 06:46): an 8-gt pulse at ARM3 + 10
+    /// every cycle; the pulse's timing over every phase, and a ridden cart placed between two pulses
+    /// leaving at the next.
+    HoldPulseBench {
+        /// The step between the placements (gt).
+        #[arg(long, default_value_t = 1)]
+        step: i64,
     },
     /// The divert's single atomic read as blocks (`ctldivert.rs`, ironspec Nov 12 03:27): DECIDE = DIV -
     /// DAY held by a repeater unlocked by a rising-edge pulse of D2; DAY's edge at every gt offset around
@@ -8388,6 +8397,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, format!("# The divert's single atomic read ({control}): DECIDE = DIV - DAY held by a repeater H (mctas mobfarm ctl-divert-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
             for l in crate::ctldivert::bench(&spec, width, mode, edge).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::HoldPulseBench { step } => {
+            for l in crate::holdpulse::bench(step.max(1)).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
         }
