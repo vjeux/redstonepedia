@@ -3926,6 +3926,13 @@ pub struct MeterState {
     clock_prev: Vec<bool>,
     clock_edges: Vec<Vec<(i64, i64, i64)>>,
     clock_on_ticks: Vec<i64>,
+    /// the night count: night ticks, ticks with 2+ riders resting calm, and the most at one tick
+    night_ticks: usize,
+    night_two_calm: usize,
+    night_calm_max: (usize, String, String),
+    night_two_calm_s3: usize,
+    night_calm_s3_max: usize,
+    night_calm_cells: std::collections::BTreeMap<[i32; 3], usize>,
     /// P2: the transit latch (set when a cart passes H's plane, cleared by its count edge), its
     /// live gt, a held REL, and the counts
     tl: Option<i64>,
@@ -4114,6 +4121,44 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     let rz = std::env::var("MCTAS_ROUTER_Z").ok().and_then(|v| v.parse::<i32>().ok()).unwrap_or(16);
     // (`MCTAS_CLOCK_PROBES` X,Y,Z;...: the liveness clocks' detector rails, in the file's frame;
     // each one's rising edges, for the period and the phase against the cycle)
+    // (the stricter night count: at each night tick (day time 13,000..23,000) the riders resting
+    // calm, seated and not panicking; on the bedless bench a rider's bed is always out of reach,
+    // so each of them breaks the night rule; ironspec's bar: at most 1 at any night tick)
+    if !s.stand_b && (13000..23000).contains(&(w.time + w.mob.day_offset).rem_euclid(24000)) {
+        s.night_ticks += 1;
+        let mut calm: Vec<String> = Vec::new();
+        let mut calm_s3 = 0usize;
+        for id in carts {
+            let Some(cart) = w.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
+            for pid in &cart.passengers {
+                if let Some(i) = w.entities.list.iter().position(|e| e.id == *pid && !e.removed)
+                    && crate::timeline::panicking(w, i) == Some(false)
+                {
+                    let (x, y, z) = (cart.pos.x - fx, cart.pos.y - fy, cart.pos.z - fz);
+                    calm.push(format!("({x:.1},{y:.1},{z:.1})"));
+                    // (S3's own places: A's stand (strip, pockets, hold, climb), B's mirror, B's
+                    // branch; the bench's register, return run and sink are not S3's)
+                    let a = (-4.0..10.0).contains(&x) && (-4.0..7.5).contains(&y) && (-1.0..9.0).contains(&z);
+                    let b = (-6.0..8.0).contains(&x) && (-12.5..-0.5).contains(&y) && (26.0..36.5).contains(&z);
+                    let br = (-6.0..-4.0).contains(&x) && (12.0..26.0).contains(&z);
+                    if a || b || br {
+                        calm_s3 += 1;
+                        *s.night_calm_cells.entry([x.floor() as i32, y.floor() as i32, z.floor() as i32]).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+        if calm_s3 >= 2 {
+            s.night_two_calm_s3 += 1;
+        }
+        s.night_calm_s3_max = s.night_calm_s3_max.max(calm_s3);
+        if calm.len() >= 2 {
+            s.night_two_calm += 1;
+        }
+        if calm.len() > s.night_calm_max.0 {
+            s.night_calm_max = (calm.len(), format!("{c}+{dt}"), calm.join(" "));
+        }
+    }
     if !s.stand_b && let Ok(v) = std::env::var("MCTAS_CLOCK_PROBES") {
         let probes: Vec<[i32; 3]> = v.split(';').filter_map(|p| {
             let n: Vec<i32> = p.split(',').filter_map(|x| x.trim().parse().ok()).collect();
@@ -4384,7 +4429,9 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             }
         }
         if rel_edge && s.tl.is_some() {
-            s.rel_pending = Some(t);
+            if s.rel_pending.is_none() {
+                s.rel_pending = Some(t);
+            }
             s.rels_held += 1;
             log(s, format!("{c}+{dt} REL held: a cart in transit"));
         }
@@ -5022,7 +5069,10 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         let Some(pa) = pa else { continue };
         for (b, pb) in pos.iter().enumerate() {
             let Some(pb) = pb else { continue };
-            if a == b || s.rest_for[b] < 3 || s.rest_for[a] > 0 {
+            // (an arrival: the struck cart at rest or barely moving (stored under 0.15 the gt
+            // before, a cart H has just started counts), the mover faster by 0.05+; a pressed
+            // train moving together is not one)
+            if a == b || s.prev_v[b] >= 0.15 || s.prev_v[a] <= s.prev_v[b] + 0.05 {
                 continue;
             }
             let key = (a, b);
@@ -5207,7 +5257,7 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
     let span = |v: &[i64]| if v.is_empty() { "-".to_string() } else { format!("{}..{} (n {})", v.iter().min().unwrap(), v.iter().max().unwrap(), v.len()) };
     let mut out = Vec::new();
     let mut problems = Vec::new();
-    out.push(format!("meter (S3(ii)'s hold, emulated): {} releases, {} trains metered in; events: {}", s.rel_count, s.done_at.len(), s.events.iter().take(40).cloned().collect::<Vec<_>>().join(", ")));
+    out.push(format!("meter (S3(ii)'s hold, emulated): {} releases, {} trains metered in; events: {}", s.rel_count, s.done_at.len(), s.events.iter().take(std::env::var("MCTAS_METER_EVENTS").ok().and_then(|v| v.parse().ok()).unwrap_or(40)).cloned().collect::<Vec<_>>().join(", ")));
     // (each Dh 3 against its batch's summon tick: the last world time that is a multiple of 100
     // before the stand's next REL (the batch leaves at that REL), negative when the 3rd cart lands
     // after it; the bar is 2 gt. Unpaired: no REL after it within the run)
@@ -5326,6 +5376,11 @@ fn meter_report(s: &MeterState) -> (Vec<String>, Vec<String>) {
         }
         out.push(format!("meter router S (the switch rule: never a shape change with a cart's box in S's cell): {} changes, {} with a cart in the cell{}", s.s_flips.saturating_sub(1), s.s_flip_on_cart.len(), if s.s_flip_on_cart.is_empty() { String::new() } else { format!(" ({})", s.s_flip_on_cart.join("; ")) }));
         out.push(format!("meter P2 (a REL held while a cart is in transit from H to its count edge; the latch's live-time timeout): {} RELs held{}, {} transit timeouts", s.rels_held, if s.rel_late.is_empty() { String::new() } else { format!(" (released {} gt late)", s.rel_late.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) }, s.transit_timeouts));
+        out.push(format!("meter night count (riders resting calm, seated and not panicking, at each night tick, day time 13,000..23,000; bedless bench: every bed out of reach; bar: at most 1): {} night ticks, {} with 2+ calm, most {} at {} {}; in S3's own places (stands, holds, B's branch): {} ticks with 2+ calm, most {}; calm rider-ticks by cell (loop frame, most first): {}", s.night_ticks, s.night_two_calm, s.night_calm_max.0, if s.night_calm_max.1.is_empty() { "-" } else { &s.night_calm_max.1 }, s.night_calm_max.2, s.night_two_calm_s3, s.night_calm_s3_max, {
+            let mut v: Vec<(&[i32; 3], &usize)> = s.night_calm_cells.iter().collect();
+            v.sort_by(|a, b| b.1.cmp(a.1));
+            v.iter().take(14).map(|(c, n)| format!("{},{},{} {n}", c[0], c[1], c[2])).collect::<Vec<_>>().join("; ")
+        }));
         for (i, p) in s.clock_cells.iter().enumerate() {
             let e = s.clock_edges.get(i).cloned().unwrap_or_default();
             let gaps: Vec<i64> = e.windows(2).map(|w| w[1].0 - w[0].0).collect();
