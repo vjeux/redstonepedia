@@ -9,6 +9,7 @@ pub mod golemlock;
 pub mod railt;
 pub mod designdiff;
 pub mod padgolem;
+pub mod railslope;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

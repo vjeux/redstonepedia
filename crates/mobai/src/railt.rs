@@ -4,10 +4,12 @@
 //! branch: a detector rail D at (0,24,8) ascending south up to J, the merge curve C at (0,24,7)
 //! north_west (carts from the slope enter by its free south side and are carried north, the
 //! siding's from the west, both leaving by its north end, a rail end over the drop at (0,24,6)),
-//! and the siding rails x -6..-1 at (x,24,7), all on glass. C is built north_west with a
-//! temporary helper rail at (0,24,6) on a temporary support while only its north and west
-//! neighbours are rails (`RailState.place`: exactly north and west -> NORTH_WEST); the helper and
-//! its support are removed, then D is placed. Rows:
+//! and the siding rails x -6..-1 at (x,24,7), all on glass. C is kept north_west only by placing
+//! it powered: D first; then a temporary helper rail at (0,24,6) on a temporary support and a
+//! temporary redstone block at (1,24,7); then C (north, south and west rail neighbours, powered:
+//! `RailState.place`'s powered branch ends on NORTH_WEST); the helper and its support are removed
+//! (a plain rail, no signal source), then the redstone block (C is down to 2 potential
+//! connections, so nothing re-settles it). Every unpowered order settles C SOUTH_WEST. Rows:
 //! - (a) ridden carts along the row through J, down the slope over D (pressing and releasing it)
 //!   and in from the siding, before and after a save, stop and start: J and C never change, and
 //!   the slope and siding carts leave north into the drop;
@@ -29,7 +31,7 @@ use std::path::PathBuf;
 
 const SHAPES: [&str; 10] = ["north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south", "south_east", "south_west", "north_west", "north_east"];
 
-fn shape(srv: &mut VanillaServer, p: [i32; 3], block: &str) -> Result<String> {
+pub(crate) fn shape(srv: &mut VanillaServer, p: [i32; 3], block: &str) -> Result<String> {
     for s in SHAPES {
         if srv.test_block(p, &format!("{block}[shape={s}]"))? {
             let powered = if block.contains("detector") && srv.test_block(p, &format!("{block}[powered=true]"))? { "*" } else { "" };
@@ -83,7 +85,7 @@ fn watch(srv: &mut VanillaServer, rails: &Rails, n: u32, label: &str, prev: &mut
 }
 
 /// A villager riding a minecart summoned at (x, y, z) with motion (vx, 0, vz), tagged `tag`.
-fn cart(srv: &mut VanillaServer, p: [f64; 3], v: [f64; 2], tag: &str) -> Result<()> {
+pub(crate) fn cart(srv: &mut VanillaServer, p: [f64; 3], v: [f64; 2], tag: &str) -> Result<()> {
     srv.cmd_ok(&format!(
         "summon minecraft:minecart {} {} {} {{Motion:[{}d,0.0d,{}d],Tags:[\"{tag}\"],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b}}]}}",
         p[0], p[1], p[2], v[0], v[1]

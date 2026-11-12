@@ -337,6 +337,15 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt")]
         station: std::path::PathBuf,
     },
+    /// (tickexact 2026-11-12, ironspec and farmopt) ironfarm's lane top slope (0,22,6) placed by
+    /// the guide's order on the official server (glass on its high side, a temporary helper rail
+    /// above it, the slope, the helper removed): its shape after each step, a neighbour update,
+    /// glass where the helper stood, a ridden cart down it and a restart; the control with no
+    /// helper settles flat
+    RailSlope {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
     /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
     /// T2 (face-adjacent to the detector) the positive control that re-settles
@@ -594,6 +603,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::GolemLock { version } => crate::golemlock::golem_lock(&version),
         MobaiCmd::DesignDiff { old, new } => crate::designdiff::design_diff(&old, &new),
         MobaiCmd::PadGolems { version, station } => crate::padgolem::pad_golems(&version, &station),
+        MobaiCmd::RailSlope { version } => crate::railslope::rail_slope(&version),
         MobaiCmd::RailT { version } => crate::railt::rail_t(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
         MobaiCmd::Daylight { version, latency, levels, weather_row } => {
