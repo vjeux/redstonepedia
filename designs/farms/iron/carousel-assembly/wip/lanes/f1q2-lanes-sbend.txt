@@ -1,9 +1,10 @@
 # F1 + Q2 lanes, IN-CHUNK SPLIT with the S-bend siding (ironfarm; ironspec 2026-11-12 06:24 option (a), provisional pick; bench, tool unreviewed): three lanes x -1 / 3 / 7, loop frame (paste with no move), 5 slopes behind R_1, the merge at m = 24, mz = 7. Benched as `mctas mobfarm escape-bench --siding --merge-curve --siding-dx 2 --guard-det --drop-entry --slopes 5 --r-pulse 30 --drop-w 20 --per-lane 8 --siding-north --k-row 0.30 --k-offsets 0,12,24 --nap-feed-v 0.30` (explore/ironfarm-go): one lane, these cells at x 3, the split's K and row laid by the bench for the through-carts.
 # Per lane x: the hold string (x-2..x+2,17,0) and R_1 (x,17,1): the station's file (dfb89499). The split's file (7b90c3f1) owns the row along z 9 at y 25, K (x-2,25,9) (a power-forced T: north_east through, north_west into the siding; driver from day-1), J (x,25,9), their glass (x-2,24,9) and (x,24,9), and the branch's detector slope D (x,24,8) (the guard and the pass). Not laid here. Here: the slopes (x,18..22,2..6) plain, ascending south, on glass, the top one's high side (x,22,7) glass; the merge C (x,24,7) a north_west curve on glass (x,23,7), its north end the rail end over the drop column (x,24..23,6) (empty) onto the top slope, the wall (x,24,5) glass (golem-proof); the siding (the S-bend): the feed F (x-2,25,8) north_south on glass (x-2,24,8), the rest R (x-2,24,7) a powered rail ascending south (braked unpowered) on slime_block (x-2,23,7) (its switched power: strongly powered by the repeater (x-2,23,8) facing north, on glass (x-2,22,8)), c1 (x-2,24,6) south_east, c2 (x-1,24,6) south_west, c3 (x-1,24,7) north_east into C, the curves on glass. No pass string: the pass is D's rising edge (D -> the same cart's merge-cell entry 2 gt, clear 9 gt). R's support is a slime block (ironspec 08:46, the row partials: a conductor that is not solid-render, so R's cell is no stable destination for a panicking rider; the same repeater powers it).
-# Switched cells (left air here): R_1's side power (x+1,17,1) (the station's R line); the siding's switch: the repeater's input (x-2,23,9) (the siding pulse: on 30 gt (>= 6) at the napper's release, K gt after the window's pass (D's rising edge) while D is off; no other powered rail within 8 along R's line). No siding sensor: the napper-present bit is K's routing, delayed >= 16 gt plus the row's travel to K (K -> rest 12..15 gt measured). The holds' trapdoors (x,16,0) are the station's.
+# Switched cells (left air here): R_1's side power (x+1,17,1) (the station's R line); the siding's switch: the feed repeater's input (x,23,9) (day-1's controller line arrives there from the east or below; the feed path (x-2..x-1,22..23,9) is laid here: dust at R's input (x-2,23,9), the feed repeater facing west at (x-1,23,9), both on glass; the siding pulse: on 30 gt (the launch threshold 8) at the napper's release, K gt after the window's pass (D's rising edge) while D is off; no other powered rail within 8 along R's line). No siding sensor: the napper-present bit is K's routing, delayed >= 16 gt plus the row's travel to K (K -> rest 12..15 gt measured). The holds' trapdoors (x,16,0) are the station's.
 # Placement order (a rail placed last among its neighbours takes its natural shape; these differ from the design and need a temporary helper rail while placed, removed after: a removed rail reshapes nothing): (3,22,6) designed ascending_south, natural north_south: place it with a helper rail at (3,23,7) (before the glass there is laid); (3,24,7) designed north_west, natural east_west: place it with a helper rail at (3,24,6). Lane x 3 shown; the same cells at x -1 and 7. c3 (x-1,24,7) sees three rails (c2, C, R): lay it before R. THE MERGE C (x,24,7) NEEDS A POWERED PLACEMENT (official, tick-exact): D (the split's) first; then a helper rail at (x,24,6) on a temporary support (x,23,6), plus a temporary redstone block at (x+1,24,7); then C, which takes north_west; then remove the helper and its support, then the redstone block. THE TOP SLOPE S (x,22,6) (official, tick-exact, `mctas mobai rail-slope`): the glass (x,22,7) first, a helper rail (x,23,7) on it, the slope below at its low end; then S comes out ascending_south and keeps it; with no helper it settles north_south.
-# Bench (the S-bend, wt-go; tool unreviewed): napper arrivals 0.10..0.44 on K's cell (the brief's band) rest on R at z 7.895..7.435 and launch 8..6 gt after the release (the launch threshold: the switch's pulse must outlast 8 gt; 6 gt crawls or sticks at the high rests; the design's pulse 30); push contact with every passing cart 0, the least gap +0.084 at a 0.10 arrival and +0.239 at 0.20 against the split's ridden through-carts at 0.30, their entries into K swept (0.30 is the conservative end: the row's measured 0.35..0.39 moves a cart further along K's chord before the push search; tick-exact's official crossing 1531189749067418: +0.107 / +0.235); lane carts on the siding's cells 0; stray power on R 0. On the slime support: matrix (ii) and (A) 200 + 200 rows 0 failing (rets 132..400, merge entry 0.296..0.476, nap_rets 300..1700, +-2; occupancy 8, stamps over 1,000 and cut windows counted), restarts inside the napper's wait 1000/0 + 1000/0, the start-up from the steady state (7 riders, the 8th in the pocket) 3 cycles clean, the launch identical to stone's at every arrival and pulse; the control (glass under R) never launches. The delivery floor: first failure stored 0.22, 0.23..1.00 clean.
-# R's slime support: lay it only together with F3's z 9 floors (9fc3155f's 4d76acbfb: lay with it, not before): each S-bend seat loses its own R cell as a stroll candidate (one of four at each seat in 8fb667bca's prints). Pending official rows: tick-exact's napper release on slime (a cart on rails is never onGround, so slime's stepOn should not run: G1's 26.3 read), the seats' official P_null re-measured on slime.
+# Bench (the S-bend, wt-go; tool unreviewed): napper arrivals 0.10..0.44 on K's cell (the brief's band) rest on R at z 7.343..7.922 over their entry phases (the rest sweep, `--rest-sweep lo,hi,step --rest-phases N` with K laid: the ceiling 7.922 at arrival 0.102 over 64 phases, 0.10 at phase 0 7.895; rest z is not monotone in the arrival, its maxima fall with speed) and leave R 10..8 gt after the switch, counted from the tick the bench sets the feed repeater's input (x,23,9) (R powers 4 gt later, through the feed repeater and R's own; without the feed path 8..6 gt, where tick-exact's official release, counted from the input pulse at R's repeater, reads one tick later: +9/+8/+7) (the launch threshold: the switch's pulse must be at least 8 gt: at 7 the 0.10 rest leaves after R's power ended, at 0.231; 6 gt crawls or sticks at the high rests; the design's pulse 30); push contact with every passing cart 0, the least gap +0.084 at a 0.10 arrival and +0.239 at 0.20 against the split's ridden through-carts at 0.30, their entries into K swept (0.30 is the conservative end: the row's measured 0.35..0.39 moves a cart further along K's chord before the push search; tick-exact's official crossing on slime 1491498096433479: +0.0795 against 0.29 through-carts, and its first crossing (the napper placed static at its rest): +0.084 against 0.30, slime and stone alike; the final composition's crossing rows (0.29..0.44, their hashes printed) supersede both when they land); lane carts on the siding's cells 0; stray power on R 0. On the slime support with the feed path: matrix (ii) and (A) 200 + 200 rows 0 failing (rets 132..400, merge entry 0.283..0.476, nap_rets 300..1700, +-2, the split row's through-carts at 0.30; occupancy 8, stamps over 1,000, cut windows and carts resting on another cart's top counted; the lane's largest occupancy at a release 7), restarts inside the napper's wait 1000/0 + 1000/0, the start-up from the steady state (7 riders, the 8th in the pocket) 3 cycles clean, the launch identical to stone's at every arrival and pulse; the control (glass under R) never launches. The lane overflow (ironspec 10:02): 0 carts resting on another cart's top in every row; an overfilled lane (9 carts, the control) leaves its extra cart at rest off the rails on the merge support's edge above V (a counted failure) with 14 empty releases of 40. The delivery floor: first failure stored 0.22, 0.23..1.00 clean.
+# R's slime support: lay it only together with F3's z 9 floors (9fc3155f's 4d76acbfb: lay with it, not before): each S-bend seat loses its own R cell as a stroll candidate (one of four at each seat in 8fb667bca's prints). Cited: tick-exact's napper release on the official server (`mctas mobai napper-release`, de0bcdeae; the stone baseline artifact 1012303384495744, the slime run matching it: the cart leaves R +9/+8/+7 gt from the input pulse at 0.37..0.52 b/gt from the rests 7.895 / 7.740 / 7.435; a cart on rails is never onGround, so slime's stepOn does not run). Pending: the seats' official P_null re-measured on slime.
+# speeds: nap-rest-z=7.343..7.922
 # own-route-junctions: -2,24,7=c3 (ironspec 07:52): its third arm is the siding rest R itself and it is never switched, and no other route's cart enters it (ironfarm escape-bench --siding-north: the westmost branch-cart centre in the merge cell x+0.24 over the matrix and restarts, lane carts on the siding's cells 0, push contact 0, one napper per siding at a time); 2,24,7=c3 (ironspec 07:52): its third arm is the siding rest R itself and it is never switched, and no other route's cart enters it (ironfarm escape-bench --siding-north: the westmost branch-cart centre in the merge cell x+0.24 over the matrix and restarts, lane carts on the siding's cells 0, push contact 0, one napper per siding at a time); 6,24,7=c3 (ironspec 07:52): its third arm is the siding rest R itself and it is never switched, and no other route's cart enters it (ironfarm escape-bench --siding-north: the westmost branch-cart centre in the merge cell x+0.24 over the matrix and restarts, lane carts on the siding's cells 0, push contact 0, one napper per siding at a time)
 name: f1q2-lanes-sbend
 circuit: mob-farm iron_ingot
@@ -17,10 +18,13 @@ palette:
   f minecraft:rail[shape=north_west,waterlogged=false]
   g minecraft:rail[shape=south_east,waterlogged=false]
   h minecraft:rail[shape=south_west,waterlogged=false]
-  i minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  j minecraft:slime_block
+  i minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  j minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  k minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  l minecraft:slime_block
 layer 17:
   ..a...a...a
+  .
   .
   .
   .
@@ -35,10 +39,12 @@ layer 18:
   .
   .
   .
+  .
 layer 19:
   .
   ..c...c...c
   ..a...a...a
+  .
   .
   .
   .
@@ -51,12 +57,14 @@ layer 20:
   .
   .
   .
+  .
 layer 21:
   .
   .
   .
   ..c...c...c
   ..a...a...a
+  .
   .
   .
 layer 22:
@@ -67,14 +75,16 @@ layer 22:
   ..c...c...c
   ..a...a...a
   a...a...a
+  aa..aa..aa
 layer 23:
   .
   .
   .
   .
   aa..aa..aa
-  jaa.jaa.jaa
-  i...i...i
+  laa.laa.laa
+  k...k...k
+  ij..ij..ij
 layer 24:
   .
   .
@@ -83,6 +93,7 @@ layer 24:
   gh..gh..gh
   bdf.bdf.bdf
   a...a...a
+  .
 layer 25:
   .
   .
@@ -91,3 +102,4 @@ layer 25:
   .
   .
   e...e...e
+  .
