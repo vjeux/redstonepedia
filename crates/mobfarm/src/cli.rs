@@ -2287,13 +2287,20 @@ pub enum MobfarmCmd {
         /// (default: L2, the live clock).
         #[arg(long)]
         l1: bool,
-        /// A save/stop/start at these ticks after T in every run (every chunk saved, unloaded and
-        /// loaded again between two ticks, no game time passing).
+        /// A restart T,ORDER in every run (cc767b78's `liveness::restart`; repeatable): between
+        /// ticks T - 1 and T a save/stop/start in that entity order (save, reverse, seed:K). The
+        /// cold start is the fresh design's row (--dep-riders x,x,x).
+        #[arg(long)]
+        restart: Vec<String>,
+        /// The restart at every phase "FROM,TO,STEP": one run per tick and per order of the
+        /// reload-order rule (save, reverse, seed:1..8).
         #[arg(long, value_delimiter = ',')]
-        reload_at: Vec<i64>,
-        /// One run per save/stop/start tick "FROM,TO,STEP" (the reload at every phase).
-        #[arg(long, value_delimiter = ',')]
-        reload_sweep: Vec<i64>,
+        restart_sweep: Vec<i64>,
+        /// (the station) Write the station as a committed design in the loop frame (onechunk's
+        /// module): the build, the start state's carts (pockets and holds), `positions:` and the
+        /// runner's `run-cells:`, the event table in the header.
+        #[arg(long)]
+        write_design: Option<PathBuf>,
         /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
         /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
         #[arg(long, default_value = "")]
@@ -6362,7 +6369,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, reload_at, reload_sweep, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -6413,11 +6420,26 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok(([v[0] == "1", v[1] == "1", v[2] == "1"], [v[0] == "x", v[1] == "x", v[2] == "x"]))
             };
             let ((dep, dep_x), (arr, _)) = (r3(&dep_riders)?, r3(&arr_riders)?);
-            // (save/stop/start rows: --reload-at in every run, or one run per tick of --reload-sweep)
-            let mut reload_sets: Vec<Vec<i64>> = vec![reload_at.clone()];
-            if !reload_sweep.is_empty() {
-                anyhow::ensure!(reload_sweep.len() == 3 && reload_sweep[2] > 0, "--reload-sweep FROM,TO,STEP");
-                reload_sets = (reload_sweep[0]..=reload_sweep[1]).step_by(reload_sweep[2] as usize).map(|t| vec![t]).collect();
+            // (restart rows: --restart in every run, or one run per tick and order of --restart-sweep;
+            // the cold start is the fresh design's --dep-riders row, G1: `parse_restart` refuses
+            // "cold", the error points there)
+            let fixed: Vec<(i64, crate::liveness::Restart)> = restart
+                .iter()
+                .map(|s| {
+                    crate::liveness::parse_restart(s).map_err(|e| {
+                        if s.trim_end().ends_with("cold") {
+                            anyhow::anyhow!("{e}: the station's cold start is the fresh design's row (--dep-riders x,x,x; G1)")
+                        } else {
+                            anyhow::anyhow!(e)
+                        }
+                    })
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let mut reload_sets: Vec<Vec<(i64, crate::liveness::Restart)>> = vec![fixed];
+            if !restart_sweep.is_empty() {
+                anyhow::ensure!(restart_sweep.len() == 3 && restart_sweep[2] > 0, "--restart-sweep FROM,TO,STEP");
+                let orders: Vec<crate::liveness::Restart> = crate::liveness::Restart::rows();
+                reload_sets = (restart_sweep[0]..=restart_sweep[1]).step_by(restart_sweep[2] as usize).flat_map(|t| orders.iter().map(move |h| vec![(t, *h)])).collect();
             }
             let st = list(&stagger)?;
             anyhow::ensure!(st.len() == 3, "--stagger A,B,C");
@@ -6444,6 +6466,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
             }
+            // (G1: a restart's unload and reload reset a freeze's entity box, so a run with both is
+            // undefined: refused)
+            anyhow::ensure!(
+                reload_sets.iter().all(|s| s.is_empty()) || (frz.iter().all(|f| f.is_none()) && logins_v.is_empty()),
+                "--restart / --restart-sweep with --freezes / --freeze-sweep / --login is undefined (the restart's unload resets the freeze's entity box): run them apart"
+            );
             for lay in layout.split(';').map(|s| s.trim()) {
                 let lo = match lay.split_once(':') {
                     Some(("parallel", p)) => crate::drop::DropLayout::Parallel(p.parse()?),
@@ -6454,22 +6482,51 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for h in &holds {
                     let ex = crate::drop::Extras { blocks: blocks_v.clone(), posts: posts_v.clone(), slab_stop };
                     let text = crate::drop::design_extra(lo, *h as i32, dep, arr, pad, refill_v.is_some(), &ex);
+                    // (onechunk's module: the station as a committed design in the loop frame)
+                    if let Some(wd) = &write_design {
+                        anyhow::ensure!(lo == crate::drop::DropLayout::Station, "--write-design: the station layout only");
+                        let header: Vec<String> = vec![
+                            "The F1 + Q2 station (dfb89499), in the loop frame: written by `mctas mobfarm drop-bench --layout station ... --write-design` (the bench's own file sits at loop + (6,0,6)); NOTES: designs/farms/iron/carousel-assembly/wip/station/NOTES.md.".into(),
+                            format!(
+                                "The lead: --l1 --open-delay {open_delay}; the build: {}{}; the trapdoor pulse {pulse}; the re-brake {}; offsets {} (lanes x -1/3/7).",
+                                if slab_stop { "--slab-stop (each hold's north stop a bottom slab)" } else { "glass north stops" },
+                                if posts_v.is_empty() { ", no zombie post (9fc3155f's summoner-only scarers)".to_string() } else { format!(", zombie posts at loop {}", posts_v.iter().map(|p| format!("({},{},{})", p.0 - 6, p.1, p.2 - 6)).collect::<Vec<_>>().join(" ")) },
+                                rebrake,
+                                stagger
+                            ),
+                            "Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on switched supports (x,-1,0) (stone; a redstone block while powered); the launcher stone (x,0,-1) under an unattached string (x,1,-1); the pocket strings (x,1,0); departure (x,0,1) plain, the exit detector D_k (x,0,2), (x,0,3) plain, boosters (x,0,4..6): the merge row at z 7.".into(),
+                            format!("Holds H0..2 at (x,{0},0): bottom-half trapdoors (open: the drop), the ring's glass, the north stop a bottom slab (x,{1},-1), the hold string (x,{1},0); R_1 (x,{1},1) a powered rail ascending south, side-powered at (x+1,{1},1) (glass; a redstone block while powered). The pad: portals x -2..7 rows z -5 and -2, golem feet -6 (PAD0..PAD1).", *h, *h + 1),
+                            "Events (L1, game ticks, every drive EMULATED until the circuit is laid; T the summon tick): 1. pocket k's support powered at REL + offset k, unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens. 4. all three shut: + 2 gt, every R_1 side-powered for 10 gt (the next batch rolls into the holds).".into(),
+                            "Carts: the batch in the pockets and the next in the holds (riders), the hold carts where the lane leaves them (0.49 into the cell, against the ring's north glass: tickexact's lane-handoff ca3cdb2ed); the lanes' carts (R_1 on) and R_2 are the lanes' file's. The pad's seal: cobblestone at y -8 under the floor rows, x -2..7 (40 blocks).".into(),
+                            "The Nether part is the bench's PLACEHOLDER, not the build: the shared kill room's portal at the pads' y replaces it.".into(),
+                            "Read path: the hold strings' hook supports (x+-2,17,0) are glowstone (golem-proof, lit, a solid-render stroll destination, a sturdy hook face); glowstone conducts no power, so each hold string is read from its hooks directly (dust or a repeater beside the hook), never through the support.".into(),
+                            "R_1's power cell (x+1,17,1) sits face-adjacent (south) to the hold string's hook (x+1,17,0): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook can drive (never dust, nor a repeater or comparator reading from the north); this file holds glass there, the bench's emulation (a redstone block while the R line is on).".into(),
+                        ];
+                        let loop_text = crate::drop::station_loop_text(&text, *h as i32, &header).map_err(|e| anyhow::anyhow!(e))?;
+                        std::fs::write(wd, &loop_text)?;
+                        println!("the station (loop frame) written to {}", wd.display());
+                        if let Some(l) = loop_text.lines().find(|l| l.starts_with("# Placement order")) {
+                            println!("{}", l.trim_start_matches("# "));
+                        }
+                    }
                     let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("drop-bench-{}.txt", std::process::id())));
                     std::fs::write(&path, &text)?;
                     let (_c, fspec) = load(version, &path)?;
                     println!("drop bench {lo:?}, hold y {h}: {}", crate::drop::footprint(lo, *h as i32));
                     let mut runs: Vec<crate::drop::DropStats> = Vec::new();
+                    let mut by_rel: std::collections::BTreeMap<i64, Vec<crate::drop::DropStats>> = std::collections::BTreeMap::new();
                     for f in &frz {
                     for rset in &reload_sets {
                         for r in &rels {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, reloads: rset.clone(), release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                                        by_rel.entry(*r).or_default().push(stats.clone());
                                         runs.push(stats);
                                         if !summary {
-                                            println!("== freeze {}{}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)), if rset.is_empty() { String::new() } else { format!(", save/stop/start at {}", rset.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(",")) });
+                                            println!("== freeze {}{}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)), if rset.is_empty() { String::new() } else { format!(", restart {}", rset.iter().map(|(t, h)| format!("T+{t} {}", h.label())).collect::<Vec<_>>().join(",")) });
                                             for l in lines {
                                                 println!("{l}");
                                             }
@@ -6480,7 +6537,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                     }
-                    println!("{}", crate::drop::summary(&format!("SUMMARY {lo:?}, hold y {h}, REL {rel}, re-brake {rebrake}, trapdoors {release}{}{}, {} freezes, {} reload sets", if occupancy { ", gated on the strings" } else { "" }, if l1 { ", L1" } else { ", L2" }, frz.len(), reload_sets.len()), &runs));
+                    println!("{}", crate::drop::summary(&format!("SUMMARY {lo:?}, hold y {h}, REL {rel}, re-brake {rebrake}, trapdoors {release}{}{}, {} freezes, {} restart rows", if occupancy { ", gated on the strings" } else { "" }, if l1 { ", L1" } else { ", L2" }, frz.len(), reload_sets.len()), &runs));
+                    // (farmopt 03:25: the rest margin and the landing lead at each REL)
+                    if by_rel.len() > 1 {
+                        for (r, rs) in &by_rel {
+                            let fails: usize = rs.iter().map(|s| s.wrong + s.contacts + s.hurt + s.stuck + s.shut_onto).sum();
+                            println!(
+                                "  REL T+{r}: {} runs; at rest least {} gt before the next summon, the landing lead least {} gt; failures {fails}",
+                                rs.len(),
+                                rs.iter().map(|s| s.rest).min().unwrap_or(i64::MIN),
+                                rs.iter().filter_map(|s| s.brake_lead).min().map_or("-".to_string(), |v| v.to_string())
+                            );
+                        }
+                    }
                 }
             }
         }
