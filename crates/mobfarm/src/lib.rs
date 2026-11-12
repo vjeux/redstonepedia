@@ -41,6 +41,7 @@ pub mod drop;
 pub mod stationjudge;
 pub mod liftbench;
 pub mod returnbench;
+pub mod returnjudge;
 pub mod spawnrules;
 pub mod station;
 pub mod siding;
