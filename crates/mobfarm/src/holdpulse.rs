@@ -20,7 +20,7 @@
 //!
 //! The bench drives ARM3 through a repeater for 20 gt every 100 gt (a repeater's output, like a detector
 //! rail's, turns on inside a game tick), in one of two geometries: `Line` (the hold, then a straight line
-//! east under a string) or `Real` (7b90c3f1's cells: the hold (9,0,8) against the module's stone stop (9,0,9), the T
+//! east under a string) or `Real` (7b90c3f1's cells: the hold (9,0,8) against the slime stop (9,0,9), the T
 //! (9,0,7), the booster (8,0,7) on its redstone block, lane 7's merge T (7,0,7) and track, the merge row
 //! west, the string and hooks above, the 12-gt chain laid into (7,-1,8)). It prints: the input cell's and
 //! the rail's pulses after ARM3 at every phase; a ridden cart at rest placed at every gt between two
@@ -181,10 +181,10 @@ fn spec_real(extra: i64) -> Result<FarmSpec, String> {
     // repeater (8,-1,8) powers the rail through it; the fired-pulse read comes off it)
     put(9, -1, 8, "minecraft:slime_block")?;
     put(9, 0, 8, "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
-    // the stop and the glass over it: stone, as the composed module has it (onechunk's stop-9-down
-    // f52f712d7, 7b90c3f1's return-bench and tick-exact's official napper-ride; ironspec's 10:41 slime is
-    // not what the module lays: a slime stop bounces the arriving cart, ~4 gt later to rest)
-    put(9, 0, 9, "minecraft:stone")?;
+    // the stop and the glass over it: slime (ironspec 15:45, as landed in 7b90c3f1's lift-split and composed
+    // by onechunk; tick-exact's rail-kick row and this bench show it acts as stone for the launch and the
+    // rest: a minecart is not bounced by a slime block it runs into)
+    put(9, 0, 9, "minecraft:slime_block")?;
     put(9, 1, 9, "minecraft:glass")?;
     // the T (9,0,7): arms N, S, W at its placement-order shape south_west (a cart from the hold turns west)
     put(9, -1, 7, "minecraft:glass")?;
@@ -480,6 +480,63 @@ pub fn gate_file_bench(path: &str, freeze: i64, quick: bool) -> Result<Vec<Strin
     Ok(lines)
 }
 
+/// (ironspec 15:23 (2)) The napper's ride from R to rest with the lift laid, every tick: t (ticks after the
+/// summon, as tick-exact's napper-ride counts), the cart's position and motion, the approach detector's
+/// state; the rise, the T entry (its cell becoming the T's) and the rest (the hold cell, horizontal speed
+/// under 0.005). The summon as tick-exact's: (4.5, -18.9375 - depth, 4.5), Motion (v, 0, 0), a villager
+/// riding.
+pub fn lift_trace(k: i64, depth: i32, v: f64, ticks: i64) -> Result<Vec<String>, String> {
+    GATE_LIFT.with(|c| c.set(depth));
+    let res = (|| -> Result<Vec<String>, String> {
+        let c = cells(Geo::Real);
+        let sp = crate::mirror::checked(&spec_gate(2, true, k)?)?;
+        let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+        let mut run = Run::start(&sp, &ro)?;
+        while run.settle_tick() {}
+        let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [4.5, -18.9375 - depth as f64, 4.5], Some(&format!("{{Motion:[{v}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))?;
+        let mut lines = vec![format!("the napper's ride, every tick (redsim; the summon at (4.5, {:.4}, 4.5) Motion ({v}, 0, 0), the lift {depth} down; t = ticks after the summon, as tick-exact's napper-ride)", -18.9375 - depth as f64)];
+        let (mut rise, mut t_entry, mut rest) = (None::<i64>, None::<(i64, [f64; 3], f64)>, None::<(i64, [f64; 3])>);
+        for t in 1..=ticks {
+            run.tick();
+            let Some(e) = run.world.entities.list.iter().find(|e| e.id == id && !e.removed) else {
+                lines.push(format!("t{t}: no cart"));
+                break;
+            };
+            let p = [e.pos.x, e.pos.y, e.pos.z];
+            let m = [e.delta_movement.x, e.delta_movement.y, e.delta_movement.z];
+            let hs = (m[0] * m[0] + m[2] * m[2]).sqrt();
+            let det = run.world.get(crate::mirror::at(GATE_DET)).to_string().contains("powered=true");
+            let cell = [p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32];
+            if rise.is_none() && det {
+                rise = Some(t);
+            }
+            if t_entry.is_none() && cell == [9, 0, 7] {
+                t_entry = Some((t, p, hs));
+            }
+            if rest.is_none() && cell == c.hold && hs < 0.005 {
+                rest = Some((t, p));
+            }
+            lines.push(format!("t{t}: ({:.4}, {:.4}, {:.4}) motion ({:+.4}, {:+.4}, {:+.4}) horizontal {hs:.4}{}", p[0], p[1], p[2], m[0], m[1], m[2], if det { " DETECTOR" } else { "" }));
+            if rest.is_some_and(|(r, _)| t > r + 2) {
+                break;
+            }
+        }
+        lines.push(format!(
+            "summary: the rise at {}; the T entry at {}; rest at {}; detector -> rest {}",
+            rise.map(|t| format!("t{t}")).unwrap_or_else(|| "-".into()),
+            t_entry.map(|(t, p, s)| format!("t{t} ({:.4}, {:.4}, {:.4}) {s:.4}", p[0], p[1], p[2])).unwrap_or_else(|| "-".into()),
+            rest.map(|(t, p)| format!("t{t} ({:.4}, {:.4}, {:.4})", p[0], p[1], p[2])).unwrap_or_else(|| "-".into()),
+            match (rise, rest) {
+                (Some(a), Some((b, _))) => format!("{} gt", b - a),
+                _ => "-".into(),
+            }
+        ));
+        Ok(lines)
+    })();
+    GATE_LIFT.with(|c| c.set(0));
+    res
+}
+
 fn spec(g: Geo, extra: i64) -> Result<FarmSpec, String> {
     match g {
         Geo::Line => spec_line(extra),
@@ -536,10 +593,12 @@ fn spec_gate(extra: i64, live: bool, k: i64) -> Result<FarmSpec, String> {
     let cmp = |facing: &str| format!("minecraft:comparator[facing={facing},mode=subtract,powered=false]");
     // the floors: y -2 under the gate (x 7..20, z 1..16), except the track's own y -2 cells and the
     // approach's clearance (the detector rail (7,-3,4), the ascending (8,-3,4), the curve and slopes: no
-    // block over a rider's path)
+    // block over a rider's path; and none at x 10 beside the curve (9,-2,4) and the slope (9,-2,5): the
+    // cart's box swings out to x 10.16 there (tick-exact's official ride, t79), and x 10 is outside the
+    // chunk, empty in the module: a floor there pushed the cart back and cost it 4 gt to rest)
     for x in 7..=20 {
         for z in 1..=16 {
-            if !((7..=9).contains(&x) && (2..=6).contains(&z)) {
+            if !((7..=10).contains(&x) && (2..=7).contains(&z)) {
                 put(x, -2, z, "minecraft:stone");
             }
         }
@@ -1099,6 +1158,37 @@ fn gate_lift_rows(extra: i64, k: i64) -> Result<Vec<String>, String> {
             if dr.1 == i64::MIN { "-".to_string() } else { (k - dr.1).to_string() }
         ));
     }
+    // (ironspec 15:23 (1)) a restart and a later login stacking: a restart before each tick from the summon
+    // to the rise (the save order) x a 1..3-gt freeze starting at every tick from the rise to the rest
+    let save = crate::liveness::Restart::rows().into_iter().next().ok_or("no restart order")?;
+    let (mut n, mut one, mut dr, mut least, mut worst) = (0u32, 0u32, (i64::MAX, i64::MIN), i64::MAX, String::new());
+    for rt in ts..d0 {
+        for f in 1..=3i64 {
+            for ft in d0..=rs0 {
+                GATE_RESTART.with(|c| c.set(Some((rt, save))));
+                let r = gate_run(extra, true, k, 5, Some((ts, 0.0, 0.2)), Some((ft, f)), false);
+                GATE_RESTART.with(|c| c.set(None));
+                let r = r?;
+                n += 1;
+                if let (Some(d), Some(rs)) = (r.det, r.rest) {
+                    if rs - d > dr.1 {
+                        worst = format!("restart before t{rt} ({} after the summon), a {f}-gt freeze from t{ft}", rt - ts);
+                    }
+                    dr = (dr.0.min(rs - d), dr.1.max(rs - d));
+                    if let Some(b) = r.bit {
+                        least = least.min(b - rs);
+                    }
+                }
+                one += (nf(&r) == 1 && r.off.is_some() && r.off_powered) as u32;
+            }
+        }
+    }
+    lines.push(format!(
+        "  (ironspec 15:23 (1)) a restart before each tick from the summon to the rise (the save order) x a 1..3-gt login freeze starting at every tick from the rise to the rest ({n} runs): detector -> rest {}..{} gt (the worst at {worst}); launched on one fired pulse {one} of {n}; the bit at H2 after rest at least {} gt (bar >= 2)",
+        m(dr.0, i64::MAX),
+        m(dr.1, i64::MIN),
+        m(least, i64::MAX)
+    ));
     Ok(lines)
 }
 
@@ -1509,7 +1599,7 @@ pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo) -> Result<Vec<String>, 
     let width = 8 + 2 * extra;
     let geo = match g {
         Geo::Line => "the Line geometry (the hold, a straight line east under the string)",
-        Geo::Real => "the Real geometry (7b90c3f1's hold (9,0,8), the module's stone stop (9,0,9), T (9,0,7), booster (8,0,7), lane 7's T (7,0,7); the string (8,1,7), hooks (8,1,6) / (8,1,8) on glass)",
+        Geo::Real => "the Real geometry (7b90c3f1's hold (9,0,8), the slime stop (9,0,9), T (9,0,7), booster (8,0,7), lane 7's T (7,0,7); the string (8,1,7), hooks (8,1,6) / (8,1,8) on glass)",
     };
     let mut lines = vec![
         format!(

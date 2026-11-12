@@ -165,6 +165,10 @@ pub enum MobfarmCmd {
         /// With --gate-cells: one exit speed (0.25) instead of three.
         #[arg(long)]
         quick: bool,
+        /// (ironspec 15:23) The napper's ride from R to rest with the lift laid, every tick, at this summon
+        /// speed (tick-exact's napper-ride trace to compare against).
+        #[arg(long)]
+        lift_trace: Option<f64>,
     },
     /// The divert's single atomic read as blocks (`ctldivert.rs`, ironspec Nov 12 03:27): DECIDE = DIV -
     /// DAY held by a repeater unlocked by a rising-edge pulse of D2; DAY's edge at every gt offset around
@@ -12489,12 +12493,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, k, gate_cells, quick } => {
+        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, k, gate_cells, quick, lift_trace } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("hold-pulse-bench{}", crate::mirror::tag());
             }
-            if let Some(path) = gate_cells {
+            // (G1 on 1cc4bbb98: a k the settle chain cannot build is refused, not rounded)
+            if !(36..=48).contains(&k) || k % 2 != 0 {
+                anyhow::bail!("--k {k}: the settle chain builds even k from 36 to 48 only");
+            }
+            if let Some(v) = lift_trace {
+                for l in crate::holdpulse::lift_trace(k, 9, v, 140).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+            } else if let Some(path) = gate_cells {
                 for l in crate::holdpulse::gate_file_bench(&path, freeze, quick).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
