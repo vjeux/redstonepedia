@@ -6585,7 +6585,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
             let title = format!("lanes ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, period {period}, {cycles} cycles)");
             // (lanesbench's warm-up: 100 gt)
-            let lines = crate::lanesjudge::judge(&title, 100, period, &o, |m, c, fr| {
+            let lines = crate::lanesjudge::judge(&title, 100, period, crate::lanesjudge::LANES_FAMILIES, &o, |m, c, fr| {
                 let mut lo = base.clone();
                 lo.ring_q = m.ring_q;
                 lo.width = m.width;
@@ -6609,8 +6609,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             } else {
                 format!("escape ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, G0 {w0} gt, G_P {wp} gt, the trapdoors {drop_w} gt every {period}, hold {hold_n}, {cycles} cycles)")
             };
-            // (the escape bench's warm-up: 300 gt)
-            let lines = crate::lanesjudge::judge(&title, 300, period, &o, |_, c, fr| {
+            // (the escape bench's warm-up: 300 gt; the families its lane prints)
+            let expected: &[&str] = if r_pulse > 0 { crate::lanesjudge::ESCAPE_SWITCHED_FAMILIES } else { crate::lanesjudge::ESCAPE_GATES_FAMILIES };
+            let lines = crate::lanesjudge::judge(&title, 300, period, expected, &o, |_, c, fr| {
                 let mut lo = base.clone();
                 lo.corner = c;
                 lo.freeze32 = fr;

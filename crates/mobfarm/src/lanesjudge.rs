@@ -13,8 +13,11 @@
 //! onto a cart, carts hanging), the arrivals at the lanes' backs above the bench's limit (the
 //! gravity-run exception: <= 0.46 all ridden), the cells not settled at a release, and the riders' eye
 //! blocks (a block not in the control's set). Recovery retries are exempt by name (reported). Nothing
-//! missing or dirty passes: a run whose text lacks a family its control carries is an error, and a
-//! mode whose control is not clean fails unless the bench names the artefact (`artefact: ...`).
+//! missing or dirty passes (G1 2026-11-12 00:12 and 02:26): each judge names the families its bench
+//! must print (a control lacking one is an error, as is a run lacking a family its control carries),
+//! and a mode whose control is not clean fails unless an `artefact: <label>: <why>` line of that
+//! control (printed by the bench only when it detects the condition) names a label each piece of the
+//! dirt starts with.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -66,8 +69,9 @@ pub struct Bars {
     pub retries: usize,
     /// The riders' eye blocks per place (`in D`, `on R`): the block names seen.
     pub eyes: BTreeMap<String, BTreeSet<String>>,
-    /// The artefacts the bench names (`artefact: ...` lines).
-    pub artefacts: Vec<String>,
+    /// The artefacts the bench names: `artefact: <label>: <why>` lines, (the label, why); each covers
+    /// the control's dirt whose kind starts with its label.
+    pub artefacts: Vec<(String, String)>,
     /// Every family the text carries (the exactly-1 families, the bar-0 lines, the arrivals, the
     /// unsettled count, the retries, the eye blocks): a run lacking one its control carries is an error.
     pub families: BTreeSet<String>,
@@ -125,7 +129,10 @@ pub fn bars(text: &str) -> Bars {
     let mut b = Bars::default();
     for l in text.lines() {
         if let Some(rest) = l.strip_prefix("artefact: ") {
-            b.artefacts.push(rest.to_string());
+            // (`artefact: <label>: <why>`; a line without its label covers nothing)
+            if let Some((label, why)) = rest.rsplit_once(": ") {
+                b.artefacts.push((label.trim().to_string(), why.trim().to_string()));
+            }
             continue;
         }
         if let Some(i) = l.find(" (the bar: 0): ") {
@@ -215,9 +222,13 @@ fn bands(v: &[i64]) -> String {
 }
 
 /// The judge: `run(mode, corner, freezes)` runs the bench (its freezes at absolute bench ticks) and
-/// returns its text; `warm` and `period` place opening `k` (warm + corner + k x period). An error when a
-/// run's text lacks a family its control carries.
-pub fn judge<F>(title: &str, warm: i64, period: i64, o: &JudgeOpts, run: F) -> Result<Vec<String>, String>
+/// returns its text; `warm` and `period` place opening `k` (warm + corner + k x period). `expected`:
+/// the families this judge's bench must print (G1 2026-11-12 02:26: a line both the control and the
+/// runs drop would otherwise go unjudged): an error when a control lacks one, or a run lacks a family
+/// its control carries. A control's own dirt fails the mode unless an `artefact: <label>: <why>` line
+/// of that control names a label the dirt starts with (the bench prints it only when it detects the
+/// condition); dirt no artefact covers fails.
+pub fn judge<F>(title: &str, warm: i64, period: i64, expected: &[&str], o: &JudgeOpts, run: F) -> Result<Vec<String>, String>
 where
     F: Fn(&Mode, i64, Vec<(i64, i64)>) -> Result<String, String> + Sync,
 {
@@ -253,32 +264,46 @@ where
             }
         }
         let control = |c: i64| results.iter().find(|((cc, f), _)| *cc == c && f.is_none()).map(|(_, b)| b.clone());
-        // (nothing missing: every run carries every family its control carries)
+        // (nothing missing: every control carries every family this judge expects, every run every
+        // family its control carries)
         for ((c, f), b) in &results {
             let Some(ctl) = control(*c) else { return Err(format!("mode {}: corner {c:+} has no control", m.label)) };
-            if ctl.families.is_empty() {
-                return Err(format!("mode {}: corner {c:+}'s control printed no bar the judge reads", m.label));
+            let absent: Vec<&&str> = expected.iter().filter(|e| !ctl.families.contains(**e)).collect();
+            if !absent.is_empty() {
+                return Err(format!("mode {}: corner {c:+}'s control lacks {:?}, which this judge expects (it carries {:?})", m.label, absent, ctl.families));
             }
             let missing: Vec<&String> = ctl.families.difference(&b.families).collect();
             if !missing.is_empty() {
                 return Err(format!("mode {}: corner {c:+}, freeze {f:?}: the run's text lacks {:?}, which its control carries", m.label, missing));
             }
         }
-        // (nothing dirty: a control's own bars fail the mode unless the bench names the artefact)
+        // (nothing dirty: a control's own bars fail the mode unless an artefact line names each)
         let mut dirty: Vec<String> = Vec::new();
         let controls: Vec<String> = o
             .corners
             .iter()
             .map(|&c| {
                 let b = control(c).unwrap_or_default();
-                let own: Vec<String> = b.own().iter().map(|(k, n)| format!("{n} x {k}")).collect();
+                let own = b.own();
                 if own.is_empty() {
-                    format!("corner {c:+}: clean")
-                } else if !b.artefacts.is_empty() {
-                    format!("corner {c:+}: {} (the bench's named artefact: {})", own.join(", "), b.artefacts.join("; "))
-                } else {
+                    return format!("corner {c:+}: clean");
+                }
+                let mut parts: Vec<String> = Vec::new();
+                let mut uncovered = false;
+                for (k, n) in &own {
+                    match b.artefacts.iter().find(|(label, _)| k.starts_with(label.as_str())) {
+                        Some((label, why)) => parts.push(format!("{n} x {k} (the bench's artefact {label}: {why})")),
+                        None => {
+                            uncovered = true;
+                            parts.push(format!("{n} x {k} (NO ARTEFACT)"));
+                        }
+                    }
+                }
+                if uncovered {
                     dirty.push(format!("corner {c:+}"));
-                    format!("corner {c:+}: NOT CLEAN ({})", own.join(", "))
+                    format!("corner {c:+}: NOT CLEAN ({})", parts.join(", "))
+                } else {
+                    format!("corner {c:+}: {}", parts.join(", "))
                 }
             })
             .collect();
@@ -301,7 +326,7 @@ where
             "mode {}: {}; {n} runs; failing {}; recovery retries beyond the control (exempt by name) in {retry_runs} runs; the unfrozen controls {}",
             m.label,
             if !dirty.is_empty() {
-                format!("FAILS: the controls of {} are not clean and the bench names no artefact", dirty.join(", "))
+                format!("FAILS: the controls of {} are not clean and no artefact line covers it", dirty.join(", "))
             } else if fails.is_empty() {
                 "PASSES".to_string()
             } else {
@@ -353,4 +378,56 @@ mod tests {
         let lacking = bars(&t.replace("arrivals at the lanes' backs (returns): 40, 3 above 0.46, the hardest 0.501\n", ""));
         assert!(b.families.difference(&lacking.families).count() == 1);
     }
+
+    /// The lanes bench's 0.2 arrival bar bites (a positive control on its own line's format): a run
+    /// with one more arrival above 0.2 than its control fails on that bar; at equal counts it passes.
+    #[test]
+    fn lanes_arrival_bar() {
+        let ctl = "carts per lane per opening (exactly 1): 1 carts: 24\n\
+                   gate shuts onto a cart (the bar: 0): 0\n\
+                   arrivals at the lanes' backs (the intakes and the trains closing up): 30, 0 above 0.2, the hardest 0.180\n";
+        let c = bars(ctl);
+        for f in LANES_FAMILIES {
+            assert!(c.families.contains(*f), "the lanes bench's family {f:?}");
+        }
+        let run = bars(&ctl.replace("30, 0 above 0.2, the hardest 0.180", "31, 1 above 0.2, the hardest 0.241"));
+        assert_eq!(run.beyond(&c), vec![("arrivals at the lanes' backs above 0.2".to_string(), 1)]);
+        assert!(bars(ctl).beyond(&c).is_empty());
+    }
+
+    /// An artefact line covers only the dirt whose kind starts with its label.
+    #[test]
+    fn artefact_labels() {
+        let t = "carts per cell per release (exactly 1): 1: 57, 0: 3; cells not settled (string held) at a release: 0\n\
+                 gate and trapdoor shuts onto a cart (the bar: 0): 1\n\
+                 artefact: carts per cell per release (exactly 1): the last release is cut by the run's end\n";
+        let b = bars(t);
+        assert_eq!(b.artefacts, vec![("carts per cell per release (exactly 1)".to_string(), "the last release is cut by the run's end".to_string())]);
+        let own = b.own();
+        let covered: Vec<bool> = own.iter().map(|(k, _)| b.artefacts.iter().any(|(l, _)| k.starts_with(l.as_str()))).collect();
+        assert_eq!(own.len(), 2);
+        assert_eq!(covered.iter().filter(|x| **x).count(), 1, "the shut onto a cart is not covered: {own:?}");
+    }
 }
+
+/// The families each judge's bench must print (G1 2026-11-12 02:26), as `bars()` names them.
+pub const LANES_FAMILIES: &[&str] = &["carts per lane per opening (exactly 1)", "gate shuts onto a cart", "arrivals at the lanes' backs above 0.2"];
+/// The escape bench's switched-R lane (`--r-pulse`).
+pub const ESCAPE_SWITCHED_FAMILIES: &[&str] = &[
+    "carts per D per release (exactly 1)",
+    "not settled at a release",
+    "retries",
+    "trapdoor shuts onto a cart",
+    "carts hanging over the rail end's support column",
+    "arrivals at the lanes' backs above 0.46",
+    "the riders' eye blocks",
+];
+/// The escape bench's G0/G_P lane.
+pub const ESCAPE_GATES_FAMILIES: &[&str] = &[
+    "carts per G0 opening (exactly 1, after the warm-up)",
+    "per G_P opening",
+    "carts per cell per release (exactly 1)",
+    "not settled at a release",
+    "gate and trapdoor shuts onto a cart",
+    "arrivals at the lanes' backs above 0.46",
+];
