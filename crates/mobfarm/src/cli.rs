@@ -1187,6 +1187,157 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         stand: String,
     },
+    /// One-chunk (b), the climb bench (ironspec and farmopt 2026-11-11, paper v0): one batch of 3
+    /// ridden carts from rest at the foot hold H up a straight powered climb of `--cells` boosters
+    /// to today's approach top, the snap turn and today's 3 pockets (the S3 file's cells; gates
+    /// bench-driven), H opened at T + `--h-open` (T a world time multiple of 100); each cart's rest
+    /// tick and margin before T+100, arrival speeds into waiting carts, riders' damage, dismounts,
+    /// eye point inside a block, the golem box gap, and a freeze span; at every H-open corner and
+    /// seed. `--gravity` (with `--v3`, `--v4` or `--crest6`): the gravity queue's hold → stand
+    /// descent instead.
+    ClimbBench {
+        #[arg(long, default_value_t = 14)]
+        cells: i32,
+        /// T's height (today's approach top 5; 3, the lowest with today's snap turn).
+        #[arg(long, default_value_t = 5)]
+        crest: i32,
+        /// H's opening, gt after T, each corner ("1,2,3,4,5").
+        #[arg(long, default_value = "1,2,3,4,5")]
+        h_open: String,
+        /// H shuts again this many gt after it opened (0: never).
+        #[arg(long, default_value_t = 0)]
+        h_for: i64,
+        /// The per-gate hold's release spacing emulated (gt; 0: the batch queued back to back at
+        /// H): cart k set at rest at Ga at T + h-open + k * this, each corner ("15,23").
+        #[arg(long, default_value = "0")]
+        h_every: String,
+        /// The climb's pattern from its foot (`B` booster, `P` plain; empty: all boosters).
+        #[arg(long, default_value = "")]
+        pattern: String,
+        /// onechunk's cornered route instead of the straight climb: H_RAILS,L1 (Ga's hand-off at
+        /// rails H_RAILS, leg 1 of L1 slopes south, leg 2 west up to 3, the approach's flats north
+        /// to T at 3); the carts handed off at Ga's B at 0.5 b/t, `--h-every` gt apart.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        route: Vec<i32>,
+        /// onechunk's folded (b) route: Dh, a flat curve west, leg 1 (11 boosters), a curve north,
+        /// leg 2 (9 boosters) to T at 3; the carts handed off at Dh at 0.5 b/t, `--h-every` gt
+        /// apart (default 13: the pocket stand's gates send them 12..14 apart).
+        #[arg(long)]
+        folded: bool,
+        /// The gravity queue's descent (hold → stand) instead of a climb: `--cells` slopes down
+        /// north to the crest at +3 (`--pattern` B/P from the bottom); the carts handed off at the
+        /// top at `--speed` b/t heading north, `--h-every` gt apart (0: back to back, 3 gt).
+        #[arg(long)]
+        gravity: bool,
+        /// With --gravity: onechunk's skeleton v3 descent (Ga's exit at (13,24,4), leg A south, a
+        /// curve, leg B west, a curve, leg C north into the committed crest (3,6,10)); `--cells`
+        /// ignored. `--plain-c`: leg C's three slopes plain.
+        #[arg(long)]
+        v3: bool,
+        /// With --gravity: the hold 9 levels lower (the inverted variant, until v4's cells): Ga's
+        /// exit and three flat boosters at rail height 6 + `--cells`, a straight boosted descent
+        /// into the committed crest (3,6,10) and the approach.
+        #[arg(long)]
+        crest6: bool,
+        /// With --gravity: onechunk's skeleton v4 descent (the inverted variant): Ga's rail
+        /// (13,15,5), south, a curve, west, a curve, north into the committed crest (3,6,10);
+        /// every slope and flat boosted (`--plain-flats`: the flats plain).
+        #[arg(long)]
+        v4: bool,
+        /// With --gravity: the descent re-laid as continuous slopes from loop (7,15,5) (Ga at
+        /// (7,16,4)); my emulation until onechunk's cells landed.
+        #[arg(long)]
+        v5: bool,
+        /// With --gravity: onechunk's re-laid v4 descent (635596597, 13 cells: G_a (13,15,10), a
+        /// slope south, a curve, eight slopes west, a flat, a curve, a flat into the crest).
+        #[arg(long)]
+        v4r: bool,
+        #[arg(long)]
+        plain_flats: bool,
+        #[arg(long)]
+        plain_c: bool,
+        /// The hand-off speed (b/t) for --gravity.
+        #[arg(long, default_value_t = 0.4)]
+        speed: f64,
+        /// The stand's gates on timers from the hold's release (live time, paused while frozen):
+        /// G2 shuts at release + A, G1 at release + B (instead of position triggers).
+        #[arg(long, value_delimiter = ',')]
+        gate_shut: Vec<i64>,
+        /// The batch's carts: 3, or 2 (the third stays parked).
+        #[arg(long, default_value_t = 3)]
+        carts: usize,
+        #[arg(long, default_value_t = 1.29)]
+        close_at: f64,
+        #[arg(long, default_value_t = 160)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 3)]
+        seeds: i64,
+        /// Which carts carry a rider, front first ("1,1,1"; "0,1,1": the front cart empty).
+        #[arg(long, default_value = "1,1,1")]
+        riders: String,
+        /// The golem's box (design frame) while a golem exists (T..T+2): x0,y0,z0,x1,y1,z1.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        golem_box: Vec<f64>,
+        /// The freeze: the bench's chunks at level 32 from T + FROM for LEN gt ("FROM,LEN").
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        freeze: Vec<i64>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        trace: bool,
+    },
+    /// The gravity queue's climb back (onechunk's skeleton v3, `--v4` the inverted v4): the batch at
+    /// rest in today's pockets leaves at the stand's release (G0 and G1 at REL, G2 at REL + its
+    /// delay, each slope powered as the meter powers it) up the S3 departure, three flat curves and
+    /// boosters to the top; each cart's tick above feet `--above` against T+100, the curve rule at
+    /// every curve, contacts, the riders, the arrival at the top (v4: and 4, 8, 12 cells past it,
+    /// after REL); per REL corner, G2 delay and seed.
+    ClimbBack {
+        /// REL, gt after T, each corner ("3,4,5,6,7").
+        #[arg(long, default_value = "3,4,5,6,7")]
+        rel: String,
+        /// G1's delay after REL, each value ("0").
+        #[arg(long, default_value = "0")]
+        g1_delay: String,
+        /// G2's delay after REL, each value ("6").
+        #[arg(long, default_value = "6")]
+        g2_delay: String,
+        #[arg(long, default_value_t = 24.5)]
+        above: f64,
+        /// onechunk's v4 (inverted) climb back: the east leg rises 5 then runs flat to the top
+        /// (15,37,0) (v3: 14 up to 46).
+        #[arg(long)]
+        v4: bool,
+        /// The batch's carts: 3, or 2 (cart 2 leaves the world before the release).
+        #[arg(long, default_value_t = 3)]
+        carts: usize,
+        /// The east leg's slopes up to the top (default: v3 14, v4 5; C′'s top at 38: 6).
+        #[arg(long)]
+        east: Option<i32>,
+        /// Every gate's slope powered as its gate opens (the meter powers G1's and G2's 8 gt
+        /// after): a stand-side variant for the empty cart's lag.
+        #[arg(long)]
+        slopes_at_open: bool,
+        /// G1's and G2's slopes powered this many gt after their gates open (the meter's 8).
+        #[arg(long, default_value_t = 8)]
+        slope_delay: i64,
+        #[arg(long, default_value_t = 160)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 3)]
+        seeds: i64,
+        #[arg(long, default_value = "1,1,1")]
+        riders: String,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        freeze: Vec<i64>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        trace: bool,
+    },
     /// The stop-based stand's lab (farmopt): a run, the stand's cells from a spec (`mobfarm::
     /// standlab`), three ridden carts moving +x at each speed of a sweep: where they rest, when,
     /// whether they stay put; then the departure (the spec's `c` cells powered) and how they leave.
@@ -4266,6 +4417,149 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
+            anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
+            anyhow::ensure!(gate_shut.is_empty() || gate_shut.len() == 2, "--gate-shut A,B");
+            // (7b90c3f1's meter timer fill, MCTAS_TIMER_FILL=T1,T2: G1 stays open T1 and G2 T2
+            // live gt after the hold's release; the bench drives its gates the same way)
+            let gate_shut: Vec<i64> = match (gate_shut.is_empty(), std::env::var("MCTAS_TIMER_FILL")) {
+                (true, Ok(v)) => {
+                    let t: Vec<i64> = v.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(t.len() == 2, "MCTAS_TIMER_FILL=T1,T2");
+                    println!("the stand's gates on MCTAS_TIMER_FILL={v}: G1 open {} gt and G2 {} gt (live) after the hold's release (bench-driven gates)", t[0], t[1]);
+                    vec![t[1], t[0]]
+                }
+                _ => gate_shut,
+            };
+            anyhow::ensure!(carts == 2 || carts == 3, "--carts 2 or 3");
+            let rd: Vec<bool> = riders.split(',').map(|s| s.trim() != "0").collect();
+            anyhow::ensure!(rd.len() == 3, "--riders takes three 0/1");
+            // (an entry "A:B": cart 1 handed off A gt after cart 0, cart 2 B gt after cart 1)
+            let pairs: Vec<(i64, Option<i64>)> = h_every
+                .split(',')
+                .map(|s| -> anyhow::Result<(i64, Option<i64>)> {
+                    let mut it = s.trim().split(':');
+                    let a = it.next().unwrap_or("0").parse::<i64>()?;
+                    let b = it.next().map(|x| x.parse::<i64>()).transpose()?;
+                    Ok((a, b))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let everys: Vec<i64> = pairs.iter().map(|p| p.0).collect();
+            let spaced = everys.iter().any(|e| *e > 0) && !gravity;
+            anyhow::ensure!(gravity || !spaced || everys.iter().all(|e| *e > 0), "--h-every: all spaced (> 0) or 0");
+            anyhow::ensure!(pattern.is_empty() || pattern.len() == cells as usize, "--pattern: one letter per climb cell");
+            anyhow::ensure!(route.is_empty() || route.len() == 2, "--route H_RAILS,L1");
+            let text = if gravity && v4r {
+                crate::climb::design_gravity_v4r([rd[0], rd[1], rd[2]])
+            } else if gravity && v5 {
+                crate::climb::design_gravity_v5([rd[0], rd[1], rd[2]])
+            } else if gravity && v4 {
+                crate::climb::design_gravity_v4([rd[0], rd[1], rd[2]], plain_flats)
+            } else if gravity && crest6 {
+                crate::climb::design_gravity_c6(cells, [rd[0], rd[1], rd[2]])
+            } else if gravity && v3 {
+                crate::climb::design_gravity_v3([rd[0], rd[1], rd[2]], plain_c)
+            } else if gravity {
+                crate::climb::design_gravity(cells, &pattern, [rd[0], rd[1], rd[2]])
+            } else if folded {
+                crate::climb::design_folded([rd[0], rd[1], rd[2]])
+            } else if route.len() == 2 {
+                crate::climb::design_route(route[0], route[1], [rd[0], rd[1], rd[2]]).map_err(|e| anyhow::anyhow!(e))?
+            } else {
+                crate::climb::design_with(cells, crest, &pattern, [rd[0], rd[1], rd[2]], spaced)
+            };
+            // (the hand-off point and velocity (the gravity descent's top, Ga's B, or the folded
+            // route's Dh) and the freeze's chunk box)
+            use redsim::entity::Vec3 as V3;
+            let route_geo = if gravity && v4r {
+                // (on G_a's slope, its centre: the surface at 15.5)
+                Some((V3::new(13.5, 15.5625, 10.5), V3::new(0.0, 0.0, speed), [0, 0, 0, 0]))
+            } else if gravity && v5 {
+                Some((V3::new(13.5, 15.0625, 10.5), V3::new(0.0, 0.0, speed), [0, 0, 0, 0]))
+            } else if gravity && v4 {
+                Some((V3::new(13.5, 15.0625, 5.5), V3::new(0.0, 0.0, speed), [0, 0, 0, 0]))
+            } else if gravity && crest6 {
+                Some((V3::new(3.5, (6 + cells) as f64 + 0.0625, (11 + cells + 3) as f64 + 0.5), V3::new(0.0, 0.0, -speed), [0, 0, 0, (15 + cells).div_euclid(16)]))
+            } else if gravity && v3 {
+                Some((V3::new(13.5, 24.0625, 4.5), V3::new(0.0, 0.0, speed), [0, 0, 0, 0]))
+            } else if gravity {
+                Some((V3::new(3.5, (3 + cells) as f64 + 0.0625, (8 + cells) as f64 + 0.5), V3::new(0.0, 0.0, -speed), [0, 0, 0, (9 + cells).div_euclid(16)]))
+            } else if folded {
+                Some((V3::new(15.5, -17.0 + 0.0625, 16.5), V3::new(0.0, 0.0, 0.5), [0, 0, 0, 1]))
+            } else {
+                (route.len() == 2).then(|| {
+                    let (h, l1) = (route[0], route[1]);
+                    let l2 = 3 - h - l1;
+                    let (lx, fz) = (4 + l2, 13 - l1 + 1);
+                    (V3::new(lx as f64 + 0.5, h as f64 + 0.0625, (fz - 3) as f64 + 0.5), V3::new(0.0, 0.0, 0.5), [0, (fz - 5).div_euclid(16), lx.div_euclid(16), 0])
+                })
+            };
+            let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("climb-bench-{}.txt", std::process::id())));
+            std::fs::write(&path, &text)?;
+            let (_c, fspec) = load(version, &path)?;
+            anyhow::ensure!(golem_box.is_empty() || golem_box.len() == 6, "--golem-box x0,y0,z0,x1,y1,z1");
+            anyhow::ensure!(freeze.is_empty() || freeze.len() == 2, "--freeze FROM,LEN");
+            let opens: Vec<i64> = h_open.split(',').map(|s| s.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+            println!("climb bench: {} cells{}{}, the design {}", cells, if gravity { " (the gravity descent)" } else { "" }, if pattern.is_empty() { String::new() } else { format!(" ({pattern})") }, path.display());
+            for (e, e2) in &pairs {
+                for h in &opens {
+                    for s in seed..seed + seeds {
+                        let o = crate::climb::ClimbOpts {
+                            cells,
+                            crest: if gravity && (v3 || crest6 || v4 || v5 || v4r) { 6 } else if route.len() == 2 || folded || gravity { 3 } else { crest },
+                            h_open: *h,
+                            h_for,
+                            h_every: if gravity { 0 } else { *e },
+                            close_at,
+                            ticks,
+                            seed: s,
+                            golem_box: (golem_box.len() == 6).then(|| [golem_box[0], golem_box[1], golem_box[2], golem_box[3], golem_box[4], golem_box[5]]),
+                            freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])),
+                            hand_off: route_geo.map(|(p, v, c)| (p, v, if *e > 0 { *e } else if gravity { 3 } else if folded { 13 } else { 10 }, c)),
+                            hand_off_2: *e2,
+                            gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
+                            n_carts: carts,
+                            trace,
+                        };
+                        let lines = crate::climb::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                        println!("== H open T+{h}, every {e}{} gt, seed {s}", e2.map_or(String::new(), |b| format!(":{b}")));
+                        for l in lines {
+                            println!("{l}");
+                        }
+                    }
+                }
+            }
+        }
+        MobfarmCmd::ClimbBack { rel, g1_delay, g2_delay, above, v4, carts, east, slopes_at_open, slope_delay, ticks, seed, seeds, riders, freeze, out, trace } => {
+            let rd: Vec<bool> = riders.split(',').map(|s| s.trim() != "0").collect();
+            anyhow::ensure!(rd.len() == 3, "--riders takes three 0/1");
+            anyhow::ensure!(carts == 2 || carts == 3, "--carts 2 or 3");
+            anyhow::ensure!(freeze.is_empty() || freeze.len() == 2, "--freeze FROM,LEN");
+            let list = |s: &str| s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
+            let (rels, g1s, g2s) = (list(&rel)?, list(&g1_delay)?, list(&g2_delay)?);
+            let east = east.unwrap_or(if v4 { 5 } else { 14 });
+            anyhow::ensure!((1..=14).contains(&east), "--east 1..14");
+            let past = if v4 { 13 } else { 0 };
+            let text = crate::climb::design_climb_back([rd[0], rd[1], rd[2]], east, past);
+            let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("climb-back-{}.txt", std::process::id())));
+            std::fs::write(&path, &text)?;
+            let (_c, fspec) = load(version, &path)?;
+            println!("climb back: the design {}", path.display());
+            for g1 in &g1s {
+                for g2 in &g2s {
+                    for r in &rels {
+                        for s in seed..seed + seeds {
+                            let o = crate::climb::ClimbBackOpts { rel: *r, g1_delay: *g1, g2_delay: *g2, slopes_at_open, slope_delay, ticks, seed: s, above, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), top_y: 32 + east, past, n_carts: carts, trace };
+                            let lines = crate::climb::climb_back_bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                            println!("== REL T+{r}, G1 +{g1}, G2 +{g2}, seed {s}");
+                            for l in lines {
+                                println!("{l}");
+                            }
+                        }
+                    }
+                }
+            }
         }
         MobfarmCmd::StandLab { spec, speeds, skew, ai, reverse, gaps, start_x, depart_at, hold_at, release_at, meter, close_at, pockets, stand_open_at, stand_close_at, releases, ticks, out, trace } => {
             let text = crate::standlab::design(&spec)?;
