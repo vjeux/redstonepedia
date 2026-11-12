@@ -15,9 +15,10 @@
 //! blocks (a block not in the control's set). Recovery retries are exempt by name (reported). Nothing
 //! missing or dirty passes (G1 2026-11-12 00:12 and 02:26): each judge names the families its bench
 //! must print (a control lacking one is an error, as is a run lacking a family its control carries),
-//! and a mode whose control is not clean fails unless an `artefact: <label>: <why>` line of that
-//! control (printed by the bench only when it detects the condition) names a label each piece of the
-//! dirt starts with.
+//! and a mode whose control is not clean fails unless an `artefact: <family>: <why>` line of that
+//! control (printed by the bench only when it detects the condition) names, in full, one of this
+//! judge's families each piece of the dirt belongs to; an artefact line naming no family of the judge
+//! (an empty or a partial label) is an error (G1 2026-11-12 03:01).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -69,8 +70,9 @@ pub struct Bars {
     pub retries: usize,
     /// The riders' eye blocks per place (`in D`, `on R`): the block names seen.
     pub eyes: BTreeMap<String, BTreeSet<String>>,
-    /// The artefacts the bench names: `artefact: <label>: <why>` lines, (the label, why); each covers
-    /// the control's dirt whose kind starts with its label.
+    /// The artefacts the bench names: `artefact: <family>: <why>` lines, (the family, why); each
+    /// covers the control's dirt of that family ([`covered_by`]; the label checked against the
+    /// judge's families: [`check_artefacts`]).
     pub artefacts: Vec<(String, String)>,
     /// Every family the text carries (the exactly-1 families, the bar-0 lines, the arrivals, the
     /// unsettled count, the retries, the eye blocks): a run lacking one its control carries is an error.
@@ -95,13 +97,13 @@ impl Bars {
             }
         }
         if self.unsettled > control.unsettled {
-            v.push(("cells not settled at a release".to_string(), self.unsettled - control.unsettled));
+            v.push(("not settled at a release".to_string(), self.unsettled - control.unsettled));
         }
         for (place, names) in &self.eyes {
             let known = control.eyes.get(place);
             for n in names {
                 if !known.is_some_and(|k| k.contains(n)) {
-                    v.push((format!("a rider's eye in {n} {place} (not in the control's set)"), 1));
+                    v.push((format!("the riders' eye blocks: {n} {place} (not in the control's set)"), 1));
                 }
             }
         }
@@ -129,9 +131,12 @@ pub fn bars(text: &str) -> Bars {
     let mut b = Bars::default();
     for l in text.lines() {
         if let Some(rest) = l.strip_prefix("artefact: ") {
-            // (`artefact: <label>: <why>`; a line without its label covers nothing)
-            if let Some((label, why)) = rest.rsplit_once(": ") {
-                b.artefacts.push((label.trim().to_string(), why.trim().to_string()));
+            // (`artefact: <label>: <why>`: the label is a full family name, which holds no ": ", so
+            // the first ": " ends it and the why may hold more; the judge checks the label against
+            // its families: `check_artefacts`)
+            match rest.split_once(": ") {
+                Some((label, why)) => b.artefacts.push((label.trim().to_string(), why.trim().to_string())),
+                None => b.artefacts.push((String::new(), rest.trim().to_string())),
             }
             continue;
         }
@@ -206,6 +211,27 @@ pub fn bars(text: &str) -> Bars {
     b
 }
 
+/// The artefact line that covers a control's dirt of kind `kind`: the first whose label (a full family
+/// name, [`check_artefacts`]) the kind starts with (every kind starts with its family's name).
+pub fn covered_by<'a>(kind: &str, artefacts: &'a [(String, String)]) -> Option<&'a (String, String)> {
+    artefacts.iter().find(|(label, _)| !label.is_empty() && kind.starts_with(label.as_str()))
+}
+
+/// Every artefact line of `b` names one of this judge's families (`expected`) in full: an empty label,
+/// or one that matches no family, is an error (G1 2026-11-12 03:01: a short label would excuse dirt it
+/// does not name).
+pub fn check_artefacts(b: &Bars, expected: &[&str]) -> Result<(), String> {
+    for (label, why) in &b.artefacts {
+        if label.is_empty() {
+            return Err(format!("an artefact line without its family's name (\"artefact: {why}\"): it must read \"artefact: <family>: <why>\""));
+        }
+        if !expected.contains(&label.as_str()) {
+            return Err(format!("the artefact line's label {label:?} is none of this judge's families {expected:?}"));
+        }
+    }
+    Ok(())
+}
+
 /// Ranges of sorted offsets ("a..b, c").
 fn bands(v: &[i64]) -> String {
     let mut out: Vec<String> = Vec::new();
@@ -225,9 +251,9 @@ fn bands(v: &[i64]) -> String {
 /// returns its text; `warm` and `period` place opening `k` (warm + corner + k x period). `expected`:
 /// the families this judge's bench must print (G1 2026-11-12 02:26: a line both the control and the
 /// runs drop would otherwise go unjudged): an error when a control lacks one, or a run lacks a family
-/// its control carries. A control's own dirt fails the mode unless an `artefact: <label>: <why>` line
-/// of that control names a label the dirt starts with (the bench prints it only when it detects the
-/// condition); dirt no artefact covers fails.
+/// its control carries. A control's own dirt fails the mode unless an `artefact: <family>: <why>` line
+/// of that control names its family in full (the bench prints it only when it detects the condition;
+/// [`check_artefacts`], [`covered_by`]); dirt no artefact covers fails.
 pub fn judge<F>(title: &str, warm: i64, period: i64, expected: &[&str], o: &JudgeOpts, run: F) -> Result<Vec<String>, String>
 where
     F: Fn(&Mode, i64, Vec<(i64, i64)>) -> Result<String, String> + Sync,
@@ -276,6 +302,8 @@ where
             if !missing.is_empty() {
                 return Err(format!("mode {}: corner {c:+}, freeze {f:?}: the run's text lacks {:?}, which its control carries", m.label, missing));
             }
+            // (every artefact line names one of this judge's families in full)
+            check_artefacts(b, expected).map_err(|e| format!("mode {}: corner {c:+}, freeze {f:?}: {e}", m.label))?;
         }
         // (nothing dirty: a control's own bars fail the mode unless an artefact line names each)
         let mut dirty: Vec<String> = Vec::new();
@@ -291,7 +319,7 @@ where
                 let mut parts: Vec<String> = Vec::new();
                 let mut uncovered = false;
                 for (k, n) in &own {
-                    match b.artefacts.iter().find(|(label, _)| k.starts_with(label.as_str())) {
+                    match covered_by(k, &b.artefacts) {
                         Some((label, why)) => parts.push(format!("{n} x {k} (the bench's artefact {label}: {why})")),
                         None => {
                             uncovered = true;
@@ -400,13 +428,26 @@ mod tests {
     fn artefact_labels() {
         let t = "carts per cell per release (exactly 1): 1: 57, 0: 3; cells not settled (string held) at a release: 0\n\
                  gate and trapdoor shuts onto a cart (the bar: 0): 1\n\
-                 artefact: carts per cell per release (exactly 1): the last release is cut by the run's end\n";
+                 artefact: carts per cell per release (exactly 1): the last release is cut by the run's end: see NOTES\n";
         let b = bars(t);
-        assert_eq!(b.artefacts, vec![("carts per cell per release (exactly 1)".to_string(), "the last release is cut by the run's end".to_string())]);
+        // (the first ": " ends the label: the why may hold more)
+        assert_eq!(b.artefacts, vec![("carts per cell per release (exactly 1)".to_string(), "the last release is cut by the run's end: see NOTES".to_string())]);
+        assert!(check_artefacts(&b, ESCAPE_GATES_FAMILIES).is_ok());
+        // (the judge's own coverage: the label covers its family's dirt only)
         let own = b.own();
-        let covered: Vec<bool> = own.iter().map(|(k, _)| b.artefacts.iter().any(|(l, _)| k.starts_with(l.as_str()))).collect();
         assert_eq!(own.len(), 2);
+        let covered: Vec<bool> = own.iter().map(|(k, _)| covered_by(k, &b.artefacts).is_some()).collect();
         assert_eq!(covered.iter().filter(|x| **x).count(), 1, "the shut onto a cart is not covered: {own:?}");
+        // (an empty label, a short label, a label of another judge's family: errors, covering nothing)
+        for bad in ["artefact: : any why\n", "artefact: a: short\n", "artefact: no label at all\n", "artefact: arrivals at the lanes' backs above 0.2: the lanes bench's\n"] {
+            let bb = bars(&format!("{t}{bad}"));
+            assert!(check_artefacts(&bb, ESCAPE_GATES_FAMILIES).is_err(), "{bad:?} must be refused");
+        }
+        assert!(covered_by("arrivals at the lanes' backs above 0.46", &[(String::new(), "x".into())]).is_none());
+        // (every kind starts with its family's name: the not-settled count and the eye blocks too)
+        let worse = bars(&t.replace("at a release: 0", "at a release: 2").replace("artefact: carts per cell per release (exactly 1): the last release is cut by the run's end: see NOTES\n", ""));
+        let kinds: Vec<String> = worse.beyond(&b).into_iter().map(|(k, _)| k).collect();
+        assert!(kinds.iter().any(|k| k.starts_with("not settled at a release")), "{kinds:?}");
     }
 }
 
