@@ -533,7 +533,8 @@ fn golem_targets_seated_pillager() {
         assert!(boat.is_ok(), "{boat:?}");
         let pid = w.entities.list.iter().find(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Pillager)).map(|e| e.id).expect("the pillager");
         let g = add(&mut w, MobType::IronGolem, Vec3::new(gx, 0.0, 0.5), true);
-        for _ in 0..40 {
+        // (the positive case's 200 gt, G1 on 255f22a1a: a late acquisition must not pass a short window)
+        for _ in 0..200 {
             w.tick();
             let gi = crate::entity::index_of(&w, g).expect("the golem");
             if let EntityKind::Mob(m) = &w.entities.list[gi].kind {
