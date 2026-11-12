@@ -151,7 +151,14 @@ pub fn tick(w: &mut World) {
         if (x_col || z_col) && (b.on_ground || vertical && d.y < 0.0) {
             legacy(w, "the AFK player pushed against a block (its step up)");
         }
-        let np = pos.add(moved.x, moved.y, moved.z);
+        // Entity.move: the position moves only when the collided motion is not tiny or the
+        // collision took almost nothing off (module-underground build 11 t80476: pushed into a
+        // wall 5.1e-5 away, the game's player stays put)
+        let ml = moved.length_sqr();
+        let np = if ml > 1.0e-7 || d.length_sqr() - ml < 1.0e-7 { pos.add(moved.x, moved.y, moved.z) } else { pos };
+        if std::env::var_os("MCTAS_TRACE_PLAYER").is_some() {
+            eprintln!("player t{} pos {:?} delta {:?} -> d {:?} moved {:?} ground {} col {x_col}/{z_col}/{vertical}", w.time, [pos.x, pos.y, pos.z], [b.delta.x, b.delta.y, b.delta.z], [d.x, d.y, d.z], [moved.x, moved.y, moved.z], b.on_ground);
+        }
         let on_ground = vertical && d.y < 0.0;
         let mut nd = Vec3::new(if x_col { 0.0 } else { d.x }, d.y, if z_col { 0.0 } else { d.z });
         if vertical {
