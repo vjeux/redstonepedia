@@ -618,6 +618,8 @@ pub struct DropOpts {
     /// The rider's follow range (the living scan inflates its box by it: 16 x (1 +- 0.11485),
     /// 14.16..17.84 by its random spawn bonus; G1).
     pub follow_range: f64,
+    /// (option (b)) Search a zombie post's cells for this lane (0..2) in the zombie band.
+    pub panic_search: Option<usize>,
     /// The trapdoors' timer on world ticks (a plain redstone clock running through a freeze), not
     /// the live clock: the positive control for the strings.
     pub release_world: bool,
@@ -740,6 +742,77 @@ fn summon_boundary(frozen: &[bool]) -> i64 {
     (1..10i64).map(|k| 100 * k).find(|b| (*b as usize) >= frozen.len() || !frozen[*b as usize]).unwrap_or(100)
 }
 
+/// (option (b)) A candidate zombie post for one lane: its cell (file frame), its open side, its
+/// seat and eye, the seat's distance to the rider at rest, the per-tick (in range, in the
+/// 16-box, seen through the open face) against the lane's arriving rider, and the nearest any
+/// rider came.
+struct Cand {
+    cell: [i32; 3],
+    open: char,
+    seat: Vec3,
+    eye: Vec3,
+    rest_d: f64,
+    log: Vec<(bool, bool, bool)>,
+    nearest: f64,
+}
+
+impl Cand {
+    /// Whether the sight line from the zombie's eye to `to` leaves its box through the open face
+    /// (not the floor, the roof or a wall): the face the segment crosses first.
+    fn exits_open(&self, to: Vec3) -> bool {
+        let (x0, y0, z0) = (self.cell[0] as f64, self.cell[1] as f64, self.cell[2] as f64);
+        let d = (to.x - self.eye.x, to.y - self.eye.y, to.z - self.eye.z);
+        let t = |p: f64, lo: f64, hi: f64, dv: f64| if dv > 0.0 { (hi - p) / dv } else if dv < 0.0 { (lo - p) / dv } else { f64::INFINITY };
+        let (tx, ty, tz) = (t(self.eye.x, x0, x0 + 1.0, d.0), t(self.eye.y, y0, y0 + 2.0, d.1), t(self.eye.z, z0, z0 + 1.0, d.2));
+        if ty <= tx.min(tz) {
+            return false;
+        }
+        let face = if tx < tz {
+            if d.0 > 0.0 { 'e' } else { 'w' }
+        } else if d.2 > 0.0 {
+            's'
+        } else {
+            'n'
+        };
+        face == self.open
+    }
+}
+
+/// The game's trigger over every sensor phase pair for one scarer's per-tick (in range, in the
+/// box, seen) log (as the panic measure's): the pairs calling at T = `tn`, the panic start's
+/// earliest and latest, and the window to `dep` (leaving the pocket's rest), least and most.
+fn trigger_summary(log: &[(bool, bool, bool)], tn: usize, dep: Option<i64>) -> (usize, Option<i64>, Option<i64>, Option<i64>, Option<i64>) {
+    let mem = |t: usize, pl: usize| -> bool {
+        let u = t - (t + 20 - pl) % 20;
+        log[u].1 && (u..=t).all(|q| log[q].2) && log[t].0
+    };
+    let (mut calls, mut hmin, mut hmax, mut wmin, mut wmax) = (0usize, None::<i64>, None::<i64>, None::<i64>, None::<i64>);
+    for pl in 0..20 {
+        for ph in 0..20 {
+            let tstar = tn - (tn + 20 - ph) % 20;
+            if !mem(tstar, pl) {
+                continue;
+            }
+            let mut h = tstar;
+            while h >= 40 && mem(h - 20, pl) {
+                h -= 20;
+            }
+            if h < 40 || (tn >= h + 61 && (tn - h - 61) % 62 == 0) {
+                continue;
+            }
+            calls += 1;
+            let h = h as i64;
+            hmin = Some(hmin.map_or(h, |x| x.min(h)));
+            hmax = Some(hmax.map_or(h, |x| x.max(h)));
+            if let Some(d) = dep {
+                wmin = Some(wmin.map_or(d - h, |x| x.min(d - h)));
+                wmax = Some(wmax.map_or(d - h, |x| x.max(d - h)));
+            }
+        }
+    }
+    (calls, hmin, hmax, wmin, wmax)
+}
+
 /// One drop run: the report lines and the figures.
 pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(o.seed, (o.ticks + 600) as u32, WalkMode::Random) };
@@ -809,6 +882,46 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     let mut fall_v = [0.0f64; 3];
     let mut panic_log: Vec<[Vec<(bool, bool, bool)>; 3]> = Vec::new();
     let mut panic_pos: Vec<[Option<Vec3>; 3]> = Vec::new();
+    // (farmopt 05:55, option (b): a zombie post's cells for lane k inside the zombie band (its seat
+    // 6.05..7.95 from the rider at rest, no rider ever nearer than 6.05) that make the rider panic
+    // earlier in its fall: each candidate a glass box open on one side (its own cells and the open
+    // face air, its floor, roof and walls air or a plain block), its sight through the open face)
+    let mut cands: Vec<Cand> = Vec::new();
+    if let Some(k) = o.panic_search {
+        let (px, py, pz) = pockets[k];
+        let rest = Vec3::new(px as f64 + 0.5, py as f64 + 0.0625, pz as f64 + 0.5);
+        let w = &run.world;
+        let air = |x: i32, y: i32, z: i32| w.get(BlockPos::new(x, y, z)).is_air();
+        let plain = |x: i32, y: i32, z: i32| {
+            let b = w.get(BlockPos::new(x, y, z));
+            b.is_air() || matches!(b, Block::Simple(_))
+        };
+        for cx in px - 9..=px + 9 {
+            for cy in py - 7..=py + 9 {
+                for cz in pz - 9..=pz + 9 {
+                    let seat = Vec3::new(cx as f64 + 0.5, cy as f64 + 0.1875 - 0.7, cz as f64 + 0.5);
+                    let d = ((seat.x - rest.x).powi(2) + (seat.y - rest.y).powi(2) + (seat.z - rest.z).powi(2)).sqrt();
+                    if !(6.05..=7.95).contains(&d) || !air(cx, cy, cz) || !air(cx, cy + 1, cz) || !plain(cx, cy - 1, cz) || !plain(cx, cy + 2, cz) {
+                        continue;
+                    }
+                    let sides = [('e', cx + 1, cz), ('w', cx - 1, cz), ('n', cx, cz - 1), ('s', cx, cz + 1)];
+                    // (inside the module's chunk: the box's cells at file x and z 0..15)
+                    if cx - 1 < 0 || cx + 1 > 15 || cz - 1 < 0 || cz + 1 > 15 {
+                        continue;
+                    }
+                    for (side, ox, oz) in sides {
+                        if !air(ox, cy, oz) || !air(ox, cy + 1, oz) {
+                            continue;
+                        }
+                        if !sides.iter().filter(|(s2, _, _)| *s2 != side).all(|(_, wx, wz)| plain(*wx, cy, *wz) && plain(*wx, cy + 1, *wz)) {
+                            continue;
+                        }
+                        cands.push(Cand { cell: [cx, cy, cz], open: side, seat, eye: Vec3::new(seat.x, seat.y + 1.74, seat.z), rest_d: d, log: Vec::new(), nearest: f64::INFINITY });
+                    }
+                }
+            }
+        }
+    }
     let mut summon_off: Vec<String> = Vec::new();
     // (ironspec 02:14, tick-exact's void condition: the falling carts' largest horizontal offset
     // from their shaft's centre line, from the trapdoor's opening to the landing, and its largest
@@ -1020,6 +1133,28 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             }
             panic_log.push(row);
             panic_pos.push(prow);
+        }
+        // (option (b)'s candidates: lane k's arriving rider against each, after this tick; the
+        // nearest any rider comes to each seat)
+        if let Some(k) = o.panic_search {
+            let pos_of = |id: Option<u32>| id.and_then(|r| run.world.entities.list.iter().find(|e| e.id == r && !e.removed)).map(|e| e.pos);
+            let rider = pos_of(riders[3 + k]);
+            let all: Vec<Vec3> = riders.iter().filter_map(|r| pos_of(*r)).collect();
+            let fr = o.follow_range;
+            for c in cands.iter_mut() {
+                for p in &all {
+                    c.nearest = c.nearest.min(((p.x - c.seat.x).powi(2) + (p.y - c.seat.y).powi(2) + (p.z - c.seat.z).powi(2)).sqrt());
+                }
+                let Some(p) = rider else {
+                    c.log.push((false, false, false));
+                    continue;
+                };
+                let d = ((p.x - c.seat.x).powi(2) + (p.y - c.seat.y).powi(2) + (p.z - c.seat.z).powi(2)).sqrt();
+                let inbox = (p.x - c.seat.x).abs() < fr + 0.6 && (p.z - c.seat.z).abs() < fr + 0.6 && c.seat.y < p.y + 1.95 + fr && c.seat.y + 1.95 > p.y - fr;
+                let reye = Vec3::new(p.x, p.y + 1.62, p.z);
+                let los = d <= 16.0 && c.exits_open(reye) && redsim::entity::mob::los::has_line_of_sight(&run.world, reye, c.eye);
+                c.log.push((d <= 8.0, inbox, los));
+            }
         }
         if dt % 100 == 0 {
             let mut v = Vec::new();
@@ -1494,7 +1629,9 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             if calls == 400 {
                 robust += 1;
             }
-            // the wanting villagers in this summoner's 10-box at T (the arriving batch)
+            // the arriving batch's riders in this summoner's 10-box at T, by position (G1: their
+            // wanting state is not read: in the station every one slept last night and none is
+            // golem-locked at T, so all of them want)
             let wanting = panic_pos.get(tn).map_or(0, |row| {
                 let Some(c) = row[k] else { return 0 };
                 row.iter().flatten().filter(|q| (q.x - c.x).abs() < 10.6 && (q.z - c.z).abs() < 10.6 && q.y < c.y + 1.95 + 10.0 && q.y + 1.95 > c.y - 10.0).count()
@@ -1502,7 +1639,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             stats.panic_calls[k] = Some((calls, wanting));
             if let Some((s, ma, mb, fa, fb)) = best {
                 lines.push(format!(
-                    "lane {k}: calls in {calls} of 400 sensor phase pairs{}{}{}, {wanting} wanting in its 10-box; its panic window in the pocket (its first hostiles scan with a scarer to leaving its rest at T+{}) {}; its panic this turn (to the first scan without a scarer, the bench's track end included) {}; windows (scarer {s}): in range {} (margin {ma}), seen in the 16-box {} (margin {mb})",
+                    "lane {k}: calls in {calls} of 400 sensor phase pairs{}{}{}, {wanting} riders in its 10-box (by position; the state not read: all slept, none locked at T in the station); its panic window in the pocket (its first hostiles scan with a scarer to leaving its rest at T+{}) {}; its panic this turn (to the first scan without a scarer, the bench's track end included) {}; windows (scarer {s}): in range {} (margin {ma}), seen in the 16-box {} (margin {mb})",
                     if unknown > 0 { format!(" ({unknown} with a scarer seen since before T+40: the trigger's phase unknown)") } else { String::new() },
                     h_least.map_or(String::new(), |h| format!(", its trigger started at T+{h} at the earliest (T is its dead tick only from a start at T+39: margin {}){}", h - 39, h_latest.map_or(String::new(), |l| format!(" and by T+{l} at the latest over both sensors' phases")))),
                     fail_eg.map_or(String::new(), |e| format!(" (fails e.g. {e})")),
@@ -1530,6 +1667,62 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     }
     if !summon_off.is_empty() {
         out.push(format!("villagers in a shaft or on a departure rail at a summon tick: {}", summon_off.join("; ")));
+    }
+    // (option (b), farmopt 05:55: lane k's zombie post cells in the zombie band, ranked by the
+    // shortest panic window in the pocket they give)
+    if let Some(k) = o.panic_search {
+        let tn = 100usize;
+        let dep = launch_at[k].map(|l| l + 100);
+        let landing = landed[k].map(|(t, _, _)| t);
+        let considered = cands.len();
+        let mut rows: Vec<(i64, String)> = Vec::new();
+        let mut clear = 0usize;
+        for c in &cands {
+            if c.nearest < 6.05 || c.log.len() <= tn {
+                continue;
+            }
+            clear += 1;
+            let (calls, hmin, hmax, wmin, wmax) = trigger_summary(&c.log, tn, dep);
+            if calls < 400 {
+                continue;
+            }
+            let mut first = tn as i64;
+            while first > 0 && c.log[first as usize].0 && c.log[first as usize].2 {
+                first -= 1;
+            }
+            let first = first + 1;
+            let w0 = wmin.unwrap_or(0);
+            // (the nearest pad spawn cell's golem, feet at loop y -6 on the floor rows z -6, -4, -3,
+            // -1, x -3..8: a zombie within melee reach of one can hit it after a reload)
+            let pad = [0i32, 2, 3, 5]
+                .iter()
+                .flat_map(|z| (3..=14).map(move |x| (x, *z)))
+                .map(|(x, z)| ((x as f64 + 0.5 - c.seat.x).powi(2) + (-6.0 - c.seat.y).powi(2) + (z as f64 + 0.5 - c.seat.z).powi(2)).sqrt())
+                .fold(f64::INFINITY, f64::min);
+            rows.push((
+                w0,
+                format!(
+                    "({},{},{}) open {}: its seat {:.2} from the rider at rest, the nearest any rider comes {:.2}, the nearest pad golem {pad:.2}; lane {k}'s rider in view and in range from T+{first}{}; its panic starts T+{}..{}; its window in the pocket {}..{} gt",
+                    c.cell[0] - 6,
+                    c.cell[1],
+                    c.cell[2] - 6,
+                    c.open,
+                    c.rest_d,
+                    c.nearest,
+                    landing.map_or(String::new(), |l| if first < l { format!(" ({} gt before landing at T+{l})", l - first) } else { format!(" (after landing at T+{l})") }),
+                    hmin.unwrap_or(-1),
+                    hmax.unwrap_or(-1),
+                    w0,
+                    wmax.unwrap_or(0)
+                ),
+            ));
+        }
+        rows.sort_by(|a, b| b.0.cmp(&a.0));
+        out.push(format!(
+            "option (b), lane {k} (loop frame cells; a zombie in a boat in a glass box open on one side, its sight through the open face; the band: its seat 6.05..7.95 from the rider at rest, no rider ever nearer than 6.05; every one calling at all 400 phase pairs): {considered} candidates in the band with room, {clear} with no rider ever nearer than 6.05, {} calling at all 400; the best by the shortest window: {}",
+            rows.len(),
+            if rows.is_empty() { "none".to_string() } else { rows.iter().take(12).map(|(_, s)| s.clone()).collect::<Vec<_>>().join(" | ") }
+        ));
     }
     stats.last_out = (0..3).filter(|n| !o.dep_absent[*n]).map(|n| exits[n].map(|(t, _)| t)).collect::<Option<Vec<_>>>().and_then(|v| v.into_iter().max());
     // (ironspec 04:10: the measured departure variation per lane, from its own launch tick REL +

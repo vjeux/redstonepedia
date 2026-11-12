@@ -233,7 +233,10 @@ summoner, the game's summon trigger at the next summon over the rider's own 400 
 every tick to the hostiles scan, in its type's range; VillagerPanicTrigger's 61-tick run and its
 restart gap h + 61 + 62k): the pairs it calls in, the least caller count (the riders calling in all
 400; the stand's bar >= 1, margin 2), its panic window in the pocket, and the conservative windows
-(in range T-19..T, seen in the 16-box T-38..T). The golem flow on that pad: `mctas mobfarm golem-flow
+(in range T-19..T, seen in the 16-box T-38..T); `--panic-search LANE` ranks a zombie post's cells
+for that lane inside the module's chunk (its seat 6.05..7.95 from the rider at rest, no rider ever
+nearer than 6.05, a glass box seen through its open face) by the shortest panic window in the
+pocket they give, with the nearest pad golem. The golem flow on that pad: `mctas mobfarm golem-flow
 <station> --post KIND:x,y,z:OPEN[:ROOF]... [--cycles 240] [--twin] [--piglins N] [--block-row Z]
 [--restart-phases P,..] [--restart-noop] [--restart-once TICK,ORDER] [--callers 2]` (redsim with the
 mob AI on, a pillager post seating redsim's pillager (no crossbow AI: its shots are tick-exact's

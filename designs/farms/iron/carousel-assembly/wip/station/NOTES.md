@@ -240,9 +240,48 @@ roof) and F3 laid, the summon from lanes x -1 and x 3 at every summon tick:
   then 500 summons): 0 post-on-golem targets, 0 hits, 500/500 summons, every golem at its 2nd tick.
   The hits need the reload inside the golem's two-tick life (a freshly loaded zombie runs its goals
   in full on its first two ticks).
+- The sensors' phases (`--seeds 10`, no reload): in 1 of 10 seeds the summoners' golem sensor
+  (every 200 gt) falls in the 20 gt after a crossing and re-detects the crossed golem from the
+  stored living list (250 per 500 summons, every other cycle): no golem is in the overworld, the
+  next batch never sees one, no summon is lost. The bench counts a sighting with no golem left in
+  the overworld apart (G1's note on cc951af97); the bar counts a sighting while a golem is there.
+
+## Option (b) for lane x -1 (`--panic-search 0`, bench)
+
+A zombie post's cell inside the module's chunk (file x, z 0..15) with its seat 6.05..7.95 from
+lane x -1's rider at rest and no rider ever nearer than 6.05 (2,858 cells with room, 428 clear of
+riders, about 30 calling at all 400 pairs at each REL): the pick, **S2 at (-5,3,-5) open south**,
+glowstone roof (-5,5,-5), glass floor (-5,2,-5) and walls (-5,3..4,-6), (-6,3..4,-5), (-4,3..4,-5),
+in S1's column above S1's roof (-5,1,-5): its seat 6.85 from the rider at rest, the nearest any
+rider comes 6.40, the nearest pad golem 8.78 (out of the boat rider's melee reach).
+
+| REL | x -1 calls (dead-tick margin) | x 3 | x 7 | least callers | x -1's window in the pocket |
+|---|---|---|---|---|---|
+| T+2 | 400 (1) | 400 | 399 | 2 | 32..64 |
+| T+3 | 400 (2) | 400 | 397 | 2 | 32..64 |
+| T+4 | 400 (3) | 400 | 394 | 2 | 32..64 |
+| T+5 | 400 (4) | 400 | 390 | 2 | 32..64 |
+| T+6 | 400 (5) | 400 | 385 | 2 | 32..64 |
+
+- Lane x -1 sees it 9 gt before landing (T+42 at REL T+4): its shortest window 32 gt against 17 with
+  today's S2; lanes x 3 and x 7 unchanged. At REL T+2 its panic can start at T+40, 1 gt after the
+  start that would put T on its dead tick; (-5,2,-5) gives margin 2 and window 30..63. Higher posts
+  ((-5,4,-5), (-5,5,-5): windows 34, 36) start it at T+38..39 at REL T+2 and lose 15 of 400 pairs.
+- The golem flow with it: 500 summons PASS; reloads at T+0 and T+1 give S2 no hit (the priced
+  restart cost goes away). Not yet: the flood with its box, 9fc3155f's stroll and sight checks.
+- **Adopted provisionally at (-5,2,-5)** (ironspec, the margin-2 variant; its floor is S1's glass
+  roof (-5,1,-5)): the boat `minecraft:oak_boat` at (-4.5,2,-4.5) with a persistent zombie, glass
+  walls (-5,2..3,-6), (-6,2..3,-5), (-4,2..3,-5), the glowstone roof (-5,4,-5), open south
+  ((-5,2..3,-4) air); the old post (-5,-4,-2) and its blocks come out. Its rows, s 12 with S1 and
+  F3 (8fb667bca): least callers 2 at every REL T+2..9; lane x -1 400/400 with the dead-tick margin
+  2 at T+2 (to 9 at T+9) and its window in the pocket 30..63 gt; lanes x 3 400 and x 7 399 -> 364;
+  the control (S1 turned away, no S2) 0. The golem flow: 500 summons PASS (every golem at its 2nd
+  tick, 0 damage, the posts alive at both dawns); the 30 restart rows (10 orders x T+0/1/2) all PASS
+  with S2's hits 0 (the nearest pad golem 7.81); the departing batch's re-detections after a reload
+  0..35 per 500 (priced, no summon lost).
 
 ## Open
 
-- The bed stop's queue rider (loop (9,-8,-6), panicking all day and night) as a caller in the panic
-  measure, once b8949c96 lays it in rev 3's loop frame.
-- Option (b) for lane x -1 (an S2 cell that makes it panic earlier in its fall): to search.
+- The bed stop's queue rider (loop (9,-13,-6)) and its zombie post (9,-7,-3) in the panic measure
+  and the golem flow, once b8949c96 lays them in rev 3's loop frame; 9fc3155f's S1 merge-row
+  occluder in the caller measure.

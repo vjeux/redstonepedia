@@ -2833,6 +2833,11 @@ pub enum MobfarmCmd {
         /// (the panic) The riders' follow range for the living scan's box (14.16..17.84; G1).
         #[arg(long, default_value_t = 16.0)]
         follow_range: f64,
+        /// (the panic, option (b)) Search lane N's (0..2) zombie post cells in the zombie band
+        /// (its seat 6.05..7.95 from the rider at rest, no rider nearer than 6.05), ranked by the
+        /// shortest panic window in the pocket.
+        #[arg(long)]
+        panic_search: Option<usize>,
         /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
         /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
         #[arg(long, default_value = "")]
@@ -7233,7 +7238,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok(fspec)
             };
             let (spec, cold_spec) = (spec_of([true; 3])?, spec_of([false; 3])?);
-            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
             let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, rest_bar, jobs };
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
@@ -7283,7 +7288,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -7466,7 +7471,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         by_rel.entry(*r).or_default().push(stats.clone());
                                         runs.push(stats);

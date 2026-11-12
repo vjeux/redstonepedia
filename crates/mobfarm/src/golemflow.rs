@@ -238,7 +238,7 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
     let first = (run.world.time / 100 + 1) * 100 + 100;
     let mut golems: Vec<Golem> = Vec::new();
     let mut crossed_seen = run.world.crossings.len();
-    let mut sightings: Vec<(i64, u32, bool)> = Vec::new();
+    let mut sightings: Vec<(i64, u32, bool, bool)> = Vec::new();
     let mut priced_hits: Vec<String> = Vec::new();
     let mut summons: Vec<(i64, Option<u32>)> = Vec::new();
     let mut lost: Vec<String> = Vec::new();
@@ -274,7 +274,7 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
         // sighting before it is the departing batch's (a reload's stale list); slept
         if t % 100 == 99 && t + 1 >= first && t + 1 < end {
             let since = t + 1 - 49;
-            let lingering = sightings.iter().any(|(st, _, _)| *st >= since);
+            let lingering = sightings.iter().any(|(st, _, _, _)| *st >= since);
             for v in &pocket {
                 if let Some(i) = redsim::entity::index_of(&run.world, *v) {
                     if let Some(b) = redsim::entity::mob::mob_mut(&mut run.world, i).brain.as_deref_mut() {
@@ -385,7 +385,11 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
                     // reload; priced (ironspec 07:42) when a reload came between the summon and it)
                     MobEvent::GolemSeen { t: et, villager } if pocket.contains(&villager) => {
                         let priced = last_restart.is_some_and(|r| r >= et - et.rem_euclid(100) && r <= et);
-                        sightings.push((et, villager, priced));
+                        // (G1: a golem sensor reads the stored living list, which keeps a crossed
+                        // golem up to 20 gt: a sighting with no golem left in the overworld is that
+                        // stale list's, with or without a reload)
+                        let stale = !golems.iter().any(|g| g.crossed.is_none() && g.died.is_none());
+                        sightings.push((et, villager, priced, stale));
                     }
                     MobEvent::Hurt { id, src, amount, .. } => {
                         // (ironspec 06:14: the bar is the outcome: no golem takes or deals damage,
@@ -506,12 +510,13 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
     }
     let targeting: Vec<String> = golems.iter().filter(|g| !g.targets.is_empty()).map(|g| format!("golem #{} (born T {}{}): {}", g.id, g.born, if g.twin { ", a twin" } else { "" }, g.targets.iter().map(|(a, s)| format!("{s} at its tick {a}")).collect::<Vec<_>>().join(", "))).collect();
     let at_post = golems.iter().filter(|g| g.targets.iter().any(|(_, s)| s.starts_with("a post"))).count();
-    let late_sightings = sightings.iter().filter(|(st, _, priced)| st.rem_euclid(100) >= 3 && !priced).count();
-    let priced_sightings = sightings.iter().filter(|(st, _, priced)| st.rem_euclid(100) >= 3 && *priced).count();
+    let late_sightings = sightings.iter().filter(|(st, _, priced, stale)| st.rem_euclid(100) >= 3 && !priced && !stale).count();
+    let stale_sightings = sightings.iter().filter(|(st, _, priced, stale)| st.rem_euclid(100) >= 3 && !priced && *stale).count();
+    let priced_sightings = sightings.iter().filter(|(st, _, priced, _)| st.rem_euclid(100) >= 3 && *priced).count();
     // (the sightings that matter to the next batch: from its first landing, T - 49 at s 12 REL
     // T+4; in the station the next summoners are new riders, so a sighting by this bench's
     // standing summoners before that is the departing batch's)
-    let next_batch_sightings = sightings.iter().filter(|(st, _, _)| st.rem_euclid(100) >= 51).count();
+    let next_batch_sightings = sightings.iter().filter(|(st, _, _, _)| st.rem_euclid(100) >= 51).count();
     out.push(format!(
         "summons: {} of {} cycles made a golem ({} lost to no spot: the pad's own miss, expected {:.1}% with the first {} caller(s) forced, {:.1}% with all three calling; {} lost to golem detection or no willing caller){}; golems {} ({} twins): crossed {}, died {}, parked {}; the tick of its own life in which each crossed (its first tick 1): {}; the latest {}",
         o.cycles as usize - lost.len(),
@@ -540,7 +545,7 @@ pub fn bench(spec: &FarmSpec, o: &FlowOpts) -> Result<(Vec<String>, bool), Strin
         golems.iter().map(|g| g.fastest).fold(0.0, f64::max)
     ));
     out.push(format!(
-        "the next batch: golems still in the overworld at a summon tick {lingering_at_summon}; the summoners' golem sightings 3 or more ticks after a summon tick {late_sightings} (from the next batch's first landing, T - 49: {next_batch_sightings}); the posts' mobs dead {}{}; at each dawn (day time 0) the posts' mobs alive: {}; zombified piglins {} placed, {} through a portal",
+        "the next batch: golems still in the overworld at a summon tick {lingering_at_summon}; the summoners' golem sightings 3 or more ticks after a summon tick with a golem in the overworld {late_sightings} (from the stored living list after every golem crossed, no reload: {stale_sightings}; from the next batch's first landing, T - 49: {next_batch_sightings}); the posts' mobs dead {}{}; at each dawn (day time 0) the posts' mobs alive: {}; zombified piglins {} placed, {} through a portal",
         post_deaths.len(),
         if post_deaths.is_empty() { String::new() } else { format!(" (first at game time {})", post_deaths[0].0) },
         if dawns.is_empty() { "no dawn in the run".to_string() } else { dawns.iter().map(|(t, a)| format!("game time {t}: {a}/{}", posts.len())).collect::<Vec<_>>().join(", ") },
