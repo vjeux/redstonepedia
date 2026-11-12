@@ -1471,6 +1471,10 @@ pub enum MobfarmCmd {
         /// disarmed by rise-keyed detector latches, carts back to lanes A/B/C in merge order.
         #[arg(long)]
         split3: bool,
+        /// The shaft's four wall cells as unconnected oak fence posts (sight passes either side of the
+        /// post; ironspec 22:20: the riders must see a scarer in the lift too).
+        #[arg(long)]
+        pane_walls: bool,
     },
     ClimbBench {
         #[arg(long, default_value_t = 14)]
@@ -4949,8 +4953,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3 } => {
-            let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3 };
+        MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls } => {
+            let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls };
             println!("{}", crate::liftbench::lift_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, speeds, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
