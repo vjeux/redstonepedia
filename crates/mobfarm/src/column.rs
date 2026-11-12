@@ -200,6 +200,24 @@ pub fn shifted(d: &Design, by: P) -> Result<Design, String> {
     Ok(m)
 }
 
+/// A `run-gates:` / `run-cells:` line's items (`NAME x,y,z[/x,y,z]`) with every cell moved by `by`.
+fn named_cells_moved(l: &str, key: &str, by: P) -> Result<Vec<String>, String> {
+    let mut items = Vec::new();
+    for item in l.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        let (name, rest) = item.split_once(' ').ok_or_else(|| format!("{key}: {item}"))?;
+        let mut ps = Vec::new();
+        for p in rest.trim().split('/') {
+            let n: Vec<i32> = p.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("{key}: {item}: {e}"))).collect::<Result<_, _>>()?;
+            if n.len() != 3 {
+                return Err(format!("{key}: {item}: want x,y,z"));
+            }
+            ps.push(format!("{},{},{}", n[0] + by[0], n[1] + by[1], n[2] + by[2]));
+        }
+        items.push(format!("{name} {}", ps.join("/")));
+    }
+    Ok(items)
+}
+
 pub fn load_part(spec: &PartSpec) -> Result<Part, String> {
     let text = std::fs::read_to_string(&spec.file).map_err(|e| format!("{}: {e}", spec.file.display()))?;
     let mut d = Design::parse(&text).map_err(|e| format!("{}: {e}", spec.file.display()))?;
@@ -392,6 +410,22 @@ fn skeleton(parts: &[Part], name: &str) -> Result<(Design, Vec<String>, Vec<Stri
     }
     if !pos.is_empty() {
         d.meta.insert("positions".into(), pos.join(" "));
+    }
+    // (onechunk Nov 12: the runner's named cells merged from the parts, moved with them: the first
+    // part's names as they are, a later part's as `<part>.<NAME>`)
+    for key in ["run-gates", "run-cells"] {
+        let mut items: Vec<String> = Vec::new();
+        for (i, p) in parts.iter().enumerate() {
+            if let Some(l) = p.committed.meta.get(key) {
+                let by = add(p.spec.frame, p.spec.tier);
+                for item in named_cells_moved(l, key, by)? {
+                    items.push(if i == 0 { item } else { format!("{}.{item}", p.spec.name) });
+                }
+            }
+        }
+        if !items.is_empty() {
+            d.meta.insert(key.into(), items.join("; "));
+        }
     }
     let ds: Vec<crate::declared::Decl> = decl.into_iter().map(|(_, x)| x).collect();
     if !ds.is_empty() {
@@ -820,6 +854,187 @@ pub fn reserves_from_header(text: &str, skip: &[String]) -> Vec<String> {
         out.push(format!("{}={x0},{y0},{z0},{x1},{y1},{z1}", f[0]));
     }
     out
+}
+
+/// (onechunk Nov 12) A part's every golem spawn spot, as `mobfarm exit`'s part flood finds them:
+/// its villagers' 17 x 17 columns (`exit::spawn_spots_of`) and each extra summoner position's
+/// (its cell and the one above, `trySpawnMob`'s scan from y + 6 down, `checkSpawnObstruction`),
+/// each with the block under it, grouped by that block.
+pub fn part_spots(spec: &redsim::entity::mob::farm::FarmSpec, extra: &[redsim::pos::BlockPos], seed: i64) -> Result<String, String> {
+    use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
+    use redsim::entity::mob::spawn::{check_spawn_obstruction, possible_spawn_position};
+    use redsim::pos::BlockPos;
+    let o = RunOpts { ai: false, ..RunOpts::steady(seed, 0, WalkMode::Random) };
+    let r = Run::new_homeless(spec, &o)?;
+    let w = &r.world;
+    let mut out: Vec<BlockPos> = redsim::entity::mob::exit::spawn_spots_of(w, &r.own);
+    for p in extra {
+        for s in [*p, p.above()] {
+            for dz in -8..=8 {
+                for dx in -8..=8 {
+                    let top = BlockPos::new(s.x + dx, s.y + 6, s.z + dz);
+                    if let Some(cell) = possible_spawn_position(w, top, 6)
+                        && !out.contains(&cell)
+                        && check_spawn_obstruction(w, cell, redsim::entity::Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5))
+                    {
+                        out.push(cell);
+                    }
+                }
+            }
+        }
+    }
+    let mut by: BTreeMap<String, Vec<BlockPos>> = BTreeMap::new();
+    for c in &out {
+        let under = format!("{:?}", w.get(c.below()));
+        by.entry(under).or_default().push(*c);
+    }
+    let mut s = format!("spawn spots: {} (a golem's feet cell; grouped by the block under it)\n", out.len());
+    for (b, cells) in &by {
+        s.push_str(&format!("  {} on {b}:", cells.len()));
+        for c in cells {
+            s.push_str(&format!(" ({},{},{})", c.x, c.y, c.z));
+        }
+        s.push('\n');
+    }
+    Ok(s)
+}
+
+/// (G1 on ddebc9a65: the rail-T reach set) Every plain rail with 3 potential connections in the
+/// finished build (`junction_at`: a T), its stored shape and the shapes its signal settles it to:
+/// each must be a placement-order case or power-forced.
+pub fn t_rails(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>, String> {
+    use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
+    let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    // (a rail-only run: the entities left out, so a scarer the loader doesn't model can't stop it)
+    let mut sp = spec.clone();
+    sp.entities.clear();
+    let spec = &sp;
+    let w = if spec.has_bed() { Run::new(spec, &o)?.world } else { Run::new_homeless(spec, &o)?.world };
+    let mut out = Vec::new();
+    for (p, b) in &spec.blocks {
+        if !matches!(b, redsim::block::Block::PlainRail { .. }) {
+            continue;
+        }
+        if let Some(j) = redsim::rails::junction_at(&w, *p) {
+            out.push(format!(
+                "({},{},{}) stored {}, unpowered {}, powered {}, its signal now {}",
+                p.x,
+                p.y,
+                p.z,
+                redsim::rails::shape_of(b).name(),
+                j.unpowered.name(),
+                j.powered.name(),
+                if j.signal { "on" } else { "off" }
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// (ironspec 03:37, the placement-order rule) Every rail whose designed shape, or a neighbouring
+/// rail's, differs from what vanilla placement gives when it is placed last into the finished
+/// build (`onPlace`: the rail connects to its neighbours): the rails that need an order or a
+/// temporary helper (the file is pasted with no settle).
+pub fn placement_order(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>, String> {
+    use redsim::block::Block;
+    use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
+    use redsim::pos::BlockPos;
+    use redsim::world::flags;
+    let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    // (a rail-only run: the entities left out, so a scarer the loader doesn't model can't stop it)
+    let mut sp = spec.clone();
+    sp.entities.clear();
+    let spec = &sp;
+    let w0 = if spec.has_bed() { Run::new(spec, &o)?.world } else { Run::new_homeless(spec, &o)?.world };
+    let by: std::collections::HashMap<(i32, i32, i32), &Block> = spec.blocks.iter().map(|(p, b)| ((p.x, p.y, p.z), b)).collect();
+    let mut out = Vec::new();
+    for (p, b) in &spec.blocks {
+        if !redsim::rails::is_rail(b) {
+            continue;
+        }
+        let mut w = w0.clone();
+        w.set_block(*p, Block::Air, flags::RAW);
+        w.set_block(*p, b.clone(), flags::ALL);
+        let mut diffs = Vec::new();
+        for q in [*p, BlockPos::new(p.x + 1, p.y, p.z), BlockPos::new(p.x - 1, p.y, p.z), BlockPos::new(p.x, p.y, p.z + 1), BlockPos::new(p.x, p.y, p.z - 1), BlockPos::new(p.x, p.y + 1, p.z), BlockPos::new(p.x, p.y - 1, p.z)] {
+            let Some(want) = by.get(&(q.x, q.y, q.z)).copied().filter(|x| redsim::rails::is_rail(x)) else { continue };
+            let got = w.get(q);
+            if !redsim::rails::is_rail(&got) {
+                diffs.push(format!("({},{},{}) {} gone", q.x, q.y, q.z, redsim::rails::shape_of(want).name()));
+            } else if redsim::rails::shape_of(&got) != redsim::rails::shape_of(want) {
+                diffs.push(format!("({},{},{}) {} -> {}", q.x, q.y, q.z, redsim::rails::shape_of(want).name(), redsim::rails::shape_of(&got).name()));
+            }
+        }
+        if !diffs.is_empty() {
+            out.push(format!("({},{},{}) placed last: {}", p.x, p.y, p.z, diffs.join(", ")));
+        }
+    }
+    Ok(out)
+}
+
+/// (ironspec 03:17 / 03:23 / 03:39) The creeper check: every position a creeper can take (a
+/// hostile flood of the creeper's body from every cell the game can spawn one at, block light 0,
+/// and every position walkable from there; `hostile::flood_with`, `SpawnRules`) within 5.5 of a
+/// target block (every portal block; with `glass`, every glass block too: the loader's overworld
+/// side): 0 required; those within 10.5 printed for charged creepers. The distance runs from the
+/// creeper's feet point (the explosion's centre) to the block's nearest point. (report, passes)
+pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool) -> Result<(String, bool), String> {
+    use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
+    use redsim::entity::mob::hostile;
+    use redsim::pos::BlockPos;
+    let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    // (the world padded by 16 around the design: the flood's ring starts (a mob walking in from
+    // beyond the bounds) sit in open air, not on the design's own outer cells)
+    let mut sp = spec.clone();
+    sp.lo = BlockPos::new(spec.lo.x - 16, spec.lo.y - 16, spec.lo.z - 16);
+    sp.hi = BlockPos::new(spec.hi.x + 16, spec.hi.y + 16, spec.hi.z + 16);
+    // (the farm's own mobs left out: a creeper's positions are the blocks' business)
+    sp.entities.clear();
+    let spec = &sp;
+    let w = if spec.has_bed() { Run::new(spec, &o)?.world } else { Run::new_homeless(spec, &o)?.world };
+    let targets: Vec<BlockPos> = spec
+        .blocks
+        .iter()
+        .filter(|(_, b)| {
+            let s = b.to_string();
+            s.contains("nether_portal") || (glass && s.trim_start_matches("minecraft:").split('[').next() == Some("glass"))
+        })
+        .map(|(p, _)| *p)
+        .collect();
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for (p, _) in &spec.blocks {
+        for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+            lo[k] = lo[k].min(v - 12);
+            hi[k] = hi[k].max(v + 12);
+        }
+    }
+    let reach = hostile::flood_with(&w, hostile::CREEPER, &std::collections::HashSet::new(), (BlockPos::new(lo[0], lo[1], lo[2]), BlockPos::new(hi[0], hi[1], hi[2])), hostile::Seeding::SpawnRules { seed: None });
+    let dist = |c: BlockPos, feet: f64, t: BlockPos| {
+        let pt = [c.x as f64 + 0.5, feet, c.z as f64 + 0.5];
+        let tl = [t.x as f64, t.y as f64, t.z as f64];
+        (0..3).map(|k| (tl[k] - pt[k]).max(pt[k] - (tl[k] + 1.0)).max(0.0).powi(2)).sum::<f64>().sqrt()
+    };
+    let (mut near, mut charged) = (Vec::new(), Vec::new());
+    for (c, feet) in &reach.cells {
+        let Some((d, t)) = targets.iter().map(|t| (dist(*c, *feet, *t), *t)).min_by(|a, b| a.0.total_cmp(&b.0)) else { continue };
+        if d <= 5.5 {
+            near.push((d, *c, *feet, t));
+        } else if d <= 10.5 {
+            charged.push((d, *c, *feet, t));
+        }
+    }
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    charged.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let show = |v: &Vec<(f64, BlockPos, f64, BlockPos)>| v.iter().take(12).map(|(d, c, f, t)| format!(" ({},{:.2},{}) {d:.2} from ({},{},{})", c.x, f, c.z, t.x, t.y, t.z)).collect::<String>();
+    let mut s = format!(
+        "creeper positions (a hostile flood of the creeper's body from every spawnable cell at block light 0, and every position walkable from there; {} positions) against {} target blocks ({}):\n",
+        reach.cells.len(),
+        targets.len(),
+        if glass { "every portal block and every glass block" } else { "every portal block" }
+    );
+    s.push_str(&format!("  within 5.5 (a creeper's blast): {}{}{}\n", near.len(), if near.is_empty() { " (PASS)" } else { " (FAIL)" }, show(&near)));
+    s.push_str(&format!("  5.5 to 10.5 (a charged creeper's, information): {}{}\n", charged.len(), show(&charged)));
+    Ok((s, near.is_empty()))
 }
 
 /// (G1 on 6704219e6 / 3326b8d96: an off-rail rider is invisible to the rail cells) The declared

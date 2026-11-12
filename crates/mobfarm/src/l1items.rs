@@ -278,13 +278,20 @@ pub fn blast_resistance(state: &str) -> f64 {
     let n = state.trim_start_matches("minecraft:");
     let n = n.split('[').next().unwrap_or(n);
     match n {
-        "obsidian" | "crying_obsidian" => 1200.0,
-        "cobblestone" | "stone" | "smooth_stone_slab" | "stone_bricks" | "cobblestone_slab" | "stone_slab" => 6.0,
+        "obsidian" | "crying_obsidian" | "respawn_anchor" | "netherite_block" | "anvil" | "enchanting_table" => 1200.0,
+        "ender_chest" => 600.0,
+        "water" | "lava" => 100.0,
+        "end_stone" | "end_stone_bricks" => 9.0,
+        "cobblestone" | "stone" | "smooth_stone_slab" | "stone_bricks" | "cobblestone_slab" | "stone_slab" | "blackstone" | "polished_blackstone" | "nether_bricks" | "deepslate" | "iron_block" | "cobblestone_wall" | "stone_brick_slab" | "blackstone_slab" | "polished_blackstone_slab" | "nether_brick_slab" => 6.0,
+        "iron_door" | "iron_trapdoor" | "iron_bars" => 5.0,
         "hopper" => 4.8,
-        "dropper" | "dispenser" => 3.5,
+        "basalt" | "polished_basalt" => 4.2,
+        "dropper" | "dispenser" | "crafter" => 3.5,
         "observer" => 3.0,
-        "glass" | "glass_pane" => 0.3,
-        "packed_ice" | "ice" => 0.5,
+        "chest" | "trapped_chest" | "barrel" => 2.5,
+        "glass" | "glass_pane" | "glowstone" | "sea_lantern" => 0.3,
+        "packed_ice" | "ice" | "soul_sand" | "magma_block" => 0.5,
+        "netherrack" => 0.4,
         _ => 0.0,
     }
 }
@@ -335,11 +342,98 @@ pub fn exposed_loop_blocks(cells: &BTreeMap<P, String>) -> Vec<(P, String)> {
         .collect()
 }
 
+/// (ironspec 03:39) A block that matters to a ghast's ray: one whose loss breaks the farm
+/// (observers, chests, redstone components, rails, portal blocks). A player's controls (buttons,
+/// pressure plates, levers: a doorway's opener, replaced by hand) don't count.
+pub fn matters(state: &str) -> bool {
+    let n = state.trim_start_matches("minecraft:");
+    let n = n.split('[').next().unwrap_or(n);
+    matches!(
+        n,
+        "observer" | "chest" | "trapped_chest" | "barrel" | "comparator" | "repeater" | "redstone_wire" | "redstone_torch" | "redstone_wall_torch" | "daylight_detector" | "nether_portal" | "rail" | "powered_rail" | "detector_rail" | "activator_rail" | "tripwire" | "tripwire_hook" | "target" | "redstone_lamp" | "note_block" | "dropper" | "dispenser" | "crafter" | "piston" | "sticky_piston" | "iron_door" | "iron_trapdoor"
+    ) || n.ends_with("_trapdoor")
+}
+
+/// (ironspec 03:39, G1's 26-connected form) Every block that matters and resists under 3.283 a
+/// ray from the outside air reaches by a 26-connected path through cells under 4.034.
+pub fn ghast_exposed(cells: &BTreeMap<P, String>) -> Vec<(P, String)> {
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for p in cells.keys() {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k] - 1);
+            hi[k] = hi[k].max(p[k] + 1);
+        }
+    }
+    let weak = |p: &P| cells.get(p).is_none_or(|s| blast_resistance(s) < 4.034);
+    let nb = n26();
+    let mut seen: BTreeSet<P> = BTreeSet::new();
+    let mut stack = vec![lo];
+    while let Some(p) = stack.pop() {
+        if (0..3).any(|k| p[k] < lo[k] || p[k] > hi[k]) || seen.contains(&p) || !weak(&p) {
+            continue;
+        }
+        seen.insert(p);
+        for d in &nb {
+            stack.push([p[0] + d[0], p[1] + d[1], p[2] + d[2]]);
+        }
+    }
+    seen.iter().filter_map(|p| cells.get(p).filter(|s| matters(s) && blast_resistance(s) < 3.283).map(|s| (*p, s.clone()))).collect()
+}
+
+/// (G1's 26-connected ghast rule on a whole layout) [`close_26`] with [`ghast_exposed`] as its
+/// target: while a block that matters is reached, every outside air cell (6-connected) with an
+/// edge or a corner on a weak cell inside becomes `shell`. Only safe on a layout whose working
+/// spaces are enclosed (an open chamber's air counts as outside and would be left as it is, its
+/// blocks still reached: the error names them). The cells added.
+pub fn close_ghast(cells: &mut BTreeMap<P, String>, shell: &str) -> Result<Vec<P>, String> {
+    let mut added = Vec::new();
+    let nb = n26();
+    for _ in 0..8 {
+        if ghast_exposed(cells).is_empty() {
+            break;
+        }
+        let out = outside_air(cells);
+        // (the protected interior: the weak cells, air included, 26-connected to a block that
+        // matters without crossing the outside air; a weak block elsewhere (a doorway's button on
+        // an outer wall) isn't wrapped)
+        let weak_in = |p: &P| !out.contains(p) && cells.get(p).is_none_or(|s| blast_resistance(s) < 4.034);
+        let mut region: BTreeSet<P> = BTreeSet::new();
+        let mut stack: Vec<P> = cells.iter().filter(|(_, s)| matters(s) && blast_resistance(s) < 3.283).map(|(p, _)| *p).collect();
+        while let Some(p) = stack.pop() {
+            if region.contains(&p) || !weak_in(&p) {
+                continue;
+            }
+            region.insert(p);
+            for d in &nb {
+                stack.push([p[0] + d[0], p[1] + d[1], p[2] + d[2]]);
+            }
+        }
+        let inside_weak = |p: &P| region.contains(p);
+        let fill: Vec<P> = out
+            .iter()
+            .filter(|p| nb.iter().any(|d| inside_weak(&[p[0] + d[0], p[1] + d[1], p[2] + d[2]])))
+            .copied()
+            .collect();
+        if fill.is_empty() {
+            break;
+        }
+        for p in fill {
+            cells.insert(p, shell.to_string());
+            added.push(p);
+        }
+    }
+    let left = ghast_exposed(cells);
+    if !left.is_empty() {
+        return Err(format!("after {} cells added a ray still reaches {}", added.len(), left.iter().map(|(p, s)| format!("({},{},{}) {}", p[0], p[1], p[2], s.trim_start_matches("minecraft:").split('[').next().unwrap_or(""))).collect::<Vec<_>>().join(", ")));
+    }
+    Ok(added)
+}
+
 /// (G1 03:35) Close the casing's 26-neighbourhood: while a 26-connected ray flood from the outside
 /// reaches an observer or a portal block, every outside air cell (6-connected) with an edge or a
 /// corner on a weak cell inside the casing (under 4.034, air included) becomes `shell`. The cells
-/// added.
-pub fn close_26(cells: &mut BTreeMap<P, String>, shell: &str) -> Vec<P> {
+/// added; an error when a loop block is still reached after the last round (G1 on 162cc90b9).
+pub fn close_26(cells: &mut BTreeMap<P, String>, shell: &str) -> Result<Vec<P>, String> {
     let mut added = Vec::new();
     let nb = n26();
     for _ in 0..8 {
@@ -372,7 +466,11 @@ pub fn close_26(cells: &mut BTreeMap<P, String>, shell: &str) -> Vec<P> {
             added.push(p);
         }
     }
-    added
+    let left = exposed_loop_blocks(cells);
+    if !left.is_empty() {
+        return Err(format!("the casing's 26-neighbourhood isn't closed after {} cells added: a ray still reaches {}", added.len(), left.iter().map(|(p, s)| format!("({},{},{}) {}", p[0], p[1], p[2], s.trim_start_matches("minecraft:").split('[').next().unwrap_or(""))).collect::<Vec<_>>().join(", ")));
+    }
+    Ok(added)
 }
 
 pub fn design_text(width: i32, height: i32, fire_y: i32, far_rows: i32, hopper_floor: bool, items: u32) -> Result<String, String> {
@@ -385,7 +483,7 @@ pub fn design_text(width: i32, height: i32, fire_y: i32, far_rows: i32, hopper_f
     // interior stays glass)
     harden_outer(&mut d.nether_blocks, b.shell);
     // (G1 03:35: the casing closed in the 26-neighbourhood: the edges and corners a ray crosses)
-    let closed = close_26(&mut d.nether_blocks, b.shell);
+    let closed = close_26(&mut d.nether_blocks, b.shell)?;
     d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     d.ports.insert("output".into(), [width + 6, 10, 8]);
     d.ports.insert("nether-anchor".into(), [0, 0, 0]);
@@ -429,7 +527,10 @@ pub fn spawn_report(width: i32, height: i32, fire_y: i32, far_rows: i32, hopper_
     a.blocks(width, height, hopper_floor, &mut ow, &mut be, 4);
     b.blocks(width, height, hopper_floor, &mut ne, &mut be, 4);
     harden_outer(&mut ne, b.shell);
-    let closed = close_26(&mut ne, b.shell);
+    let closed = match close_26(&mut ne, b.shell) {
+        Ok(c) => c,
+        Err(e) => return format!("Nether side: FAIL: {e}\n"),
+    };
     let mut s = String::new();
     for (wn, cells) in [("overworld", &ow), ("Nether", &ne)] {
         let sp = interior_spawn_cells(cells);
@@ -942,7 +1043,7 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
         let (fx0, fx1) = ((side.other - 1).max(0) as f64, ((side.other + 1).min(o.width - 1) + 1) as f64);
         let pct = |k: usize| if dr[0] == 0 { 0.0 } else { 100.0 * k as f64 / dr[0] as f64 };
         s.push_str(&format!(
-            "side {name}: arrivals a seed {}..{}; worst gap {} gt (margin {} to 300)\n  landing spread x {:.2}..{:.2}, |z| {:.2}..{:.2} against the floor x {:.0}..{:.0} (margins {:.2} / {:.2}) and the backstop at |z| 3 (margin {:.2}); the flight's least clearance: frame sides {:.3}, top frame {:.3}, a standing bottom-row mob's reach (11.95) {:.3}, a jumping baby's (12.227) {:.3}\n  each arrival's largest drift from its column's centre (x {}.5) outside the plane: {} arrivals; past 0.375 (a 1-cell pocket's edge) {} ({:.2}%), past 0.875 {} ({:.2}%), at a wall (1.37+) {} ({:.2}%); the largest {:.3}\n",
+            "side {name}: arrivals a seed {}..{}; worst gap {} gt (margin {} to 300)\n  landing spread x {:.2}..{:.2}, |z| {:.2}..{:.2} against the floor x {:.0}..{:.0} (margins {:.2} / {:.2}) and the backstop at |z| 3 (margin {:.2}); the flight's least clearance: frame sides {:.3}, top frame {:.3}, a standing bottom-row mob's reach (11.95) {:.3}, a jumping baby's (12.227) {:.3}\n  each arrival's largest drift from its column's centre (x {:.1}) outside the plane: {} arrivals; past 0.375 (a 1-cell pocket's edge) {} ({:.2}%), past 0.875 {} ({:.2}%), at a wall (1.37+) {} ({:.2}%); the largest {:.3}\n",
             arr.iter().min().unwrap_or(&0),
             arr.iter().max().unwrap_or(&0),
             worst,
@@ -952,7 +1053,7 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
             sp[0] - fx0, fx1 - sp[1],
             3.0 - (sp[3] + 0.125),
             cl[0], cl[1], cl[2], cl[3],
-            side.other, dr[0], dr[1], pct(dr[1]), dr[2], pct(dr[2]), dr[3], pct(dr[3]), dmax
+            side.other as f64 + 0.5, dr[0], dr[1], pct(dr[1]), dr[2], pct(dr[2]), dr[3], pct(dr[3]), dmax
         ));
         let fc = runs.iter().fold((0usize, 0usize, 0.0f64, i64::MAX, 0i64, 0i64), |a, r| {
             let f = r.face[wi];
