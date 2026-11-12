@@ -81,6 +81,9 @@ pub struct Opts {
     /// EMULATED, day-1's table v6 at s 12: the golem pulse starts a cycle, REL = golem + 4, the
     /// pockets launched at REL + 0 / 12 / 24).
     pub drive: bool,
+    /// (mob-AI 14:14) Record the run as a mobai drive v1: the command line for its header (None:
+    /// no drive).
+    pub drive_rec: Option<String>,
 }
 
 /// The three lanes (x) and their launch offsets after REL (s 12).
@@ -232,6 +235,17 @@ struct Ctl {
     f_at: Option<i64>,
     release_at: Option<i64>,
     rdet_prev: bool,
+    /// (b8949c96's way-in, e9f0f4cbf) the queue's gate (day-1's to build, EMULATED): RELEASE =
+    /// RS_ready AND the hold (>= 80 gt from the arrival) AND REST AND NOT DAY, a redstone block at
+    /// the queue rail's west (8,y+13,-4) until the departure; RS_ready set at power-up and by A6's
+    /// R, reset at the departure.
+    wayin: bool,
+    q_rs_ready: bool,
+    q_hold_since: Option<i64>,
+    q_release_on: bool,
+    q_arr_prev: bool,
+    q_dep_prev: bool,
+    q_released: Vec<i64>,
     /// The hold (c' as built): the waiting RS set by the lift exit (7,-3,4) (its delayed Q 38 gt
     /// later), reset by the fired pulse; the input (7,-1,8) on at ARM3 + 10 for 12 gt.
     rs_set: Option<i64>,
@@ -262,12 +276,37 @@ struct Ctl {
     hold_enter: Option<i64>,
     hold_rest: Option<i64>,
     empty_pulses: i64,
+    rolling_pulses: i64,
     /// The events, for the napper's lines.
     nap_events: Vec<String>,
 }
 
+thread_local! {
+    /// (mob-AI 14:14) The drive being recorded (`--drive-out`): its t0 and its acts, every block
+    /// write an `act t set x y z <state>` in the run's own order within each tick.
+    static DRIVE_LOG: std::cell::RefCell<Option<(i64, Vec<String>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn drive_push(line: String) {
+    DRIVE_LOG.with(|d| {
+        if let Some((_, acts)) = d.borrow_mut().as_mut() {
+            acts.push(line);
+        }
+    });
+}
+
 fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Result<(), String> {
     let b = redsim::block::Block::parse(state).map_err(|e| format!("{state}: {e}"))?;
+    DRIVE_LOG.with(|d| -> Result<(), String> {
+        if let Some((t0, acts)) = d.borrow_mut().as_mut() {
+            // (the drive's `set` writes with every update: a write without them has no act)
+            if flags != redsim::world::flags::ALL {
+                return Err(format!("--drive-out: the write at ({},{},{}) skips the updates, and the drive's `set` has every update", p[0], p[1], p[2]));
+            }
+            acts.push(format!("act {} set {} {} {} {state}", w.time - *t0, p[0], p[1], p[2]));
+        }
+        Ok(())
+    })?;
     w.set_block(redsim::pos::BlockPos::new(p[0], p[1], p[2]), b, flags);
     Ok(())
 }
@@ -438,34 +477,107 @@ impl Ctl {
         // the stop (its cells moved with it: `stop_dy`, the bed head's y + 18; ironspec 12:23 put
         // the stop 9 down)
         let sy = self.stop_dy;
-        let bed = matches!(w.get(redsim::pos::BlockPos::new(-3, -18 + sy, 3)).to_string(), s if s.contains("occupied=true"));
+        let by = sy - 18;
+        let bed = matches!(w.get(redsim::pos::BlockPos::new(-3, by, 3)).to_string(), s if s.contains("occupied=true"));
+        // (58f770cc's A6, b36302af8: every controller a floor lever on glass; the hatch's levers
+        // (-4,by,2) and (-4,by+1,4) ON in the normal state, OFF at F; the park's levers (1,by+1,-6)
+        // and (0,by,-6) OFF (braked), ON at the release, 30 gt after the bed's wake edge; R's
+        // detector (4,by-1,4) re-arms both. d907's stop: stone and redstone blocks at its control
+        // cells, the release 30 gt after F)
+        let a6 = w.get(redsim::pos::BlockPos::new(1, by + 1, -6)).to_string().contains("lever");
+        let set_lever = |w: &mut redsim::world::World, c: [i32; 3], on: bool| -> Result<(), String> {
+            let s = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+            if !s.contains("lever") {
+                return Err(format!("A6's control cell ({},{},{}) holds {s}, not a lever", c[0], c[1], c[2]));
+            }
+            set(w, c, &s.replace(if on { "powered=false" } else { "powered=true" }, if on { "powered=true" } else { "powered=false" }), flags::ALL)
+        };
         if bed && !self.bed_prev {
             self.f_at = Some(now + 10);
             self.nap_events.push(format!("t {now}: lie-down (the bed occupied)"));
         }
+        if a6 && !bed && self.bed_prev {
+            self.release_at = Some(now + 30);
+            self.nap_events.push(format!("t {now}: the wake edge (the bed freed): the release at t {}", now + 30));
+        }
         self.bed_prev = bed;
         if self.f_at == Some(now) {
-            set(w, [-4, -18 + sy, 2], "minecraft:stone", flags::ALL)?;
-            set(w, [-4, -16 + sy, 3], "minecraft:stone", flags::ALL)?;
-            self.release_at = Some(now + 30);
+            if a6 {
+                set_lever(w, [-4, by, 2], false)?;
+                set_lever(w, [-4, by + 1, 4], false)?;
+            } else {
+                set(w, [-4, -18 + sy, 2], "minecraft:stone", flags::ALL)?;
+                set(w, [-4, -16 + sy, 3], "minecraft:stone", flags::ALL)?;
+                self.release_at = Some(now + 30);
+            }
             self.f_at = None;
             self.nap_events.push(format!("t {now}: F (the hatch's controls off)"));
         }
         if self.release_at == Some(now) {
-            set(w, [1, -18 + sy, -5], "minecraft:redstone_block", flags::ALL)?;
-            set(w, [0, -19 + sy, -5], "minecraft:redstone_block", flags::ALL)?;
+            if a6 {
+                set_lever(w, [1, by + 1, -6], true)?;
+                set_lever(w, [0, by, -6], true)?;
+            } else {
+                set(w, [1, -18 + sy, -5], "minecraft:redstone_block", flags::ALL)?;
+                set(w, [0, -19 + sy, -5], "minecraft:redstone_block", flags::ALL)?;
+            }
             self.release_at = None;
-            self.nap_events.push(format!("t {now}: the stop's release (the park's supports on)"));
+            self.nap_events.push(format!("t {now}: the stop's release (the park's {} on)", if a6 { "levers" } else { "supports" }));
         }
-        let rdet = powered(w, [4, -19 + sy, 4]);
+        let rdet = powered(w, [4, by - 1, 4]);
         if rdet && !self.rdet_prev {
-            set(w, [1, -18 + sy, -5], "minecraft:stone", flags::ALL)?;
-            set(w, [0, -19 + sy, -5], "minecraft:stone", flags::ALL)?;
-            set(w, [-4, -18 + sy, 2], "minecraft:redstone_block", flags::ALL)?;
-            set(w, [-4, -16 + sy, 3], "minecraft:redstone_block", flags::ALL)?;
+            if a6 {
+                set_lever(w, [1, by + 1, -6], false)?;
+                set_lever(w, [0, by, -6], false)?;
+                set_lever(w, [-4, by, 2], true)?;
+                set_lever(w, [-4, by + 1, 4], true)?;
+                self.f_at = None;
+                self.release_at = None;
+            } else {
+                set(w, [1, -18 + sy, -5], "minecraft:stone", flags::ALL)?;
+                set(w, [0, -19 + sy, -5], "minecraft:stone", flags::ALL)?;
+                set(w, [-4, -18 + sy, 2], "minecraft:redstone_block", flags::ALL)?;
+                set(w, [-4, -16 + sy, 3], "minecraft:redstone_block", flags::ALL)?;
+            }
             self.nap_events.push(format!("t {now}: R's detector: the stop re-armed"));
         }
         self.rdet_prev = rdet;
+        if rdet && self.wayin {
+            self.q_rs_ready = true;
+        }
+        if self.wayin {
+            let (q, rel_cell, arr, dep) = ([9, by + 13, -4], [8, by + 13, -4], [9, by + 14, -5], [9, by + 12, -3]);
+            let a = powered(w, arr);
+            if a && !self.q_arr_prev {
+                self.q_hold_since = Some(now);
+                self.nap_events.push(format!("t {now}: the queue's arrival ({},{},{}): HELD, the hold from now", arr[0], arr[1], arr[2]));
+            }
+            self.q_arr_prev = a;
+            let dp = powered(w, dep);
+            if dp && !self.q_dep_prev {
+                self.q_rs_ready = false;
+                self.q_hold_since = None;
+                if self.q_release_on {
+                    set(w, rel_cell, "minecraft:air", flags::ALL)?;
+                    self.q_release_on = false;
+                }
+                self.nap_events.push(format!("t {now}: the queue's departure ({},{},{}): RS_ready and HELD reset, the release off", dep[0], dep[1], dep[2]));
+            }
+            self.q_dep_prev = dp;
+            let present = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == q);
+            let rest = w.day_time().rem_euclid(24_000) >= 12_000;
+            let sensor = w.get(redsim::pos::BlockPos::new(-5, 15, 3)).to_string();
+            // (NOT DAY: the module's daylight detector (-5,15,3) at power 0)
+            let power: Option<u32> = sensor.split("power=").nth(1).and_then(|r| r.split([',', ']']).next()).and_then(|v| v.parse().ok());
+            let not_day = sensor.contains("daylight_detector") && power == Some(0);
+            let hold_ok = self.q_hold_since.is_none_or(|s| now >= s + 80);
+            if !self.q_release_on && self.q_rs_ready && present && hold_ok && rest && not_day {
+                set(w, rel_cell, "minecraft:redstone_block", flags::ALL)?;
+                self.q_release_on = true;
+                self.q_released.push(now);
+                self.nap_events.push(format!("t {now}: the queue's release (RS_ready, the hold met, REST, NOT DAY): a redstone block at ({},{},{})", rel_cell[0], rel_cell[1], rel_cell[2]));
+            }
+        }
         // (ironspec's hold release (c') as built, 11:49) the lift exit (7,-3,4) as a detector rail
         // sets the waiting RS; its Q delayed 38 gt; E samples live Q AND delayed Q at its edge (ARM3
         // + 2); locked: the 12-gt pulse fires (the input (7,-1,8) at ARM3 + 10, the rail at ARM3 +
@@ -509,6 +621,10 @@ impl Ctl {
             }
             if !on_hold {
                 self.empty_pulses += 1;
+            } else if self.hold_rest.is_none() {
+                // (G1, not blocking: a fired pulse that finds the napper still rolling; bar 0 under
+                // the settle lock)
+                self.rolling_pulses += 1;
             }
             self.nap_events.push(format!(
                 "t {now}: E's rise (ARM3 t {a} + 2): live Q and delayed Q, the 12-gt pulse fires and resets the RS{}; K / PRESENT / J keyed to it (lane x {})",
@@ -671,7 +787,8 @@ struct Rec {
     /// (ironspec 12:23) the tick of the rider's own summon's stamp (the memory set the tick a golem
     /// was born).
     last_stamp: Option<i64>,
-    /// (ironspec 12:13) the lane whose slopes the rider last rode (x = the lane, y 16..22, z 0..6).
+    /// (ironspec 12:13) the lane whose pocket, drop, H or slopes the rider last rode (x = the lane,
+    /// y 0..22, z 0..6).
     lane: Option<i32>,
     /// (ironspec 12:48) who set the memory last; a bystander's stamp (tick, position) pending its
     /// next summon.
@@ -769,6 +886,28 @@ fn cell(p: redsim::entity::Vec3) -> [i32; 3] {
 
 /// One run: the report.
 pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
+    run_driven(spec, o).map(|(r, _)| r)
+}
+
+/// One run: the report, and with `drive_rec` the drive's text and the scene's added entity lines
+/// (mob-AI 14:14: `mctas mobai fixture` replays them on the bridge and on redsim).
+pub fn run_driven(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, String)>), String> {
+    let r = run_inner(spec, o);
+    // (the recorder off whatever happened, so a later run on this thread records nothing)
+    let log = DRIVE_LOG.with(|d| d.borrow_mut().take());
+    let (rep, drive_text, scene) = r?;
+    Ok((rep, drive_text.map(|(head, t0)| {
+        let mut s = head;
+        s.push_str(&format!("# t0 {t0}\n"));
+        for a in log.map(|l| l.1).unwrap_or_default() {
+            s.push_str(&a);
+            s.push('\n');
+        }
+        (s, scene)
+    })))
+}
+
+fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>, String), String> {
     let mut sp = spec.clone();
     if o.official_lane3 {
         // (tick-exact's scene: the module's carts out, its boats (the scarers) kept, the bed stop's
@@ -792,22 +931,76 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
         }
         sp.entities.extend(carts);
     }
+    // (mob-AI 14:14: the drive) the napper must come from b8949c96's queue: the drive spawns
+    // nothing later and teleports only at rest
+    let drive_on = o.drive_rec.is_some();
+    let by = o.bed[1];
+    if drive_on {
+        if o.official_lane3 || o.neighbour.is_some() || o.control_rider.is_some() || !o.restarts.is_empty() {
+            return Err("--drive-out: not with --official-lane3, --neighbour-golems, --control-rider or restarts (their writes are no drive acts)".to_string());
+        }
+        // (the drive teleports only at rest, and a cart at rest on A6's entry booster doesn't
+        // start: the napper comes from b8949c96's queue, released by its gate)
+        if o.napper && !sp.blocks.iter().any(|(p, b)| *p == redsim::pos::BlockPos::new(9, by + 13, -4) && b.to_string().contains("powered_rail")) {
+            return Err(format!("--drive-out --napper: no way-in queue at (9,{},-4) (b8949c96's e9f0f4cbf): the napper must start from it", by + 13));
+        }
+    }
+    let scene_entities: String = sp.entities[spec.entities.len().min(sp.entities.len())..].iter().map(|(ty, p, nbt)| format!("entity: {ty} {} {} {} {}\n", p[0], p[1], p[2], nbt.as_deref().unwrap_or(""))).collect();
     anyhow_free(sp.has_bed(), "the module holds no bed: no villager gets a HOME")?;
     let ro = RunOpts { ai: true, day0: if o.official_lane3 { 18_000 } else { o.day0 }, slept: true, ..RunOpts::steady(o.seed, (o.ticks + 200) as u32, WalkMode::Random) };
     // (the shared bed, as the station bench sets it: the farm built homeless, the bed's POI taken,
-    // every villager's HOME the bed and LAST_SLEPT 100 gt back)
-    let mut run = Run::new_homeless(&sp, &ro)?;
+    // every villager's HOME the bed and LAST_SLEPT 100 gt back; with the drive, the world started
+    // as every bench's drive starts it, `Run::start` with the drive's options, the settle run out
+    // and the scene's entity lines spawned in file order, the memories set by the drive's acts)
+    let drive_ticks = (o.ticks + 200) as u32;
+    let (mut run, lines) = if drive_on {
+        let dro = RunOpts { ai: true, ..RunOpts::steady(o.seed, drive_ticks, WalkMode::Random) };
+        let mut run = Run::start(&sp, &dro)?;
+        while run.settle_tick() {}
+        let lines = redsim::entity::mob::drive::spawn_lines(&mut run, &sp)?;
+        (run, lines)
+    } else {
+        (Run::new_homeless(&sp, &ro)?, Vec::new())
+    };
     let bed = redsim::pos::BlockPos::new(o.bed[0], o.bed[1], o.bed[2]);
-    redsim::entity::mob::ai::poi::take(&mut run.world, bed);
     let t0 = run.world.time;
+    let mut drive_head: Option<String> = None;
+    if let Some(rec) = &o.drive_rec {
+        DRIVE_LOG.with(|d| *d.borrow_mut() = Some((t0, Vec::new())));
+        drive_head = Some(format!(
+            "# drive v1: {rec}\n# caption the F1 + Q2 module's day as f1q2-run drives it: the station's controller, the napper hold's release (c'), the A6 stop's levers and the way-in queue's gate written as blocks (EMULATED); the napper starts queued on the way-in\n# seed {}\n# days 1\n# ticks {drive_ticks}\n# walk random\n# ai on\n# start Run::start(the scene's spec, RunOpts {{ ai: true, ..RunOpts::steady(seed, ticks, WalkMode::Random) }}), the settle run out, then the scene's entity lines spawned in file order (`drive::spawn_lines`)\n# build: the scene as pasted (no build order)\n# act t: applied when the world's time is t0 + t, before the run's next tick (f1q2-run's writes after its tick, in its order)\n",
+            o.seed
+        ));
+        drive_push(format!("act 0 poi-take {} {} {}", bed.x, bed.y, bed.z));
+    }
+    redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+    // (the drive's names: line N's entity eN, its passenger K eN.pK)
+    let mut names: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
+    for (n, id) in lines.iter().enumerate() {
+        if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id) {
+            for (k, p) in e.passengers.iter().enumerate() {
+                names.insert(*p, (n, k));
+            }
+        }
+    }
+    let mut memory_acts: Vec<((usize, usize), String)> = Vec::new();
     for i in 0..run.world.entities.list.len() {
         let e = &run.world.entities.list[i];
         if e.removed || !matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::Villager)) {
             continue;
         }
+        if drive_on {
+            let (n, k) = *names.get(&e.id).ok_or_else(|| format!("--drive-out: the villager {} rides none of the scene's entity lines", e.id))?;
+            memory_acts.push(((n, k), format!("act 0 home e{n}.p{k} {} {} {}", bed.x, bed.y, bed.z)));
+            memory_acts.push(((n, k), format!("act 0 last-slept e{n}.p{k} -100")));
+        }
         let b = redsim::entity::mob::ai::brain::brain_mut(&mut run.world, i);
         b.home = Some(bed);
         b.last_slept = Some(t0 - 100);
+    }
+    memory_acts.sort_by_key(|(nk, _)| *nk);
+    for (_, a) in memory_acts {
+        drive_push(a);
     }
     let mut recs: BTreeMap<u32, Rec> = BTreeMap::new();
     let villagers = |w: &redsim::world::World| -> Vec<u32> { w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::Villager))).map(|e| e.id).collect() };
@@ -846,6 +1039,22 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
     // cart's top is a failure)
     let mut nappers: Vec<(u32, usize, i64)> = Vec::new();
     let mut seeded_night: Option<i64> = None;
+    // (b8949c96's way-in, e9f0f4cbf: the napper queued at (9,y+13,-4) from the start, released by
+    // its gate; one napper a run until day-1's picker is driven)
+    {
+        let q_cell = [9, o.bed[1] + 13, -4];
+        let w = &run.world;
+        ctl.wayin = o.napper && w.get(redsim::pos::BlockPos::new(q_cell[0], q_cell[1], q_cell[2])).to_string().contains("powered_rail") && w.get(redsim::pos::BlockPos::new(8, q_cell[1], -4)).is_air();
+        if ctl.wayin {
+            ctl.q_rs_ready = true;
+            let qv = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == q_cell).and_then(|e| e.passengers.first().copied()).ok_or("the way-in's queue holds no napper")?;
+            let k = o.seed.rem_euclid(3) as usize % 3;
+            recs.insert(qv, Rec { label: format!("napper0 (id {qv}, lane x {}, queued at the way-in)", LANES[k]), home_at_start: Some([bed.x, bed.y, bed.z]), prev_home: Some([bed.x, bed.y, bed.z]), ..Default::default() });
+            nappers.push((qv, k, 0));
+            ctl.nap_lane = k;
+            ctl.nap_events.push(format!("t 0: napper0 queued at ({},{},{}) (lane x {})", q_cell[0], q_cell[1], q_cell[2], LANES[k]));
+        }
+    }
     let mut near = Near::default();
     let mut stale = Stale::default();
     let mut seat_stats: Vec<SeatStat> = vec![SeatStat::default(); o.seats.len()];
@@ -914,7 +1123,7 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
                 r1_off = None;
             }
         }
-        if o.napper {
+        if o.napper && !ctl.wayin {
             // one napper a night at the stop's entry, its lane rotating
             let night = run.world.day_time().div_euclid(24_000);
             let want = 13_800 + (o.seed * 37).rem_euclid(400);
@@ -1157,8 +1366,8 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
             };
             let r = recs.get_mut(&id).unwrap();
             let c = cell(pos);
-            // (the rider's lane: the lane whose slopes it rides)
-            if LANES.contains(&c[0]) && (16..=22).contains(&c[1]) && (0..=6).contains(&c[2]) {
+            // (the rider's lane: the lane whose pocket, drop, H or slopes it rides)
+            if LANES.contains(&c[0]) && (0..=22).contains(&c[1]) && (0..=6).contains(&c[2]) {
                 r.lane = Some(c[0]);
             }
             // (the seats: occupancy, and each rider's stretch on a seat since it sat or was reset)
@@ -1177,14 +1386,16 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
             // flee testing only presence and distance < 6) every entry into a position within 6.05
             // of a zombie hidden from it, at least 40 gt after the rider's last position within 8 of
             // a zombie in its sight (the game's own sight: `hasLineOfSight` from the rider's eye
-            // (+1.62) to the zombie's (+1.74)); the stop's waker places (the napper at the stop)
-            // are declared and left out
+            // (+1.62) to the zombie's (+1.74)); only the stop's own waker is left out (G1's CHANGES
+            // 2): every other zombie counts everywhere, the stop's cells included
             {
                 let eye = redsim::entity::Vec3::new(pos.x, pos.y + 1.62, pos.z);
-                let at_stop = (-6..=4).contains(&c[0]) && (-20 + sy..=-14 + sy).contains(&c[1]) && (-6..=6).contains(&c[2]);
+                // (G1's CHANGES 2: only the waker is left out, the stop's own zombie, inside the
+                // stop's box: every other zombie counts everywhere, the stop's cells included)
+                let waker = |z: &redsim::entity::Vec3| z.x >= -6.0 && z.x < 5.0 && z.y >= (-21 + sy) as f64 && z.y < (-13 + sy) as f64 && z.z >= -6.0 && z.z < 7.0;
                 let mut seen8 = false;
                 let mut hidden605 = false;
-                for z in &zombies_now {
+                for z in zombies_now.iter().filter(|z| !waker(z)) {
                     let d = ((pos.x - z.x).powi(2) + (pos.y - z.y).powi(2) + (pos.z - z.z).powi(2)).sqrt();
                     if d >= 8.0 {
                         continue;
@@ -1199,7 +1410,7 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
                 if seen8 {
                     r.last_seen8 = Some(now);
                 }
-                if hidden605 && !r.prev_hidden605 && !at_stop {
+                if hidden605 && !r.prev_hidden605 {
                     let gap = r.last_seen8.map(|t| now - t);
                     stale.entries += 1;
                     if gap.is_some_and(|g| g < 40) {
@@ -1212,7 +1423,7 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
                         stale.least = Some(stale.least.map_or(g, |l: i64| l.min(g)));
                     }
                 }
-                r.prev_hidden605 = hidden605 && !at_stop;
+                r.prev_hidden605 = hidden605;
             }
             // (ironspec 11:29) GOLEM_DETECTED_RECENTLY at the stand: the neighbour's golems
             // (EMULATED) set it on a rider whose 16-block box meets one; each rider's last set (any
@@ -2004,7 +2215,7 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
         ));
     }
     s.push_str(&format!(
-        "the staleness bar (ironspec 11:02, G1: NEAREST_HOSTILE up to ~39 gt stale; every entry into a position within 6.05 of a zombie hidden from it at least 40 gt after the rider's last position within 8 of a zombie in its sight; the stop's waker places left out): {} entries, the least gap {}, {} under 40 gt ({}){}\n",
+        "the staleness bar (ironspec 11:02, G1: NEAREST_HOSTILE up to ~39 gt stale; every entry into a position within 6.05 of a zombie hidden from it at least 40 gt after the rider's last position within 8 of a zombie in its sight; only the stop's own waker left out, every other zombie counted everywhere): {} entries, the least gap {}, {} under 40 gt ({}){}\n",
         stale.entries,
         stale.least.map_or("none (never seen within 8 before)".to_string(), |g| format!("{g} gt")),
         stale.bad,
@@ -2066,7 +2277,7 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
                 ));
             }
         }
-        s.push_str(&format!("  the hold's pulses fired with the hold empty: {} (bar 0)\n", ctl.empty_pulses));
+        s.push_str(&format!("  the hold's pulses fired with the hold empty: {} (bar 0); fired with the napper still rolling: {} (bar 0)\n", ctl.empty_pulses, ctl.rolling_pulses));
         s.push_str(&format!("  the drives: {}\n", ctl.nap_events.iter().take(120).cloned().collect::<Vec<_>>().join("; ")));
         if !nap_trace_rows.is_empty() {
             s.push_str("  the napper's trace (per tick):\n");
@@ -2158,7 +2369,7 @@ pub fn run(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
     for l in ctl.log.iter().take(60) {
         s.push_str(&format!("  ctl {l}\n"));
     }
-    Ok(s)
+    Ok((s, drive_head.map(|h| (h, t0)), scene_entities))
 }
 
 fn anyhow_free(ok: bool, why: &str) -> Result<(), String> {

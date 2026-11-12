@@ -17,11 +17,14 @@ use std::path::PathBuf;
 
 type P = [i32; 3];
 
-/// One part of the column: `NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]`.
+/// One part of the column: `NAME=FILE[%BASE][@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartSpec {
     pub name: String,
     pub file: PathBuf,
+    /// Only what the file adds to this design (`%`: its cells empty there, its entities absent
+    /// there).
+    pub base: Option<PathBuf>,
     /// The move from the file's frame into the column's (`@`).
     pub frame: P,
     /// The move from the part's committed place in the column's frame to its tier (`^`).
@@ -49,13 +52,17 @@ fn triple(s: &str) -> Result<P, String> {
 
 impl PartSpec {
     pub fn parse(s: &str) -> Result<PartSpec, String> {
-        let (name, rest) = s.split_once('=').ok_or_else(|| format!("--part {s:?}: NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]"))?;
+        let (name, rest) = s.split_once('=').ok_or_else(|| format!("--part {s:?}: NAME=FILE[%BASE][@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]"))?;
         let marks = ['@', '^', '#'];
         let cut = rest.find(marks).unwrap_or(rest.len());
         let flags = name.trim();
         let bare = flags.trim_end_matches(['!', '~']);
         let marks_of = &flags[bare.len()..];
-        let mut p = PartSpec { name: bare.to_string(), file: PathBuf::from(&rest[..cut]), frame: [0; 3], tier: [0; 3], keep: None, relay: marks_of.contains('!'), nether: marks_of.contains('~') };
+        let (file, base) = match rest[..cut].split_once('%') {
+            Some((f, b)) => (PathBuf::from(f), Some(PathBuf::from(b))),
+            None => (PathBuf::from(&rest[..cut]), None),
+        };
+        let mut p = PartSpec { name: bare.to_string(), file, base, frame: [0; 3], tier: [0; 3], keep: None, relay: marks_of.contains('!'), nether: marks_of.contains('~') };
         let mut tail = &rest[cut..];
         while let Some(m) = tail.chars().next() {
             let body = &tail[1..];
@@ -221,6 +228,22 @@ fn named_cells_moved(l: &str, key: &str, by: P) -> Result<Vec<String>, String> {
 pub fn load_part(spec: &PartSpec) -> Result<Part, String> {
     let text = std::fs::read_to_string(&spec.file).map_err(|e| format!("{}: {e}", spec.file.display()))?;
     let mut d = Design::parse(&text).map_err(|e| format!("{}: {e}", spec.file.display()))?;
+    if let Some(base) = &spec.base {
+        // (`%BASE`: only what the file adds to BASE, b8949c96's way-in laid onto the module: its
+        // cells BASE leaves empty, its entities BASE lacks; a cell both hold, changed or not, stays
+        // BASE's part's, so a changed one is an override)
+        let bt = std::fs::read_to_string(base).map_err(|e| format!("{}: {e}", base.display()))?;
+        let b = Design::parse(&bt).map_err(|e| format!("{}: {e}", base.display()))?;
+        d.blocks.retain(|p, _| !b.blocks.contains_key(p));
+        d.block_entities.retain(|p, _| !b.block_entities.contains_key(p));
+        d.entities.retain(|e| !b.entities.contains(e));
+        d.ports.clear();
+        d.nether_blocks.clear();
+        d.nether_ports.clear();
+        d.nether_block_entities.clear();
+        d.meta.remove("positions");
+        d.meta.remove("declared");
+    }
     if spec.nether {
         // (the file's Nether part as the part's cells, in the Nether frame the file writes it in)
         d.blocks = std::mem::take(&mut d.nether_blocks);
@@ -735,7 +758,7 @@ pub fn sketch_part(tracks: &[(String, Vec<P>, [bool; 2])], carts: &[(P, Option<f
         d.entities.push(mctas::design::EntitySpec { kind: "minecraft:oak_boat".into(), pos: [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], nbt: Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into()) });
     }
     let part = |d: Design, file: &str| {
-        let spec = PartSpec { name: d.name.clone(), file: PathBuf::from(file), frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
+        let spec = PartSpec { name: d.name.clone(), file: PathBuf::from(file), base: None, frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
         Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
     };
     let mut out: Vec<Part> = track_designs.into_iter().filter(|t| !t.blocks.is_empty()).map(|t| part(t, "(sketch track)")).collect();
@@ -1150,7 +1173,7 @@ pub fn assembly_check(composed: &Design, committed: &Design, keep: &[(String, [i
 /// flee's own test) is IN SIGHT (a failure) unless a full-collider block (`isCollisionShapeFullBlock`)
 /// sits on the eye-to-eye ray (sampled every 0.025, the two end cells left out): then HIDDEN, listed
 /// with the blocking cell. Beyond 6.05: clear.
-pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64, f64, f64)]) -> (String, bool) {
+pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64, f64, f64)], riderless: &[[i32; 3]], unreachable: &[[i32; 3]]) -> (String, bool) {
     use redsim::entity::Vec3;
     let zombies: Vec<Vec3> = d
         .entities
@@ -1159,8 +1182,15 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
         .map(|e| Vec3::new(e.pos[0], e.pos[1] + (0.5625f32 / 3.0f32) as f64 - 0.7, e.pos[2]))
         .collect();
     let mut points: Vec<(String, Vec3)> = Vec::new();
+    let mut riderless_cells = 0usize;
     for (p, s) in &d.blocks {
         if !s.contains("rail") || s.contains("trail") {
+            continue;
+        }
+        // (a `riderless:` header line: rails only an empty cart rides, the stop's park to its
+        // pickup; no rider position there)
+        if riderless.contains(p) {
+            riderless_cells += 1;
             continue;
         }
         let c = redsim::pos::BlockPos::new(p[0], p[1], p[2]);
@@ -1182,6 +1212,42 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
     // further vertical path the caller names: a fall shaft, `extra`: name, x, z, y0, y1)
     let mut paths: Vec<(String, f64, f64, f64, f64)> = lift_paths(d);
     paths.extend(extra.iter().cloned());
+    // (G1's CHANGES 2 on 1b2f0442f) the stop's on-foot positions: every cell of the stop's box
+    // (x -6..4, z -6..5, the bed head's y - 2 to + 5) a villager can stand in (no full cube in it
+    // or the cell above, a full cube under it: its feet on that floor; or a bed's top, its feet at
+    // 0.5625), labelled by cell like the rails, so the declared waker places match by cell
+    let stop_box = d.ports.get("home").map(|h| ([-6, h[1] - 2, -6], [4, h[1] + 5, 5]));
+    let full = |c: [i32; 3]| d.blocks.get(&c).and_then(|s| redsim::block::Block::parse(s).ok()).is_some_and(|b| redsim::behavior::full_cube(&b));
+    let liquid = |c: [i32; 3]| d.blocks.get(&c).is_some_and(|s| s.contains("water") || s.contains("lava") || s.contains("bubble_column"));
+    let mut stop_points: Vec<(String, Vec3)> = Vec::new();
+    let mut unreachable_cells = 0usize;
+    // (a cell an entity sits in, the zombie's boat: no villager stands there)
+    let seated: Vec<[i32; 3]> = d.entities.iter().map(|e| [e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]).collect();
+    if let Some((lo, hi)) = stop_box {
+        for x in lo[0]..=hi[0] {
+            for y in lo[1]..=hi[1] {
+                for z in lo[2]..=hi[2] {
+                    let (c, up, down) = ([x, y, z], [x, y + 1, z], [x, y - 1, z]);
+                    if seated.contains(&c) {
+                        continue;
+                    }
+                    // (an `unreachable:` header line: standable cells no walk from the napper's
+                    // cells reaches, declared with the stop owner's evidence, 58f770cc 14:22)
+                    if unreachable.contains(&c) {
+                        unreachable_cells += 1;
+                        continue;
+                    }
+                    let bed_here = d.blocks.get(&c).is_some_and(|s| s.contains("_bed"));
+                    if bed_here && !full(up) && !liquid(up) {
+                        stop_points.push((format!("({x},{y},{z})"), Vec3::new(x as f64 + 0.5, y as f64 + 0.5625, z as f64 + 0.5)));
+                    } else if !full(c) && !full(up) && !liquid(c) && !liquid(up) && !bed_here && full(down) {
+                        stop_points.push((format!("({x},{y},{z})"), Vec3::new(x as f64 + 0.5, y as f64, z as f64 + 0.5)));
+                    }
+                }
+            }
+        }
+    }
+    points.extend(stop_points.iter().cloned());
     for (name, x, z, y0, y1) in paths {
         let (lo, hi) = (y0.min(y1), y0.max(y1));
         let mut y = lo;
@@ -1239,10 +1305,25 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
         }
     }
     let list = |v: &[String]| v.iter().take(30).cloned().collect::<Vec<_>>().join("; ");
-    let ok = in_sight.is_empty();
+    // (ironspec 12:23 / G1: every zombie but the stop's own waker stays at least 6.05 from every
+    // stop cell, sight or not: the queue's post among them)
+    let in_box = |p: &Vec3| stop_box.is_some_and(|(lo, hi)| p.x >= lo[0] as f64 && p.x < hi[0] as f64 + 1.0 && p.y >= lo[1] as f64 - 1.0 && p.y < hi[1] as f64 + 1.0 && p.z >= lo[2] as f64 && p.z < hi[2] as f64 + 1.0);
+    let mut stop_rows: Vec<String> = Vec::new();
+    let mut stop_ok = true;
+    for z in zombies.iter().filter(|z| !in_box(z)) {
+        if let Some((d, place, p)) = stop_points.iter().map(|(place, p)| (((p.x - z.x).powi(2) + (p.y - z.y).powi(2) + (p.z - z.z).powi(2)).sqrt(), place, p)).min_by(|a, b| a.0.total_cmp(&b.0)) {
+            let pass = d >= 6.05;
+            stop_ok &= pass;
+            stop_rows.push(format!("the zombie at ({:.2},{:.2},{:.2}): {d:.2} from the nearest stop cell {place} ({:.2},{:.2},{:.2}) ({})", z.x, z.y, z.z, p.x, p.y, p.z, if pass { "ok" } else { "FAIL" }));
+        }
+    }
+    let ok = in_sight.is_empty() && stop_ok;
     let s = format!(
-        "the 6.05 flee bar, sight-gated ({} rider positions every 0.1 along every rail and both lifts, {} zombies; the eye at the cart + 1.62, the zombie's at its feet + 1.74; hidden: a full-collider block on the eye-to-eye ray; {} declared waker places): IN SIGHT within 6.05 {}{}; the waker's declared places in sight within 6.05 {}{}; hidden within 6.05 {}{}; clear {}; {}\n",
-        points.len(),
+        "the 6.05 flee bar, sight-gated ({} rider positions every 0.1 along every rail and both lifts ({} riderless rail cells declared and left out), and {} on-foot positions in the stop's box ({} standable cells declared unreachable and left out), {} zombies; the eye at the cart (or the feet) + 1.62, the zombie's at its feet + 1.74; hidden: a full-collider block on the eye-to-eye ray; {} declared waker places): IN SIGHT within 6.05 {}{}; the waker's declared places in sight within 6.05 {}{}; hidden within 6.05 {}{}; clear {}; every other zombie at least 6.05 from every stop cell (sight or not): {}; the pre-wake state (the closed hatch's thin plates) is not a full-collider test: it rests on tick-exact's official A6 scene (NEAREST_HOSTILE never set with the door closed); {}\n",
+        points.len() - stop_points.len(),
+        riderless_cells,
+        stop_points.len(),
+        unreachable_cells,
         zombies.len(),
         declared.len(),
         in_sight.len(),
@@ -1252,6 +1333,7 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
         hidden.len(),
         if hidden.is_empty() { String::new() } else { format!(": {}", list(&hidden)) },
         clear,
+        if stop_rows.is_empty() { "no zombie outside the stop".to_string() } else { stop_rows.join("; ") },
         if ok { "PASS" } else { "FAIL" }
     );
     (s, ok)
@@ -1273,13 +1355,14 @@ fn lift_paths(d: &Design) -> Vec<(String, f64, f64, f64, f64)> {
 /// +-32); the riders: every rider position of [`flee_sight`] (every rail every 0.1, the lifts, the
 /// extra vertical paths). Per path class (a rail cell's part of the module, a lift or a path), the
 /// worst pair with its per-axis gaps and the result.
-pub fn golem_tiling(d: &Design, extra: &[(String, f64, f64, f64, f64)]) -> String {
+pub fn golem_tiling(d: &Design, extra: &[(String, f64, f64, f64, f64)], riderless: &[[i32; 3]]) -> String {
     use redsim::entity::Vec3;
     let pad: Vec<Vec3> = d.blocks.iter().filter(|(p, s)| p[1] == -7 && s.trim_start_matches("minecraft:").split('[').next() == Some("cobblestone") && !d.blocks.contains_key(&[p[0], -6, p[2]])).map(|(p, _)| Vec3::new(p[0] as f64 + 0.5, -6.0, p[2] as f64 + 0.5)).collect();
-    // (the rider positions: rails every 0.1, the lifts, the extra paths)
+    // (the rider positions: rails every 0.1 but the declared riderless ones, the lifts, the extra
+    // paths)
     let mut riders: Vec<(String, Vec3)> = Vec::new();
     for (p, s) in &d.blocks {
-        if !s.contains("rail") || s.contains("trail") {
+        if !s.contains("rail") || s.contains("trail") || riderless.contains(p) {
             continue;
         }
         let c = redsim::pos::BlockPos::new(p[0], p[1], p[2]);
@@ -1361,21 +1444,80 @@ pub fn golem_tiling(d: &Design, extra: &[(String, f64, f64, f64, f64)]) -> Strin
     s
 }
 
-/// The cells of a design file's `waker-places: x,y,z+x,y,z+...=REASON` line (ironspec 11:01: the
-/// stop part's header, copied into the module's in the loop frame).
+/// The cells of a design file's `waker-places: x,y,z+x,y,z+...=REASON[; x,y,z+...=REASON]...` line
+/// (ironspec 11:01: the stop part's header, copied into the module's in the loop frame): every
+/// group's cells.
 pub fn waker_places(text: &str) -> Vec<[i32; 3]> {
+    header_cells(text, "waker-places:")
+}
+
+/// The cells of a header line `KEY x,y,z+x,y,z+...=REASON[; ...]` (each group's cells before its
+/// `=`; a group without `=` is all cells).
+pub fn header_cells(text: &str, key: &str) -> Vec<[i32; 3]> {
     let mut v = Vec::new();
     for line in text.lines() {
-        let Some(rest) = line.split_once("waker-places:").map(|(_, r)| r) else { continue };
-        let cells = rest.split('=').next().unwrap_or("");
-        for c in cells.split('+') {
-            let n: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-            if n.len() == 3 {
-                v.push([n[0], n[1], n[2]]);
+        let Some(rest) = line.strip_prefix(key) else { continue };
+        for group in rest.split(';') {
+            let cells = group.split('=').next().unwrap_or("");
+            for c in cells.split('+') {
+                let n: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                if n.len() == 3 {
+                    v.push([n[0], n[1], n[2]]);
+                }
             }
         }
     }
     v
+}
+
+/// The cells of the file's `keep-clear: x,y,z x,y,z ... (reason)` lines (the stop part's header,
+/// copied into the module's: cells that must hold no block; the reason's text after the first
+/// token that is no cell is left alone).
+pub fn header_keep_clear(text: &str) -> Vec<[i32; 3]> {
+    let mut v = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("keep-clear:") else { continue };
+        for tok in rest.split_whitespace() {
+            let n: Vec<i32> = tok.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            if n.len() != 3 || tok.split(',').count() != 3 {
+                break;
+            }
+            v.push([n[0], n[1], n[2]]);
+        }
+    }
+    v
+}
+
+/// (58f770cc 13:59) The file's `keep-block: x,y,z[+...]=BLOCK[props] (reason)[; ...]` lines: each
+/// cell must hold that block (its name, and every property the line lists).
+pub fn keep_block_check(d: &Design, text: &str) -> (String, bool) {
+    let mut rows = Vec::new();
+    let mut ok = true;
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("keep-block:") else { continue };
+        for group in rest.split(';') {
+            let Some((cells, spec)) = group.split_once('=') else { continue };
+            let spec = spec.split_whitespace().next().unwrap_or("");
+            let (name, props) = spec.split_once('[').map_or((spec, ""), |(n, p)| (n, p.trim_end_matches(']')));
+            let name = name.trim_start_matches("minecraft:");
+            for c in cells.split('+') {
+                let n: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                if n.len() != 3 {
+                    continue;
+                }
+                let held = d.blocks.get(&[n[0], n[1], n[2]]);
+                let good = held.is_some_and(|b| {
+                    b.trim_start_matches("minecraft:").split('[').next() == Some(name) && props.split(',').filter(|p| !p.is_empty()).all(|p| b.contains(p))
+                });
+                ok &= good;
+                rows.push(format!("({},{},{}) {spec}: {} ({})", n[0], n[1], n[2], held.map_or("no block".to_string(), |b| b.clone()), if good { "PASS" } else { "FAIL" }));
+            }
+        }
+    }
+    if rows.is_empty() {
+        return (String::new(), true);
+    }
+    (format!("keep-block: {}\n", rows.join("; ")), ok)
 }
 
 pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool, unlit_control: bool) -> Result<(String, bool), String> {
@@ -1769,7 +1911,7 @@ pub fn pocket_part(name: &str, start: P, dir: &str, n: usize, rstar: bool) -> Re
         cells.push((format!("{name}_P{kk}"), p));
         cells.push((format!("{name}_R{kk}"), r));
     }
-    let spec = PartSpec { name: d.name.clone(), file: PathBuf::from("(pocket chain)"), frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
+    let spec = PartSpec { name: d.name.clone(), file: PathBuf::from("(pocket chain)"), base: None, frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
     Ok((Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }, gates, cells))
 }
 
@@ -1780,7 +1922,7 @@ pub fn block_part(blocks: &[(P, String)]) -> Part {
     for (c, s) in blocks {
         d.blocks.insert(*c, if s.contains(':') { s.clone() } else { format!("minecraft:{s}") });
     }
-    let spec = PartSpec { name: "blocks".into(), file: PathBuf::from("(--block)"), frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
+    let spec = PartSpec { name: "blocks".into(), file: PathBuf::from("(--block)"), base: None, frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
     Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
 }
 
@@ -2000,7 +2142,9 @@ mod column_tests {
         assert_eq!(p.tier, [0, -3, 1]);
         assert_eq!(p.keep, Some(([0, -20, -4], [20, 10, 0])));
         let q = PartSpec::parse("r1=x.txt").unwrap();
-        assert_eq!((q.frame, q.tier, q.keep), ([0; 3], [0; 3], None));
+        assert_eq!((q.frame, q.tier, q.keep, q.base.clone()), ([0; 3], [0; 3], None, None));
+        let w = PartSpec::parse("wayin=w.txt%m.txt#9,-25,-5,9,25,9").unwrap();
+        assert_eq!((w.file, w.base), (PathBuf::from("w.txt"), Some(PathBuf::from("m.txt"))));
         assert!(PartSpec::parse("x.txt").is_err());
         assert!(PartSpec::parse("a=x.txt#1,2,3").is_err());
     }

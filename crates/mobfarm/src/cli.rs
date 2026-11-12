@@ -1919,6 +1919,16 @@ pub enum MobfarmCmd {
         /// redsim's.
         #[arg(long)]
         compare_official: Option<String>,
+        /// (mob-AI 14:14) The run as a mobai drive v1 (`mctas mobai fixture` replays it on the 26.3
+        /// bridge and on redsim): the world started as every bench's (`Run::start` with the drive's
+        /// options, the settle, then the scene's entity lines spawned in file order), the riders'
+        /// HOME and LAST_SLEPT as acts, every emulated block write an `act t set`, the napper
+        /// parked on A6's first park rail from the start and teleported to the entry at its
+        /// seeding. Needs `--scene-out` (the module with the seeded carts as entity lines).
+        #[arg(long)]
+        drive_out: Option<PathBuf>,
+        #[arg(long)]
+        scene_out: Option<PathBuf>,
     },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
@@ -6731,14 +6741,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // (ironspec 08:10 and 08:21: the assembly check: the committed file re-composed from
                 // its declared parts and overrides must match it cell for cell and entity for
                 // entity, so a stale cell or a stale mob can't hide; and the census)
-                let committed = mctas::design::Design::parse(&std::fs::read_to_string(vf)?)?;
-                let keep: Vec<crate::column::Reserve> = keep_clear.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+                let committed_text = std::fs::read_to_string(vf)?;
+                let committed = mctas::design::Design::parse(&committed_text)?;
+                let mut keep: Vec<crate::column::Reserve> = keep_clear.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+                // (58f770cc 13:59, G1's CHANGES 2: the file's own `keep-clear:` cells hold no block,
+                // its `keep-block:` cells hold their block)
+                for (k, c) in crate::column::header_keep_clear(&committed_text).iter().enumerate() {
+                    keep.push(crate::column::Reserve { name: format!("header-keep-clear-{k}"), b: (*c, *c) });
+                }
                 let keep: Vec<(String, [i32; 3], [i32; 3])> = keep.iter().map(|r| (r.name.clone(), r.b.0, r.b.1)).collect();
                 let (rep, ok) = crate::column::assembly_check(&d, &committed, &keep);
-                print!("assembly check against {}: {rep}", vf.display());
+                let (brep, bok) = crate::column::keep_block_check(&committed, &committed_text);
+                let ok = ok && bok;
+                print!("assembly check against {}: {rep}{brep}", vf.display());
                 // (ironspec 10:24) the 6.05 flee bar's sight classes, on the committed file; the
                 // waker's declared places (its `waker-places:` line, ironspec 11:01) their own class
-                let declared = crate::column::waker_places(&std::fs::read_to_string(vf)?);
+                let vtext = std::fs::read_to_string(vf)?;
+                let declared = crate::column::waker_places(&vtext);
+                let riderless = crate::column::header_cells(&vtext, "riderless:");
+                let unreachable = crate::column::header_cells(&vtext, "unreachable:");
                 let extra: Vec<(String, f64, f64, f64, f64)> = sight_path
                     .iter()
                     .map(|s| {
@@ -6748,11 +6769,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         Ok((name.to_string(), v[0], v[1], v[2], v[3]))
                     })
                     .collect::<Result<_>>()?;
-                let (frep, fok) = crate::column::flee_sight(&committed, &declared, &extra);
+                let (frep, fok) = crate::column::flee_sight(&committed, &declared, &extra, &riderless, &unreachable);
                 print!("{frep}");
                 // (ironspec 12:14) golem detection across the tiling, per axis (printed; the
                 // route-aware bar is f1q2-run's)
-                print!("{}", crate::column::golem_tiling(&committed, &extra));
+                print!("{}", crate::column::golem_tiling(&committed, &extra, &riderless));
                 if !ok || !fok {
                     std::process::exit(1);
                 }
@@ -6816,7 +6837,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             // (the seats: NAME=x,y,z:cx,cy,cz+...)
@@ -6841,8 +6862,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let neighbour = (neighbour_golems.len() == 3).then(|| [neighbour_golems[0], neighbour_golems[1], neighbour_golems[2]]);
             anyhow::ensure!(cart_trace.is_empty() || cart_trace.len() == 3, "--cart-trace ID,FROM,TO");
             let cart_trace = (cart_trace.len() == 3).then(|| (cart_trace[0] as u32, cart_trace[1], cart_trace[2]));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive };
-            print!("{}", crate::f1q2run::run(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
+            anyhow::ensure!(drive_out.is_some() == scene_out.is_some(), "--drive-out and --scene-out go together (the drive names the scene's entity lines)");
+            anyhow::ensure!(drive_out.is_none() || restarts.is_empty(), "--drive-out: no --restart-every (the drive format's reload acts aren't written)");
+            let drive_rec = drive_out.as_ref().map(|_| format!(
+                "mctas mobfarm f1q2-run <design> --lane-carts{} --drive{} --seed {seed} --ticks {ticks}{} --drive-out F --scene-out S",
+                if per_lane != 8 { format!(" --per-lane {per_lane}") } else { String::new() },
+                if napper { " --napper" } else { "" },
+                neighbour.map_or(String::new(), |n| format!(" --neighbour-golems {},{},{}", n[0], n[1], n[2]))
+            ));
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec };
+            let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+            print!("{rep}");
+            if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
+                let mut scene = std::fs::read_to_string(&design)?;
+                if !scene.ends_with('\n') {
+                    scene.push('\n');
+                }
+                scene.push_str("# (f1q2-run --scene-out: the seeded carts and riders, in spawn order after the module's own entity lines)\n");
+                scene.push_str(&scene_entities);
+                std::fs::write(sf, scene)?;
+                std::fs::write(df, drive_text)?;
+                println!("the drive: {} (the scene {})", df.display(), sf.display());
+            }
         }
         MobfarmCmd::CreeperCheck { design, glass, unlit_control } => {
             let (_c, spec) = load(version, &design)?;

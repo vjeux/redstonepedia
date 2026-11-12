@@ -162,11 +162,13 @@ its `nether layer` blocks, `nether nbt:` data and `port nether-<name>` ports as 
 ports of F, so `web shot F` pictures the Nether side (the kill, the collection); the viewer draws a
 design's overworld blocks only.
 The one-chunk column's skeleton (onechunk, farmopt's lane: vjeux's "Can we have the system in one
-chunk?"): `mctas mobfarm column --part NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]...
+chunk?"): `mctas mobfarm column --part NAME=FILE[%BASE][@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]...
 [--reserve NAME=x0,y0,z0,x1,y1,z1...] [--reserves-from BUDGET [--reserve-skip NAME]...] [--column
 -6,-6,9,9] [--chunk-phase -6,-6] [--plan] [--port NAME=x,y,z] [--ground Y] [--out-shift dx,dy,dz]
 [--no-riders] [--no-settle] [--out F]` moves each
-part's committed design (`#`: only its cells in that box, the file's frame) from its file's frame
+part's committed design (`#`: only its cells in that box, the file's frame; `%BASE`: only what the
+file adds to BASE, its cells BASE leaves empty and its entities BASE lacks, a way-in laid onto the
+module, a cell both hold left to BASE's parts, so a changed one is a `--block` override) from its file's frame
 into the column's (`@`) and from its committed place into its tier (`^`); a reserved box stands for
 a part not laid out yet (`--reserves-from`: every `# reserved (no blocks):` line of a budget the
 command wrote, but the `--reserve-skip` names, the parts laid). It prints each part's committed and placed box, the chunk lines each
@@ -354,9 +356,17 @@ detector's roof skylight); and the 6.05 flee bar's sight classes (ironspec Nov 1
 rider position every 0.1 along every rail and both bubble-column lifts, the eye at the cart + 1.62,
 against every boated zombie (feet at the boat's y + 0.1875 - 0.7, eye + 1.74): within 6.05 (feet to
 feet) IN SIGHT (a failure) unless a full-collider block sits on the eye-to-eye ray (HIDDEN, listed
-with the blocking cell), beyond it clear; the cells of the file's `waker-places: x,y,z+...=REASON`
-line (the stop's waker, ironspec 11:01's ruling (a)) in sight are their own declared class, not
-failures; `--sight-path NAME=x,z,y0,y1` adds a vertical rider path (a fall shaft; napper A's lift
+with the blocking cell), beyond it clear; the cells of the file's `waker-places: x,y,z+...=REASON[;
+...]` line (every group; the stop's waker, ironspec 11:01's ruling (a)) in sight are their own
+declared class, not failures, and the rails of its `riderless:` line (same syntax: the stop's empty
+cart from its park to its pickup) are no rider positions; the stop's on-foot positions join them (every cell of its box a villager can stand in:
+no full cube in it or above it, a full cube under it, or a bed's top, no entity seated in it, and
+none of its `unreachable:` line's cells (the stop owner's evidence that no walk gets there); feet on
+the floor, eye + 1.62), and every zombie but the stop's own stays at least 6.05 from every stop cell, sight or not;
+its `keep-clear:` cells must hold no block and its `keep-block: x,y,z=BLOCK[props]` cells that
+block (the assembly check);
+the pre-wake state (the closed hatch's thin plates) rests on tick-exact's official scene, not this
+test; `--sight-path NAME=x,z,y0,y1` adds a vertical rider path (a fall shaft; napper A's lift
 follows the stop's y). It also prints the golem detection across the tiling (ironspec 12:14, G1's
 per-axis rule: detected iff every box gap < 16), the pad's spawn cells moved to each neighbour (east,
 west, and the southern copies mirrored in z), per rider class (the lanes, the split row and sidings,
@@ -381,7 +391,7 @@ ARM3 rise fires nothing), and keys K(n) on at ARM3 + 93 / 108 / 124 and off at A
 (PRESENT_l at the reset) and J(-1)'s block ARM3 + 72..127 for an eastbound napper (7b90c3f1's
 numbers), and the siding's release (D's rise + 4 while PRESENT_l: the input (x-2,23,9) on 30 gt);
 each napper's delayed bit at the sampler is logged against its rest on the hold, its departure
-against E's rise, and every pulse fired with the hold empty (bar 0); every other rise of (5,0,7) in
+against E's rise, and every pulse fired with the hold empty or the napper still rolling (bar 0); every other rise of (5,0,7) in
 a cycle is logged with the J/K levers, the hold's input and the
 cycle's state. The napper is one of its lane's carts (its first lane starts one slope cart short).
 It prints each napper's milestones and the drives; `--cart-trace ID,FROM,TO` prints a cart's cells
@@ -391,8 +401,8 @@ station's built R_1 drive (a repeater at
 also prints the villagers within 16 of the bed head with the calm REST ticks there while the bed is
 occupied (bar 0), any cart resting on another cart's top (a failure), the staleness bar (ironspec
 11:02: every entry into a position within 6.05 of a zombie hidden from it at least 40 gt after the
-rider's last position within 8 of a zombie in its sight, `hasLineOfSight` eye to eye; the stop's
-waker places left out), and the panic draws by the target's kind (a point or a block: the flee, the
+rider's last position within 8 of a zombie in its sight, `hasLineOfSight` eye to eye; only the
+stop's own waker left out, every other zombie counted everywhere), and the panic draws by the target's kind (a point or a block: the flee, the
 strolls, HOME; an entity walk: one draw however far its mob moves), each entity walk's row naming
 the followed mob's INTERACTION_TARGET, WALK_TARGET, activity and running behaviours (both pointing
 at each other: the neighbour's `setWalkAndLookTargetMemories`) and the rider's own.
@@ -419,10 +429,26 @@ bar >= 7) and the least free caller's margin. Every setting of the memory is att
 expiry is printed against its next summon), the GolemSensor reading the living list (its source
 golem and birth tick, or none alive: a departed golem in a stale list; how many within 600 gt after
 the rider's own stamp), or the emulated neighbour. The stop's drives, the napper's seeding and its
-milestones follow the stop's y (the `home` port's y against rev 3's -18).
+milestones follow the stop's y (the `home` port's y against rev 3's -18). A stop with levers at its
+control cells is 58f770cc's A6 (b36302af8): the hatch's levers (-4,y,2) and (-4,y+1,4) off at F (the
+lie-down + 10), the park's (1,y+1,-6) and (0,y,-6) on 30 gt after the bed's wake edge, R's detector
+(4,y-1,4) re-arming both (y the bed head's); otherwise d907's stop (its release 30 gt after F).
+`--drive-out F --scene-out S` (mob-AI) records the run as a mobai drive v1 for `mctas mobai
+fixture` (the 26.3 bridge and redsim, tick for tick): the world started as every bench's drive
+(`Run::start` with the drive's options, the settle, the scene's entity lines spawned in file order),
+the bed's POI and every rider's HOME and LAST_SLEPT as acts at 0, every emulated block write an
+`act t set` (a write without every update fails the run); with `--napper` the module needs
+b8949c96's way-in (the napper starts queued on its queue rail (9,y+13,-4), the drive spawning nothing
+later); S is the module with the seeded carts appended as entity lines. Not with `--official-lane3`,
+`--neighbour-golems`, `--control-rider` or restarts (their writes are no drive acts). On a module
+with the way-in, the queue's gate is driven (b8949c96, day-1's to build): the release a redstone
+block at (8,y+13,-4) when RS_ready (set at power-up and by A6's R), the hold (80 gt from the arrival
+detector (9,y+14,-5)), REST (day time >= 12,000) and NOT DAY (the daylight detector (-5,15,3) at 0)
+all hold, taken away at the departure detector (9,y+12,-3), which resets RS_ready.
 redsim's `Run::start` (every run built from a design without a site world) refuses a design with a
 non-air cell outside the world's box, a cell the placement popped, or a cell where `can_survive`
-fails (dust or a repeater over air, a hook without its anchor): the run fails, listing the cells,
+fails (dust or a repeater over air, a hook without its anchor, a rail `rails::would_pop` refuses:
+an ascending rail without its high side): the run fails, listing the cells,
 instead of building without them; `World::place_raw` (and `place_like_judge`) panics on a non-air
 cell outside a box world's bounds, listing them (a land world places anywhere).
 `mctas mobfarm ticket-check --module M --loader L [--tiling 1|2|4] [--no-mirror] [--piglins DAYS
