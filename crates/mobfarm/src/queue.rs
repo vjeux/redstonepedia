@@ -3823,6 +3823,10 @@ pub struct LoopTiming {
     /// (cc767b78) every first contact anywhere between a moving cart and one at rest, with the
     /// mover's stored speed (the gravity column's bar: none over 0.2).
     pub contacts_all: bool,
+    /// (cc767b78) the pausing controller clock: (X, Z, RESYNC): the bench's slot clock and every
+    /// emulated timer and pulse advance only while the chunk of loop cell X,Z ticks entities
+    /// (an emulated liveness gate); RESYNC: after a pause, wait for the next summon boundary.
+    pub pause_clock: Option<(i32, i32, bool)>,
     /// The escapement's G0: shut from LEAD gt before B's pulse to LAG gt after it.
     pub esc_g0: (i64, i64),
     /// Admission control: G0 opened DELAY gt after the gate (G_P) opens, shut by a cart crossing
@@ -5819,7 +5823,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, t_watch: None, p2_stuck: None, retry_over_pending: false, live_go: false, contacts_all: false, meter: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None, build_last: [None; 64], build_fills_last: false, watch_cells: [None; 8], pocket_trigger: None, no_summons: false, record_positions: false, golem_miss: [-1; 8], golem_jitter: 0, golem_late: 0, day_only: false, slept: false, pulse_at: None, summon_at: None, acts: [None; 8], reset_queue_at: None, reset_stragglers: false, reset_stand_carts: false, reset_queue_every: false, no_inject: false, fifo_intake: (2, 6), esc_b: (6, 6), verbose_tail: false, tail_trace: None, esc_g0: (2, 0), esc_adm: (8, 3), adm_latch: false, p_always: false, adm_g1_w: 0, c_prime: None, rel_ext: None, rel_min: 0, late_hold: [None; 3], rel_gate: None, rel_gate_unset: 0, split: None, interlock: None, interlock_launch: false, interlock_arrivals: false, stand_hold: None, stand_hold_after: 0, depart_space: 0, rel_end_n: None, rel_end_count: None, rel_end_rear: None, unset_quiet: false, q_needs_p1: false, chain_study: false, release_gaps: None, gate_delay: 0, g2_tripwire: false, stand_meter: 0, takeoff_z: 11, s_cell: None, arrivals: false, adm_k2: -1, adm_faults: [None; 8], adm_skip_req: [None; 8], adm_rpulse: 0, entry_hold: false, hold_landing_rest: 0, hold_strand_t: 40, reach_probe: false, exposure_log: false, hold_progress: false, watch_mob: [None; 4], watch_mob_slots: (0, -1), start_random: false, calm: false, bed_at: None, approach_trace: None, rel_clear: None, bench_release: false, release_offs: None, phase_force: None, reg_interlock: false, l33_delay: false, arrival_log: false, hold_back: None, head_wait: false, head_latch: None, head_perm: None, strip_riders: None, trace_pair: None, head_retry: None, train_size: None, router_pulses: None, dep_x: None, vanish: None, cancel_x: None, stale_clear: false, stale_ungated: false, stale_ignore_dh3: false, stale_live: false, darr_gate: false, go_lead: 0, hold_cart: None, retry_darr: false, darr_stuck: None, vanish_box: None, hold_box: None, summon_raw: false, cell_log: [None; 8], stall_box: [None; 4], lx_off: false, lx_stuck: None, emp_snapshot: false, dep_pulse: None, t_watch: None, p2_stuck: None, retry_over_pending: false, live_go: false, contacts_all: false, pause_clock: None, meter: None }
     }
 }
 
@@ -6920,6 +6924,10 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (cc767b78: `freeze32`'s ring to drop at the reload; each freeze's start, length, whole-part)
     let mut freeze32_restore: Vec<(i64, [i32; 4])> = Vec::new();
     let mut freeze_starts: Vec<(i64, i64, bool)> = Vec::new();
+    // (cc767b78, `pause_clock`: the freezes' reloads by world time (the controller's clock stops
+    // during them), each with the part's own chunk box to restore after a `freeze32`; the pauses)
+    let mut wt_loads: Vec<(i64, [i32; 4], Option<[i32; 4]>)> = Vec::new();
+    let mut pause_log: Vec<String> = Vec::new();
     let mut rel_want = false;
     // (the lap order: carts in the order they leave the pocket stand, up its departure climb)
     let mut laps: Vec<usize> = Vec::new();
@@ -7441,8 +7449,53 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
         mirror: std::env::var("MCTAS_WIRED_B_MIRROR").is_ok_and(|v| v == "1"),
         ..MeterState::default()
     };
+    // (cc767b78, `pause_clock`: the world time at the bench's first tick, for the slot clock's
+    // phase against gameTime after a pause)
+    let w0_pause = run.world.time;
     for t in 0..cycles * 100 + 150 {
         let (c, dt) = (t / 100, t % 100);
+        // (cc767b78, `pause_clock` X,Z[,RESYNC]: the bench's controller (its slot clock and every
+        // emulated timer and pulse: the release, the stand's gates, the meter, the head) advances
+        // only on live ticks, an emulated liveness gate: while the column's chunk (that of loop
+        // cell X,Z) doesn't tick entities, the world ticks alone, redstone running, the
+        // controller's outputs held; the freezes' reloads come by world time; RESYNC: after a
+        // pause the controller waits on until the slot clock is back in phase with gameTime (the
+        // next summon boundary))
+        if let Some((pcx, pcz, resync)) = tm.pause_clock {
+            let mut paused = 0i64;
+            let (w_start, resync_from) = (run.world.time, std::cell::Cell::new(None::<i64>));
+            loop {
+                while let Some(k) = wt_loads.iter().position(|(at, _, _)| *at <= run.world.time) {
+                    let (_, b, pb) = wt_loads.remove(k);
+                    redsim::reload::load_some(&mut run.world, b);
+                    drive.borrow_mut().push(format!("act {} load {},{},{},{}", run.world.time - t_origin, b[0], b[1], b[2], b[3]));
+                    if let Some(pb) = pb
+                        && run.world.unforced.is_empty()
+                    {
+                        run.world.entity_chunks = Some(pb);
+                    }
+                }
+                let live = run.world.entity_ticks_at(pcx as f64 + 0.5 + fx, pcz as f64 + 0.5 + fz);
+                let in_phase = (run.world.time - w0_pause - t).rem_euclid(100) == 0;
+                if live && resync_from.get().is_none() && paused > 0 {
+                    resync_from.set(Some(run.world.time));
+                }
+                if live && (!resync || paused == 0 || in_phase) {
+                    break;
+                }
+                run.tick();
+                paused += 1;
+            }
+            if paused > 0 {
+                let extra = resync_from.get().map_or(0, |r| run.world.time - r);
+                pause_log.push(format!(
+                    "controller paused at slot {c} +{dt} (world time {w_start}) for {paused} gt ({} frozen{}); the slot clock's phase against gameTime now off by {} gt",
+                    paused - extra,
+                    if resync { format!(", then {extra} gt waiting for the next summon boundary") } else { String::new() },
+                    (run.world.time - w0_pause - t).rem_euclid(100)
+                ));
+            }
+        }
         // (`acts`, the unload/reload act: a load due now, before this gt's other acts; a whole
         // part's entities come back under new numbers, every record of them renumbered)
         let due: Vec<Option<[i32; 4]>> = pending_loads.iter().filter(|(at, _)| *at == t).map(|(_, u)| *u).collect();
@@ -7645,9 +7698,16 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             let (b, ring) = if b[0] == i32::MIN {
                                 let pb = run.world.entity_chunks.unwrap_or([0; 4]);
                                 run.world.entity_chunks = Some([pb[0] - 1, pb[1] - 1, pb[2] + 1, pb[3] + 1]);
-                                freeze32_restore.push((t + n, pb));
+                                if tm.pause_clock.is_some() {
+                                    wt_loads.push((run.world.time + n, pb, Some(pb)));
+                                } else {
+                                    freeze32_restore.push((t + n, pb));
+                                }
                                 (pb, true)
                             } else {
+                                if tm.pause_clock.is_some() {
+                                    wt_loads.push((run.world.time + n, b, None));
+                                }
                                 (b, false)
                             };
                             redsim::reload::unload_some(&mut run.world, b);
@@ -7656,7 +7716,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                             let lv: Vec<i32> = (b[0]..=b[2]).flat_map(|x| (b[1]..=b[3]).map(move |z| (x, z))).map(|(x, z)| run.world.chunk_level(x, z)).collect();
                             let lv_txt = format!("levels {}..{}", lv.iter().min().unwrap_or(&0), lv.iter().max().unwrap_or(&0));
                             drive.borrow_mut().push(format!("act {} unload {},{},{},{}", run.world.time - t_origin, b[0], b[1], b[2], b[3]));
-                            pending_loads.push((t + n, Some(b)));
+                            pending_loads.push((t + n, if tm.pause_clock.is_some() { None } else { Some(b) }));
                             freeze_starts.push((t, n, ring));
                             unload_log.push(format!("slot {c} +{dt}: chunks {},{}..{},{} unforced {n} gt, {lv_txt}{} (the part's chunk box {:?})", b[0], b[1], b[2], b[3], if ring { ", the whole part frozen inside a forced ring (level 32: redstone runs, entities frozen; 33: nothing)" } else { "" }, run.world.entity_chunks));
                         }
@@ -12444,6 +12504,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // (the stand's per-slot state and any hand reset)
     out.extend(stand_log);
     out.extend(unload_log);
+    if let Some((pcx, pcz, resync)) = tm.pause_clock {
+        out.push(format!(
+            "controller pause (an emulated liveness gate: the controller's clock, every emulated timer and pulse, advances only while the column's chunk (loop cell {pcx},{pcz}) ticks entities{}; day-1's gate semantics pending): {}",
+            if resync { "; after a pause it waits for the next summon boundary" } else { "" },
+            if pause_log.is_empty() { "no pause".to_string() } else { pause_log.join("; ") }
+        ));
+    }
     // (cc767b78: each freeze: its start, length, the whole part at level 32 or a chunk box; per
     // liveness clock probe: its period before the freeze, its last edge before it, the detection
     // latency of a gate timing out at the period + 2 gt with no edge, and when its edges came back
