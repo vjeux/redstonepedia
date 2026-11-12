@@ -12,6 +12,7 @@ glass	7	2	0.4	sand + coal / 8 + smelt
 stone	6.5	1.9	0.4	the block and item stone: cobblestone smelted (filler + coal / 8 + smelt), since mining stone without silk touch gives cobblestone and a day-1 player has no silk touch; repeaters, comparators and stone buttons take it
 smooth_stone	12	3.3	0.6	stone smelted a second time: stone + coal / 8 + smelt
 stone_slab	3.25	0.95	0.2	3 stone make 6
+smooth_stone_slab	6	1.65	0.3	3 smooth stone make 6 (the bed siding's slab)
 cobblestone_slab	0.5	0.25	0.1	3 filler make 6 (a bottom one is spawn-proof for golems and hostiles: its top face is not full)
 cobblestone	1	0.5	0.2	filler (the block id the design names)
 dirt	1	0.5	0.2	filler (the block id the design names)

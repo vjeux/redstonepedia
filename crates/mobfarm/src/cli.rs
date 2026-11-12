@@ -553,6 +553,60 @@ pub enum MobfarmCmd {
         #[arg(long)]
         no_settle: bool,
     },
+    /// (onechunk 2026-11-11, vjeux's "Can we have the system in one chunk?") The one-chunk
+    /// column's skeleton (`mobfarm::column`): each --part's committed design, or its cells in a
+    /// kept box, moved into the column's frame and stacked into its tier, nothing wired; prints
+    /// each part's committed box and the chunk lines it crosses, its placed box and where it
+    /// leaves the column, the cells two parts hold, the tiers top down, the column's box and
+    /// blocks³; --out writes the skeleton (`mobfarm bill` and `mobfarm exit` read it).
+    Column {
+        /// A part, NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]: `@` the move from the
+        /// file's frame into the column's, `^` from its committed place to its tier, `#` the
+        /// cells kept (the file's frame, inclusive). Repeatable; the first part keeps its ports.
+        #[arg(long = "part", allow_hyphen_values = true)]
+        parts: Vec<String>,
+        /// A reserved box NAME=x0,y0,z0,x1,y1,z1 (the column's frame): a part not yet laid out for
+        /// the column (a fold its owner re-generates, a run not benched yet); in the fit, clash and
+        /// tier report and the column's box, holding no block. Repeatable.
+        #[arg(long = "reserve", allow_hyphen_values = true)]
+        reserves: Vec<String>,
+        /// A port set on the skeleton, NAME=x,y,z (the judge's `port output` when no kept part
+        /// cell holds one); repeatable, replaces a part's port of that name.
+        #[arg(long = "port", allow_hyphen_values = true)]
+        ports: Vec<String>,
+        /// The column's cells x0,z0,x1,z1 in the frame.
+        #[arg(long, default_value = "-6,-6,9,9", allow_hyphen_values = true)]
+        column: String,
+        /// The chunk lines' phase PX,PZ: lines at x = PX + 16k and z = PZ + 16k (the loop
+        /// frame's at the farm's alignment).
+        #[arg(long, default_value = "-6,-6", allow_hyphen_values = true)]
+        chunk_phase: String,
+        /// Each part's top view as committed in the frame.
+        #[arg(long)]
+        plan: bool,
+        #[arg(long, default_value = "onechunk-skeleton")]
+        name: String,
+        /// Leave every rail junction as stored (by default each is set to the shape its as-placed
+        /// power settles it to and listed, as `mobfarm paste` does).
+        #[arg(long)]
+        no_settle: bool,
+        /// The skeleton's `ground:` (the design y lying at the natural ground layer, in the
+        /// column's frame): `mobfarm bill --terrain` then digs the column in under it.
+        #[arg(long, allow_hyphen_values = true)]
+        ground: Option<i32>,
+        /// Write the skeleton moved by dx,dy,dz (the farm's aligned frame: loop + 6,0,6 puts the
+        /// column in world x, z 0..15, chunk lines every 16 from 0, as the runner, `borders` and
+        /// `paste` read a file); the header says the shift. The report stays in the column's frame.
+        #[arg(long, allow_hyphen_values = true)]
+        out_shift: Option<String>,
+        /// Drop every cart carrying a villager from the written skeleton (zombies and empty carts
+        /// stay), so `mobfarm exit --positions` sets the summoners one pocket at a time.
+        #[arg(long)]
+        no_riders: bool,
+        /// Where the skeleton goes (none: the report alone).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
     QueueLoop {
@@ -2638,6 +2692,46 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
     Ok((c, spec))
 }
 
+/// `mobfarm column --out`: the skeleton written (its `ground:`, moved by `shift` into the
+/// written frame, the header naming both), then every rail junction settled to the shape its
+/// as-placed power gives (paste's default, ironspec Nov 11 15:56), each listed.
+#[allow(clippy::too_many_arguments)]
+fn column_write(version: &str, out: &PathBuf, d: mctas::design::Design, head: &str, f: &crate::column::Frame, ground: Option<i32>, shift: [i32; 3], no_settle: bool) -> Result<()> {
+    let mut d = d;
+    if let Some(g) = ground {
+        d.meta.insert("ground".into(), g.to_string());
+    }
+    let mut d = crate::column::shifted(&d, shift).map_err(|e| anyhow::anyhow!(e))?;
+    let title = format!(
+        "# The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x {}..{} z {}..{}{}.\n",
+        f.x0,
+        f.x1,
+        f.z0,
+        f.z1,
+        if shift == [0, 0, 0] { String::new() } else { format!(", WRITTEN in the frame column + ({},{},{}): every cell below is the column's moved by that", shift[0], shift[1], shift[2]) }
+    );
+    std::fs::write(out, format!("{title}{head}{}", d.to_text()))?;
+    if !no_settle {
+        let (_c, spec) = load(version, out)?;
+        let settled = crate::queue::settled_junctions(&spec).map_err(|e| anyhow::anyhow!(e))?;
+        let mut lines = String::new();
+        for (c, from, to, sig) in &settled {
+            let line = format!("{},{},{}: stored {}, settled to {} (its signal {})", c[0], c[1], c[2], from.name(), to.name(), if *sig { "on" } else { "off" });
+            if let Some(s) = d.blocks.get_mut(c) {
+                *s = s.replace(&format!("shape={}", from.name()), &format!("shape={}", to.name()));
+            }
+            println!("settled: {line}");
+            lines.push_str(&format!("# settled junction: {line}\n"));
+        }
+        println!("junctions settled: {}", settled.len());
+        if !settled.is_empty() {
+            std::fs::write(out, format!("{title}{head}{lines}{}", d.to_text()))?;
+        }
+    }
+    println!("{}", out.display());
+    Ok(())
+}
+
 /// A built run's cells unlike the file, as a problem line (None: the build ended as written).
 fn built_problem(diff: &[String]) -> Option<String> {
     (!diff.is_empty()).then(|| format!("built in order: {} cells unlike the file after the build, e.g. {}", diff.len(), diff.iter().take(4).cloned().collect::<Vec<_>>().join("; ")))
@@ -3170,6 +3264,43 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // runner: the pasted file's chunk-line crossings, its own frame taken as the world's,
             // as `queue-loop-run` takes it)
             println!("{}", crate::borders::summary(&d.blocks, [0, 0], 12));
+        }
+        MobfarmCmd::Column { parts, reserves, ports, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, out } => {
+            let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let reserves: Vec<crate::column::Reserve> = reserves.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let mut given: Vec<(String, [i32; 3])> = Vec::new();
+            for p in &ports {
+                let (k, v) = p.split_once('=').ok_or_else(|| anyhow::anyhow!("--port {p}: NAME=x,y,z"))?;
+                let n: Vec<i32> = v.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(n.len() == 3, "--port {p}: NAME=x,y,z");
+                given.push((k.trim().to_string(), [n[0], n[1], n[2]]));
+            }
+            anyhow::ensure!(!specs.is_empty(), "give at least one --part");
+            let c: Vec<i32> = column.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(c.len() == 4, "--column x0,z0,x1,z1");
+            let ph: Vec<i32> = chunk_phase.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(ph.len() == 2, "--chunk-phase PX,PZ");
+            let f = crate::column::Frame { x0: c[0], z0: c[1], x1: c[2], z1: c[3], phase_x: ph[0], phase_z: ph[1] };
+            let (text, d) = crate::column::run(&specs, &reserves, &given, &f, &name, plan).map_err(|e| anyhow::anyhow!(e))?;
+            print!("{text}");
+            let mut d = d;
+            if no_riders {
+                let n = d.entities.len();
+                d.entities.retain(|e| !(e.kind.ends_with("minecart") && e.nbt.as_deref().is_some_and(|t| t.contains("villager"))));
+                println!("riders dropped: {} (the summoners come from `mobfarm exit --positions`)", n - d.entities.len());
+            }
+            if let Some(out) = out {
+                let head: String = specs.iter().map(|s| format!("# + {}: {} moved by {},{},{} into the frame, then {},{},{} into its tier{}\n", s.name, s.file.display(), s.frame[0], s.frame[1], s.frame[2], s.tier[0], s.tier[1], s.tier[2], s.keep.map(|k| format!(" (its cells {},{},{}..{},{},{} kept)", k.0[0], k.0[1], k.0[2], k.1[0], k.1[1], k.1[2])).unwrap_or_default())).chain(reserves.iter().map(|r| format!("# reserved (no blocks): {} x {}..{} y {}..{} z {}..{}\n", r.name, r.b.0[0], r.b.1[0], r.b.0[1], r.b.1[1], r.b.0[2], r.b.1[2]))).collect();
+                let shift: [i32; 3] = match out_shift.as_deref() {
+                    None => [0, 0, 0],
+                    Some(s) => {
+                        let n: Vec<i32> = s.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(n.len() == 3, "--out-shift dx,dy,dz");
+                        [n[0], n[1], n[2]]
+                    }
+                };
+                column_write(version, &out, d, &head, &f, ground, shift, no_settle)?;
+            }
         }
         MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, row_a, tail_posts, approach, depart_crest, cprime, approach_boost, part_departure, crest_plain_dip, crest_descent, part_handoff, approach_climb_boost, part_allowed, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
