@@ -2105,6 +2105,31 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         to: String,
     },
+    /// (ironspec / farmopt 16:08, one-chunk (d)) The napper's trip, measured on straight test tracks
+    /// in redsim: the descent from the queue tier's divert to the siding's entry and the climb from
+    /// its exit back (powered), each with its ramp at the start, at the end and spread, and the
+    /// sequential night: 21 visits, each its descent and its time inside the siding to the next
+    /// visitor's divert (R, its ridden cart on the slot), the last one's climb, against deep night
+    /// 13,670..22,330 (8,660 gt).
+    TripBench {
+        #[arg(long, default_value_t = 32)]
+        down_cells: i32,
+        #[arg(long, default_value_t = 19)]
+        down_drop: i32,
+        #[arg(long, default_value_t = 32)]
+        up_cells: i32,
+        #[arg(long, default_value_t = 20)]
+        up_climb: i32,
+        /// The cart's speed at the divert (b/t).
+        #[arg(long, default_value_t = 0.2)]
+        entry_speed: f64,
+        /// Its speed leaving the siding's exit (b/t).
+        #[arg(long, default_value_t = 0.4)]
+        exit_speed: f64,
+        /// The siding's time from its entry to its ridden cart on the slot (gt): min,p50,max.
+        #[arg(long, default_value = "236,255,275")]
+        inside: String,
+    },
     SidingCage {
         design: PathBuf,
         #[arg(long)]
@@ -2190,6 +2215,14 @@ pub enum MobfarmCmd {
         force_at: String,
         #[arg(long)]
         no_force: bool,
+        /// (ironspec 15:50) Skip the unintended-power check (on by default for the FC build: every
+        /// watched mechanism's powering neighbours against its designed sources, droppers by
+        /// quasi-connectivity too).
+        #[arg(long)]
+        no_power_check: bool,
+        /// The check's positive control: a redstone block beside V's dropper DA's top for 4 gt at t0+100.
+        #[arg(long)]
+        power_check_control: bool,
         /// Fault injection (ironspec): on this visit (its index in each run, from 0) the napper
         /// cannot sleep and F is not pulsed; the next visits are sent on schedule all the same.
         /// Prints what the dropped visit's cart does and what the next visits do.
@@ -4058,6 +4091,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("trapdoors {}: {:.2},{:.2},{:.2} -> {:.2},{:.2},{:.2} ({d:.2}): {}", if toggle { "flipped" } else { "as built" }, f[0], f[1], f[2], t[0], t[1], t[2], match hit { None => "CLEAR".to_string(), Some(c) => format!("blocked at ({},{},{})", c[0], c[1], c[2]) });
             }
         }
+        MobfarmCmd::TripBench { down_cells, down_drop, up_cells, up_climb, entry_speed, exit_speed, inside } => {
+            let ins: Vec<i64> = inside.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
+            anyhow::ensure!(ins.len() == 3, "--inside min,p50,max");
+            let mut down_max = 0i64;
+            let mut up_max = 0i64;
+            for at in ["start", "spread", "end"] {
+                let (t, v) = crate::siding::trip_leg(down_cells, -down_drop, at, entry_speed, false)?;
+                println!("down: {down_cells} cells, {down_drop} down, the ramp at the {at}, in at {entry_speed} b/t: {t} gt, out at {v:.3} b/t");
+                down_max = down_max.max(t);
+            }
+            for at in ["start", "spread", "end"] {
+                let (t, v) = crate::siding::trip_leg(up_cells, up_climb, at, exit_speed, false)?;
+                println!("up: {up_cells} cells, {up_climb} up (powered), the ramp at the {at}, in at {exit_speed} b/t: {t} gt, out at {v:.3} b/t");
+                up_max = up_max.max(t);
+            }
+            let budget = 22_330 - 13_670;
+            for (lbl, ins_t) in [("min", ins[0]), ("p50", ins[1]), ("max", ins[2])] {
+                let cycle = down_max + ins_t;
+                let total = 21 * cycle + up_max;
+                println!("sequential night, inside {lbl} {ins_t} gt: each visit {down_max} down + {ins_t} inside = {cycle} gt to the next divert; 21 visits and the last climb ({up_max}) {total} gt of {budget}: margin {} gt", budget - total);
+            }
+        }
         MobfarmCmd::SidingCage { design, remove } => {
             let (_c, spec) = load(version, &design)?;
             let rm: Vec<[i32; 3]> = remove.iter().map(|s| {
@@ -4120,7 +4175,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("the pickup gate{}: {}", if pickup_control { " (with the positive control's post)" } else { "" }, if pfails { "FAIL" } else { "PASS" });
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset, b_emul, b_fc, reload_order } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held, fail_no_home, day_visits, force_at, no_force, drop_force, fault, unload, unload_shift, divert_gate, v_reset, b_emul, b_fc, reload_order, no_power_check, power_check_control } => {
             let (c, spec) = load(version, &design)?;
             let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             // (a turned design (its `turn:` line, `siding --turn 2`): the bench's frame turns with
@@ -4210,7 +4265,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&seed) = seeds.get(k) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta, fc: fc_meta });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: fault_opt.clone(), shift_x, shift_z, turn, unload: unload_one.clone(), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta, fc: fc_meta, power_check: !no_power_check, power_control: power_check_control });
                             out.lock().unwrap().push((seed, r));
                         });
                     }
@@ -4290,7 +4345,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         sc.spawn(|| loop {
                             let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(&(c, seed)) = work.get(j) else { break };
-                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta, fc: fc_meta });
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: false, max_visits: visits, wired, trace_window: tw, launch, drive: false, placement: crate::placing::Placement::Judge, plan: plan.clone(), release_held, fail_no_home, day_visits, force, drop_force, fault: None, shift_x: mx, shift_z: mz, turn, unload: Some(cfgs[c].1.clone()), divert_gate, v_reset, b_emul, b_fc, declared: declared.clone(), flights: flights.clone(), resync: resync_meta, fc: fc_meta, power_check: !no_power_check, power_control: power_check_control });
                             out.lock().unwrap().push((c, seed, r));
                         });
                     }
@@ -4610,6 +4665,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("empty carts on the slot: {empty_slot} cart-ticks{}", if empty_slot > 0 { " (FAIL)" } else { "" });
                     let tf: usize = oks.iter().map(|r| r.t_flips_under_cart.len()).sum();
                     println!("the T flipped with a cart in its cell: {tf}{}", if tf > 0 { " (FAIL)" } else { "" });
+                    let mut pb: std::collections::BTreeMap<String, (u32, i64)> = Default::default();
+                    for r in oks.iter() {
+                        for (k, (n, t)) in &r.power_bad {
+                            let e = pb.entry(k.clone()).or_insert((0, *t));
+                            e.0 += n;
+                            e.1 = e.1.min(*t);
+                        }
+                    }
+                    if no_power_check {
+                        println!("unintended power (ironspec 15:50): not checked (--no-power-check)");
+                    } else {
+                        println!("unintended power (ironspec 15:50): {} kinds{}", pb.len(), if pb.is_empty() { String::new() } else { format!(" (FAIL): {}", pb.iter().take(6).map(|(k, (n, t))| format!("{k}: {n} gt, first t0+{t}")).collect::<Vec<_>>().join("; ")) });
+                    }
+                    for (lbl, ridden) in [("ridden", true), ("empty", false)] {
+                        let mut ms: Vec<i64> = vs.iter().flat_map(|v| v.t_margins.iter().filter(|m| m.1 == ridden).map(|m| m.0)).collect();
+                        ms.sort();
+                        if !ms.is_empty() {
+                            let shapes: std::collections::BTreeMap<String, usize> = vs.iter().flat_map(|v| v.t_margins.iter().filter(|m| m.1 == ridden).map(|m| m.2.clone())).fold(Default::default(), |mut a, s| { *a.entry(s).or_default() += 1; a });
+                            println!("T margin (ironspec 15:12, {lbl} carts entering the T from the bed line): least {} gt, p50 {}, over {}{}; the T's shape then {:?}", ms[0], ms[ms.len() / 2], ms.len(), if ridden && ms[0] < 2 { " (FAIL: under 2)" } else { "" }, shapes);
+                        }
+                    }
                     if let Some((kind, _)) = &fault_opt {
                         if kind.starts_with("empty@") {
                             for v in vs.iter().filter(|v| v.faulted) {

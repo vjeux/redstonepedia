@@ -177,7 +177,7 @@ impl Frame {
 
 /// [`layout`] in a frame (turned and shifted).
 pub fn layout_fr(fr: &Frame) -> Siding {
-    let l = layout();
+    let l = layout_placed();
     let z = fr.pt(l.zombie[0], l.zombie[1], l.zombie[2]);
     Siding {
         entry: fr.cell(l.entry),
@@ -222,6 +222,13 @@ pub fn retry() -> bool {
 /// The free-cell sensor (MCTAS_SIDING_FC=1, on the retry build): see `wire_b`.
 pub fn fc() -> bool {
     retry() && std::env::var("MCTAS_SIDING_FC").is_ok_and(|v| v == "1")
+}
+
+/// (the FC build, ironspec 14:59) Plain ascending rails west of ARR on the bench's approach: an
+/// empty cart sent back out the entry stops on them and rolls back in (MCTAS_SIDING_RISE, default 2;
+/// 0 elsewhere). The real approach is day-1's.
+pub fn entry_rise() -> i32 {
+    if fc() { std::env::var("MCTAS_SIDING_RISE").ok().and_then(|v| v.parse().ok()).unwrap_or(2) } else { 0 }
 }
 
 /// [`layout`] moved `dx` east and `dz` south (the bench's world shifted so the loop's chunk lines
@@ -272,17 +279,24 @@ pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     // three always-on boosters
     // (the stop a conductor, which a stationary cart on a powered rail is kicked away from; glass
     // over it, no golem floor)
+    // (the FC build's re-board, ironspec 14:59: the approach rises west of ARR by `entry_rise()`
+    // plain ascending rails, so an empty cart sent back out the entry stops on the rise and rolls
+    // back in; the bench's flat run and launcher sit on top of it)
+    let r = entry_rise();
     if bench {
-        put(b, [-10, 0, 0], "stone")?;
-        put(b, [-10, 1, 0], "glass")?;
+        put(b, [-10, r, 0], "stone")?;
+        put(b, [-10, r + 1, 0], "glass")?;
         for x in -9..=-7 {
-            put(b, [x, 0, 0], "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
-            put(b, [x, -1, 0], "redstone_block")?;
+            put(b, [x, r, 0], "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
+            put(b, [x, r - 1, 0], "redstone_block")?;
         }
     }
     for x in if bench { -6 } else { 0 }..=0 {
-        put(b, [x, 0, 0], &rail("east_west"))?;
-        put(b, [x, -1, 0], "glass")?;
+        // (x -2 up: the rise, then flat)
+        let k = (-1 - x).clamp(0, r);
+        let up = x <= -2 && -1 - x <= r;
+        put(b, [x, if up { k - 1 } else { k }, 0], &rail(if up { "ascending_west" } else { "east_west" }))?;
+        put(b, [x, if up { k - 2 } else { k - 1 }, 0], "glass")?;
     }
     // the T, idle powered (entry -> bed line)
     put(b, at(s.tee), &rail("south_west"))?;
@@ -442,7 +456,10 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     };
     // the sinks: torches under the T's support, the activator's support, the hatch's control
     let torch = "redstone_torch[lit=true]";
-    if b.d.meta.get("turn").is_some_and(|t| t == "2" || t == "3") {
+    if fc() && b.d.meta.get("turn").is_some_and(|t| t == "2" || t == "3") {
+        // (the FC build half-turned, ironspec 15:12: the T's one control is the seat string's line,
+        // placed with the shift (`seat_t`): no Ta, no inverter)
+    } else if b.d.meta.get("turn").is_some_and(|t| t == "2" || t == "3") {
         // (the half turn, day-1's (c) 2026-11-11: a plain rail at a T picks its curve by a fixed
         // direction order (RailState.place: the last matching curve wins), so turned 180 degrees
         // the T's polarity inverts: powered is the bed line to the exit, unpowered the entry to
@@ -554,25 +571,20 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     // neither H nor V: the divert holds)
     let rd: u8 = std::env::var("MCTAS_SIDING_RDELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(if slong { 4 } else { 1 });
     if fc() {
-        // (the ridden signal and R in one, ironspec 12:05 (no rider's eye inside glass): a north-south
-        // tripwire at rider height over the exit branch, (3,1,0), hooks (3,1,-1) on glass (3,1,-2) and
-        // (3,1,1) on (3,1,2); a seated rider's box crosses its band (1.06-1.16), an empty cart (0.76)
-        // does not, and no standing villager reaches the exit branch. The north hook feeds dust
-        // (2,1,-1) on glass (2,0,-1), down north (2,0,-2) into the R line (2,0,-3), clear of L's hook)
-        put(b, [3, 1, 0], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
-        put(b, [3, 1, -1], "tripwire_hook[attached=true,facing=south,powered=false]")?;
-        put(b, [3, 1, -2], "glass")?;
-        put(b, [3, 1, 1], "tripwire_hook[attached=true,facing=north,powered=false]")?;
-        // (stone, not glass: dust on glass never powers down a step)
-        put(b, [2, 0, -1], "stone")?;
-        put(b, [2, 1, -1], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-        // (the corner re-layout, ironspec 13:45: R runs north at y 1 to z -3 and west along z -4,
-        // freeing z -2..-3 at y 0 for not-FC into the T; a branch (-1,0,-3) on (-1,-1,-3) fires
-        // DB; stone at (1,1,-2) and (-1,1,-3) cuts the diagonals between R and not-FC)
-        on(b, [2, 1, -2], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-        on(b, [2, 1, -3], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
+        // (R := L's rise, ironspec 15:12: L's string over the slot sees the ridden cart arrive at the
+        // slot (a rider seen leaving, past the T; an empty cart never raises it), so R is L: L's
+        // north hook's block (4,0,-2) under dust (4,1,-2), west (3,1,-2) on stone into the R line's
+        // head (2,1,-2), north at y 1 to (2,1,-3), down to z -4 and west along it to N2; a branch
+        // (-1,0,-3) on (-1,-1,-3) fires DB; a repeater (-3,0,-4) restores the line past DB's branch.
+        // R's own string over the exit branch is gone: its south hook's cell (3,1,1) held the seat
+        // string's east anchor)
+        put(b, [4, 1, -2], dust)?;
+        let rep_e = rep("east", 1);
+        on(b, [3, 1, -2], dust)?;
+        on(b, [2, 1, -2], dust)?;
+        on(b, [2, 1, -3], dust)?;
         for x in -4..=2 {
-            on(b, [x, 0, -4], dust)?;
+            on(b, [x, 0, -4], if x == -3 { rep_e.as_str() } else { dust })?;
         }
         on(b, [-5, -1, -4], dust)?;
         on(b, [-6, -2, -4], dust)?;
@@ -580,37 +592,6 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
         on(b, [-7, -3, -3], dust)?;
         on(b, [-7, -3, -2], &rep("north", 1))?;
         on(b, [-1, 0, -3], dust)?;
-        put(b, [1, 1, -2], "stone")?;
-        put(b, [-1, 1, -3], "stone")?;
-        // (glass caps on those two stones' tops: golem spots otherwise)
-        put(b, [1, 2, -2], "glass")?;
-        put(b, [-1, 2, -3], "glass")?;
-        // (the T's FC term: not-FC from the torch (-2,1,2) up through the stone over it (-2,2,2),
-        // dust north along y 3 over the entry (-2,3,2..-4), east (-1,3,-4), down (0,2,-4), (0,1,-3),
-        // (0,0,-2) on glass, east (1,0,-2) into a repeater (1,0,-1) facing the T: the T powered
-        // (entry-bed line) unless H and FC, so a departing cart goes to the exit only with its
-        // rider; an empty one goes back out the entry)
-        put(b, [-2, 2, 2], "stone")?;
-        for z in -4..=2 {
-            if z != 2 {
-                put(b, [-2, 2, z], "stone")?;
-            }
-            put(b, [-2, 3, z], dust)?;
-        }
-        on(b, [-1, 3, -4], dust)?;
-        on(b, [0, 2, -4], dust)?;
-        on(b, [0, 1, -3], dust)?;
-        put(b, [0, -1, -2], "glass")?;
-        put(b, [0, 0, -2], dust)?;
-        on(b, [1, 0, -2], dust)?;
-        // (not on the half-turned copy yet: its T is driven through the inverter, where the FC term
-        // has to reach W's block (1,-2,1) instead; until then the turned copy has no re-board)
-        // (MCTAS_SIDING_TFC=0: left out, the forced-empty rows' positive control)
-        if !b.d.meta.get("turn").is_some_and(|t| t == "2" || t == "3") && std::env::var("MCTAS_SIDING_TFC").map_or(true, |v| v != "0") {
-            on(b, [1, 0, -1], &rep("north", 1))?;
-        } else if std::env::var("MCTAS_SIDING_TFC").is_ok_and(|v| v == "0") {
-            b.d.meta.insert("no-tfc".into(), "1 (--no-tfc: the T has no FC term, the forced-empty rows' positive control)".into());
-        }
     } else {
         swap(b, [3, 0, 0], "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
         on(b, [3, 0, -1], &rep("south", rd))?;
@@ -720,7 +701,7 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
         put(b, [1, 2, 1], "stone_pressure_plate[powered=false]")?;
     }
     // glass caps on the circuit's solid tops a golem could stand on (N1, N2, BK, the hook's stone)
-    for c in [[-5, -2, 2], [-7, -2, -1], [2, -1, kz], [4, 1, -2]] {
+    for c in [[-5, -2, 2], [-7, -2, -1], [2, -1, kz], [4, 1, -2]].into_iter().filter(|c| !(fc() && *c == [4, 1, -2])) {
         put(b, c, "glass")?;
     }
     // the build's listed last steps (brief farm-iron-carousel, "built in order"): the two torches
@@ -1369,11 +1350,13 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
         let kz = layout().park.z;
         let mut last: Vec<BlockPos> = [[0, 0, -1], [0, 0, -2], [-5, -2, 2], [-7, -2, -1], [2, -1, kz], [4, 1, -2]].iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
         last.extend([BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, kz)]);
-        if turn == 2 || turn == 3 {
+        if (turn == 2 || turn == 3) && !fc() {
             // (the turned copy's T inverter, W then Ta', last: placed early, Ta' lights at its
             // first update and powers the T at rest until W is placed)
             last.extend([BlockPos::new(1, -3, 1), BlockPos::new(1, -2, 0)]);
         }
+        // (the FC build: the list in the placed frame, its south half two cells south)
+        let last: Vec<BlockPos> = last.into_iter().map(|c| BlockPos::new(c.x, c.y, shz(c.z))).collect();
         b.d.meta.insert("build".into(), crate::placing::BuildPlan { last, fills_last: true }.meta());
     }
     if give_up == GiveUp::Timer {
@@ -1411,6 +1394,15 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
         put(&mut b, [zx, 3, -23], "oak_leaves[distance=1,persistent=true,waterlogged=false]")?;
         b.entity("oak_boat", [zx as f64 + 0.5, 0.0, -22.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
     }
+    // (ironspec 15:12, option 2: the FC build's bed line two rails longer and its T on the seat
+    // string; every interface cell (entry, exit, release, force) stays put)
+    if fc() {
+        shift_south(&mut b)?;
+        if wired {
+            seat_t(&mut b, turn == 2 || turn == 3)?;
+        }
+    }
+    let s = layout_placed();
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     // (the interface cells: a mob farm takes no input port)
     b.d.meta.insert("siding".into(), format!("v1{}{} entry={},{},{} exit={},{},{} release={},{},{}{}", if wired { " wired" } else { "" }, if alone { " alone" } else { "" }, s.entry.x, s.entry.y, s.entry.z, s.exit.x, s.exit.y, s.exit.z, s.release.x, s.release.y, s.release.z, if give_up == GiveUp::Scheduler { format!(" force={},{},{}", FORCE_CELL[0], FORCE_CELL[1], FORCE_CELL[2]) } else { String::new() }));
@@ -1438,6 +1430,230 @@ pub fn design_turned(wired: bool, alone: bool, exit_brake: bool, cage_only: bool
     ]))
 }
 
+/// (ironspec 15:12, option 2) The FC build's bed line two plain rails longer, between the T and
+/// the booster: the generator builds in the old frame and `shift_south` moves every cell at z 1 or
+/// more two cells south, except L's south hook and its line (L's string stays over the slot); the
+/// lines crossing the z 0|1 seam get two dust (the H line, the latch's D1 and D2, the slow line at
+/// x -3, L's line at x 6). Off the FC build: unchanged.
+pub fn shz(z: i32) -> i32 {
+    if fc() && z >= 1 { z + 2 } else { z }
+}
+
+/// [`layout`] as placed (the FC build's south half two cells south, [`shz`]).
+pub fn layout_placed() -> Siding {
+    let mut s = layout();
+    if fc() {
+        if std::env::var("MCTAS_SIDING_BOOST_N1").is_ok_and(|v| v == "1") {
+            s.boost.z = 1;
+        } else {
+            s.boost.z = shz(s.boost.z);
+        }
+        for p in [&mut s.free_cell, &mut s.activator_rail, &mut s.activator, &mut s.park_rail, &mut s.park, &mut s.stop, &mut s.bed_head, &mut s.bed_foot, &mut s.hatch, &mut s.hatch_ctrl] {
+            p.z = shz(p.z);
+        }
+        s.zombie[2] += 2.0;
+    }
+    s
+}
+
+fn shift_south(b: &mut Builder) -> Result<()> {
+    let stay: [[i32; 3]; 6] = [[4, 0, 1], [5, 0, 1], [6, 0, 1], [5, -1, 1], [6, -1, 1], [4, 0, 2]];
+    let moving: Vec<[i32; 3]> = b.d.blocks.keys().filter(|c| c[2] >= 1 && !stay.contains(c)).copied().collect();
+    let mut moved: Vec<([i32; 3], String)> = Vec::new();
+    for c in &moving {
+        let st = b.d.blocks.remove(c).expect("listed");
+        moved.push(([c[0], c[1], c[2] + 2], st));
+    }
+    for (c, st) in moved {
+        ensure!(b.d.blocks.insert(c, st).is_none(), "the shift lands on a kept cell at {c:?}");
+    }
+    let bes: Vec<[i32; 3]> = b.d.block_entities.keys().filter(|c| c[2] >= 1 && !stay.contains(c)).copied().collect();
+    for c in bes {
+        let v = b.d.block_entities.remove(&c).expect("listed");
+        b.d.block_entities.insert([c[0], c[1], c[2] + 2], v);
+    }
+    for e in b.d.entities.iter_mut() {
+        if e.pos[2] >= 1.0 && e.pos[2] < 15.0 {
+            e.pos[2] += 2.0;
+        }
+    }
+    // (the seam: each line crossing z 0|1 two dust longer, on stone)
+    let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+    for (x, y) in [(-3, -5), (-1, -3), (-5, -3), (-7, -3)] {
+        for z in [1, 2] {
+            put(b, [x, y - 1, z], "stone")?;
+            put(b, [x, y, z], dust)?;
+        }
+    }
+    for z in [2, 3] {
+        put(b, [6, -1, z], "stone")?;
+        put(b, [6, 0, z], dust)?;
+    }
+    // (MCTAS_SIDING_BOOST_N1=1: the booster on the first new rail instead (slower under the seat
+    // string, the returning cart boosted at once); it needs the T's latch: the raw hook's 10-gt
+    // hold runs out under a slow ridden cart)
+    let boost_n1 = std::env::var("MCTAS_SIDING_BOOST_N1").is_ok_and(|v| v == "1");
+    if !boost_n1 {
+        for z in [1, 2] {
+            put(b, [1, -1, z], "glass")?;
+            put(b, [1, 0, z], "rail[shape=north_south,waterlogged=false]")?;
+        }
+        return Ok(());
+    }
+    // (the booster moved to the first new rail, (1,0,1), right after the T, on its redstone block:
+    // the returning empty cart is boosted straight into the bed line, the departing cart is slower
+    // under the seat string; the second new rail (1,0,2) and the booster's old cell (1,0,3), under
+    // the cap, plain on glass)
+    ensure!(b.d.blocks.remove(&[1, 0, 3]).is_some_and(|s| s.contains("powered_rail")), "the booster, shifted to (1,0,3)");
+    b.d.blocks.remove(&[1, -1, 3]);
+    put(b, [1, -1, 1], "redstone_block")?;
+    put(b, [1, 0, 1], "powered_rail[powered=true,shape=north_south,waterlogged=false]")?;
+    // (the free cell (1,0,4) plain: off the booster's line now, a powered rail there would brake
+    // every cart)
+    swap(b, [1, 0, 4], "rail[shape=north_south,waterlogged=false]")?;
+    for z in [2, 3] {
+        put(b, [1, -1, z], "glass")?;
+        put(b, [1, 0, z], "rail[shape=north_south,waterlogged=false]")?;
+    }
+    Ok(())
+}
+
+/// (ironspec 15:12) The T's control on the FC build, placed after [`shift_south`]: a seat string at
+/// rider height over the second new rail, (1,1,2), unreachable on foot (the booster's cap keeps
+/// standing villagers off the booster, the only way in): a seated rider's box crosses its band
+/// (1.06-1.16), an empty cart (0.76) does not. Its west hook (0,1,2) powers its block (-1,1,2);
+/// dust on it, (-1,2,2), up north onto an overpass at y 3 over the entry, (-1,3,1..-4) on stone,
+/// down east (0,2,-4), (0,1,-3), (0,0,-2) on glass. Unturned (the T powered is the entry-bed
+/// line): that dust points south into a stone (0,0,-1) whose wall torch (1,0,-1) powers the T
+/// unless a rider passes (Ta, not-H, under its support, keeps it at the entry through the arrival
+/// too). Half-turned (powered is the bed line to the exit): on east (1,0,-2) and south (1,0,-1)
+/// into the T, the T's one control. Stone at (-1,1,-3) and (1,1,-2) (glass-capped) cuts the
+/// diagonals to the R line. An empty cart trips nothing: the T stays at the entry and it goes back
+/// out. `--no-tfc` leaves the last element out (the forced-empty rows' positive control).
+fn seat_t(b: &mut Builder, turned: bool) -> Result<()> {
+    let dust = "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+    let on = |b: &mut Builder, c: [i32; 3], part: &str| -> Result<()> {
+        put(b, [c[0], c[1] - 1, c[2]], "stone")?;
+        put(b, c, part)
+    };
+    let tfc = std::env::var("MCTAS_SIDING_TFC").map_or(true, |v| v != "0");
+    if !tfc {
+        b.d.meta.insert("no-tfc".into(), "1 (--no-tfc: the T has no seat term, the forced-empty rows' positive control)".into());
+    }
+    put(b, [1, 1, 2], "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]")?;
+    put(b, [0, 1, 2], "tripwire_hook[attached=true,facing=east,powered=false]")?;
+    put(b, [2, 1, 2], "tripwire_hook[attached=true,facing=west,powered=false]")?;
+    if turned {
+        put(b, [3, 1, 2], "glass")?;
+        put(b, [-1, 1, 2], "stone")?;
+        put(b, [-1, 2, 2], dust)?;
+        for z in -4..=1 {
+            on(b, [-1, 3, z], dust)?;
+        }
+        on(b, [0, 2, -4], dust)?;
+        on(b, [0, 1, -3], dust)?;
+        put(b, [0, -1, -2], "glass")?;
+        put(b, [0, 0, -2], dust)?;
+        put(b, [-1, 1, -3], "stone")?;
+        put(b, [1, 1, -2], "stone")?;
+        put(b, [1, 2, -2], "glass")?;
+        on(b, [1, 0, -2], dust)?;
+        if tfc {
+            on(b, [1, 0, -1], dust)?;
+        }
+    } else {
+        // (unturned: the east hook's block (3,1,2) feeds dust down (3,0,2), (2,-1,2), (1,-2,2),
+        // (1,-3,1), the last pointing north into Ta's block (1,-3,0): Ta, the T's torch, is
+        // not-SEAT. H's repeater into Ta's block goes (but stays with --no-tfc: the T's old
+        // not-H drive, the positive control))
+        put(b, [-1, 1, 2], "glass")?;
+        put(b, [3, 1, 2], "stone")?;
+        put(b, [3, 2, 2], "glass")?;
+        on(b, [3, 0, 2], dust)?;
+        on(b, [2, -1, 2], dust)?;
+        on(b, [1, -2, 2], dust)?;
+        if tfc {
+            on(b, [1, -3, 1], dust)?;
+            b.d.blocks.remove(&[0, -3, 0]);
+        }
+    }
+    Ok(())
+}
+
+/// (ironspec / farmopt 16:08, one-chunk (d)) One leg of the napper's trip on a straight test track
+/// in redsim: `cells` rails east from x 0, `rise` of them a ramp (descending east when `rise` < 0,
+/// climbing east when > 0) placed at `at` ("start", "end" or "spread" evenly), the climb on powered
+/// rails held on by redstone blocks under them, the descent and the flats plain on glass (`powered`:
+/// every cell powered instead). A cart with a villager in it starts at the west end moving east at
+/// `speed` b/t. Returns the ticks until its centre passes the east end and its horizontal speed
+/// there (b/t), or an error if it stops or takes over 4000 gt.
+pub fn trip_leg(cells: i32, rise: i32, at: &str, speed: f64, powered: bool) -> Result<(i64, f64)> {
+    ensure!(cells >= 2 && rise.abs() < cells, "trip leg: {cells} cells cannot hold a ramp of {rise}");
+    let n = rise.unsigned_abs() as i32;
+    // the ramp's cells: which x are slopes
+    let slope_at: Vec<bool> = (0..cells)
+        .map(|x| match at {
+            "start" => x >= 1 && x <= n,
+            "end" => x >= cells - 1 - n && x < cells - 1,
+            _ => n > 0 && ((x * n) / (cells - 1)) != (((x + 1) * n) / (cells - 1)) && x < cells - 1,
+        })
+        .collect();
+    ensure!(slope_at.iter().filter(|s| **s).count() as i32 == n, "trip leg: {n} slopes not placed ({at})");
+    let mut b = crate::layouts::Builder::new("trip-leg");
+    let mut y = 0;
+    let mut start_y = 0;
+    for x in 0..cells {
+        let (shape, ry) = if slope_at[x as usize] {
+            if rise < 0 {
+                y -= 1;
+                ("ascending_west", y)
+            } else {
+                let ry = y;
+                y += 1;
+                ("ascending_east", ry)
+            }
+        } else {
+            ("east_west", y)
+        };
+        if x == 0 {
+            start_y = ry;
+        }
+        let on = powered || (rise > 0);
+        let rail = if on { format!("powered_rail[powered=true,shape={shape},waterlogged=false]") } else { format!("rail[shape={shape},waterlogged=false]") };
+        put(&mut b, [x, ry, 0], &rail)?;
+        put(&mut b, [x, ry - 1, 0], if on { "redstone_block" } else { "glass" })?;
+    }
+    // (a stop past the east end so the cart is not run off the world)
+    put(&mut b, [cells, y, 0], "glass")?;
+    b.entity("minecart", [0.5, start_y as f64 + 0.0625, 0.5], Some("{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}"));
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [cells + 3, y + 1, 0]);
+    let text = b.text(&["trip leg test track"]);
+    let path = std::env::temp_dir().join(format!("mctas-trip-leg-{}-{cells}-{rise}-{at}.txt", std::process::id()));
+    std::fs::write(&path, text)?;
+    let c = circuit::Circuit::load(&path)?;
+    let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow::anyhow!(e))?;
+    let _ = std::fs::remove_file(&path);
+    let mut run = crate::station::world_of(&spec, 1).map_err(|e| anyhow::anyhow!(e))?;
+    let cart = run.world.entities.list.iter().position(|e| matches!(e.kind, EntityKind::Minecart(_))).ok_or_else(|| anyhow::anyhow!("trip leg: no cart"))?;
+    run.world.entities.list[cart].delta_movement = Vec3::new(speed, 0.0, 0.0);
+    let x0 = run.world.entities.list[cart].pos.x;
+    let mut last_x = x0;
+    let mut still = 0;
+    for t in 1..=4000i64 {
+        run.tick();
+        let e = &run.world.entities.list[cart];
+        let x = e.pos.x;
+        if x >= cells as f64 - 0.5 + (x0 - 0.5) {
+            return Ok((t, x - last_x));
+        }
+        still = if (x - last_x).abs() < 1e-4 { still + 1 } else { 0 };
+        ensure!(still < 40, "trip leg: the cart stopped at x {:.2} (cell {}) after {t} gt", x - x0 + 0.5, (x - x0 + 0.5).floor());
+        last_x = x;
+    }
+    anyhow::bail!("trip leg: over 4000 gt")
+}
+
 /// The siding's declared states at rest (`declared:`, [`crate::declared`]): every rail of the
 /// siding by its id (the T a plain rail, the detectors detector rails), the always-on boosters
 /// powered (`!`), the park rail unpowered (the slot's braked rail by its id only: its power is the
@@ -1460,7 +1676,7 @@ fn declared_of(b: &Builder, s: &Siding, wired: bool) -> Vec<crate::declared::Dec
         cells.push((BlockPos::new(s.free_cell.x, s.park_rail.y, z), &[], false));
     }
     cells.extend([(s.park_rail, off, false), (BlockPos::new(2, 0, 0), &[][..], false), (BlockPos::new(3, 0, 0), &[][..], false), (s.slot_rails[0], &[][..], false), (s.slot_rails[1], &[][..], false), (s.exit, &[][..], false)]);
-    cells.push((if fc() { BlockPos::new(3, 7, 3) } else { s.hatch }, &[("open", "true")], false));
+    cells.push((if fc() { BlockPos::new(3, 7, shz(3)) } else { s.hatch }, &[("open", "true")], false));
     let mut out: Vec<Decl> = cells.iter().filter_map(|(c, p, a)| id_at(*c).map(|id| Decl::new([c.x, c.y, c.z], &id, p, *a))).collect();
     // (the bench's own: the launcher's boosters, the approach and run-out rails, the hold's brakes)
     let mut extra: Vec<(BlockPos, String)> = b.d.blocks.iter().filter(|(c, st)| st.contains("rail") && !out.iter().any(|d| d.cell == **c)).map(|(c, st)| (BlockPos::new(c[0], c[1], c[2]), st.clone())).collect();
@@ -1496,7 +1712,7 @@ pub fn cage(spec: &FarmSpec, toggle: bool, remove: &[[i32; 3]]) -> Result<Vec<([
     if toggle {
         let o = fr.blk(-8, -8, -6);
         for y in 0..14 {
-            for z in 0..17 {
+            for z in 0..19 {
                 for x in 0..16 {
                     let p = BlockPos::new(o.x + x, o.y + y, o.z + z);
                     let st = w.get(p).to_string();
@@ -1532,7 +1748,7 @@ pub fn cage(spec: &FarmSpec, toggle: bool, remove: &[[i32; 3]]) -> Result<Vec<([
     let mut parent: std::collections::BTreeMap<[i32; 3], [i32; 3]> = Default::default();
     // (the tight cage (FC): the napper stands only on the free cell, the seed; the corridor build
     // seeded the T and the booster too)
-    let seeds: Vec<[i32; 3]> = if fc() { vec![[1, 0, 2]] } else { vec![[1, 0, 0], [1, 0, 1], [1, 0, 2]] };
+    let seeds: Vec<[i32; 3]> = if fc() { vec![[1, 0, shz(2)]] } else { vec![[1, 0, 0], [1, 0, 1], [1, 0, 2]] };
     for c in seeds {
         let p = fr.blk(c[0], c[1], c[2]);
         if let Some(y) = land(w, p.x as f64 + 0.5, p.y as f64 + 0.5, p.z as f64 + 0.5) {
@@ -1589,7 +1805,7 @@ pub fn sight(spec: &FarmSpec, from: &[[f64; 3]], to: [f64; 3]) -> Result<Vec<(bo
         if toggle {
             let o = fr.blk(-8, -8, -6);
             for y in 0..18 {
-                for z in 0..17 {
+                for z in 0..19 {
                     for x in 0..16 {
                         let p = BlockPos::new(o.x + x, o.y + y, o.z + z);
                         let st = w.get(p).to_string();
@@ -1631,8 +1847,8 @@ pub fn check(spec: &FarmSpec, turn: i32) -> Result<Vec<String>, String> {
     let run = crate::station::world_of(spec, 1)?;
     let w = &run.world;
     let mut cells: Vec<BlockPos> = vec![s.entry, s.tee, s.boost, s.free_cell, s.activator_rail];
-    for z in 4..=layout().park_rail.z {
-        cells.push(fr.blk(1, layout().park_rail.y, z));
+    for z in layout_placed().activator_rail.z + 1..=layout_placed().park_rail.z {
+        cells.push(fr.blk(1, layout_placed().park_rail.y, z));
     }
     cells.extend([fr.blk(2, 0, 0), fr.blk(3, 0, 0), s.slot_rails[0], s.slot_rails[1], s.exit]);
     let mut out = Vec::new();
@@ -1647,7 +1863,7 @@ pub fn check(spec: &FarmSpec, turn: i32) -> Result<Vec<String>, String> {
     out.push(format!("strays: {} {:?}", strays.len(), strays.iter().take(12).collect::<Vec<_>>()));
     // the siding's own blocks (not the bench's hold, approach and run-out) and its box, judged in
     // the siding's own frame
-    let ex = layout().exit.x;
+    let ex = layout_placed().exit.x;
     let own: Vec<&(BlockPos, Block)> = spec
         .blocks
         .iter()
@@ -1743,6 +1959,11 @@ pub struct BenchOpts {
     /// visit slot, sent or held back, pulses the R line (DB and the H latch's reset, as R does) at
     /// its arrival time + this many gt.
     pub v_reset: Option<i64>,
+    /// (ironspec 15:50) The unintended-power check on the FC build (default on; `--no-power-check`)
+    /// and its positive control (`--power-check-control`: a redstone block set for 4 gt beside the
+    /// top of V's dropper DA at t0+100, which powers DA by quasi-connectivity).
+    pub power_check: bool,
+    pub power_control: bool,
     /// Design (b) emulated on the wired siding (ironspec's emulation-first rule): the bench drives
     /// the park support itself (the design's kick torch K taken out) by (b)'s rule, on the
     /// siding's real latch H, T, hatch, F gate and slot detector L: the kick while H, the slot
@@ -1920,6 +2141,11 @@ pub struct VisitRec {
     pub slot_empty_ticks: u32,
     /// The visit the fault injection acted on.
     pub faulted: bool,
+    /// (ironspec 15:12) Each time the cart's box entered the T's cell from the bed line: the ticks
+    /// since the T's last shape change, a rider aboard, the T's shape then.
+    pub t_margins: Vec<(i64, bool, String)>,
+    pub in_tbox: bool,
+    pub last_lz: f64,
     /// Gt from the last collision change in the box (any visit's) to this napper's lie-down.
     pub coll_gap: Option<i64>,
     /// FC's first rise after F (the napper standing on its free cell).
@@ -1976,6 +2202,9 @@ pub struct BenchReport {
     pub empty_set: Option<i64>,
     /// Ticks the T changed shape with a cart's centre in its cell.
     pub t_flips_under_cart: Vec<i64>,
+    /// (ironspec 15:50) The unintended-power check's findings: "mechanism cell <- source" with
+    /// its tick count and first tick.
+    pub power_bad: std::collections::BTreeMap<String, (u32, i64)>,
     /// The declared states' mismatches (at the start, and the always-on cells at t0 + 20).
     pub declared_bad: Vec<String>,
     /// ironspec's invariant (2026-11-11 02:41): the windows a villager is calm in REST with the
@@ -2246,9 +2475,32 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut coll_last: i64 = i64::MIN / 2;
     // (ironspec: the T never flips with a cart in its cell; its shape last tick)
     let mut t_shape_prev = run.world.get(fr.blk(1, 0, 0)).to_string();
+    // (ironspec 15:12: the T's last shape change, for the margin to each cart's box entering its cell)
+    let mut t_changed_at: i64 = i64::MIN / 2;
+    // (the unintended-power check's watch list, FC build, placed frame: name, cell, its designed
+    // sources, checked by quasi-connectivity too)
+    let turned_fc = matches!(bo.turn % 4, 2 | 3);
+    let watches: Vec<(&str, [i32; 3], Vec<[i32; 3]>, bool)> = if bo.fc {
+        vec![
+            ("T", [1, 0, 0], if turned_fc { vec![[1, 0, -1]] } else { vec![[1, -1, 0]] }, false),
+            ("DA", [-1, -1, -1], vec![[-1, -1, 0]], true),
+            ("DB", [-1, -1, -2], vec![[-1, -1, -3]], true),
+            ("activator", [1, -1, 5], vec![[1, -2, 5]], false),
+            ("cap", [1, 1, 3], vec![], false),
+            ("cap2", [1, 0, 5], vec![], false),
+            ("cap3", [1, 0, 6], vec![], false),
+            ("hatch", [3, 7, 5], vec![[3, 7, 6]], false),
+            ("park", [1, -1, 7], vec![[1, -2, 7]], false),
+            ("booster", [1, 0, layout_placed().boost.z], vec![[1, -1, layout_placed().boost.z]], false),
+            ("slot", [4, -1, 0], vec![[4, -2, 0]], false),
+        ]
+    } else {
+        vec![]
+    };
+    let mut ctl_rest = String::from("minecraft:air");
     for x in -7..=6 {
         for y in -7..=10 {
-            for z in -4..=9 {
+            for z in -4..=11 {
                 let c = fr.blk(x, y, z);
                 let st = run.world.get(c).to_string();
                 if ["trapdoor", "_door", "fence_gate", "piston"].iter().any(|k| st.contains(k)) {
@@ -2303,7 +2555,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     }
     let mut be = BEmul::default();
     if bo.b_emul.is_some() {
-        set(&mut run.world, fr.blk(1, -2, layout().park.z), "air");
+        set(&mut run.world, fr.blk(1, -2, layout_placed().park.z), "air");
     }
     let mut seat_seated_last: i64 = i64::MIN;
     if plate || matches!(run.world.get(seat_cell), Block::Tripwire { .. }) {
@@ -2324,6 +2576,49 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 coll_last = now;
             }
         }
+        // (ironspec 15:50: the unintended-power check on the FC build, every tick unless
+        // `--no-power-check`: each watched mechanism's powering neighbours (the game's getSignal from
+        // each side) against its designed sources; V's droppers also by quasi-connectivity, any
+        // neighbour of the cell above them powering it. `--power-check-control`: a redstone block
+        // beside DA's top for 4 gt, which the check must flag)
+        if bo.fc && bo.power_check {
+            let ctl = fr.blk(0, 0, -1);
+            if bo.power_control && now == t0 + 100 {
+                ctl_rest = run.world.get(ctl).to_string();
+                set(&mut run.world, ctl, "redstone_block");
+                drive.act(now, format!("set {} {} {} minecraft:redstone_block", ctl.x, ctl.y, ctl.z));
+            }
+            if bo.power_control && now == t0 + 104 {
+                let back = ctl_rest.trim_start_matches("minecraft:").to_string();
+                set(&mut run.world, ctl, &back);
+                drive.act(now, format!("set {} {} {} minecraft:{back}", ctl.x, ctl.y, ctl.z));
+            }
+            for (name, cell, allowed, qc) in &watches {
+                let c = fr.blk(cell[0], cell[1], cell[2]);
+                let mut srcs: Vec<([i32; 3], bool)> = Vec::new();
+                for d in redsim::pos::Dir::ALL {
+                    let n = c.rel(d);
+                    if run.world.signal(n, d) > 0 {
+                        srcs.push(({ let l = fr.local_cell(n); [l.x, l.y, l.z] }, false));
+                    }
+                }
+                if *qc {
+                    let a = c.rel(redsim::pos::Dir::Up);
+                    for d in redsim::pos::Dir::ALL {
+                        let n = a.rel(d);
+                        if n != c && run.world.signal(n, d) > 0 {
+                            srcs.push(({ let l = fr.local_cell(n); [l.x, l.y, l.z] }, true));
+                        }
+                    }
+                }
+                for (s, by_qc) in srcs {
+                    if by_qc || !allowed.contains(&s) {
+                        let e = rep.power_bad.entry(format!("{name} {:?} <- {:?}{}", cell, s, if by_qc { " (quasi-connectivity, above it)" } else { "" })).or_insert((0, now - t0));
+                        e.0 += 1;
+                    }
+                }
+            }
+        }
         let t_shape = run.world.get(fr.blk(1, 0, 0)).to_string();
         if t_shape != t_shape_prev {
             if run.world.entities.list.iter().any(|e| {
@@ -2333,6 +2628,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 rep.t_flips_under_cart.push(now);
             }
             t_shape_prev = t_shape;
+            t_changed_at = now;
         }
         let day = run.world.day_time().rem_euclid(24000);
         let night = !(10..12000).contains(&day);
@@ -2363,7 +2659,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 let at = if bo.launch { LAUNCH_X } else { APPROACH_X };
                 run.world.entities.list.iter().any(|e| {
                     let l = fr.local(e.pos);
-                    !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (l.x - at).abs() < 1.5 && (l.z - 0.5).abs() < 1.0 && (l.y - 0.0625).abs() < 1.0
+                    !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (l.x - at).abs() < 1.5 && (l.z - 0.5).abs() < 1.0 && (l.y - entry_rise() as f64 - 0.0625).abs() < 1.0
                 })
             } {
                 next_visit = Some(now + 20);
@@ -2408,11 +2704,11 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     if bo.launch {
                         // (at rest on the launcher's first booster, against its glass stop: the
                         // drive's `tp` moves a cart at rest)
-                        let p = fr.pt(LAUNCH_X, 0.0625, 0.5);
+                        let p = fr.pt(LAUNCH_X, entry_rise() as f64 + 0.0625, 0.5);
                         teleport(&mut run.world, cart, p, Vec3::new(0.0, 0.0, 0.0));
                         drive.act(now, format!("tp {} {} {} {}", drive.name(cart), p.x, p.y, p.z));
                     } else {
-                        teleport(&mut run.world, cart, fr.pt(APPROACH_X, 0.0625, 0.5), fr.vel(Vec3::new(v, 0.0, 0.0)));
+                        teleport(&mut run.world, cart, fr.pt(APPROACH_X, entry_rise() as f64 + 0.0625, 0.5), fr.vel(Vec3::new(v, 0.0, 0.0)));
                     }
                     let eta = if bo.launch { 30 } else { ((-APPROACH_X - 0.0) / v).round() as i64 };
                     // (a forced failure: the villager cannot sleep, its HOME erased)
@@ -2561,11 +2857,11 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         // hold, then set back standing on its free cell, so it is absent at the pickup and
                         // back for the re-board)
                         let to = if hold <= 1 {
-                            fr.pt(0.5, 0.5625, 2.5)
+                            fr.pt(0.5, 0.5625, shz(2) as f64 + 0.5)
                         } else if now + 1 < f + p + hold {
-                            fr.pt(-6.5, 14.0, 6.5)
+                            fr.pt(-6.5, 14.0, shz(6) as f64 + 0.5)
                         } else {
-                            fr.pt(1.5, 0.0, 2.5)
+                            fr.pt(1.5, 0.0, shz(2) as f64 + 0.5)
                         };
                         run.world.entities.set_pos(i, to);
                         run.world.entities.list[i].delta_movement = Vec3::ZERO;
@@ -2732,7 +3028,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             // covering the stretch between them)
             run.world.entities.list.iter().any(|e| {
                 let p = fr.local(e.pos);
-                !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= if bo.fc { -10.0 } else { 0.0 } && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout().park_rail.z as f64 + 1.0))
+                !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((p.x >= if bo.fc { -10.0 } else { 0.0 } && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0) || (p.x >= 1.0 && p.x < 2.0 && p.z >= 1.0 && p.z < layout_placed().park_rail.z as f64 + 1.0))
             })
         };
         if (bo.b_fc || bo.resync.is_some() || bo.fc) && (cart_inside() || run.world.get(if bo.fc { fr.blk(-1, 0, 0) } else { s.entry }).to_string().contains("powered=true")) {
@@ -2865,7 +3161,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         {
             let w = &run.world;
             let wire_on = |c: BlockPos| matches!(w.get(c), Block::Wire { power, .. } if power > 0);
-            let h = wire_on(fr.blk(-1, -3, 2));
+            let h = wire_on(fr.blk(-1, -3, shz(2)));
             // (L: the slot's south tripwire hook itself; its line merges into the chain's)
             let l = w.get(fr.blk(4, 0, 1)).to_string().contains("powered=true");
             let b = matches!(w.get(bed), Block::Bed { occupied: true, .. });
@@ -2877,7 +3173,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             be.n |= b;
             // (ironspec 2026-11-11 02:05: no kick unless the napper stands on the free cell: FC,
             // ideal, a villager not riding in the free cell's column)
-            let fcell = layout().free_cell;
+            let fcell = layout_placed().free_cell;
             let fc = w.entities.list.iter().any(|e| {
                 let p = fr.local(e.pos);
                 !e.removed && e.vehicle.is_none() && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) && p.x >= fcell.x as f64 && p.x < fcell.x as f64 + 1.0 && p.z >= fcell.z as f64 && p.z < fcell.z as f64 + 1.0 && p.y > -0.5 && p.y < 1.0
@@ -2885,7 +3181,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             // (or the napper still aboard its parked cart: never dropped (an F before the drop
             // turns the activator off), it leaves with its cart: the kick sends no cart off
             // without its villager either way; a seat sensor over the park in the wiring)
-            let pz = layout().park_rail.z as f64;
+            let pz = layout_placed().park_rail.z as f64;
             let aboard = w.entities.list.iter().any(|e| {
                 let p = fr.local(e.pos);
                 !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && p.x >= 1.0 && p.x < 2.0 && p.z >= pz && p.z < pz + 1.0
@@ -3179,7 +3475,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 }
                 // (the forced-empty rows' prints: the T's decisions, the passes west, the slot; and FC's
                 // first rise after F, the fault's phase origin: the napper standing, the kick's trigger)
-                if rep.visits[k].forced.is_some() && rep.visits[k].fc_after_f.is_none() && w.get(fr.blk(0, 1, 2)).to_string().contains("powered=true") {
+                if rep.visits[k].forced.is_some() && rep.visits[k].fc_after_f.is_none() && w.get(fr.blk(0, 1, shz(2))).to_string().contains("powered=true") {
                     rep.visits[k].fc_after_f = Some(t);
                 }
                 let lp = fr.local(c.pos);
@@ -3189,9 +3485,19 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 if in_t && !vr.in_t {
                     let ts = w.get(fr.blk(1, 0, 0)).to_string();
                     let shape = ts.split(['[', ',', ']']).find(|p| p.starts_with("shape=")).unwrap_or("?").trim_start_matches("shape=").to_string();
-                    vr.t_dec.push((t, shape, w.get(fr.blk(0, 1, 2)).to_string().contains("powered=true"), aboard));
+                    vr.t_dec.push((t, shape, w.get(fr.blk(0, 1, shz(2))).to_string().contains("powered=true"), aboard));
                 }
                 vr.in_t = in_t;
+                // (the margin: the cart's box entering the T's cell from the bed line, its centre past z
+                // 1.49 going north, against the T's last shape change)
+                let in_tbox = (1.0..2.0).contains(&lp.x) && (0.0..1.49).contains(&lp.z);
+                if in_tbox && !vr.in_tbox && lp.z < vr.last_lz && vr.dropped.is_some() {
+                    let ts = w.get(fr.blk(1, 0, 0)).to_string();
+                    let shape = ts.split(['[', ',', ']']).find(|p| p.starts_with("shape=")).unwrap_or("?").trim_start_matches("shape=").to_string();
+                    vr.t_margins.push((t - t_changed_at, aboard, shape));
+                }
+                vr.in_tbox = in_tbox;
+                vr.last_lz = lp.z;
                 let in_west = lp.x < 0.0 && vr.dropped.is_some();
                 if lp.x < -0.5 && vr.dropped.is_some() {
                     vr.west_min_x = Some(vr.west_min_x.map_or(lp.x, |m| m.min(lp.x)));
@@ -3268,7 +3574,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 // (farmopt 03:55: the first tick after the wake off the free cell, and the first
                 // tick the kicked cart (moving north) is in the free cell)
                 {
-                    let fcell = layout().free_cell;
+                    let fcell = layout_placed().free_cell;
                     let in_fc = |p: Vec3| p.x >= fcell.x as f64 && p.x < fcell.x as f64 + 1.0 && p.z >= fcell.z as f64 && p.z < fcell.z as f64 + 1.0;
                     if vr.woken.is_some() && vr.left_fc.is_none() && vr.reboarded.is_none() && riding.is_none() && !asleep && !in_fc(fr.local(e.pos)) {
                         vr.left_fc = Some(t);
@@ -3290,7 +3596,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 // riding inside the siding (dropped, not yet out), it stands on the free cell)
                 if vr.dropped.is_some() && vr.exited.is_none() && riding.is_none() && !asleep {
                     let l = fr.local(e.pos);
-                    let fcell = layout().free_cell;
+                    let fcell = layout_placed().free_cell;
                     let on_fc = l.x >= fcell.x as f64 && l.x < fcell.x as f64 + 1.0 && l.z >= fcell.z as f64 && l.z < fcell.z as f64 + 1.0;
                     rep.audit_awake_ticks += 1;
                     if !on_fc {
@@ -3456,7 +3762,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("R1", [2, 0, -2]),
 
                 ("Rs", [3, 1, 0]),
-                ("hatch1", [3, 7, 3]),
+                ("hatch1", [3, 7, shz(3)]),
                 ("hst", [4, 6, 4]),
                 ("Rd", [2, 1, -1]),
                 ("R2", [3, 0, -2]),
@@ -3479,6 +3785,12 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 ("gate", [-5, -3, -3]),
                 ("D2r", [-5, -3, -2]),
             ];
+            // (the FC build's own probes, placed frame)
+            let probes: Vec<(&str, [i32; 3])> = if bo.fc {
+                vec![("F", FORCE_CELL), ("gate", [-5, -3, -3]), ("D2r", [-5, -3, -2]), ("D2", [-5, -3, 0]), ("D2b", [-5, -3, 2]), ("N1", [-5, -3, 4]), ("W1", [-5, -3, 5]), ("D1", [-6, -3, 5]), ("D1b", [-7, -3, 1]), ("N2", [-7, -3, -1]), ("W2", [-6, -3, -1]), ("H0", [-1, -3, 0]), ("H3", [-1, -3, 3]), ("Ta", [1, -2, 0]), ("T", [1, 0, 0]), ("hatch", [3, 7, 5]), ("FC", [0, 1, 4]), ("SEAT", [0, 1, 2]), ("act", [1, -1, 5]), ("Aa", [1, -3, 5]), ("park", [1, -1, 7]), ("L", [4, 0, -1]), ("R", [2, 1, -2]), ("DA", [-1, -1, -1]), ("DB", [-1, -1, -2]), ("tq", [1, 0, -1])]
+            } else {
+                probes
+            };
             let now_s: Vec<String> = probes.iter().map(|(n, c)| format!("{n}={}", short_state(&w.get(fr.blk(c[0], c[1], c[2])).to_string()))).collect();
             if now_s != probe_last {
                 eprintln!("wire gt {}: {}", t - t0, now_s.join(" "));
@@ -3522,7 +3834,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let Some(ci) = w.entities.list.iter().position(|x| x.id == cart && !x.removed) else { continue };
             let c = &w.entities.list[ci];
             let lc = fr.local(c.pos);
-            let on_slot = lc.x >= 4.0 && lc.x < layout().exit.x as f64 && lc.z < 1.0;
+            let on_slot = lc.x >= 4.0 && lc.x < layout_placed().exit.x as f64 && lc.z < 1.0;
             let rest = c.delta_movement.x.abs() < 1e-3 && c.delta_movement.z.abs() < 1e-3;
             let with = c.passengers.contains(&villager);
             // (the release held: the cart runs over the slot without stopping, ready and released
@@ -3594,7 +3906,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let cart = rep.visits[k].cart;
             let Some(c) = w.entities.list.iter().find(|x| x.id == cart && !x.removed) else { continue };
             let (lc, lv) = (fr.local(c.pos), fr.lvel(c.delta_movement));
-            let ex = layout().exit.x as f64;
+            let ex = layout_placed().exit.x as f64;
             if rep.visits[k].exit_speed.is_none() && lc.x >= ex + 0.5 {
                 rep.visits[k].exit_speed = Some(lv.x);
             }
