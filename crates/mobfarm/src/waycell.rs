@@ -49,6 +49,28 @@ pub struct Opts {
     /// melee reach may meet the zombie (onechunk 08:42: a golem's attack box, its box inflated
     /// across by sqrt(2.04) - 0.6, meeting the zombie's: it attacks and kills the scarer).
     pub pad: Vec<B6>,
+    /// More cells to lay with the queue (the run, an occluder): position and block state.
+    pub extra: Vec<(P, String)>,
+    /// The post's own cells come in `extra` (a walled post: floor, walls, roof, occluders): no
+    /// default glass under the boat and leaves over the eye.
+    pub custom_post: bool,
+}
+
+/// `x,y,z=block;...` (a block state, `minecraft:` optional).
+pub fn parse_extra(s: Option<&str>) -> Result<Vec<(P, String)>, String> {
+    let Some(s) = s else { return Ok(Vec::new()) };
+    s.split(';')
+        .filter(|x| !x.trim().is_empty())
+        .map(|c| {
+            let (p, b) = c.split_once('=').ok_or(format!("{c:?}: x,y,z=block"))?;
+            let v: Vec<i32> = p.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("{c:?}: {e}"))).collect::<Result<_, _>>()?;
+            if v.len() != 3 {
+                return Err(format!("{c:?}: x,y,z=block"));
+            }
+            let b = b.trim();
+            Ok(([v[0], v[1], v[2]], if b.contains(':') { b.to_string() } else { format!("minecraft:{b}") }))
+        })
+        .collect()
 }
 
 pub fn parse_boxes(s: Option<&str>) -> Result<Vec<B6>, String> {
@@ -100,11 +122,16 @@ fn scene(spec: &FarmSpec, o: &Opts, post: Option<P>) -> Result<(redsim::world::W
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let (run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let mut w = run.world;
+    // (the extra cells: the run, an occluder)
+    let extra = o.extra.iter().map(|(p, b)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| format!("{b}: {e}"))?))).collect::<Result<Vec<_>, String>>()?;
+    w.place_raw(&extra);
     if let Some(p) = post {
-        w.place_raw(&[
-            (BlockPos::new(p[0], p[1] - 1, p[2]), Block::parse("minecraft:glass").map_err(|e| e.to_string())?),
-            (BlockPos::new(p[0], p[1] + 3, p[2]), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").map_err(|e| e.to_string())?),
-        ]);
+        if !o.custom_post {
+            w.place_raw(&[
+                (BlockPos::new(p[0], p[1] - 1, p[2]), Block::parse("minecraft:glass").map_err(|e| e.to_string())?),
+                (BlockPos::new(p[0], p[1] + 3, p[2]), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").map_err(|e| e.to_string())?),
+            ]);
+        }
         redsim::entity::spawn(&mut w, "minecraft:oak_boat", [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     }
     let q = o.queue;
@@ -178,7 +205,7 @@ pub fn post_lines(spec: &FarmSpec, o: &Opts, post: P) -> Result<(bool, Vec<Strin
     let mut out = Vec::new();
     let mut pass = true;
     let [x0, z0, x1, z1] = o.chunk;
-    let cells = [post, [post[0], post[1] - 1, post[2]], [post[0], post[1] + 1, post[2]], [post[0], post[1] + 2, post[2]], [post[0], post[1] + 3, post[2]]];
+    let cells: Vec<P> = if o.custom_post { vec![post, [post[0], post[1] + 1, post[2]]] } else { vec![post, [post[0], post[1] - 1, post[2]], [post[0], post[1] + 1, post[2]], [post[0], post[1] + 2, post[2]], [post[0], post[1] + 3, post[2]]] };
     let inside = cells.iter().all(|c| c[0] >= x0 && c[0] <= x1 && c[2] >= z0 && c[2] <= z1);
     let (w0, _, _) = scene(spec, o, None)?;
     let taken: Vec<P> = cells.iter().filter(|c| !w0.get(BlockPos::new(c[0], c[1], c[2])).is_air()).copied().collect();
@@ -255,9 +282,15 @@ pub fn post_lines(spec: &FarmSpec, o: &Opts, post: P) -> Result<(bool, Vec<Strin
         if seen_near.is_empty() { "none".to_string() } else { format!("{seen_near:?}") },
         if ok_b { "PASS" } else { "FAIL" }
     ));
+    // (e) the rider's own route (the shaft, the detectors, the run): no position under 6.05 in its
+    // sight (ironspec's (b): the falling rider's pass hidden, or an exception)
+    let route_close: Vec<&(P, f64)> = route.iter().filter(|(_, d)| *d < 6.05).collect();
+    pass &= route_close.is_empty();
     out.push(format!(
-        "(c) the way to the stop (the napper's own route): positions within 8 of the zombie and in its sight: {}",
-        if route.is_empty() { "none (the panic is not renewed after the drop)".to_string() } else { format!("{route:?} (the panic's last renewal: check it ends before the bed walk)") }
+        "(e) the rider's own route (the shaft, the detectors, the run): positions within 8 of the zombie and in its sight: {}; under 6.05 and in sight: {} ({})",
+        if route.is_empty() { "none".to_string() } else { format!("{route:?}") },
+        if route_close.is_empty() { "none".to_string() } else { format!("{route_close:?}") },
+        if route_close.is_empty() { "PASS" } else { "FAIL" }
     ));
     // (d) the pad golems' melee reach: `Mob.getAttackBoundingBox` (its box inflated across by
     // sqrt(2.04) - 0.6, not up) against the zombie's box
@@ -366,6 +399,54 @@ pub fn rail_cells(q: P) -> Vec<(P, &'static str, &'static str)> {
     ]
 }
 
+/// The ride from the queue: the queue rail powered from its input cell (a redstone block at queue +
+/// (0,0,1), as day-1's RELEASE level would), the cart with its rider followed for `ticks`: the cells
+/// its cart passes, the tick it leaves the queue cell, crosses the departure detector and reaches
+/// `entry` (the stop's first rail), the rider still seated.
+pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let q = o.queue;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    run.world.place_raw(&cells);
+    let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
+    // settle on the braked rail, then release
+    for _ in 0..40 {
+        run.tick();
+    }
+    let held_at = run.world.entities.list.iter().find(|e| e.id == cart).map(|e| e.pos);
+    run.world.set_block(BlockPos::new(q[0], q[1], q[2] + 1), Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+    let (mut left, mut dep, mut at_entry) = (None, None, None);
+    let mut path: Vec<P> = Vec::new();
+    let mut seated = true;
+    for t in 0..ticks {
+        run.tick();
+        let Some(e) = run.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
+        let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
+        if path.last() != Some(&c) {
+            path.push(c);
+        }
+        if left.is_none() && c != q {
+            left = Some(t);
+        }
+        if dep.is_none() && c == [q[0] - 1, q[1] - 1, q[2]] {
+            dep = Some(t);
+        }
+        if at_entry.is_none() && c == entry {
+            at_entry = Some(t);
+        }
+        seated &= run.world.entities.list.iter().any(|v| !v.removed && v.vehicle == Some(cart));
+    }
+    Ok(vec![
+        format!("(ride) held at {:?} after 40 gt on the braked rail; released (the rail powered) at t 0", held_at.map(|p| (p.x, p.y, p.z))),
+        format!("(ride) left the queue cell at t {left:?}, on the departure detector at t {dep:?}, at the stop's entry {entry:?} at t {at_entry:?}; the rider {} seated", if seated { "stayed" } else { "did NOT stay" }),
+        format!("(ride) the cells: {:?}", path.iter().take(24).collect::<Vec<_>>()),
+    ])
+}
+
 /// The way-in line's cells laid into the module file (a WIP design against its frame): the queue
 /// cell's iron trapdoor (shut, bottom half: the cart rests on it, the drop under it when day-1's
 /// gate opens it), the post's glass, its leaves, the queue cart with its rider and the post's boat
@@ -378,10 +459,13 @@ pub fn write_layout(module: &std::path::Path, out: &std::path::Path, o: &Opts, p
     } else {
         vec![(q, "minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]", "the queue cell's trapdoor (the cart rests on it)")]
     };
-    cells.extend([
-        ([post[0], post[1] - 1, post[2]], "minecraft:glass", "the post's floor (no golem floor)"),
-        ([post[0], post[1] + 3, post[2]], "minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]", "over the zombie's eye (no sky)"),
-    ]);
+    cells.extend(o.extra.iter().map(|(p, b)| (*p, b.as_str(), "an extra cell (the run, an occluder)")));
+    if !o.custom_post {
+        cells.extend([
+            ([post[0], post[1] - 1, post[2]], "minecraft:glass", "the post's floor (no golem floor)"),
+            ([post[0], post[1] + 3, post[2]], "minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]", "over the zombie's eye (no sky)"),
+        ]);
+    }
     let mut lines = Vec::new();
     for (p, b, what) in &cells {
         if let Some(have) = d.blocks.get(p) {

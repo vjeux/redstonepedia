@@ -1298,6 +1298,15 @@ pub enum MobfarmCmd {
         /// The queue cell as a powered rail on glowstone sloping down to the west (not a trapdoor).
         #[arg(long)]
         rail: bool,
+        /// More cells to lay: "x,y,z=block;..." (the run, an occluder).
+        #[arg(long, allow_hyphen_values = true)]
+        extra: Option<String>,
+        /// The ride check: the stop's first rail (x,y,z) the released cart must reach.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        ride_to: Vec<i32>,
+        /// The post's own cells come in --extra (a walled post): no default glass and leaves.
+        #[arg(long)]
+        custom_post: bool,
     },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
@@ -5689,7 +5698,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
             }
         }
-        MobfarmCmd::WayCell { design, positions, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail } => {
+        MobfarmCmd::WayCell { design, positions, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post } => {
             let (_c, spec) = load(version, &design)?;
             if queue.len() != 3 || !(post.is_empty() || post.len() == 3) || chunk.len() != 4 {
                 anyhow::bail!("--queue X,Y,Z, --post X,Y,Z, --chunk X0,Z0,X1,Z1");
@@ -5705,10 +5714,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 chunk: [chunk[0], chunk[1], chunk[2], chunk[3]],
                 positions: pos,
                 pad: crate::waycell::parse_boxes(pad.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                extra: crate::waycell::parse_extra(extra.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                custom_post,
             };
             println!("{}: the queue cell {:?}, {} villager positions", design.display(), o.queue, o.positions.len());
             if let (Some(out), Some(p)) = (&write, o.post) {
                 for l in crate::waycell::write_layout(&design, out, &o, p).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if ride_to.len() == 3 {
+                for l in crate::waycell::ride_lines(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], 200).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());

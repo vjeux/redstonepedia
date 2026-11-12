@@ -18,7 +18,7 @@ entity: minecraft:oak_boat -4.5 -1 -4.5 {Passengers:[{id:"minecraft:pillager",Pe
 entity: minecraft:oak_boat -4.5 -4 -1.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 1.5 25 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
 entity: minecraft:minecart 8.5 -13.4375 -5.5 {Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
-entity: minecraft:oak_boat 9.5 -8 -1.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 6.5 -11 1.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 origin: -6 0 -6
 palette:
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
@@ -124,8 +124,8 @@ layer -18:
   .
   .
 layer -17:
-  .
-  ....gI.pqj
+  ..........qqg
+  ....gI.pqjq
   ....g...H
   ....g...H
   ....g...H
@@ -141,8 +141,8 @@ layer -17:
   .
   .
 layer -16:
-  ........j....g
-  .....t..AU
+  ........j.cYrg
+  .....t..AUb
   .......g.g
   .......g.g
   .....ggg.g
@@ -216,7 +216,7 @@ layer -12:
   .
   .
   .
-  .
+  ............g
   .
   ............g
   ...........gBg
@@ -227,14 +227,14 @@ layer -12:
   .
 layer -11:
   .
+  ..............g
   .
   .
   .
   .
   .
-  .
-  .
-  .
+  ...........g.g
+  ............g
   ............g
   ...........gBg
   ............g
@@ -249,9 +249,9 @@ layer -10:
   .
   .
   .
-  .
-  .
-  .
+  .............g
+  ...........g.g
+  ............g
   ............g
   ...........gBg
   ............g
@@ -264,10 +264,10 @@ layer -9:
   ....PPPPPPPPPP
   .
   .
-  ....PPPPPPPPPP.g
+  ....PPPPPPPPPP
   .
   .
-  .
+  ............g
   .
   ............g
   ...........gBg
@@ -332,7 +332,7 @@ layer -5:
   ...PPPPPPPPPPPP
   .
   .
-  .g.PPPPPPPPPPPPo
+  .g.PPPPPPPPPPPP
   .
   .
   .
