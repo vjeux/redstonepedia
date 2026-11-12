@@ -954,6 +954,124 @@ pub fn summon_box(parts: &[Part], reserves: &[Reserve], summoners: &[P], golem: 
     s
 }
 
+/// A pocket chain (`--pockets NAME=x,y,z,DIR,N[,rstar]`; onechunk's lateral layout, Nov 11): N of
+/// the stand's own pockets in a straight row heading DIR from the first pocket's P at (x,y,z), pitch
+/// 5, net -1 a pocket: P a flat detector rail, R the rest slope (rising back toward P; a powered rail
+/// with `rstar`, powered along the line from its G), G a powered slope (unpowered: the brake) under
+/// an oak fence gate across the track, V a flat valley, U a slope up to the next pocket's P. Glass
+/// under every rail (G's glass is its power source: the runner sets it to a redstone block while the
+/// gate is open). Returns the part and its runner cells: NAME_Gk (gate/src), NAME_Pk and NAME_Rk.
+pub fn pocket_part(name: &str, start: P, dir: &str, n: usize, rstar: bool) -> Result<(Part, Vec<(String, P, P)>, Vec<(String, P)>), String> {
+    let (dx, dz, fwd, back, axis, facing) = match dir {
+        "east" => (1, 0, "east", "west", "east_west", "east"),
+        "west" => (-1, 0, "west", "east", "east_west", "west"),
+        "south" => (0, 1, "south", "north", "north_south", "south"),
+        "north" => (0, -1, "north", "south", "north_south", "north"),
+        _ => return Err(format!("--pockets {name}: DIR is east, west, south or north")),
+    };
+    let mut d = Design { name: format!("pockets:{name}"), ..Default::default() };
+    let mut gates = Vec::new();
+    let mut cells = Vec::new();
+    let at = |i: i32, y: i32| -> P { [start[0] + dx * i, y, start[2] + dz * i] };
+    for k in 0..n as i32 {
+        let y0 = start[1] - k;
+        let b = 5 * k;
+        let p = at(b, y0);
+        let r = at(b + 1, y0 - 1);
+        let g = at(b + 2, y0 - 2);
+        let v = at(b + 3, y0 - 2);
+        let u = at(b + 4, y0 - 2);
+        // (the chain's last pocket ends at G: the caller's track continues from the next cell)
+        let last = k + 1 == n as i32;
+        let all: [(P, String); 5] = [
+            (p, format!("minecraft:detector_rail[powered=false,shape={axis},waterlogged=false]")),
+            (r, if rstar { format!("minecraft:powered_rail[powered=false,shape=ascending_{back},waterlogged=false]") } else { format!("minecraft:rail[shape=ascending_{back},waterlogged=false]") }),
+            (g, format!("minecraft:powered_rail[powered=false,shape=ascending_{back},waterlogged=false]")),
+            (v, format!("minecraft:rail[shape={axis},waterlogged=false]")),
+            (u, format!("minecraft:rail[shape=ascending_{fwd},waterlogged=false]")),
+        ];
+        for (c, s) in all.into_iter().take(if last { 3 } else { 5 }) {
+            d.blocks.insert(c, s);
+            d.blocks.insert([c[0], c[1] - 1, c[2]], "minecraft:glass".into());
+        }
+        let gate = [g[0], g[1] + 1, g[2]];
+        d.blocks.insert(gate, format!("minecraft:oak_fence_gate[facing={facing},in_wall=false,open=false,powered=false]"));
+        let kk = k + 1;
+        gates.push((format!("{name}_G{kk}"), gate, [g[0], g[1] - 1, g[2]]));
+        cells.push((format!("{name}_P{kk}"), p));
+        cells.push((format!("{name}_R{kk}"), r));
+    }
+    let spec = PartSpec { name: d.name.clone(), file: PathBuf::from("(pocket chain)"), frame: [0; 3], tier: [0; 3], keep: None, relay: true };
+    Ok((Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }, gates, cells))
+}
+
+/// Single blocks (`--block x,y,z=STATE`): a part of its own (gates, detectors, powered rails, a
+/// support) laid where no committed part has them.
+pub fn block_part(blocks: &[(P, String)]) -> Part {
+    let mut d = Design { name: "blocks".into(), ..Default::default() };
+    for (c, s) in blocks {
+        d.blocks.insert(*c, if s.contains(':') { s.clone() } else { format!("minecraft:{s}") });
+    }
+    let spec = PartSpec { name: "blocks".into(), file: PathBuf::from("(--block)"), frame: [0; 3], tier: [0; 3], keep: None, relay: true };
+    Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
+}
+
+/// The waiting positions' clearance from the pad (onechunk's lateral layout, ironspec's worst-case
+/// constants Nov 11 21:00): every rail cell inside a `--wait-box` is a waiting rider's place (its
+/// feet on the cart's path through the cell); against every golem spawn cell in `golem` (feet, the
+/// golem centred on its cell): inside the sensor box when |dx| and |dz| are both < 18.84 and the
+/// golem's feet are < 20.54 below or < 19.79 above the rider's. Lists every waiting place inside,
+/// and per axis the least margin of the places outside (how close to the box each comes).
+pub fn waiting_check(d: &Design, boxes: &[(P, P)], golem: (P, P), shift: P) -> (String, bool) {
+    let mut inside: Vec<String> = Vec::new();
+    let mut n = 0usize;
+    let mut best: [f64; 3] = [f64::MAX; 3];
+    for (c, st) in &d.blocks {
+        let Some(shape) = rail_shape_of(st) else { continue };
+        if !boxes.iter().any(|b| inside_box(c, b)) {
+            continue;
+        }
+        n += 1;
+        // (the rider's feet over the cell: a flat's cart y, a slope's low to high end)
+        let (lo, hi) = if shape.starts_with("ascending") { (c[1] as f64 + 0.0625, c[1] as f64 + 1.0625) } else { (c[1] as f64 + 0.0625, c[1] as f64 + 0.0625) };
+        let (px, pz) = (c[0] as f64 + 0.5, c[2] as f64 + 0.5);
+        let gx = px.clamp(golem.0[0] as f64 + 0.5, golem.1[0] as f64 + 0.5);
+        let gz = pz.clamp(golem.0[2] as f64 + 0.5, golem.1[2] as f64 + 0.5);
+        let gy_lo = golem.0[1] as f64;
+        let gy_hi = golem.1[1] as f64;
+        let mx = (px - gx).abs() - 18.84;
+        let mz = (pz - gz).abs() - 18.84;
+        // (vertical: the rider's lowest feet against the highest golem feet, and the reverse)
+        let my = (lo - gy_hi - 20.54).max(gy_lo - hi - 19.79);
+        if mx < 0.0 && mz < 0.0 && my < 0.0 {
+            inside.push(format!("({},{},{})", c[0] + shift[0], c[1] + shift[1], c[2] + shift[2]));
+        } else {
+            for (k, m) in [mx, my, mz].iter().enumerate() {
+                if *m >= 0.0 {
+                    best[k] = best[k].min(*m);
+                }
+            }
+        }
+    }
+    let fmt = |v: f64| if v == f64::MAX { "-".to_string() } else { format!("{v:.2}") };
+    let ok = inside.is_empty();
+    (
+        format!(
+            "waiting places (rail cells in the wait boxes, written frame): {n}; inside a pad golem's sensor box (|dx|, |dz| < 18.84, feet -20.54..+19.79): {}{}; the least margin outside, by the axis that clears it: x {} y {} z {}\n",
+            inside.len(),
+            if ok { " (PASS)".to_string() } else { format!(" (FAIL): {}", inside.iter().take(12).cloned().collect::<Vec<_>>().join(" ")) },
+            fmt(best[0]),
+            fmt(best[1]),
+            fmt(best[2])
+        ),
+        ok,
+    )
+}
+
+fn inside_box(c: &P, b: &(P, P)) -> bool {
+    (0..3).all(|k| c[k] >= b.0[k] && c[k] <= b.1[k])
+}
+
 /// The sentinel villager's room (b8949c96's rule (c), Nov 11): its box `s` (cells, inclusive) must
 /// stay out of every villager position's box grown by 10 (`Villager.spawnGolemIfNeeded`'s
 /// `inflate(10)`), so some axis gap of at least 10, ironspec's bar 11.7. Every rail cell of every

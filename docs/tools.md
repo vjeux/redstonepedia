@@ -181,7 +181,38 @@ each leg along x or z, a rising leg climbing in its last cells and a falling one
 first, so a curve never slopes), `--cart x,y,z[,Y][,empty]`, `--post x,y,z` (the brief's zombie
 post); `--clear` boxes take committed cells out first (a lane's re-lay), `--note` writes header
 lines (the joints table), `--positions-out F` writes every villager position (riders' cells and
-sketch rail cells) for the flood with a summoner at each.
+sketch rail cells) for the flood with a summoner at each. More of the generator: a track named
+`+NAME` is boosted (every straight cell a powered rail on its own redstone block, the curves plain);
+a part named `NAME!=FILE` re-lays cleared cells (the clears skip it); `--pockets
+NAME=x,y,z,DIR,N[,rstar]` lays N of the stand's pockets in a row (P a flat detector, R the rest slope,
+G a powered slope under a gate, a flat valley and a slope up: pitch 5, net -1; the last ends at G)
+with their runner cells; `--block x,y,z=STATE` lays single blocks; `--wait-box BOX` checks every
+rail cell inside against the pad's golem sensor boxes (`--golem-box`: |dx|, |dz| < 18.84, golem feet
+-20.54..+19.79 of the rider's); `--summon-box x,y,z` lists every villager position inside a summoner's
+box grown by 10; `--bed x,y,z [--bed-exempt PART]` the bed radius (> 16 + 1); `--notes-file F`; every
+run lists each slope without a sturdy block below or on its high side (it pops when placed).
+The golem chance per summon from a file: `mctas mobfarm summon-chance <design> --pad BOX --stand
+x,y,z...` runs the game's summon search (redsim's port of SpawnUtil's LEGACY_IRON_GOLEM scan, 289
+columns, floors y+5..y-7, `checkSpawnObstruction` with the file's carts placed) from each villager
+riding a cart over a --stand cell: n_i on the pad, off-pad passes (must be 0), wasted landings,
+no-floor columns, P = 1 - prod (1 - n_i/289)^10 and golems a day (`--per-day`, 238).
+A gravity column run from its own file: `mctas mobfarm column-run <design> [--cycles N] [--warm W]
+[--trace]` builds the design as placed (its carts and riders, AI off) and runs it with T at every
+world time multiple of 100. Its frame is design-agnostic; the design's header names the run cells:
+`run-gates: NAME x,y,z[/sx,sy,sz]; ...` (a fence gate, and the block that powers the powered rail
+under it: the runner sets it to a redstone block while it powers the rail, the file's block back
+after), `run-cells: NAME x,y,z; ...` (detector rails, read for their real powered state, and rest
+cells, read by the carts over them; PAD0/PAD1 the pad's golem feet box) and `run-controller: NAME`
+(`mobfarm column --run-gate NAME=... --run-cell NAME=... --run-controller v4` writes them, shifted with
+the file). The controller is per design (`columnrun::V4`, the inverted gravity column: the R* hold
+released at T+3 with its Ds-keyed stagger, ironfarm's escapement, the stand's arrival fill and its
+departure at T+5, 7b90c3f1's receiver, the tail's moves and the intake); a new design gets its own
+`Controller` (its gate laws from its cells' names). Every gate and source it drives is EMULATED and
+the report says so; the gates the file's own redstone moves are listed. It reports every new
+cart-cart contact with both stored speeds (bar 0.2, the nearest run cell named), every gate shut
+onto a cart (the closed bar's box), each cart's detector passes, and at each T every rider inside a
+stand summoner's box grown by 10, every rider inside a pad spot's sensor box (the worst-case
+constants) and the last departing batch's feet against the lock (pad feet + 20.54) by T - 5.
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

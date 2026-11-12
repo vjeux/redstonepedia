@@ -187,6 +187,7 @@ pub struct V4 {
     cond_was: bool,
     until: [i64; 6],
     last_feed: i64,
+    last_gp: i64,
     held_at: i64,
     feeding: bool,
     adv_at: Option<i64>,
@@ -236,6 +237,7 @@ impl V4 {
             ready: !(1..=3).any(|k| v.cart_near(&format!("R{k}"))),
             until: [i64::MIN / 4; 6],
             last_feed: i64::MIN / 4,
+            last_gp: i64::MIN / 4,
             held_at: i64::MIN / 4,
             feeding: false,
             adv_at: None,
@@ -362,11 +364,23 @@ impl Controller for V4 {
         if t == self.staged_at {
             self.staged = true;
         }
-        // (ironfarm's admission keyed on the release finished, ironspec Nov 11 20:58: Ga, Gb and Gc
-        // shut after the rear cart's evidence; until ironfarm's own law lands)
-        let cond = self.staged && self.fills < 3 && self.rel.is_none() && t >= self.last_release + 10 && t >= self.last_hold_edge + 6;
+        // (ironfarm's evidence law, explore/ironfarm 358c9368c, accepted by ironspec Nov 11 21:15:
+        // the first fill after a release on cart 0's Ds rise + 4 ring edges (13 gt); the rest on
+        // staged AND fewer than 3 carts latched in the hold AND nothing in transit (no moving cart
+        // over the hold's lead-in or pockets), each at least 24 gt after the last; Gc keeps closing
+        // on the rear's P_b rise)
+        let latched_n = ["Ra", "Rb", "Rc"].iter().filter(|n| v.cart_near(n)).count();
+        let moving = |n: &str| v.cells.cells.get(n).is_some_and(|c| {
+            let b = cell_box(*c);
+            v.carts.iter().any(|k| meets(&k.bb, &b, 0.0) && (k.v[0].powi(2) + k.v[2].powi(2)).sqrt() > 0.02)
+        });
+        let in_transit = ["ESC", "Pc", "Pb", "Pa", "Rc", "Rb"].iter().any(|n| moving(n));
+        let first_ok = self.fills == 0 && self.rel_b_open.is_some_and(|b| t >= b + 13);
+        let rest_ok = self.fills > 0 && latched_n < 3 && !in_transit && t >= self.last_gp + 24;
+        let cond = self.staged && self.fills < 3 && (first_ok || rest_ok) && t >= self.last_hold_edge + 6;
         if cond && !self.cond_was {
             self.gp_until = t + 11;
+            self.last_gp = t;
             self.staged = false;
             self.fills += 1;
             log.push(format!("t {t}: G_P open 11 gt (fill {} since the release, emulated)", self.fills));

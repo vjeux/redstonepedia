@@ -922,6 +922,17 @@ pub enum MobfarmCmd {
         /// More header notes, one per line of this file (as --note).
         #[arg(long)]
         notes_file: Option<PathBuf>,
+        /// A pocket chain NAME=x,y,z,DIR,N[,rstar]: N of the stand's pockets in a row heading DIR
+        /// from the first P at x,y,z (pitch 5, net -1 a pocket), gates and runner cells included.
+        #[arg(long, allow_hyphen_values = true)]
+        pockets: Vec<String>,
+        /// A single block x,y,z=STATE (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        block: Vec<String>,
+        /// A box of waiting places x0,y0,z0,x1,y1,z1 (repeatable): every rail cell inside is checked
+        /// against the pad's golem sensor boxes (--golem-box).
+        #[arg(long = "wait-box", allow_hyphen_values = true)]
+        wait_box: Vec<String>,
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -4296,11 +4307,41 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, out } => {
+        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out } => {
             let mut notes = notes;
             if let Some(nf) = &notes_file {
                 notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
             }
+            let mut run_gate = run_gate;
+            let mut run_cell = run_cell;
+            let mut extra_parts: Vec<crate::column::Part> = Vec::new();
+            let p3 = |t: &str| -> Result<[i32; 3]> {
+                let n: Vec<i32> = t.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(n.len() == 3, "{t}: x,y,z");
+                Ok([n[0], n[1], n[2]])
+            };
+            for pk in &pockets {
+                let (nm, rest) = pk.split_once('=').ok_or_else(|| anyhow::anyhow!("--pockets {pk}: NAME=x,y,z,DIR,N[,rstar]"))?;
+                let f: Vec<&str> = rest.split(',').collect();
+                anyhow::ensure!(f.len() == 5 || f.len() == 6, "--pockets {pk}: NAME=x,y,z,DIR,N[,rstar]");
+                let start = p3(&f[..3].join(","))?;
+                let (part, gs, cs) = crate::column::pocket_part(nm, start, f[3], f[4].trim().parse()?, f.get(5).is_some_and(|s| s.trim() == "rstar")).map_err(|e| anyhow::anyhow!(e))?;
+                for (g, c, s) in gs {
+                    run_gate.push(format!("{g}={},{},{}/{},{},{}", c[0], c[1], c[2], s[0], s[1], s[2]));
+                }
+                for (n, c) in cs {
+                    run_cell.push(format!("{n}={},{},{}", c[0], c[1], c[2]));
+                }
+                extra_parts.push(part);
+            }
+            if !block.is_empty() {
+                let bs: Vec<([i32; 3], String)> = block.iter().map(|b| {
+                    let (c, s) = b.split_once('=').ok_or_else(|| anyhow::anyhow!("--block {b}: x,y,z=STATE"))?;
+                    Ok((p3(c)?, s.to_string()))
+                }).collect::<Result<_>>()?;
+                extra_parts.push(crate::column::block_part(&bs));
+            }
+            let wait_boxes: Vec<([i32; 3], [i32; 3])> = wait_box.iter().map(|s| crate::column::Reserve::parse(&format!("wait={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let summoners: Vec<[i32; 3]> = summon_box.iter().map(|t| {
                 let n: Vec<i32> = t.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(n.len() == 3, "--summon-box x,y,z");
@@ -4347,8 +4388,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [n[0], n[1], n[2]]
                 }
             };
-            let (text, d, bed_ok) = crate::column::run_full(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w, golem_b.map(|g| (summoners.as_slice(), g))).map_err(|e| anyhow::anyhow!(e))?;
+            let mut sketch = column_sketch(&tracks, &carts, &posts)?;
+            sketch.extend(extra_parts);
+            let (text, d, bed_ok) = crate::column::run_full(&specs, sketch, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w, golem_b.map(|g| (summoners.as_slice(), g))).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
+            if !wait_boxes.is_empty() {
+                let g = golem_b.ok_or_else(|| anyhow::anyhow!("--wait-box needs --golem-box"))?;
+                print!("{}", crate::column::waiting_check(&d, &wait_boxes, g, shift_w).0);
+            }
             if sections {
                 let mut beds: Vec<[i32; 3]> = bed_cell.into_iter().collect();
                 if let Some(sb) = sentinel_box {
