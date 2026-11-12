@@ -722,7 +722,12 @@ each build's page.
   NEUTRAL (both arms shown, the crossed ones hidden); test `a_seated_pillager_is_drawn`. A
   design's passengers keep their own data (`scene::passengers`: each top-level compound of
   `Passengers:[...]`, so an item's id in a passenger's `equipment` is no second passenger, and
-  the passenger's equipment and handedness are drawn). Not
+  the passenger's equipment and handedness are drawn), seated where the game seats them
+  (`scene::seat_offset`, redsim's `rider_offset`: a villager in a minecart at the cart's own y,
+  `LOWERED_PASSENGER_ATTACHMENT`; any other rider at 0.1875, a boat's `rideHeight` 0.5625 / 3,
+  then its `ridingOffset`: a zombie 0.7 lower, a pillager 0.6; a raft's seat 0.5), as a simulated
+  run draws them (a still drew every passenger 0.1875 or 0.25 up: villagers 0.19 and seated
+  zombies 0.76 too high); test `a_passenger_sits_where_the_game_seats_it`. Not
   drawn yet: a zombie
   villager's profession (redsim keeps none), the farm animals' warm and cold variants (every
   terrain site is temperate), a sulfur cube's swallowed block (redsim refuses one), a boat's

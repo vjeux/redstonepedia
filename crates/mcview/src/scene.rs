@@ -616,8 +616,7 @@ pub fn passengers(nbt: Option<&str>) -> Vec<(String, String)> {
 /// A design's entity as placed (a still's, or an unsimulated design's): its kind at its
 /// position, a mob with its model and the equipment its data gives it ([`still_mob`]), lit at its
 /// eye (`getLightProbePosition`), and its passengers (`Passengers:[{id:"minecraft:villager"}]`),
-/// seated: a minecart's at its seat (`AbstractMinecart.getPassengerAttachmentPoint`: 0.1875 up),
-/// a boat's at its floor (0.25 up: `AbstractBoat`'s first seat), legs forward (`isPassenger`).
+/// seated where the game seats them ([`seat_offset`]), legs forward (`isPassenger`).
 fn design_entity(b: &mut Builder, kind: &str, at: [f64; 3], nbt: Option<&str>) {
     let pos = [at[0] as f32, at[1] as f32, at[2] as f32];
     let yaw = entity_yaw(nbt);
@@ -625,11 +624,38 @@ fn design_entity(b: &mut Builder, kind: &str, at: [f64; 3], nbt: Option<&str>) {
     let probe = mob.as_ref().map(|m| [pos[0], pos[1] + m.eye_standing, pos[2]]);
     b.entity(&EntityDraw { kind: kind.to_string(), pos, yaw, mob, probe, ..Default::default() });
     for (id, data) in passengers(nbt) {
-        let up = if kind.ends_with("boat") || kind.ends_with("raft") { 0.25 } else { 0.1875 };
+        let up = seat_offset(kind, &id);
         // (the passenger's own data: its equipment, its handedness)
         let mob = still_mob(&id, yaw, true, Some(&data));
         let probe = mob.as_ref().map(|m| [pos[0], pos[1] + up + m.eye_standing, pos[2]]);
         b.entity(&EntityDraw { kind: id.clone(), pos: [pos[0], pos[1] + up, pos[2]], yaw, mob, probe, ..Default::default() });
+    }
+}
+
+/// A design passenger's feet above its vehicle's position (`Entity.positionRider`: the vehicle's
+/// passenger attachment, then less the rider's vehicle attachment, its `ridingOffset`), redsim's
+/// own numbers for a boat or a minecart ([`redsim::entity::mob::rider_offset`]: a villager in a
+/// minecart at the cart's own y, `AbstractMinecart`'s `LOWERED_PASSENGER_ATTACHMENT`; any other
+/// rider at 0.1875; a wooden boat's seat its `rideHeight`, 0.5625 / 3; then a zombie 0.7 lower,
+/// a pillager 0.6), a raft's seat 0.5 (`Raft.rideHeight`: its height x 0.8888889; redsim seats
+/// none). A simulated run draws its riders where redsim puts them; a still matches it.
+pub fn seat_offset(vehicle: &str, rider: &str) -> f32 {
+    use redsim::entity::EntityKind;
+    let v = vehicle.trim_start_matches("minecraft:");
+    let riding_offset = redsim::entity::mob::types::MobType::from_id(rider).map_or(0.0, |t| t.def().riding_offset);
+    if v.ends_with("_raft") {
+        return 0.5625f32 * 0.8888889 + riding_offset;
+    }
+    let kind = if v == "minecart" || v.ends_with("_minecart") {
+        EntityKind::Minecart(redsim::entity::minecart::MinecartState::default())
+    } else if v.ends_with("boat") {
+        EntityKind::Boat(redsim::entity::boat::BoatState::default())
+    } else {
+        return 0.0;
+    };
+    match redsim::entity::mob::types::MobType::from_id(rider) {
+        Some(t) => redsim::entity::mob::rider_offset(&kind, &redsim::entity::mob::MobState::new(t, 0.0)).map_or(0.0, |o| o as f32),
+        None => 0.0,
     }
 }
 
@@ -2058,6 +2084,22 @@ mod tests {
         assert_eq!(still_equipment(Some(&p[0].1)).0.as_deref(), Some("minecraft:crossbow"));
         let two = r#"{Passengers:[{id:"minecraft:villager"},{id:"zombie",equipment:{head:{id:"minecraft:iron_helmet"}}}]}"#;
         assert_eq!(passengers(Some(two)).iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["minecraft:villager", "minecraft:zombie"]);
+    }
+
+    /// A still's passenger sits where the game (and redsim's run) seats it, not at the vehicle's
+    /// attachment point alone (farmopt / ironspec 2026-11-12, "a seated villager's position"):
+    /// a villager in a minecart at the cart's own y (`LOWERED_PASSENGER_ATTACHMENT`), a zombie at
+    /// 0.1875 less its 0.7 (`ridingOffset(-0.7F)`), in a boat at the boat's `rideHeight` (0.1875)
+    /// less 0.7, a scarer post's pillager at 0.1875 less 0.6. (It drew every rider at 0.1875 or
+    /// 0.25 up: a villager 0.19 and a seated zombie 0.76 too high.)
+    #[test]
+    fn a_passenger_sits_where_the_game_seats_it() {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        assert!(close(seat_offset("minecraft:minecart", "minecraft:villager"), 0.0));
+        assert!(close(seat_offset("minecraft:minecart", "minecraft:zombie"), 0.1875 - 0.7));
+        assert!(close(seat_offset("minecraft:oak_boat", "minecraft:zombie"), 0.1875 - 0.7));
+        assert!(close(seat_offset("minecraft:oak_boat", "minecraft:pillager"), 0.1875 - 0.6));
+        assert!(close(seat_offset("minecraft:oak_boat", "minecraft:villager"), 0.1875));
     }
 
     /// A mob is lit by the light at its eye (the parent 2026-11-11, "light each mob the way the
