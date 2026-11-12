@@ -124,6 +124,16 @@ rider-sensors.rec	d6384499bd5e8371		26.3	2026-11-11T19:49Z on c0d3305d74	mctas m
 rollback-booster.rec	0c0908cf503d265e		26.3	2026-11-11T20:21Z on 6ea194a67b	mctas mobai record rollback-booster --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 rollback-halt.rec	3c8fb706f45830db		26.3	2026-11-11T20:15Z on d9a04c79b9	mctas mobai record rollback-halt --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+sentinel-asleep.rec	eda5bf349c85f752		26.3	2026-11-12T02:11Z on 4059b9875	mctas mobai record sentinel-asleep --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-dawn.rec	21e4e2e107145d86		26.3	2026-11-12T02:12Z on 4059b9875	mctas mobai record sentinel-dawn --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-dusk.rec	8799054543f11745		26.3	2026-11-12T02:11Z on 4059b9875	mctas mobai record sentinel-dusk --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-night.rec	44cabff2b9905c0d		26.3	2026-11-12T02:11Z on 4059b9875	mctas mobai record sentinel-night --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-plate-asleep.rec	31aa579fb9f2072e		26.3	2026-11-12T02:24Z on 4159f0754	mctas mobai record sentinel-plate-asleep --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-plate-dawn.rec	2363ff08dc647033		26.3	2026-11-12T02:25Z on 4159f0754	mctas mobai record sentinel-plate-dawn --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-plate-dusk.rec	e23d48f0e8a96b4d		26.3	2026-11-12T02:24Z on 4159f0754	mctas mobai record sentinel-plate-dusk --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-plate-night.rec	52f7994f248682b7		26.3	2026-11-12T02:24Z on 4159f0754	mctas mobai record sentinel-plate-night --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-plate-woken.rec	1f0850e07dd2b7fc		26.3	2026-11-12T02:25Z on 4159f0754	mctas mobai record sentinel-plate-woken --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
+sentinel-woken.rec	51690575a4fbf2dd		26.3	2026-11-12T02:12Z on 4059b9875	mctas mobai record sentinel-woken --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
 side-push.rec	99d33582e58d1134		26.3	2026-11-11T20:45Z on 37d74a3853	mctas mobai record side-push --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 siding-built.rec	198cca79d10656a5		26.3	2026-11-11T00:33Z on d1a077dc0e	mctas mobai record siding-built --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 siding-fault-nap40.rec	f1df1678c77517e6		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record siding-fault-nap40 --seed 1 --ticks 3300 --dir designs/redsim/recorded/mobai

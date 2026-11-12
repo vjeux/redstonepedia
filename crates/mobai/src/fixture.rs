@@ -341,6 +341,43 @@ pub(crate) fn br_reload(case: &str) -> Option<(u32, u32)> {
     }
 }
 
+/// (tickexact 2026-11-11, ironspec's sentinel, for vjeux's surface-glass decision) The sentinel
+/// design (explore/farmopt-station f4c391ea8, frozen copies in scenes/: its own bed, a one-cell
+/// room beside it sealed in stone, an observer facing the bed's head, a lamp behind it), placed
+/// with its (0,0,0) at SENTINEL_AT; `plate`: 58f770cc's plate variant (b6dc4eb5d: an oak pressure
+/// plate on the sentinel's cell, HOME preset), else the claim copy (no HOME preset: it claims).
+pub(crate) const SENTINEL_AT: [i32; 3] = [4, 64, 4];
+pub(crate) fn sentinel_design(plate: bool) -> mctas::design::Design {
+    let text = if plate { include_str!("../scenes/sentinel-plate.txt") } else { include_str!("../scenes/sentinel-claim.txt") };
+    mctas::design::Design::parse(text).expect("the frozen sentinel design")
+}
+
+/// The sentinel scenes' length (from day 11000 to past the next dawn).
+pub(crate) const SENTINEL_TICKS: u32 = 13300;
+
+/// The game ticks of scene sentinel-[plate-]`case`'s unload and load (the bridge's; the vanilla
+/// runner's real save, stop and start at the unload), if any: asleep (mid-night), dusk (across the
+/// lie-down), dawn (across the wake), woken (3 gt after the wake).
+pub(crate) fn sentinel_reload(case: &str) -> Option<(u32, u32)> {
+    let (plate, case) = match case.strip_prefix("plate-") {
+        Some(c) => (true, c),
+        None => (false, case),
+    };
+    let wake = if plate { SENTINEL_PLATE_WAKE } else { SENTINEL_WAKE };
+    match case {
+        "asleep" => Some((6000, 6020)),
+        "dusk" => Some((950, 1100)),
+        "dawn" => Some((12990, 13060)),
+        "woken" => Some((wake + 3, wake + 23)),
+        _ => None,
+    }
+}
+
+/// The tick the bridge's sentinel wakes at dawn in scenes sentinel-night and sentinel-plate-night
+/// (the woken cases' reload comes 3 gt after it).
+const SENTINEL_WAKE: u32 = 13020;
+const SENTINEL_PLATE_WAKE: u32 = 13020;
+
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
 /// during the freeze, and whether the cart is ridden.
@@ -363,6 +400,10 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         // (tickexact 2026-11-11, the parent's shared-bed overload across reloads) the claims by
         // break-and-replace, the reload of the case, the night's naps; the control breaks the bed
         // for good before its reload
+        n if n.starts_with("sentinel-") => match sentinel_reload(&n["sentinel-".len()..]) {
+            Some((u, l)) => vec![(u, vec![([0, 0, 0], "unload".to_string())]), (l, vec![([0, 0, 0], "load".to_string())])],
+            None => Vec::new(),
+        },
         n if n.starts_with("bed-reload-") => {
             let case = &n["bed-reload-".len()..];
             let mut by: std::collections::BTreeMap<u32, Vec<([i32; 3], String)>> = std::collections::BTreeMap::new();
@@ -5009,6 +5050,48 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, ironspec's sentinel, for vjeux's surface-glass decision) the sentinel
+    // design (f4c391ea8, its claim copy: no HOME preset) at SENTINEL_AT on a stone floor, day 11000:
+    // it claims its bed, lies down at dusk, wakes at dawn; the observer on the bed's head pulses
+    // at each flip. Cases: night (no reload), asleep, dusk, dawn, woken ([`sentinel_reload`]). And
+    // 58f770cc's plate variant (b6dc4eb5d), sentinel-plate-<case>: a pressure plate on the
+    // sentinel's cell, HOME preset (its position moved with the design)
+    for plate in [false, true] {
+        for case in ["night", "asleep", "dusk", "dawn", "woken"] {
+            let d = sentinel_design(plate);
+            let o = SENTINEL_AT;
+            let mut b = Vec::new();
+            floor(&mut b, 0, 16, 0, 16, 63, stone);
+            for (p, st) in &d.blocks {
+                b.push(([p[0] + o[0], p[1] + o[1], p[2] + o[2]], st.clone()));
+            }
+            let home = format!("pos:[I;{},{},{}]", o[0], o[1], o[2] + 1);
+            let mobs: Vec<(String, [f64; 3], Option<String>)> = d
+                .entities
+                .iter()
+                .map(|e| {
+                    let nbt = match e.nbt.as_deref().map(str::trim) {
+                        Some(n) if n.len() > 2 => format!("{{PersistenceRequired:1b,{}", &n.replace("pos:[I;0,0,1]", &home)[1..]),
+                        _ => "{PersistenceRequired:1b}".to_string(),
+                    };
+                    (e.kind.clone(), [e.pos[0] + o[0] as f64, e.pos[1] + o[1] as f64, e.pos[2] + o[2] as f64], Some(nbt))
+                })
+                .collect();
+            v.push(Scene {
+                name: format!("sentinel-{}{case}", if plate { "plate-" } else { "" }),
+                chunks: [0, 0, 0, 0],
+                blocks: b,
+                mobs,
+                day_time: 11000,
+                difficulty: Difficulty::Normal,
+                mob_griefing: true,
+                watch: ([0, 62, 0], [15, 70, 15]),
+                player: None,
+                player_creative: false,
+                random_tick_speed: 0,
+            });
+        }
+    }
     // (tickexact 2026-11-11, the parent's shared-bed overload across reloads, for vjeux) bed-reload's
     // world: the shared bed (head (8,64,8), foot (8,64,9), facing north) inside stone walls 3 high
     // (x 5..11, z 5..12: no zombie in view there); the room (glass, interior x 1..9, z 66..72, 4
@@ -8383,6 +8466,76 @@ pub fn stopper_sweep(files: &[std::path::PathBuf]) -> Result<()> {
         }
     }
     println!("\n(any entity move that starts inside a block shape is a run's, not a file's: every mctas mobfarm command prints `voxel-stop moves: N` on stderr at its end (0 expected), and `--voxel-trace` lists each such move with its cell and both distances)");
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, ironspec's sentinel) `mctas mobai rec-sentinel <rec>`: scene
+/// sentinel-<case>'s recording as events: its claim, every flip of the bed's OCCUPIED, the
+/// observer and the lamp, the sentinel's lie-downs and wakes (where it stands after each), and its
+/// state just before and after the case's reload.
+pub fn rec_sentinel(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let scene = path.file_stem().and_then(|s| s.to_str()).unwrap_or("sentinel-night").trim_end_matches(".rec").to_string();
+    let case = scene.trim_start_matches("sentinel-").to_string();
+    let o = SENTINEL_AT;
+    let (head, obs, lamp) = ([o[0], o[1], o[2] + 1], [o[0], o[1], o[2] + 2], [o[0], o[1], o[2] + 3]);
+    let cell = [o[0] - 1, o[1], o[2] + 1];
+    let reload = sentinel_reload(&case);
+    println!("== {scene} (day 11000 at t 0; dusk REST at t 1000, dawn at t 13000){}", reload.map(|(u, l)| format!("; the sandbox unloaded at t {u} and loaded at t {l}")).unwrap_or_default());
+    let (mut pulses, mut lies, mut wakes, mut off_cell) = (0, 0, 0, 0);
+    let (mut had_home, mut sleeping) = (false, false);
+    for f in &frames {
+        let t = f["t"].as_u64().unwrap_or(0);
+        for c in f["blocks"].as_array().into_iter().flatten() {
+            let p = [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32, c[2].as_i64().unwrap_or(0) as i32];
+            let st = c[3].as_str().unwrap_or("?").trim_start_matches("minecraft:");
+            if p == head {
+                println!("t {t} (day {}): the bed's head {}", 11000 + t, if st.contains("occupied=true") { "OCCUPIED" } else { "free" });
+            } else if p == obs {
+                let on = st.contains("powered=true");
+                pulses += on as u32;
+                println!("t {t}: the observer {}", if on { "ON (pulse)" } else { "off" });
+            } else if p == lamp {
+                println!("t {t}: the lamp {}", if st.contains("lit=true") { "lit" } else { "off" });
+            } else if p == [o[0] - 1, o[1], o[2] + 1] && st.starts_with("oak_pressure_plate") {
+                println!("t {t}: the plate {}", if st.contains("powered=true") { "PRESSED" } else { "released" });
+            }
+        }
+        let Some(v) = f["entities"].as_array().and_then(|a| a.iter().find(|e| e["type"] == "villager").cloned()) else {
+            continue;
+        };
+        let home = v["memories"]["home"].as_str().is_some();
+        if home && !had_home {
+            println!("t {t}: the sentinel claims its bed (HOME {})", v["memories"]["home"].as_str().unwrap_or("?"));
+        }
+        if !home && had_home {
+            println!("t {t}: the sentinel LOSES HOME");
+        }
+        had_home = home;
+        let s = v["pose"] == "sleeping";
+        let p = [v["pos"][0].as_f64().unwrap_or(0.0), v["pos"][1].as_f64().unwrap_or(0.0), v["pos"][2].as_f64().unwrap_or(0.0)];
+        if s && !sleeping {
+            lies += 1;
+            println!("t {t} (day {}): the sentinel lies down", 11000 + t);
+        }
+        if !s && sleeping {
+            wakes += 1;
+            println!("t {t} (day {}): the sentinel wakes, standing at {:.2} {:.2} {:.2}", 11000 + t, p[0], p[1], p[2]);
+        }
+        if !s && !(p[0] >= cell[0] as f64 && p[0] < (cell[0] + 1) as f64 && p[2] >= cell[2] as f64 && p[2] < (cell[2] + 1) as f64) {
+            off_cell += 1;
+        }
+        sleeping = s;
+        if let Some((u, l)) = reload
+            && (t == u as u64 || t == l as u64 + 1)
+        {
+            println!("t {t}: {} the reload: the sentinel {}", if t == u as u64 { "just before" } else { "just after" }, if s { "asleep" } else { "awake" });
+        }
+    }
+    println!("summary: {lies} lie-down(s), {wakes} wake(s), {pulses} observer pulse(s), {off_cell} ticks standing outside its cell");
     Ok(())
 }
 

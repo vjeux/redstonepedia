@@ -9,7 +9,7 @@
 //! are not the bridge's, so the timings may differ by ticks; the claims, tickets and naps are
 //! what is compared.
 
-use crate::fixture::{BR_CLAIM0, BR_CLAIM_LEN, BR_NAP, BR_NAP0, BR_STEP, BR_TICKS, br_reload, scene_actions, scenes};
+use crate::fixture::{BR_CLAIM0, BR_CLAIM_LEN, BR_NAP, BR_NAP0, BR_STEP, BR_TICKS, SENTINEL_AT, SENTINEL_TICKS, br_reload, scene_actions, scenes, sentinel_reload};
 use anyhow::{Result, anyhow, bail};
 use mctas::vanilla::{VanillaOptions, VanillaServer};
 use std::collections::BTreeMap;
@@ -58,6 +58,27 @@ fn start(version: &str, world: Option<PathBuf>) -> Result<VanillaServer> {
 /// The text after `key` in an SNBT dump, up to the end of its value's first number list or number.
 fn snbt_after<'a>(s: &'a str, key: &str) -> Option<&'a str> {
     s.find(key).map(|i| &s[i + key.len()..])
+}
+
+/// An entity's data with every `pos:[I;x,y,z]` (a memory's block position: a preset HOME) moved by
+/// the site's offset, as the scene's blocks are.
+fn shift_int_positions(nbt: &str) -> String {
+    let mut out = String::new();
+    let mut rest = nbt;
+    while let Some(i) = rest.find("pos:[I;") {
+        out.push_str(&rest[..i + 7]);
+        rest = &rest[i + 7..];
+        let end = rest.find(']').unwrap_or(rest.len());
+        let v: Vec<i32> = rest[..end].split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        if v.len() == 3 {
+            out.push_str(&format!("{},{},{}", v[0] + O[0], v[1] + O[1], v[2] + O[2]));
+        } else {
+            out.push_str(&rest[..end]);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn villager(srv: &mut VanillaServer, k: usize) -> Result<Option<VState>> {
@@ -360,6 +381,157 @@ pub fn bed_reload_vanilla(version: &str, case: &str, forceload: bool) -> Result<
         naps.iter().enumerate().map(|(k, n)| format!("v{k} {}", match n { Some(true) => "asleep", Some(false) => "AWAKE", None => "not found" })).collect::<Vec<_>>().join(", ")
     );
     println!("(server runs on this world: {world_runs})");
+    let dir = srv.dir.clone();
+    drop(srv);
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+/// The sentinel's state as the server shows it.
+#[derive(Clone, Debug, PartialEq)]
+struct SState {
+    occupied: bool,
+    observer: bool,
+    lamp: bool,
+    /// The plate variant's pressure plate on the sentinel's cell (false when there is none).
+    plate: bool,
+    home: bool,
+    sleeping: bool,
+    pos: [f64; 3],
+}
+
+fn sentinel_state(srv: &mut VanillaServer) -> Result<Option<SState>> {
+    let o = [O[0] + SENTINEL_AT[0], O[1] + SENTINEL_AT[1], O[2] + SENTINEL_AT[2]];
+    let occupied = srv.test_block([o[0], o[1], o[2] + 1], "minecraft:red_bed[occupied=true]")?;
+    let observer = srv.test_block([o[0], o[1], o[2] + 2], "minecraft:observer[powered=true]")?;
+    let lamp = srv.test_block([o[0], o[1], o[2] + 3], "minecraft:redstone_lamp[lit=true]")?;
+    let plate = srv.test_block([o[0] - 1, o[1], o[2] + 1], "minecraft:oak_pressure_plate[powered=true]")?;
+    let mem = srv.cmd_long("data get entity @e[tag=sen,limit=1] Brain.memories")?;
+    if !mem.contains("has the following entity data") {
+        return Ok(None);
+    }
+    let home = mem.contains("\"minecraft:home\"");
+    let sleeping = srv.cmd_long("data get entity @e[tag=sen,limit=1] sleeping_pos")?.contains("has the following entity data");
+    let p = srv.cmd_long("data get entity @e[tag=sen,limit=1] Pos")?;
+    let v: Vec<f64> = p.split("entity data: ").nth(1).unwrap_or("").trim().trim_start_matches('[').trim_end_matches(']').split(',').filter_map(|x| x.trim().trim_end_matches('d').parse().ok()).collect();
+    let pos = if v.len() == 3 { [v[0] - O[0] as f64, v[1] - O[1] as f64, v[2] - O[2] as f64] } else { [f64::NAN; 3] };
+    Ok(Some(SState { occupied, observer, lamp, plate, home, sleeping, pos }))
+}
+
+/// `mctas mobai sentinel-vanilla --case <night|asleep|dusk|dawn|woken>`: scene sentinel-<case> on
+/// the unmodified dedicated server (no player), every tick read around the claim, dusk, dawn and
+/// the restart (a real save, stop and start where the bridge unloads; woken: 3 gt after the wake
+/// the server shows), in 100-gt steps between: each flip of the bed's OCCUPIED, the observer and
+/// the lamp, the claim, the lie-downs and wakes and where the sentinel stands, and its state just
+/// before and after the restart.
+pub fn sentinel_vanilla(version: &str, case: &str) -> Result<()> {
+    let name = format!("sentinel-{case}");
+    let all = scenes();
+    let s = all.iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
+    let reload = sentinel_reload(case);
+    let woken = case.ends_with("woken");
+    println!("== {name} on the vanilla {version} server (day {} at t 0; dusk REST at t 1000, dawn at t 13000){}", s.day_time, if woken { "; a real save, stop and start 3 gt after the wake".to_string() } else { reload.map(|(u, _)| format!("; a real save, stop and start at t {u}")).unwrap_or_default() });
+    let mut srv = start(version, None)?;
+    srv.cmd_ok(&format!("time set {}", s.day_time))?;
+    let (x0, z0, x1, z1) = (O[0] + s.chunks[0] * 16, O[2] + s.chunks[1] * 16, O[0] + s.chunks[2] * 16 + 15, O[2] + s.chunks[3] * 16 + 15);
+    srv.cmd_ok(&format!("forceload add {x0} {z0} {x1} {z1}"))?;
+    srv.step(5)?;
+    srv.cmd_ok(&format!("fill {x0} 63 {z0} {x1} 63 {z1} minecraft:stone"))?;
+    for (p, st) in &s.blocks {
+        if p[1] == 63 && st == "minecraft:stone" {
+            continue;
+        }
+        setblock(&mut srv, *p, st)?;
+    }
+    for (ty, p, nbt) in &s.mobs {
+        let nbt = match nbt.as_deref() {
+            Some(n) if n.trim() != "{}" => format!("{{Tags:[\"sen\"],{}", &shift_int_positions(n.trim())[1..]),
+            _ => "{Tags:[\"sen\"]}".to_string(),
+        };
+        srv.cmd_ok(&format!("summon {ty} {} {} {} {nbt}", p[0] + O[0] as f64, p[1] + O[1] as f64, p[2] + O[2] as f64))?;
+    }
+    let cell = [SENTINEL_AT[0] - 1, SENTINEL_AT[2] + 1];
+    let dense = |t: u32, r: Option<(u32, u32)>| t < 120 || (900..1300).contains(&t) || (12900..13300).contains(&t) || r.is_some_and(|(u, l)| t + 5 >= u && t <= l + 60);
+    let mut restart_at = if woken { None } else { reload.map(|(u, _)| u) };
+    let mut window = reload;
+    let mut last: Option<SState> = None;
+    let (mut pulses, mut lies, mut wakes, mut off_cell) = (0, 0, 0, 0);
+    let mut t: u32 = 0;
+    while t < SENTINEL_TICKS {
+        if restart_at == Some(t) {
+            let before = sentinel_state(&mut srv)?;
+            srv.cmd_ok("save-on")?;
+            srv.cmd_ok("save-all flush")?;
+            let old = srv.dir.clone();
+            let world = old.join(&srv.level_name);
+            let gt = srv.game_time()?;
+            drop(srv);
+            srv = start(version, Some(world))?;
+            let _ = std::fs::remove_dir_all(&old);
+            let t0 = std::time::Instant::now();
+            let mut after = sentinel_state(&mut srv)?;
+            while after.is_none() && t0.elapsed() < std::time::Duration::from_secs(10) {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                after = sentinel_state(&mut srv)?;
+            }
+            let show = |s: &Option<SState>| match s {
+                Some(s) => format!("{}, bed {}, observer {}, lamp {}, plate {}, HOME {}", if s.sleeping { "asleep" } else { "awake" }, if s.occupied { "OCCUPIED" } else { "free" }, if s.observer { "on" } else { "off" }, if s.lamp { "lit" } else { "off" }, if s.plate { "pressed" } else { "up" }, if s.home { "held" } else { "LOST" }),
+                None => "(the sentinel not found)".to_string(),
+            };
+            println!("t {t}: before the save (game time {gt}): {}", show(&before));
+            println!("t {t}: stopped and started again on the saved world (game time {}): {}", srv.game_time()?, show(&after));
+            last = after;
+            restart_at = None;
+        }
+        let step = if dense(t, window) { 1 } else { 100.min(SENTINEL_TICKS - t) };
+        srv.step(step)?;
+        t += step;
+        let Some(now) = sentinel_state(&mut srv)? else {
+            println!("t {t}: the sentinel not found");
+            continue;
+        };
+        if let Some(prev) = &last {
+            let day = s.day_time as u32 + t;
+            if now.home != prev.home {
+                println!("t {t}: the sentinel {} HOME", if now.home { "claims (holds)" } else { "LOSES" });
+            }
+            if now.occupied != prev.occupied {
+                println!("t {t} (day {day}): the bed's head {}{}", if now.occupied { "OCCUPIED" } else { "free" }, if step > 1 { " (seen after a 100-gt step)" } else { "" });
+            }
+            if now.observer != prev.observer {
+                // (the build's own pulse: the observer and the bed placed with updates by setblock;
+                // the bridge places a scene raw)
+                let build = t < 20;
+                pulses += (now.observer && !build) as u32;
+                println!("t {t}: the observer {}{}", if now.observer { "ON (pulse)" } else { "off" }, if build { " (the build's own: setblock placed the bed and the observer with updates)" } else { "" });
+            }
+            if now.lamp != prev.lamp {
+                println!("t {t}: the lamp {}", if now.lamp { "lit" } else { "off" });
+            }
+            if now.plate != prev.plate {
+                println!("t {t}: the plate {}", if now.plate { "PRESSED" } else { "released" });
+            }
+            if now.sleeping && !prev.sleeping {
+                lies += 1;
+                println!("t {t} (day {day}): the sentinel lies down");
+            }
+            if !now.sleeping && prev.sleeping {
+                wakes += 1;
+                println!("t {t} (day {day}): the sentinel wakes, standing at {:.2} {:.2} {:.2}", now.pos[0], now.pos[1], now.pos[2]);
+                if woken && restart_at.is_none() && window.is_some_and(|(u, _)| u > t) {
+                    restart_at = Some(t + 3);
+                    window = Some((t + 3, t + 23));
+                }
+            }
+        } else if now.home {
+            println!("t {t}: the sentinel holds HOME");
+        }
+        if !now.sleeping && !(now.pos[0] >= cell[0] as f64 && now.pos[0] < (cell[0] + 1) as f64 && now.pos[2] >= cell[1] as f64 && now.pos[2] < (cell[1] + 1) as f64) {
+            off_cell += 1;
+        }
+        last = Some(now);
+    }
+    println!("summary: {lies} lie-down(s), {wakes} wake(s), {pulses} observer pulse(s) seen, {off_cell} reads with the sentinel standing outside its cell");
     let dir = srv.dir.clone();
     drop(srv);
     let _ = std::fs::remove_dir_all(&dir);

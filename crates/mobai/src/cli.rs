@@ -204,6 +204,21 @@ pub enum MobaiCmd {
         #[arg(long)]
         xz: bool,
     },
+    /// (tickexact 2026-11-11, ironspec's sentinel) Scene sentinel-<case>'s recording as events: the
+    /// claim, the bed's, observer's and lamp's flips, the lie-downs and wakes, the reload
+    RecSentinel {
+        path: std::path::PathBuf,
+    },
+    /// (tickexact 2026-11-11, ironspec's sentinel) Scene sentinel-<case> on the unmodified
+    /// dedicated server, a real save, stop and start where the bridge unloads (woken: 3 gt after
+    /// the wake the server shows): the same events, every tick around dusk, dawn and the restart
+    SentinelVanilla {
+        /// night, asleep, dusk, dawn, woken
+        #[arg(long, default_value = "night")]
+        case: String,
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) Scene bed-reload-<case>'s
     /// recording at its checkpoints: every villager's HOME and LAST_SLEPT, the bed, the naps
     RecBedreload {
@@ -409,6 +424,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
         MobaiCmd::RecBedreload { path } => crate::fixture::rec_bedreload(&path),
+        MobaiCmd::RecSentinel { path } => crate::fixture::rec_sentinel(&path),
+        MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
         MobaiCmd::BedReloadVanilla { case, forceload, version } => crate::bedreload::bed_reload_vanilla(&version, &case, forceload),
         MobaiCmd::StopperSweep { files } => crate::fixture::stopper_sweep(&files),
         MobaiCmd::RecCartpole { path } => crate::fixture::rec_cartpole(&path),
