@@ -344,6 +344,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut contacts_mov: Vec<Contact> = Vec::new();
     let mut exit_cross: Vec<(i64, usize)> = Vec::new();
     let mut hold_rest: Vec<(i64, usize)> = Vec::new();
+    let mut spacing_samples: Vec<f64> = Vec::new();
     let mut run_min: (usize, i64) = (usize::MAX, 0);
     let mut hold_at_release: Vec<(i64, usize)> = Vec::new();
     let mut tail_max = 0usize;
@@ -437,7 +438,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 for (k, id) in ids.iter().enumerate() {
                     if let Some((x, y, _)) = id.and_then(|id| cart_state(&run.world, id))
                         && !want
-                        && x + 0.49 > gx as f64 + 0.375
+                        && x + 0.49 > gx as f64 + 0.375 + 0.02
                         && x - 0.49 < gx as f64 + 0.625
                         && y + 0.7 > gy as f64
                         && y < gy as f64 + 1.5
@@ -452,6 +453,14 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 }
                 // (carts per opening: close the count at each opening's start)
                 if want && role == Role::G0 {
+                    // (the pressed spacing: successive carts at rest on the run's slopes)
+                    let mut xs: Vec<f64> = ids.iter().filter_map(|id| id.and_then(|id| cart_state(&run.world, id))).filter(|(x, _, v)| *x >= g.run_x.0 && *x < g.run_x.1 && *v < 0.005).map(|(x, _, _)| x).collect();
+                    xs.sort_by(|a, b| a.total_cmp(b));
+                    for w in xs.windows(2) {
+                        if w[1] - w[0] < 1.6 {
+                            spacing_samples.push(w[1] - w[0]);
+                        }
+                    }
                     if let Some(c) = g0_open_count.take() {
                         *g0_hist.entry(c).or_insert(0) += 1;
                     }
@@ -811,6 +820,15 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     l.push(format!("gate shuts onto a cart (the gate's box inside a cart's; the bar: 0): {}{}", edges_on_cart.len(), if edges_on_cart.is_empty() { String::new() } else { format!(" ({})", edges_on_cart.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
     let _ = (&above, worst);
     l.push(format!("the pressed run's fill (carts on its slopes) at its emptiest after the first cycle: {} (t {}); the tail chain's most carts: {tail_max}", if run_min.0 == usize::MAX { 0 } else { run_min.0 }, run_min.1));
+    l.push(format!(
+        "the pressed spacing (x between successive carts at rest in the run, sampled at each G0 opening edge): {}",
+        if spacing_samples.is_empty() { "-".to_string() } else {
+            let mn = spacing_samples.iter().copied().fold(f64::INFINITY, f64::min);
+            let mx = spacing_samples.iter().copied().fold(0.0f64, f64::max);
+            let mean = spacing_samples.iter().sum::<f64>() / spacing_samples.len() as f64;
+            format!("{} samples, {mn:.3}..{mx:.3}, mean {mean:.3}", spacing_samples.len())
+        }
+    ));
     l.push(format!("the hold at each release (latched carts): {}; carts through the sink: {sunk}", hold_at_release.iter().map(|(t, n)| format!("t {t}: {n}")).collect::<Vec<_>>().join(", ")));
     l.push(format!(
         "the hold's front-gate shut margins (gt from the rear cart clearing it to the shut, bar 2 or more; gt from the shut to the next cart at its face, bar 2 or more): {}",
