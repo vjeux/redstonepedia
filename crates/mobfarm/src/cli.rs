@@ -6666,7 +6666,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             let phase_corners: Vec<crate::returnjudge::Corner> = speeds.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
-            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), bars, margin, jobs };
+            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), taps_follow_departure: false, bars, margin, jobs };
             println!(
                 "return judge (cc767b78, bench, tool unreviewed; the lead's rows: the controls at {} corners (offsets {:?}, the departure spread {}..{} gt on each, releases {speeds:?}, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
                 o.corners.len(),
