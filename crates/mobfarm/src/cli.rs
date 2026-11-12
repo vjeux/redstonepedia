@@ -1286,6 +1286,17 @@ pub enum MobfarmCmd {
         close_adjacent: bool,
         #[arg(long, default_value_t = 1)]
         seed: i64,
+        /// A Nether-only layout (onechunk's group files: the Nether frame's cells as a plain
+        /// design) benched as the Nether part, a pad portal generated at 8 x its kill room portal
+        /// (needs --nether-portal).
+        #[arg(long)]
+        nether_design: Option<PathBuf>,
+        /// A cell of the kill room's Nether portal X,Y,Z (when the Nether part holds others).
+        #[arg(long, allow_hyphen_values = true)]
+        nether_portal: Option<String>,
+        /// Write the bench design composed for --nether-design here.
+        #[arg(long)]
+        design_out: Option<PathBuf>,
     },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
@@ -5556,10 +5567,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
             }
         }
-        MobfarmCmd::KillGuard { design, golems, every, piglins, ticks, hold, close, close_adjacent, seed } => {
-            let path = design.unwrap_or_else(|| PathBuf::from("designs/farms/iron/carousel-assembly/carousel-v0a.txt"));
+        MobfarmCmd::KillGuard { design, golems, every, piglins, ticks, hold, close, close_adjacent, seed, nether_design, nether_portal, design_out } => {
+            let focus: Option<[i32; 3]> = match &nether_portal {
+                Some(s) => {
+                    let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--nether-portal X,Y,Z");
+                    Some([v[0], v[1], v[2]])
+                }
+                None => None,
+            };
+            let path = match &nether_design {
+                Some(nd) => {
+                    let f = focus.ok_or_else(|| anyhow::anyhow!("--nether-design needs --nether-portal X,Y,Z (a cell of the kill room's portal)"))?;
+                    let nether = mctas::design::Design::load(nd)?;
+                    let bd = crate::killguard::nether_bench_design(&nether, f).map_err(|e| anyhow::anyhow!(e))?;
+                    let out = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("kill-guard-bench-{}.txt", std::process::id())));
+                    std::fs::write(&out, format!("# kill-guard bench design: {} as the Nether part, a pad portal at 8 x its kill room portal ({f:?})\n{}", nd.display(), bd.to_text()))?;
+                    out
+                }
+                None => design.unwrap_or_else(|| PathBuf::from("designs/farms/iron/carousel-assembly/carousel-v0a.txt")),
+            };
             let d = mctas::design::Design::load(&path)?;
-            let c = crate::killguard::cells(&d).map_err(|e| anyhow::anyhow!(e))?;
+            let c = crate::killguard::cells(&d, focus).map_err(|e| anyhow::anyhow!(e))?;
             let (_c, spec) = load(version, &path)?;
             let o = crate::killguard::Opts { golems, every, piglins, ticks, hold, close, close_adjacent, seed };
             println!(

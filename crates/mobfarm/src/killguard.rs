@@ -65,8 +65,10 @@ fn is_lava(s: &str) -> bool {
 }
 
 /// The bench's cells read from the design (the overworld as written; the Nether part as written,
-/// its anchor 0 0 0 as the carousel assembly's).
-pub fn cells(d: &Design) -> Result<Cells, String> {
+/// its anchor 0 0 0 as the carousel assembly's). `focus`: a cell of the kill room's Nether portal
+/// when the Nether part holds others (onechunk's group layout: the loader's twin): only that
+/// portal's cells (6-connected) count.
+pub fn cells(d: &Design, focus: Option<P>) -> Result<Cells, String> {
     let mut c = Cells::default();
     for (p, s) in &d.blocks {
         if is_portal(s) && !d.blocks.get(&[p[0], p[1] - 1, p[2]]).is_some_and(|b| is_portal(b)) {
@@ -74,10 +76,23 @@ pub fn cells(d: &Design) -> Result<Cells, String> {
         }
     }
     let nb = &d.nether_blocks;
+    let keep: Option<BTreeSet<P>> = focus.map(|f| {
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![f];
+        while let Some(p) = stack.pop() {
+            if !nb.get(&p).is_some_and(|b| is_portal(b)) || !seen.insert(p) {
+                continue;
+            }
+            for v in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
+                stack.push([p[0] + v[0], p[1] + v[1], p[2] + v[2]]);
+            }
+        }
+        seen
+    });
     let mut chamber: BTreeMap<P, i32> = BTreeMap::new();
     let mut west: BTreeMap<P, i32> = BTreeMap::new();
     for (p, s) in nb {
-        if !is_portal(s) {
+        if !is_portal(s) || keep.as_ref().is_some_and(|k| !k.contains(p)) {
             continue;
         }
         c.nether_portal.push(*p);
@@ -133,6 +148,54 @@ pub fn cells(d: &Design) -> Result<Cells, String> {
 
 fn bp(p: P) -> BlockPos {
     BlockPos::new(p[0], p[1], p[2])
+}
+
+/// The bench design for a Nether-only layout (onechunk's group files: the Nether frame's cells
+/// written as a plain design): its blocks and block entities as the Nether part (anchor 0 0 0),
+/// and in the overworld a pad portal alone (an obsidian frame round a portal as wide and tall as
+/// the kill room's, on the same axis) at 8 times the kill room portal's corner and at its height,
+/// so a golem put into it lands on the kill room's portal (the closest within 16 of the position
+/// over 8, the height kept: the loader's twin higher up is farther).
+pub fn nether_bench_design(nether: &Design, portal_cell: P) -> Result<Design, String> {
+    let nb = &nether.blocks;
+    let state = nb.get(&portal_cell).filter(|s| is_portal(s)).ok_or_else(|| format!("{portal_cell:?} is not a nether portal cell of the layout"))?;
+    let axis_z = state.contains("axis=z");
+    let mut part = BTreeSet::new();
+    let mut stack = vec![portal_cell];
+    while let Some(p) = stack.pop() {
+        if !nb.get(&p).is_some_and(|b| is_portal(b)) || !part.insert(p) {
+            continue;
+        }
+        for v in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
+            stack.push([p[0] + v[0], p[1] + v[1], p[2] + v[2]]);
+        }
+    }
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for p in &part {
+        for i in 0..3 {
+            lo[i] = lo[i].min(p[i]);
+            hi[i] = hi[i].max(p[i]);
+        }
+    }
+    let mut d = Design { name: format!("{}-kill-guard-bench", nether.name), meta: nether.meta.clone(), ..Default::default() };
+    // the pad: the plane at 8 x the portal's own coordinate, the width along the portal's axis
+    let (h, w) = (hi[1] - lo[1] + 1, if axis_z { hi[2] - lo[2] + 1 } else { hi[0] - lo[0] + 1 });
+    let base = [lo[0] * 8, lo[1], lo[2] * 8];
+    let portal_state = if axis_z { "minecraft:nether_portal[axis=z]" } else { "minecraft:nether_portal[axis=x]" };
+    for dy in -1..=h {
+        for dw in -1..=w {
+            let p = if axis_z { [base[0], base[1] + dy, base[2] + dw] } else { [base[0] + dw, base[1] + dy, base[2]] };
+            let frame = dy == -1 || dy == h || dw == -1 || dw == w;
+            d.blocks.insert(p, if frame { "minecraft:obsidian".to_string() } else { portal_state.to_string() });
+        }
+    }
+    d.nether_blocks = nb.clone();
+    d.nether_block_entities = nether.block_entities.clone();
+    d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    d.ports.insert("nether-anchor".into(), [0, 0, 0]);
+    d.ports.insert("nether-axis".into(), [1, 0, 0]);
+    d.ports.insert("output".into(), [base[0] + 4, base[1], base[2] + 4]);
+    Ok(d)
 }
 
 fn mobs(w: &redsim::world::World, id: &str) -> Vec<(u32, f32, [f64; 3])> {
@@ -338,11 +401,21 @@ pub fn bench(spec: &FarmSpec, c: &Cells, o: &Opts) -> Result<String, String> {
         seeds.len(),
         piglin_ow.len()
     ));
-    let pass = back.is_empty() && survivors.is_empty() && left_alive.is_empty() && late.is_empty() && crossed_out == put && lives.len() == put;
+    // (G1 on bf13911e2: an arrival away from the kill room's portal, or any model note (an event
+    // redsim does not model), fails the guard: a PASS cannot sit on either)
+    let errs: Vec<&String> = run.world.errors.iter().chain(run.world.nether.as_deref().unwrap().errors.iter()).collect();
+    let pass = back.is_empty() && survivors.is_empty() && left_alive.is_empty() && late.is_empty() && crossed_out == put && lives.len() == put && elsewhere == 0 && errs.is_empty();
     if o.hold {
         s.push_str(&format!("  the control: {} (a crossing back expected)\n", if back.is_empty() { "NO crossing back: the bench could not see one (FAIL)" } else { "golems held out of the lava crossed back: the bench sees a crossing (PASS)" }));
     } else {
-        s.push_str(&format!("  the guard: {}\n", if pass { "every golem died inside its 300-gt cooldown and none crossed back (PASS)" } else { "FAIL" }));
+        s.push_str(&format!(
+            "  the guard: {}\n",
+            if pass {
+                "every golem died inside its 300-gt cooldown and none crossed back (PASS)".to_string()
+            } else {
+                format!("FAIL{}{}", if elsewhere > 0 { format!(" ({elsewhere} arrival(s) away from the kill room's portal)") } else { String::new() }, if errs.is_empty() { String::new() } else { format!(" ({} model note(s))", errs.len()) })
+            }
+        ));
     }
     let tally = |m: &BTreeMap<(String, String), usize>| m.iter().map(|((ty, src), n)| format!("{ty} {src} {n}")).collect::<Vec<_>>().join(", ");
     s.push_str(&format!("  deaths in the Nether by kind and source: {}\n", if deaths.is_empty() { "none".to_string() } else { tally(&deaths) }));
@@ -350,7 +423,6 @@ pub fn bench(spec: &FarmSpec, c: &Cells, o: &Opts) -> Result<String, String> {
     if o.hold {
         s.push_str(&format!("  the control's walk back: {} golem(s) alive 700 gt after arrival put back into the portal's bottom cell {:?}\n", walked_back.len(), back_cell));
     }
-    let errs: Vec<&String> = run.world.errors.iter().chain(run.world.nether.as_deref().unwrap().errors.iter()).collect();
     for e in errs.iter().take(6) {
         s.push_str(&format!("  model note: {e}\n"));
     }
