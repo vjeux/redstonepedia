@@ -19,7 +19,7 @@ const DUST: &str = "minecraft:redstone_wire[east=side,north=none,power=0,south=n
 /// release edge), chain repeaters at (x,1,0) for x 1..=stages (input from -x), lockers at (x,1,-1)
 /// (input from the bus at (x,1,-2), output into the chain repeater's north side), the bus's dust at
 /// (x,1,-2) for x 0..=stages+1; stone under all.
-pub fn design(stages: i32) -> Design {
+pub fn design(stages: i32, mid_drivers: bool, terminator: bool) -> Design {
     let mut d = Design { name: format!("pausable-chain-{stages}"), ..Default::default() };
     d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     for x in 1..=stages {
@@ -28,17 +28,26 @@ pub fn design(stages: i32) -> Design {
         d.blocks.insert([x, 1, -1], REP_LOCK.into());
         d.blocks.insert([x, 0, -1], "minecraft:stone".into());
     }
+    // (G1 Nov 11 23:41: a dummy repeater after the last tap makes that tap's rise EXTREMELY_HIGH like
+    // the interior stages' (a diode in front), so it keeps the wave's full width)
+    if terminator {
+        d.blocks.insert([stages + 1, 1, 0], REP_CHAIN.into());
+        d.blocks.insert([stages + 1, 0, 0], "minecraft:stone".into());
+    }
     for x in 0..=stages + 1 {
         d.blocks.insert([x, 1, -2], DUST.into());
         d.blocks.insert([x, 0, -2], "minecraft:stone".into());
     }
     // (the mid-gt bus, ironspec/G1 Nov 11 23:03: a repeater into the bus at each driver, its input
     // (x,1,-4) where `bench_pb` sets a redstone block 2 gt ahead, so the bus's edges land inside a gt
-    // at the driver's priority; inert while the direct bench overwrites the bus cell itself)
-    for x in drivers(stages) {
-        d.blocks.insert([x, 1, -3], "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]".into());
-        d.blocks.insert([x, 0, -3], "minecraft:stone".into());
-        d.blocks.insert([x, 0, -4], "minecraft:stone".into());
+    // at the driver's priority; only for --pb-transit: bench scaffolding, the plain benches build the
+    // chain alone)
+    if mid_drivers {
+        for x in drivers(stages) {
+            d.blocks.insert([x, 1, -3], "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]".into());
+            d.blocks.insert([x, 0, -3], "minecraft:stone".into());
+            d.blocks.insert([x, 0, -4], "minecraft:stone".into());
+        }
     }
     d.blocks.insert([0, 0, 0], "minecraft:stone".into());
     d.ports.insert("output".into(), [0, 1, 3]);
@@ -103,7 +112,7 @@ fn trial(spec: &FarmSpec, stages: i32, freeze: Option<(i64, i64)>, ticks: i64) -
 /// stage 1's off-tick inserted before that tick (the rise's tick from A's run of the same freezes,
 /// which P's clearing cannot move: it is upstream). Each schedule: broken (not every stage rises and
 /// falls once) and every tap's width.
-pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64) -> Result<Vec<String>, String> {
+pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64, release_stage: i32) -> Result<Vec<String>, String> {
     use redsim::ticks::Priority;
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
@@ -112,17 +121,27 @@ pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64)
     let s1 = BlockPos::new(1, 1, 0);
     let all = redsim::world::flags::ALL;
     let stride = stride.max(1) as usize;
+    const TRIG: i64 = 4;
     let trial = |n: i32, mid: bool, pre_clear: Option<i64>, freezes: &[(i64, i64)], horizon: i64| -> Result<(Vec<Vec<(i64, bool)>>, Option<i64>), String> {
         let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
-        let mut run = Run::start(spec, &ro)?;
+        let run_n = Run::start(spec, &ro);
+        let mut run = run_n?;
         while run.settle_tick() {}
-        let n_cell = BlockPos::new(n, 1, 0);
+        // (ironspec Nov 12 00:12: hold-settled (SETTLED) drops when the release tap at stage
+        // `release_stage` rises (the holds empty), so the chain's input P AND SETTLED AND NOT B falls
+        // at the first of stage N's rise (P clears, B sets) and the release's)
+        let n_eff = if release_stage > 0 { n.min(release_stage) } else { n };
+        let n_cell = BlockPos::new(n_eff, 1, 0);
         let rep_kind = run.world.get(s1).kind();
         let mut was = vec![false; stages as usize];
         let mut tr: Vec<Vec<(i64, bool)>> = vec![Vec::new(); stages as usize];
         let (mut p_set, mut rose) = (true, None);
-        run.world.set_block(BlockPos::new(0, 1, 0), on.clone(), all);
         for t in 0..horizon {
+            // (the trigger at t = TRIG, so freezes from f = 2 also catch it and the wave's entry: G1
+            // Nov 11 23:41)
+            if t == TRIG {
+                run.world.set_block(BlockPos::new(0, 1, 0), on.clone(), all);
+            }
             for &(f, l) in freezes {
                 if mid {
                     if t == f - 2 {
@@ -200,16 +219,16 @@ pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64)
                 }
             };
             let mut schedules: Vec<(bool, Vec<(i64, i64)>, String)> = Vec::new();
-            for f in 2..transit {
-                schedules.push((false, vec![(f, len)], format!("one freeze at +{f}")));
+            for f in 2..TRIG + transit {
+                schedules.push((false, vec![(f, len)], format!("one freeze at +{f} (the trigger at +{TRIG})")));
             }
-            for f1 in (2..transit).step_by(stride) {
+            for f1 in (2..TRIG + transit).step_by(stride) {
                 for dd in (0..transit).step_by(stride) {
-                    schedules.push((true, vec![(f1, len), (f1 + len + dd, len)], format!("freezes at +{f1} and +{}", f1 + len + dd)));
+                    schedules.push((true, vec![(f1, len), (f1 + len + dd, len)], format!("freezes at +{f1} and +{} (the trigger at +{TRIG})", f1 + len + dd)));
                 }
             }
             for (two, fr, label) in &schedules {
-                let horizon = transit + fr.iter().map(|(_, l)| *l).sum::<i64>() + transit + 20;
+                let horizon = TRIG + transit + fr.iter().map(|(_, l)| *l).sum::<i64>() + transit + 20;
                 let (tr_a, rose) = trial(n, mid, None, fr, horizon)?;
                 record(0, *two, &tr_a, label.clone());
                 if n >= 2 {
@@ -222,9 +241,10 @@ pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64)
                     continue;
                 }
                 out.push(format!(
-                    "N {n} ({}-gt wave{}), bus {}, P-clear {}: one freeze ({} phases): broken {}{}; the least width per tap {}; two freezes ({} pairs): broken {}{}; the least width per tap {}",
-                    2 * n,
+                    "N {n} ({}-gt wave{}){}, bus {}, P-clear {}: one freeze ({} phases): broken {}{}; the least width per tap {}; two freezes ({} pairs): broken {}{}; the least width per tap {}",
+                    2 * if release_stage > 0 { n.min(release_stage) } else { n },
                     match n { 1 => ": the control that must break under one freeze", 2 => ": the control that must break under two", _ => "" },
+                    if release_stage > 0 { format!(", the release (SETTLED's drop) at stage {release_stage}{}", if release_stage < n { ": the control that must break" } else { "" }) } else { String::new() },
                     if mid { "mid-gt (repeaters)" } else { "between gts" },
                     if order == 0 { "A" } else { "B" },
                     a.0,

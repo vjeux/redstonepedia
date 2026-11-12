@@ -203,6 +203,10 @@ impl Rng {
     fn range(&mut self, lo: i64, hi: i64) -> i64 {
         if hi <= lo { lo } else { lo + (self.next() % ((hi - lo + 1) as u64)) as i64 }
     }
+    /// Uniform in [0, 1).
+    fn f64(&mut self) -> f64 {
+        (self.next() >> 11) as f64 / (1u64 << 53) as f64
+    }
 }
 
 /// The score over the scored days.
@@ -779,6 +783,19 @@ pub struct LaneOpts {
     /// detector's rise at day 170..188 instead of the first morning rise at 22,331 (tick-exact's
     /// daylight bridge, Nov 11 23:26), so that day's decodes land ~1,840 gt late.
     pub rephase_lag: i64,
+    /// Strict rhythm: the controller's siding rule (ironspec Nov 11 23:54): a napper rejoins only at
+    /// its lane's phase window (its pick's offset + lanes' length - 1, mod k) behind the cart passing
+    /// then; a late napper waits a whole window (one period) and rejoins behind that period's cart.
+    pub siding_window: bool,
+    /// A batch cart's time away from its lane after its release: the stand's cycle + the return to
+    /// the lane's back (gt; ironfarm's lanes-bench --ret 150 + 100), for the lane's occupancy at
+    /// every arrival.
+    pub ret: i64,
+    /// The self-lock's length (600: tick-exact's "free at exactly T+600"), as `Opts::lock_gt`.
+    pub lock_gt: i64,
+    /// The share of a batch's members re-marked just after their summon (locked until
+    /// T + lock_gt + 1), as `Opts::remark`.
+    pub remark: f64,
 }
 
 /// The strict rhythm's numbers beside its line (the strand-margin search reads them).
@@ -847,6 +864,8 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     let mut held = false;
     let (mut shift, mut last_jump_day) = (0i64, i64::MIN);
     let mut lag_day: Option<i64> = None;
+    let (mut min_occ, mut late_nappers, mut max_inflight, mut max_fifo) = (usize::MAX, 0usize, 0usize, 0usize);
+    let mut pick_cycle: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
     let mut last_turn: Vec<Option<i64>> = vec![None; n];
     let mut least_spacing = i64::MAX;
     let mut golems_day: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
@@ -917,7 +936,9 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
             }
             *golems_day.entry(day).or_default() += 1;
             for b in batch.iter().flatten() {
-                locked_until[*b] = t0 + 600;
+                // (ironspec Nov 12 00:10: the lock's length and the re-mark share as in `Opts`)
+                let remarked = o.remark > 0.0 && rng.f64() < o.remark;
+                locked_until[*b] = t0 + o.lock_gt + i64::from(remarked);
             }
         } else if scored {
             if held {
@@ -1050,20 +1071,50 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                     t + drawn
                 };
                 away.push((cart, back, pred));
+                pick_cycle.insert(cart, c);
                 count = 0;
                 if o.keep_place {
                     lanes[l].push_back(cart);
                 }
             } else {
                 lanes[l].push_back(cart);
+                // (the lane's occupancy when this cart arrives at its back, `ret` gt after its
+                // release: its lane's carts minus itself, the carts released after it and still away,
+                // and the lane's nappers away then)
+                if o.turns == 3 && scored {
+                    let arr = t0 + o.ret;
+                    let in_transit = ((o.ret - 1).max(0) / 100) as usize;
+                    let nap_away = away.iter().filter(|a| lane_of(a.0) == l && a.1 > arr - o.ret).count();
+                    let occ = o.per_lane.saturating_sub(1 + in_transit + nap_away);
+                    min_occ = min_occ.min(occ);
+                }
                 // (lane-exact: a napper back from the bed re-enters right behind this cart, the one
                 // that went before it in its lane)
-                if o.lane_exact {
+                if o.lane_exact && o.siding_window {
+                    // (the controller's rule: only at the lane's phase window (the pick's offset + the
+                    // lane's length - 1, mod k), behind whichever cart passes then)
+                    let win = ((l * o.k / o.lanes) as i64 + o.per_lane as i64 - 1).rem_euclid(o.k as i64);
+                    if (c - night_c0).rem_euclid(o.k as i64) == win {
+                        while let Some(i) = away.iter().position(|a| a.1 <= t && lane_of(a.0) == l) {
+                            let (id, _, _) = away.remove(i);
+                            if scored && pick_cycle.get(&id).is_some_and(|pc| c > pc + o.per_lane as i64 - 1) {
+                                late_nappers += 1;
+                            }
+                            lanes[l].push_back(id);
+                        }
+                    }
+                } else if o.lane_exact {
                     while let Some(i) = away.iter().position(|a| a.2 == cart && a.1 <= t && lane_of(a.0) == l) {
                         let (id, _, _) = away.remove(i);
                         lanes[l].push_back(id);
                     }
                 }
+            }
+            if scored {
+                max_inflight = max_inflight.max(away.len());
+                // (the lane FIFO holds a napper's lane from its pick to its split pass, about when it
+                // is back at the merge level: those not yet back)
+                max_fifo = max_fifo.max(away.iter().filter(|a| a.1 > t).count());
             }
             if o.keep_place {
                 // (its slot never left the lane: back from the bed, it just takes its slot again)
@@ -1099,6 +1150,14 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
             100.0 * util_max,
             window_gt as i64,
             100.0 * (1.0 - util_max)
+        ) + &format!(
+            "; re-entry: {}; late nappers (rejoined a window late) {}; the most nappers away at once {} (picked, not yet rejoined: one a lane at most, each in its own siding), the most not yet back at the merge level {} (the lane FIFO's slots: a lane id held from the pick to the split pass); a lane's lowest occupancy when a cart arrives at its back {} (carts queued in the lane, the hold's included; `ret` {} gt from a release to the lane's back)",
+            if o.siding_window { "the controller's siding rule (the lane's phase window AND the passing cart)" } else { "lane-exact (behind its predecessor's next pass)" },
+            late_nappers,
+            max_inflight,
+            max_fifo,
+            if min_occ == usize::MAX { 0 } else { min_occ },
+            o.ret
         )
     } else {
         String::new()
