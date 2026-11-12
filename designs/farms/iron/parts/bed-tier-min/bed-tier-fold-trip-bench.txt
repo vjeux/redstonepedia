@@ -9,35 +9,38 @@ origin: -6 0 -5
 palette:
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
-  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  C minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
   D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  E minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
-  F minecraft:powered_rail[powered=true,shape=ascending_north,waterlogged=false]
+  E minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  F minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
   G minecraft:glass
-  H minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  H minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
   I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
-  J minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
-  K minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  L minecraft:rail[shape=ascending_south,waterlogged=false]
-  M minecraft:rail[shape=ascending_west,waterlogged=false]
-  N minecraft:rail[shape=east_west,waterlogged=false]
+  J minecraft:powered_rail[powered=true,shape=ascending_north,waterlogged=false]
+  K minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  L minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  M minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  N minecraft:rail[shape=ascending_south,waterlogged=false]
   O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  Q minecraft:rail[shape=north_east,waterlogged=false]
+  Q minecraft:rail[shape=ascending_west,waterlogged=false]
   R minecraft:rail[shape=ascending_east,waterlogged=false]
-  S minecraft:rail[shape=north_south,waterlogged=false]
-  T minecraft:rail[shape=north_west,waterlogged=false]
-  U minecraft:rail[shape=south_east,waterlogged=false]
-  V minecraft:rail[shape=south_west,waterlogged=false]
-  W minecraft:red_bed[facing=south,occupied=false,part=foot]
-  X minecraft:red_bed[facing=south,occupied=false,part=head]
-  Y minecraft:redstone_block
-  Z minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
-  a minecraft:tripwire_hook[attached=true,facing=north,powered=false]
-  b minecraft:tripwire_hook[attached=true,facing=south,powered=false]
-  c minecraft:copper_bulb[lit=false,powered=false]
+  S minecraft:rail[shape=east_west,waterlogged=false]
+  T minecraft:rail[shape=north_east,waterlogged=false]
+  U minecraft:rail[shape=north_south,waterlogged=false]
+  V minecraft:rail[shape=north_west,waterlogged=false]
+  W minecraft:rail[shape=south_east,waterlogged=false]
+  X minecraft:rail[shape=south_west,waterlogged=false]
+  Y minecraft:red_bed[facing=south,occupied=false,part=foot]
+  Z minecraft:red_bed[facing=south,occupied=false,part=head]
+  a minecraft:redstone_block
+  b minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  c minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  d minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  e minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  f minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  g minecraft:tripwire_hook[attached=true,facing=west,powered=false]
   i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
-  o minecraft:observer[facing=north,powered=false]
   p minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
   r minecraft:rail[shape=ascending_north,waterlogged=false]
   s minecraft:stone
@@ -73,15 +76,15 @@ layer -16:
   .
   .
   .............s
-  ...........UPG
-  ...........S
+  ...........WPG
+  ...........U
   ...........s
 layer -15:
   .
   .
   .
   .
-  ..............Ys
+  ..............as
   .
   .
   .
@@ -90,7 +93,7 @@ layer -15:
   .
   ............GG
   .............p
-  .............T
+  .............V
   .
   .
 layer -14:
@@ -98,14 +101,14 @@ layer -14:
   .
   .
   .
-  .............GJT
+  .............GLV
   .
   .
   .
   .
   .
   .
-  ...........GMV
+  ...........GQX
   ...........G
   .
   .
@@ -115,15 +118,15 @@ layer -13:
   .
   .
   .
-  ............YM
+  ............aQ
   .
   .
   .
   .
   .
   .
-  ...........U
-  ...........L
+  ...........W
+  ...........N
   ...........GG
   .
   .
@@ -132,7 +135,7 @@ layer -12:
   .
   .
   .
-  ...........GJ
+  ...........GL
   .
   .
   .
@@ -141,15 +144,15 @@ layer -12:
   .
   .
   .............G
-  ...........QRG
+  ...........TRG
   .
   .
 layer -11:
   .
   .
   .
-  ..........Y
-  ..........GM
+  ..........a
+  ..........GQ
   .
   .
   .
@@ -158,29 +161,29 @@ layer -11:
   .
   ............GG
   .............r
-  .............T
+  .............V
   .
   .
 layer -10:
   .
   .
   ..........G
-  ..........F
-  ..........Q
+  ..........J
+  ..........T
   .
   .
   .
   .
   .
   .
-  ...........GMV
+  ...........GQX
   ...........G
   .
   .
   .
 layer -9:
   .
-  ..........Y
+  ..........a
   ..........r
   .
   .
@@ -190,14 +193,14 @@ layer -9:
   .
   .
   .
-  ...........U
-  ...........L
+  ...........W
+  ...........N
   ...........GG
   .
   .
 layer -8:
-  ..........GY
-  ..........F
+  ..........Ga
+  ..........J
   .
   .
   .
@@ -209,11 +212,11 @@ layer -8:
   .
   .
   .............G
-  ...........QRG
+  ...........TRG
   .
   .
 layer -7:
-  ..........UEG
+  ..........WHG
   .
   .
   .
@@ -226,11 +229,11 @@ layer -7:
   .
   ............GG
   .............r
-  .............T
+  .............V
   .
   .
 layer -6:
-  ............RY
+  ............Ra
   .
   .
   .
@@ -241,14 +244,14 @@ layer -6:
   .
   .
   .
-  ...........GMV
+  ...........GQX
   ...........G
   .
   .
   .
 layer -5:
-  .............EG
-  ..............Y
+  .............HG
+  ..............a
   .
   .
   .
@@ -258,14 +261,14 @@ layer -5:
   .
   .
   .
-  ...........U
-  ...........L
+  ...........W
+  ...........N
   ...........GG
   .
   .
 layer -4:
-  ..............V
-  ..............H
+  ..............X
+  ..............K
   ..............G
   .
   .
@@ -277,13 +280,13 @@ layer -4:
   .
   .
   .............G
-  ...........QRG
+  ...........TRG
   .
   .
 layer -3:
   .
   .
-  ..............L
+  ..............N
   .............GG
   .
   .
@@ -294,23 +297,23 @@ layer -3:
   .
   ............GG
   .............r
-  .............T
+  .............V
   .
   .
 layer -2:
   .
   .
   .
-  ............GMT
+  ............GQV
   .
   .
   .
   .
   .
   .
-  .
-  ........sGsGMV
-  .
+  .......GGGs
+  .....sGG...GQX
+  .......s
   .
   .
   .
@@ -318,68 +321,68 @@ layer -1:
   .
   ....GGs
   ....G
-  ...........GM
+  ...........GQ
   .
   .
   .
-  .
-  ...GG
-  .GGGG
   ....G
-  ....Gs.sMNDN
-  ...s
-  .
+  ...GGs
+  .GGGG
+  ....G..WSSD
+  ....GCSXs..S
+  .......Fs
+  .......s
   .
   .
 layer 0:
   .
-  ....UNPs
-  ....L.....G
-  ....G.....GM
+  ....WSPs
+  ....N.....G
+  ....G.....GQ
   .
   .....G
-  .....G
-  ...GGG
-  .GYWrG
-  G.iXSG
-  .GGoSG
-  ...cQPGM
-  ...C.s
-  ...s
+  ....GG
+  ...GrG
+  .GaYWEs
+  G.iZUG.s
+  .GGGUG.f
+  ....T..tb
+  .......eb
+  .......s
   .
   .
 layer 1:
   .
-  ....II.PsYG
+  ....II.PsaG
   ....I...s.r
-  ....L...s.Q
+  ....N...s.T
   ....G...s
   ....GGsss
-  ....GG
-  ...GrG
+  ....rG
+  ...GIG
   .GGIIG
   G.BI.G
   .GGGIG
-  ....I.N
-  .....Z
+  ..sdccccgs
+  .
   .
   .
   .
 layer 2:
-  ........Y
-  ........AKV
+  ........a
+  ........AMX
   .......G.G
   ....I..G.G
-  ....SGGG.G
-  ....S....G
-  ....S.GGG
+  ....UGGG.G
+  ....U....G
+  ....I.GGG
   ...GI.G
   ..G...G
-  .GY..G
-  ...G.b
-  .....t
-  .....a
-  .....s
+  .Ga..G
+  ...G
+  .
+  .
+  .
   .
   .
 layer 3:
@@ -389,7 +392,7 @@ layer 3:
   .......G.G
   ....IGGG.G
   ....I....G
-  ....I.GGG
+  ....G.GGG
   ...GG.G
   ..G...G
   .OG..G

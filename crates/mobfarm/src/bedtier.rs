@@ -50,18 +50,23 @@ pub const HATCH: [i32; 3] = [-4, 0, 4];
 pub const HATCH_HI: [i32; 3] = [-4, 1, 4];
 pub const HATCH_CTRL: [i32; 3] = [-4, 0, 3];
 pub const HATCH_CTRL_HI: [i32; 3] = [-4, 2, 4];
-/// The rider check's hold: a braked powered rail, powered only while the check's string sees a rider.
-pub const HOLD: [i32; 3] = [3, -1, 6];
-/// The retry hold: a braked powered slope rising east on the exit row, powered by the rider string
-/// over it or the bed observer's wake edge.
-pub const RETRY_HOLD: [i32; 3] = [-1, 0, 6];
-/// The bed's taken-level: a copper bulb toggled by the bed observer (lit = the bed taken).
-pub const TAKEN_BULB: [i32; 3] = [-3, 0, 6];
-/// The retry hold's counter: N ring edges with the bed free (N = 8, about 28 live gt on the slow
-/// band; the bench counts live gt).
-pub const RETRY_N_LIVE: i64 = 28;
+/// The north T beside the bed's foot (unpowered for good: south-east) and its spur east (a
+/// powered rail, dead end at the stone east of it).
+pub const NORTH_T: [i32; 3] = [-2, 0, 3];
+pub const NORTH_SPUR: [i32; 3] = [-1, 0, 3];
+/// The south T (powered by the rider string's hook over it: north-west, the exit; unpowered:
+/// south-west, the spur) and its spur south (a powered rail, dead end at the stone south of it).
+pub const SOUTH_T: [i32; 3] = [1, -1, 6];
+pub const SOUTH_SPUR: [i32; 3] = [1, -1, 7];
+/// The kick clock: both spur rails powered KICK_LEN gt in every KICK_PERIOD (game time).
+pub const KICK_PERIOD: i64 = 80;
+pub const KICK_LEN: i64 = 40;
+/// The slope down from the curve to the south T: a braked powered rail, powered by the rider string
+/// OR the kick clock (a second hold: a strand cart rests on it until a kick rolls it on into the spur;
+/// a kick boosts the cart coming back west up it).
+pub const SLOPE: [i32; 3] = [-1, -1, 6];
 /// R's detector.
-pub const EXIT_DET: [i32; 3] = [4, -1, 6];
+pub const EXIT_DET: [i32; 3] = [4, -1, 5];
 
 
 /// The napper's legs on C′ (ironspec 19:29; loop frame minus (0,50,0)): the divert from the switch
@@ -217,25 +222,51 @@ pub fn design_with(bench: bool, trip: bool) -> Result<String> {
     put(&mut b, [-2, 1, za], cap)?;
     // (glass two cells over the park: no villager stands on the parked cart's top)
     put(&mut b, [1, 3, za], "glass")?;
-    // a 2-level hump down x -2 (ironspec 21:40): two slopes up, three raised capped flats at y 2,
-    // two slopes down into the pickup cell. A cart pushed back off the napper, or the retry's
-    // ridden roll-back (at the 0.1+ the pickup needs), climbs the two slopes, stops and rolls back
-    // through (one level let a ridden cart over at 0.07). Then the pickup cell (the bed's head west
-    // of it), a capped flat, the curve east
-    let hump: [([i32; 3], &str); 7] = [
+    // six capped flats down x -2, the north T, the pickup cell (the bed's head west of it), a capped
+    // flat, the curve east, the string flat, the south T (ironspec 21:58: two dead-end spurs and
+    // periodic kicks, no bed-state memory).
+    // - The north T (-2,0,3), beside the bed's foot: arms north (from the park), south (the pickup
+    //   cell), east (the north spur (-1,0,3), a powered rail, dead end at the stone (0,0,3)).
+    //   Unpowered for good, so south-east: a southbound cart passes straight to the pickup cell;
+    //   any northbound cart (a cart pushed back off the napper, a retry that seated it) turns into
+    //   the spur and stops against the stone; kicked, it comes back west and turns south.
+    // - The south T (0,0,6): arms west (from the pickup cell by the curve and the string flat),
+    //   north (the exit, (0,0,5) curving east to R) and south (the south spur (0,0,7), a powered
+    //   rail, dead end at the stone (0,0,8)). Powered only by the hook (0,1,6) right over it, the
+    //   east end of a rider-height string over the flat before it (-1,1,6): a rider is seen while
+    //   its cart's centre is still 1.3 blocks short of the T (6+ gt at 0.2). Powered: north-west,
+    //   a ridden cart turns north to the exit. Unpowered: south-west, an unridden cart (a napper
+    //   asleep when it passed: a reload put it back to bed) turns south into the spur and stops
+    //   against the stone, so R never sees a strand; kicked, it comes back north, turns west (the
+    //   T unpowered: no rider), and runs back through the pickup cell into the north spur, seating
+    //   the napper if it stands there; the north kick sends it back south, and the string decides.
+    // - The kicks: a plain clock powers both spur rails a few gt in every period (the bench
+    //   emulates it on their supports). A frozen cart misses a kick and takes the next.
+    // (the forward speed: a 2-level hump before the north T, two slopes up, two raised capped
+    // flats at y 2, two slopes down to the T: the descent gives back what the T's unconnected
+    // pass costs (a cart passing straight through its south-east curve loses about 30%))
+    let hump: [([i32; 3], &str); 6] = [
         ([-2, 0, -3], "ascending_south"),
         ([-2, 1, -2], "ascending_south"),
         ([-2, 2, -1], "north_south"),
         ([-2, 2, 0], "north_south"),
-        ([-2, 2, 1], "north_south"),
-        ([-2, 1, 2], "ascending_north"),
-        ([-2, 0, 3], "ascending_north"),
+        ([-2, 1, 1], "ascending_north"),
+        ([-2, 0, 2], "ascending_north"),
     ];
+    // ((-2,2,2) above the lower slope's cap: a cap too, not the ledge's wall glass: a cart coming down
+    // the upper slope reaches y 2.25 there; the napper on the ledge still has no headroom in it)
+    put(&mut b, [-2, 2, 2], cap)?;
     for (c, shape) in hump {
         put(&mut b, c, &rail(shape))?;
         put(&mut b, [c[0], c[1] - 1, c[2]], "glass")?;
         put(&mut b, [c[0], c[1] + 1, c[2]], cap)?;
     }
+    put(&mut b, NORTH_T, &rail("south_east"))?;
+    put(&mut b, [NORTH_T[0], -1, NORTH_T[2]], "glass")?;
+    put(&mut b, [NORTH_T[0], 1, NORTH_T[2]], cap)?;
+    put(&mut b, NORTH_SPUR, "powered_rail[powered=false,shape=east_west,waterlogged=false]")?;
+    put(&mut b, [NORTH_SPUR[0], -1, NORTH_SPUR[2]], "stone")?;
+    put(&mut b, [NORTH_SPUR[0] + 1, 0, NORTH_SPUR[2]], "stone")?;
     for z in [SWEPT[0][2], SWEPT[0][2] + 1] {
         put(&mut b, [-2, 0, z], &rail("north_south"))?;
         put(&mut b, [-2, -1, z], "glass")?;
@@ -245,51 +276,47 @@ pub fn design_with(bench: bool, trip: bool) -> Result<String> {
     }
     put(&mut b, [-2, 0, 6], &rail("north_east"))?;
     put(&mut b, [-2, -1, 6], "glass")?;
-    put(&mut b, [-2, 1, 6], cap)?;
-    // the retry hold (ironspec 21:00/21:31): a braked powered slope rising east, powered once the
-    // bed has been FREE for N ring edges (day-1's ring-edge counter on the tier chunk's liveness
-    // ring, held reset while the bed's taken-level is on; N = 8, ~28 live gt, longer than the
-    // 13-22 gt a cart takes from the pickup cell to rest on the hold) and cut at once when the bed
-    // is taken. The taken-level: an observer on the bed's head (-3,0,5) pulses at every lie-down
-    // and wake into copper bulb T (-3,0,6) behind it (it toggles on each pulse: lit = the bed
-    // taken; unlit as built, the bed free); comparator (-3,0,7) reads it into the counter's reset
-    // (-3,0,8). The counter (about N + 8 blocks) drives the hold's support (-1,-1,6); the bench
-    // emulates it on live time, as it does F and the release. A ridden cart passes with the bed
-    // long free (its napper is in it): boosted up over the hold (the timing booster's job). An
-    // unridden cart that found the napper asleep (a reload put it back to bed) stops on it, so R
-    // never sees a strand; N edges after the napper's wake the hold powers: from rest on the
-    // rising slope the cart rolls back west, north through the pickup cell (the napper standing
-    // there is seated), up the hump's last slope, back south and over the hold. Counted in ring
-    // edges, so a freeze stops it with the cart; a level, so a freeze loses nothing.
-    put(&mut b, RETRY_HOLD, "powered_rail[powered=false,shape=ascending_east,waterlogged=false]")?;
-    put(&mut b, [RETRY_HOLD[0], RETRY_HOLD[1] - 1, RETRY_HOLD[2]], "stone")?;
-    // (the rider string, ironspec 21:40: hold = string OR counter. A tripwire two cells over the
-    // hold's rail, y 2: its band 2.06..2.16 cuts a seated rider's box (0.25..2.2 over the cart) at
-    // every point of the slope and clears an empty cart's top (0.7 over it: 1.76 at the slope's
-    // top). Hooks (-1,2,5) on the ledge's wall (-1,2,4) and (-1,2,7) on (-1,2,8); the south hook
-    // powers dust (-1,1,7) below it, on (-1,0,7), the block beside the hold. No villager on foot
-    // reaches the string's cell or the hold's: the curve and the flat before it are capped and the
-    // napper's cells are walled)
-    put(&mut b, [-1, 2, 6], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
-    put(&mut b, [-1, 2, 5], "tripwire_hook[attached=true,facing=south,powered=false]")?;
-    put(&mut b, [-1, 2, 7], "tripwire_hook[attached=true,facing=north,powered=false]")?;
-    put(&mut b, [-1, 2, 8], "stone")?;
-    put(&mut b, [-1, 1, 7], "redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
-    put(&mut b, [-1, 0, 7], "stone")?;
-    put(&mut b, [-3, 0, 5], "observer[facing=north,powered=false]")?;
-    put(&mut b, TAKEN_BULB, "copper_bulb[lit=false,powered=false]")?;
-    put(&mut b, [-3, 0, 7], "comparator[facing=north,mode=compare,powered=false]")?;
-    put(&mut b, [-3, -1, 7], "stone")?;
-    put(&mut b, [-3, 0, 8], "stone")?;
-    put(&mut b, [0, 1, 6], &rail("east_west"))?;
-    put(&mut b, [0, 0, 6], "glass")?;
-    // the exit: two slopes down east, a flat, R
-    put(&mut b, [1, 0, 6], &rail("ascending_west"))?;
-    put(&mut b, [1, -1, 6], "stone")?;
-    put(&mut b, [2, -1, 6], &rail("ascending_west"))?;
-    put(&mut b, [2, -2, 6], "stone")?;
-    put(&mut b, HOLD, &rail("east_west"))?;
-    put(&mut b, [HOLD[0], -2, HOLD[2]], "glass")?;
+    put(&mut b, SLOPE, "powered_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
+    put(&mut b, [-1, -2, 6], "stone")?;
+    // (a flat between the slope and the T, so an empty cart on the slope never reaches the T's
+    // cell)
+    put(&mut b, [0, -1, 6], &rail("east_west"))?;
+    put(&mut b, [0, -2, 6], "glass")?;
+    // (the rider strings: A at y 1 over the curve, the slope, the flat and the T, hooks (-3,1,6)
+    // and (2,1,6): a rider is seen while its cart's centre is still about 4 blocks short of the
+    // T; B at y 0 over the T itself, hooks (1,0,5) and (1,0,7): at y -1 a seated rider's box tops
+    // out at y 1.0, under A's band, so B holds the T while the cart is in it, and 10 gt more. A's
+    // east hook powers the dust (2,0,6) below it, B's south hook the dust (2,0,7) beside it; the
+    // dust powers (2,-1,6), beside the T: the T's only source. An empty cart's box tops out at
+    // 0.76 on the slope and -0.24 on the flat and the T: under both bands)
+    for x in -2..=1 {
+        put(&mut b, [x, 1, 6], "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]")?;
+    }
+    put(&mut b, [-3, 1, 6], "tripwire_hook[attached=true,facing=east,powered=false]")?;
+    put(&mut b, [-4, 1, 6], "stone")?;
+    put(&mut b, [2, 1, 6], "tripwire_hook[attached=true,facing=west,powered=false]")?;
+    put(&mut b, [3, 1, 6], "stone")?;
+    put(&mut b, [SOUTH_T[0], 0, 6], "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+    put(&mut b, [SOUTH_T[0], 0, 5], "tripwire_hook[attached=true,facing=south,powered=false]")?;
+    put(&mut b, [SOUTH_T[0], 0, 4], "stone")?;
+    put(&mut b, [SOUTH_T[0], 0, 7], "tripwire_hook[attached=true,facing=north,powered=false]")?;
+    put(&mut b, [SOUTH_T[0], 0, 8], "stone")?;
+    for z in [6, 7] {
+        put(&mut b, [SOUTH_T[0] + 1, 0, z], "redstone_wire[east=none,north=side,power=0,south=side,west=none]")?;
+        put(&mut b, [SOUTH_T[0] + 1, -1, z], "stone")?;
+    }
+    put(&mut b, SOUTH_T, &rail("south_west"))?;
+    put(&mut b, [SOUTH_T[0], SOUTH_T[1] - 1, SOUTH_T[2]], "glass")?;
+    put(&mut b, SOUTH_SPUR, "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
+    put(&mut b, [SOUTH_SPUR[0], SOUTH_SPUR[1] - 1, SOUTH_SPUR[2]], "stone")?;
+    put(&mut b, [SOUTH_SPUR[0], SOUTH_SPUR[1], SOUTH_SPUR[2] + 1], "stone")?;
+    // the exit: north out of the T, the curve east, two flats, R
+    put(&mut b, [SOUTH_T[0], -1, 5], &rail("south_east"))?;
+    put(&mut b, [SOUTH_T[0], -2, 5], "glass")?;
+    for x in SOUTH_T[0] + 1..=3 {
+        put(&mut b, [x, -1, 5], &rail("east_west"))?;
+        put(&mut b, [x, -2, 5], "glass")?;
+    }
     put(&mut b, EXIT_DET, "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
     put(&mut b, [EXIT_DET[0], -2, EXIT_DET[2]], "stone")?;
     // the bed, its head beside the pickup cell, its foot north, roofed by two top-half trapdoors
@@ -364,10 +391,10 @@ pub fn design_with(bench: bool, trip: bool) -> Result<String> {
     } else if bench {
         // the run-out past R and a stop
         for x in EXIT_DET[0] + 1..=EXIT_DET[0] + 6 {
-            put(&mut b, [x, -1, 6], &rail("east_west"))?;
-            put(&mut b, [x, -2, 6], "glass")?;
+            put(&mut b, [x, -1, EXIT_DET[2]], &rail("east_west"))?;
+            put(&mut b, [x, -2, EXIT_DET[2]], "glass")?;
         }
-        put(&mut b, [EXIT_DET[0] + 7, -1, 6], "glass")?;
+        put(&mut b, [EXIT_DET[0] + 7, -1, EXIT_DET[2]], "glass")?;
         // (the visitor is spawned by the bench at the entry at the visit's hour, HOME = the bed)
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
@@ -421,10 +448,12 @@ pub struct Row {
     pub rollbacks: Vec<i64>,
     pub pickup_vz: Option<f64>,
     pub min_z: Option<f64>,
-    /// The taken bulb apart from the bed's OCCUPIED: the longest run of ticks, and apart at the end.
-    pub bulb_lag_max: i64,
-    pub bulb_apart_end: bool,
-    /// A ridden cart came to rest on the retry hold (the string missed its rider).
+    /// The south T: its least lead (gt from powered to a ridden cart's centre entering it), a ridden
+    /// cart entering it unpowered, flips with a cart's centre in its cell.
+    pub min_lead: Option<i64>,
+    pub ridden_t_unpowered: bool,
+    pub t_flips_with_cart: i64,
+    /// A ridden cart in the south spur (the string missed its rider).
     pub ridden_held: bool,
     /// Whether the cart left with the napper seated.
     pub seated_out: bool,
@@ -454,6 +483,8 @@ pub struct Faults {
     /// F + release_after); the give-up `wake_give_up` live gt after F with no wake.
     pub after_wake: Option<i64>,
     pub wake_give_up: i64,
+    /// The kick clock's phase (gt added to game time).
+    pub kick_phase: i64,
 }
 
 fn block(s: &str) -> Block {
@@ -531,9 +562,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
     let mut f_fired = false;
     let mut was_occ = false;
     let mut wake_release: Option<i64> = None;
-    let mut free_live = RETRY_N_LIVE;
-    let mut hold_on = false;
-    let mut bulb_apart = 0i64;
+    let mut kick_on = false;
+    let mut slope_on = false;
+    let mut t_powered_at: Option<i64> = None;
+    let mut last_ccell = [i32::MIN; 3];
     for t in 1..=2400i64 {
         if let Some((at, len)) = f.freeze {
             if t == at {
@@ -603,36 +635,40 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
             }
             row.release_at = Some(t);
         }
-        // (the retry hold's counter, emulated on live time as F and the release are: held reset
-        // while the taken bulb is lit; the hold powered once the bed has been free RETRY_N_LIVE live
-        // gt, cut the tick the bulb lights)
+        // (the kick clock, game time (ironspec 21:58: a plain clock, any phase): both spur rails
+        // powered KICK_LEN gt in every KICK_PERIOD, shifted by f.kick_phase; on their supports)
         if !away {
-            let taken = matches!(run.world.get(BlockPos::new(TAKEN_BULB[0], TAKEN_BULB[1], TAKEN_BULB[2])), Block::Bulb { lit: true, .. });
-            if taken {
-                free_live = 0;
-            } else if !frozen {
-                free_live += 1;
+            let on = (t + f.kick_phase).rem_euclid(KICK_PERIOD) < KICK_LEN;
+            if on != kick_on {
+                for s in [NORTH_SPUR, SOUTH_SPUR] {
+                    set(&mut run.world, [s[0], s[1] - 1, s[2]], if on { "redstone_block" } else { "stone" });
+                }
+                kick_on = on;
             }
-            let want_on = !taken && free_live >= RETRY_N_LIVE;
-            if want_on != hold_on {
-                set(&mut run.world, [RETRY_HOLD[0], RETRY_HOLD[1] - 1, RETRY_HOLD[2]], if want_on { "redstone_block" } else { "stone" });
-                hold_on = want_on;
+        }
+        // (the slope's power: the rider string (its east hook) OR the kick clock, emulated on its
+        // support)
+        if !away {
+            let string_on = matches!(run.world.get(BlockPos::new(2, 1, 6)), Block::TripwireHook { powered: true, .. });
+            let on = kick_on || string_on;
+            if on != slope_on {
+                set(&mut run.world, [SLOPE[0], SLOPE[1] - 1, SLOPE[2]], if on { "redstone_block" } else { "stone" });
+                slope_on = on;
             }
         }
         let before = idx(&run.world, cart_id).map(|i| run.world.entities.list[i].pos);
+        let t_before = run.world.get(BlockPos::new(SOUTH_T[0], SOUTH_T[1], SOUTH_T[2]));
         run.tick();
-        if !away {
-            // (the taken bulb against the bed's OCCUPIED, every tick: the observer's lag, and never
-            // left apart)
-            let occ = matches!(run.world.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2])), Block::Bed { occupied: true, .. });
-            let lit = matches!(run.world.get(BlockPos::new(TAKEN_BULB[0], TAKEN_BULB[1], TAKEN_BULB[2])), Block::Bulb { lit: true, .. });
-            bulb_apart = if occ != lit { bulb_apart + 1 } else { 0 };
-            row.bulb_lag_max = row.bulb_lag_max.max(bulb_apart);
+        let t_after = run.world.get(BlockPos::new(SOUTH_T[0], SOUTH_T[1], SOUTH_T[2]));
+        let t_powered = matches!(t_after, Block::PlainRail { shape: redsim::block::RailShape::NorthWest });
+        if t_powered && !matches!(t_before, Block::PlainRail { shape: redsim::block::RailShape::NorthWest }) {
+            t_powered_at = Some(t);
         }
         if std::env::var("MCTAS_BT_CIRCUIT").is_ok_and(|x| x == "1") {
             let g = |c: [i32; 3]| format!("{:?}", run.world.get(BlockPos::new(c[0], c[1], c[2])));
             let short = |s: String| s.chars().filter(|ch| !ch.is_whitespace()).collect::<String>();
-            eprintln!("c {t}: bed {} | T {} | hold {} | free_live {free_live}", short(g(BED_HEAD)).chars().take(60).collect::<String>(), short(g(TAKEN_BULB)), short(g(RETRY_HOLD)));
+            let cp = idx(&run.world, cart_id).map(|i| { let e = &run.world.entities.list[i]; format!("{:.2},{:.2},{:.2} riders {}", e.pos.x, e.pos.y, e.pos.z, e.passengers.len()) });
+            eprintln!("c {t}: south T {} | wire {} | hook {} | B {} | dust6 {} | dust7 {} | hookB {} | cart {:?}", short(g(SOUTH_T)), short(g([-1, 1, 6])), short(g([1, 1, 6])), short(g([0, 0, 6])), short(g([1, 0, 6])), short(g([1, 0, 7])), short(g([0, 0, 7])), cp);
         }
         if away {
             continue;
@@ -681,7 +717,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
             }
             if riding && row.release_at.is_some() && row.pickup.is_none() {
                 row.pickup = Some((row.cells_after_wake.last().copied().unwrap_or(vcell), t));
-                row.pickup_speed = before.map(|bp| ((c.pos.x - bp.x).powi(2) + (c.pos.z - bp.z).powi(2)).sqrt());
+                row.pickup_speed = Some(c.delta_movement.x.hypot(c.delta_movement.z));
                 row.pickup_vz = before.map(|bp| c.pos.z - bp.z);
             }
             if row.release_at.is_none() && row.landed.is_some() && riding && t > 5 {
@@ -719,16 +755,31 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
         }
         let ccell = [c.pos.x.floor() as i32, (c.pos.y + 0.01).floor() as i32, c.pos.z.floor() as i32];
         // (the retry hold: at rest on it unridden after the release; a roll-back off it westward)
-        let on_hold = (ccell[0], ccell[2]) == (RETRY_HOLD[0], RETRY_HOLD[2]);
-        if on_hold && still == 5 && riding {
+        // (the spurs and the south T: a cart at rest in the south spur unridden (a strand held), a
+        // ridden cart in it (the string missed), a roll-back out of it, the T's lead over a ridden
+        // cart's centre entering it, a flip of the T with a cart's centre in its cell)
+        let in_south_spur = ccell == SOUTH_SPUR;
+        if in_south_spur && riding {
             row.ridden_held = true;
         }
-        if on_hold && still == 5 && !riding && row.release_at.is_some() {
+        if in_south_spur && still == 5 && !riding && row.release_at.is_some() {
             row.holds.push(t);
         }
-        if on_hold && !riding && c.delta_movement.x < -0.01 && row.holds.last().is_some_and(|&h| row.rollbacks.last().is_none_or(|&r| r < h)) {
+        if last_ccell == SOUTH_SPUR && ccell == SOUTH_T {
             row.rollbacks.push(t);
         }
+        if ccell == SOUTH_T && last_ccell != SOUTH_T && riding {
+            if t_powered {
+                let lead = t - t_powered_at.unwrap_or(t);
+                row.min_lead = Some(row.min_lead.map_or(lead, |m: i64| m.min(lead)));
+            } else {
+                row.ridden_t_unpowered = true;
+            }
+        }
+        if ccell == SOUTH_T && last_ccell == SOUTH_T && std::mem::discriminant(&t_before) == std::mem::discriminant(&t_after) && t_before != t_after {
+            row.t_flips_with_cart += 1;
+        }
+        last_ccell = ccell;
         if row.release_at.is_some() {
             row.min_z = Some(row.min_z.map_or(c.pos.z, |m| m.min(c.pos.z)));
         }
@@ -748,12 +799,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
             break;
         }
     }
-    row.bulb_apart_end = bulb_apart > 0;
     if row.ridden_held {
-        row.problems.push("a ridden cart held on the retry hold".into());
+        row.problems.push("a ridden cart in the south spur".into());
     }
-    if row.bulb_lag_max > 4 || row.bulb_apart_end {
-        row.problems.push(format!("the taken bulb apart from the bed: {} ticks running{}", row.bulb_lag_max, if row.bulb_apart_end { ", apart at the end" } else { "" }));
+    if row.ridden_t_unpowered {
+        row.problems.push("a ridden cart entered the south T unpowered".into());
+    }
+    if row.t_flips_with_cart > 0 {
+        row.problems.push(format!("the south T flipped {} times with a cart's centre in it", row.t_flips_with_cart));
+    }
+    if row.min_lead.is_some_and(|l| l < 3) {
+        row.problems.push(format!("the south T's lead over a ridden cart only {:?} gt", row.min_lead));
     }
     if row.out_at.is_none() && row.held.is_none() {
         row.problems.push("the cart neither out nor held in 2400 gt".into());

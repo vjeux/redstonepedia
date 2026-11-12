@@ -2351,6 +2351,9 @@ pub enum MobfarmCmd {
         freeze_phases: Option<String>,
         #[arg(long)]
         freeze_after_load: Option<String>,
+        /// The kick clock's phases to sweep (each row at each).
+        #[arg(long)]
+        kick_phases: Option<String>,
         #[arg(long, default_value_t = 400)]
         sweep_len: i64,
         /// The release on the bed observer's wake edge after F, this many gt later (instead of
@@ -4677,7 +4680,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, crate::bedtier::design_with(bench, trip)?)?;
             println!("wrote {}", out.display());
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand, after_sleep, empty, no_home, hide_after_wake, freeze, reload, reload_phases, freeze_phases, freeze_after_load, sweep_len, after_wake, wake_give_up, trip } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, f_at, release_after, day, on_stand, after_sleep, empty, no_home, hide_after_wake, freeze, reload, reload_phases, freeze_phases, freeze_after_load, kick_phases, sweep_len, after_wake, wake_give_up, trip } => {
             let (_c, spec) = load(version, &design)?;
             let sp: Vec<f64> = speeds.split(',').map(|s| s.trim().parse()).collect::<std::result::Result<_, _>>()?;
             let pair = |s: Option<String>, what: &str| -> Result<Option<(i64, i64)>> {
@@ -4694,11 +4697,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let freeze = pair(freeze, "freeze")?;
             let reload = pair(reload, "reload")?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, freeze, reload, trip, after_wake, wake_give_up };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, freeze, reload, trip, after_wake, wake_give_up, kick_phase: 0 };
             // (a sweep, ironspec 21:00/21:40: every reload phase, every freeze phase, and a freeze
             // starting k gt after each reload's load (inside the race window), with the totals the
             // bars read)
-            if reload_phases.is_some() || freeze_phases.is_some() {
+            if reload_phases.is_some() || freeze_phases.is_some() || kick_phases.is_some() {
                 let list = |s: &Option<String>| -> Result<Vec<i64>> {
                     Ok(match s {
                         Some(s) => s.split(',').map(|x| x.trim().parse()).collect::<std::result::Result<_, _>>()?,
@@ -4708,6 +4711,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let rp = list(&reload_phases)?;
                 let fp = list(&freeze_phases)?;
                 let ks = list(&freeze_after_load)?;
+                let kp = { let v = list(&kick_phases)?; if v.is_empty() { vec![0] } else { v } };
                 let mut rows: Vec<(String, crate::bedtier::Faults)> = Vec::new();
                 for &p in &rp {
                     rows.push((format!("reload +{p}"), crate::bedtier::Faults { reload: Some((p, sweep_len)), ..faults.clone() }));
@@ -4715,12 +4719,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         rows.push((format!("reload +{p}, freeze load+{k}"), crate::bedtier::Faults { reload: Some((p, sweep_len)), freeze: Some((p + sweep_len + k, 200)), ..faults.clone() }));
                     }
                 }
+                if rp.is_empty() && fp.is_empty() {
+                    rows.push(("night".to_string(), faults.clone()));
+                }
                 for &p in &fp {
                     rows.push((format!("freeze +{p}"), crate::bedtier::Faults { freeze: Some((p, sweep_len)), ..faults.clone() }));
                 }
                 let (mut tot, mut seated, mut to_r, mut never, mut ridden_held, mut healed, mut lost, mut bulb) = (0, 0, 0, 0, 0, 0, 0, 0);
                 let mut min_pick = f64::MAX;
                 let mut heal_gt: Vec<i64> = Vec::new();
+                // (the heal's extra time: a strand's exit (R, less the time away) against the same seed and
+                // speed's night exit)
+                let mut night_r: std::collections::HashMap<(u64, String), i64> = std::collections::HashMap::new();
+                for seed in from..=to {
+                    for &v in &sp {
+                        if let Ok(r) = crate::bedtier::bench(&spec, seed, v, f_at, release_after, day, on_stand, after_sleep, &faults)
+                            && let Some(rr) = r.r_at
+                        {
+                            night_r.insert((seed, format!("{v}")), rr);
+                        }
+                    }
+                }
+                let mut extra: Vec<i64> = Vec::new();
+                let rows: Vec<(String, crate::bedtier::Faults)> = rows.into_iter().flat_map(|(n, f)| kp.iter().map(move |&k| (if k == 0 { n.clone() } else { format!("{n}, kick +{k}") }, crate::bedtier::Faults { kick_phase: k, ..f.clone() }))).collect();
                 for (name, f) in &rows {
                     let (mut ok, mut bad_here) = (0, Vec::new());
                     for seed in from..=to {
@@ -4743,7 +4764,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                     if r.problems.iter().any(|x| x.contains("HOME")) {
                                         lost += 1;
                                     }
-                                    if r.problems.iter().any(|x| x.starts_with("the taken bulb")) {
+                                    if r.problems.iter().any(|x| x.starts_with("the south T") || x.starts_with("a ridden cart")) {
                                         bulb += 1;
                                     }
                                     if let Some(s) = r.pickup_speed {
@@ -4753,6 +4774,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                         healed += 1;
                                         if let (Some(h), Some(rr)) = (r.holds.first(), r.r_at) {
                                             heal_gt.push(rr - h);
+                                            if let Some(nr) = night_r.get(&(seed, format!("{v}"))) {
+                                                let away = f.reload.map_or(0, |(_, l)| l) + f.freeze.map_or(0, |(_, l)| l);
+                                                extra.push(rr - away - nr);
+                                            }
                                         }
                                     }
                                     if r.problems.is_empty() {
@@ -4768,7 +4793,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{name}: {ok} of {} clean{}", (to - from + 1) as usize * sp.len(), if bad_here.is_empty() { String::new() } else { format!("; {}", bad_here.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) });
                 }
                 heal_gt.sort();
-                println!("sweep: {tot} visits ({} rows), seated {seated}; strands reaching R {to_r}; never out {never}; ridden carts held {ridden_held}; HOME problems {lost}; bulb apart {bulb}; strands healed by the retry {healed} (hold to R: min {:?}, median {:?}, max {:?} gt); least pickup speed {:.3}", rows.len(), heal_gt.first(), heal_gt.get(heal_gt.len() / 2), heal_gt.last(), min_pick);
+                extra.sort();
+                let pct = |v: &Vec<i64>, p: f64| v.get(((v.len() as f64 - 1.0) * p).round() as usize).copied();
+                println!("heal extra (strand exit less the night exit, gt): {} strands, min {:?}, median {:?}, p90 {:?}, max {:?}", extra.len(), extra.first(), pct(&extra, 0.5), pct(&extra, 0.9), extra.last());
+                println!("sweep: {tot} visits ({} rows), seated {seated}; strands reaching R {to_r}; never out {never}; ridden carts held {ridden_held}; HOME problems {lost}; south-T or ridden-spur problems {bulb}; strands healed by the retry {healed} (hold to R: min {:?}, median {:?}, max {:?} gt); least pickup speed {:.3}", rows.len(), heal_gt.first(), heal_gt.get(heal_gt.len() / 2), heal_gt.last(), min_pick);
                 return Ok(());
             }
             let mut bad = 0;
@@ -4781,7 +4809,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             if !r.problems.is_empty() {
                                 bad += 1;
                             }
-                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?} at {:?} b/t, entry {:?} at {:?}, R {:?}, out {:?} seated {}, held {:?}, retry holds {:?} roll-backs {:?} pickup vz {:?} least z {:?} bulb lag {}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.entry_at, r.entry_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, r.held, r.holds, r.rollbacks, r.pickup_vz.map(|s| format!("{s:.3}")), r.min_z.map(|s| format!("{s:.2}")), r.bulb_lag_max, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?} on {:?}, after the wake on {:?}, released {:?}, swept speeds {:?}, picked up {:?} at {:?} b/t, entry {:?} at {:?}, R {:?}, out {:?} seated {}, held {:?}, retry holds {:?} roll-backs {:?} pickup vz {:?} least z {:?} lead {:?}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.stood, r.cells_after_wake, r.release_at, r.swept_speed.iter().map(|(c, s)| format!("{c:?} {s:.3}")).collect::<Vec<_>>(), r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.entry_at, r.entry_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, r.held, r.holds, r.rollbacks, r.pickup_vz.map(|s| format!("{s:.3}")), r.min_z.map(|s| format!("{s:.2}")), r.min_lead, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
                         }
                         Err(e) => {
                             bad += 1;

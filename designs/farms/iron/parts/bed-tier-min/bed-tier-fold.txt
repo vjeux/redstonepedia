@@ -9,31 +9,34 @@ origin: -6 0 -5
 palette:
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
-  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  C minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
   D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  E minecraft:rail[shape=ascending_west,waterlogged=false]
-  F minecraft:rail[shape=east_west,waterlogged=false]
+  E minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  F minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
   G minecraft:glass
-  H minecraft:rail[shape=north_east,waterlogged=false]
+  H minecraft:rail[shape=east_west,waterlogged=false]
   I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
-  J minecraft:rail[shape=north_south,waterlogged=false]
-  K minecraft:rail[shape=south_east,waterlogged=false]
-  L minecraft:red_bed[facing=south,occupied=false,part=foot]
-  M minecraft:red_bed[facing=south,occupied=false,part=head]
-  N minecraft:redstone_block
+  J minecraft:rail[shape=north_east,waterlogged=false]
+  K minecraft:rail[shape=north_south,waterlogged=false]
+  L minecraft:rail[shape=south_east,waterlogged=false]
+  M minecraft:rail[shape=south_west,waterlogged=false]
+  N minecraft:red_bed[facing=south,occupied=false,part=foot]
   O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  Q minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  Q minecraft:red_bed[facing=south,occupied=false,part=head]
   R minecraft:rail[shape=ascending_north,waterlogged=false]
-  S minecraft:stone
-  T minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
-  U minecraft:tripwire_hook[attached=true,facing=south,powered=false]
-  c minecraft:copper_bulb[lit=false,powered=false]
+  S minecraft:redstone_block
+  T minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  U minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  V minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  W minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  X minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  Y minecraft:tripwire_hook[attached=true,facing=west,powered=false]
   i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
-  o minecraft:observer[facing=north,powered=false]
-  p minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  p minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
   r minecraft:rail[shape=ascending_south,waterlogged=false]
-  t minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  s minecraft:stone
+  t minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
 layer -2:
   .
   .
@@ -45,70 +48,70 @@ layer -2:
   .
   .
   .
-  .
-  ........SGS
-  .
+  .......GGGs
+  .....sGG
+  .......s
   .
 layer -1:
   .
-  ....GGS
+  ....GGs
   ....G
   .
   .
   .
   .
-  .
-  ...GG
+  ....G
+  ...GGs
   .GGGG
-  ....G
-  ....GS.SEFD
-  ...S
-  .
+  ....G..LHHD
+  ....GpHMs
+  .......Es
+  .......s
 layer 0:
   .
-  ....KFPS
+  ....LHPs
   ....r
   ....G
   .
   .....G
-  .....G
-  ...GGG
-  .GNLRG
-  G.iMJG
-  .GGoJG
-  ...cHPGE
-  ...C.S
-  ...S
-layer 1:
-  .
-  ....II.PSN
-  ....I...S
-  ....r...S
-  ....G...S
-  ....GGSSS
   ....GG
   ...GRG
+  .GSNLCs
+  G.iQKG.s
+  .GGGKG.X
+  ....J..tT
+  .......WT
+  .......s
+layer 1:
+  .
+  ....II.PsS
+  ....I...s
+  ....r...s
+  ....G...s
+  ....GGsss
+  ....RG
+  ...GIG
   .GGIIG
   G.BI.G
   .GGGIG
-  ....I.F
-  .....Q
+  ..sVUUUUYs
+  .
   .
 layer 2:
-  ........N
-  ........Ap
+  ........S
+  ........AF
   .......G.G
   ....I..G.G
-  ....JGGG.G
-  ....J....G
-  ....J.GGG
+  ....KGGG.G
+  ....K....G
+  ....I.GGG
   ...GI.G
   ..G...G
-  .GN..G
-  ...G.U
-  .....T
-  .....t
-  .....S
+  .GS..G
+  ...G
+  .
+  .
+  .
 layer 3:
   .
   .......GII
@@ -116,7 +119,7 @@ layer 3:
   .......G.G
   ....IGGG.G
   ....I....G
-  ....I.GGG
+  ....G.GGG
   ...GG.G
   ..G...G
   .OG..G
