@@ -427,6 +427,19 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec: does a summoner's GOLEM_DETECTED_RECENTLY get renewed after
+    /// its own summon?) Stands of three panicking seated villagers summoning a golem that leaves
+    /// after N ticks: the renewals after T and the summon at T + 600, over fresh rounds
+    GolemRenew {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value_t = 16)]
+        stands: u32,
+        #[arg(long, default_value_t = 20)]
+        rounds: u32,
+        #[arg(long, default_value_t = 2)]
+        golem_ticks: u32,
+    },
     /// (tickexact 2026-11-12, ironspec: the villager's golem detection range on 26.3) A seated
     /// villager and a held iron golem at box gaps, horizontal and vertical: GOLEM_DETECTED_RECENTLY
     /// and whether NEAREST_LIVING_ENTITIES holds the golem
@@ -1102,6 +1115,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::GolemRenew { version, stands, rounds, golem_ticks } => crate::golemrenew::golem_renew(&version, stands, rounds, golem_ticks),
         MobaiCmd::GolemRange { version, gaps, ticks } => {
             let gaps: Vec<f64> = gaps.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             crate::golemrange::golem_range(&version, &gaps, ticks)

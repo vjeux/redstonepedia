@@ -31,6 +31,7 @@ pub mod panicstart;
 pub mod detectorinplace;
 pub mod postsky;
 pub mod golemrange;
+pub mod golemrenew;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;
