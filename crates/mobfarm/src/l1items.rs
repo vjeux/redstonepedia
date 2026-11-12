@@ -282,8 +282,8 @@ pub fn blast_resistance(state: &str) -> f64 {
         "ender_chest" => 600.0,
         "water" | "lava" => 100.0,
         "end_stone" | "end_stone_bricks" => 9.0,
-        "cobblestone" | "stone" | "smooth_stone_slab" | "stone_bricks" | "cobblestone_slab" | "stone_slab" | "blackstone" | "polished_blackstone" | "nether_bricks" | "deepslate" | "iron_block" | "cobblestone_wall" | "stone_brick_slab" | "blackstone_slab" | "polished_blackstone_slab" | "nether_brick_slab" => 6.0,
-        "iron_door" | "iron_trapdoor" | "iron_bars" => 5.0,
+        "cobblestone" | "stone" | "smooth_stone_slab" | "stone_bricks" | "cobblestone_slab" | "stone_slab" | "blackstone" | "polished_blackstone" | "nether_bricks" | "deepslate" | "iron_block" | "cobblestone_wall" | "stone_brick_slab" | "blackstone_slab" | "polished_blackstone_slab" | "nether_brick_slab" | "iron_bars" => 6.0,
+        "iron_door" | "iron_trapdoor" => 5.0,
         "hopper" => 4.8,
         "basalt" | "polished_basalt" => 4.2,
         "dropper" | "dispenser" | "crafter" => 3.5,
@@ -342,16 +342,14 @@ pub fn exposed_loop_blocks(cells: &BTreeMap<P, String>) -> Vec<(P, String)> {
         .collect()
 }
 
-/// (ironspec 03:39) A block that matters to a ghast's ray: one whose loss breaks the farm
-/// (observers, chests, redstone components, rails, portal blocks). A player's controls (buttons,
-/// pressure plates, levers: a doorway's opener, replaced by hand) don't count.
+/// (ironspec 03:39; G1 on a9a418d03: the storage rule) A block that matters to a ghast's ray:
+/// every block resisting under 3.283 but the air, a player's openers (buttons, plates, levers: a
+/// doorway's, replaced by hand) and the fluids; signs (a lava stopper), components, chests and
+/// portal blocks all count.
 pub fn matters(state: &str) -> bool {
     let n = state.trim_start_matches("minecraft:");
     let n = n.split('[').next().unwrap_or(n);
-    matches!(
-        n,
-        "observer" | "chest" | "trapped_chest" | "barrel" | "comparator" | "repeater" | "redstone_wire" | "redstone_torch" | "redstone_wall_torch" | "daylight_detector" | "nether_portal" | "rail" | "powered_rail" | "detector_rail" | "activator_rail" | "tripwire" | "tripwire_hook" | "target" | "redstone_lamp" | "note_block" | "dropper" | "dispenser" | "crafter" | "piston" | "sticky_piston" | "iron_door" | "iron_trapdoor"
-    ) || n.ends_with("_trapdoor")
+    !(matches!(n, "air" | "cave_air" | "void_air" | "water" | "lava" | "lever") || n.ends_with("_button") || n.ends_with("_pressure_plate"))
 }
 
 /// (ironspec 03:39, G1's 26-connected form) Every block that matters and resists under 3.283 a

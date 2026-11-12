@@ -910,14 +910,75 @@ pub fn t_rails(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>
     sp.entities.clear();
     let spec = &sp;
     let w = if spec.has_bed() { Run::new(spec, &o)?.world } else { Run::new_homeless(spec, &o)?.world };
+    // (G1 on a9a418d03: the reach scan) a T re-settles only on a neighbour update from a signal
+    // source block; a source's update reaches its own neighbours and those of the block it powers
+    // or hangs on (a detector rail's block below, a hook's or a button's support, a repeater's,
+    // comparator's or observer's front, a wire's or a torch's neighbours): every cell within
+    // taxicab 2 of a source counts as reached (a superset)
+    let source = |s: &str| {
+        let n = s.trim_start_matches("minecraft:");
+        let n = n.split('[').next().unwrap_or(n);
+        matches!(n, "detector_rail" | "redstone_wire" | "redstone_torch" | "redstone_wall_torch" | "repeater" | "comparator" | "observer" | "lever" | "tripwire_hook" | "daylight_detector" | "target" | "trapped_chest" | "lectern" | "sculk_sensor" | "calibrated_sculk_sensor" | "lightning_rod" | "redstone_block")
+            || n.ends_with("_button")
+            || n.ends_with("_pressure_plate")
+    };
+    let sources: Vec<(redsim::pos::BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| source(&b.to_string())).map(|(p, b)| (*p, b.to_string())).collect();
+    // (each source's own update reach, 26.3: the cells whose neighborChanged its state change
+    // calls; a redstone block never changes, so it reaches nothing (an emulated switched cell is air
+    // in the files and isn't scanned))
+    let n6 = |c: [i32; 3]| -> Vec<[i32; 3]> { vec![[c[0] + 1, c[1], c[2]], [c[0] - 1, c[1], c[2]], [c[0], c[1] + 1, c[2]], [c[0], c[1] - 1, c[2]], [c[0], c[1], c[2] + 1], [c[0], c[1], c[2] - 1]] };
+    let facing = |s: &str| -> Option<[i32; 3]> {
+        let f = s.split("facing=").nth(1)?.split([',', ']']).next()?;
+        Some(match f {
+            "north" => [0, 0, -1],
+            "south" => [0, 0, 1],
+            "east" => [1, 0, 0],
+            "west" => [-1, 0, 0],
+            "up" => [0, 1, 0],
+            "down" => [0, -1, 0],
+            _ => return None,
+        })
+    };
+    let reach_of = |q: redsim::pos::BlockPos, s: &str| -> Vec<[i32; 3]> {
+        let n = s.trim_start_matches("minecraft:");
+        let n = n.split('[').next().unwrap_or(n);
+        let c = [q.x, q.y, q.z];
+        let with = |cells: Vec<[i32; 3]>| -> Vec<[i32; 3]> { cells.iter().flat_map(|x| n6(*x)).chain(cells.iter().copied()).collect() };
+        match n {
+            "redstone_block" => Vec::new(),
+            // (its own neighbours and the block below's: `updatePowerToConnected`)
+            "detector_rail" => with(vec![c, [c[0], c[1] - 1, c[2]]]),
+            "redstone_wire" | "redstone_torch" | "redstone_wall_torch" => with(n6(c).into_iter().chain([c]).collect()),
+            // (the block in front and its neighbours; a repeater's or comparator's front is opposite
+            // its facing, an observer's output its back)
+            "repeater" | "comparator" => facing(s).map(|f| with(vec![[c[0] - f[0], c[1] - f[1], c[2] - f[2]]])).unwrap_or_else(|| with(n6(c))),
+            "observer" => facing(s).map(|f| with(vec![[c[0] - f[0], c[1] - f[1], c[2] - f[2]]])).unwrap_or_else(|| with(n6(c))),
+            // (its own neighbours and its support's: the block behind its facing)
+            "lever" | "tripwire_hook" => facing(s).map(|f| with(vec![c, [c[0] - f[0], c[1] - f[1], c[2] - f[2]]])).unwrap_or_else(|| with(n6(c))),
+            _ if n.ends_with("_button") => facing(s).map(|f| with(vec![c, [c[0] - f[0], c[1] - f[1], c[2] - f[2]]])).unwrap_or_else(|| with(n6(c))),
+            _ if n.ends_with("_pressure_plate") => with(vec![c, [c[0], c[1] - 1, c[2]]]),
+            _ => with(vec![c]),
+        }
+    };
     let mut out = Vec::new();
     for (p, b) in &spec.blocks {
         if !matches!(b, redsim::block::Block::PlainRail { .. }) {
             continue;
         }
         if let Some(j) = redsim::rails::junction_at(&w, *p) {
+            let pc = [p.x, p.y, p.z];
+            let hits: Vec<String> = sources.iter().filter(|(q, s)| reach_of(*q, s).contains(&pc)).map(|(q, s)| format!("the {} at ({},{},{})", s.trim_start_matches("minecraft:").split('[').next().unwrap_or(""), q.x, q.y, q.z)).collect();
+            let near = sources.iter().filter(|(_, s)| !s.contains("redstone_block")).map(|(q, s)| ((q.x - p.x).abs() + (q.y - p.y).abs() + (q.z - p.z).abs(), *q, s)).min_by_key(|x| x.0);
+            let reach = if !hits.is_empty() {
+                format!("REACHED by {} (its update reaches this cell)", hits.join(", "))
+            } else {
+                match near {
+                    Some((d, q, s)) => format!("no source's update reaches it (the nearest changing source, the {} at ({},{},{}), {d} away taxicab, updates its own neighbours and its support's; redstone blocks never change)", s.trim_start_matches("minecraft:").split('[').next().unwrap_or(""), q.x, q.y, q.z),
+                    None => "no changing signal source in the file".to_string(),
+                }
+            };
             out.push(format!(
-                "({},{},{}) stored {}, unpowered {}, powered {}, its signal now {}",
+                "({},{},{}) stored {}, unpowered {}, powered {}, its signal now {}; {reach}",
                 p.x,
                 p.y,
                 p.z,
@@ -978,7 +1039,7 @@ pub fn placement_order(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec
 /// target block (every portal block; with `glass`, every glass block too: the loader's overworld
 /// side): 0 required; those within 10.5 printed for charged creepers. The distance runs from the
 /// creeper's feet point (the explosion's centre) to the block's nearest point. (report, passes)
-pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool) -> Result<(String, bool), String> {
+pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool, unlit_control: bool) -> Result<(String, bool), String> {
     use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
     use redsim::entity::mob::hostile;
     use redsim::pos::BlockPos;
@@ -990,9 +1051,10 @@ pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool) -
     sp.hi = BlockPos::new(spec.hi.x + 16, spec.hi.y + 16, spec.hi.z + 16);
     // (the farm's own mobs left out: a creeper's positions are the blocks' business)
     sp.entities.clear();
-    let spec = &sp;
-    let w = if spec.has_bed() { Run::new(spec, &o)?.world } else { Run::new_homeless(spec, &o)?.world };
-    let targets: Vec<BlockPos> = spec
+    // (a land world: redsim models block and sky light only there, so a portal's 11 and a torch
+    // light their cells and a monster starts only at block light 0)
+    sp.land = true;
+    let targets: Vec<BlockPos> = sp
         .blocks
         .iter()
         .filter(|(_, b)| {
@@ -1001,6 +1063,17 @@ pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool) -
         })
         .map(|(p, _)| *p)
         .collect();
+    // (the positive control: every portal block glass, unlit, the targets kept: the spaces beside
+    // them go dark and must be flagged)
+    if unlit_control {
+        for (_, b) in sp.blocks.iter_mut() {
+            if b.to_string().contains("nether_portal") {
+                *b = redsim::block::Block::parse("minecraft:glass").map_err(|e| format!("glass: {e}"))?;
+            }
+        }
+    }
+    let spec = &sp;
+    let w = if spec.has_bed() { Run::new(spec, &o)?.world } else { Run::new_homeless(spec, &o)?.world };
     let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
     for (p, _) in &spec.blocks {
         for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
@@ -1008,7 +1081,10 @@ pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool) -
             hi[k] = hi[k].max(v + 12);
         }
     }
-    let reach = hostile::flood_with(&w, hostile::CREEPER, &std::collections::HashSet::new(), (BlockPos::new(lo[0], lo[1], lo[2]), BlockPos::new(hi[0], hi[1], hi[2])), hostile::Seeding::SpawnRules { seed: None });
+    // (vanilla's #prevent_mob_spawning_inside: no natural spawn in a rail's cell; the flood's
+    // `exclude` takes them out of the starts while its walks still cross them)
+    let rail_cells: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| redsim::rails::is_rail(b)).map(|(p, _)| *p).collect();
+    let reach = hostile::flood_with(&w, hostile::CREEPER, &rail_cells, (BlockPos::new(lo[0], lo[1], lo[2]), BlockPos::new(hi[0], hi[1], hi[2])), hostile::Seeding::SpawnRules { seed: None });
     let dist = |c: BlockPos, feet: f64, t: BlockPos| {
         let pt = [c.x as f64 + 0.5, feet, c.z as f64 + 0.5];
         let tl = [t.x as f64, t.y as f64, t.z as f64];
@@ -1025,13 +1101,52 @@ pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool) -
     }
     near.sort_by(|a, b| a.0.total_cmp(&b.0));
     charged.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // (ironspec 05:05) the spawn origins: the reached cells a creeper can spawn at (block light 0
+    // by the land world's propagation, its floor and its box: `hostile::spawn_parts`)
+    let kind = redsim::entity::mob::natural::kind_of("minecraft:creeper");
+    let starts: Vec<(BlockPos, f64)> = reach
+        .cells
+        .iter()
+        .filter(|(c, _)| !rail_cells.contains(c) && w.block_light(*c).unwrap_or(0) == 0 && kind.is_none_or(|k| {
+            let (_, placement, free) = hostile::spawn_parts(&w, k, *c);
+            placement && free
+        }))
+        .copied()
+        .collect();
+    // (the light at every spawn space beside a target: an air cell face-adjacent to it with a
+    // floor below)
+    let mut spaces: Vec<(BlockPos, i32)> = Vec::new();
+    for t in &targets {
+        for q in [BlockPos::new(t.x + 1, t.y, t.z), BlockPos::new(t.x - 1, t.y, t.z), BlockPos::new(t.x, t.y, t.z + 1), BlockPos::new(t.x, t.y, t.z - 1), BlockPos::new(t.x, t.y + 1, t.z)] {
+            let air = w.get(q).to_string().trim_start_matches("minecraft:").starts_with("air");
+            let floor = !w.get(q.below()).to_string().trim_start_matches("minecraft:").starts_with("air");
+            if air && floor && !spaces.iter().any(|(p, _)| *p == q) {
+                spaces.push((q, w.block_light(q).unwrap_or(-1)));
+            }
+        }
+    }
+    let lmin = spaces.iter().map(|x| x.1).min().unwrap_or(0);
+    let lmax = spaces.iter().map(|x| x.1).max().unwrap_or(0);
+    let dark: Vec<&(BlockPos, i32)> = spaces.iter().filter(|x| x.1 <= 0).collect();
     let show = |v: &Vec<(f64, BlockPos, f64, BlockPos)>| v.iter().take(12).map(|(d, c, f, t)| format!(" ({},{:.2},{}) {d:.2} from ({},{},{})", c.x, f, c.z, t.x, t.y, t.z)).collect::<String>();
     let mut s = format!(
-        "creeper positions (a hostile flood of the creeper's body from every spawnable cell at block light 0, and every position walkable from there; {} positions) against {} target blocks ({}):\n",
+        "creeper positions{} (a hostile flood of the creeper's body from every spawnable cell at block light 0 by the land world's propagation, and every position walkable from there; {} positions) against {} target blocks ({}):\n",
+        if unlit_control { " — POSITIVE CONTROL: every portal block glass (unlit), the targets kept" } else { "" },
         reach.cells.len(),
         targets.len(),
         if glass { "every portal block and every glass block" } else { "every portal block" }
     );
+    s.push_str(&format!(
+        "  the spawn spaces beside the targets (an air cell face-adjacent with a floor below): {}, block light {lmin}..{lmax}; dark (0): {}{}\n",
+        spaces.len(),
+        dark.len(),
+        dark.iter().take(12).map(|(p, _)| format!(" ({},{},{})", p.x, p.y, p.z)).collect::<String>()
+    ));
+    s.push_str(&format!(
+        "  the spawn origins (reached cells a creeper can spawn at): {}{}\n",
+        starts.len(),
+        starts.iter().take(16).map(|(c, f)| format!(" ({},{:.2},{})", c.x, f, c.z)).collect::<String>()
+    ));
     s.push_str(&format!("  within 5.5 (a creeper's blast): {}{}{}\n", near.len(), if near.is_empty() { " (PASS)" } else { " (FAIL)" }, show(&near)));
     s.push_str(&format!("  5.5 to 10.5 (a charged creeper's, information): {}{}\n", charged.len(), show(&charged)));
     Ok((s, near.is_empty()))
