@@ -5581,6 +5581,51 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-12, ironspec's rail-T check; `mctas mobai rail-t`'s regression) a sloped
+    // detector D (8,64,8) ascending south into the junction J (8,65,9) of a row of plain rails
+    // along x at y 65 (J east_west, its three potential connections W, E and the slope), a plain
+    // rail north of D; a ridden cart set down at rest on D presses it at the first tick, and D's
+    // state change runs BaseRailBlock.affectNeighborsAfterRemoval: the neighbours of the cell above
+    // the slope (8,65,8), J among them, are updated with the detector's block, and J re-settles to
+    // its unpowered T shape (north_east). The positive control: a detector D2 (4,64,3) inline on an
+    // east-west track, T2 (5,64,3) beyond it with dead-end arms north and south (south_west
+    // unpowered): a ridden cart rolling east over D2 turns T2 north_west, and back on the release
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 63, stone);
+        for x in 2..=14 {
+            b.push(([x, 64, 9], stone.to_string()));
+        }
+        for x in (2..=14).filter(|x| *x != 8) {
+            b.push(([x, 65, 9], "minecraft:rail[shape=east_west]".to_string()));
+        }
+        b.push(([8, 65, 9], "minecraft:rail[shape=east_west]".to_string()));
+        b.push(([8, 64, 7], "minecraft:rail[shape=north_south]".to_string()));
+        b.push(([8, 64, 8], "minecraft:detector_rail[powered=false,shape=ascending_south]".to_string()));
+        for x in 1..=3 {
+            b.push(([x, 64, 3], "minecraft:rail[shape=east_west]".to_string()));
+        }
+        b.push(([4, 64, 3], "minecraft:detector_rail[powered=false,shape=east_west]".to_string()));
+        b.push(([5, 64, 2], "minecraft:rail[shape=north_south]".to_string()));
+        b.push(([5, 64, 4], "minecraft:rail[shape=north_south]".to_string()));
+        b.push(([5, 64, 3], "minecraft:rail[shape=south_west]".to_string()));
+        let ridden = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string();
+        let rolling = "{Motion:[0.4d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string();
+        let mobs = vec![("minecraft:minecart".to_string(), [8.5, 64.5, 8.5], Some(ridden)), ("minecraft:minecart".to_string(), [1.5, 64.0625, 3.5], Some(rolling))];
+        v.push(Scene {
+            name: "rail-t".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 63, 0], [15, 70, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, the pane walls' water for 7b90c3f1's lift) a 1 x 1 water column over
     // soul sand (16, 64..68, 16) walled by 4 dry unconnected glass panes per layer (its corners
     // air), its sources placed at t5 (the soul sand makes it a bubble column); a waterlogged pane
