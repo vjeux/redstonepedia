@@ -762,6 +762,12 @@ pub enum MobfarmCmd {
         /// Repeatable (a sketch track's part is `track:<name>`).
         #[arg(long = "bed-exempt")]
         bed_exempt: Vec<String>,
+        /// The sentinel villager's room x0,y0,z0,x1,y1,z1 (the column's frame): print its rule (c)
+        /// (the least largest-axis gap to every villager position's box, the bar 11.7: out of
+        /// `spawnGolemIfNeeded`'s inflate(10)) and its chunk section against the bed's (in the
+        /// written frame, `--out-shift`); exit 1 under the bar.
+        #[arg(long, allow_hyphen_values = true)]
+        sentinel: Option<String>,
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -3842,7 +3848,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
             println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
-        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, out } => {
+        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, out } => {
             let clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let reserves: Vec<crate::column::Reserve> = reserves.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
@@ -3867,7 +3873,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Some([n[0], n[1], n[2]])
                 }
             };
-            let (text, d, bed_ok) = crate::column::run_bed(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice()))).map_err(|e| anyhow::anyhow!(e))?;
+            let sentinel_box: Option<([i32; 3], [i32; 3])> = match sentinel.as_deref() {
+                None => None,
+                Some(b) => Some(crate::column::Reserve::parse(&format!("sentinel={b}")).map_err(|e| anyhow::anyhow!(e))?.b),
+            };
+            let shift_w: [i32; 3] = match out_shift.as_deref() {
+                None => [0, 0, 0],
+                Some(s) => {
+                    let n: Vec<i32> = s.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(n.len() == 3, "--out-shift dx,dy,dz");
+                    [n[0], n[1], n[2]]
+                }
+            };
+            let (text, d, bed_ok) = crate::column::run_full(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
             if let Some(pf) = &positions_out {
                 let sh: [i32; 3] = match out_shift.as_deref() {

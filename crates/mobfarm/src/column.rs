@@ -416,9 +416,15 @@ pub fn run(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[R
 }
 
 /// [`run`], and with `bed` (the occupied shared bed's head, and the parts exempt as the napper's
-/// own path) the bed-radius report after the tiers, its verdict third.
+/// own path) the bed-radius report after the tiers, its verdict third; with `sentinel` (a room's
+/// box) the sentinel's rule (c) and its chunk section (the written frame `shift`).
 #[allow(clippy::too_many_arguments)]
 pub fn run_bed(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool, bed: Option<(P, &[String])>) -> Result<(String, Design, bool), String> {
+    run_full(specs, extra, clear, reserves, ports, f, name, with_plan, bed, None, [0; 3])
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_full(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool, bed: Option<(P, &[String])>, sentinel_box: Option<(P, P)>, shift: P) -> Result<(String, Design, bool), String> {
     let mut parts: Vec<Part> = specs.iter().map(load_part).collect::<Result<_, _>>()?;
     let mut cleared = 0usize;
     for p in &mut parts {
@@ -463,6 +469,11 @@ pub fn run_bed(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves:
         let (t, ok) = bed_radius(&parts, reserves, b, exempt);
         s.push_str(&t);
         bed_ok = ok;
+    }
+    if let Some(sb) = sentinel_box {
+        let (t, ok) = sentinel(&parts, sb, bed.map(|(b, _)| b), shift);
+        s.push_str(&t);
+        bed_ok &= ok;
     }
     let (mut d, two_ways, dropped) = skeleton(&parts, name)?;
     if !dropped.is_empty() {
@@ -739,9 +750,68 @@ pub fn bed_radius(parts: &[Part], reserves: &[Reserve], bed: P, exempt: &[String
     (s, ok)
 }
 
+/// The sentinel villager's room (b8949c96's rule (c), Nov 11): its box `s` (cells, inclusive) must
+/// stay out of every villager position's box grown by 10 (`Villager.spawnGolemIfNeeded`'s
+/// `inflate(10)`), so some axis gap of at least 10, ironspec's bar 11.7. Every rail cell of every
+/// part and every ridden cart is a villager position, its box the whole cell, 2 high (a rider or a
+/// villager on foot there, conservative). Prints the least of the largest axis gap over all
+/// positions, and the room's and the bed's chunk sections in the written frame (`shift`, the
+/// aligned frame: sections every 16 from 0; y sections depend on the site).
+pub fn sentinel(parts: &[Part], s: (P, P), bed: Option<P>, shift: P) -> (String, bool) {
+    let (slo, shi) = ([s.0[0] as f64, s.0[1] as f64, s.0[2] as f64], [s.1[0] as f64 + 1.0, s.1[1] as f64 + 1.0, s.1[2] as f64 + 1.0]);
+    let mut best: Option<(f64, String)> = None;
+    let mut consider = |lo: [f64; 3], hi: [f64; 3], what: String| {
+        let gap = (0..3).map(|k| (slo[k] - hi[k]).max(lo[k] - shi[k]).max(0.0)).fold(0.0f64, f64::max);
+        if best.as_ref().is_none_or(|(g, _)| gap < *g) {
+            best = Some((gap, what));
+        }
+    };
+    for p in parts {
+        for (c, st) in &p.placed.blocks {
+            if rail_shape_of(st).is_some() {
+                consider([c[0] as f64, c[1] as f64, c[2] as f64], [c[0] as f64 + 1.0, c[1] as f64 + 2.0, c[2] as f64 + 1.0], format!("{}'s rail ({},{},{})", p.spec.name, c[0], c[1], c[2]));
+            }
+        }
+        for e in p.placed.entities.iter().filter(|e| e.kind.ends_with("minecart") && e.nbt.as_deref().is_some_and(|t| t.contains("villager"))) {
+            consider([e.pos[0] - 0.5, e.pos[1], e.pos[2] - 0.5], [e.pos[0] + 0.5, e.pos[1] + 2.0, e.pos[2] + 0.5], format!("{}'s rider at ({:.2},{:.2},{:.2})", p.spec.name, e.pos[0], e.pos[1], e.pos[2]));
+        }
+    }
+    let bar = 11.7;
+    let sec = |c: P| [(c[0] + shift[0]).div_euclid(16), (c[2] + shift[2]).div_euclid(16)];
+    let mut out = format!("sentinel room x {}..{} y {}..{} z {}..{}: ", s.0[0], s.1[0], s.0[1], s.1[1], s.0[2], s.1[2]);
+    let ok = match &best {
+        Some((g, at)) => {
+            out.push_str(&format!("(c) the least largest-axis gap to a villager position's box {g:.2} (at {at}; > 10 keeps it out of the summon box, the bar {bar}: {})", if *g >= bar { "ok" } else { "FAIL" }));
+            *g >= bar
+        }
+        None => {
+            out.push_str("(c) no villager position");
+            true
+        }
+    };
+    let ss = sec(s.0);
+    out.push_str(&format!("; its chunk section (x, z) in the written frame ({}, {})", ss[0], ss[1]));
+    if let Some(b) = bed {
+        let bs = sec(b);
+        out.push_str(&format!(", the shared bed's ({}, {}): {}", bs[0], bs[1], if (ss[0] - bs[0]).abs().max((ss[1] - bs[1]).abs()) <= 1 { "adjacent or the same (rule (a)'s fallback)" } else { "NOT adjacent" }));
+    }
+    out.push('\n');
+    (out, ok)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sentinel_gap() {
+        let t = sketch_part(&[("t".into(), vec![[0, 0, 0], [0, 0, 3]], [false, false])], &[], &[]).unwrap();
+        // a room 12 east of the rails' cells (x 0..0 -> the cell box ends at 1): gap 12 - 1 = 11
+        let (rep, ok) = sentinel(&t, ([12, 0, 0], [13, 1, 2]), Some([0, 0, 1]), [6, 0, 6]);
+        assert!(!ok && rep.contains("gap to a villager position's box 11.00") && rep.contains("FAIL"), "{rep}");
+        let (rep2, ok2) = sentinel(&t, ([13, 0, 0], [14, 1, 2]), Some([0, 0, 1]), [6, 0, 6]);
+        assert!(ok2 && rep2.contains("12.00") && rep2.contains("section (x, z) in the written frame (1, 0)") && rep2.contains("adjacent"), "{rep2}");
+    }
 
     #[test]
     fn sketch_tracks() {
