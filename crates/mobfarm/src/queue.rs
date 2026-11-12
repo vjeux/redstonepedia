@@ -2006,6 +2006,24 @@ pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
         _ => '?',
     };
     let (mut all, mut bad, mut flags) = (Vec::new(), Vec::new(), Vec::new());
+    // (ironspec Nov 12 07:25: a never-switched T may keep a placement-order shape when declared in
+    // the design's header, `placement-order-ts: x,y,z=REASON; ...`: listed with its expected FAIL
+    // and its reason, not failed, while nothing can power or update it (no source path, no detector
+    // on an arm); a declared T something can reach stays a failure)
+    let declared: Vec<(BlockPos, String)> = design_text
+        .lines()
+        .find_map(|l| l.strip_prefix("placement-order-ts:"))
+        .map(|s| {
+            s.split(';')
+                .filter_map(|e| {
+                    let (p, why) = e.split_once('=')?;
+                    let v: Vec<i32> = p.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                    (v.len() == 3).then(|| (BlockPos::new(v[0], v[1], v[2]), why.trim().to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut listed: Vec<String> = Vec::new();
     for (p, b) in &spec.blocks {
         if !matches!(b, Block::PlainRail { .. }) {
             continue;
@@ -2060,10 +2078,13 @@ pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
             // only its removal does: such a junction keeps its stored shape and is flagged, not
             // failed on its signal at rest)
             let rb_beside = dirs6.iter().any(|d| matches!(w.get(p.rel(*d)), Block::RedstoneBlock));
-            if rb_beside && j.signal {
+            let why = declared.iter().find(|(q, _)| q == p).map(|(_, r)| r.clone());
+            if let (Some(why), true) = (why.as_ref(), want != stored && paths.is_empty() && dets.is_empty() && !rb_beside) {
+                listed.push(format!("{line}: DECLARED placement-order (the expected FAIL: it would re-settle to {want:?} at a first update, and no signal source or detector can reach it): {why}"));
+            } else if rb_beside && j.signal {
                 flags.push(format!("{line}: a redstone block beside it gives its signal; the game switches it only when that block is removed (its stored shape stays)"));
             } else if want != stored {
-                bad.push(format!("{line}: re-settles to {want:?} at its first update"));
+                bad.push(format!("{line}: re-settles to {want:?} at its first update{}", if why.is_some() { " (declared placement-order, REFUSED: a source, a detector or a redstone block can reach it)" } else { "" }));
             } else if let Some(d) = dets.iter().find(|d| joins(stored, **d) && j.powered != stored) {
                 bad.push(format!("{line}: a cart crossing the {} detector powers it to {:?} under itself", letter(d), j.powered));
             } else if paths.len() >= 2 {
@@ -2072,8 +2093,15 @@ pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
             all.push(line);
         }
     }
-    let head = format!("rail junctions (static, the game's settle order): {} junctions, {}{}", all.len(), if bad.is_empty() { "PASS".to_string() } else { format!("FAIL at {}", bad.len()) }, if flags.is_empty() { String::new() } else { format!(", {} flagged", flags.len()) });
+    let head = format!(
+        "rail junctions (static, the game's settle order): {} junctions, {}{}{}",
+        all.len(),
+        if bad.is_empty() { "PASS".to_string() } else { format!("FAIL at {}", bad.len()) },
+        if listed.is_empty() { String::new() } else { format!(", {} declared placement-order (expected FAIL)", listed.len()) },
+        if flags.is_empty() { String::new() } else { format!(", {} flagged", flags.len()) }
+    );
     let mut body: Vec<String> = if bad.is_empty() { all } else { bad.clone() };
+    body.extend(listed.iter().cloned());
     body.extend(flags.iter().map(|f| format!("FLAG {f}")));
     (format!("{head}{}", body.iter().map(|l| format!("\n  {l}")).collect::<String>()), !bad.is_empty())
 }

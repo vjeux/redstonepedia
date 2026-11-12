@@ -260,22 +260,57 @@ through blocks under 4.034 (0 required on the Nether side), the mobs' highest bo
 babies on foot and the jockey stack apart: the jumps' own control), and the design writer re-parses
 its text and compares every cell.
 The module's static checks (onechunk, ironspec's and G1's rules, Nov 12): `mctas mobfarm ghast-check
-DESIGN [--nether] [--close OUT]` lists every block that matters (observers, chests, redstone
-components, rails, portal blocks; a player's buttons, plates and levers aside) resisting under 3.283
-that a ray from the outside air reaches by a 26-connected path through cells under 4.034 (0
-required); `--close` puts cobblestone in every outside cell with an edge or a corner on the weak
-interior around those blocks until nothing is reached, and writes the closed design (only for a
-layout whose working spaces are enclosed). `mctas mobfarm creeper-check DESIGN [--glass]` floods
-the creeper's body (`hostile::flood_with`, spawned at block light 0 or walked to from there, the
-world padded by 16) and lists its positions within 5.5 of a portal block (`--glass`: or a glass
-block; 0 required) and within 10.5 (charged creepers, information). `mctas mobfarm exit DESIGN
+DESIGN [--nether] [--close OUT]` lists every block that matters (the storage rule: every block
+resisting under 3.283 but the air, the fluids and a player's buttons, plates and levers; signs, a
+lava stopper, count) that a ray from the outside air reaches by a 26-connected path through cells
+under 4.034 (0 required); `--close` puts cobblestone in every outside cell with an edge or a corner
+on the weak interior around those blocks until nothing is reached, and writes the closed design
+(only for a layout whose working spaces are enclosed). `mctas mobfarm creeper-check DESIGN [--glass]
+[--unlit-control]` floods the creeper's body (`hostile::flood_with` in a land world, so the portals'
+11 and every light source propagate: spawned at block light 0, never in a rail's cell
+(`#prevent_mob_spawning_inside`), or walked to from there; the world padded by 16), prints the block
+light of every spawn space beside a target, the spawn origins, and the positions within 5.5 of a
+portal block (`--glass`: or a glass block; 0 required) and within 10.5 (charged creepers,
+information); `--unlit-control` turns every portal block to glass (unlit, the targets kept), the
+positive control. `mctas mobfarm exit DESIGN
 --positions P --part-flood [--spots]` floods an assembled module that holds its bed as a part and
 lists every golem spawn spot by the block under it. `mobfarm column --out` re-parses what it wrote
 (every cell, block entity, entity, port, `positions:`, `declared:` and run cell), merges the parts'
 `run-cells:` / `run-gates:` (a later part's names as `<part>.<NAME>`), and with `--no-settle` writes
 the placement-order list (every rail whose designed shape, or a neighbour's, vanilla placement
 changes when it is placed last) and the rail Ts (every plain rail with 3 potential connections)
-into the header.
+into the header, each T with its reach scan: every signal source whose state change updates the T's
+cell (a detector rail its own and the block below's neighbours; a wire or a torch its neighbours'
+neighbours; a repeater, comparator or observer its output block and that block's neighbours; a
+lever, button or hook its own and its support's; a redstone block never), or the nearest changing
+source when none does.
+`mctas mobfarm f1q2-run DESIGN [--lane-carts] [--drive] [--ticks N] [--day0 D] [--restart-every N
+--restart-order O] [--control-rider K]` (onechunk, ironspec's deciding test for every rider's bed)
+runs the assembled F1 + Q2 module with the exact villager brain, every villager's HOME the shared bed
+(its `home` port; the bed's POI taken, as the station bench does), and prints every villager's stamp
+age at each calm REST tick with no walk target (the largest, where, the ticks over 1,000), every
+clear (a nap, its target reached, a complete path; the bed, a flee or a stroll point), HOME tracked
+every tick and at dawn, and with `--drive` each lane's pocket turns (draws, panic ticks, with and
+without a clear). `--lane-carts` seats a rider on each lane's R_1 and 5 slopes (8 a lane with the
+pocket and the hold); `--drive` runs the station's L1 events, the lanes' R line and the split's
+latches EMULATED from day-1's table v6 at s 12 (a golem's appearance is the golem pulse, REL =
+golem + 2 + 4, the pockets at REL + 0 / 12 / 24); `--control-rider K` undoes the K-th villager's
+clears every tick (it must release HOME). It also prints each rider's stamp at dusk (its first REST
+tick), the clears by place (the pocket, the lane, the siding, elsewhere) and cause, a lap at a time,
+the daytime ones apart, the longest stretch between two clears (all, and those ending in REST), and
+per pocket turn the panic's onset (the WALK_TARGET holder, MoveToTargetSink's remainingCooldown),
+the tick WALK_TARGET frees, the draws landed with and without a complete path and the panic ticks
+spent on a landed draw with no path.
+`mctas mobfarm ticket-check --module M --loader L [--tiling 1|2|4] [--no-mirror] [--piglins DAYS
+[--difficulty 2]]` (onechunk, ironspec's freeze ruling) places the module copies by the budget's
+tiling around the loader's gap chunk (the loader at its frame + (17, 0, 17), chunk (1,1); modules at
+(0,0), (2,0) and, at N = 4, the southern two mirrored in z: world z = 41 - frame z) and prints every
+farm chunk's best level from 26.3's portal ticket (level 30 at the chunk of the exit portal block
+found in the destination level: `addTicketWithRadius(PORTAL, .., 3)`; 30 + the Chebyshev distance;
+<= 31 entity-ticking, 32 block-ticking only, 33 loaded; >= 32 a violation); `--piglins` adds the pad
+portals' random-tick zombified piglins a copy-day (`NetherPortalBlock.randomTick`: a block's random
+tick 3/4096 a tick, a spawn on difficulty/2000 of them, a player within 128) and their accumulation
+over the season by the player's position.
 Every portal's link as the game searches it: `mctas mobfarm portal-links --ow NAME=x0,y0,z0,x1,y1,z1[;...]...
 --nether NAME=...... [--expect SOURCE=TARGET]... [--margin 0.7]` (absolute cells): from each
 overworld portal the Nether portals within 16 of its x 1/8 point (y not scaled), 3D-closest, ties to
