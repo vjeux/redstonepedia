@@ -75,6 +75,23 @@ pub struct GqOpts {
     /// (cc767b78) T,D: a real freeze: the whole bench at level 32 inside a forced ring of chunks
     /// (redstone running, entities frozen) from tick T for D gt.
     pub freeze32: Vec<(i64, i64)>,
+    /// (7b90c3f1) The batch receiver: Tail(0..2) in timed mode, (T_MID, T_REAR) live gt from the
+    /// hold's release (committed: paused while ALIVE is low, never dropped).
+    pub receiver: Option<(i64, i64)>,
+    /// (7b90c3f1) The batch's return offsets from the hold's release + ret (per cart order).
+    pub ret_offs: Vec<i64>,
+    pub recv_settle: i64,
+    pub recv_feed: i64,
+    pub recv_timeout: i64,
+    /// (7b90c3f1) The receiver alone: a cart fed into Tail(3) leaves at once and comes back at the
+    /// next hold release + ret + OFFS[j] in feed order (an ideal downstream; with --carts 3, one
+    /// batch a cycle through the receiver only).
+    pub recv_ideal: bool,
+    /// (7b90c3f1) The receiver's flying feed: the front stays open through the advances.
+    pub recv_fly: bool,
+    /// (7b90c3f1) The receiver's shuts keyed on the front pocket's P (Tail(2)'s) rising edge with
+    /// the receiver idle: the middle at the edge + .0, the rear at + .1 (live gt).
+    pub receiver_p: Option<(i64, i64)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -364,7 +381,52 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut frozen32: Option<[i32; 4]> = None;
     let mut tail_refusing = false;
     let mut tail_refusals = 0usize;
+    // (7b90c3f1: the batch receiver, Tail(0..2) in timed mode: the batch's live count since the
+    // hold's release (None: idle, the middle and rear open for the next batch), the timers' shuts,
+    // the front's feed window, the advances (live gt waiting for the refill edge), the pockets held
+    // by construction (rear, middle, front), the measures)
+    let mut batch_sunk = 0usize;
+    let mut recv_live: Option<i64> = None;
+    let mut recv_queue: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
+    let mut recv_overlaps = 0usize;
+    let mut recv_empty_late: Vec<i64> = Vec::new();
+    let mut recycle: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    let (mut recv_mid_shut, mut recv_rear_shut) = (false, false);
+    let mut recv_feed_until: i64 = -1;
+    let mut recv_feeding = false;
+    let (mut recv_adv_mid, mut recv_adv_rear): (Option<i64>, Option<i64>) = (None, None);
+    let mut recv_hold = [false; 3];
+    let mut recv_settled = false;
+    let mut last_rise_t3: i64 = i64::MIN / 2;
+    let mut recv_entry: [Option<i64>; 3] = [None; 3];
+    let mut recv_edges: Vec<String> = Vec::new();
+    let mut recv_gap_min: [Option<i64>; 2] = [None; 2];
+    // (each timed shut's tick (middle, rear) until the first cart entering its cell after it: the
+    // follower margin)
+    let mut recv_shut_at: [Option<i64>; 2] = [None; 2];
+    let mut recv_foll_min: [Option<i64>; 2] = [None; 2];
+    let mut recv_feeds: Vec<i64> = Vec::new();
+    let mut recv_timeouts = 0usize;
+    let mut recv_max = (0usize, 0i64);
+    let recv_on = (o.receiver.is_some() || o.receiver_p.is_some()) && !o.ideal_tail && o.tail >= 4;
+    let mut recv_p_edges = 0usize;
     for t in 0..ticks {
+        // (7b90c3f1, --recv-ideal: the receiver alone: every cart starts in the recycle pool (the
+        // run and the tail empty), three come back after each hold release)
+        if t == 0 && o.recv_ideal {
+            pending.clear();
+            for k in 0..o.carts {
+                if let Some(id) = ids[k].take() {
+                    let riders: Vec<u32> = redsim::entity::index_of(&run.world, id).map(|i| run.world.entities.list[i].passengers.clone()).unwrap_or_default();
+                    for r in riders {
+                        let _ = redsim::entity::kill(&mut run.world, r);
+                    }
+                    let _ = redsim::entity::kill(&mut run.world, id);
+                }
+                recycle.push_back(k);
+            }
+            count_q = 0;
+        }
         let frz = o.freeze.iter().any(|(a, d)| t >= *a && t < a + d);
         // (cc767b78: the real freeze: the whole bench at level 32 from T for D gt)
         for (a, d) in &o.freeze32 {
@@ -504,7 +566,15 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 ids[k] = None;
                 sunk += 1;
                 let last = pending.iter().map(|p| p.0).max().unwrap_or(i64::MIN / 2);
-                pending.push(((t + o.ret).max(last + o.ret_gap), k));
+                if !o.ret_offs.is_empty() && hold_release_at >= 0 {
+                    // (7b90c3f1: the j-th cart sunk after the hold's release comes back at the release
+                    // + ret + OFFS[j]: the climb table's spacing per pair)
+                    let off = o.ret_offs[batch_sunk.min(o.ret_offs.len() - 1)];
+                    pending.push(((hold_release_at + o.ret + off).max(t + 1), k));
+                    batch_sunk += 1;
+                } else {
+                    pending.push(((t + o.ret).max(last + o.ret_gap), k));
+                }
                 launched_into_run.remove(&k);
             }
         }
@@ -532,6 +602,80 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     }
                     if si == nt - 1 {
                         settle_live = 0;
+                    }
+                    // (7b90c3f1: the receiver's evidence: Tail(3)'s edge ends a feed; Tail(2)'s ends
+                    // the middle's advance; Tail(1)'s ends the rear's)
+                    if recv_on {
+                        if si == 3 {
+                            last_rise_t3 = t;
+                            if recv_feeding {
+                                // (`--recv-fly`: the front stays open through the advances, each cart
+                                // behind flying through from the middle's face; its window renewed at
+                                // every feed edge, ended by its own timeout once the receiver is empty)
+                                if o.recv_fly && (recv_hold[1] || recv_hold[0] || recv_adv_mid.is_some() || recv_adv_rear.is_some()) {
+                                    recv_feed_until = t + o.recv_feed;
+                                } else {
+                                    recv_feeding = false;
+                                    recv_feed_until = t;
+                                }
+                                recv_hold[2] = false;
+                                recv_feeds.push(t);
+                                // (the ideal downstream: the fed cart leaves at once and is recycled
+                                // at the next hold release)
+                                if o.recv_ideal {
+                                    let px = sensors[3].0 as f64;
+                                    if let Some(k) = (0..o.carts).filter(|&k| now[k].is_some_and(|(x, _, _)| x > px - 1.0 && x < px + 1.5)).max_by(|a, b| now[*a].unwrap().0.total_cmp(&now[*b].unwrap().0))
+                                        && let Some(id) = ids[k]
+                                    {
+                                        let riders: Vec<u32> = redsim::entity::index_of(&run.world, id).map(|i| run.world.entities.list[i].passengers.clone()).unwrap_or_default();
+                                        for r in riders {
+                                            let _ = redsim::entity::kill(&mut run.world, r);
+                                        }
+                                        let _ = redsim::entity::kill(&mut run.world, id);
+                                        ids[k] = None;
+                                        recycle.push_back(k);
+                                        occ_t[3] = false;
+                                    }
+                                }
+                                // (ironspec 18:32, (2): the middle and the rear advance together, each
+                                // gate shut on its own cart's distinct P edge: the middle's cart into
+                                // the front pocket (Tail(2)'s P), the rear's into the middle (Tail(1)'s))
+                                if recv_hold[1] {
+                                    recv_adv_mid = Some(0);
+                                    recv_hold[1] = false;
+                                }
+                                if recv_hold[0] {
+                                    recv_adv_rear = Some(0);
+                                    recv_hold[0] = false;
+                                }
+                            }
+                        }
+                        // (an advance's cart has left its pocket at the advance's start (its flag
+                        // cleared then); its arrival edge fills the pocket ahead)
+                        // (`--receiver-p`: the batch's shuts keyed on the front pocket's P (Tail(2)'s),
+                        // crossed only by the batch's first cart while the receiver is idle: its
+                        // rising edge starts the middle's and rear's short delays)
+                        if si == 2 && o.receiver_p.is_some() && recv_live.is_none() && recv_adv_mid.is_none() && !recv_feeding {
+                            recv_live = Some(0);
+                            recv_mid_shut = false;
+                            recv_rear_shut = false;
+                            recv_settled = false;
+                            recv_p_edges += 1;
+                        }
+                        if si == 2 && recv_adv_mid.is_some() {
+                            recv_adv_mid = None;
+                            recv_hold[2] = true;
+                        }
+                        if si == 1 && recv_adv_rear.is_some() {
+                            recv_adv_rear = None;
+                            recv_hold[1] = true;
+                            // (the flying feed: a cart reaching the middle while the front is still
+                            // open flies on through, the middle opening ahead of it)
+                            if o.recv_fly && recv_feeding && recv_adv_mid.is_none() && !recv_hold[2] {
+                                recv_hold[1] = false;
+                                recv_adv_mid = Some(0);
+                            }
+                        }
                     }
                 } else {
                     let h = si - nt;
@@ -576,6 +720,151 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             released = now.iter().enumerate().filter(|(_, c)| c.is_some_and(|(x, _, _)| x >= hx0 && x < h2_face + 0.2)).map(|(k, _)| k).collect();
             rear_clear = None;
             margin_pending = true;
+            batch_sunk = 0;
+            let mut batch_n = released.len();
+            if o.recv_ideal {
+                batch_n = 0;
+                for j in 0..3 {
+                    if let Some(k) = recycle.pop_front() {
+                        let off = o.ret_offs.get(j).or(o.ret_offs.last()).copied().unwrap_or(j as i64 * o.ret_gap);
+                        pending.push((t + o.ret + off, k));
+                        batch_n += 1;
+                    }
+                }
+            }
+            // (7b90c3f1: the receiver's committed timers start with the release whose carts it
+            // will catch (only a release that sends a batch): a delay line, so a release while the
+            // previous batch is still held queues its own count (its timers run on; it becomes
+            // current once the receiver is empty))
+            if recv_on && batch_n > 0 && o.receiver_p.is_none() {
+                if recv_live.is_none() {
+                    recv_live = Some(0);
+                    recv_mid_shut = false;
+                    recv_rear_shut = false;
+                    recv_settled = false;
+                } else {
+                    recv_queue.push_back(0);
+                    recv_overlaps += 1;
+                }
+            }
+        }
+        // (7b90c3f1: the receiver: its live count (paused while ALIVE is low or the column frozen),
+        // the middle's and rear's timed shuts (the entry-to-edge gap: the last cart entering the
+        // gate's cell), the batch settled, the feed one cart at a time into Tail(3), the advances'
+        // timeouts, idle once empty)
+        if recv_on {
+            let (t_mid, t_rear) = o.receiver_p.or(o.receiver).unwrap_or((0, 0));
+            let live_ok = if o.alive { alive } else { !(frz || real_frozen) };
+            if let Some(l) = recv_live.as_mut()
+                && live_ok
+            {
+                *l += 1;
+            }
+            if live_ok {
+                recv_queue.iter_mut().for_each(|q| *q += 1);
+            }
+            let l = recv_live.unwrap_or(-1);
+            for (which, tt, flag) in [(1usize, t_mid, &mut recv_mid_shut), (0usize, t_rear, &mut recv_rear_shut)] {
+                if l >= tt && !*flag && recv_live.is_some() {
+                    *flag = true;
+                    let gap = recv_entry[which].map(|e| t - e);
+                    let slot = if which == 1 { 0 } else { 1 };
+                    if let Some(gp) = gap
+                        && recv_gap_min[slot].is_none_or(|m| gp < m)
+                    {
+                        recv_gap_min[slot] = Some(gp);
+                    }
+                    recv_shut_at[slot] = Some(t);
+                    if recv_edges.len() < 24 {
+                        recv_edges.push(format!("t {t} ({} live gt): {} shut, {}", l, if which == 1 { "middle" } else { "rear" }, gap.map_or("no cart entered its cell yet".into(), |g| format!("{g} gt after the last cart entered its cell"))));
+                    }
+                }
+            }
+            if recv_live.is_some() && recv_rear_shut && !recv_settled && l >= t_rear.max(t_mid) + o.recv_settle {
+                recv_settled = true;
+                recv_hold = [true, true, true];
+            }
+            // (the feed: the front's cart into Tail(3) when it is latched free and the spacer since
+            // its last P edge has run, with no advance in progress)
+            if recv_hold[2] && !recv_feeding && recv_adv_mid.is_none() && recv_adv_rear.is_none() && !occ_t[3] && t - last_rise_t3 >= o.spacer && t >= recv_feed_until && live_ok {
+                recv_feeding = true;
+                recv_feed_until = t + o.recv_feed;
+            }
+            if recv_feeding && t >= recv_feed_until {
+                // (no edge at Tail(3) within the feed window: the front was empty)
+                recv_feeding = false;
+                recv_hold[2] = false;
+                recv_timeouts += 1;
+                if recv_hold[1] {
+                    recv_adv_mid = Some(0);
+                    recv_hold[1] = false;
+                }
+                if recv_hold[0] {
+                    recv_adv_rear = Some(0);
+                    recv_hold[0] = false;
+                }
+            }
+            for adv in [&mut recv_adv_mid, &mut recv_adv_rear] {
+                if let Some(a) = adv.as_mut() {
+                    if live_ok {
+                        *a += 1;
+                    }
+                    if *a >= o.recv_timeout {
+                        // (no arrival edge: that pocket was empty (its flag already cleared at
+                        // the advance's start))
+                        *adv = None;
+                        recv_timeouts += 1;
+                    }
+                }
+            }
+            if recv_settled && !recv_hold.iter().any(|b| *b) && !recv_feeding && recv_adv_mid.is_none() && recv_adv_rear.is_none() {
+                // (empty: the next queued batch becomes current with its count so far (a count
+                // already past a timer fires it at once: a late receiver, the overlap's cost))
+                recv_live = recv_queue.pop_front();
+                recv_settled = false;
+                recv_mid_shut = false;
+                recv_rear_shut = false;
+                if recv_live.is_some() {
+                    recv_empty_late.push(t);
+                }
+            }
+            // (the receiver idle (no batch's timers running): a cart at rest at the front gate's face
+            // is fed as it comes (the warm-up's spaced launches; bench scaffolding, ideal sensing))
+            if recv_live.is_none() && !recv_hold[2] && !recv_feeding {
+                if let Some(face) = g.gates.iter().find(|x| x.0 == Role::Tail(2)).map(|x| x.1 as f64 + 0.375) {
+                    if now.iter().any(|c| c.is_some_and(|(x, _, v)| (x + 0.49 - face).abs() < 0.1 && v < 0.005)) {
+                        recv_hold[2] = true;
+                    }
+                }
+            }
+            // (the receiver's carts and each gate cell's last entry)
+            let x0 = g.tail_p[0].0 as f64;
+            let x1 = g.gates.iter().find(|x| x.0 == Role::Tail(2)).map_or(0.0, |x| x.1 as f64 + 1.0);
+            let k = now.iter().filter(|c| c.is_some_and(|(x, _, _)| x >= x0 && x < x1)).count();
+            if k > recv_max.0 {
+                recv_max = (k, t);
+            }
+            for which in 0..3 {
+                if let Some(gx) = g.gates.iter().find(|x| x.0 == Role::Tail(which)).map(|x| x.1 as f64) {
+                    for kk in 0..o.carts {
+                        if let (Some((x, _, _)), Some((px, _, _))) = (now[kk], prev[kk])
+                            && px + 0.49 <= gx
+                            && x + 0.49 > gx
+                        {
+                            recv_entry[which] = Some(t);
+                            if which < 2 {
+                                let slot = if which == 1 { 0 } else { 1 };
+                                if let Some(s) = recv_shut_at[slot].take() {
+                                    let m = t - s;
+                                    if recv_foll_min[slot].is_none_or(|x| m < x) {
+                                        recv_foll_min[slot] = Some(m);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         // (the tail chain's release into the run: its front pocket latched, the run's top free by
         // the run's sensor (its top cell's detector rail off), the last release done)
@@ -682,6 +971,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             let open = match role {
                 Role::Tail(j) if o.overfill && *j + 1 == nt => last_open,
                 Role::Tail(j) if o.overfill && *j + 2 == nt => !occ_t[j + 1] && !last_open && !(*j == 0 && o.spacer > 0 && t - last_rise_t1 < o.spacer),
+                Role::Tail(j) if recv_on && *j == 2 => recv_feeding && t < recv_feed_until,
+                Role::Tail(j) if recv_on && *j == 1 => recv_live.is_none() || !recv_mid_shut || recv_adv_mid.is_some(),
+                Role::Tail(j) if recv_on && *j == 0 => recv_live.is_none() || !recv_rear_shut || recv_adv_rear.is_some(),
                 Role::Tail(j) => {
                     if *j + 1 == nt {
                         t < tail_release_until
@@ -926,6 +1218,35 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         let lost: Vec<String> = gate.refused.iter().filter(|(_, w)| w == "cycle +3").map(|(t, _)| format!("t {t}")).collect();
         l.push(format!("releases lost (a golem event's T+3 refused with ALIVE low; a consequence row): {}{}", lost.len(), if lost.is_empty() { String::new() } else { format!(" ({})", lost.join(", ")) }));
         l.extend(gl);
+    }
+    if recv_on {
+        let (t_mid, t_rear) = o.receiver_p.or(o.receiver).unwrap_or((0, 0));
+        let feed_gaps: Vec<i64> = recv_feeds.windows(2).map(|w| w[1] - w[0]).collect();
+        if o.receiver_p.is_some() {
+            l.push(format!(
+                "batch receiver keyed on the front pocket's P (Tail(2)'s, 7b90c3f1): the middle shut {t_mid} and the rear {t_rear} live gt after its rising edge with the receiver idle; batches keyed {recv_p_edges}; leader gap (the last cart into the gate's cell to the shut) middle {}, rear {}; follower margin (the shut to the next cart into its cell) middle {}, rear {}",
+                recv_gap_min[0].map_or("-".into(), |g| g.to_string()),
+                recv_gap_min[1].map_or("-".into(), |g| g.to_string()),
+                recv_foll_min[0].map_or("-".into(), |g| g.to_string()),
+                recv_foll_min[1].map_or("-".into(), |g| g.to_string())
+            ));
+        }
+        l.push(format!(
+            "batch receiver (7b90c3f1: Tail(0..2) timed, the middle shut {t_mid} and the rear {t_rear} live gt after each hold release, paused while ALIVE is low; then fed one at a time into Tail(3)): least entry-to-edge gap middle {}, rear {} gt (the latency must stay under it); feeds {} (spacing at Tail(3) {}; the bar >= 24); empty-pocket timeouts {}; the receiver's most carts at once {} (t {}); releases while the previous batch was still held {} (became current late at {})",
+            recv_gap_min[0].map_or("-".into(), |g| g.to_string()),
+            recv_gap_min[1].map_or("-".into(), |g| g.to_string()),
+            recv_feeds.len(),
+            if feed_gaps.is_empty() { "-".into() } else { format!("{}..{}", feed_gaps.iter().min().unwrap(), feed_gaps.iter().max().unwrap()) },
+            recv_timeouts,
+            recv_max.0,
+            recv_max.1,
+            recv_overlaps,
+            if recv_empty_late.is_empty() { "-".into() } else { recv_empty_late.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ") }
+        ));
+        for e in &recv_edges {
+            l.push(format!("  receiver edge {e}"));
+        }
+        l.push(format!("  receiver feeds (Tail(3)'s P edges): {}", recv_feeds.iter().take(12).map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
     }
     Ok(l.join("\n"))
 }
