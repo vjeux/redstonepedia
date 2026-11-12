@@ -76,6 +76,23 @@ pub fn tag() -> &'static str {
     if on() { " [z-MIRRORED: z -> -z, north <-> south]" } else { "" }
 }
 
+/// The cells of `s` outside its world's box lo..=hi: redsim's `World::place_raw` (which `Run::start`
+/// calls) drops them without a word (ironspec's audit, Nov 12 11:05), so every bench spec goes through
+/// [`checked`].
+pub fn out_of_box(s: &FarmSpec) -> usize {
+    s.blocks.iter().filter(|(p, _)| p.x < s.lo.x || p.y < s.lo.y || p.z < s.lo.z || p.x > s.hi.x || p.y > s.hi.y || p.z > s.hi.z).count()
+}
+
+/// [`spec`] (mirrored when the switch is on), refused when any cell lies outside its world's box.
+pub fn checked(s: &FarmSpec) -> Result<FarmSpec, String> {
+    let m = spec(s)?;
+    let n = out_of_box(&m);
+    if n > 0 {
+        return Err(format!("{n} cell(s) outside the world's box {:?}..={:?}: place_raw would drop them", m.lo, m.hi));
+    }
+    Ok(m)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

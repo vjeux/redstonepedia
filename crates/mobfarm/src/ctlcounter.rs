@@ -81,6 +81,9 @@ pub struct CounterOpts {
     pub stale_hold: i64,
     /// No pick while a napper is held at the queue (G1's back-pressure, ironspec 09:12).
     pub backpressure: bool,
+    /// (ironspec 12:54) The stale-hold back-pressure: no pick while the stop is held AND NOT REST_l (a
+    /// stale napper on the stop's ledge outside REST) either.
+    pub stale_backpressure: bool,
     /// The clock's variant (a) (ironspec 09:11): every DAY rise (the level reaching L) loads C with this
     /// value at the next release, as trigger 2 does; None: (b), the gate's trigger 2 only.
     pub day_rise_load: Option<i64>,
@@ -135,6 +138,7 @@ impl Default for CounterOpts {
             rest: None,
             stale_hold: 80,
             backpressure: true,
+            stale_backpressure: false,
             day_rise_load: None,
             back_after: 1_000,
             stop_cycle: 300,
@@ -220,6 +224,9 @@ pub struct RunOut {
     pub stale_admits: Vec<(i64, i64)>,
     /// Picks the back-pressure deferred (a napper held at the queue).
     pub deferred: u32,
+    /// (ironspec 12:54) Picks made while the stop held a stale napper outside REST (bar 0 under the
+    /// stale-hold back-pressure).
+    pub stale_picks: u32,
     /// The most nappers held at the queue at once; the most riders away (picked and not yet back in
     /// their lane) at a release.
     pub queue_max: u32,
@@ -246,12 +253,18 @@ pub struct RunOut {
     /// The least time from a napper's R to the next napper's lie-down (ironspec 10:52: the departing
     /// napper's time to leave the 16-ball).
     pub liedown_gap_min: i64,
+    /// (G1 on 6ca670551) The latest entry made in REST, as night time (day time, + 24,000 after midnight).
+    pub rest_entry_max: i64,
+    /// (ironspec 12:13) The most riders away from one lane at once, at a release; the longest pick ->
+    /// stop entry.
+    pub lane_away_max: u32,
+    pub pick_entry_max: i64,
 }
 
 /// One run: `days` days from day time `d0` at game time 0, releases at game times = `phase` mod 100,
 /// detector updates at game times = `det_phase` mod `det_period`, the counter starting at C = `c0`.
 pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: i64, evs: &[(i64, Ev)]) -> RunOut {
-    let mut out = RunOut { min_spacing: i64::MAX, inhibit_edge_gap: i64::MAX, latest_arrival: i64::MIN, stale_dt: (i64::MAX, i64::MIN), exit_gap_min: i64::MAX, liedown_gap_min: i64::MAX, ..Default::default() };
+    let mut out = RunOut { min_spacing: i64::MAX, inhibit_edge_gap: i64::MAX, latest_arrival: i64::MIN, stale_dt: (i64::MAX, i64::MIN), exit_gap_min: i64::MAX, liedown_gap_min: i64::MAX, rest_entry_max: i64::MIN, ..Default::default() };
     let mut last_exit: Option<i64> = None;
     let horizon = days * 24_000;
     let mut day = d0;
@@ -264,8 +277,8 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
     let (mut rain_lv, mut thunder_lv) = (0f32, 0f32);
     let mut day_hi = false; // level >= the inhibit's L, as last updated
     let mut day_changed_t = -1_000i64;
-    let mut diverts: Vec<(i64, i64)> = Vec::new(); // pending divert decisions (game time, the lane's launch offset)
-    let mut arrivals: Vec<i64> = Vec::new(); // pending bed-stop arrivals (game times)
+    let mut diverts: Vec<(i64, i64, usize, i64)> = Vec::new(); // pending divert decisions (game time, the lane's launch offset, the lane, the pick's game time)
+    let mut arrivals: Vec<(i64, usize, i64)> = Vec::new(); // pending bed-stop arrivals (game time, the lane, the pick's game time)
     let mut skip_pending: Option<i64> = None; // a skip whose DAY rise is not yet seen
     let mut held_at_hatch = 0u32; // nappers waiting at the shut hatch
     // (the release model: arrivals waiting at the queue (game times), REST_l, the riders away: picked
@@ -275,6 +288,13 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
     let mut stop_until = i64::MIN; // the stop is held until then (R's RS)
     let mut in_flight = 0u32;
     let mut back_at: Vec<i64> = Vec::new();
+    // (ironspec 12:13: the riders away per lane: picked and not yet entered, then back `back_after`
+    // after the entry; the queue's lanes and pick times beside its arrival times)
+    let mut in_flight_lane = [0u32; 3];
+    let mut back_lane: Vec<(i64, usize)> = Vec::new();
+    let mut queue_meta: std::collections::VecDeque<(usize, i64)> = std::collections::VecDeque::new();
+    // (ironspec 12:54: the stop held by a stale napper until then)
+    let mut stale_until = i64::MIN;
     // (variant (a): a DAY rise's load pending; the rise's day time waiting for its release's C)
     let mut day_pend: Option<i64> = None;
     let mut rise_dm: Option<i64> = None;
@@ -353,7 +373,8 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                     stop_until = t + 12_000 + o.stop_cycle;
                     b'b'
                 } else if since < o.stop_walk + o.stop_nap {
-                    stop_until = t + (o.stop_cycle - o.stop_walk - o.stop_nap).max(0);
+                    // (G1: the sleeper wakes at REST's end, day time 10, `rest_tail` gt after the skip)
+                    stop_until = t + rest_tail + (o.stop_cycle - o.stop_walk - o.stop_nap).max(0);
                     b'a'
                 } else {
                     b'n'
@@ -513,13 +534,14 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
         // the divert decisions due now (the inhibit read at the split; the napper at the bed's
         // entry `to_bed - to_divert` later)
         if diverts.first().map(|d| d.0) == Some(t) {
-            let (_, lane_off) = diverts.remove(0);
+            let (_, lane_off, lane_d, pick_t) = diverts.remove(0);
             let at_bed = dm + (o.to_bed - o.to_divert);
             let early = (at_bed.rem_euclid(24_000)) < o.bed_clear - o.early_tol;
             let inhibited = o.day_inhibit.is_some() && day_hi;
             if inhibited && o.rest.is_some() {
                 // (not diverted: the napper rides on in its cart, back in its lane)
                 in_flight = in_flight.saturating_sub(1);
+                in_flight_lane[lane_d] = in_flight_lane[lane_d].saturating_sub(1);
             }
             if o.day_inhibit.is_some() {
                 out.inhibit_edge_gap = out.inhibit_edge_gap.min(t - day_changed_t);
@@ -538,7 +560,7 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             }
             // (the bed-stop arrival, its lane's launch offset added: judged at its own tick, below)
             if !inhibited {
-                arrivals.push(t + (o.to_bed - o.to_divert) + lane_off);
+                arrivals.push((t + (o.to_bed - o.to_divert) + lane_off, lane_d, pick_t));
             }
         }
         // the arrivals due now: the hatch opens for the napper if the DAY it sees is low (or there is no
@@ -561,9 +583,10 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
         if o.rest.is_some() {
             // (the release model: every arrival waits at the queue; the head is released once it has
             // waited `stale_hold` AND REST_l AND the DAY the hatch sees is low)
-            while let Some(i) = arrivals.iter().position(|&a| a == t) {
-                arrivals.remove(i);
+            while let Some(i) = arrivals.iter().position(|&(a, _, _)| a == t) {
+                let (_, ln, tp) = arrivals.remove(i);
                 queue.push_back(t);
+                queue_meta.push_back((ln, tp));
                 out.queue_max = out.queue_max.max(queue.len() as u32);
             }
             if let Some(&ta) = queue.front()
@@ -573,25 +596,45 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 && t >= stop_until
             {
                 queue.pop_front();
-                // (stale: outside REST, or right after a skip with the day time before 12,000)
-                let stale = (10..12_000).contains(&dm_now) || (t - last_skip_t < 200 && dm_now < 12_000);
+                // (G1 on 6ca670551: every entry classed by its lie-down against REST's end, whatever the
+                // cause: REST runs from day time 12,000 to 24,010 (day time 10 of the next day; after a skip
+                // to day time 10); an entry outside REST (10..11,999), or one whose walk outlasts REST's end,
+                // is on foot when REST ends: it waits on the stop's ledge for the next REST, holding the stop)
+                let rest_end = if dm_now >= 12_000 {
+                    t + (24_010 - dm_now)
+                } else if dm_now < 10 {
+                    t + (10 - dm_now)
+                } else {
+                    t
+                };
+                let stale = (10..12_000).contains(&dm_now) || t + o.stop_walk >= rest_end;
+                // (the latest entry made in REST, not in a skip's stale window: those are the stale class)
+                if (dm_now >= 12_000 || dm_now < 10) && t - last_skip_t >= 200 {
+                    out.rest_entry_max = out.rest_entry_max.max(if dm_now < 10 { dm_now + 24_000 } else { dm_now });
+                }
                 out.entries.push((day, t - ta, stale));
                 if t - last_skip_t < 200 {
                     out.stale_entries += 1;
                 }
                 in_flight = in_flight.saturating_sub(1);
+                let (ln, tp) = queue_meta.pop_front().unwrap_or((0, t));
+                in_flight_lane[ln] = in_flight_lane[ln].saturating_sub(1);
+                out.pick_entry_max = out.pick_entry_max.max(t - tp);
                 occupant = Some(t);
                 if stale {
-                    // (it waits on the stop's ledge until REST, naps, leaves: the stop is held until then;
-                    // its nap is that evening's)
-                    let wait = (12_000 - dm_now).max(0);
+                    // (it waits on the stop's ledge until the next REST, naps, leaves: the stop is held until
+                    // then; its nap is that evening's)
+                    let wait = (12_000 - dm_now).rem_euclid(24_000);
                     stop_until = t + wait + o.stop_cycle;
+                    stale_until = stop_until;
                     out.stale_admits.push((dm_now, (dm_now + wait + o.stop_cycle).rem_euclid(24_000)));
                     back_at.push(stop_until + o.back_after);
-                    *out.night_naps.entry(day.div_euclid(24_000)).or_default() += 1;
+                    back_lane.push((stop_until + o.back_after, ln));
+                    *out.night_naps.entry((day + wait).div_euclid(24_000)).or_default() += 1;
                 } else {
                     stop_until = t + o.stop_cycle;
                     back_at.push(t + o.back_after);
+                    back_lane.push((t + o.back_after, ln));
                     // (a nap: an entry inside REST, 12,000..24,009, keyed by its dusk's day number)
                     if dm_now >= 12_000 {
                         *out.night_naps.entry(day.div_euclid(24_000)).or_default() += 1;
@@ -602,7 +645,7 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 // (consecutive departures from the stop: this napper's exit against the previous one's;
                 // ironspec 10:52, HOLD dropped: this napper's lie-down against the previous one's R, the
                 // time the departing napper has to leave the 16-ball; a stale napper lies down at REST)
-                let liedown = if stale { t + (12_000 - dm_now).max(0) } else { t + o.stop_walk };
+                let liedown = if stale { t + (12_000 - dm_now).rem_euclid(24_000) } else { t + o.stop_walk };
                 if let Some(le) = last_exit {
                     out.exit_gap_min = out.exit_gap_min.min(stop_until - le);
                     out.liedown_gap_min = out.liedown_gap_min.min(liedown - le);
@@ -611,7 +654,7 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             }
         }
         while o.rest.is_none()
-            && let Some(i) = arrivals.iter().position(|&a| a == t)
+            && let Some(i) = arrivals.iter().position(|&(a, _, _)| a == t)
         {
             arrivals.remove(i);
             if o.day_inhibit.is_none() || !hatch_sees_hi {
@@ -721,6 +764,11 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             if o.rest.is_some() {
                 back_at.retain(|&b| b > t);
                 out.away_max = out.away_max.max(in_flight + back_at.len() as u32);
+                back_lane.retain(|&(b, _)| b > t);
+                for (l, &f) in in_flight_lane.iter().enumerate() {
+                    let away = f + back_lane.iter().filter(|&&(_, x)| x == l).count() as u32;
+                    out.lane_away_max = out.lane_away_max.max(away);
+                }
             }
             if c == o.gate.1 + 1 {
                 out.gate_close_t.push(t);
@@ -739,13 +787,24 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             // (a pick: the window open at a pick phase (the window's first release and every 3rd:
             // lanes A/B/C at offsets 0/3/6 of the 10-cycle); decided at its divert)
             if w && rephased_once && let Some(lane) = [0i64, 3, 6].iter().position(|&x| x == (c - o.window.0).rem_euclid(10)) {
-                if o.rest.is_some() && o.backpressure && !queue.is_empty() {
-                    // (G1's back-pressure: no pick while a napper is held at the queue)
+                let stale_held = o.stale_backpressure && t < stop_until && !rest_l;
+                if o.rest.is_some() && o.backpressure && (!queue.is_empty() || stale_held) {
+                    // (G1's back-pressure: no pick while a napper is held at the queue; ironspec 12:54: nor
+                    // while the stop is held outside REST)
                     out.deferred += 1;
                 } else {
-                    diverts.push((t + o.to_divert, lane as i64 * o.launch_step));
+                    if o.rest.is_some() && t < stale_until && !rest_l {
+                        out.stale_picks += 1;
+                    }
+                    diverts.push((t + o.to_divert, lane as i64 * o.launch_step, lane, t));
                     if o.rest.is_some() {
                         in_flight += 1;
+                        in_flight_lane[lane] += 1;
+                        // (ironspec 12:54: riders away per lane at every instant: a lane's count rises only
+                        // at its picks, so its maximum is read right after each)
+                        back_lane.retain(|&(b, _)| b > t);
+                        let away = in_flight_lane[lane] + back_lane.iter().filter(|&&(_, x)| x == lane).count() as u32;
+                        out.lane_away_max = out.lane_away_max.max(away);
                     }
                 }
             }
@@ -808,6 +867,7 @@ pub struct ScenOut {
     pub outside_rest: u32,
     pub wait: (i64, i64, i64, u64),
     pub deferred: u32,
+    pub stale_picks: u32,
     pub queue_max: u32,
     pub away_max: u32,
     pub rest_rise: (i64, i64),
@@ -838,13 +898,22 @@ pub struct ScenOut {
     pub exit_gap_min: i64,
     /// The least time from a napper's R to the next napper's lie-down (ironspec 10:52).
     pub liedown_gap_min: i64,
+    /// The latest entry made in REST (night time; G1 on 6ca670551).
+    pub rest_entry_max: i64,
+    /// The most riders away from one lane at once; the longest pick -> stop entry (ironspec 12:13).
+    pub lane_away_max: u32,
+    pub pick_entry_max: i64,
 }
 
 /// A scenario over release phases (every `phase_step`), the given detector phases and every units
 /// phase at the start.
 pub fn scenario(o: &CounterOpts, evs: &[(i64, Ev)]) -> ScenOut {
-    scenario_with(o, evs, 1, &[0, 7, 13, 19])
+    scenario_with(o, evs, 1, &DET_ALL)
 }
+
+/// (tick-exact Nov 12 11:16: the detector updates on game times ≡ 0 mod 20, which falls on the world's
+/// own day-time phase, an input) Every detector update phase.
+pub const DET_ALL: [i64; 20] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
 
 pub fn scenario_with(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_phases: &[i64]) -> ScenOut {
     scenario_days(o, evs, phase_step, det_phases, 3)
@@ -878,6 +947,7 @@ pub fn scenario_days(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
         c_h: (i64::MAX, i64::MIN),
         exit_gap_min: i64::MAX,
         liedown_gap_min: i64::MAX,
+        rest_entry_max: i64::MIN,
         ..Default::default()
     };
     for phase in (0..100).step_by(phase_step) {
@@ -920,6 +990,7 @@ pub fn scenario_days(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
                 s.false_h += r.false_h;
                 s.exit_gap_min = s.exit_gap_min.min(r.exit_gap_min);
                 s.liedown_gap_min = s.liedown_gap_min.min(r.liedown_gap_min);
+                s.rest_entry_max = s.rest_entry_max.max(r.rest_entry_max);
                 for &c in &r.c_at_h_rise {
                     s.c_h = (s.c_h.0.min(c), s.c_h.1.max(c));
                 }
@@ -939,8 +1010,11 @@ pub fn scenario_days(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
                     }
                 }
                 s.deferred += r.deferred;
+                s.stale_picks += r.stale_picks;
                 s.queue_max = s.queue_max.max(r.queue_max);
                 s.away_max = s.away_max.max(r.away_max);
+                s.lane_away_max = s.lane_away_max.max(r.lane_away_max);
+                s.pick_entry_max = s.pick_entry_max.max(r.pick_entry_max);
                 s.stale_entries += r.stale_entries;
                 for &dm in &r.rest_rises {
                     if (11_000..14_000).contains(&dm) {
@@ -1347,8 +1421,11 @@ fn merge_release(a: &mut ScenOut, s: &ScenOut) {
         a.wait_max_at = s.wait_max_at;
     }
     a.deferred += s.deferred;
+    a.stale_picks += s.stale_picks;
     a.queue_max = a.queue_max.max(s.queue_max);
     a.away_max = a.away_max.max(s.away_max);
+    a.lane_away_max = a.lane_away_max.max(s.lane_away_max);
+    a.pick_entry_max = a.pick_entry_max.max(s.pick_entry_max);
     a.rest_rise = (a.rest_rise.0.min(s.rest_rise.0), a.rest_rise.1.max(s.rest_rise.1));
     a.rest_rise_day += s.rest_rise_day;
     a.min_naps = a.min_naps.min(s.min_naps);
@@ -1362,6 +1439,7 @@ fn merge_release(a: &mut ScenOut, s: &ScenOut) {
     a.class_n += s.class_n;
     a.exit_gap_min = a.exit_gap_min.min(s.exit_gap_min);
     a.liedown_gap_min = a.liedown_gap_min.min(s.liedown_gap_min);
+    a.rest_entry_max = a.rest_entry_max.max(s.rest_entry_max);
     for (k, &(lo, hi)) in &s.naps_by_key {
         let e = a.naps_by_key.entry(*k).or_insert((u32::MAX, 0));
         *e = (e.0.min(lo), e.1.max(hi));
@@ -1373,10 +1451,11 @@ fn release_line(s: &ScenOut) -> String {
     let m = |x: i64, none: i64| if x == none { "-".to_string() } else { x.to_string() };
     let mean = if s.wait.3 > 0 { format!("{:.0}", s.wait.2 as f64 / s.wait.3 as f64) } else { "-".to_string() };
     format!(
-        "    release (REST_l AND the stale-window hold AND NOT DAY after it AND the stop clear): entries {}: the earliest at dusk at day time {} (bar >= 12,000), the latest {}, {} outside REST (10..11,999, not after a skip); stale admissions {} (in a skip's stale window, day times {}: each waits on the stop's ledge until REST and naps that evening, the stop clear at day time {}); the least gap between consecutive departures from the stop {} gt; the least time from a napper's R to the next napper's lie-down {} gt; the wait at the queue {}..{} gt (mean {mean}); picks deferred by the back-pressure {}; held at the gate at once at most {} (bar 1); riders away at a release at most {}; REST_l rose at day time {}..{} (+ {} transient rises by day, DAY high: no release); naps a night (complete nights no skip cut) least {} of 24",
+        "    release (REST_l AND the stale-window hold AND NOT DAY after it AND the stop clear): entries {}: the earliest at dusk at day time {} (bar >= 12,000), the latest {} (the latest made in REST, stale or not, at night time {}), {} outside REST (10..11,999, not after a skip); stale admissions {} (in a skip's stale window, day times {}: each waits on the stop's ledge until REST and naps that evening, the stop clear at day time {}); the least gap between consecutive departures from the stop {} gt; the least time from a napper's R to the next napper's lie-down {} gt; the wait at the queue {}..{} gt (mean {mean}); picks deferred by the back-pressure {} (picks made while a stale napper held the stop outside REST {}); held at the gate at once at most {} (bar 1); riders away at a release at most {} (from one lane at any instant at most {}; the longest pick to stop entry {} gt); REST_l rose at day time {}..{} (+ {} transient rises by day, DAY high: no release); naps a night (complete nights no skip cut) least {} of 24",
         s.wait.3,
         m(s.entry_min, i64::MAX),
         m(s.entry_max, i64::MIN),
+        m(s.rest_entry_max, i64::MIN),
         s.outside_rest,
         s.stale_admit_n,
         if s.stale_admit_n == 0 { "-".to_string() } else { format!("{}..{}", s.stale_admit_dt.0, s.stale_admit_dt.1) },
@@ -1386,8 +1465,11 @@ fn release_line(s: &ScenOut) -> String {
         m(s.wait.0, i64::MAX),
         m(s.wait.1, i64::MIN),
         s.deferred,
+        s.stale_picks,
         s.queue_max,
         s.away_max,
+        s.lane_away_max,
+        s.pick_entry_max,
         m(s.rest_rise.0, i64::MAX),
         m(s.rest_rise.1, i64::MIN),
         s.rest_rise_day,
@@ -1405,7 +1487,7 @@ pub fn high_params(o: &CounterOpts, h: i64) -> ((i64, i64, i64, i64), String) {
     let t_h = (0..24_000).find(|&d| det_level(d, 0.0, 0.0) >= h).unwrap_or(0);
     let t_h_end = (t_h..24_000).take_while(|&d| det_level(d, 0.0, 0.0) >= h).last().unwrap_or(t_h);
     let probe = CounterOpts { variant: Variant::Ff, high: Some((h, 0, i64::MIN, i64::MAX)), ..o.clone() };
-    let s = scenario_with(&probe, &[], 5, &[0, 7, 13, 19]);
+    let s = scenario_with(&probe, &[], 1, &DET_ALL);
     let (cmin, cmax) = s.c_h;
     let load = (0..=cmin).rev().find(|c| c.rem_euclid(10) == 0 || c.rem_euclid(10) == 9).unwrap_or(0);
     let span = (t_h_end - t_h + 99) / 100;
@@ -1636,11 +1718,19 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
         let mut rel_clear_dt = (i64::MAX, i64::MIN);
         let mut rel_exit = i64::MAX;
         let mut rel_liedown = i64::MAX;
+        let mut rel_rest_max = i64::MIN;
+        let mut rel_lane_away = 0u32;
+        let mut rel_pick_entry = 0i64;
+        let mut rel_stale_picks = 0u32;
         let mut rel_normal_naps = u32::MAX;
         let mut rel_add = |s: &ScenOut| {
             rel_entry_min = rel_entry_min.min(s.entry_min);
             rel_exit = rel_exit.min(s.exit_gap_min);
             rel_liedown = rel_liedown.min(s.liedown_gap_min);
+            rel_rest_max = rel_rest_max.max(s.rest_entry_max);
+            rel_lane_away = rel_lane_away.max(s.lane_away_max);
+            rel_pick_entry = rel_pick_entry.max(s.pick_entry_max);
+            rel_stale_picks += s.stale_picks;
             rel_outside += s.outside_rest;
             rel_stale += s.stale_admit_n;
             rel_admit_dt = (rel_admit_dt.0.min(s.stale_admit_dt.0), rel_admit_dt.1.max(s.stale_admit_dt.1));
@@ -1820,10 +1910,10 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
             // at 0), the earliest bed-stop entry >= 12,000, one napper held at most)
             let m = |x: i64, none: i64| if x == none { "-".to_string() } else { x.to_string() };
             lines.push(format!(
-                "  => the release's bars over every scenario and sweep above (REST_l = C >= {rs} or C < {rr}; every napper held >= {} gt at the queue; NOT DAY as the hatch sees it after the hold; the stop clear (R's RS; the stop's cycle {} gt); the back-pressure {}): the earliest bed-stop entry at dusk {} (bar >= 12,000: {}); entries outside REST not after a skip {rel_outside} ({}); stale admissions {rel_stale} (entered in a skip's stale window at day time {}; each waits on the stop's ledge until REST, naps that evening and leaves, the stop clear at day time {}: ironspec 09:31, option A's outcome rows are 58f770cc's); the least gap between consecutive departures from the stop {} gt (ironspec 10:10: the hold's bar, its longest wait + 12 + clear + 20, against it with 7b90c3f1's trip spread); the least time from a napper's R to the next napper's lie-down {} gt (ironspec 10:52, HOLD dropped: the departing napper leaves the 16-ball within it, 58f770cc's R-to-ball-exit against the bar 20); held at the gate at once at most {rel_queue} (bar 1: {}); picks deferred {rel_deferred}; normal nights' naps least {} of 24 ({})",
+                "  => the release's bars over every scenario and sweep above (REST_l = C >= {rs} or C < {rr}; every napper held >= {} gt at the queue; NOT DAY as the hatch sees it after the hold; the stop clear (R's RS; the stop's cycle {} gt); the back-pressure {}): the earliest bed-stop entry at dusk {} (bar >= 12,000: {}); entries outside REST not after a skip {rel_outside} ({}); stale admissions {rel_stale} (entered in a skip's stale window at day time {}; each waits on the stop's ledge until REST, naps that evening and leaves, the stop clear at day time {}: ironspec 09:31, option A's outcome rows are 58f770cc's); the least gap between consecutive departures from the stop {} gt (ironspec 10:10: the hold's bar, its longest wait + 12 + clear + 20, against it with 7b90c3f1's trip spread); the least time from a napper's R to the next napper's lie-down {} gt (ironspec 10:52, HOLD dropped: the departing napper leaves the 16-ball within it, 58f770cc's R-to-ball-exit against the bar 20); the latest entry made in REST at night time {} (G1: a later one is on foot when REST ends, classed stale, holding the stop to the next REST; entries in a skip's stale window are that class; bar <= 24,010 - stop_walk = {}: {}); riders away from one lane at once at most {} (ironspec 12:13: bar 1, the lane's 7 of 8 in rotation at every summon, read at every pick; back in lane {} gt after the entry, the longest pick to stop entry {} gt: {}); held at the gate at once at most {rel_queue} (bar 1: {}); picks deferred {rel_deferred}; picks made while a stale napper held the stop outside REST {rel_stale_picks} ({}); normal nights' naps least {} of 24 ({})",
                 o.stale_hold,
                 o.stop_cycle,
-                if o.backpressure { "on" } else { "OFF" },
+                if !o.backpressure { "OFF" } else if o.stale_backpressure { "on, with the stale hold (ironspec 12:54: no pick while the queue is occupied OR the stop is held AND NOT REST_l)" } else { "on" },
                 m(rel_entry_min, i64::MAX),
                 if rel_entry_min >= 12_000 { "pass" } else { "FAIL" },
                 if rel_outside == 0 { "pass" } else { "FAIL" },
@@ -1831,7 +1921,15 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
                 if rel_stale == 0 { "-".to_string() } else { format!("{}..{}", rel_clear_dt.0, rel_clear_dt.1) },
                 m(rel_exit, i64::MAX),
                 m(rel_liedown, i64::MAX),
+                m(rel_rest_max, i64::MIN),
+                24_010 - o.stop_walk,
+                if rel_rest_max <= 24_010 - o.stop_walk { "pass" } else { "FAIL" },
+                rel_lane_away,
+                o.back_after,
+                rel_pick_entry,
+                if rel_lane_away <= 1 { "pass" } else { "FAIL: two from one lane away at once" },
                 if rel_queue <= 1 { "pass" } else { "FAIL" },
+                if !o.stale_backpressure { "the stale-hold back-pressure off" } else if rel_stale_picks == 0 { "ironspec 12:54, bar 0 under the stale-hold back-pressure: pass" } else { "ironspec 12:54, bar 0: FAIL" },
                 if rel_normal_naps == u32::MAX { "-".to_string() } else { rel_normal_naps.to_string() },
                 if rel_normal_naps >= 24 && rel_normal_naps != u32::MAX { "pass" } else { "FAIL" }
             ));
