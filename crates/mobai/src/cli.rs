@@ -315,6 +315,13 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
+    /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
+    /// T2 (face-adjacent to the detector) the positive control that re-settles
+    RailT {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-12, ironspec's 3-bed check) On the official server: three beds side by
     /// side, three nappers asleep at once, a calm rider within 16 of another bed (occupied) and
     /// beyond 16 of its own, two controls, then a night save, stop and start
@@ -563,6 +570,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
         MobaiCmd::GolemLock { version } => crate::golemlock::golem_lock(&version),
+        MobaiCmd::RailT { version } => crate::railt::rail_t(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
         MobaiCmd::Daylight { version, latency, levels, weather_row } => {
             if levels {

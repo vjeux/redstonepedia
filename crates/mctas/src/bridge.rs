@@ -62,6 +62,16 @@ pub fn load_agent(version: &str) -> Result<PathBuf> {
     agent_jar(version, LOAD_AGENT, "dev.vjeux.mctas.agent.LoadAgent", "load-agent")
 }
 
+/// (tickexact 2026-11-12, the rail-T probe) The rail agent (`bridge/agent`): every
+/// `BaseRailBlock.updateDir` call at a watched position prints its call stack to stderr; the
+/// watched positions (`x,y,z[;x,y,z...]`) go after `=` in the `-javaagent:` value.
+pub const RAIL_AGENT: (&str, &str) = ("dev/vjeux/mctas/agent/RailAgent.java", include_str!("../../../bridge/agent/dev/vjeux/mctas/agent/RailAgent.java"));
+
+/// The rail agent's jar for `version`'s Java (as [`golem_agent`]).
+pub fn rail_agent(version: &str) -> Result<PathBuf> {
+    agent_jar(version, RAIL_AGENT, "dev.vjeux.mctas.agent.RailAgent", "rail-agent")
+}
+
 /// A Java agent's jar for `version`'s Java (built with the JDK's own `javac` and `jar` next to the
 /// server's `java`, cached by a hash of the source).
 fn agent_jar(version: &str, (name, text): (&str, &str), main_class: &str, stem: &str) -> Result<PathBuf> {
