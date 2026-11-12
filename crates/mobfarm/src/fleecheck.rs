@@ -736,8 +736,8 @@ pub fn stamp_class(p: &Place) -> &'static str {
 /// above and below, the cell below set to glass (no golem spawns on glass) and the place re-checked
 /// alone in that world; the cells whose glass turns the place's class from "arms, never clears".
 /// A glass cell in a cart's or rider's space (a rail cell or the two cells over one) is skipped.
-pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos) -> Result<Vec<(BlockPos, &'static str)>, String> {
-    let glass = redsim::block::Block::parse("minecraft:glass")?;
+pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos, block: &str) -> Result<Vec<(BlockPos, &'static str)>, String> {
+    let glass = redsim::block::Block::parse(block)?;
     let solid: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.to_string().ends_with(":air")).map(|(p, _)| *p).collect();
     let rails: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
     let cart_space = |p: BlockPos| rails.contains(&p) || rails.contains(&BlockPos::new(p.x, p.y - 1, p.z)) || rails.contains(&BlockPos::new(p.x, p.y - 2, p.z));
@@ -764,6 +764,50 @@ pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([
         }
     }
     Ok(out)
+}
+
+/// [`clearing_fixes`] over pairs: when no single glass floor turns the place, every pair of the
+/// candidate floors (a walkway's two cells), the pairs whose glass turns it.
+pub fn clearing_fix_pairs(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos, block: &str) -> Result<(usize, Vec<(BlockPos, BlockPos, &'static str)>), String> {
+    let glass = redsim::block::Block::parse(block)?;
+    let solid: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.to_string().ends_with(":air")).map(|(p, _)| *p).collect();
+    let rails: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
+    let cart_space = |p: BlockPos| rails.contains(&p) || rails.contains(&BlockPos::new(p.x, p.y - 1, p.z)) || rails.contains(&BlockPos::new(p.x, p.y - 2, p.z));
+    let mut cands = Vec::new();
+    for dy in -2..=2 {
+        for dz in -2..=2 {
+            for dx in -2..=2 {
+                let c = BlockPos::new(place.x + dx, place.y + dy, place.z + dz);
+                let up = BlockPos::new(c.x, c.y + 1, c.z);
+                let f = BlockPos::new(c.x, c.y - 1, c.z);
+                if solid.contains(&c) || solid.contains(&up) || solid.contains(&f) || cart_space(f) || cart_space(c) {
+                    continue;
+                }
+                cands.push(f);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for i in 0..cands.len() {
+        for j in i + 1..cands.len() {
+            // (a pair is two floors: the second cell can't stand in the first's head room)
+            let (a, b) = (cands[i], cands[j]);
+            if (a.x, a.z) == (b.x, b.z) && (a.y - b.y).abs() <= 2 {
+                continue;
+            }
+            let mut s2 = spec.clone();
+            s2.blocks.push((a, glass.clone()));
+            s2.blocks.push((b, glass.clone()));
+            let ps = check_inner(&s2, home, &[], panic_boxes, true, claims, Some(place))?;
+            if let Some(p) = ps.iter().find(|p| p.cell == place && !p.on_foot) {
+                let k = stamp_class(p);
+                if k != "arms, never clears" {
+                    out.push((a, b, k));
+                }
+            }
+        }
+    }
+    Ok((cands.len(), out))
 }
 
 pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {

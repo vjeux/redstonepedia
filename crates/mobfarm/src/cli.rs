@@ -584,6 +584,14 @@ pub enum MobfarmCmd {
         /// within 2 sideways and 2 up or down that turns its class from "arms, never clears".
         #[arg(long, allow_hyphen_values = true)]
         fix_search: Vec<String>,
+        /// With --fix-search: also every PAIR of candidate glass floors (a two-cell walkway).
+        #[arg(long)]
+        fix_pairs: bool,
+        /// The floor block --fix-search places (default glass: golem-proof, but not a stroll
+        /// destination, which needs a solid-render block below; glowstone and sea lantern are
+        /// both golem-proof and solid-render).
+        #[arg(long, default_value = "minecraft:glass")]
+        fix_block: String,
     },
     /// One judge run of a design on redsim: its table.
     Run {
@@ -6787,7 +6795,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block } => {
             let (_c, spec) = load(version, &design)?;
             // (the bed: --home, else the design's `port home:` line)
             let text = std::fs::read_to_string(&design)?;
@@ -6818,14 +6826,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
                 anyhow::ensure!(v.len() == 3, "--fix-search x,y,z");
                 let at = redsim::pos::BlockPos::new(v[0], v[1], v[2]);
-                let fixes = crate::fleecheck::clearing_fixes(&spec, bed, &panic_boxes, &claims, at).map_err(|e| anyhow::anyhow!(e))?;
+                let fixes = crate::fleecheck::clearing_fixes(&spec, bed, &panic_boxes, &claims, at, &fix_block).map_err(|e| anyhow::anyhow!(e))?;
+                let short = fix_block.trim_start_matches("minecraft:").to_string();
                 println!(
-                    "clearing cells for {},{},{} (a glass floor within 2 sideways and 2 up or down; the class it gives): {}",
+                    "clearing cells for {},{},{} (a {short} floor within 2 sideways and 2 up or down; the class it gives): {}",
                     at.x,
                     at.y,
                     at.z,
-                    if fixes.is_empty() { "none".to_string() } else { fixes.iter().map(|(f, k)| format!("glass {},{},{} -> {k}", f.x, f.y, f.z)).collect::<Vec<_>>().join("; ") }
+                    if fixes.is_empty() { "none".to_string() } else { fixes.iter().map(|(f, k)| format!("{short} {},{},{} -> {k}", f.x, f.y, f.z)).collect::<Vec<_>>().join("; ") }
                 );
+                if fix_pairs {
+                    let (n, pairs) = crate::fleecheck::clearing_fix_pairs(&spec, bed, &panic_boxes, &claims, at, &fix_block).map_err(|e| anyhow::anyhow!(e))?;
+                    println!(
+                        "clearing pairs for {},{},{} ({n} candidate floors, every pair; the class it gives): {}",
+                        at.x,
+                        at.y,
+                        at.z,
+                        if pairs.is_empty() { "none".to_string() } else { pairs.iter().map(|(a, b, k)| format!("{short} {},{},{} + {},{},{} -> {k}", a.x, a.y, a.z, b.x, b.y, b.z)).collect::<Vec<_>>().join("; ") }
+                    );
+                }
             }
             let jobs = crate::fleecheck::job_and_bell_blocks(&spec);
             for l in crate::fleecheck::report_with(&places, &jobs, show, clearing) {
