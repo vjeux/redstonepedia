@@ -753,6 +753,15 @@ pub enum MobfarmCmd {
         /// Repeatable, in order.
         #[arg(long = "note")]
         notes: Vec<String>,
+        /// The occupied shared bed's head x,y,z (the column's frame): print the bed radius per
+        /// part (ironspec Nov 11 18:02: every rider position more than 16 + 1 from its centre,
+        /// the least over every track position; `ValidateNearbyPoi`'s 16) and exit 1 on a FAIL.
+        #[arg(long, allow_hyphen_values = true)]
+        bed: Option<String>,
+        /// A part exempt from the bed radius (the napper's own path): printed, not judged.
+        /// Repeatable (a sketch track's part is `track:<name>`).
+        #[arg(long = "bed-exempt")]
+        bed_exempt: Vec<String>,
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -3136,6 +3145,29 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
     Ok((c, spec))
 }
 
+/// One `--track NAME=x,y,z;...` value: its name, waypoints, and whether its first and last
+/// waypoints are context cells (`@x,y,z`: another part's rail, shaping the neighbour, not laid).
+fn column_track(t: &str) -> Result<(String, Vec<[i32; 3]>, [bool; 2])> {
+    let (name, pts) = t.split_once('=').ok_or_else(|| anyhow::anyhow!("--track {t}: NAME=x,y,z;x,y,z;... (an end waypoint @x,y,z: a context cell)"))?;
+    let words: Vec<&str> = pts.split(';').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let mut out = Vec::new();
+    let mut context = [false, false];
+    for (i, w) in words.iter().enumerate() {
+        let (w, at) = match w.strip_prefix('@') {
+            Some(r) => (r, true),
+            None => (*w, false),
+        };
+        if at {
+            anyhow::ensure!(i == 0 || i + 1 == words.len(), "--track {t}: only an end waypoint can be a context cell (@)");
+            context[if i == 0 { 0 } else { 1 }] = true;
+        }
+        let n: Vec<i32> = w.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+        anyhow::ensure!(n.len() == 3, "--track {t}: {w}: give x,y,z");
+        out.push([n[0], n[1], n[2]]);
+    }
+    Ok((name.trim().to_string(), out, context))
+}
+
 /// `mobfarm column`'s sketch part from its `--track`, `--cart` and `--post` flags (none: no part).
 fn column_sketch(tracks: &[String], carts: &[String], posts: &[String]) -> Result<Vec<crate::column::Part>> {
     if tracks.is_empty() && carts.is_empty() && posts.is_empty() {
@@ -3148,8 +3180,7 @@ fn column_sketch(tracks: &[String], carts: &[String], posts: &[String]) -> Resul
     };
     let mut tr = Vec::new();
     for t in tracks {
-        let (name, pts) = t.split_once('=').ok_or_else(|| anyhow::anyhow!("--track {t}: NAME=x,y,z;x,y,z;..."))?;
-        tr.push((name.trim().to_string(), pts.split(';').filter(|s| !s.trim().is_empty()).map(cell).collect::<Result<Vec<_>>>()?));
+        tr.push(column_track(t)?);
     }
     let mut cs = Vec::new();
     for c in carts {
@@ -3166,7 +3197,7 @@ fn column_sketch(tracks: &[String], carts: &[String], posts: &[String]) -> Resul
         cs.push((cell(&f[..3].join(","))?, y, empty));
     }
     let ps: Vec<[i32; 3]> = posts.iter().map(|p| cell(p)).collect::<Result<_>>()?;
-    Ok(vec![crate::column::sketch_part(&tr, &cs, &ps).map_err(|e| anyhow::anyhow!(e))?])
+    crate::column::sketch_part(&tr, &cs, &ps).map_err(|e| anyhow::anyhow!(e))
 }
 
 /// `mobfarm column --out`: the skeleton written (its `ground:`, moved by `shift` into the
@@ -3811,7 +3842,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
             println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
-        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, out } => {
+        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, out } => {
             let clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let reserves: Vec<crate::column::Reserve> = reserves.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
@@ -3828,7 +3859,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let ph: Vec<i32> = chunk_phase.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(ph.len() == 2, "--chunk-phase PX,PZ");
             let f = crate::column::Frame { x0: c[0], z0: c[1], x1: c[2], z1: c[3], phase_x: ph[0], phase_z: ph[1] };
-            let (text, d) = crate::column::run(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan).map_err(|e| anyhow::anyhow!(e))?;
+            let bed_cell: Option<[i32; 3]> = match bed.as_deref() {
+                None => None,
+                Some(b) => {
+                    let n: Vec<i32> = b.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(n.len() == 3, "--bed x,y,z");
+                    Some([n[0], n[1], n[2]])
+                }
+            };
+            let (text, d, bed_ok) = crate::column::run_bed(&specs, column_sketch(&tracks, &carts, &posts)?, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice()))).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
             if let Some(pf) = &positions_out {
                 let sh: [i32; 3] = match out_shift.as_deref() {
@@ -3844,12 +3883,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     cells.insert(e.cell());
                 }
                 for t in &tracks {
-                    let (_, pts) = t.split_once('=').ok_or_else(|| anyhow::anyhow!("--track {t}"))?;
-                    let pts: Vec<[i32; 3]> = pts.split(';').filter(|s| !s.trim().is_empty()).map(|p| {
-                        let n: Vec<i32> = p.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
-                        anyhow::ensure!(n.len() == 3, "{p}: x,y,z");
-                        Ok([n[0], n[1], n[2]])
-                    }).collect::<Result<_>>()?;
+                    let (_, pts, _) = column_track(t)?;
                     for c in crate::column::track_cells(&pts).map_err(|e| anyhow::anyhow!(e))? {
                         cells.insert(c);
                     }
@@ -3875,6 +3909,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 };
                 column_write(version, &out, d, &head, &f, ground, shift, no_settle)?;
+            }
+            if !bed_ok {
+                std::process::exit(1);
             }
         }
         MobfarmCmd::Box { design, r#box, list } => {

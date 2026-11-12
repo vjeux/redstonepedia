@@ -412,6 +412,13 @@ fn plan(p: &Part, f: &Frame) -> String {
 /// entities and entities are taken out first, a committed cell a lane re-lays).
 #[allow(clippy::too_many_arguments)]
 pub fn run(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool) -> Result<(String, Design), String> {
+    run_bed(specs, extra, clear, reserves, ports, f, name, with_plan, None).map(|(s, d, _)| (s, d))
+}
+
+/// [`run`], and with `bed` (the occupied shared bed's head, and the parts exempt as the napper's
+/// own path) the bed-radius report after the tiers, its verdict third.
+#[allow(clippy::too_many_arguments)]
+pub fn run_bed(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool, bed: Option<(P, &[String])>) -> Result<(String, Design, bool), String> {
     let mut parts: Vec<Part> = specs.iter().map(load_part).collect::<Result<_, _>>()?;
     let mut cleared = 0usize;
     for p in &mut parts {
@@ -451,6 +458,12 @@ pub fn run(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[R
         }
     }
     s.push_str(&tiers(&parts, reserves));
+    let mut bed_ok = true;
+    if let Some((b, exempt)) = bed {
+        let (t, ok) = bed_radius(&parts, reserves, b, exempt);
+        s.push_str(&t);
+        bed_ok = ok;
+    }
     let (mut d, two_ways, dropped) = skeleton(&parts, name)?;
     if !dropped.is_empty() {
         s.push_str(&format!("ports dropped (the first part keeps its ports; a later part's only its shared bed's home and a Nether part's anchor): {}\n", dropped.join("; ")));
@@ -479,7 +492,7 @@ pub fn run(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[R
         Some(o) => format!("the skeleton LEAVES the column by {o}"),
         None => "everything inside the column".into(),
     }));
-    Ok((s, d))
+    Ok((s, d, bed_ok))
 }
 
 /// A sketch track's cells through its waypoints: each leg along x or z. A rising leg climbs in its
@@ -555,29 +568,41 @@ fn rail_shape(prev: Option<P>, c: P, next: Option<P>) -> Result<String, String> 
 /// The sketch part (`--track`, `--cart`, `--post`): plain rails through each track's waypoints with
 /// a stone under each, carts (ridden by a villager unless `empty`) on rail cells, and the brief's
 /// zombie posts (a persistent zombie in an oak boat at the cell, glass under it, leaves 3 above).
-/// A sketch: no powered rail, no control, no spacing; the cells stand in for a lane's until it
-/// sends its own.
-pub fn sketch_part(tracks: &[(String, Vec<P>)], carts: &[(P, Option<f64>, bool)], posts: &[P]) -> Result<Part, String> {
+/// A track's `[first, last]` flags mark its end waypoints as context cells (another part's rail,
+/// a joint): they shape the neighbouring rail and are not laid. A sketch: no powered rail, no
+/// control, no spacing; the cells stand in for a lane's until it sends its own.
+pub fn sketch_part(tracks: &[(String, Vec<P>, [bool; 2])], carts: &[(P, Option<f64>, bool)], posts: &[P]) -> Result<Vec<Part>, String> {
     let mut d = Design { name: "sketch".into(), ..Default::default() };
     let mut rails: BTreeMap<P, String> = BTreeMap::new();
-    for (name, pts) in tracks {
+    // (each laid cell's track, so each track is a part of its own in the report)
+    let mut owner: BTreeMap<P, usize> = BTreeMap::new();
+    for (ti, (name, pts, context)) in tracks.iter().enumerate() {
         let cells = track_cells(pts).map_err(|e| format!("track {name}: {e}"))?;
         for (i, c) in cells.iter().enumerate() {
+            if (i == 0 && context[0]) || (i + 1 == cells.len() && context[1]) {
+                continue;
+            }
             let shape = rail_shape(i.checked_sub(1).map(|j| cells[j]), *c, cells.get(i + 1).copied()).map_err(|e| format!("track {name}: {e}"))?;
             if rails.insert(*c, shape).is_some() {
                 return Err(format!("track {name}: the cell ({},{},{}) is laid twice", c[0], c[1], c[2]));
             }
+            owner.insert(*c, ti);
         }
     }
+    let mut track_designs: Vec<Design> = tracks.iter().map(|(name, _, _)| Design { name: format!("track:{name}"), ..Default::default() }).collect();
     for (c, shape) in &rails {
-        d.blocks.insert(*c, format!("minecraft:rail[shape={shape},waterlogged=false]"));
+        track_designs[owner[c]].blocks.insert(*c, format!("minecraft:rail[shape={shape},waterlogged=false]"));
     }
     for c in rails.keys() {
         let under = [c[0], c[1] - 1, c[2]];
         if rails.contains_key(&under) {
             return Err(format!("the rail at ({},{},{}) sits on another rail", c[0], c[1], c[2]));
         }
-        d.blocks.entry(under).or_insert_with(|| "minecraft:stone".into());
+        // (glass: a rail's sturdy support that no golem stands on, `SpawnUtil`'s iron-golem
+        // strategy refusing glass below, so a sketch track adds no golem floor to any band;
+        // onechunk's v4 flood, Nov 11: a stone under the descent's first slope inside the hold's
+        // band was a stray spot)
+        track_designs[owner[c]].blocks.entry(under).or_insert_with(|| "minecraft:glass".into());
     }
     for (c, at_y, empty) in carts {
         // (on a sketch rail its height follows the shape; on another part's rail the cart's y is
@@ -598,8 +623,120 @@ pub fn sketch_part(tracks: &[(String, Vec<P>)], carts: &[(P, Option<f64>, bool)]
         }
         d.entities.push(mctas::design::EntitySpec { kind: "minecraft:oak_boat".into(), pos: [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], nbt: Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into()) });
     }
-    let spec = PartSpec { name: "sketch".into(), file: PathBuf::from("(sketch tracks, carts, posts)"), frame: [0; 3], tier: [0; 3], keep: None };
-    Ok(Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() })
+    let part = |d: Design, file: &str| {
+        let spec = PartSpec { name: d.name.clone(), file: PathBuf::from(file), frame: [0; 3], tier: [0; 3], keep: None };
+        Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
+    };
+    let mut out: Vec<Part> = track_designs.into_iter().filter(|t| !t.blocks.is_empty()).map(|t| part(t, "(sketch track)")).collect();
+    if !d.blocks.is_empty() || !d.entities.is_empty() {
+        out.push(part(d, "(sketch carts, posts)"));
+    }
+    Ok(out)
+}
+
+/// A rail block's shape, from its state string (`minecraft:rail[shape=north_east,...]`, powered,
+/// detector and activator rails alike); None for anything else.
+fn rail_shape_of(state: &str) -> Option<&str> {
+    let base = state.strip_prefix("minecraft:").unwrap_or(state);
+    if !(base.starts_with("rail[") || base.starts_with("powered_rail[") || base.starts_with("detector_rail[") || base.starts_with("activator_rail[")) {
+        return None;
+    }
+    let i = base.find("shape=")? + 6;
+    let rest = &base[i..];
+    Some(&rest[..rest.find([',', ']']).unwrap_or(rest.len())])
+}
+
+/// The cart's path through a rail cell (its feet: the villager sits at the cart's own y): two
+/// segments, from the cell's centre to each end the shape joins, a slope's high end one up.
+fn rail_segments(c: P, shape: &str) -> Vec<([f64; 3], [f64; 3])> {
+    let (x, y, z) = (c[0] as f64, c[1] as f64 + 0.0625, c[2] as f64);
+    let end = |d: &str, rise: f64| -> [f64; 3] {
+        match d {
+            "north" => [x + 0.5, y + rise, z],
+            "south" => [x + 0.5, y + rise, z + 1.0],
+            "west" => [x, y + rise, z + 0.5],
+            _ => [x + 1.0, y + rise, z + 0.5],
+        }
+    };
+    let (a, b, slope) = match shape {
+        "north_south" => (end("north", 0.0), end("south", 0.0), false),
+        "east_west" => (end("west", 0.0), end("east", 0.0), false),
+        s if s.starts_with("ascending_") => {
+            let up = &s[10..];
+            let down = match up {
+                "north" => "south",
+                "south" => "north",
+                "east" => "west",
+                _ => "east",
+            };
+            (end(up, 1.0), end(down, 0.0), true)
+        }
+        s => {
+            let (p, q) = s.split_once('_').unwrap_or(("north", "south"));
+            (end(p, 0.0), end(q, 0.0), false)
+        }
+    };
+    let centre = [x + 0.5, y + if slope { 0.5 } else { 0.0 }, z + 0.5];
+    vec![(centre, a), (centre, b)]
+}
+
+fn seg_dist(p: [f64; 3], a: [f64; 3], b: [f64; 3]) -> f64 {
+    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    let l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    let t = if l2 > 0.0 { ((ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / l2).clamp(0.0, 1.0) } else { 0.0 };
+    let q = [a[0] + t * ab[0] - p[0], a[1] + t * ab[1] - p[1], a[2] + t * ab[2] - p[2]];
+    (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt()
+}
+
+/// The bed radius (ironspec Nov 11 18:02, from tick-exact's reload proof): after a load at night a
+/// villager sits in REST until its first hostile scan, and `ValidateNearbyPoi` erases the HOME of a
+/// villager whose position lies within 16 of the occupied shared bed's head centre
+/// (`closerToCenterThan(position, 16)`). Every rider position must stay more than 16 + 1 from
+/// it, the least over every track position: each part's rails (the cart's path through each cell)
+/// and its ridden carts off rails; a reserved box is a bound (the least to any cell of it). Parts
+/// named in `exempt` (the napper's own path) are printed, not judged.
+pub fn bed_radius(parts: &[Part], reserves: &[Reserve], bed: P, exempt: &[String]) -> (String, bool) {
+    let centre = [bed[0] as f64 + 0.5, bed[1] as f64 + 0.5, bed[2] as f64 + 0.5];
+    let limit = 17.0;
+    let mut s = format!("bed radius: every rider position more than {limit} (16 + 1) from the occupied shared bed's head centre ({:.1},{:.1},{:.1}), the least over the cart's path through every rail cell of each part and its ridden carts off rails:\n", centre[0], centre[1], centre[2]);
+    let mut ok = true;
+    for p in parts {
+        let mut best: Option<(f64, String)> = None;
+        for (c, st) in &p.placed.blocks {
+            if let Some(shape) = rail_shape_of(st) {
+                for (a, b) in rail_segments(*c, shape) {
+                    let dd = seg_dist(centre, a, b);
+                    if best.as_ref().is_none_or(|(m, _)| dd < *m) {
+                        best = Some((dd, format!("rail ({},{},{}) {shape}", c[0], c[1], c[2])));
+                    }
+                }
+            }
+        }
+        for e in p.placed.entities.iter().filter(|e| e.kind.ends_with("minecart") && e.nbt.as_deref().is_some_and(|t| t.contains("villager"))) {
+            let dd = ((e.pos[0] - centre[0]).powi(2) + (e.pos[1] - centre[1]).powi(2) + (e.pos[2] - centre[2]).powi(2)).sqrt();
+            if best.as_ref().is_none_or(|(m, _)| dd < *m) {
+                best = Some((dd, format!("rider at ({:.2},{:.2},{:.2})", e.pos[0], e.pos[1], e.pos[2])));
+            }
+        }
+        let Some((dd, at)) = best else { continue };
+        let exempted = exempt.iter().any(|n| *n == p.spec.name);
+        let verdict = if exempted {
+            "EXEMPT (the napper's own path)"
+        } else if dd > limit {
+            "ok  "
+        } else {
+            ok = false;
+            "FAIL"
+        };
+        s.push_str(&format!("  {verdict} {}: least {dd:.2} at {at}{}\n", p.spec.name, if dd > limit || exempted { String::new() } else { format!(" ({:.2} short)", limit - dd) }));
+    }
+    for r in reserves {
+        let q = [0, 1, 2].map(|k| centre[k].clamp(r.b.0[k] as f64, r.b.1[k] as f64 + 1.0));
+        let dd = ((q[0] - centre[0]).powi(2) + (q[1] - centre[1]).powi(2) + (q[2] - centre[2]).powi(2)).sqrt();
+        s.push_str(&format!("  bound {} (reserved): its box comes within {dd:.2}{}\n", r.name, if dd > limit { "" } else { " (a rider position in it could fail)" }));
+    }
+    (s, ok)
 }
 
 #[cfg(test)]
@@ -614,14 +751,37 @@ mod tests {
         // up 2 along +x after a corner: the first cell keeps the corner's height (rising last)
         assert_eq!(track_cells(&[[0, 0, 0], [0, 0, 1], [3, 2, 1]]).unwrap(), vec![[0, 0, 0], [0, 0, 1], [1, 0, 1], [2, 1, 1], [3, 2, 1]]);
         // a curve that would have to slope is refused
-        assert!(sketch_part(&[("t".into(), vec![[0, 0, 0], [0, 0, 1], [1, 1, 1]])], &[], &[]).is_err());
-        let p = sketch_part(&[("t".into(), vec![[0, 5, 4], [0, 3, 1], [2, 3, 1]])], &[([0, 3, 2], None, false), ([7, 7, 7], Some(7.18), true)], &[[5, 3, 5]]).unwrap();
-        let d = &p.placed;
+        assert!(sketch_part(&[("t".into(), vec![[0, 0, 0], [0, 0, 1], [1, 1, 1]], [false, false])], &[], &[]).is_err());
+        // context ends: not laid, but they shape their neighbours (a slope continuing another
+        // part's drop, a curve turning into another part's rail)
+        let q = sketch_part(&[("c".into(), vec![[0, 9, 0], [0, 7, 2], [0, 7, 3], [2, 7, 3], [2, 7, 2]], [true, true])], &[], &[]).unwrap();
+        assert_eq!(q.len(), 1, "one track, no carts or posts: one part");
+        let q = &q[0];
+        assert_eq!(q.spec.name, "track:c");
+        assert!(!q.placed.blocks.contains_key(&[0, 9, 0]) && !q.placed.blocks.contains_key(&[2, 7, 2]));
+        assert_eq!(q.placed.blocks[&[0, 8, 1]], "minecraft:rail[shape=ascending_north,waterlogged=false]");
+        assert_eq!(q.placed.blocks[&[0, 7, 3]], "minecraft:rail[shape=north_east,waterlogged=false]");
+        assert_eq!(q.placed.blocks[&[2, 7, 3]], "minecraft:rail[shape=north_west,waterlogged=false]");
+        // the bed radius: the least over the cart's path (a flat rail's path at y + 0.0625), a
+        // rider off rails, an exempt part printed but not judged, a reserved box as a bound
+        let flat = sketch_part(&[("f".into(), vec![[0, 0, 0], [4, 0, 0]], [false, false])], &[], &[]).unwrap();
+        let (rep, ok) = bed_radius(&flat, &[], [2, 10, 0], &[]);
+        assert!(!ok && rep.contains("FAIL track:f: least 10.44 at rail (2,0,0) east_west (6.56 short)"), "{rep}");
+        let (rep2, ok2) = bed_radius(&flat, &[Reserve::parse("r=0,30,0,1,31,1").unwrap()], [2, 10, 0], &["track:f".to_string()]);
+        assert!(ok2 && rep2.contains("EXEMPT (the napper's own path) track:f") && rep2.contains("bound r (reserved): its box comes within 19.51"), "{rep2}");
+        let far = sketch_part(&[], &[([0, 40, 0], Some(40.0), false)], &[]).unwrap();
+        let (rep3, ok3) = bed_radius(&far, &[], [0, 10, 0], &[]);
+        assert!(ok3 && rep3.contains("ok   sketch: least 29.50 at rider"), "{rep3}");
+        let p = sketch_part(&[("t".into(), vec![[0, 5, 4], [0, 3, 1], [2, 3, 1]], [false, false])], &[([0, 3, 2], None, false), ([7, 7, 7], Some(7.18), true)], &[[5, 3, 5]]).unwrap();
+        assert_eq!(p.len(), 2);
+        let mut d = p[0].placed.clone();
+        d.blocks.extend(p[1].placed.blocks.clone());
+        d.entities.extend(p[1].placed.entities.clone());
         assert_eq!(d.blocks[&[0, 4, 3]], "minecraft:rail[shape=ascending_south,waterlogged=false]");
         assert_eq!(d.blocks[&[0, 3, 2]], "minecraft:rail[shape=ascending_south,waterlogged=false]");
         assert_eq!(d.blocks[&[0, 3, 1]], "minecraft:rail[shape=south_east,waterlogged=false]");
         assert_eq!(d.blocks[&[2, 3, 1]], "minecraft:rail[shape=east_west,waterlogged=false]");
-        assert_eq!(d.blocks[&[0, 2, 1]], "minecraft:stone");
+        assert_eq!(d.blocks[&[0, 2, 1]], "minecraft:glass");
         assert_eq!(d.blocks[&[5, 2, 5]], "minecraft:glass");
         assert!(d.blocks[&[5, 6, 5]].contains("oak_leaves"));
         assert_eq!(d.entities.len(), 3);
@@ -630,7 +790,7 @@ mod tests {
         assert!(d.entities[1].nbt.is_none());
         assert!(track_cells(&[[0, 0, 0], [1, 0, 1]]).is_err());
         assert!(track_cells(&[[0, 0, 0], [0, 3, 2]]).is_err());
-        assert!(sketch_part(&[("t".into(), vec![[0, 0, 0], [0, 0, 2]]), ("u".into(), vec![[0, 1, 1], [1, 1, 1]])], &[], &[]).is_err(), "a rail on another rail");
+        assert!(sketch_part(&[("t".into(), vec![[0, 0, 0], [0, 0, 2]], [false, false]), ("u".into(), vec![[0, 1, 1], [1, 1, 1]], [false, false])], &[], &[]).is_err(), "a rail on another rail");
     }
 }
 
