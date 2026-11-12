@@ -2138,6 +2138,119 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         stand: String,
     },
+    /// (cc767b78) The return judge on 7b90c3f1's return-bench (ironspec's L1‴ rows, farmopt 2026-11-12
+    /// 03:22 with ironspec's amendments, the measured bars 05:31): the static gates on the emitted split
+    /// file, the controls at every corner (the launch offsets with the measured departure spread
+    /// `--spread`, the release speeds, the napper's delays), and at the nominal corners every gt bar's
+    /// margin (`--margin`) and a save/stop/start at every phase in the 10 orders, the logins reported;
+    /// or with `--solve-steps` the solve over launch steps and napper delays.
+    ReturnJudge {
+        #[arg(long, default_value_t = 3)]
+        batches: usize,
+        /// The run's length (with --napper-lift 100 gt more: the bench's prelude).
+        #[arg(long, default_value_t = 450)]
+        ticks: i64,
+        #[arg(long)]
+        boost: bool,
+        #[arg(long)]
+        reverse: bool,
+        #[arg(long)]
+        flat: bool,
+        #[arg(long)]
+        game_ticks: bool,
+        #[arg(long)]
+        dip: bool,
+        #[arg(long, default_value_t = 0)]
+        resync: i64,
+        #[arg(long)]
+        z7: bool,
+        #[arg(long)]
+        row10: bool,
+        #[arg(long)]
+        row9: bool,
+        #[arg(long)]
+        boost_exit: bool,
+        #[arg(long)]
+        climb2: bool,
+        #[arg(long)]
+        boost_slope: bool,
+        /// (c)'s napper lift (7b90c3f1's c85331aaf): the napper through its own lift, the staircase and
+        /// the hold (9,0,8), released D gt after the arming detector.
+        #[arg(long)]
+        napper_lift: bool,
+        /// `--napper-lift`: arm the release on the station's exit detector (7,0,2).
+        #[arg(long)]
+        arm_station: bool,
+        #[arg(long)]
+        boosters: bool,
+        #[arg(long)]
+        row_boost: bool,
+        /// The nominal launch offsets (s 12 adopted, farmopt 2026-11-12 06:05: 0/12/24).
+        #[arg(long, value_delimiter = ',', default_value = "0,12,24")]
+        offsets: Vec<i64>,
+        /// The measured departure spread, LO,HI gt on each launch (dfb89499's station: 0).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "0,0")]
+        spread: Vec<i64>,
+        /// The release speeds (the measured release-speed range's ends and middle).
+        #[arg(long, value_delimiter = ',', default_value = "0.3,0.35,0.4")]
+        speeds: Vec<f64>,
+        /// The napper's delays at the controls (empty: no napper; s 12 adopted with D 10: farmopt 06:05).
+        #[arg(long, value_delimiter = ',', default_value = "10")]
+        napper_ds: Vec<i64>,
+        /// The napper's delay at the nominal corners (negative: none).
+        #[arg(long, default_value_t = 10, allow_hyphen_values = true)]
+        restart_napper: i64,
+        #[arg(long, value_delimiter = ',', default_value = "0,330")]
+        starts: Vec<i64>,
+        #[arg(long)]
+        no_restarts: bool,
+        /// Login lengths at every phase (the pearl alternative, through liveness::freeze32; reported).
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        ds: Vec<i64>,
+        /// The batch carts' delivery band (stored, entering their lane's merge cell): the floor 0.27
+        /// (ironfarm's real first failure 0.22 + ironspec's 0.05, farmopt 05:58); the upper end until
+        /// ironfarm's upper failure (- 0.05) lands, the old 0.48.
+        #[arg(long, value_delimiter = ',', default_value = "0.27,0.48")]
+        branch_band: Vec<f64>,
+        /// --branch-band's upper end is ironfarm's measured upper failure - 0.05 (else it prints pending).
+        #[arg(long)]
+        upper_final: bool,
+        /// The napper's delivery band (stored, its hand-on by the 4th route).
+        #[arg(long, value_delimiter = ',', default_value = "0.1,0.3")]
+        napper_band: Vec<f64>,
+        /// The measured bars (7b90c3f1, 05:31: the first failure one gt under).
+        #[arg(long, default_value_t = 14)]
+        shaft_min: i64,
+        #[arg(long, default_value_t = 21)]
+        napper_behind: i64,
+        #[arg(long, default_value_t = 16)]
+        napper_ahead: i64,
+        /// A junction's least gap, J:G (measured: 8 with the bench's 1-gt switch); repeatable.
+        #[arg(long, allow_hyphen_values = true, default_values = ["3:8", "-1:8"])]
+        junction_min: Vec<String>,
+        #[arg(long, default_value_t = 0)]
+        pushes_max: usize,
+        /// The roof's underside: every rider's head under it.
+        #[arg(long, default_value_t = 28.0)]
+        head_max: f64,
+        /// Every gt bar's margin at the nominal corners (and in the solve over its corners).
+        #[arg(long, default_value_t = 2)]
+        margin: i64,
+        /// Where the static gates' split file goes (default: a temporary file).
+        #[arg(long)]
+        gates_out: Option<String>,
+        /// The solve instead of the matrix: these launch steps (offsets 0, s, 2s), the napper's delays
+        /// --solve-ds; the smallest step whose every gt bar keeps --margin gt beyond the corners.
+        #[arg(long, value_delimiter = ',')]
+        solve_steps: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24")]
+        solve_ds: Vec<i64>,
+        /// With --solve-steps: print every (step, D) row (the per-D table).
+        #[arg(long)]
+        solve_table: bool,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+    },
     /// One-chunk (b), the climb bench (ironspec and farmopt 2026-11-11, paper v0): one batch of 3
     /// ridden carts from rest at the foot hold H up a straight powered climb of `--cells` boosters
     /// to today's approach top, the snap turn and today's 3 pockets (the S3 file's cells; gates
@@ -6470,6 +6583,115 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, margin, gates_out, solve_steps, solve_ds, solve_table, jobs } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
+            anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
+            anyhow::ensure!(branch_band.len() == 2 && napper_band.len() == 2, "--branch-band LO,HI and --napper-band LO,HI");
+            let jm: std::collections::BTreeMap<i32, i64> = junction_min
+                .iter()
+                .map(|s| -> anyhow::Result<(i32, i64)> {
+                    let (j, g) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--junction-min J:G"))?;
+                    Ok((j.trim().parse()?, g.trim().parse()?))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            // (`--napper-lift`: the bench starts the batches 100 gt in (the napper's climb to its hold),
+            // so the run and the restart phases reach 100 gt further)
+            let prelude = if napper_lift { 100 } else { 0 };
+            let ticks = ticks + prelude;
+            let starts = vec![starts[0], starts[1] + prelude];
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, out: None };
+            let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max };
+            let line = format!(
+                "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
+                if z7 { "--z7 " } else { "" },
+                if row9 { "--row9 " } else { "" },
+                if row10 { "--row10 " } else { "" },
+                if boost_exit { "--boost-exit " } else { "" },
+                if climb2 { "--climb2 " } else { "" },
+                if boost_slope { "--boost-slope " } else { "" },
+                if napper_lift { "--napper-lift " } else { "" },
+                if arm_station { "--arm-station " } else { "" },
+                if boosters { "--boosters " } else { "" },
+                if row_boost { "--row-boost " } else { "" },
+                if reverse { "--reverse " } else { "" },
+                if game_ticks { "--game-ticks " } else { "(L2!) " },
+                if flat { "--flat " } else { "" },
+                if dip { "--dip " } else { "" },
+                offsets.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+            );
+            // (the static gates on the emitted split file, on the nominal line)
+            let gpath = gates_out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("return-judge-split-{}.txt", std::process::id())).display().to_string());
+            let (glines, gfails) = crate::returnjudge::static_gates(&base, &gpath).map_err(|e| anyhow::anyhow!(e))?;
+            // (what the napper's D means: the bench's --napper-delay)
+            let d_means = if napper_lift {
+                "the napper's D: the hold rail's power rise D gt after the arming detector's first rise (the bench's --napper-delay with --napper-lift: a redstone block placed under the hold rail (9,-1,8) and kept — a permanent power, not day-1's 8-gt pulse; the napper at rest starts 1 gt after the rise and clears the hold at +7, so its departure is D + 1)"
+            } else {
+                "the napper's D: the napper spawned moving west at 0.4 on (8,0,8) D gt after the arming detector's first rise (the bench's --napper-delay without --napper-lift: no hold, no lift)"
+            };
+            if !solve_steps.is_empty() {
+                let so = crate::returnjudge::SolveOpts { steps: solve_steps.clone(), ds: solve_ds.clone(), speeds: speeds.clone(), spread: (spread[0], spread[1]), margin, bars, all_rows: solve_table, jobs };
+                println!("return solve (cc767b78, bench, tool unreviewed) on {line}, {batches} batches, {ticks} ticks; {d_means}");
+                for l in &glines {
+                    println!("{l}");
+                }
+                for l in crate::returnjudge::solve(&base, &so).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                println!("static gates: {}{}", if gfails == 0 { "pass".to_string() } else { format!("FAIL ({gfails})") }, if upper_final { String::new() } else { format!("; PENDING: the delivery's upper bar (ironfarm's upper failure - 0.05; --branch-band's {:.2} meanwhile)", branch_band[1]) });
+                return Ok(());
+            }
+            // (the corners: the departure spread on each launch, x the speeds, x the napper's delays)
+            let mut deltas = vec![spread[0], 0, spread[1]];
+            deltas.sort();
+            deltas.dedup();
+            let mut offs: Vec<Vec<i64>> = Vec::new();
+            for &da in &deltas {
+                for &db in &deltas {
+                    for &dc in &deltas {
+                        let o3 = vec![offsets[0] + da, offsets[1] + db, offsets[2] + dc];
+                        if !offs.contains(&o3) {
+                            offs.push(o3);
+                        }
+                    }
+                }
+            }
+            let naps: Vec<Option<i64>> = if napper_ds.is_empty() { vec![None] } else { napper_ds.iter().map(|d| Some(*d)).collect() };
+            let mut corners = Vec::new();
+            for o3 in &offs {
+                for &sp in &speeds {
+                    for n in &naps {
+                        corners.push(crate::returnjudge::Corner { offsets: o3.clone(), speed: sp, napper: *n });
+                    }
+                }
+            }
+            let phase_corners: Vec<crate::returnjudge::Corner> = speeds.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
+            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), bars, margin, jobs };
+            println!(
+                "return judge (cc767b78, bench, tool unreviewed; the lead's rows: the controls at {} corners (offsets {:?}, the departure spread {}..{} gt on each, releases {speeds:?}, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
+                o.corners.len(),
+                offsets,
+                spread[0],
+                spread[1],
+                if napper_ds.is_empty() { "none".to_string() } else { format!("D {napper_ds:?}") },
+                starts[0],
+                starts[1],
+                if ds.is_empty() { String::new() } else { format!("; logins of {ds:?} gt at every phase through liveness::freeze32 (the pearl alternative, reported)") },
+            );
+            for l in &glines {
+                println!("{l}");
+            }
+            let (lines, fails, most) = crate::returnjudge::judge(&base, &o).map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            let pending = if upper_final { String::new() } else { format!("; PENDING: the delivery's upper bar (ironfarm's upper failure - 0.05; --branch-band's {:.2} meanwhile): the most delivered over the lead's rows {most:.3}, so the upper failure must be at least {:.3}", branch_band[1], most + 0.05) };
+            println!(
+                "over the matrix: {fails} failing runs in the lead's rows (with any nominal corner short of the margin); the static gates {}: the verdict {}{pending}",
+                if gfails == 0 { "pass".to_string() } else { format!("FAIL ({gfails})") },
+                if fails == 0 && gfails == 0 { "PASSES" } else { "FAILS" }
+            );
         }
         MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station } => {
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
