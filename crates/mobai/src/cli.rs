@@ -427,6 +427,33 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec: the row fix's napper release) A ridden napper arriving into
+    /// a siding from K's cell at each speed, then the siding's switch pulsed; every tick until it
+    /// leaves the siding: the rest z, R powered, the cart moving, K reached and its speed there
+    NapperRelease {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, default_value = "")]
+        parts: String,
+        /// K's cell, x,y,z (the napper starts there)
+        #[arg(long, allow_hyphen_values = true, default_value = "1,25,9")]
+        k: String,
+        /// The siding switch's input cell, x,y,z (a redstone block there for --pulse gt)
+        #[arg(long, allow_hyphen_values = true, default_value = "1,23,9")]
+        switch: String,
+        #[arg(long, default_value = "0.10,0.20,0.30,0.44")]
+        arrivals: String,
+        #[arg(long, default_value_t = 60)]
+        wait: u32,
+        #[arg(long, default_value_t = 30)]
+        pulse: u32,
+        #[arg(long, default_value_t = 4)]
+        phases: u32,
+        #[arg(long, default_value_t = 80)]
+        ticks: u32,
+    },
     /// (tickexact 2026-11-12, ironfarm via farmopt) The mirrored module's C on the official server:
     /// its placement orders (the helper unpowered; the unmirrored redstone-block recipe), C's shape
     /// after each step, D pressed and released, a restart
@@ -903,6 +930,16 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
+        }
+        MobaiCmd::NapperRelease { version, module, parts, k, switch, arrivals, wait, pulse, phases, ticks } => {
+            let i3 = |s: &str, what: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--{what} x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            let arrivals: Vec<f64> = arrivals.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::napperrelease::napper_release(&version, &module, &parts, i3(&k, "k")?, i3(&switch, "switch")?, &arrivals, wait, pulse, phases, ticks)
         }
         MobaiCmd::MirrorC { version } => crate::mirrorc::mirror_c(&version),
         MobaiCmd::RowDraws { version, module, parts, air, row_speeds, every, ticks, draws_out } => {
