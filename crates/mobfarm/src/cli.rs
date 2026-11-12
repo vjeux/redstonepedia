@@ -1199,6 +1199,18 @@ pub enum MobfarmCmd {
         freeze: Vec<String>,
         #[arg(long, default_value_t = 32)]
         hold_pulse: i64,
+        /// The hold's release as a front-first ripple of D gt (0: together).
+        #[arg(long, default_value_t = 0)]
+        hold_ripple: i64,
+        /// Live gt after the last tail pocket's pass edge before its release.
+        #[arg(long, default_value_t = 16)]
+        settle: i64,
+        /// The overfill junction instead of the top-cell-free feed.
+        #[arg(long)]
+        overfill: bool,
+        /// Overfill: live gt after a G0 admission edge before the last tail gate shuts.
+        #[arg(long, default_value_t = 14)]
+        adm_settle: i64,
     },
     TraceDiff {
         a: PathBuf,
@@ -3568,7 +3580,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse } => {
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle } => {
             let fr = freeze
                 .iter()
                 .map(|s| {
@@ -3576,7 +3588,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     if p.len() == 2 { Ok((p[0], p[1])) } else { Err(anyhow::anyhow!("--freeze T,D")) }
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse };
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle };
             println!("{}", crate::gqbench::gq_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::TraceDiff { a, b, tol } => {
