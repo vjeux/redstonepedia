@@ -209,8 +209,11 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             }
             last_skip_t = t;
             day = (day.div_euclid(24_000) + 1) * 24_000 + 1;
-            rain_on = false;
-            thunder_on = false;
+            // (vanilla resets the weather on waking only if isRaining(): the rain level > 0.2)
+            if rain_lv > 0.2 {
+                rain_on = false;
+                thunder_on = false;
+            }
         }
         let dm = day.rem_euclid(24_000);
         // the detector
@@ -545,10 +548,12 @@ pub fn scenario_with(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
 
 /// The siding windows (ironspec 01:13, option 1): each lane's 100-gt window [R(c) + a, R(c+1) + a),
 /// its edges taken from the release chain's taps (a in 0..=a_max, even: 2 gt a stage), placed on
-/// the predecessor's pass at R(pick + 6) + T_pb (the lane runs 7 carts while its napper is away, so
-/// the cart released just before the napper comes round 7 releases later, i.e. pick - 1 + 7). Picks
-/// at u = window_open + 0/3/6. Prints each lane's window phase u, tap a, the margins to the window's
-/// edges, and the ring's token set (u 0 the unstackable: the reset).
+/// the predecessor's pass at R(pick + 7) + T_pb. (The predecessor is released at pick - 1; its lap
+/// still holds the napper's own release at the pick, then the lane's 6 others, so it comes round at
+/// pick + 7, then every 7 with the napper away. v4/v5 had pick + 6: one cycle early, the napper
+/// rejoining behind the cart before its predecessor.) Picks at u = window_open + 0/3/6. Prints each
+/// lane's window phase u, tap a, the margins to the window's edges, and the ring's token set (u 0 the
+/// unstackable: the reset).
 pub fn sidings(window_open: i64, t_pb: [i64; 3], a_max: i64) -> Vec<String> {
     let mut lines = Vec::new();
     let mut tokens = std::collections::BTreeSet::new();
@@ -559,8 +564,8 @@ pub fn sidings(window_open: i64, t_pb: [i64; 3], a_max: i64) -> Vec<String> {
     for (l, off) in [0i64, 3, 6].iter().enumerate() {
         let pick_u = (window_open + off).rem_euclid(10);
         tokens.insert(pick_u);
-        // the pass, in release units after the pick: 6 + T_pb / 100
-        let base = 6 + t_pb[l].div_euclid(100);
+        // the pass, in release units after the pick: 7 + T_pb / 100
+        let base = 7 + t_pb[l].div_euclid(100);
         let q = t_pb[l].rem_euclid(100);
         // candidates: the window in cycle `base` (pass at +q) or `base - 1` (pass at +q + 100)
         let mut best: Option<(i64, i64, i64, i64)> = None; // (min margin, c_rel, a, before)
@@ -662,6 +667,8 @@ pub fn post_skip_levels(d: i64, len: i64) -> Vec<(i64, i64)> {
 /// `DaylightDetectorBlock.updateSignalStrength` (sky light 15 - getSkyDarken, times the cosine of
 /// the sun's angle eased 20% toward 0 / 2 pi, rounded).
 pub fn det_level(day: i64, rain: f32, thunder: f32) -> i64 {
+    // (G1 on a1212942b: the day time wraps, as tick-exact's level() does)
+    let day = day.rem_euclid(24_000);
     let target = (15 - redsim::weather::sky_darken_at(day, rain, thunder)).max(0);
     if target <= 0 {
         return 0;
@@ -741,6 +748,9 @@ pub fn weather_sweep(o: &CounterOpts, step: i64) -> Vec<String> {
         ("rain end with the thunder flag on (a storm ending)", vec![(-12_000, true, true), (0, false, true), (1_000, false, false)]),
         ("thunder onset in rain", vec![(-6_000, true, false), (0, true, true), (6_000, false, false)]),
         ("thunder end in rain", vec![(-6_000, true, true), (0, true, false), (6_000, false, false)]),
+        // (G1 on a1212942b: both flags on in one tick from clear: /weather thunder, or both timers
+        // flipping together)
+        ("rain and thunder on together from clear", vec![(0, true, true), (12_000, false, false)]),
     ];
     let mut total = 0u32;
     for (kname, rel) in &kinds {

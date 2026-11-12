@@ -397,6 +397,10 @@ pub enum MobfarmCmd {
         /// pass of its predecessor it was already waiting for; a late one waits a lane lap.
         #[arg(long)]
         rule2: bool,
+        /// The held-napper comparison (ironspec Nov 12 03:53): (ii) the ring's windows against rule 2's
+        /// lap counters, on normal days, the strand margin and a held napper after every in-window skip.
+        #[arg(long)]
+        held_compare: bool,
         /// The lane model, strict rhythm: the controller's siding rule (a napper rejoins only at its
         /// lane's phase window, behind the cart passing then; a late one waits a whole period).
         #[arg(long)]
@@ -7271,7 +7275,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, events, watchdog, pad_roll, arrive, events_from, recover_k, lock, lock_gt, remark, idle, lanes, beds, lane_exact, turns, outlier, post, foot, r_leg, window, det, lie, strand_search, max_away, jump, jump_every, absence, watchdog_table, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, start_dt, rephase_lag, truncate_after_skip, thunder_sweep, latch_drop, sweep_step, hold_at, rule2, siding_window, ret, table, sweep_k } => {
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, events, watchdog, pad_roll, arrive, events_from, recover_k, lock, lock_gt, remark, idle, lanes, beds, lane_exact, turns, outlier, post, foot, r_leg, window, det, lie, strand_search, max_away, jump, jump_every, absence, watchdog_table, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, start_dt, rephase_lag, truncate_after_skip, thunder_sweep, latch_drop, sweep_step, hold_at, rule2, held_compare, siding_window, ret, table, sweep_k } => {
             let absence = match absence.as_slice() {
                 [] => None,
                 [d, dt, len] => Some((*d as usize, *dt, *len)),
@@ -7303,7 +7307,98 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [d, at, add] => Some((*d as usize, *at, *add)),
                     _ => bail!("--hold-at D,IN_DAY,ADD"),
                 };
-                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, siding_window, ret, lock_gt, remark };
+                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, log_releases: false, siding_window, ret, lock_gt, remark };
+                if held_compare {
+                    // (ironspec 03:53: (ii) rule 2's "already waiting at the pass" with the ring's windows
+                    // (a late napper takes the next window, 10 cycles on, behind whichever cart passes)
+                    // against rule 2 with per-lane lap counters (the predecessor's next pass, a lane lap
+                    // on); normal days, the strand margin, and a napper held at the queue's NOT-DAY gate
+                    // after a skip inside the window (every 250 gt), with the order drift it leaves)
+                    let add = 12_400i64;
+                    let night_counts = |log: &[(i64, usize, i64)]| -> (usize, usize) {
+                        let mut per: std::collections::BTreeMap<i64, std::collections::BTreeSet<usize>> = Default::default();
+                        for (n, c, _) in log {
+                            per.entry(*n).or_default().insert(*c);
+                        }
+                        // (complete nights only: the first and the last scored night may be partial)
+                        let v: Vec<usize> = per.values().map(|s| s.len()).collect();
+                        let inner = if v.len() > 2 { &v[1..v.len() - 1] } else { &v[..] };
+                        (inner.iter().copied().min().unwrap_or(0), inner.len())
+                    };
+                    println!(
+                        "held-napper comparison (ironspec Nov 12 03:53): the lane model as above; a napper held at the bed queue's NOT-DAY gate = the pick just before a skip inside the window, +{add} gt on its trip (until dusk's DAY-off); its cost = golems lost against the same skip without the hold; the drift = naps moved or missed on the nights after it against that run"
+                    );
+                    for (vname, r2, blocks) in [
+                        ("(ii) ring windows", false, "~27 a module: the ring's siding windows (tokens u {0,1,2,4,5,6,7,9}: 8 events, 3 bulbs) + per lane the napper-present sample ANDed with the pass (~3)"),
+                        ("rule 2 + lap counters", true, "~55 a module: per lane a mod-7 lap counter on its releases (3 copper bulbs, ripple stages, the clock gated by AWAY, a decode of 7, a reset from 111: ~16) + the napper-present sample (~3); the ring's tokens u {0,1,4,6,7}"),
+                    ] {
+                        let base_o = crate::napper::LaneOpts { rule2: r2, ..lo_.clone() };
+                        let base = crate::napper::simulate_lanes_scored(&base_o).1;
+                        let (least, nights) = night_counts(&base.nap_log);
+                        // the strand margin: the largest one-a-night strand with no loss (step 10)
+                        let mut margin = 0i64;
+                        for extra in (0..=1_000i64).step_by(10) {
+                            let so = crate::napper::LaneOpts { rule2: r2, outlier: Some((24_000, extra)), ..lo_.clone() };
+                            if crate::napper::simulate_lanes_scored(&so).1.golems + 1e-9 < base.golems {
+                                break;
+                            }
+                            margin = extra;
+                        }
+                        println!(
+                            "  {vname}: normal days {:.1} golems a day, naps a night least {least} of 24 ({nights} complete nights), the shortest lane at a summon {}, picks skipped for a busy lane {} (never two on a siding), late nappers {}; the strand margin +{margin} gt; blocks {blocks}",
+                            base.golems, base.min_lane, base.busy_skips, base.late_nappers
+                        );
+                        let mut costs: Vec<(i64, f64)> = Vec::new();
+                        let mut worst: Option<(i64, f64, String)> = None;
+                        let (mut min_lane, mut busy, mut late, mut least_naps) = (usize::MAX, 0u32, 0u32, usize::MAX);
+                        for s in (12_500..=20_500i64).step_by(250) {
+                            let in_day = s - start_dt;
+                            let skip_o = crate::napper::LaneOpts { rule2: r2, jump: Some((10, in_day)), ..lo_.clone() };
+                            let held_o = crate::napper::LaneOpts { hold_at: Some((10, (in_day - 400).max(0), add)), ..skip_o.clone() };
+                            let sk = crate::napper::simulate_lanes_scored(&skip_o).1;
+                            let hd = crate::napper::simulate_lanes_scored(&held_o).1;
+                            let cost = hd.lost_expiry - sk.lost_expiry;
+                            costs.push((s, cost));
+                            min_lane = min_lane.min(hd.min_lane);
+                            busy += hd.busy_skips;
+                            late += hd.late_nappers;
+                            least_naps = least_naps.min(night_counts(&hd.nap_log).0);
+                            // (the drift: nights 10..=14, each villager's lie-down against the run without the hold)
+                            let map = |log: &[(i64, usize, i64)]| -> std::collections::BTreeMap<(i64, usize), i64> {
+                                log.iter().filter(|(n, _, _)| (10..=14).contains(n)).map(|(n, c, i)| ((*n, *c), *i)).collect()
+                            };
+                            let (a, b) = (map(&sk.nap_log), map(&hd.nap_log));
+                            let mut moved = Vec::new();
+                            for ((n, c), i) in &a {
+                                match b.get(&(*n, *c)) {
+                                    None => moved.push(format!("night {n} villager {c} missed (was in_day {i})")),
+                                    Some(j) if j != i => moved.push(format!("night {n} villager {c} {:+} gt", j - i)),
+                                    _ => {}
+                                }
+                            }
+                            for ((n, c), j) in &b {
+                                if !a.contains_key(&(*n, *c)) {
+                                    moved.push(format!("night {n} villager {c} extra nap at in_day {j}"));
+                                }
+                            }
+                            if worst.as_ref().is_none_or(|w| cost > w.1) {
+                                worst = Some((s, cost, if moved.is_empty() { "no nap moved".to_string() } else { moved.join("; ") }));
+                            }
+                        }
+                        let mean = costs.iter().map(|c| c.1).sum::<f64>() / costs.len().max(1) as f64;
+                        let maxc = costs.iter().map(|c| c.1).fold(f64::MIN, f64::max);
+                        let list: Vec<String> = costs.iter().map(|(s, c)| format!("{s}:{c:.0}")).collect();
+                        println!(
+                            "    held napper after a skip inside the window ({} skip times, 12,500..20,500 step 250): golems lost to the hold mean {mean:.1}, max {maxc:.0} (skip day time:cost {}); naps a night least {}; the shortest lane at a summon {}; picks skipped for a busy lane {busy}; late nappers {late}; expected per in-window skip (held: clear 1.8%, rain 1.8%, a storm 9.1%): clear {:.2}, rain {:.2}, a storm {:.2} golems",
+                            costs.len(), list.join(" "), least_naps, min_lane,
+                            0.018 * mean, 0.018 * mean, 0.091 * mean
+                        );
+                        if let Some((s, c, d)) = worst {
+                            println!("    the worst skip ({s}, {c:.0} golems): the order drift on nights 10..14: {d}");
+                        }
+                    }
+                    return Ok(());
+                }
                 if thunder_sweep {
                     // (the counter on redsim's exact curve, the inhibit L 6 (ruled); the arms: a falling
                     // 8-crossing arming trigger 2 for 300 gt, and the drop latch at --latch-drop)

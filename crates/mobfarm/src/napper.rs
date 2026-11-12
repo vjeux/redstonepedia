@@ -792,6 +792,8 @@ pub struct LaneOpts {
     /// Rule 2 (ironfarm, ironspec 03:09): a napper rejoins only at a pass of its predecessor it was
     /// already waiting for; a late one waits a lane lap for the next.
     pub rule2: bool,
+    /// Record every release (cycle, lane, cart) in `LaneStats::release_log` (the lane-order test).
+    pub log_releases: bool,
     /// Strict rhythm: the controller's siding rule (ironspec Nov 11 23:54): a napper rejoins only at
     /// its lane's phase window (its pick's offset + lanes' length - 1, mod k) behind the cart passing
     /// then; a late napper waits a whole window (one period) and rejoins behind that period's cart.
@@ -824,6 +826,30 @@ pub struct LaneStats {
     /// LAST_SLEPT age any villager reached (gt; >= 24,000 = out of the summons).
     pub lost_expiry: f64,
     pub max_age: i64,
+    /// Every scored lie-down: (night, cart, in_day) — the order drift after an event against a run
+    /// without it; with `log_releases`, every release (cycle, lane, cart) for the lane-order check.
+    pub nap_log: Vec<(i64, usize, i64)>,
+    pub release_log: Vec<(i64, usize, usize)>,
+    /// The shortest lane at any scored summon.
+    pub min_lane: usize,
+    /// Picks due while the lane's napper was still away (skipped: never two on a siding).
+    pub busy_skips: u32,
+    pub late_nappers: u32,
+}
+
+impl LaneOpts {
+    /// The F1 + Q2 lead's lane model as benched (58f770cc's stop: trip 196..198, lie +80, night to
+    /// 23,920; foot (c) with the hold window 55..99; ret 175; k 10; the controller's siding windows).
+    pub fn lead() -> LaneOpts {
+        LaneOpts {
+            lanes: 3, per_lane: 8, k: 10, beds: 1, turns: 3, visits: 24, lane_exact: true, keep_place: false,
+            skip_per_day: 0, lock: true, trip: (196, 198), sleep_at: 40, spacing: 22, cross_at: 60, days: 30,
+            warmup: 5, seed: 7, night_gt: 11_489, day_gt: 24_000, dusk_at: 0, jump: None, jump_every: false,
+            outlier: None, post: 10, foot: 2, r_leg: 40, window: (55, 99), det: 2, lie: 80, start_dt: 12_431,
+            rephase_lag: 0, truncate_after_skip: None, hold_at: None, rule2: false, log_releases: false,
+            siding_window: true, ret: 175, lock_gt: 600, remark: 0.0,
+        }
+    }
 }
 
 /// The wait at a gate opening only inside `w` (gt after a release, mod 100).
@@ -874,6 +900,8 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     let mut max_age = 0i64;
     let mut hold_used = false;
     let mut busy_skips = 0u32;
+    let mut nap_log: Vec<(i64, usize, i64)> = Vec::new();
+    let mut release_log: Vec<(i64, usize, usize)> = Vec::new();
     let (mut least_distinct, mut short_nights, mut min_lane, mut ticks_below) = (usize::MAX, 0usize, usize::MAX, 0usize);
     let mut scored_ticks = 0usize;
     let cycles_per_day = o.day_gt / 100;
@@ -988,6 +1016,9 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
         // (the release: each lane's front leaves and returns in lane order past the shared divert)
         for l in 0..o.lanes {
             let Some(cart) = lanes[l].pop_front() else { continue };
+            if o.log_releases {
+                release_log.push((c, l, cart));
+            }
             let t = t0 + o.cross_at + l as i64 * o.spacing;
             count += 1;
             lane_count[l] += 1;
@@ -1101,6 +1132,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                         last_sleep[cart] = Some(start + o.lie);
                         if scored {
                             latest_lie = latest_lie.max(lie_in);
+                            nap_log.push((lie_day, cart, lie_in));
                         }
                     }
                     if scored {
@@ -1192,7 +1224,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     for busy in night_busy.values() {
         util_max = util_max.max(*busy as f64 / window_gt);
     }
-    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, latest_lie, late_naps, util_max, lost_expiry: lost_expiry as f64, max_age };
+    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, latest_lie, late_naps, util_max, lost_expiry: lost_expiry as f64, max_age, nap_log, release_log, min_lane: if min_lane == usize::MAX { 0 } else { min_lane }, busy_skips, late_nappers: late_nappers as u32 };
     let per_day: Vec<String> = golems_day.iter().filter(|(d, _)| **d >= o.warmup as i64 - 1).map(|(d, g)| format!("d{d} {g}")).collect();
     let lens: Vec<String> = lane_len_hist.iter().map(|(l, n)| format!("{l}:{n}")).collect();
     let foot = if o.turns == 3 {
@@ -1283,4 +1315,51 @@ pub fn line(label: &str, o: &Opts, s: &Score) -> String {
         s.days,
         riders.join(" ")
     )
+}
+
+#[cfg(test)]
+mod lane_order_tests {
+    use super::*;
+
+    /// Every pick's rejoin in the release log: (rejoins checked, rejoins out of order). A pick is a
+    /// cart whose next release in its lane comes more than a lap later; in order means its lane
+    /// releases it right behind the cart that went before it at its pick (P) and right before the
+    /// one that went after it (S).
+    fn order_breaks(o: &LaneOpts) -> (usize, usize) {
+        let st = simulate_lanes_scored(o).1;
+        let (mut checked, mut broken) = (0usize, 0usize);
+        for l in 0..o.lanes {
+            let seq: Vec<usize> = st.release_log.iter().filter(|r| r.1 == l).map(|r| r.2).collect();
+            for i in 1..seq.len().saturating_sub(1) {
+                let Some(off) = seq[i + 1..].iter().position(|&x| x == seq[i]) else { continue };
+                let j = i + 1 + off;
+                if j > i + o.per_lane && j + 1 < seq.len() {
+                    checked += 1;
+                    if !(seq[j - 1] == seq[i - 1] && seq[j + 1] == seq[i + 1]) {
+                        broken += 1;
+                    }
+                }
+            }
+        }
+        (checked, broken)
+    }
+
+    /// G1 on a1212942b: under rule 2 a napper rejoins right behind its predecessor, on time and a
+    /// lane lap late (a +350 strand: P, N, S both ways); the ring windows' late rejoin, behind
+    /// whichever cart passes 10 cycles on, is the control that must break the order.
+    #[test]
+    fn rule2_rejoins_behind_its_predecessor() {
+        let o = LaneOpts { rule2: true, log_releases: true, days: 8, warmup: 2, ..LaneOpts::lead() };
+        let (n, b) = order_breaks(&o);
+        assert!(n > 0, "no rejoin checked");
+        assert_eq!(b, 0, "{b} of {n} on-time rejoins out of order");
+        let late = LaneOpts { outlier: Some((24_000, 350)), ..o.clone() };
+        assert!(simulate_lanes_scored(&late).1.late_nappers > 0, "the strand made no late rejoin");
+        let (n2, b2) = order_breaks(&late);
+        assert!(n2 > 0, "no late rejoin checked");
+        assert_eq!(b2, 0, "{b2} of {n2} rejoins out of order with a lap-late napper");
+        let ring = LaneOpts { rule2: false, ..late.clone() };
+        let (n3, b3) = order_breaks(&ring);
+        assert!(n3 > 0 && b3 > 0, "the control (ring windows, a late napper) kept the order: {b3} of {n3}");
+    }
 }
