@@ -1788,12 +1788,21 @@ fn hits_line(name: &str, hits: &[Hit]) -> (bool, String) {
     (false, format!("{name}: {} positions ({}), e.g. {}", hits.len(), kinds.join(", "), hits.iter().take(3).map(|h| format!("{} at {}", h.what, at(h.cell))).collect::<Vec<_>>().join("; ")))
 }
 
-/// The floods of every body from every standable (or flyable) position outside the farm's space,
-/// plus the mob cells a control injects.
+/// The floods of every body from every position a natural mob of it can spawn at (the game's spawn
+/// rules: `hostile::Seeding::SpawnRules`, ironspec 2026-11-11, vjeux's normal-operation scope) or
+/// walk in from beyond the bounds, plus the mob cells a control injects.
 fn floods(p: &Placed, extra: &[(Body, BlockPos)]) -> Vec<(Body, Vec<(BlockPos, f64)>)> {
     let bounds = bounds_of(p, 24);
     let bodies = [hostile::ZOMBIE, hostile::BABY_ZOMBIE, hostile::SKELETON, hostile::PILLAGER, hostile::CREEPER, hostile::SPIDER, hostile::CAVE_SPIDER, hostile::SLIME, hostile::FOX, hostile::VILLAGER, hostile::ENDERMAN, hostile::BAT];
-    let mut out: Vec<(Body, Vec<(BlockPos, f64)>)> = bodies.iter().map(|b| (*b, hostile::flood(&p.w, *b, &p.interior, bounds).cells)).collect();
+    let seeding = hostile::Seeding::SpawnRules { seed: p.seed };
+    // (a trap's starts on the lasting tops too, the strike cells once trees are gone)
+    let (lo, hi) = bounds;
+    let lasting: Vec<BlockPos> = (lo.z..=hi.z)
+        .flat_map(|z| (lo.x..=hi.x).map(move |x| (x, z)))
+        .filter(|(x, z)| p.w.contains(BlockPos::new(*x, p.w.min.y, *z)))
+        .map(|(x, z)| BlockPos::new(x, lasting_height(&p.w, x, z), z))
+        .collect();
+    let mut out: Vec<(Body, Vec<(BlockPos, f64)>)> = bodies.iter().map(|b| (*b, hostile::flood_from(&p.w, *b, &p.interior, bounds, seeding, if b.name == "skeleton" { &lasting } else { &[] }).cells)).collect();
     for (b, q) in extra {
         let f = hostile::floor_in(&p.w, *q).unwrap_or(q.y as f64);
         match out.iter_mut().find(|(x, _)| x.name == b.name) {
@@ -2067,7 +2076,8 @@ pub fn natural_mobs_hits(p: &Placed, extra: &[(Body, BlockPos)]) -> (Verdict, Ve
         chunks.dedup();
         chunks.iter().filter(|(x, z)| redsim::entity::mob::natural::slime_chunk(*x, *z, s)).count()
     });
-    lines.push((true, format!("sources: slime chunks under the farm below y 40: {} (slimes spawn there at any light; the floods ignore light); wandering traders, llamas, bats and slimes are in the floods", slime.map(|n| n.to_string()).unwrap_or_else(|| "none (the void)".to_string()))));
+    lines.push((true, format!("sources (the game's spawn rules, ironspec and G1 2026-11-11): monsters at block light 0 on their spawn floor (the spawn box free at the cell's bottom); endermen the same, then every spot their teleport reaches (32 sideways, -32..+31 up, onto a motion-blocking floor with the box free); a trap skeleton on every strike cell, today's tops and the lasting ones, on any floor at any light, unless a lightning rod topping its column within 128 (a sphere about the strike cell) takes the strike; a patrol's pillager on the surface at block light 8 or less; slimes in slime chunks below y 40 (under the farm: {}) and in swamps at y 51 to 69 at night light 7 or less (where the biome isn't known, there too); bats under the world surface at night light 6 or less (Halloween's limit, Oct 20 to Nov 3, counted whatever the date); foxes at light 9 or more; anything from beyond across the bounds' ring; wandering traders and llamas are in the floods", slime.map(|n| n.to_string()).unwrap_or_else(|| "none, the void".to_string()))));
+    lines.push((true, "regimes: the player within 128 blocks, the channels above; the player away with a chunk loader, no natural spawn anywhere (`NaturalSpawner` needs a player within 128), every natural channel 0 (lightning, random ticks and skeleton traps still run in an entity-ticking chunk)".to_string()));
     (Verdict { lines }, channels)
 }
 
@@ -2425,6 +2435,21 @@ pub fn controls(p: &Placed) -> Vec<(u8, Control)> {
                 out.push((2, Control { name: format!("a lit strike cell at {} (a torch beside it) in a skeleton's range of a villager", at(c)), bites, why: v.failing("ranged").map(str::to_string).unwrap_or_else(|| "ranged: passes".to_string()) }));
             }
             None => out.push((2, Control { name: "a lit strike cell in a skeleton's range of a villager".to_string(), bites: false, why: "no open cell 4 to 8 sideways of a villager position in sight of it".to_string() })),
+        }
+        // (G1 and ironspec 2026-11-11: a trap's skeleton horse appears where the strike lands, on
+        // any floor at any light, so a strike cell on leaves is a source; a lightning rod topping
+        // its column within 128 takes the strike, `findLightningRod`, and spawns no trap)
+        if let Some((c, _)) = lit {
+            let mut q = p.clone();
+            q.w.place_raw(&[(c.below(), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").expect("leaves"))]);
+            q.w.settle_light();
+            let hit = |q: &Placed| natural_mobs_hits(q, &[]).1.iter().any(|(n, cells)| *n == "ranged" && cells.contains(&c));
+            let open = hit(&q);
+            let mut r = q.clone();
+            let corner = BlockPos::new(r.w.min.x, r.w.height(redsim::terrain::Heightmap::WorldSurface, r.w.min.x, r.w.min.z), r.w.min.z);
+            r.w.place_raw(&[(corner, Block::parse("minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]").expect("a lightning rod"))]);
+            let rod = hit(&r);
+            out.push((2, Control { name: format!("a strike cell on leaves at {} in a skeleton's range of a villager (with a lightning rod topping its column at {}: no trap)", at(c), at(corner)), bites: open && !rod, why: format!("ranged {} without the rod, {} with it", if open { "catches it" } else { "misses it" }, if rod { "still catches it" } else { "clear" }) }));
         }
     }
     let caught = |q: &Placed, what: &str, prefix: &'static str, b: Body, cell: BlockPos| -> Control {

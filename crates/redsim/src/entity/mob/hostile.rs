@@ -242,10 +242,37 @@ impl Reach {
     }
 }
 
+/// How a flood picks its starts. `Worst`: the bounds' outer ring, every position a natural type of
+/// the body can spawn at whatever the light (block light 0 for monsters), every position for
+/// endermen (they teleport). `SpawnRules` (ironspec 2026-11-11, vjeux's normal-operation scope:
+/// a source is a cell where the game can spawn the mob): the ring as before (anything from beyond
+/// walks in across it), monsters and endermen at block light 0 on their spawn floor, a trap
+/// skeleton on any strike cell at any light, patrol pillagers only on the surface
+/// (`PatrolSpawner`: the MOTION_BLOCKING_NO_LEAVES top, block light 8 or less), slimes only in
+/// slime chunks below y 40 (`Slime.checkSlimeSpawnRules`; the world seed's chunks), bats below
+/// sea level at light 3 or less (`Bat.checkBatSpawnRules`), foxes at light 9 or more
+/// (`Animal`'s rule on their spawn floor).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Seeding {
+    Worst,
+    SpawnRules { seed: Option<i64> },
+}
+
 /// Flood a body over the world from every standable position outside `exclude` (the farm's
 /// interior): walks (step or a 1.25 jump up, any fall down), swims, climbs (spiders), flies (any
 /// air). Positions inside `exclude` are reached too (that is the entry channel).
 pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos, BlockPos)) -> Reach {
+    flood_with(w, b, exclude, bounds, Seeding::Worst)
+}
+
+/// [`flood`] with its starts picked by `seeding` ([`Seeding`]).
+pub fn flood_with(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos, BlockPos), seeding: Seeding) -> Reach {
+    flood_from(w, b, exclude, bounds, seeding, &[])
+}
+
+/// [`flood_with`] with `extra` starts besides the seeding's own (site-check's lasting strike cells
+/// for the skeleton body, the trap's: dropped when a rod captures their strike).
+pub fn flood_from(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos, BlockPos), seeding: Seeding, extra: &[BlockPos]) -> Reach {
     let mut seen: HashSet<BlockPos> = HashSet::new();
     let mut cells = Vec::new();
     let mut queue = VecDeque::new();
@@ -276,6 +303,7 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
         "bat" => &["minecraft:bat"],
         "pillager" => &["minecraft:pillager"],
         "fox" => &["minecraft:fox"],
+        "enderman" => &["minecraft:enderman"],
         _ => &[],
     };
     let residents: Vec<BlockPos> = w
@@ -292,8 +320,40 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
         })
         .map(|e| e.block_position())
         .collect();
+    let rules = matches!(seeding, Seeding::SpawnRules { .. });
+    let world_seed = match seeding {
+        Seeding::SpawnRules { seed } => seed,
+        Seeding::Worst => None,
+    };
+    // (spawn rules, the trap's starts: a lightning rod topping its column takes every strike
+    // within 128, `ServerLevel.findLightningRod`, and a strike on a rod spawns no trap horse,
+    // `tickChunk`; ironspec and G1 2026-11-11)
+    let rods: Vec<BlockPos> = if rules && b.name == "skeleton" {
+        let mut v = Vec::new();
+        for z in w.min.z..w.min.z + w.size[2] {
+            for x in w.min.x..w.min.x + w.size[0] {
+                let top = BlockPos::new(x, w.height(crate::terrain::Heightmap::WorldSurface, x, z) - 1, z);
+                if w.contains(top) && w.get(top).to_string().contains("lightning_rod") {
+                    v.push(top);
+                }
+            }
+        }
+        v
+    } else {
+        Vec::new()
+    };
+    // (the rod's reach is a sphere, `PoiManager.findClosest`'s `distSqr(pos) <= 128 * 128` from the
+    // strike's cell: G1 2026-11-11)
+    let captured = |s: BlockPos| {
+        rods.iter().any(|r| {
+            let (dx, dy, dz) = ((r.x - s.x) as i64, (r.y - s.y) as i64, (r.z - s.z) as i64);
+            dx * dx + dy * dy + dz * dz <= 128 * 128
+        })
+    };
+    // (the light a spawn roll reads at night: `getMaxLocalRawBrightness`, the sky darkened by 11)
+    let night = |p: BlockPos| w.block_light(p).unwrap_or(0).max(w.sky_light(p).unwrap_or(15) - 11);
     let may_start = |p: BlockPos| -> bool {
-        if ring(p) || b.name == "enderman" {
+        if ring(p) || (b.name == "enderman" && !rules) {
             return true;
         }
         if !residents.is_empty() || matches!(b.name, "villager" | "iron golem") {
@@ -302,12 +362,44 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
         if b.flies && p.y >= w.height(crate::terrain::Heightmap::WorldSurface, p.x, p.z) {
             return false;
         }
+        // (spawn rules: a trap's skeleton horse appears where the strike lands, on any floor at
+        // any light, unless a rod takes the strike: G1 and ironspec 2026-11-11)
+        if rules && b.name == "skeleton" && p.y == w.height(crate::terrain::Heightmap::MotionBlocking, p.x, p.z) && !captured(p) {
+            return true;
+        }
         // (a monster spawns in the overworld only at block light 0: `Monster.isDarkEnoughToSpawn`
         // against the dimension's monster_spawn_block_light_limit, 0; a torch-lit cell is no
         // spawn start, ironspec's fix for a lit built-in access. Slimes, pillagers, bats and foxes
         // keep their own rules: any light here)
-        if matches!(b.name, "zombie" | "baby zombie" | "skeleton" | "creeper" | "spider" | "cave spider") && w.block_light(p).unwrap_or(0) > 0 {
+        let monster = matches!(b.name, "zombie" | "baby zombie" | "skeleton" | "creeper" | "spider" | "cave spider") || (rules && b.name == "enderman");
+        if monster && w.block_light(p).unwrap_or(0) > 0 {
             return false;
+        }
+        if rules {
+            // (the spawn box stands at the cell's bottom, `NaturalSpawner`'s `noCollision` test on
+            // the type's spawn box: no spawn in a cell a slab or a carpet holds)
+            if !fits(w, &b, p, p.y as f64) {
+                return false;
+            }
+            let raw = || w.block_light(p).unwrap_or(0).max(w.sky_light(p).unwrap_or(15));
+            let ok = match b.name {
+                // a patrol's pillager: on the surface only, block light 8 or less
+                "pillager" => p.y == w.height(crate::terrain::Heightmap::MotionBlockingNoLeaves, p.x, p.z) && w.block_light(p).unwrap_or(0) <= 8,
+                // a slime: in a slime chunk below y 40 at any light; or in a swamp at y 51 to 69 at
+                // night light 7 or less (`#allows_surface_slime_spawns`, the moon's roll passing;
+                // where the biome isn't known, there too)
+                "slime" => (p.y < 40 && world_seed.is_some_and(|s| super::natural::slime_chunk(p.x >> 4, p.z >> 4, s))) || ((51..=69).contains(&p.y) && night(p) <= 7 && w.biome_at(p).is_none_or(|n| n.contains("swamp"))),
+                // a bat: under the world surface (above: refused before), at night light 6 or
+                // less (`Bat.checkBatSpawnRules`, 26.3: not sea level; its limit 3, and 6 from
+                // Oct 20 to Nov 3, `isHalloween`, counted whatever the date: G1 2026-11-11)
+                "bat" => night(p) <= 6,
+                // a fox: at light 9 or more
+                "fox" => raw() > 8,
+                _ => true,
+            };
+            if !ok {
+                return false;
+            }
         }
         types.iter().any(|t| valid_spawn_floor(w, p.below(), t))
     };
@@ -326,7 +418,19 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
             }
         }
     }
+    // the extra starts (site-check's lasting strike cells), a rod's capture dropping them
+    for &p in extra {
+        if !inside(p) || exclude.contains(&p) || seen.contains(&p) || (rules && captured(p)) {
+            continue;
+        }
+        if let Some(f) = pos_of(p) {
+            seen.insert(p);
+            cells.push((p, f));
+            queue.push_back((p, f));
+        }
+    }
     let dirs: [(i32, i32); 8] = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)];
+    loop {
     while let Some((p, f)) = queue.pop_front() {
         let mut next: Vec<BlockPos> = Vec::new();
         if b.flies {
@@ -345,8 +449,31 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
                 if dx != 0 && dz != 0 && !(pos_of(p.offset(dx, 0, 0)).is_some() || pos_of(p.offset(0, 0, dz)).is_some()) {
                     continue;
                 }
+                // (spawn rules: a step down or a fall passes the cell beside the mob, which must be
+                // open, and a fall stops at a block; the worst case keeps its fall straight down
+                // the neighbour column from one below, through any block with air under it, which
+                // the judge's `check` cards read: b8949c96 2026-11-11, flagged to its owner)
+                let side = p.offset(dx, 0, dz);
+                let side_open = !crate::behavior::collides(&w.get(side));
                 for dy in -1..=1 {
+                    if rules && dy == -1 && !side_open {
+                        continue;
+                    }
                     next.push(p.offset(dx, dy, dz));
+                }
+                if rules {
+                    // a fall: off the edge into the open column beside, straight down through
+                    // open cells to the first floor
+                    if side_open && floor_in(w, side).is_none() {
+                        let mut q = side.below();
+                        let mut n = 0;
+                        while q.y > w.min.y && floor_in(w, q).is_none() && !crate::behavior::collides(&w.get(q)) && n < 384 {
+                            q = q.below();
+                            n += 1;
+                        }
+                        next.push(q);
+                    }
+                    continue;
                 }
                 // a fall: straight down the neighbour column
                 let mut q = p.offset(dx, -1, dz);
@@ -376,6 +503,63 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
             cells.push((q, g));
             queue.push_back((q, g));
         }
+    }
+    // (spawn rules: an enderman teleports, `EnderMan.teleport` / `LivingEntity.randomTeleport`, to
+    // a random spot within 32 on each horizontal axis and -32..+31 vertically from any spot it
+    // reaches, dropping to the first motion-blocking non-fluid floor below and landing only where
+    // its box is free of blocks and fluid, light and floor type aside; its landings walk on, until
+    // no landing is new: G1 and ironspec 2026-11-11, the brief's teleport reach)
+    if !(rules && b.name == "enderman") {
+        break;
+    }
+    let mut band: std::collections::HashMap<(i32, i32), (i32, i32)> = std::collections::HashMap::new();
+    for (p, _) in &cells {
+        let e = band.entry((p.x, p.z)).or_insert((i32::MAX, i32::MIN));
+        *e = (e.0.min(p.y), e.1.max(p.y));
+    }
+    let mut landed = Vec::new();
+    for z in lo.z..=hi.z {
+        for x in lo.x..=hi.x {
+            let (mut ymin, mut ymax) = (i32::MAX, i32::MIN);
+            for (&(cx, cz), &(mn, mx)) in &band {
+                if (cx - x).abs() <= 32 && (cz - z).abs() <= 32 {
+                    ymin = ymin.min(mn - 32);
+                    ymax = ymax.max(mx + 31);
+                }
+            }
+            if ymin > ymax {
+                continue;
+            }
+            // every floor in the band, then the first floor under it
+            let mut y = ymax.min(hi.y);
+            while y >= lo.y {
+                let q = BlockPos::new(x, y, z);
+                let floor = crate::behavior::collides(&w.get(q.below())) && !fluid(w, q.below());
+                if floor {
+                    let dry = !fluid(w, q) && !fluid(w, q.above()) && !fluid(w, q.offset(0, 2, 0));
+                    if dry
+                        && !seen.contains(&q)
+                        && let Some(g) = pos_of(q)
+                    {
+                        landed.push((q, g));
+                    }
+                    if y <= ymin {
+                        break;
+                    }
+                }
+                y -= 1;
+            }
+        }
+    }
+    if landed.is_empty() {
+        break;
+    }
+    for (q, g) in landed {
+        if seen.insert(q) {
+            cells.push((q, g));
+            queue.push_back((q, g));
+        }
+    }
     }
     Reach { body: b, cells, seen }
 }
@@ -836,4 +1020,99 @@ pub fn sections_to_village(w: &World, p: BlockPos, extra: &[BlockPos]) -> i32 {
         }
     }
     best
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A closed room: a shell of `wall` round the interior x and z `lo..=lo+4`, y `y0..=y0+2`, its
+    /// floor `floor` and its roof `roof`.
+    fn room(cells: &mut Vec<(BlockPos, Block)>, lo: i32, y0: i32, floor: Block, wall: Block, roof: Block) {
+        for y in y0 - 1..=y0 + 3 {
+            for z in lo - 1..=lo + 5 {
+                for x in lo - 1..=lo + 5 {
+                    let inner = (lo..=lo + 4).contains(&x) && (lo..=lo + 4).contains(&z);
+                    let b = if y == y0 - 1 {
+                        floor
+                    } else if y == y0 + 3 {
+                        roof
+                    } else if inner {
+                        continue;
+                    } else {
+                        wall
+                    };
+                    cells.push((BlockPos::new(x, y, z), b));
+                }
+            }
+        }
+    }
+
+    /// ironspec and G1 2026-11-11 (vjeux's normal-operation scope, the brief's 26.3 reads): under
+    /// `Seeding::SpawnRules`, a closed dark room over y 69 starts a monster and a bat (under its
+    /// own roof, night light 0) but no patrol pillager (the surface only) and no slime (no slime
+    /// chunk without a seed, over the swamp band); a closed room of glass walls and roof on a stone floor starts a bat too (night light
+    /// 4, under Halloween's 6, counted whatever the date); a dark room at y 60 starts a swamp slime where the biome isn't known; the worst case
+    /// starts a pillager, a slime and a bat in the dark room; an enderman teleports into a closed
+    /// glass-floored room within 31 above the ground it spawns on, and not into one 40 above it.
+    #[test]
+    fn spawn_rules_seed_only_where_the_game_spawns() {
+        let mut w = World::new(BlockPos::new(0, 50, 0), [60, 70, 60]);
+        let stone = Block::parse("minecraft:stone").expect("stone");
+        let glass = Block::parse("minecraft:glass").expect("glass");
+        let slab = Block::parse("minecraft:cobblestone_slab[type=bottom,waterlogged=false]").expect("slab");
+        let mut cells = Vec::new();
+        for z in 0..60 {
+            for x in 0..60 {
+                cells.push((BlockPos::new(x, 70, z), stone));
+            }
+        }
+        room(&mut cells, 10, 71, stone, stone, stone); // A: dark, on the ground
+        room(&mut cells, 20, 71, stone, glass, glass); // B: glass walls and roof, on the ground
+        room(&mut cells, 30, 60, stone, stone, stone); // C: dark, under the ground, y 60
+        room(&mut cells, 40, 76, glass, stone, slab); // D: glass floor, 5 over the ground
+        room(&mut cells, 40, 111, glass, stone, slab); // E: glass floor, 40 over the ground
+        w.place_raw(&cells);
+        let none = HashSet::new();
+        let bounds = (BlockPos::new(0, 51, 0), BlockPos::new(59, 119, 59));
+        let rules = Seeding::SpawnRules { seed: None };
+        let reaches = |b: Body, s: Seeding, at: BlockPos| flood_with(&w, b, &none, bounds, s).contains(at);
+        let (a, bb, c, d, e) = (BlockPos::new(12, 71, 12), BlockPos::new(22, 71, 22), BlockPos::new(32, 60, 32), BlockPos::new(42, 76, 42), BlockPos::new(42, 111, 42));
+        assert!(reaches(ZOMBIE, rules, a), "a monster spawns in the dark room");
+        assert!(reaches(BAT, rules, a), "a bat spawns in the dark room under its own roof");
+        assert!(reaches(BAT, rules, bb), "a bat in the glass room too (night light 4, Halloween's 6 counted)");
+        for b in [PILLAGER, SLIME] {
+            assert!(!reaches(b, rules, a), "the spawn rules start no {} in the dark room", b.name);
+        }
+        for b in [PILLAGER, SLIME, BAT] {
+            assert!(reaches(b, Seeding::Worst, a), "the worst case starts a {} in the dark room", b.name);
+        }
+        assert!(reaches(SLIME, rules, c), "a swamp slime in the dark room at y 60, the biome unknown");
+        assert!(reaches(PILLAGER, rules, BlockPos::new(5, 71, 5)), "the surface starts a patrol's pillager");
+        assert!(reaches(ENDERMAN, rules, d), "an enderman teleports into the glass-floored room 5 over the ground");
+        assert!(!reaches(ENDERMAN, rules, e), "no enderman teleports into the room 40 over the ground");
+    }
+
+    /// G1 2026-11-11: a lightning rod takes the strikes within 128 of it as a sphere
+    /// (`PoiManager.findClosest`'s `distSqr`), so a strike cell 100 off on both horizontal axes
+    /// (141 away) keeps its trap start, which the square |dx|, |dz| <= 128 dropped; one 60 off on
+    /// both (85 away) loses it. (The strike cell stands on glass, no skeleton's spawn floor: the
+    /// trap is its only start.)
+    #[test]
+    fn a_rod_takes_strikes_within_128_as_a_sphere() {
+        let strike = BlockPos::new(0, 62, 0);
+        let with_rod = |at: i32| -> World {
+            let mut w = World::new(BlockPos::new(-5, 55, -5), [110, 15, 110]);
+            let glass = Block::parse("minecraft:glass").expect("glass");
+            let rod = Block::parse("minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]").expect("a lightning rod");
+            w.place_raw(&[(strike.below(), glass), (BlockPos::new(at, 61, at), rod)]);
+            w
+        };
+        let none = HashSet::new();
+        let bounds = (BlockPos::new(-2, 56, -2), BlockPos::new(2, 68, 2));
+        let rules = Seeding::SpawnRules { seed: None };
+        let trap = |w: &World| flood_with(w, SKELETON, &none, bounds, rules).contains(strike);
+        assert!(trap(&with_rod(100)), "a rod 141 away takes no strike: the trap starts");
+        assert!(!trap(&with_rod(60)), "a rod 85 away takes the strike: no trap");
+    }
 }
