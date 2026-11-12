@@ -1,0 +1,12 @@
+# The hold's leaving-edge detector Ds for onechunk's v4 (owner 9fc3155f / ironfarm: ironfarm's edge-triggered escapement reads it), loop frame (paste with no move): a sloped detector rail
+# (ascending_north) at (7,14,5), the first cell after G_a (7,15,4) going south, on glass (non-conductive). Its faces: glass (G_a's support (7,14,4)), glass (its own support), the descent's
+# curve (7,14,6), air (the rider space over it, east, west): no gate, no powered rail (G_a is diagonal to it). A detector rail moves a cart like a plain rail (no boost, no brake).
+name: hold-ds-v4
+origin: 7 0 5
+palette:
+  D minecraft:detector_rail[powered=false,shape=ascending_north,waterlogged=false]
+  g minecraft:glass
+layer 13:
+  g
+layer 14:
+  D

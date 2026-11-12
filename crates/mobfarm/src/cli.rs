@@ -744,7 +744,7 @@ pub enum MobfarmCmd {
         #[arg(long)]
         no_riders: bool,
         /// Write every villager position of the skeleton to this file as `x y z` lines in the
-        /// written frame (`--out-shift` applied): each rider's cell and every sketch rail cell (a
+        /// written frame (`--out-shift` applied): each rider's cell and every rail cell of every part (a
         /// rider passes it), for `mobfarm exit --positions` (the flood with a summoner at every
         /// villager position) and `site-check --positions`.
         #[arg(long)]
@@ -3906,8 +3906,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         cells.insert(c);
                     }
                 }
+                // (every rail cell of every part: a rider passes each, the stand's approach and
+                // departure and the hold's and tail chain's own rails included)
+                for (c, s) in &d.blocks {
+                    if crate::column::rail_shape_of(s).is_some() {
+                        cells.insert(*c);
+                    }
+                }
                 let body: String = cells.iter().map(|c| format!("{} {} {}\n", c[0] + sh[0], c[1] + sh[1], c[2] + sh[2])).collect();
-                std::fs::write(pf, format!("# every villager position of {name} (riders' cells and sketch rail cells), the written frame\n{body}"))?;
+                std::fs::write(pf, format!("# every villager position of {name} (riders' cells and every rail cell of every part), the written frame\n{body}"))?;
                 println!("positions: {} cells -> {}", cells.len(), pf.display());
             }
             let mut d = d;

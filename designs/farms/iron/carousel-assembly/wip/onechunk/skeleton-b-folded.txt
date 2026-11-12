@@ -1,8 +1,10 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..9, WRITTEN in the frame column + (6,0,6): every cell below is the column's moved by that.
+# (b), the folded register (the comparison): the queue below the stand. Loop frame in these notes; the file is WRITTEN at loop + (6,0,6). y = the stand rails. SKETCH: committed parts placed (the pad lifted 1: golem spots at feet y 4), everything else reserved.
+# Bed radius (ironspec 18:21, accepted): the committed bed stop lowered 4, bed head (0,-36,1): the queue V riders (feet about -17.9) at 17.4 or more right above it. The minimal-tier variant: the tier at y -40..-35 with the bed at -36, the controller below it, 16 x 61 x 16.
 # + pad: /tmp/onechunk/s3-one-h0-a.txt moved by -6,0,-6 into the frame, then 0,1,0 into its tier (its cells 3,0,0..15,6,5 kept)
 # + stand: /tmp/onechunk/s3-one-h0-a.txt moved by -6,0,-6 into the frame, then 0,0,0 into its tier (its cells 3,-6,6..15,6,13 kept)
 # + standposts: /tmp/onechunk/s3-one-h0-a.txt moved by -6,0,-6 into the frame, then 0,0,0 into its tier (its cells 3,-6,0..15,-1,5 kept)
-# + bedstop: /tmp/onechunk/siding-b-fc-turn2-alone.txt moved by 0,0,0 into the frame, then 0,-32,3 into its tier
+# + bedstop: /tmp/onechunk/siding-b-fc-turn2-alone.txt moved by 0,0,0 into the frame, then 0,-36,3 into its tier
 # reserved (no blocks): south-strip x -6..9 y -6..3 z 8..9
 # reserved (no blocks): west-strip x -6..-4 y -6..7 z -6..7
 # reserved (no blocks): transit-gap x -6..9 y -15..-7 z -6..9
@@ -11,15 +13,15 @@
 # reserved (no blocks): fold-rows2-5 x -3..7 y -21..-16 z -6..6
 # reserved (no blocks): H-hold x 8..9 y -21..-16 z -6..9
 # reserved (no blocks): queue-south x -6..7 y -21..-16 z 7..9
-# reserved (no blocks): bedstop-switch x -6..7 y -39..-22 z 8..9
-# reserved (no blocks): divert-return x 8..9 y -39..-22 z -6..9
-# reserved (no blocks): controller x -6..9 y -49..-40 z -6..9
+# reserved (no blocks): bedstop-switch x -6..7 y -43..-26 z 8..9
+# reserved (no blocks): divert-return x 8..9 y -43..-22 z -6..9
+# reserved (no blocks): controller x -6..9 y -53..-44 z -6..9
 # reserved (no blocks): cover x -6..9 y 8..10 z -6..9
 name: onechunk-skeleton-b-folded
 circuit: mob-farm iron_ingot
-declared: 3,3,13 powered_rail[powered=true]!; 3,4,12 detector_rail; 3,5,11 powered_rail[powered=true]!; 3,6,10 rail; 3,5,9 rail; 3,4,8 rail; 3,3,7 rail; 3,2,6 rail[shape=ascending_west]; 4,1,6 rail; 5,0,6 rail; 6,-1,6 powered_rail[powered=false]; 7,-1,6 rail; 8,0,6 rail; 9,-1,6 rail; 10,-2,6 powered_rail[powered=false]; 11,-2,6 rail; 12,-1,6 detector_rail; 13,-2,6 rail; 14,-3,6 powered_rail[powered=false]; 15,-3,6 rail; 15,-3,7 powered_rail[powered=true]!; 15,-2,8 powered_rail[powered=true]!; 15,-1,9 powered_rail[powered=true]!; 15,0,10 powered_rail[powered=true]!; 15,1,11 powered_rail[powered=true]!; 15,2,12 rail; 15,1,13 rail; 14,-2,6 oak_fence_gate[open=false]; 10,-1,6 oak_fence_gate[open=false]; 6,0,6 oak_fence_gate[open=false]; 6,-32,9 rail; 7,-32,9 rail; 7,-32,10 powered_rail[powered=true]!; 7,-32,11 powered_rail[powered=true]!; 7,-33,12 activator_rail[powered=true]; 7,-33,13 rail; 7,-33,14 powered_rail[powered=false]; 8,-32,9 rail; 9,-32,9 rail; 10,-33,9 powered_rail; 11,-33,9 rail; 12,-33,9 rail; 9,-25,12 iron_trapdoor[open=true]; 5,-32,9 detector_rail
+declared: 3,3,13 powered_rail[powered=true]!; 3,4,12 detector_rail; 3,5,11 powered_rail[powered=true]!; 3,6,10 rail; 3,5,9 rail; 3,4,8 rail; 3,3,7 rail; 3,2,6 rail[shape=ascending_west]; 4,1,6 rail; 5,0,6 rail; 6,-1,6 powered_rail[powered=false]; 7,-1,6 rail; 8,0,6 rail; 9,-1,6 rail; 10,-2,6 powered_rail[powered=false]; 11,-2,6 rail; 12,-1,6 detector_rail; 13,-2,6 rail; 14,-3,6 powered_rail[powered=false]; 15,-3,6 rail; 15,-3,7 powered_rail[powered=true]!; 15,-2,8 powered_rail[powered=true]!; 15,-1,9 powered_rail[powered=true]!; 15,0,10 powered_rail[powered=true]!; 15,1,11 powered_rail[powered=true]!; 15,2,12 rail; 15,1,13 rail; 14,-2,6 oak_fence_gate[open=false]; 10,-1,6 oak_fence_gate[open=false]; 6,0,6 oak_fence_gate[open=false]; 6,-36,9 rail; 7,-36,9 rail; 7,-36,10 powered_rail[powered=true]!; 7,-36,11 powered_rail[powered=true]!; 7,-37,12 activator_rail[powered=true]; 7,-37,13 rail; 7,-37,14 powered_rail[powered=false]; 8,-36,9 rail; 9,-36,9 rail; 10,-37,9 powered_rail; 11,-37,9 rail; 12,-37,9 rail; 9,-29,12 iron_trapdoor[open=true]; 5,-36,9 detector_rail
 ground: 10
-port home: 6 -32 7
+port home: 6 -36 7
 port nether-anchor: 6 0 6
 port nether-axis: 7 0 6
 port output: 1 1 3
@@ -31,10 +33,10 @@ entity: minecraft:minecart 5.885 0.1775 6.5 {Rotation:[0f,0f],Passengers:[{id:"m
 entity: minecraft:oak_boat 8.5 -2 12.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 10.5 -5 1.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 13.5 -3 0.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
-entity: minecraft:oak_boat 2.5 -25 6.5 {Passengers:[{id:"minecraft:zombie"}]}
-nbt: 4 -34 2 {OutputSignal:15}
-nbt: 7 -33 10 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
-nbt: 8 -33 10 {OutputSignal:1}
+entity: minecraft:oak_boat 2.5 -29 6.5 {Passengers:[{id:"minecraft:zombie"}]}
+nbt: 4 -38 2 {OutputSignal:15}
+nbt: 7 -37 10 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nbt: 8 -37 10 {OutputSignal:1}
 nether nbt: 1 56 -1 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
 nether nbt: 1 58 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}}]}
 nether nbt: 1 59 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}}]}
@@ -211,7 +213,7 @@ palette:
   Ο minecraft:tripwire_hook[attached=true,facing=north,powered=false]
   Π minecraft:tripwire_hook[attached=true,facing=south,powered=false]
   Ρ minecraft:tripwire_hook[attached=true,facing=west,powered=false]
-layer -39:
+layer -43:
   ....ΛΛΛΛΛΛΛ
   ....Λ
   ....Λ
@@ -226,7 +228,7 @@ layer -39:
   .
   .
   .
-layer -38:
+layer -42:
   ....ÛýÔÖÚý!
   ....{.....Λ
   ....).Λ
@@ -241,7 +243,7 @@ layer -38:
   ........ΛΛ
   .
   .
-layer -37:
+layer -41:
   .
   .........ΛÄ
   ......3ΛΛΛΛ
@@ -256,7 +258,7 @@ layer -37:
   ........ÒÈ
   ........Λ
   .
-layer -36:
+layer -40:
   ....ΛΛΛΛΛΛΛΛΛ
   ........Λà..Λ
   ......ΛýõîÆ.Λ
@@ -271,7 +273,7 @@ layer -36:
   ...........Λ.Λ
   ........úΛΛΛ.Λ
   ........ΛΛΛ
-layer -35:
+layer -39:
   ....ÙÚýΖΖΖΖΖ=
   ΛΛΛΛΛΛ.ΛÞ...Θ
   ..Λ.ΛΛ2Λ....Θ
@@ -286,7 +288,7 @@ layer -35:
   .........ΛΛÿ.ÿ
   .........ôΒIΛ/
   ........çüü
-layer -34:
+layer -38:
   .
   áß?gëýΛÝ
   Λ.Â.GüΛüΛ
@@ -301,7 +303,7 @@ layer -34:
   .........ÕË
   ...........ΛÍ
   .
-layer -33:
+layer -37:
   .
   ......Ü
   Å.....g.\
@@ -316,7 +318,7 @@ layer -33:
   ....Λ..P
   ...ΛΛΛΛΛΛΛΛÍ
   .
-layer -32:
+layer -36:
   .
   .
   .
@@ -331,7 +333,7 @@ layer -32:
   ..Λ.Ê..g
   ...ÌäÌÌÌÌÌÌ
   .
-layer -31:
+layer -35:
   .
   .
   .
@@ -346,7 +348,7 @@ layer -31:
   ..gg
   .
   .
-layer -30:
+layer -34:
   .
   .
   .
@@ -361,7 +363,7 @@ layer -30:
   .
   .
   .
-layer -29:
+layer -33:
   .
   .
   .
@@ -376,7 +378,7 @@ layer -29:
   .
   .
   .
-layer -28:
+layer -32:
   .
   .
   .
@@ -391,7 +393,7 @@ layer -28:
   .
   .
   .
-layer -27:
+layer -31:
   .
   .
   .
@@ -406,7 +408,7 @@ layer -27:
   .
   .
   .
-layer -26:
+layer -30:
   .
   .
   .
@@ -421,7 +423,7 @@ layer -26:
   .
   .
   .
-layer -25:
+layer -29:
   .
   .
   .
@@ -436,7 +438,7 @@ layer -25:
   .
   .
   .
-layer -24:
+layer -28:
   .
   .
   .
@@ -445,6 +447,66 @@ layer -24:
   ..g
   .g.g
   ..g
+  .
+  .
+  .
+  .
+  .
+  .
+layer -27:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -26:
+  .
+  .
+  .
+  .
+  .
+  .
+  ..Y
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -25:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -24:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
   .
   .
   .
@@ -473,7 +535,7 @@ layer -22:
   .
   .
   .
-  ..Y
+  .
   .
   .
   .

@@ -647,7 +647,7 @@ pub fn sketch_part(tracks: &[(String, Vec<P>, [bool; 2])], carts: &[(P, Option<f
 
 /// A rail block's shape, from its state string (`minecraft:rail[shape=north_east,...]`, powered,
 /// detector and activator rails alike); None for anything else.
-fn rail_shape_of(state: &str) -> Option<&str> {
+pub fn rail_shape_of(state: &str) -> Option<&str> {
     let base = state.strip_prefix("minecraft:").unwrap_or(state);
     if !(base.starts_with("rail[") || base.starts_with("powered_rail[") || base.starts_with("detector_rail[") || base.starts_with("activator_rail[")) {
         return None;
