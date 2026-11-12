@@ -92,8 +92,13 @@ fn trial(spec: &FarmSpec, stages: i32, freeze: Option<(i64, i64)>, ticks: i64) -
 /// latched start (ironspec 20:45, G1 21:35): P set at each trigger and held, the chain's input on
 /// while P is set, P cleared when stage 1 rises; so a freeze can only carry a start late (the wave is
 /// then stage 1's 2-gt pulse, the nominal width 2).
-pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i64, pulses: i64, pb: bool) -> Result<Vec<String>, String> {
-    let width = if pb { 2 } else { width };
+pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i64, pulses: i64, pb: bool, pb_stage: i32) -> Result<Vec<String>, String> {
+    // (P/B: P clears (and B sets) on stage `pb_stage`'s rise: 1 makes a 2-gt wave, which a freeze can
+    // break mid-chain (stage k's fall and stage k+1's rise share a gt; the last stage drives no diode
+    // and holds behind its locker while its predecessor's fall runs first: G1/ironspec Nov 11 22:48);
+    // 2 makes a 4-gt wave, a stage always on between the falling and the rising one)
+    let width = if pb { 2 * pb_stage.max(1) as i64 } else { width };
+    let pb_cell = BlockPos::new(pb_stage.max(1), 1, 0);
     let horizon = every * pulses + 2 * stages as i64 + len + 40;
     let run_one = |freeze: Option<(i64, i64)>| -> Result<Vec<Vec<(i64, bool)>>, String> {
         let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
@@ -127,8 +132,8 @@ pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i6
                 }
             }
             run.tick();
-            // (P/B: stage 1 has risen: the wave entered the chain, P clears)
-            if pb && p_set && run.world.get(BlockPos::new(1, 1, 0)).to_string().contains("powered=true") {
+            // (P/B: stage `pb_stage` has risen: the wave entered the chain, P clears)
+            if pb && p_set && run.world.get(pb_cell).to_string().contains("powered=true") {
                 p_set = false;
                 run.world.set_block(BlockPos::new(0, 1, 0), air.clone(), redsim::world::flags::ALL);
             }

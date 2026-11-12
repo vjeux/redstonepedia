@@ -758,6 +758,8 @@ pub struct LaneOpts {
     pub jump_every: bool,
     /// Strict rhythm: a strand outlier, one trip + ADD gt every EVERY gt of play: (EVERY, ADD).
     pub outlier: Option<(i64, i64)>,
+    /// Strict rhythm: the lift's foot to the lane hold, gt (the trip range being the bed's cycle).
+    pub post: i64,
 }
 
 /// The lane model's report line.
@@ -780,6 +782,7 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
     let mut bed_free_at: i64 = i64::MIN;
     let mut bed_q: Vec<(i64, i64)> = Vec::new();
     let (mut max_queue, mut outliers) = (0usize, 0usize);
+    let mut max_trip: i64 = 0;
     let mut next_outlier: i64 = o.outlier.map_or(i64::MAX, |(every, _)| every / 2);
     let mut lane_len_hist: std::collections::BTreeMap<usize, u64> = std::collections::BTreeMap::new();
     let mut night_idx: Option<i64> = None;
@@ -926,7 +929,7 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
                 // (strict rhythm: the one bed queues: 60 gt to the bed, sleep (trip - 120) from when
                 // the bed frees, 60 back; LAST_SLEEP at the lie-down)
                 let back = if o.turns == 3 {
-                    // (a strand outlier: one trip + ADD every EVERY gt of play)
+                    // (a strand outlier: one bed cycle + ADD every EVERY gt of play)
                     let extra = if let Some((every, add)) = o.outlier
                         && t >= next_outlier
                     {
@@ -936,17 +939,23 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
                     } else {
                         0
                     };
+                    // (ironspec Nov 11 22:46: the trip range is the bed's cycle, entry -> R -> the
+                    // returning napper at the lift's foot (the queue releases on that evidence); 60 gt
+                    // from the divert to the stop's entry before it, `post` from the lift's foot to the
+                    // lane hold after it)
                     let arrive = t + 60;
                     let start = arrive.max(bed_free_at);
                     // (the bed queue: nappers arrived and still waiting at this arrival)
                     bed_q.retain(|(_, s)| *s > arrive);
                     let depth = bed_q.iter().filter(|(a, s)| *a <= arrive && *s > arrive).count() + usize::from(start > arrive);
                     max_queue = max_queue.max(depth);
-                    let sleep = (drawn + extra - 120).max(1);
-                    bed_free_at = start + sleep;
+                    let cycle = (drawn + extra).max(1);
+                    bed_free_at = start + cycle;
                     bed_q.push((arrive, start));
-                    last_sleep[cart] = Some(start);
-                    start + sleep + 60
+                    last_sleep[cart] = Some(start + 20);
+                    let back = start + cycle + o.post;
+                    max_trip = max_trip.max(back - t);
+                    back
                 } else {
                     t + drawn
                 };
@@ -981,7 +990,7 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
     let per_day: Vec<String> = golems_day.iter().filter(|(d, _)| **d >= o.warmup as i64 - 1).map(|(d, g)| format!("d{d} {g}")).collect();
     let lens: Vec<String> = lane_len_hist.iter().map(|(l, n)| format!("{l}:{n}")).collect();
     format!(
-        "Q2 {} lanes x {} ({} villagers), {} bed(s){}, k {}{}, {}, {} skipped a day{}{}: golems a day {:.1}; lost a day: self-lock {:.2}, expired {:.2}, a lane empty {:.2}, held by a skip {:.2}; the shortest lane at any summon {} (summon ticks with a lane below {}: {:.1}%; lane lengths at the summons (length:lane-ticks) {}); the least turn spacing of any rider {} gt; fewest distinct nappers in a night {}, nights short of {}: {}; the deepest bed queue {} (strand outliers {}); golems each day: {}",
+        "Q2 {} lanes x {} ({} villagers), {} bed(s){}, k {}{}, {}, {} skipped a day{}{}: golems a day {:.1}; lost a day: self-lock {:.2}, expired {:.2}, a lane empty {:.2}, held by a skip {:.2}; the shortest lane at any summon {} (summon ticks with a lane below {}: {:.1}%; lane lengths at the summons (length:lane-ticks) {}); the least turn spacing of any rider {} gt; fewest distinct nappers in a night {}, nights short of {}: {}; the deepest bed queue {} (strand outliers {}; the longest trip, the divert to the lane hold with the queue wait, {} gt); golems each day: {}",
         o.lanes, o.per_lane, n, o.beds,
         match o.turns { 1 => ", the lanes take the bed in sequence", 2 => ", the lanes take the bed round-robin", 3 => ", strict rhythm (lane l at cycles = l*k mod lanes*k; the bed queues)", _ => "" },
         o.k,
@@ -1005,6 +1014,7 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
         short_nights,
         max_queue,
         outliers,
+        max_trip,
         per_day.join(", ")
     )
 }
