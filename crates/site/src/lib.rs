@@ -337,7 +337,7 @@ pub struct PreviewArgs {
 pub struct VariationArgs {
     /// Farm design files (each passes its kind's judge on redsim, and a mob farm the real-game
     /// gate `circuit archive` runs).
-    #[arg(required_unless_present_any = ["regate", "relight"])]
+    #[arg(required_unless_present_any = ["regate", "relight", "reexpose"])]
     pub designs: Vec<PathBuf>,
     /// The farm (its folder under designs/farms/).
     #[arg(long, default_value = "iron")]
@@ -378,6 +378,14 @@ pub struct VariationArgs {
     /// fire measure's re-card, "that line only"). A row with no lightning line is left as it is.
     #[arg(long, conflicts_with_all = ["regate", "no_gate", "pick", "pick_for", "name", "restore"])]
     pub relight: bool,
+    /// Measure only the worst-case natural-mob lines again (`hostile::check`: the card's
+    /// `exposures` and `hostile break days`), for the stage's every variation (or the designs
+    /// named): judged on redsim (no game gate), those two metrics replaced in its row and its
+    /// design's `# CIRCUIT:` line, the rest of the row and its date kept (the parent 2026-11-11:
+    /// the flood's fall through a block fixed, the cards re-judged). A row with no exposures line
+    /// is left as it is.
+    #[arg(long, conflicts_with_all = ["regate", "no_gate", "pick", "pick_for", "name", "restore", "relight"])]
+    pub reexpose: bool,
 }
 
 #[derive(Args)]
