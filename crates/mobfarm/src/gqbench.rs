@@ -82,6 +82,10 @@ pub struct GqOpts {
     pub esc_sensor: bool,
     /// Edge escapement: the hold's room by count (fills since the last release under 3).
     pub fill_count: bool,
+    /// The jam's reset at this tick: every empty cart broken, the latches re-read, G0 re-kicked.
+    pub reset_at: i64,
+    /// The hold's release gates shut once Ds has counted the carts latched at the release.
+    pub hold_close_ds: bool,
     /// (cc767b78) day-1's live-time cycle clock and liveness gate (`crate::liveness`): the cycle
     /// restarts at each golem event (the column live at a summon boundary: a frozen column makes
     /// none), every pulse (the hold's release at T+3, G_P and G0's openings, the tail chain's
@@ -567,6 +571,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut staged = false;
     let mut gp_cond_was = false;
     let mut fills_since: usize = 0;
+    let mut release_n: usize = 0;
+    let mut ds_since: usize = 0;
+    let mut gone: Vec<bool> = vec![false; o.carts];
+    let mut reset_log = String::new();
     let mut esc_was_on = false;
     let mut last_gp: i64 = i64::MIN / 2;
     let mut owed_at: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
@@ -774,7 +782,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 ids[k] = None;
                 sunk += 1;
                 let last = pending.iter().map(|p| p.0).max().unwrap_or(i64::MIN / 2);
-                pending.push(((t + o.ret).max(last + o.ret_gap), k));
+                if !gone[k] {
+                    pending.push(((t + o.ret).max(last + o.ret_gap), k));
+                }
                 launched_into_run.remove(&k);
             }
         }
@@ -808,6 +818,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     if h == 3 {
                         // (Ds: the hold's front pocket left)
                         occ_h[2] = false;
+                        ds_since += 1;
                     } else {
                     occ_h[h] = true;
                     if h > 0 {
@@ -842,6 +853,42 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             }
             esc_was_on = on;
         }
+        // (the jam's reset (ironspec 18:48), at --reset-at T: the player breaks every empty cart (the
+        // merged pair first: the carts are simply removed), then presses the escapement's reset: the
+        // latches re-read from where the carts are (each hold pocket latched if a cart is in it, the
+        // fill count from them), and G0 fires once if P holds no cart (else P's cart counts as staged))
+        if o.reset_at > 0 && t == o.reset_at {
+            let mut broken = Vec::new();
+            for k in 0..o.carts {
+                if !ridden_k(k) {
+                    if let Some(id) = ids[k] {
+                        let _ = redsim::entity::kill(&mut run.world, id);
+                        ids[k] = None;
+                    }
+                    // (a riderless cart off the queue's track (on the climb or in the stand) is broken
+                    // there too: the census names it)
+                    gone[k] = true;
+                    broken.push(k);
+                }
+            }
+            pending.retain(|p| !gone[p.1]);
+            pool.retain(|k| !gone[*k]);
+            let now2: Vec<Option<(f64, f64, f64)>> = ids.iter().map(|id| id.and_then(|id| cart_state(&run.world, id))).collect();
+            for j in 0..3 {
+                let px = g.hold_p[j].0 as f64;
+                let next = if j < 2 { g.hold_p[j + 1].0 as f64 } else { h2_face + 0.5 };
+                occ_h[j] = now2.iter().any(|c| c.is_some_and(|(x, _, _)| x >= px && x < next));
+            }
+            fills_since = occ_h.iter().filter(|b| **b).count();
+            let p_has = now2.iter().any(|c| c.is_some_and(|(x, _, _)| x >= g.g0_plane - 0.5 && x < g.gp_plane));
+            if p_has {
+                staged = true;
+            } else {
+                eg0_until = t + 12;
+                staged_at = Some(t);
+            }
+            reset_log = format!("t {t}: broke the empty carts {broken:?}; latches re-read: hold {occ_h:?}, fills {fills_since}; P {}", if p_has { "held a cart (staged)" } else { "empty: G0 fired once" });
+        }
         // (the cycle: T = warm + 100 c; the hold at T+3; the escapement at A+6 / A+13)
         let ph = (t - warm - o.corner).rem_euclid(100);
         let in_cycles = t >= warm;
@@ -863,6 +910,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             }
             next_at_front = None;
             let held = occ_h.iter().filter(|b| **b).count();
+            release_n = held;
+            ds_since = 0;
             hold_at_release.push((t, held));
             hold_release_until = t + o.hold_pulse;
             hold_release_at = t;
@@ -1034,7 +1083,15 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     // (together: every hold gate open for hold_pulse from T+3; a ripple of D: the
                     // front gate at T+3, each gate behind D gt later, each for hold_pulse)
                     let from = hold_release_at + if o.hold_ripple > 0 { (2 - *j as i64) * o.hold_ripple } else { 0 };
-                    let until = hold_release_at + 2 * o.hold_ripple.max(0) + o.hold_pulse;
+                    let mut until = hold_release_at + 2 * o.hold_ripple.max(0) + o.hold_pulse;
+                    // (--hold-close-ds: the release's gates shut once Ds has counted as many leaving
+                    // edges as carts were latched at the release (evidence, ruling (a)); hold_pulse
+                    // the cap)
+                    if o.hold_close_ds && hold_release_at >= 0 {
+                        if ds_since >= release_n && t > hold_release_at {
+                            until = until.min(t);
+                        }
+                    }
                     if hold_release_at >= 0 && t >= from && t < until {
                         true
                     } else if *j == 2 {
@@ -1198,6 +1255,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     }
     let _ = &merged_pairs;
     l.push(format!("the front cart at G0's face: the highest stored speed at rest {front_v_max:.3}; backward moves in the run (a cart moving back up it by 0.05 or more in a tick) {back_moves}, the largest {back_max:.3} b/t"));
+    if !reset_log.is_empty() {
+        l.push(format!("the jam's reset: {reset_log}"));
+    }
     l.push(format!("merges (two carts' centres within 0.5; separated when 0.9 apart): {}{}", merge_log.len(), if merge_log.is_empty() { String::new() } else { format!(" ({})", merge_log.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }));
     l.push(format!("the pressed run's fill (carts on its slopes) at its emptiest after the first cycle: {} (t {}); the tail chain's most carts: {tail_max}", if run_min.0 == usize::MAX { 0 } else { run_min.0 }, run_min.1));
     l.push(format!(
