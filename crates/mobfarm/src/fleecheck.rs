@@ -1133,7 +1133,8 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
     lines.push(format!("places and riders fully covered: {} of {}{}", labels.len() - open.len(), labels.len(), if open.is_empty() { String::new() } else { format!("; not: {}", open.join(", ")) }));
     for (c, _, o) in &chosen {
         let mob = if pillager { "pillager" } else { "zombie" };
-        lines.push(format!("entity: minecraft:oak_boat {}.5 {} {}.5 {{Passengers:[{{id:\"minecraft:{mob}\",PersistenceRequired:1b}}]}}", c.x, c.y, c.z));
+        // (the boat at the cell's centre, x + 0.5 as a number: "{x}.5" read x - 0.5 for a negative x)
+        lines.push(format!("entity: minecraft:oak_boat {} {} {} {{Passengers:[{{id:\"minecraft:{mob}\",PersistenceRequired:1b}}]}}", c.x as f64 + 0.5, c.y, c.z as f64 + 0.5));
         // (the post's blocks: stone floor, roof and the three walls, the open side's two cells air)
         let mut blocks = Vec::new();
         if any_floor {
