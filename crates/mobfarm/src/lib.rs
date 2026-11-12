@@ -34,6 +34,7 @@ pub mod ctlcounter;
 pub mod ctldivert;
 pub mod ctljunction;
 pub mod ctllatch;
+pub mod ctlhigh;
 pub mod holdpulse;
 pub mod mirror;
 pub mod recordmatch;
