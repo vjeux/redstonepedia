@@ -46,6 +46,9 @@ pub struct ReturnOpts {
     pub reverse: bool,
     /// The three releases' offsets in the batch (in merge order); default 0, spacing, 2 spacing.
     pub offsets: Vec<i64>,
+    /// One release-time shift per cart (batch-major, merge order), added to its offset: the ± 2
+    /// corners.
+    pub jitter: Vec<i64>,
     /// The lift one lower and the split flat at the exit's level (y 22), the branches with it.
     pub flat: bool,
     /// L1: the releases run on game ticks through a freeze (default L2: on live time).
@@ -64,13 +67,23 @@ pub struct ReturnOpts {
     /// A seeded misroute: cart K finds J(-1) the other way once.
     pub seed_miss: Option<usize>,
     /// A save, stop and start between two ticks at this tick (the lead's L1 rows).
-    pub restart: Option<i64>,
+    pub restart: Option<(i64, crate::liveness::Restart)>,
     /// 9fc3155f's z 7 shift: the merge row, the shared lift and the hold one cell north.
     pub z7: bool,
     /// ironfarm's drop entry (ironspec 01:17): the split's row along z 10 at y 24 feeding each
     /// lane's 2-cell branch (x,24,9) -> (x,24,8) (the detector) -> the merge curve (x,24,7); the
     /// lift's water to 24, the exit at 25.
     pub row10: bool,
+    /// The in-chunk split (ironspec 02:13): the row along z 9 at y 25, each lane's branch one
+    /// detector slope (x,24,8) down to the merge curve (x,24,7); the lift's water to 24.
+    pub row9: bool,
+    /// `row9`: the booster on the exit's cell (-5,25,8) instead of the row's first cell.
+    pub boost_exit: bool,
+    /// `row9 --boost-exit`: the lift's water to 22 and the exit at 23, the cart climbing two slopes
+    /// to the row at 25 (the delivery mid-band, ironspec 04:10).
+    pub climb2: bool,
+    /// `climb2`: the first climbing slope a powered rail (the booster) instead of the exit's cell.
+    pub boost_slope: bool,
     /// The station's real departure: three boosters (powered rails, on) on each lane's last three
     /// cells before the merge row (dfb89499); the arming detector at the station's exit detector
     /// (x,0,2).
@@ -120,6 +133,9 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
         put(8, -1, mz, &glass);
         put(9, 0, mz, &glass);
     }
+    // (the merge's Ts keep their shapes by placement order (ironspec 02:47): each placed after its two
+    // intended arms (NW: the lane and the downstream row), with no signal source able to update it;
+    // lane 7's curve is a T once the hold's line joins from the east, laid before that line)
     put(7, -1, mz, &glass);
     for x in -4..=6 {
         // (with `boosters` (the reverse order) the arming detector on the main line (5,0,mz), past the
@@ -133,7 +149,7 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
     // (the shared lift: water to `top`, the exit one over it; `flat`: the lift one lower and the
     // split flat at the exit's level, the branches with it (9fc3155f: "if the split runs flat at
     // the exit's level instead, the lift and the module stay one lower"))
-    let top = if o.row10 { 24 } else if o.flat || o.dip { 21 } else { 22 };
+    let top = if o.row9 && o.climb2 { 22 } else if o.row10 || o.row9 { 24 } else if o.flat || o.dip { 21 } else { 22 };
     let ex = top + 1;
     put(-5, -1, mz, &Block::parse("minecraft:soul_sand")?);
     put(-5, -2, mz, &glass);
@@ -155,12 +171,95 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
     }
     // (the exit: pushed +z from the top air cell; with the lift at z 7 one straight cell (-5,ex,8)
     // before the curve onto the split)
-    if mz == 7 && !o.row10 {
+    if mz == 7 && !o.row10 && !o.row9 {
         put(-5, ex, 8, &rail("north_south")?);
     }
     // (the split along z 9: `jy` the junctions' level: the exit's (sloped / flat) or, `dip`, one
     // under it (the exit (-4,22,9) then a slope down (-3,21,9): fast through the junctions), each
     // branch climbing back up (x,22,7) (its detector) to the flat (x,22,6) (slow at the branches))
+    if o.row9 {
+        // (`row9` (ironspec 02:13, in-chunk): the exit at y 25 (the lift's water to 24) north to the
+        // curve (-5,25,9), a powered rail on a redstone block (-4,25,9), the row along z 9 at y 25:
+        // J(-1) (-1,25,9), J(3) (3,25,9), lane 7's end J(7) (7,25,9), the row's detectors (1,25,9)
+        // and (5,25,9), the 4th route (8,25,9), (9,25,9); each lane's branch one cell: a detector
+        // slope (x,24,8) (ascending south: up to the junction, down north to the lane's merge curve
+        // (x,24,7)), the guard; diagonal to its junction, so no face of the junction touches it;
+        // the junction's support (x,24,9) glass (no conductor))
+        for z in mz + 1..=8 {
+            put(-5, ex, z, &rail("north_south")?);
+            put(-5, ex - 1, z, &glass);
+        }
+        put(-5, ex, 9, &rail("north_east")?);
+        put(-5, ex - 1, 9, &glass);
+        // (the booster: on the row's first cell, or with `boost_exit` on the exit's cell (-5,25,8), a
+        // redstone block as the shaft's south wall under it, so the carts roll farther before J(-1);
+        // with `climb2 --boost-slope` the first climbing slope is the booster instead)
+        if o.climb2 && o.boost_slope {
+            put(-4, ex, 9, &Block::parse("minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]")?);
+            put(-4, ex - 1, 9, &Block::parse("minecraft:redstone_block")?);
+            put(-3, ex + 1, 9, &rail("ascending_east")?);
+            put(-3, ex, 9, &glass);
+        } else if o.boost_exit {
+            put(-5, ex, 8, &Block::parse("minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]")?);
+            put(-5, ex - 1, 8, &Block::parse("minecraft:redstone_block")?);
+            if o.climb2 {
+                // (`climb2` (ironspec 04:10, the delivery mid-band): the exit two under the row, the
+                // booster's cart climbing two slopes (-4,23,9) and (-3,24,9) up to the row at y 25)
+                put(-4, ex, 9, &rail("ascending_east")?);
+                put(-4, ex - 1, 9, &glass);
+                put(-3, ex + 1, 9, &rail("ascending_east")?);
+                put(-3, ex, 9, &glass);
+            } else {
+                put(-4, ex, 9, &rail("east_west")?);
+                put(-4, ex - 1, 9, &glass);
+            }
+        } else {
+            put(-4, ex, 9, &Block::parse("minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]")?);
+            put(-4, ex - 1, 9, &Block::parse("minecraft:redstone_block")?);
+        }
+        for x in (if o.climb2 { -2 } else { -3 })..=6 {
+            // (G1: the junctions J(-1), J(3) as the game shapes them: NE unpowered (a cart from the west
+            // crosses by the free side and goes on east), NW powered (into the branch))
+            let r = if x == 1 || x == 5 { det("east_west")? } else if x == -1 || x == 3 { rail("north_east")? } else { rail("east_west")? };
+            put(x, 25, 9, &r);
+            put(x, 24, 9, &glass);
+        }
+        put(7, 25, 9, &rail("north_west")?);
+        put(7, 24, 9, &glass);
+        // (the junctions' switches, emulated: a lever over each (face ceiling, on glass at y 27), the
+        // latch's output; J(-1), J(3) laid NE (off), J(7) NW (on: lane 7) when the 4th route makes it
+        // a T; the bench toggles the levers, the rails shape themselves)
+        for (jx, on) in [(-1, false), (3, false), (7, true)] {
+            if jx == 7 && o.napper_delay.is_none() {
+                continue;
+            }
+            put(jx, 26, 9, &Block::parse(&format!("minecraft:lever[face=ceiling,facing=north,powered={on}]"))?);
+            put(jx, 27, 9, &glass);
+        }
+        if o.napper_delay.is_some() {
+            for x in 8..=9 {
+                put(x, 25, 9, &rail("east_west")?);
+                put(x, 24, 9, &glass);
+            }
+        }
+        for x in LANES {
+            put(x, 24, 8, &det("ascending_south")?);
+            put(x, 23, 8, &glass);
+            put(x, 24, 7, &rail("north_south")?);
+            put(x, 23, 7, &glass);
+        }
+        return Ok(FarmSpec {
+            blocks: b,
+            entities: Vec::new(),
+            output: BlockPos::new(10, 0, 0),
+            lo: BlockPos::new(-20, -3, -2),
+            hi: BlockPos::new(11, 28, 11),
+            block_entities: Vec::new(),
+            rock: false,
+            nether: None,
+            land: false,
+        });
+    }
     if o.row10 {
         // (`row10` (ironspec 01:17, ironfarm's drop entry): the exit at y 25 (the lift's water to
         // 24), north along x -5 to the curve (-5,25,10), a slope down (-3,24,10) onto the row along
@@ -185,6 +284,8 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
                 Block::parse("minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]")?
             } else if x == 1 || x == 5 {
                 det("east_west")?
+            } else if x == -1 || x == 3 {
+                rail("north_east")?
             } else {
                 rail("east_west")?
             };
@@ -193,6 +294,13 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
         }
         put(7, 24, 10, &rail("north_west")?);
         put(7, 23, 10, &glass);
+        for (jx, on) in [(-1, false), (3, false), (7, true)] {
+            if jx == 7 && o.napper_delay.is_none() {
+                continue;
+            }
+            put(jx, 25, 10, &Block::parse(&format!("minecraft:lever[face=ceiling,facing=north,powered={on}]"))?);
+            put(jx, 26, 10, &glass);
+        }
         if o.napper_delay.is_some() {
             for x in 8..=9 {
                 put(x, 24, 10, &rail("east_west")?);
@@ -226,7 +334,7 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
     put(-4, ex - 1, 9, &if o.boost { Block::parse("minecraft:redstone_block")? } else { glass.clone() });
     put(-4, ex + 1, 9, &glass);
     for x in -3..=6 {
-        let r = if o.dip && x == -3 { rail("ascending_west")? } else if x == 1 || x == 5 { det("east_west")? } else { rail("east_west")? };
+        let r = if o.dip && x == -3 { rail("ascending_west")? } else if x == 1 || x == 5 { det("east_west")? } else if x == -1 || x == 3 { rail("north_east")? } else { rail("east_west")? };
         put(x, jy, 9, &r);
         put(x, jy - 1, 9, &glass);
     }
@@ -275,6 +383,8 @@ struct Cart {
     launch_live: i64,
     lane: Option<i32>,
     branch_v: Option<f64>,
+    /// The stored speed entering the lane's merge cell (`row9`: after the branch slope).
+    merge_v: Option<f64>,
     branch_t: Option<i64>,
     least_air: i32,
     hurt: f32,
@@ -282,6 +392,10 @@ struct Cart {
     eye_in_wall: u32,
     dismounted: Option<i64>,
     met_shaft: Option<i64>,
+    /// The rider's feet at y 12.01 (9fc3155f's summon-box exit), live gt after release.
+    reach12: Option<i64>,
+    /// The rider's highest head y (feet + 1.95).
+    head: f64,
     /// The speed pin (ironspec 01:19): the least stored horizontal speed and the least per-tick
     /// horizontal displacement on the merge row (y 0, from the row to the shaft) and on the split's
     /// row; the last position.
@@ -319,41 +433,312 @@ fn in_wall(w: &redsim::world::World, x: f64, feet: f64, z: f64) -> bool {
     false
 }
 
+/// One junction driven (G1, CHANGES 3 on 261a90ca3): with `real` the junction's support block under
+/// it (x, y - 1, z) is a redstone block while powered and glass while not, and the game's own rail
+/// update shapes the T (NW powered, NE unpowered: `RailBlock.updateState` -> `updateDir`); without,
+/// the shape set directly (the older splits).
+fn drive_j(w: &mut redsim::world::World, real: bool, x: i32, y: i32, z: i32, on: bool) -> Result<(), String> {
+    if real {
+        // (a lever over the junction (face ceiling, on the glass two over it): its toggle is a signal
+        // source's update, so the rail runs its own `updateDir` with the power it now sees)
+        let b = Block::parse(&format!("minecraft:lever[face=ceiling,facing=north,powered={on}]"))?;
+        w.set_block(BlockPos::new(x, y + 1, z), b, redsim::world::flags::ALL);
+    } else {
+        let s = if on { "north_west" } else { "north_east" };
+        w.set_block(BlockPos::new(x, y, z), Block::parse(&format!("minecraft:rail[shape={s},waterlogged=false]"))?, redsim::world::flags::ALL);
+    }
+    Ok(())
+}
+
+/// One run's failure counts and margins (the sweeps' verdict per row).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Summary {
+    pub wrong: usize,
+    pub pushes: usize,
+    /// The napper not on the 4th route (with `napper_delay`).
+    pub napper_off: bool,
+    /// Riders hurt, with an eye-in-wall tick, or dismounted.
+    pub riders_bad: usize,
+    /// With `restart`: the entities the restart brought back under new ids (0: nothing reloaded).
+    pub restarted: usize,
+    /// The least shaft-entry gap between a batch's carts (live gt).
+    pub gap_min: i64,
+    /// The napper's shaft-entry gap behind batch 0's third cart and ahead of batch 1's first.
+    pub napper_behind: Option<i64>,
+    pub napper_ahead: Option<i64>,
+    /// The batch carts' stored speed entering their branch (min, max) and entering the lane's merge
+    /// cell (min, max).
+    pub v_branch: (f64, f64),
+    pub v_merge: (f64, f64),
+    /// The riders' highest head y.
+    pub head: f64,
+}
+
+impl Summary {
+    pub fn clean(&self) -> bool {
+        self.wrong == 0 && self.pushes == 0 && !self.napper_off && self.riders_bad == 0
+    }
+
+    /// Every bar (ironspec): clean, the shaft-entry gaps >= 21, the napper >= 28 behind and >= 21
+    /// ahead, the heads under the roof's underside at 28, each lane's delivery (stored, entering its
+    /// merge cell) inside ironfarm's 0.30..0.48.
+    pub fn bars(&self) -> bool {
+        self.clean()
+            && self.gap_min >= 21
+            && self.napper_behind.is_none_or(|g| g >= 28)
+            && self.napper_ahead.is_none_or(|g| g >= 21)
+            && self.head < 28.0
+            && (!self.v_merge.0.is_finite() || (self.v_merge.0 >= 0.30 && self.v_merge.1 <= 0.48))
+    }
+}
+
 /// One run's report.
 pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
+    return_run(o).map(|(s, _)| s)
+}
+
+/// Runs `jobs` (a label and the options for each row) on 16 threads; the rows sorted by label.
+fn run_rows(jobs: Vec<(String, ReturnOpts)>) -> Result<Vec<(String, Result<Summary, String>)>, String> {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results = std::sync::Mutex::new(Vec::<(usize, String, Result<Summary, String>)>::new());
+    std::thread::scope(|s| {
+        for _ in 0..16 {
+            s.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some((label, oi)) = jobs.get(i) else { break };
+                    let r = return_run(oi).map(|(_, s)| s);
+                    if let Ok(mut v) = results.lock() {
+                        v.push((i, label.clone(), r));
+                    }
+                }
+            });
+        }
+    });
+    let mut v = results.into_inner().map_err(|e| e.to_string())?;
+    v.sort_by_key(|r| r.0);
+    Ok(v.into_iter().map(|(_, l, r)| (l, r)).collect())
+}
+
+/// The rows' verdict against every bar ([`Summary::bars`]) and the ranges over them: the least
+/// shaft-entry gap, the napper's least gaps, the branch and merge-cell speeds, the highest head.
+fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
+    let ok: Vec<&Summary> = v.iter().filter_map(|(_, r)| r.as_ref().ok()).collect();
+    let bad: Vec<String> = v
+        .iter()
+        .filter(|(_, r)| !r.as_ref().is_ok_and(Summary::bars))
+        .map(|(l, r)| match r {
+            Ok(s) => format!(
+                "{l}: wrong {} pushes {} napper {} riders {} gap {} napper {:?}/{:?} head {:.2}",
+                s.wrong,
+                s.pushes,
+                if s.napper_off { "OFF" } else { "ok" },
+                s.riders_bad,
+                s.gap_min,
+                s.napper_behind,
+                s.napper_ahead,
+                s.head
+            ),
+            Err(e) => format!("{l}: error {e}"),
+        })
+        .collect();
+    let lo = |f: &dyn Fn(&Summary) -> f64| ok.iter().map(|s| f(s)).fold(f64::INFINITY, f64::min);
+    let hi = |f: &dyn Fn(&Summary) -> f64| ok.iter().map(|s| f(s)).fold(f64::NEG_INFINITY, f64::max);
+    let nap = |f: &dyn Fn(&Summary) -> Option<i64>| ok.iter().filter_map(|s| f(s)).min().map_or("-".into(), |g| g.to_string());
+    format!(
+        "{} rows; the least shaft-entry gap {}; the napper's least gap behind {} and ahead {}; branch entry stored {:.3}..{:.3}, merge-cell entry {:.3}..{:.3}; the highest head {:.3}; rows with a wrong lane, a push, the napper off its route or a rider hurt: {}; rows under a nominal bar: {}{}",
+        v.len(),
+        ok.iter().map(|s| s.gap_min).min().unwrap_or(i64::MIN),
+        nap(&|s: &Summary| s.napper_behind),
+        nap(&|s: &Summary| s.napper_ahead),
+        lo(&|s: &Summary| s.v_branch.0),
+        hi(&|s: &Summary| s.v_branch.1),
+        lo(&|s: &Summary| s.v_merge.0),
+        hi(&|s: &Summary| s.v_merge.1),
+        hi(&|s: &Summary| s.head),
+        v.iter().filter(|(_, r)| !r.as_ref().is_ok_and(Summary::clean)).count(),
+        bad.len(),
+        if bad.is_empty() { String::new() } else { format!(": {}", bad.iter().take(30).cloned().collect::<Vec<_>>().join("; ")) }
+    )
+}
+
+/// The restart sweep (ironspec's L1 rows, G1): the bench once per tick T in `from..=to` and per
+/// order in `liveness::Restart::rows()` (save, reverse, seed:1..8), on 16 threads; the rows against
+/// every bar, and the same configuration without a restart.
+pub fn restart_sweep(o: &ReturnOpts, from: i64, to: i64) -> Result<String, String> {
+    let quiet = |r: Option<(i64, crate::liveness::Restart)>| ReturnOpts { restart: r, trace: None, out: None, ..o.clone() };
+    let (_, base) = return_run(&quiet(None))?;
+    let rows = crate::liveness::Restart::rows();
+    let jobs: Vec<(String, ReturnOpts)> = (from..=to).flat_map(|t| rows.iter().map(move |r| (t, *r))).map(|(t, r)| (format!("t {t} {}", r.label()), quiet(Some((t, r))))).collect();
+    let v = run_rows(jobs)?;
+    let reloaded = v.iter().filter(|(_, r)| r.as_ref().is_ok_and(|s| s.restarted > 0)).count();
+    Ok(format!(
+        "restart sweep (liveness::restart, a save/stop/start between two ticks): every tick {from}..={to} x {} orders ({}), {reloaded} rows reloading entities under new ids; the run without a restart {}; {}",
+        rows.len(),
+        rows.iter().map(|r| r.label()).collect::<Vec<_>>().join(", "),
+        if base.bars() { "meets every bar".to_string() } else { format!("FAILS ({base:?})") },
+        verdict(&v)
+    ))
+}
+
+/// The ± 2 corners: every pattern of release shifts in {-2, 0, +2} over batches 0 and 1's carts
+/// (3^6 = 729 rows; batch 2 nominal), on 16 threads, against every bar.
+pub fn jitter_sweep(o: &ReturnOpts) -> Result<String, String> {
+    let mut jobs = Vec::new();
+    for code in 0..729usize {
+        let mut j = Vec::new();
+        let mut c = code;
+        for _ in 0..6 {
+            j.push([-2i64, 0, 2][c % 3]);
+            c /= 3;
+        }
+        let label = format!("jitter {}", j.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(","));
+        jobs.push((label, ReturnOpts { jitter: j, trace: None, out: None, ..o.clone() }));
+    }
+    let v = run_rows(jobs)?;
+    Ok(format!("jitter sweep (each release of batches 0 and 1 shifted -2, 0 or +2 gt): {}", verdict(&v)))
+}
+
+/// Whether a block is a signal source (a component that powers its neighbours).
+fn is_source(name: &str) -> bool {
+    ["detector_rail", "lever", "redstone_block", "redstone_torch", "repeater", "comparator", "observer", "button", "pressure_plate", "tripwire_hook", "daylight_detector", "redstone_wire", "target", "trapped_chest"]
+        .iter()
+        .any(|k| name.contains(k))
+}
+
+/// `--out`: the return's own cells as a design file (loop frame) with the emitter's static gates
+/// (ironspec 03:28/03:37): parse(write()) gives the same cells; no cell would pop (a rail without a
+/// rigid block under it, a lever without its block); every rail's natural shape (what the game
+/// settles it to with today's neighbours and power) against its designed one, the differences
+/// listed as placement-order cells; every T (a plain rail with three rail sides) with its arms, its
+/// two power states and the signal sources at its faces (only its declared switch: a lever over it,
+/// the bench's latch output); every detector's face neighbours and the block under it with any T
+/// among their faces. The merge row's Ts and the split's junctions are the bench's own.
+fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path: &str, mz: i32) -> Result<(), String> {
+    use redsim::pos::Dir;
+    let mut d = mctas::design::Design { name: "f1q2-lift-split".into(), ..Default::default() };
+    d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    for (p, blk) in &spec.blocks {
+        let station = p.y <= 0 && p.z < mz && LANES.contains(&p.x);
+        let branch = LANES.contains(&p.x) && (23..=24).contains(&p.y) && ((o.row10 && (7..=9).contains(&p.z)) || (o.row9 && p.z == 7));
+        let stop = p.x == 9 && p.y == 0 && p.z == mz;
+        if station || branch || stop {
+            continue;
+        }
+        d.blocks.insert([p.x, p.y, p.z], w.get(*p).to_string());
+    }
+    let mut gates: Vec<String> = Vec::new();
+    let mut fail: Vec<String> = Vec::new();
+    let mut place_order: Vec<String> = Vec::new();
+    let mut ts: Vec<String> = Vec::new();
+    let cell = |p: BlockPos| format!("({},{},{})", p.x, p.y, p.z);
+    for (k, name) in &d.blocks {
+        let p = BlockPos::new(k[0], k[1], k[2]);
+        let s = w.get(p);
+        if name.contains("rail") && !redsim::rails::can_survive(w, p) {
+            fail.push(format!("{} {name} would pop (no rigid block under it)", cell(p)));
+        }
+        if name.contains("lever") && matches!(w.get(p.above()), Block::Air) {
+            fail.push(format!("{} lever would pop (no block over it)", cell(p)));
+        }
+        if !redsim::rails::is_rail(&s) {
+            continue;
+        }
+        let stored = redsim::rails::shape_of(&s);
+        let declared = name.contains("rail[") && d.blocks.get(&[k[0], k[1] + 1, k[2]]).is_some_and(|b| b.contains("lever"));
+        if let Some(j) = redsim::rails::junction_at(w, p) {
+            let sources: Vec<String> = Dir::ALL
+                .iter()
+                .map(|dd| p.rel(*dd))
+                .filter(|q| is_source(&w.get(*q).to_string()))
+                .map(|q| format!("{} {}", w.get(q).to_string().trim_start_matches("minecraft:"), cell(q)))
+                .collect();
+            let undeclared: Vec<&String> = sources.iter().filter(|s| !(declared && s.starts_with("lever"))).collect();
+            let verdict = if declared {
+                format!("switched by its declared lever (NW on, NE off; now {})", stored.name())
+            } else if stored == j.unpowered && !j.signal {
+                "settled (unpowered)".to_string()
+            } else {
+                format!("placement order (settles {} unpowered): lay it after its two designed arms, before the third", j.unpowered.name())
+            };
+            if !undeclared.is_empty() {
+                fail.push(format!("T {} has an undeclared source: {}", cell(p), undeclared.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
+            }
+            ts.push(format!(
+                "T {}: arms {}, designed {}, unpowered {}, powered {}; sources at its faces: {}; {verdict}",
+                cell(p),
+                j.arms.iter().map(|a| a.name()).collect::<Vec<_>>().join("/"),
+                stored.name(),
+                j.unpowered.name(),
+                j.powered.name(),
+                if sources.is_empty() { "none".to_string() } else { sources.join(", ") }
+            ));
+        } else if !declared {
+            let natural = redsim::rails::RailState::new(p, s).shape_for(w, w.has_neighbor_signal(p), stored);
+            if natural != stored {
+                place_order.push(format!("{} designed {}, natural {}: placement order", cell(p), stored.name(), natural.name()));
+            }
+        }
+        if name.contains("detector_rail") {
+            for c in [p, p.below()] {
+                for dd in Dir::ALL {
+                    let q = c.rel(dd);
+                    if q != p && redsim::rails::junction_at(w, q).is_some() && !d.blocks.get(&[q.x, q.y + 1, q.z]).is_some_and(|b| b.contains("lever")) {
+                        fail.push(format!("detector {}: an undeclared T {} beside {}", cell(p), cell(q), cell(c)));
+                    }
+                }
+            }
+        }
+    }
+    let rows = if o.row9 {
+        "# - split (in the chunk): the exit at y 25 north to the curve (-5,25,9); a powered rail on a redstone block (the exit cell (-5,25,8) with --boost-exit, else (-4,25,9)); the row along z 9 at y 25: J(-1) (-1,25,9), J(3) (3,25,9), J(7) (7,25,9), the row's detectors (1,25,9) and (5,25,9), the 4th route (8,25,9), (9,25,9); each lane's branch the detector slope (x,24,8) ascending south (the guard and the latch, diagonal to its junction), into ironfarm's merge cell (x,24,7) (not here); (x,24,9) the junction's glass support."
+    } else {
+        "# - split: the row along z 10 at y 24 (OUTSIDE the chunk), the slope (-3,24,10), a powered rail (-2,24,10) with --row-boost; J(-1) (-1,24,10), J(3) (3,24,10), J(7) (7,24,10); the row's detectors (1,24,10), (5,24,10); the 4th route (8,24,10), (9,24,10); the lanes' branches (x,24,9) -> the detector (x,24,8) -> (x,24,7) are ironfarm's (not here)."
+    };
+    let mut head: Vec<String> = vec![
+        "# The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own world.".into(),
+        "# - merge row along z 7: lane 7's curve (7,0,7) (a T once the hold's line joins from (8,0,7)), Ts (3,0,7) and (-1,0,7) NW, the main line to the wall entry (-4,0,7), the arming detector (5,0,7) with the napper; the station's tracks and boosters (z 1..6) are dfb89499's, not here.".into(),
+        "# - shared lift: shaft (-5,y,7), soul sand (-5,-1,7), water to y 24, glass walls (panes to come), the exit current's source (-5,25,6) boxed, the exit at y 25.".into(),
+        rows.into(),
+        "# - switches EMULATED: a lever over each junction (face ceiling, glass over it) is the latch's output; the napper's hold gate (8,0,7) EMULATED (the bench releases the napper D gt after (5,0,7)'s rise). The napper lift (c) is not in this file yet.".into(),
+        "# - latches (merge order x -1, 3, 7): J(-1) on at idle; lane -1's branch rise turns it off and J(3) on; lane 3's turns J(3) off; the third cart's rise at the row's second detector turns J(-1) on, or opens the napper window (J(7) off on lane 7's branch rise; J(-1) on at the napper's own first rise at the row's first detector).".into(),
+    ];
+    head.extend(ts.iter().map(|t| format!("# {t}")));
+    head.push(format!("# placement-order cells (not Ts): {}", if place_order.is_empty() { "none".to_string() } else { place_order.join("; ") }));
+    let text = format!("{}\n{}", head.join("\n"), d.to_text());
+    let back = mctas::design::Design::parse(&text).map_err(|e| format!("parse(write()): {e}"))?;
+    if back.blocks != d.blocks {
+        fail.push(format!("parse(write()) gives {} cells against {} written", back.blocks.len(), d.blocks.len()));
+    }
+    gates.push(format!("parse(write()): {} cells, the same", d.blocks.len()));
+    if !fail.is_empty() {
+        return Err(format!("--out {path}: the static gates fail: {}", fail.join("; ")));
+    }
+    std::fs::write(path, &text).map_err(|e| format!("writing {path}: {e}"))?;
+    eprintln!("--out {path}: {}; 0 would-pop; {} T(s), 0 undeclared sources; placement-order cells {}", gates.join("; "), ts.len(), place_order.len());
+    for t in &ts {
+        eprintln!("  {t}");
+    }
+    for p in &place_order {
+        eprintln!("  {p}");
+    }
+    Ok(())
+}
+
+/// One run: the report and its failure counts.
+fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mz = if o.z7 { 7 } else { 8 };
     let spec = build(o)?;
-    // (`out`: the return's own cells as a design file in the loop frame (onechunk's assembly): the
-    // merge row, the shared lift and its exit, the split's row with its junctions, detectors and the
-    // row booster, the 4th route, the napper's hold; not the station's departure tracks and boosters
-    // (dfb89499's) nor the lanes' 2-cell branches (ironfarm's))
-    if let Some(path) = &o.out {
-        let mut d = mctas::design::Design { name: "f1q2-lift-split".into(), ..Default::default() };
-        d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-        for (p, blk) in &spec.blocks {
-            let station = p.y <= 0 && p.z < mz && LANES.contains(&p.x);
-            let branch = o.row10 && LANES.contains(&p.x) && (7..=9).contains(&p.z) && (23..=24).contains(&p.y);
-            let stop = p.x == 9 && p.y == 0 && p.z == mz;
-            if station || branch || stop {
-                continue;
-            }
-            d.blocks.insert([p.x, p.y, p.z], blk.to_string());
-        }
-        let head = [
-            "# The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own build.",
-            "# - merge row along z 7 (9fc3155f's shift): lane 7's curve (7,0,7) (a T once the hold's line joins from (8,0,7)), passive Ts (3,0,7) and (-1,0,7) (north_west), the main line to the wall entry (-4,0,7), glass over it; the station's tracks and boosters (z 1..6) are dfb89499's, not here.",
-            "# - shared lift: shaft (-5,y,7), soul sand (-5,-1,7), water to y 24, glass walls on the 4 faces (panes to come), ceiling (-5,26,7); the exit current's source (-5,25,6) boxed; the exit north along x -5 at y 25 to the curve (-5,25,10).",
-            "# - split: the row along z 10 at y 24 (OUTSIDE the chunk: z 10), a slope (-3,24,10) and a powered rail on a redstone block (-2,24,10); J(-1) (-1,24,10), J(3) (3,24,10), J(7) (7,24,10) as plain rails whose shapes the latches set (EMULATED: the bench sets the junctions' shapes on detector rises); the row's detectors (1,24,10) and (5,24,10); the 4th route (8,24,10), (9,24,10) (the napper's way out).",
-            "# - the lanes' 2-cell branches (x,24,9) -> (x,24,8) -> the merge curve (x,24,7) are ironfarm's (not here); the branch detector the latches read is (x,24,8) (two cells off the junction; ironfarm's (x,24,9) detector would sit beside the junction).",
-            "# - napper (c): the hold's line (8,0,7) (its gate EMULATED: the bench releases the napper D gt after the arming detector (5,0,7)'s rise); 9fc3155f's napper lift (x 5..7, z 4..6) is not re-laid for z 7 here.",
-            "# - latches (reverse merge order x -1, 3, 7): J(-1) set at idle; lane -1's branch rise clears it and sets J(3); lane 3's clears J(3); the third cart's rise at (5,24,10) sets J(-1), or opens the napper window (J(7) to the 4th route on lane 7's branch rise; J(-1) set on the napper's own rise at (1,24,10)).",
-        ];
-        let text = format!("{}\n{}", head.join("\n"), d.to_text());
-        std::fs::write(path, text).map_err(|e| format!("writing {path}: {e}"))?;
-    }
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, (o.ticks + 200) as u32, WalkMode::Random) };
     let mut run = Run::start(&spec, &ro)?;
     while run.settle_tick() {}
+    // (`out`: the return's own cells as a design file in the loop frame (onechunk's assembly), with
+    // the emitter's static gates on the bench's settled world (ironspec 03:28): parse(write()), 0
+    // would-pop cells, every rail's natural shape against its designed one (the placement-order
+    // list), every T's verdict and the signal sources at it, the detectors' neighbours)
+    if let Some(path) = &o.out {
+        write_design(o, &spec, &run.world, path, mz)?;
+    }
     let column = (0..=22).filter(|y| matches!(run.world.get(BlockPos::new(-5, *y, mz)), Block::BubbleColumn { drag: false })).count();
     let mut out = vec![format!(
         "return bench (budget f1b95a5451 cells): {} batch(es) of 3, releases {} gt apart at {:.2}, a batch every 100 gt; the shared lift's bubble cells after settling {column} of 23{}",
@@ -364,15 +749,15 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
     )];
     let n = o.batches * 3;
     // (the split's junction level: the exit's (23; `flat` 22) or `dip`'s main line one under it)
-    let ex = if o.row10 { 24 } else if o.dip { 21 } else if o.flat { 22 } else { 23 };
+    let ex = if o.row9 { 25 } else if o.row10 { 24 } else if o.dip { 21 } else if o.flat { 22 } else { 23 };
     // (the row's z (`row10`: z 10), the branch detectors' z, where the branch speed is read and the sink)
     let rz = if o.row10 { 10 } else { 9 };
-    let bdz = if o.row10 { 8 } else { 7 };
-    let (vin_y, vin_z, sink_y, sink_z) = if o.row10 { (24, 9, 24, 7) } else { (22, 6, 22, 6) };
+    let bdz = if o.row10 || o.row9 { 8 } else { 7 };
+    let (vin_y, vin_z, sink_y, sink_z) = if o.row9 { (24, 8, 24, 7) } else if o.row10 { (24, 9, 24, 7) } else { (22, 6, 22, 6) };
     // (the branch detectors' level: `dip`'s climbing slopes (x,21,7); the others' (x,22,7))
-    let bdy = if o.row10 { 24 } else if o.dip { 21 } else { 22 };
+    let bdy = if o.row10 || o.row9 { 24 } else if o.dip { 21 } else { 22 };
     let total = n + usize::from(o.napper_delay.is_some());
-    let mut carts: Vec<Cart> = (0..total).map(|_| Cart { id: None, rider: None, launch_live: 0, lane: None, branch_v: None, branch_t: None, least_air: i32::MAX, hurt: 0.0, health0: None, eye_in_wall: 0, dismounted: None, met_shaft: None, merge_min: None, split_min: None, prev: None, end: None }).collect();
+    let mut carts: Vec<Cart> = (0..total).map(|_| Cart { id: None, rider: None, launch_live: 0, lane: None, branch_v: None, merge_v: None, branch_t: None, least_air: i32::MAX, hurt: 0.0, health0: None, eye_in_wall: 0, dismounted: None, met_shaft: None, reach12: None, head: f64::NEG_INFINITY, merge_min: None, split_min: None, prev: None, end: None }).collect();
     let arm_lane = if o.reverse { 7 } else { -1 };
     let (mut arm_was, mut arm_at, mut window, mut napper_past) = (false, None::<i64>, false, false);
     let mut met_abs: Vec<Option<i64>> = vec![None; total];
@@ -384,28 +769,35 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
     // (the reverse order starts with J(-1) turned for the batch's first cart)
     let (mut l3, mut lm, mut bulb) = (false, o.reverse, false);
     if o.reverse {
-        run.world.set_block(BlockPos::new(-1, ex, rz), shape("north_west")?, redsim::world::flags::ALL);
+        drive_j(&mut run.world, o.row9 || o.row10, -1, ex, rz, true)?;
     }
     let mut was = [false; 5];
     let (mut last_rise, mut resyncs, mut seeded) = (0i64, Vec::<i64>::new(), false);
     let mut turns: Vec<(i64, i32, bool)> = Vec::new();
     let mut at_j: Vec<(i64, i32, usize)> = Vec::new();
     let mut frozen_ticks = 0i64;
+    let mut freeze_box: Option<[i32; 4]> = None;
     let mut touches = crate::liftbench::Touches::default();
     let mut trace: Vec<String> = Vec::new();
     let mut shaft_gap = f64::INFINITY;
+    let mut restarted = 0usize;
+    let (mut t_offset, mut t_cross, mut t_det) = (0.0f64, 0usize, Vec::<String>::new());
     for t in 0..o.ticks {
         let frozen = o.login.is_some_and(|(f, l)| t >= f && t < f + l);
+        // (G1: `liveness::freeze32` with the `levels` assert (pearl-alternative rows only))
         if let Some((f, l)) = o.login {
             if t == f {
-                if run.world.entity_chunks.is_none() {
-                    let (mn, sz) = (run.world.min, run.world.size);
-                    run.world.entity_chunks = Some([mn.x.div_euclid(16), mn.z.div_euclid(16), (mn.x + sz[0] - 1).div_euclid(16), (mn.z + sz[2] - 1).div_euclid(16)]);
+                let pb = crate::liveness::freeze32(&mut run.world);
+                let (lo, hi) = crate::liveness::levels(&run.world, pb);
+                if (lo, hi) != (32, 32) {
+                    return Err(format!("the freeze left the part's chunks {pb:?} at levels {lo}..{hi}, not 32"));
                 }
-                redsim::reload::unload_some(&mut run.world, [-1, -1, 0, 0]);
+                freeze_box = Some(pb);
             }
-            if t == f + l {
-                redsim::reload::load_some(&mut run.world, [-1, -1, 0, 0]);
+            if t == f + l
+                && let Some(pb) = freeze_box
+            {
+                crate::liveness::thaw32(&mut run.world, pb);
             }
         }
         if frozen {
@@ -416,7 +808,7 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
             if k >= n {
                 continue;
             }
-            let at = (k as i64 / 3) * 100 + offsets[k % 3];
+            let at = (k as i64 / 3) * 100 + offsets[k % 3] + o.jitter.get(k).copied().unwrap_or(0);
             if c.id.is_none() && (o.game_ticks || !frozen) && (if o.game_ticks { t } else { live }) >= at {
                 let x = order[k % 3];
                 let nbt = format!("{{Motion:[0.0d,0.0d,{:.4}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", o.speed);
@@ -451,6 +843,10 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
         // (the split's latches on the detectors' rises; the junctions set to them; detectors: [0]
         // (5,23,9), [1] (1,23,9), [2] lane 3's branch, [3] lane -1's, [4] lane 7's)
         let now = [on(&run.world, 5, ex, rz), on(&run.world, 1, ex, rz), on(&run.world, 3, bdy, bdz), on(&run.world, -1, bdy, bdz), on(&run.world, 7, bdy, bdz)];
+        // (`row9`: each press and release of a detector slope (x,24,8) re-settles its junction
+        // (x,25,9) from the power it sees (`BaseRailBlock.affectNeighborsAfterRemoval`: a sloped
+        // rail's state change updates the faces of the cell over it; redsim does it, tick-exact's
+        // rail-t scene 0 differences): the junctions hold only the shapes their declared switches give)
         let (p3, pm) = (l3, lm);
         let rise = |i: usize| now[i] && !was[i];
         if o.reverse {
@@ -475,7 +871,7 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
                 }
             }
             if rise(4) && window {
-                run.world.set_block(BlockPos::new(7, ex, rz), shape("east_west")?, redsim::world::flags::ALL);
+                drive_j(&mut run.world, o.row9 || o.row10, 7, ex, rz, false)?;
             }
             // (the napper's rise at (1,jy,9), past J(-1) (the window's first rise there): J(-1)
             // turned at once for the next batch, whose first cart may reach it before the napper is
@@ -530,22 +926,24 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
         }
         was = now;
         if l3 != p3 {
-            run.world.set_block(BlockPos::new(3, ex, rz), shape(if l3 { "north_west" } else { "east_west" })?, redsim::world::flags::ALL);
+            drive_j(&mut run.world, o.row9 || o.row10, 3, ex, rz, l3)?;
             turns.push((t, 3, l3));
         }
         if lm != pm {
-            run.world.set_block(BlockPos::new(-1, ex, rz), shape(if lm { "north_west" } else { "east_west" })?, redsim::world::flags::ALL);
+            drive_j(&mut run.world, o.row9 || o.row10, -1, ex, rz, lm)?;
             turns.push((t, -1, lm));
         }
-        // (`restart`: a save, stop and start between two ticks (the lead's L1 rows): every chunk
-        // saved and unloaded, loaded again at once; the entities come back under new ids)
-        if o.restart == Some(t) {
-            redsim::reload::unload_all(&mut run.world);
-            redsim::reload::load_all(&mut run.world);
-            let re: std::collections::HashMap<u32, u32> = run.world.renumbered.iter().map(|(a, b)| (*a, *b)).collect();
+        // (`restart`: a save, stop and start between two ticks (the lead's L1 rows), through the
+        // shared helper (cc767b78's `liveness::restart`, in the given entity order); the carts and
+        // riders followed to their new ids)
+        if let Some((rt, how)) = o.restart
+            && rt == t
+        {
+            let moved = crate::liveness::restart(&mut run.world, how)?;
+            restarted = moved.iter().filter(|(a, b)| a != b).count();
             for c in carts.iter_mut() {
-                c.id = c.id.map(|i| re.get(&i).copied().unwrap_or(i));
-                c.rider = c.rider.map(|i| re.get(&i).copied().unwrap_or(i));
+                c.id = c.id.map(|i| crate::liveness::follow(&run.world, i));
+                c.rider = c.rider.map(|i| crate::liveness::follow(&run.world, i));
             }
         }
         run.tick();
@@ -592,6 +990,22 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
                 c.met_shaft = Some(live - c.launch_live);
                 met_abs[k] = Some(live);
             }
+            // (G1 / ironspec: every cart on a T (the merge's (3,0,mz), (-1,0,mz), lane 7's curve with the
+            // hold, the split's J(-1), J(3), J(7)): its sideways offset from the row's line, and any
+            // branch detector (x,bdy,bdz) of another lane its box meets (a through cart tripping it))
+            let on_t = (bp.y == 0 && bp.z == mz && [3, -1, 7].contains(&bp.x)) || (bp.y == ex && bp.z == rz && [3, -1, 7].contains(&bp.x));
+            if on_t {
+                let line_z = bp.z as f64 + 0.5;
+                t_offset = t_offset.max((z - line_z).abs());
+                t_cross += 1;
+            }
+            for lx in LANES {
+                let (dx0, dz0) = (lx as f64, bdz as f64);
+                let meets = x + 0.49 > dx0 && x - 0.49 < dx0 + 1.0 && z + 0.49 > dz0 && z - 0.49 < dz0 + 1.0 && (y - bdy as f64).abs() < 1.0;
+                if meets && k < n && order[k % 3] != lx {
+                    t_det.push(format!("cart {k} on lane {lx}'s detector at t {t}"));
+                }
+            }
             if bp.y == ex && bp.z == rz && (bp.x == 3 || bp.x == -1) && at_j.last().is_none_or(|l| l.2 != k || l.1 != bp.x) {
                 at_j.push((t, bp.x, k));
             }
@@ -602,6 +1016,7 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
             }
             if bp.y == sink_y && bp.z == sink_z && LANES.contains(&bp.x) && c.lane.is_none() {
                 c.lane = Some(bp.x);
+                c.merge_v = Some((vx * vx + vz * vz).sqrt());
                 c.branch_t = Some(live - c.launch_live);
                 sink.push(id);
             }
@@ -609,6 +1024,8 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
             // window closes behind it, J(7) back to lane 7, J(-1) turned for the next batch)
             if bp.y == ex && bp.z == rz && bp.x == 9 && c.lane.is_none() {
                 c.lane = Some(9);
+                // (the napper's speed where the 4th route hands it on toward the bed stop)
+                c.merge_v = Some((vx * vx + vz * vz).sqrt());
                 c.branch_t = Some(live - c.launch_live);
                 sink.push(id);
                 if window {
@@ -624,6 +1041,11 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
                 && let Some(j) = redsim::entity::index_of(&run.world, r)
             {
                 let re = &run.world.entities.list[j];
+                if c.reach12.is_none() && re.pos.y >= 12.01 {
+                    c.reach12 = Some(live - c.launch_live);
+                }
+                // (the rider's head: a villager's box top, feet + 1.95, against the roof's underside at 28)
+                c.head = c.head.max(re.pos.y + 1.95);
                 if in_wall(&run.world, re.pos.x, re.pos.y, re.pos.z) {
                     c.eye_in_wall += 1;
                 }
@@ -645,7 +1067,7 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
         if close_window {
             // (J(7) back to lane 7; J(-1) was turned again when the napper passed (1,jy,9), and the
             // next batch's first cart may have cleared it since: left alone)
-            run.world.set_block(BlockPos::new(7, ex, rz), shape("north_west")?, redsim::world::flags::ALL);
+            drive_j(&mut run.world, o.row9 || o.row10, 7, ex, rz, true)?;
         }
     }
     let mut wrong = 0;
@@ -659,21 +1081,36 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
             if k >= n { "napper" } else { "cart" },
             if k >= n { 0 } else { k / 3 },
             if k >= n { "the 4th route".to_string() } else { format!("lane {want}") },
-            c.met_shaft.map_or("never".into(), |d| format!("{d} live gt after release")),
+            match (c.met_shaft, c.reach12) {
+                (Some(d), Some(r)) => format!("{d} live gt after release (the rider's feet at y 12.01 at {r})"),
+                (Some(d), None) => format!("{d} live gt after release"),
+                _ => "never".into(),
+            },
             match c.lane {
                 Some(l) if l == want => if l == 9 { "the 4th route".to_string() } else { format!("lane {l}") },
                 Some(l) => format!("lane {l} (WRONG LANE)"),
                 None => format!("NEVER at a lane (ends at {})", c.end.map_or("-".into(), |(x, y, z)| format!("{x:.2},{y:.2},{z:.2}"))),
             },
             c.branch_t.map_or(String::new(), |d| format!(", at its branch flat {d} live gt after release")),
-            c.branch_v.map_or("-".into(), |v| format!("{v:.3}")),
+            match (c.branch_v, c.merge_v) {
+                (Some(v), Some(m)) => format!("{v:.3} (entering the merge cell {m:.3})"),
+                (Some(v), None) => format!("{v:.3}"),
+                (None, Some(m)) => format!("- (handed on by the 4th route at {m:.3} stored, {:.3}/gt)", (0.75 * m).min(0.4)),
+                _ => "-".into(),
+            },
             if c.least_air == i32::MAX { "-".into() } else { c.least_air.to_string() },
             if c.lane.is_some() && c.dismounted.is_none() { "seated" } else if c.dismounted.is_some() && c.lane.is_none() { "DISMOUNTED" } else { "seated" },
             c.hurt,
             c.eye_in_wall
         ));
         let f = |m: Option<(f64, f64)>| m.map_or("-".into(), |(s, d)| format!("stored >= {s:.3}, moved >= {d:.3}/gt"));
-        out.push(format!("  {} {k} speed pin: merge row {}; split row {}", if k >= n { "napper" } else { "cart" }, f(c.merge_min), f(c.split_min)));
+        out.push(format!(
+            "  {} {k} speed pin: merge row {}; split row {}; the rider's highest head y {} (the roof's underside 28.0)",
+            if k >= n { "napper" } else { "cart" },
+            f(c.merge_min),
+            f(c.split_min),
+            if c.head.is_finite() { format!("{:.3}", c.head) } else { "-".into() }
+        ));
     }
     // (each junction's turns against the next cart at it: the least gap, the latches' margin)
     let mut least: Vec<String> = Vec::new();
@@ -686,14 +1123,22 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
         }
         least.push(format!("J({j}) {}", if g == i64::MAX { "-".into() } else { format!("{g} gt") }));
     }
-    let bv = carts.iter().filter_map(|c| c.branch_v).fold(0.0f64, f64::max);
+    let bv = carts.iter().take(n).filter_map(|c| c.branch_v).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
+    let mv = carts.iter().take(n).filter_map(|c| c.merge_v).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
+    let rng = |r: (f64, f64)| if r.0.is_finite() { format!("{:.3}..{:.3}", r.0, r.1) } else { "-".into() };
     out.push(format!(
-        "split: {wrong} wrong lane(s) of {n}; the fastest branch speed {bv:.3} (ironfarm's bar 0.30, margin {:.3}); the least gap from a junction's turn to the next cart at it: {}; the shaft's closest pair {}",
-        0.30 - bv,
+        "split: {wrong} wrong lane(s) of {n}; the batch carts' stored speed entering their branch {}, entering their lane's merge cell {} (ironfarm's delivery band 0.30..0.48, margins {}); the least gap from a junction's turn to the next cart at it: {}; the shaft's closest pair {}",
+        rng(bv),
+        rng(mv),
+        if mv.0.is_finite() { format!("{:.3} / {:.3}", mv.0 - 0.30, 0.48 - mv.1) } else { "-".into() },
         least.join(", "),
         if shaft_gap.is_finite() { format!("{shaft_gap:.3}") } else { "-".into() }
     ));
     out.push(format!("pairs: {}", touches.line()));
+    out.push(format!(
+        "T crossings (the game's shapes: NE unpowered, NW powered): {t_cross} cart-ticks on a T, the largest sideways offset from the row's line {t_offset:.3}; another lane's branch detector met by a through cart: {}",
+        if t_det.is_empty() { "none".to_string() } else { t_det.iter().take(6).cloned().collect::<Vec<_>>().join(", ") }
+    ));
     // (the shaft's entry gaps (live gt): between a batch's carts, and the napper's behind batch 0's
     // third cart and ahead of batch 1's first (ironspec: >= 21, >= 28, >= 21))
     let mut gaps: Vec<String> = Vec::new();
@@ -719,9 +1164,32 @@ pub fn return_bench(o: &ReturnOpts) -> Result<String, String> {
             o.resync,
             if resyncs.is_empty() { "none".to_string() } else { resyncs.iter().map(|t| format!("t {t}")).collect::<Vec<_>>().join(", ") },
             o.seed_miss.map_or("none".into(), |k| format!("cart {k} ({})", if seeded { "applied" } else { "NOT applied" })),
-            o.restart.map_or("none".into(), |t| format!("at t {t}"))
+            o.restart.map_or("none".into(), |(t, how)| format!("at t {t} ({})", how.label()))
         ));
     }
+    let range = |f: &dyn Fn(&Cart) -> Option<f64>| {
+        carts.iter().take(n).filter_map(f).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)))
+    };
+    let gap_min = (0..o.batches)
+        .filter_map(|b| match (met_abs[b * 3], met_abs[b * 3 + 1], met_abs[b * 3 + 2]) {
+            (Some(a0), Some(a1), Some(a2)) => Some((a1 - a0).min(a2 - a1)),
+            _ => None,
+        })
+        .min()
+        .unwrap_or(i64::MIN);
+    let summary = Summary {
+        wrong,
+        pushes: touches.pushes,
+        napper_off: o.napper_delay.is_some() && carts.get(n).is_none_or(|c| c.lane != Some(9)),
+        riders_bad: carts.iter().filter(|c| c.hurt > 0.0 || c.eye_in_wall > 0 || c.dismounted.is_some()).count(),
+        restarted,
+        gap_min,
+        napper_behind: if o.napper_delay.is_some() { met_abs[n].zip(met_abs[2]).map(|(m, t3)| m - t3).or(Some(i64::MIN)) } else { None },
+        napper_ahead: if o.napper_delay.is_some() { met_abs[n].zip(met_abs.get(3).copied().flatten()).map(|(m, f1)| f1 - m).or(Some(i64::MIN)) } else { None },
+        v_branch: range(&|c: &Cart| c.branch_v),
+        v_merge: range(&|c: &Cart| c.merge_v),
+        head: carts.iter().map(|c| c.head).fold(f64::NEG_INFINITY, f64::max),
+    };
     out.extend(trace);
-    Ok(out.join("\n"))
+    Ok((out.join("\n"), summary))
 }
