@@ -306,6 +306,9 @@ pub struct World {
     /// 1, looks 4 blocks for a slope and pushes entities by 0.007; a portal's random tick spawns
     /// nothing; an entity through a portal goes to the overworld (`outgoing`).
     pub ultrawarm: bool,
+    /// (tickexact 2026-11-12) The overworld's top (`getMaxY()`) when the bridge's sandbox is taller
+    /// than the overworld's 384 (a design taller than y 319 once lifted); None: 319.
+    pub max_y: Option<i32>,
     /// The PORTAL tickets on this world (chunk, game time made: `TicketType.PORTAL`, 300 gt, radius
     /// 3): entities tick within 1 chunk of one, blocks within 2.
     pub portal_tickets: Vec<([i32; 2], i64)>,
@@ -426,6 +429,7 @@ impl World {
             last_load: String::new(),
             unforced: Vec::new(),
             ultrawarm: false,
+            max_y: None,
             portal_tickets: Vec::new(),
             portal_since: None,
             foreign: Vec::new(),
@@ -454,7 +458,7 @@ impl World {
     }
 
     pub fn level_max_y(&self) -> i32 {
-        if self.ultrawarm { 255 } else { 319 }
+        if self.ultrawarm { 255 } else { self.max_y.unwrap_or(319) }
     }
 
     /// Mirror the bridge sandbox's level random: seeded `seed` (`level.getRandom().setSeed`, at

@@ -339,7 +339,7 @@ pub fn tick_one(w: &mut World, i: usize) {
         };
         let p = BlockPos::new(e.x.floor() as i32, e.y.floor() as i32, e.z.floor() as i32);
         if !on_ground {
-            if (e.time > 100 && (p.y <= MIN_Y || p.y > MAX_Y)) || e.time > 600 {
+            if (e.time > 100 && (p.y <= MIN_Y || p.y > w.level_max_y())) || e.time > 600 {
                 w.drops.push((p, e.block));
                 e.removed = true;
             }

@@ -416,7 +416,7 @@ fn vine(w: &mut World, p: BlockPos, id: u16) {
         }
         return;
     }
-    if d == Dir::Up && p.y < 319 {
+    if d == Dir::Up && p.y < w.level_max_y() {
         // canSupportAtFace(up): the block above takes it (an up face needs no vine above)
         if acceptable(w, above, Dir::Up) {
             set(w, p, &state.with(Dir::Up, true).name(), flags::CLIENTS);
@@ -730,7 +730,7 @@ fn find_tip(w: &World, p: BlockPos, me: &Speleo, max: i32) -> Option<BlockPos> {
         if s.as_ref().is_some_and(|s| is_tip(s, false)) {
             return Some(q);
         }
-        if q.y < -64 || q.y > 319 || !s.is_some_and(|s| s.id == me.id && s.tip == me.tip) {
+        if q.y < -64 || q.y > w.level_max_y() || !s.is_some_and(|s| s.id == me.id && s.tip == me.tip) {
             return None;
         }
     }

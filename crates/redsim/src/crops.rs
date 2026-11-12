@@ -70,7 +70,8 @@ pub fn randomly_ticking(b: &Block) -> bool {
     }
 }
 
-/// The lowest and highest chunk sections of the game's sandboxes (y -64..319).
+/// The lowest and highest chunk sections of the game's sandboxes (y -64..319; a taller sandbox's
+/// top section: `World::level_max_y`).
 const MIN_SECTION: i32 = -4;
 const MAX_SECTION: i32 = 19;
 
@@ -239,7 +240,7 @@ pub fn tick_chunks(w: &mut World) {
     } else {
         return;
     };
-    let sections = (w.min.y.div_euclid(16).max(MIN_SECTION), (w.min.y + w.size[1] - 1).div_euclid(16).min(MAX_SECTION));
+    let sections = (w.min.y.div_euclid(16).max(MIN_SECTION), (w.min.y + w.size[1] - 1).div_euclid(16).min(MAX_SECTION.max(w.level_max_y().div_euclid(16))));
     // (tickexact 2026-11-10, a partial unload: forEachBlockTickingChunk is the entity-ticking
     // chunks, simulation level 31; their order left as it was)
     let order: Vec<[i32; 2]> = if w.unforced.is_empty() { order } else { order.into_iter().filter(|c| w.chunk_level(c[0], c[1]) <= 31).collect() };

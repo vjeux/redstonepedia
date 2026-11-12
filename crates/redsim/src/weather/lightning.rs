@@ -272,14 +272,14 @@ fn closest_rods(rods: &[BlockPos], center: BlockPos) -> Vec<BlockPos> {
 /// the game's order (`getEntitiesOfClass`: the entity sections in key order, each section's
 /// entities in the order they entered it).
 pub fn entity_candidates(w: &World, center: BlockPos) -> Vec<usize> {
-    let search = search_box(center);
+    let search = search_box(w, center);
     w.get_entities(search, |e| living_alive(e) && can_see_sky(w, e.block_position()).unwrap_or(false))
 }
 
 /// The column box `findLightningTargetAround` searches: `encapsulatingFullBlocks(center,
-/// center.atY(maxY + 1)).inflate(3)`.
-fn search_box(center: BlockPos) -> Aabb {
-    Aabb::new(center.x as f64, center.y as f64, center.z as f64, (center.x + 1) as f64, (WORLD_MAX_Y + 2) as f64, (center.z + 1) as f64).inflate(3.0, 3.0, 3.0)
+/// center.atY(maxY + 1)).inflate(3)` (maxY: the world's top, 319 or a taller sandbox's).
+fn search_box(w: &World, center: BlockPos) -> Aabb {
+    Aabb::new(center.x as f64, center.y as f64, center.z as f64, (center.x + 1) as f64, (w.level_max_y() + 2) as f64, (center.z + 1) as f64).inflate(3.0, 3.0, 3.0)
 }
 
 /// A `LivingEntity` that `isAlive`: a mob with health, an armor stand.
@@ -296,7 +296,7 @@ fn living_alive(e: &crate::entity::Entity) -> bool {
 /// player among them), each player first in its section (it entered the level before any mob
 /// there). Each with the position a bolt aimed at it falls on (`blockPosition()`).
 pub fn targets(w: &World, center: BlockPos) -> Vec<(BlockPos, Target)> {
-    let search = search_box(center);
+    let search = search_box(w, center);
     let mut keyed: Vec<((i32, u32, u32), u64, BlockPos, Target)> = Vec::new();
     for i in entity_candidates(w, center) {
         let e = &w.entities.list[i];

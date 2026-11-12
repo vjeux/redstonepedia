@@ -176,6 +176,14 @@ final class Sandbox {
      * reports (null: the flat source's -63; a terrain sample's sandbox: its world's 63).
      */
     static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed, boolean customSpawners, String biome, Integer seaLevel) {
+        return create(server, id, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed, customSpawners, biome, seaLevel, null);
+    }
+
+    /**
+     * {@code height} (tickexact 2026-11-12): the level's height from y -64 (a multiple of 16, at
+     * least the overworld's 384; null: the overworld's), for a design taller than y 319 once lifted.
+     */
+    static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed, boolean customSpawners, String biome, Integer seaLevel, Integer height) {
         ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, Identifier.fromNamespaceAndPath("mctas", "sandbox_" + id));
         PrimaryLevelData data = new PrimaryLevelData(server.levelSettings, PrimaryLevelData.SpecialWorldProperty.FLAT, Lifecycle.stable());
         data.setInitialized(true);
@@ -202,7 +210,7 @@ final class Sandbox {
                 server.storage(),
                 data,
                 key,
-                server.stemFor(biome, seaLevel),
+                server.stemFor(biome, seaLevel, height),
                 false,
                 BiomeManager.obfuscateSeed(seed),
                 spawners,

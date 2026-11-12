@@ -559,6 +559,9 @@ pub struct GameFarm {
     pub respawn: Option<[i32; 3]>,
     /// The level spawns mobs naturally (`spawn_mobs`; off: `--no-spawning`, or the bare scenario).
     pub natural: bool,
+    /// (tickexact 2026-11-12) The sandbox's top when the design reaches above y 319 (the bridge's
+    /// taller level, `create`'s `height`); redsim's world takes the same (`World::max_y`).
+    pub max_y: Option<i32>,
 }
 
 /// The design's block states at the spec's cells (moved to the site in terrain).
@@ -745,7 +748,12 @@ impl GameFarm {
         let spawners = spawn_on && !bare;
         // a terrain sample's sandbox reports its world's sea level (the overworld's 63)
         let sea_level = if matches!(place, Place::Terrain { .. }) { json!(63) } else { Value::Null };
-        let v = w.call(json!({"op": "create", "chunks": chunks, "seed": o.seed, "biome": biome, "custom_spawners": spawners, "sea_level": sea_level}))?;
+        // (tickexact 2026-11-12, the parent's ask: every published design bridged) a design whose
+        // box reaches above y 319 gets a taller level: from y -64 to its top + 16, in whole
+        // sections (both sides: redsim's world takes the same top)
+        let max_y = (spec.hi.y > 319).then(|| ((spec.hi.y + 16 + 64 + 16) / 16) * 16 - 64 - 1);
+        let height = max_y.map(|m| json!(m + 1 + 64)).unwrap_or(Value::Null);
+        let v = w.call(json!({"op": "create", "chunks": chunks, "seed": o.seed, "biome": biome, "custom_spawners": spawners, "sea_level": sea_level, "height": height}))?;
         let sb = v["sandbox"].as_u64().ok_or_else(|| anyhow!("create: no sandbox"))? as u32;
         let mut world = json!({
             "op": "world", "sandbox": sb,
@@ -814,7 +822,7 @@ impl GameFarm {
         // (mob-AI) the POI holders' identity hashes: this JVM's, fixed for its life
         let hv = w.call(json!({"op": "identity_hashes"}))?;
         let poi_hashes: std::collections::HashMap<String, i32> = hv["poi_types"].as_object().map(|m| m.iter().filter_map(|(k, v)| v.as_i64().map(|h| (k.clone(), h as i32))).collect()).unwrap_or_default();
-        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, spawn_candidates: Vec::new(), entity_ticking, spawn_chunk_count, text, full, spawners, poi_hashes, respawn: None, natural: spawn_on && !bare };
+        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, spawn_candidates: Vec::new(), entity_ticking, spawn_chunk_count, text, full, spawners, poi_hashes, respawn: None, natural: spawn_on && !bare, max_y };
         let bes: Vec<([i32; 3], String)> = spec.block_entities.iter().map(|(p, s)| (pos(*p), s.clone())).collect();
         g.place_with(&rest, &bes)?;
         let out = pos(spec.output);
@@ -1088,6 +1096,8 @@ pub fn arrive(run: &mut Run) -> Result<()> {
 pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -> Result<Run> {
     use redsim::entity::mob::natural::{Difficulty, Natural};
     let mut run = Run::start(spec, o).map_err(|e| anyhow!(e))?;
+    // (tickexact 2026-11-12) the bridge's taller level for a design above y 319
+    run.world.max_y = game.max_y;
     match o.site {
         None => run.world.mirror_level_random(o.seed, forced_chunks(spec)),
         Some(_) => run.world.mirror_level_random(o.seed, game_chunks(game)),

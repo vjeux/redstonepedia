@@ -216,6 +216,46 @@ public final class SimServer extends MinecraftServer {
      * natural spawning's rules read: glow squids, drowned, turtles, axolotls, water animals).
      */
     LevelStem stemFor(String biome, Integer seaLevel) {
+        return stemFor(biome, seaLevel, null);
+    }
+
+    /**
+     * {@code height} (tickexact 2026-11-12): the overworld's dimension type with this height from
+     * y -64 (its logical height too), the rest unchanged; null or 384: the overworld's own.
+     */
+    LevelStem stemFor(String biome, Integer seaLevel, Integer height) {
+        LevelStem base = stemFor0(biome, seaLevel);
+        if (height == null || height == base.type().value().height()) {
+            return base;
+        }
+        if (height % 16 != 0 || height < base.type().value().height()) {
+            throw new IllegalArgumentException("height " + height + ": a multiple of 16, at least " + base.type().value().height());
+        }
+        String key = (biome == null ? "minecraft:the_void" : biome) + "@" + seaLevel + "^" + height;
+        return this.stems.computeIfAbsent(key, k -> {
+            DimensionType ow = base.type().value();
+            DimensionType tall = new DimensionType(
+                    ow.hasFixedTime(),
+                    ow.hasSkyLight(),
+                    ow.hasCeiling(),
+                    ow.hasEnderDragonFight(),
+                    ow.coordinateScale(),
+                    ow.minY(),
+                    height,
+                    height,
+                    ow.infiniburn(),
+                    ow.ambientLight(),
+                    ow.monsterSettings(),
+                    ow.skybox(),
+                    ow.cardinalLightType(),
+                    ow.attributes(),
+                    ow.timelines(),
+                    ow.defaultClock());
+            return new LevelStem(Holder.direct(tall), base.generator());
+        });
+    }
+
+    private LevelStem stemFor0(String biome, Integer seaLevel) {
         if ((biome == null || biome.equals("minecraft:the_void")) && seaLevel == null) {
             return this.voidStem;
         }

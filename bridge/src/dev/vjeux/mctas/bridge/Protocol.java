@@ -245,7 +245,10 @@ public final class Protocol {
         String biome = r.has("biome") && !r.get("biome").isJsonNull() ? r.get("biome").getAsString() : null;
         int id = this.nextSandboxId++;
         Integer seaLevel = r.has("sea_level") && !r.get("sea_level").isJsonNull() ? r.get("sea_level").getAsInt() : null;
-        Sandbox sb = Sandbox.create(this.server, id, minCX, minCZ, maxCX, maxCZ, seed, customSpawners, biome, seaLevel);
+        // (tickexact 2026-11-12, the parent's ask: every published design bridged) the level's
+        // height from y -64 (a multiple of 16; null: the overworld's 384, to y 319)
+        Integer height = r.has("height") && !r.get("height").isJsonNull() ? r.get("height").getAsInt() : null;
+        Sandbox sb = Sandbox.create(this.server, id, minCX, minCZ, maxCX, maxCZ, seed, customSpawners, biome, seaLevel, height);
         this.sandboxes.put(id, sb);
         JsonObject o = new JsonObject();
         o.addProperty("sandbox", id);

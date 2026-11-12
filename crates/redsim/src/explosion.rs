@@ -625,9 +625,10 @@ fn exploded_positions(w: &mut World, center: Vec3, radius: f32, rolls: Rolls) ->
                 let (mut xp, mut yp, mut zp) = (center.x, center.y, center.z);
                 while power > 0.0 {
                     let pos = BlockPos::new(mth::floor(xp), mth::floor(yp), mth::floor(zp));
-                    // isInWorldBounds (the build height, -64..=319: a TNT that fell into the void
-                    // below it reaches no cell, and its shuffle draws nothing)
-                    if pos.y < crate::gravity::MIN_Y || pos.y > crate::gravity::MAX_Y {
+                    // isInWorldBounds (the build height, -64..=319 or the taller sandbox's top: a
+                    // TNT that fell into the void below it reaches no cell, and its shuffle draws
+                    // nothing)
+                    if pos.y < crate::gravity::MIN_Y || pos.y > w.level_max_y() {
                         break;
                     }
                     let b = w.get(pos);
