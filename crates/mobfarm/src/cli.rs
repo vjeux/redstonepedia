@@ -1429,6 +1429,41 @@ pub enum MobfarmCmd {
     /// eye point inside a block, the golem box gap, and a freeze span; at every H-open corner and
     /// seed. `--gravity` (with `--v3`, `--v4` or `--crest6`): the gravity queue's hold → stand
     /// descent instead.
+    /// (7b90c3f1, F1 + Q2 at 24, option (c)) The return's layout bench on 9fc3155f's budget cells
+    /// (f1b95a5451, loop frame): batches of three ridden carts from the station pockets' +z exits
+    /// through the passive-T merge, the shared lift (soul sand (-5,-1,8), water to 22, the exit's
+    /// current onto (-5,23,9)) and the split along z 9 at y 23 (J(-1), J(3) on rise-keyed latches
+    /// in the budget's merge order, lane 7 at the end) to each lane's branch flat (x,22,6), where
+    /// the intake takes it; per cart its lane, branch speed, riders; the junctions' least gaps.
+    ReturnBench {
+        /// Batches of three, a batch every 100 gt.
+        #[arg(long, default_value_t = 3)]
+        batches: usize,
+        /// The gt between a batch's releases (lane 7, lane 3, lane -1).
+        #[arg(long, default_value_t = 14)]
+        spacing: i64,
+        /// The release speed along +z.
+        #[arg(long, default_value_t = 0.4)]
+        speed: f64,
+        #[arg(long, default_value_t = 450)]
+        ticks: i64,
+        /// FROM,LEN: the bench at level 32 (freeze32 at FROM, thaw32 LEN gt later).
+        #[arg(long, value_delimiter = ',')]
+        login: Vec<i64>,
+        /// A powered rail (on) at the split's first cell (-4,23,9).
+        #[arg(long)]
+        boost: bool,
+        /// One cart's line a tick.
+        #[arg(long)]
+        trace: Option<usize>,
+        /// The reverse merge order: x -1 first, x 3, x 7 last (the first cart to the split's
+        /// first exit).
+        #[arg(long)]
+        reverse: bool,
+        /// A,B,C: the three releases' offsets in the batch, in merge order (default 0, S, 2S).
+        #[arg(long, value_delimiter = ',')]
+        offsets: Vec<i64>,
+    },
     /// (7b90c3f1, farmopt Nov 11 20:58) The vertical lift bench: a soul-sand bubble column built
     /// alone, an entry flat at its foot (its east wall open `--entry-h` cells: 1 = the rail cell,
     /// glass over it, tick-exact: riders pass glass harmlessly), the exit at its top (`--exit`:
@@ -1488,7 +1523,8 @@ pub enum MobfarmCmd {
         /// batches (the y 0 hold's release into a batch's gap).
         #[arg(long)]
         napper_at: Option<i64>,
-        /// (a‴)'s soul-sand stopper in the shaft at this height (bench frame).
+        /// (a‴), rejected: a soul-sand stopper in the shaft at this height (bench frame); kept to
+        /// show why (1 eye-in-wall tick on the way up; the rider's head in the stopper's cell).
         #[arg(long)]
         stopper: Option<i32>,
     },
@@ -4968,6 +5004,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets } => {
+            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets };
+            println!("{}", crate::returnbench::return_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper } => {
             let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper };
