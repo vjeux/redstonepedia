@@ -337,7 +337,7 @@ pub struct PreviewArgs {
 pub struct VariationArgs {
     /// Farm design files (each passes its kind's judge on redsim, and a mob farm the real-game
     /// gate `circuit archive` runs).
-    #[arg(required_unless_present_any = ["regate", "relight", "reexpose"])]
+    #[arg(required_unless_present_any = ["regate", "relight", "reexpose", "reweather"])]
     pub designs: Vec<PathBuf>,
     /// The farm (its folder under designs/farms/).
     #[arg(long, default_value = "iron")]
@@ -386,6 +386,13 @@ pub struct VariationArgs {
     /// is left as it is.
     #[arg(long, conflicts_with_all = ["regate", "no_gate", "pick", "pick_for", "name", "restore", "relight"])]
     pub reexpose: bool,
+    /// Measure only the weather line again (the card's `rain` metric: its clear, rain and thunder
+    /// days, now the mean of 48 single days each), for the stage's every variation (or the designs
+    /// named): judged on redsim (no game gate), that metric replaced in its row and its design's
+    /// `# CIRCUIT:` line, the rest of the row and its date kept (the parent 2026-11-11: the weather
+    /// lines made multi-day). A row with no weather line is left as it is.
+    #[arg(long, conflicts_with_all = ["regate", "no_gate", "pick", "pick_for", "name", "restore", "relight", "reexpose"])]
+    pub reweather: bool,
 }
 
 #[derive(Args)]
