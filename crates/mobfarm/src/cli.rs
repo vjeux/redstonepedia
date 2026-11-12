@@ -990,6 +990,13 @@ pub enum MobfarmCmd {
         /// The batch's carts: 3, or 2 (cart 2 leaves the world before the release).
         #[arg(long, default_value_t = 3)]
         carts: usize,
+        /// Every gate's slope powered as its gate opens (the meter powers G1's and G2's 8 gt
+        /// after): a stand-side variant for the empty cart's lag.
+        #[arg(long)]
+        slopes_at_open: bool,
+        /// G1's and G2's slopes powered this many gt after their gates open (the meter's 8).
+        #[arg(long, default_value_t = 8)]
+        slope_delay: i64,
         #[arg(long, default_value_t = 160)]
         ticks: i64,
         #[arg(long, default_value_t = 1)]
@@ -3553,7 +3560,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::ClimbBack { rel, g1_delay, g2_delay, above, v4, carts, ticks, seed, seeds, riders, freeze, out, trace } => {
+        MobfarmCmd::ClimbBack { rel, g1_delay, g2_delay, above, v4, carts, slopes_at_open, slope_delay, ticks, seed, seeds, riders, freeze, out, trace } => {
             let rd: Vec<bool> = riders.split(',').map(|s| s.trim() != "0").collect();
             anyhow::ensure!(rd.len() == 3, "--riders takes three 0/1");
             anyhow::ensure!(carts == 2 || carts == 3, "--carts 2 or 3");
@@ -3571,7 +3578,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for g2 in &g2s {
                     for r in &rels {
                         for s in seed..seed + seeds {
-                            let o = crate::climb::ClimbBackOpts { rel: *r, g1_delay: *g1, g2_delay: *g2, ticks, seed: s, above, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), top_y: 32 + east, past, n_carts: carts, trace };
+                            let o = crate::climb::ClimbBackOpts { rel: *r, g1_delay: *g1, g2_delay: *g2, slopes_at_open, slope_delay, ticks, seed: s, above, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), top_y: 32 + east, past, n_carts: carts, trace };
                             let lines = crate::climb::climb_back_bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                             println!("== REL T+{r}, G1 +{g1}, G2 +{g2}, seed {s}");
                             for l in lines {

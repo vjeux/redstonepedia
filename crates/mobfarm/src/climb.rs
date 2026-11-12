@@ -419,6 +419,10 @@ pub struct ClimbBackOpts {
     pub rel: i64,
     pub g1_delay: i64,
     pub g2_delay: i64,
+    /// Every gate's slope powered as its gate opens (the meter powers G1's and G2's 8 gt after).
+    pub slopes_at_open: bool,
+    /// G1's and G2's slopes powered this many gt after their gates open (the meter's 8).
+    pub slope_delay: i64,
     pub ticks: i64,
     pub seed: i64,
     /// Feet height the riders must pass by T+100 (the golem zone's top + the lock: 24.5).
@@ -475,7 +479,7 @@ pub fn climb_back_bench(spec: &FarmSpec, o: &ClimbBackOpts) -> Result<Vec<String
     let gate_at = [BlockPos::new(GATES[0].0, GATES[0].1, SZ), BlockPos::new(GATES[1].0, GATES[1].1, SZ), BlockPos::new(GATES[2].0, GATES[2].1, SZ)];
     let src = [BlockPos::new(6, -2, SZ), BlockPos::new(10, -3, SZ), BlockPos::new(14, -3, SZ + 1)];
     let opens = [o.rel + o.g2_delay, o.rel + o.g1_delay, o.rel];
-    let powers = [opens[0] + 8, opens[1] + 8, opens[2]];
+    let powers = if o.slopes_at_open { opens } else { [opens[0] + o.slope_delay, opens[1] + o.slope_delay, opens[2]] };
     let mut above_at: [Option<i64>; 3] = [None; 3];
     let mut top_at: [Option<i64>; 3] = [None; 3];
     let mut top_v = [0.0f64; 3];
@@ -548,7 +552,8 @@ pub fn climb_back_bench(spec: &FarmSpec, o: &ClimbBackOpts) -> Result<Vec<String
                 continue;
             };
             let feet = riders[k].and_then(|r| w.entities.list.iter().find(|e| e.id == r && !e.removed)).map_or(p.y, |e| e.pos.y);
-            if above_at[k].is_none() && feet >= o.above {
+            // (the lock applies to villagers: an empty cart's crossing doesn't count)
+            if above_at[k].is_none() && feet >= o.above && riders[k].is_some() {
                 above_at[k] = Some(dt);
             }
             if crest_at[k].is_none() && p.x > 15.0 && p.z > 12.0 && p.z < 13.0 && p.y > 1.9 {
@@ -629,7 +634,7 @@ pub fn climb_back_bench(spec: &FarmSpec, o: &ClimbBackOpts) -> Result<Vec<String
         }
     }
     let fmt = |a: &[Option<i64>; 3]| (0..3).map(|k| a[k].map_or("never".to_string(), |t| format!("T+{t}"))).collect::<Vec<_>>().join(", ");
-    let last_above = above_at.iter().take(o.n_carts.min(3)).map(|a| a.unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
+    let last_above = (0..o.n_carts.min(3)).filter(|k| riders[*k].is_some()).map(|k| above_at[k].unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
     out.push(format!(
         "arrival at the top (rail {top_y}), tick and stored speed: {}; spacing per pair (cart 1 - cart 0, cart 2 - cart 1): {}",
         (0..3).map(|k| top_at[k].map_or(format!("cart {k} never"), |t| format!("cart {k} T+{t} {:.3}", top_v[k]))).collect::<Vec<_>>().join(", "),
