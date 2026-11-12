@@ -111,6 +111,9 @@ pub const MODULE_ITEMS: &[(&str, u8)] = &[
     ("music_disc_lava_chicken", 1),
     // (mob-AI 2026-11-11) a trader llama's dropped lead
     ("lead", 64),
+    // (b8949c96 2026-11-12) a zombified piglin's loot (the kill-room guard's crowd); last, so the
+    // ids before it stay
+    ("gold_nugget", 64),
 ];
 
 use crate::entity::{EntityKind, Vec3};

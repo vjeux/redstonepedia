@@ -209,6 +209,10 @@ fn props(b: &Block) -> Result<Props, String> {
         Block::MovingPiston { .. } => Props { dampening: 0, faces: None },
         // a lightning rod (mobinfra): noOcclusion, not a full shape, dry: propagatesSkylightDown
         Block::LightningRod { .. } => Props { dampening: 0, faces: None },
+        // a door, iron or oak, either half, open or shut (b8949c96 2026-11-12: the storage hall's
+        // iron door; `DoorBlock`: noOcclusion, its 3 px panel never a full shape, dry:
+        // propagatesSkylightDown, light dampening 0, no occluding face)
+        Block::Door { .. } => Props { dampening: 0, faces: None },
         // fire (mobinfra): no collision, no occlusion: propagatesSkylightDown
         Block::Fire { .. } => Props { dampening: 0, faces: None },
         // placed light sources (terrain lane): the table's light dampening; full opaque cubes
@@ -598,6 +602,22 @@ fn update_signal_strength(w: &mut World, pos: BlockPos) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (b8949c96 2026-11-12) A door, iron or oak, either half, shut or open, lets the sky through
+    /// like air (`DoorBlock`'s noOcclusion; its panel is never a full shape): the cell under one
+    /// under the open sky reads 15, as under a lightning rod; a stone cap reads less (the check
+    /// bites).
+    #[test]
+    fn a_door_lets_the_sky_through() {
+        for state in ["minecraft:iron_door[facing=west,half=lower,hinge=left,open=false,powered=false]", "minecraft:oak_door[facing=north,half=upper,hinge=right,open=true,powered=false]"] {
+            let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+            w.place_raw(&[(BlockPos::new(0, 2, 0), Block::parse(state).unwrap())]);
+            assert_eq!(sky_light(&w, BlockPos::new(0, 1, 0)), Ok(15), "{state}");
+        }
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+        w.place_raw(&[(BlockPos::new(0, 2, 0), Block::Simple(crate::block::Simple::Stone))]);
+        assert!(sky_light(&w, BlockPos::new(0, 1, 0)).unwrap() < 15);
+    }
 
     #[test]
     fn judge_time_values() {

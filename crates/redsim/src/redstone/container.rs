@@ -2426,6 +2426,15 @@ mod tests {
     use super::*;
     use crate::block::Block;
 
+    /// (b8949c96 2026-11-12) A zombified piglin's gold nugget is a modeled item: a hopper takes
+    /// one as an item entity (no "not a modeled item" note).
+    #[test]
+    fn gold_nugget_is_a_modeled_item() {
+        let id = item_id("minecraft:gold_nugget").expect("gold_nugget in the item registry");
+        assert_eq!(item_name(id), "gold_nugget");
+        assert_eq!(max_stack(id), 64);
+    }
+
     /// A stack without a payload hashes and prints exactly as the struct did before `payload`
     /// (a derived `Hash` of `{ item, count }`: the fields in order): state keys and model notes
     /// of every design without a shulker box stay what they were. Keep the manual impls.
