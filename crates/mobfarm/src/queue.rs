@@ -1897,6 +1897,29 @@ pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<H
     })
 }
 
+/// (ironspec Nov 11 15:56, for `mobfarm paste`) Every plain-rail junction whose stored shape the
+/// game wouldn't keep at its first update, with the shape it settles to for its signal at rest
+/// (`junction_gate`'s settle): (cell, stored, settled, signal on). A file with no bed is built
+/// homeless (`Run::new_homeless`), so a part's junctions are settled too.
+pub fn settled_junctions(spec: &FarmSpec) -> Result<Vec<([i32; 3], redsim::block::RailShape, redsim::block::RailShape, bool)>, String> {
+    let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let w = if spec.has_bed() { Run::new(spec, &o)?.world } else { Run::new_homeless(spec, &o)?.world };
+    let mut out = Vec::new();
+    for (p, b) in &spec.blocks {
+        if !matches!(b, Block::PlainRail { .. }) {
+            continue;
+        }
+        if let Some(j) = redsim::rails::junction_at(&w, *p) {
+            let stored = redsim::rails::shape_of(b);
+            let want = if j.signal { j.powered } else { j.unpowered };
+            if want != stored {
+                out.push(([p.x, p.y, p.z], stored, want, j.signal));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The rail-junction check (ironspec Nov 11 12:50, a default static check with `--no-junction-check`
 /// as its labelled opt-out): every plain rail joined to three or four rails is settled as the game
 /// would at its first update, for its signal at rest; a stored shape the game would not keep fails

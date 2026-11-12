@@ -532,6 +532,12 @@ pub enum MobfarmCmd {
         /// design replaces).
         #[arg(long, allow_hyphen_values = true)]
         clear: Option<String>,
+        /// Leave every rail junction as stored (by default each plain-rail junction the game
+        /// wouldn't keep is set to the shape it settles to at its first update for its power as
+        /// placed, ironspec Nov 11 15:56, each one listed in the header; `junction-check` stays the
+        /// gate).
+        #[arg(long)]
+        no_settle: bool,
     },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
@@ -2847,7 +2853,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Paste { base, part, at, out, keep, clear } => {
+        MobfarmCmd::Paste { base, part, at, out, keep, clear, no_settle } => {
             let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(o.len() == 3, "--at x,y,z");
             let keep_part = match keep.as_deref() {
@@ -2996,6 +3002,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             for c in &conflicts {
                 println!("  conflict: {c}");
+            }
+            // (ironspec Nov 11 15:56: every junction set to the shape its as-placed power settles
+            // it to, each listed; `--no-settle` leaves them as stored)
+            if !no_settle {
+                let (_c, spec) = load(version, &out)?;
+                let settled = crate::queue::settled_junctions(&spec).map_err(|e| anyhow::anyhow!(e))?;
+                if !settled.is_empty() {
+                    let mut lines = String::new();
+                    for (c, from, to, sig) in &settled {
+                        let line = format!("{},{},{}: stored {}, settled to {} (its signal {})", c[0], c[1], c[2], from.name(), to.name(), if *sig { "on" } else { "off" });
+                        if let Some(s) = d.blocks.get_mut(c) {
+                            *s = s.replace(&format!("shape={}", from.name()), &format!("shape={}", to.name()));
+                        }
+                        println!("  settled: {line}");
+                        lines.push_str(&format!("# settled junction ({} at {},{},{}): {line}\n", p.name, o[0], o[1], o[2]));
+                    }
+                    let text = std::fs::read_to_string(&out)?;
+                    let head_n = text.lines().take_while(|l| l.starts_with('#')).count();
+                    let head: String = text.lines().take(head_n).map(|l| format!("{l}\n")).collect();
+                    std::fs::write(&out, format!("{head}{lines}{}", d.to_text()))?;
+                }
             }
         }
         MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, row_a, tail_posts, approach, depart_crest, cprime, approach_boost, part_departure, crest_plain_dip, crest_descent, part_handoff, approach_climb_boost, part_allowed, out } => {
