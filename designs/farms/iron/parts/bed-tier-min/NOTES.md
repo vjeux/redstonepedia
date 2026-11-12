@@ -1,73 +1,62 @@
-# The minimal bed tier (the one-chunk farm's napper stop)
+# The minimal bed tier (the napper stop)
 
-Code: `crates/mobfarm/src/bedtier.rs` (`mctas mobfarm bedtier`, `bedtier-bench`). Owner: session
-58f770cc. Rulings: ironspec (3883f332), day-1 (a75cc97c), onechunk (7d3d2afb), farmopt (ca87cf44).
+Code: `crates/mobfarm/src/bedtier.rs` (`mctas mobfarm bedtier`, `bedtier-bench`, `bedtier-strand`).
+Owner: session 58f770cc. Rulings: ironspec (3883f332), day-1 (a75cc97c), onechunk (7d3d2afb),
+farmopt (ca87cf44); the lead (F1 + Q2, 24 villagers, one bed) places it under the station with
+9fc3155f's budget (loop frame = this file's local frame + (0,-18,-1)).
 
 ## Files
 
-- `bed-tier-min.txt`, `-bench.txt`: the linear tier (accepted 37099474d: 24/24 night, 312/312
-  freeze, both controls), 191 blocks, superseded by the fold.
-- `bed-tier-fold.txt`, `-bench.txt`: the tier folded into C′'s envelope (accepted ca933ae87), 158
-  blocks, 25.9 build minutes at middle prices. The design is the loop frame minus (0,50,0); the
-  bed's head at loop (-3,50,4).
-- `bed-tier-fold-trip.txt`, `-trip-bench.txt`: the fold with the napper's legs (the divert spiral
-  from the switch flat (9,36,-1), the return helix to the re-entry's T (7,34,9)), 265 blocks, 38.7
-  build minutes (accepted a5fb7eafb).
+- `bed-tier-fold.txt`, `-bench.txt`: the stop as a family-agnostic part (47bbde753): 167 blocks,
+  25.1 build minutes at middle prices, the kick clock not built. The bed's head at local (-3,0,4);
+  blocks x -6..4, y -2..3, z -5..8; riders reach y 4.26 over the entry.
+- `bed-tier-fold-trip*.txt`: C′'s legs (divert spiral, return helix) from a5fb7eafb, laid against
+  the old exit; stale since R moved to (4,-1,5).
+- `bed-tier-min*.txt`: the linear tier (37099474d), superseded.
 
 ## How it works
 
-The arrival heads west along z -4: a booster entry, an always-on activator (the rider lands on the
-ledge south of it), two braked powered rails down a slope (every arrival stops on the first), a
-capped flat, a curve, seven capped flats, the pickup cell beside the bed's head, a capped booster, a
-curve east, two flats, the exit slope, a flat, the hold under the rider check's string, R.
+The arrival heads west along z -4: a booster entry (3,2,-4), an always-on activator (the rider lands
+on the ledge south of it), two braked powered rails down a slope (the park), a flat, the curve south,
+a 2-level hump (slopes up, two raised capped flats at y 2, slopes down), the north T (-2,0,3), the
+pickup cell (-2,0,4) beside the bed's head, a capped flat, the curve east, the slope down (-1,-1,6),
+a flat, the south T (1,-1,6), the exit north and east to R (4,-1,5).
 
-- The napper walks the ledge onto the bed's roof: SleepInBed starts within 2 of the head. A villager
-  off a rail cannot path onto a rail cell (UNPASSABLE_RAIL), so the pickup cell is no way in; the
-  open column over it lets a napper fall in (it then stands on a rail and paths to the bed).
-- F (the hatch shut: the waker seen) comes 10 live gt after the lie-down (the bed's own evidence),
-  or at the give-up; the release (the park's supports powered) 30 live gt after F. Live time is the
-  farm's cart-driven ring, so a level-32 freeze pauses both.
-- The woken napper stands up on the pickup cell only and keeps seeing the waker there (one
-  two-trapdoor hatch, the bed roofed by top-half trapdoors: the standing eye line runs under them).
-- The pickup: a moving minecart collides with a pushable entity in its own move and stops dead
-  (speed zeroed), so it seats a standing villager only from a tick that ends with its box grown 0.2
-  over the villager and still short of contact: under about 0.2 b/t at the napper. The two-cell park
-  and the seven flats bring it to 0.143-0.168.
-- The exit's rider check: a tripwire at rider height over the hold itself (a seated rider's box
-  crosses its band, an empty cart's 0.7 does not). The hold is a braked rail powered while a rider is
-  on the string; R's detector is past it, so a held cart never reads as the tier cleared.
-- Day-1's final rule for empties (emulated on the bench, to be wired): an entry rider check tells
-  "arrived empty" (F at once when parked; the hold releases it) from "arrived ridden, leaves empty"
-  (a stranded napper: released and RIDER_ALARM set if the alarm was clear, held if set).
+- Normal operation only (vjeux 2026-11-12): no handling of empty arrivals, dead nappers or the like.
+- The napper walks the ledge onto the bed's roof and sleeps; F (the hatch shut: the zombie seen) 10
+  live gt after the lie-down, the release (the park's supports powered) 30 live gt after F (the bench
+  emulates both; on the build F is the bed observer's lie-down edge, a one-shot, never inside the
+  observer's ~4-gt blind window).
+- Woken, it stands only on the pickup cell; the released cart reaches it at 0.10-0.15 b/t and seats
+  it (a cart into a standing villager at ~0.2 b/t or more stops dead).
+- The reload strand: a save while the released cart rolls and the napper stands awake puts the napper
+  back to bed on load (SleepInBed's cooldown is not saved), and the cart passes it. Fixed by two
+  dead-end spurs and a plain kick clock, no bed-state memory (an observer ignores changes while its
+  pulse is pending, so no latch on its pulses survives a load; beds give no comparator output):
+  - the north T, unpowered for good (south-east): southbound carts pass to the pickup cell (the hump
+    gives back the ~30% a straight pass through its curve costs), any northbound cart turns into the
+    north spur (dead end (0,0,3));
+  - the south T, powered (north-west, the exit) only by the rider strings (A at y 1 over the curve
+    and the slope, B at y 0 over the T: at y -1 a seated rider's box tops out at y 1.0; dust
+    (2,0,6..7) beside it): ridden carts turn north to R, unridden ones into the south spur (dead end
+    (1,-1,8)), so R never sees a strand;
+  - the slope: a braked powered rail on string OR kick, a second hold for a strand cart;
+  - the kick clock (80 gt, 40 on) powers both spur rails and the slope: a cart kicked off the stone
+    runs back through the pickup cell into the north spur and back until the string sees the napper.
 
-## Bench rows (fold, 8 seeds x arrivals 0.1/0.2/0.3)
+## Bench rows (8 seeds x arrivals 0.1/0.2/0.3, no give-up)
 
 | row | result |
 |---|---|
-| night | 24/24 seated at 0.143-0.165 b/t; the napper only on the pickup cell; lie-down 80-81, R 192-200 |
-| freeze 400 gt at 10 phases (+10..+180) | 240/240 seated |
-| a cart sent empty (no entry check) | 24/24 held |
-| arrived empty (entry check) | 24/24 released, R 117-129, out clean |
-| HOME lost | 24/24 seated (it re-claims); R up to 333 (day-1's one-off consequence row) |
-| won't sleep (by day), alarm clear | 23/24 released, RIDER_ALARM set; 1 seated (wandered into the pit) |
-| won't sleep (by day), alarm set | 23/24 held, 1 seated |
-| waker visible, release at F+150 | 24/24 seated, confined to the pickup cell |
-| waker hidden after the wake, release at F+150 | 24/24 back in bed 100 gt after the wake |
+| night | 24/24 seated; the south T's lead over a ridden cart 17-27 gt; entry to R 218-236 gt; lie-down from the entry 80+ gt |
+| reloads +100..+220 every 2 gt, freezes +100..+220 every 4 gt (2,208) | all seated; 0 strands to R, 0 never out, 0 ridden in the south spur, 0 HOME lost; 37 heals, extra 143-156 gt; least pickup 0.106 |
+| reloads at 6 phases, a freeze at load+0..40 every 2 gt (3,168) | all seated, same zeros; 11 heals 143-156 gt |
+| give-up only (bedtier-strand, rejected) | 65 of 216 strands, every one losing the next napper's HOME |
 
-Trip (8 seeds x switch speeds 0.1-0.4): 32/32 seated; the switch to the entry 63-70 gt, to R
-257-269, to the re-entry's waiting cell 320-332; a freeze of 400 gt mid-spiral: 128/128 seated,
-no stall. The legs share no cell.
+Open: 74 thaw rows show the south T re-powered in the tick a cart, frozen on the flat before it,
+entered it (lead 0-1 gt, routed right): a second flat with B over it would give the lead back.
 
 ## Observed, unbridged
 
 - In the hidden-waker control, the cart seated the sleeping napper off its bed: the sleeper drifts
-  into the cart's grown box over the pickup cell. Not bridged on the real server; the design must
-  not rely on it (the waker-visible row is the design).
-
-## Open
-
-- The divert cannot lift an EMPTY cart (drag 0.96 a tick against 0.997 ridden) with the booster
-  count that keeps a ridden arrival in the park's range (entry 0.42-0.44 stored); options (a) a
-  stalled empty rolls back to the tail, (b) a detector-released stop at the divert's top, (c) a
-  three-cell park are with ironspec.
-- Two tail posts within 6.05 of the legs ((9,44,0), (8,42,9)): onechunk moves them.
+  into the cart's grown box over the pickup cell. Not bridged; the design must not rely on it.
