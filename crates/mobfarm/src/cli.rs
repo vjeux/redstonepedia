@@ -450,7 +450,9 @@ pub enum MobfarmCmd {
         /// The redstone components and blocks instead of the bill (farmopt and ironspec, Nov 11):
         /// repeaters, comparators, observers, dust, torches, detector rails, powered rails (on or
         /// off at rest), redstone blocks, other redstone, gates (the controlled places, listed),
-        /// rails and every block, counted from the file; per `--part` box too.
+        /// rails and every block, counted from the file; per `--part` box too; the design's Nether
+        /// part (its `nether layer Y:` sections: the kill room, a loader's portal) in its own
+        /// "nether" column and in "whole".
         #[arg(long)]
         components: bool,
         /// With --components: a named box counted on its own column, NAME=X0,Y0,Z0..X1,Y1,Z1 in
@@ -9222,12 +9224,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::Bill { design, stage, terrain, components, part } => {
             if components {
                 // (the design's own blocks, as written: a part file without ports or a farm spec
-                // counts too)
+                // counts too; its Nether part, the `nether layer Y:` sections, in its own column
+                // and in the whole)
                 let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
                 let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, k)| (*p, k.clone())).collect();
+                let nether: Vec<([i32; 3], String)> = d.nether_blocks.iter().map(|(p, k)| (*p, k.clone())).collect();
                 let parts = part.iter().map(|t| crate::components::parse_part(t)).collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))?;
-                println!("{}: {} cells", design.display(), blocks.len());
-                print!("{}", crate::components::table(&blocks, &parts));
+                if nether.is_empty() {
+                    println!("{}: {} cells (no Nether part)", design.display(), blocks.len());
+                } else {
+                    println!("{}: {} cells ({} overworld + {} in its Nether part)", design.display(), blocks.len() + nether.len(), blocks.len(), nether.len());
+                }
+                print!("{}", crate::components::table(&blocks, &nether, &parts));
                 return Ok(());
             }
             let (c, spec) = load(version, &design)?;

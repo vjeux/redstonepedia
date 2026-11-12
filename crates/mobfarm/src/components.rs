@@ -84,18 +84,30 @@ pub fn parse_part(t: &str) -> Result<PartBox, String> {
     Ok(PartBox { name: name.to_string(), lo, hi })
 }
 
-/// The table: one column per box (first box holding a cell wins), then "rest" (cells in no box)
-/// when there are boxes, then the whole design; the other-redstone and gate kinds named below.
-pub fn table(blocks: &[([i32; 3], String)], parts: &[PartBox]) -> String {
-    let ncol = parts.len() + usize::from(!parts.is_empty()) + 1;
+/// The table: one column per box (first box holding a cell wins), then "rest" (overworld cells in
+/// no box) when there are boxes, then "nether" (the design's Nether part, its `nether layer Y:`
+/// sections: the kill room, a loader's Nether portal) when it has one, then the whole design, both
+/// dimensions (G1's review of bac97448a: the objective is output per block of the whole build);
+/// the other-redstone and gate kinds named below. The `--part` boxes are overworld cells.
+pub fn table(blocks: &[([i32; 3], String)], nether: &[([i32; 3], String)], parts: &[PartBox]) -> String {
+    let rest_col = parts.len();
+    let nether_col = parts.len() + usize::from(!parts.is_empty());
+    let ncol = nether_col + usize::from(!nether.is_empty()) + 1;
     let mut counts = vec![[0usize; ROWS.len()]; ncol];
     let mut named: BTreeMap<(usize, String), usize> = BTreeMap::new();
     let mut gates: Vec<String> = Vec::new();
-    for (p, s) in blocks {
+    let cells = blocks.iter().map(|c| (c, false)).chain(nether.iter().map(|c| (c, true)));
+    for ((p, s), in_nether) in cells {
         let r = row_of(s);
-        let col = parts.iter().position(|b| (0..3).all(|i| p[i] >= b.lo[i] && p[i] <= b.hi[i])).unwrap_or(parts.len());
-        if !parts.is_empty() {
-            counts[col][r] += 1;
+        let col = if in_nether {
+            Some(nether_col)
+        } else if parts.is_empty() {
+            None
+        } else {
+            Some(parts.iter().position(|b| (0..3).all(|i| p[i] >= b.lo[i] && p[i] <= b.hi[i])).unwrap_or(rest_col))
+        };
+        if let Some(c) = col {
+            counts[c][r] += 1;
         }
         counts[ncol - 1][r] += 1;
         let kind = s.strip_prefix("minecraft:").unwrap_or(s).split('[').next().unwrap_or("").to_string();
@@ -103,13 +115,22 @@ pub fn table(blocks: &[([i32; 3], String)], parts: &[PartBox]) -> String {
             *named.entry((r, kind.clone())).or_default() += 1;
         }
         if r == 10 {
-            let label = if parts.is_empty() { String::new() } else { format!(" ({})", parts.get(col).map(|b| b.name.as_str()).unwrap_or("rest")) };
+            let label = if in_nether {
+                " (nether)".to_string()
+            } else if parts.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", parts.get(col.unwrap_or(rest_col)).map(|b| b.name.as_str()).unwrap_or("rest"))
+            };
             gates.push(format!("{},{},{} {kind}{label}", p[0], p[1], p[2]));
         }
     }
     let mut heads: Vec<String> = parts.iter().map(|b| b.name.clone()).collect();
     if !parts.is_empty() {
         heads.push("rest".into());
+    }
+    if !nether.is_empty() {
+        heads.push("nether".into());
     }
     heads.push("whole".into());
     let mut out = format!("{:<28}", "kind");
@@ -136,11 +157,17 @@ pub fn table(blocks: &[([i32; 3], String)], parts: &[PartBox]) -> String {
     if !other.is_empty() {
         out.push_str(&format!("other redstone: {}\n", other.join(", ")));
     }
-    if let Some((lo, hi)) = blocks.iter().fold(None::<([i32; 3], [i32; 3])>, |acc, (p, _)| match acc {
-        None => Some((*p, *p)),
-        Some((l, h)) => Some(([l[0].min(p[0]), l[1].min(p[1]), l[2].min(p[2])], [h[0].max(p[0]), h[1].max(p[1]), h[2].max(p[2])])),
-    }) {
+    let extent = |cells: &[([i32; 3], String)]| {
+        cells.iter().fold(None::<([i32; 3], [i32; 3])>, |acc, (p, _)| match acc {
+            None => Some((*p, *p)),
+            Some((l, h)) => Some(([l[0].min(p[0]), l[1].min(p[1]), l[2].min(p[2])], [h[0].max(p[0]), h[1].max(p[1]), h[2].max(p[2])])),
+        })
+    };
+    if let Some((lo, hi)) = extent(blocks) {
         out.push_str(&format!("extent: x {}..{} y {}..{} z {}..{}\n", lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]));
+    }
+    if let Some((lo, hi)) = extent(nether) {
+        out.push_str(&format!("nether extent: x {}..{} y {}..{} z {}..{} ({} cells)\n", lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], nether.len()));
     }
     out.push_str(&format!("controlled places (gates, {}): {}\n", gates.len(), if gates.is_empty() { "none".to_string() } else { gates.join("; ") }));
     out
@@ -167,7 +194,7 @@ mod tests {
         assert_eq!(row_of("minecraft:stone_button[face=floor]"), 9);
         assert_eq!(row_of("minecraft:spruce_fence_gate"), 10);
         let parts = vec![parse_part("a=0,0,0..2,0,0").unwrap()];
-        let t = table(&blocks, &parts);
+        let t = table(&blocks, &[], &parts);
         let line = |label: &str| t.lines().find(|l| l.starts_with(label)).unwrap().split_whitespace().rev().take(3).map(|s| s.parse::<usize>().unwrap()).collect::<Vec<_>>();
         // (whole, rest, a) read right to left
         assert_eq!(line("repeaters"), vec![1, 0, 1]);
@@ -176,5 +203,29 @@ mod tests {
         assert_eq!(line("blocks (every non-air)"), vec![7, 4, 3]);
         assert!(t.contains("controlled places (gates, 1): 3,0,0 oak_fence_gate (rest)"));
         assert!(t.contains("other redstone: stone_button 1"));
+        assert!(!t.contains("nether"), "no Nether part, no nether column");
+    }
+
+    #[test]
+    fn the_nether_part_has_its_own_column_and_counts_in_whole() {
+        // G1's review of bac97448a: a farm file's `nether layer Y:` sections (the kill room, a
+        // loader's Nether portal) count in their own column and in the whole build.
+        let b = |x: i32, s: &str| ([x, 0, 0], s.to_string());
+        let over = vec![b(0, "minecraft:repeater[delay=1,facing=north]"), b(1, "minecraft:stone")];
+        let nether = vec![b(0, "minecraft:obsidian"), b(1, "minecraft:obsidian"), b(2, "minecraft:hopper[facing=down]"), b(3, "minecraft:oak_trapdoor[open=false]")];
+        let t = table(&over, &nether, &[]);
+        let head = t.lines().next().unwrap();
+        assert!(head.contains("nether") && head.trim_end().ends_with("whole"), "{head}");
+        let line = |label: &str| t.lines().find(|l| l.starts_with(label)).unwrap().split_whitespace().rev().take(2).map(|s| s.parse::<usize>().unwrap()).collect::<Vec<_>>();
+        // (whole, nether) read right to left
+        assert_eq!(line("blocks (every non-air)"), vec![6, 4]);
+        assert_eq!(line("components (redstone)"), vec![2, 1]);
+        assert!(t.contains("3,0,0 oak_trapdoor (nether)"));
+        assert!(t.contains("nether extent: x 0..3 y 0..0 z 0..0 (4 cells)"));
+        // with boxes: a, rest, nether, whole
+        let parts = vec![parse_part("a=0,0,0..0,0,0").unwrap()];
+        let t = table(&over, &nether, &parts);
+        let blocks_row = t.lines().find(|l| l.starts_with("blocks (every non-air)")).unwrap().split_whitespace().rev().take(4).map(|s| s.parse::<usize>().unwrap()).collect::<Vec<_>>();
+        assert_eq!(blocks_row, vec![6, 4, 1, 1]);
     }
 }
