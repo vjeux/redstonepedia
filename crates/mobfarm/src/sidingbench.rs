@@ -55,8 +55,10 @@ pub struct SidingOpts {
     pub siding_dy: i32,
     /// The merge string north-south on glass supports (nothing over the siding's path at x-1/x-2).
     pub ns_merge: bool,
-    /// The guard as a detector rail in the branch cell (x,m,mz+2) (no hooks near the siding).
+    /// The guard as a detector rail in the branch cell (x,m,mz+guard_dz) (no hooks near the siding).
     pub guard_det: bool,
+    /// The detector guard's cell: mz + this (2 at first; 1 since 7b90c3f1's split shares it as its latch).
+    pub guard_dz: i32,
     /// The passive drop entry (ironspec 00:41): the merge one level up, its north end a rail end over
     /// the drop onto the lane's top slope, a backstop wall two cells north of the merge.
     pub drop_entry: bool,
@@ -118,7 +120,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     for z in mz..=mz + 3 {
         // (the merge cell a north_west curve with --merge-curve (the siding from the west and the branch
         // from the south both leave north into the intake), else a straight north_south flat)
-        let blk = if z == mz && so.merge_curve { &curve_nw } else if z == mz + 2 && so.guard_det { &det_ns } else { &flat_ns };
+        let blk = if z == mz && so.merge_curve { &curve_nw } else if z == mz + so.guard_dz && so.guard_det { &det_ns } else { &flat_ns };
         put(lx, m, z, blk);
         put(lx, m - 1, z, &glass);
     }
@@ -237,6 +239,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let n = carts.len();
     let warm = 300i64;
     let rel_end = warm + o.cycles * o.period;
+    // (the lane's steady state: every cart through D once and back, after the start's full lane)
+    let steady_from = warm + o.per_lane as i64 * o.period + o.ret.max(so.nap_ret);
     let ticks = rel_end + 400;
     let hold_hook = BlockPos::new(lx - 1, 17, 0);
     let merge_hook = if so.drop_entry {
@@ -264,6 +268,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut met_this_drop = vec![false; n];
     let mut was_falling = vec![false; n];
     let mut occupied_q: std::collections::BTreeSet<usize> = Default::default();
+    let mut top_stay: Vec<Option<(usize, i64, i64, i64)>> = vec![None; n];
+    let mut top_by_q: std::collections::BTreeMap<usize, (i64, i64)> = Default::default();
+    let mut top_start: std::collections::BTreeMap<usize, (i64, i64)> = Default::default();
+    let mut top_end: std::collections::BTreeMap<usize, (i64, i64)> = Default::default();
     // (the napper bookkeeping: the cart index of the napper waiting, its predecessor's index, the
     // predecessor's merge pass tick, the release tick)
     let mut nap: Option<(usize, usize)> = None;
@@ -353,7 +361,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             nap_rested_at = Some(t);
         }
         let guard_on = if so.guard_det {
-            matches!(run.world.get(BlockPos::new(lx, m, mz + 2)), Block::DetectorRail { powered: true, .. })
+            matches!(run.world.get(BlockPos::new(lx, m, mz + so.guard_dz)), Block::DetectorRail { powered: true, .. })
         } else {
             so.guard && matches!(run.world.get(BlockPos::new(lx - 1, m + 1, mz + 1)), Block::TripwireHook { powered: true, .. })
         };
@@ -418,37 +426,15 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 pending.retain(|p| p.1 != c);
             }
         }
-        // (a restart between ticks t - 1 and t (cc767b78's helper): the carts followed to their new
-        // ids; the cold start also resets the bench's controller: the trapdoor shut, an R pulse to
-        // restage, the siding braked, the merge passes forgotten (a waiting napper waits for its
-        // predecessor's next pass))
+        // (a restart between ticks t - 1 and t (cc767b78's helper, 58f6f0084): a save/stop/start in a
+        // load order, the carts followed to their new ids; the bench's controller runs on (its timers
+        // are game ticks, and no game time passes). The cold start is no restart: it is the fresh
+        // design started at every phase (`--corners 0..period-1`).)
         for (rt, how) in &o.restart {
             if *rt == t {
                 crate::liveness::restart(&mut run.world, *how)?;
                 for id in carts.iter_mut().flatten() {
                     *id = crate::liveness::follow(&run.world, *id);
-                }
-                if *how == crate::liveness::Restart::Cold {
-                    trap_until = -1;
-                    r_until = t + 10 + o.r_pulse;
-                    s_until = s_until.min(t);
-                    held = 0;
-                    for lp in last_pass.iter_mut() {
-                        *lp = None;
-                    }
-                    lap_wait = false;
-                    nap_since = t;
-                    merge_was = false;
-                    // (a napper still on the siding when the pulse is cut is braked there again: the
-                    // controller has no release in hand for it, it waits for its rule anew)
-                    if let Some((nc, _)) = nap
-                        && carts[nc].and_then(|id| st(&run.world, id)).is_some_and(|p| (p.0 - (sx as f64 + 0.5)).abs() < 0.6)
-                    {
-                        released_at = None;
-                        nap_rested_at = None;
-                        nap_rest = None;
-                        knocked_this = false;
-                    }
                 }
             }
         }
@@ -527,6 +513,26 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 met_this_drop[c] = false;
             }
             was_falling[c] = falling;
+            // (the top slope's cell (the drop's landing cell, (x,17+N,1+N)): every stay of a cart's
+            // centre there on the rails, its length and its ticks at rest, with q when it came in)
+            let in_top = in_column && !falling && x.floor() as i32 == lx && z.floor() as i32 == 1 + ns;
+            if in_top {
+                let e = top_stay[c].get_or_insert((q_now, 0, 0, t));
+                e.1 += 1;
+                if prev[c].is_some_and(|p| p.3 < 0.002) && now[c].is_some_and(|p| p.3 < 0.002) {
+                    e.2 += 1;
+                }
+            } else if let Some((q0, st_ticks, rest_ticks, t0)) = top_stay[c].take() {
+                if st_ticks > 30 && std::env::var("MCTAS_TOPCELL_DEBUG").is_ok() {
+                    let lane: Vec<String> = (0..n).filter_map(|j| now[j].filter(|p| (p.0 - zc).abs() < 0.6 && p.2 < mz as f64 + 0.5).map(|p| format!("{j}:{:.2}{}", p.2, if had_contact[j] { "q" } else { "" }))).collect();
+                    eprintln!("top-cell stay: cart {c} from t {t0} for {st_ticks} gt (rest {rest_ticks}) at q {q0}; out of the lane: {}; the lane now: {}", (0..n).filter(|j| now[*j].is_none_or(|p| (p.0 - zc).abs() >= 0.6 || p.2 >= mz as f64 + 0.5)).count(), lane.join(" "));
+                }
+                // (stays that began before the first full cycle are the bench's start: 7 carts laid in
+                // the lane and the 8th arriving; apart from normal operation)
+                let e = if t0 < steady_from { top_start.entry(q0).or_insert((0, 0)) } else if t0 >= rel_end { top_end.entry(q0).or_insert((0, 0)) } else { top_by_q.entry(q0).or_insert((0, 0)) };
+                e.0 = e.0.max(st_ticks);
+                e.1 = e.1.max(rest_ticks);
+            }
             // (the landing cell: a queued cart's box reaching the top slope's cell)
             if had_contact[c] && entered.contains(&c) && in_column && !falling && z + 0.49 > (1 + ns) as f64 {
                 occupied_q.insert(q_now);
@@ -707,6 +713,21 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         by_count.iter().map(|(k, v)| format!("{k}: {v:.3}")).collect::<Vec<_>>().join(", ")
     ));
     lines.push(format!("arrivals landing out of order (the cart ahead is not the one that entered before; the bar: 0): {order_broken}{}", if order_note.is_empty() { String::new() } else { format!(" ({})", order_note.join("; ")) }));
+    // (stays still open at the run's end count too)
+    for (q0, st_ticks, rest_ticks, t0) in top_stay.iter().flatten() {
+        let e = if *t0 < steady_from { top_start.entry(*q0).or_insert((0, 0)) } else if *t0 >= rel_end { top_end.entry(*q0).or_insert((0, 0)) } else { top_by_q.entry(*q0).or_insert((0, 0)) };
+        e.0 = e.0.max(*st_ticks);
+        e.1 = e.1.max(*rest_ticks);
+    }
+    let fmt_top = |m: &std::collections::BTreeMap<usize, (i64, i64)>| if m.is_empty() { "never".to_string() } else { m.iter().map(|(q, (s, r))| format!("q {q}: the longest stay {s} gt, at rest {r} gt")).collect::<Vec<_>>().join("; ") };
+    lines.push(format!(
+        "the top slope's cell (x,{},{}) (the landing cell), a cart's centre on the rails there, by q when it came in: {} [the bench's start (7 carts laid in the lane, the 8th arriving) until the lane's steady state, t < {steady_from}: {}] [the bench's end, after the last release (t >= {rel_end}: the lane refills with no drops): {}]",
+        17 + ns,
+        1 + ns,
+        fmt_top(&top_by_q),
+        fmt_top(&top_start),
+        fmt_top(&top_end)
+    ));
     lines.push(format!(
         "landings meeting another cart's box (during the fall or at the landing tick; lift3's box test, its speed on all three axes against 0.46): {}, {} above 0.46{}; the landing cell (x,{},{}) held a queued cart at q: {}",
         landing_meets.len(),
@@ -749,10 +770,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
 /// 2026-11-12 01:30): R_1 and the hold string, the N slopes on glass, the drop entry (the merge one
 /// level up, the empty drop column, the wall, the pass string), the 2-cell branch with its detector
 /// guard, the x-2 siding. The switched cells are left air and named in the header.
-pub fn lanes_design(ns: i32) -> String {
+pub fn lanes_design(ns: i32) -> Result<String, String> {
     let m = 19 + ns;
     let mz = ns + 2;
-    let tripwire_ew = "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,south=false,west=true,powered=false]";
+    let tripwire_ew = "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]";
     let hook_e = "minecraft:tripwire_hook[attached=true,facing=east,powered=false]";
     let hook_w = "minecraft:tripwire_hook[attached=true,facing=west,powered=false]";
     let glass = "minecraft:glass";
@@ -769,14 +790,9 @@ pub fn lanes_design(ns: i32) -> String {
         let mut put = |x: i32, y: i32, z: i32, s: &'static str| {
             cells.insert((x, y, z), s);
         };
-        // (the hold's string (x,17,0), hooks x+-1, supports x+-2 shared between lanes)
-        put(x, 17, 0, tripwire_ew);
-        put(x - 1, 17, 0, hook_e);
-        put(x + 1, 17, 0, hook_w);
-        put(x - 2, 17, 0, stone);
-        put(x + 2, 17, 0, stone);
-        // (R_1: its support (x,16,1) is the station's ring glass, not laid here)
-        put(x, 17, 1, pslope);
+        // (the hold's string row (x-2..x+2,17,0) and R_1 (x,17,1) are the station's cells (dfb89499's
+        // file owns them; the bench lays its own copy), not laid here)
+        let _ = (tripwire_ew, hook_e, hook_w, stone, pslope);
         for k in 0..ns {
             put(x, 18 + k, 2 + k, slope);
             put(x, 17 + k, 2 + k, glass);
@@ -790,10 +806,11 @@ pub fn lanes_design(ns: i32) -> String {
         put(x + 1, m, mz - 1, hook_w);
         put(x - 2, m, mz - 1, glass);
         put(x + 2, m, mz - 1, glass);
-        // (the 2-cell branch)
-        put(x, m, mz + 1, flat_ns);
+        // (the 2-cell branch: the detector guard first, (x,m,mz+1), shared with the split's latch
+        // (7b90c3f1), two cells off the split's junction; then the flat (x,m,mz+2))
+        put(x, m, mz + 1, det);
         put(x, m - 1, mz + 1, glass);
-        put(x, m, mz + 2, det);
+        put(x, m, mz + 2, flat_ns);
         put(x, m - 1, mz + 2, glass);
         // (the siding at x-2)
         put(x - 2, m, mz + 1, pslope);
@@ -817,16 +834,16 @@ pub fn lanes_design(ns: i32) -> String {
     out.push_str(&format!(
         "# F1 + Q2 lanes (ironfarm, the brake-and-rider escapement with the passive drop entry; ironspec 2026-11-12 01:21, lead): three lanes x -1 / 3 / 7, loop frame (paste with no move), {ns} slopes behind R_1, the merge at m = {m}, mz = {mz}. Benched as `mctas mobfarm drop-bench --siding --merge-curve --siding-dx 2 --guard-det --drop-entry --slopes {ns} --r-pulse 30 --drop-w 20 --per-lane 8` (explore/ironfarm): one lane, these cells at x 3.\n"
     ));
-    out.push_str("# Per lane x: the hold's string (x,17,0) with hooks (x+-1,17,0) on stone (x+-2,17,0) (shared); R_1 (x,17,1) a powered rail ascending south, its support (x,16,1) the station's ring glass (dfb89499; not laid here);");
+    out.push_str("# Per lane x: the hold string (x-2..x+2,17,0) and R_1 (x,17,1): the station's file (dfb89499 owns those cells; not laid here; the bench lays R_1 as a powered rail ascending south, its string's hooks on stone);");
     out.push_str(&format!(" the slopes (x,18..{},2..{}) plain, ascending south, on glass; the merge (x,{m},{mz}) a north_west curve on glass (x,{},{mz}), its north end the rail end over the drop column (x,{m}..{},{}) (empty but the pass string) onto the top slope (x,{},{}), the wall (x,{m},{}) stone;", 17 + ns, 1 + ns, m - 1, m - 1, mz - 1, 17 + ns, 1 + ns, mz - 2));
-    out.push_str(&format!(" the pass string (x,{m},{}) with hooks (x+-1,{m},{}) on glass (x+-2,{m},{}) (shared at x 1 / 5); the 2-cell branch (x,{m},{}) flat and (x,{m},{}) the detector guard, both on glass, fed by the split from z {};", mz - 1, mz - 1, mz - 1, mz + 1, mz + 2, mz + 3));
+    out.push_str(&format!(" the pass string (x,{m},{}) with hooks (x+-1,{m},{}) on glass (x+-2,{m},{}) (shared at x 1 / 5); the 2-cell branch: (x,{m},{}) the detector guard (shared with the split's latch, 7b90c3f1) and (x,{m},{}) flat, both on glass, fed from the split's junction south of it (7b90c3f1's re-target);", mz - 1, mz - 1, mz - 1, mz + 1, mz + 2));
     out.push_str(&format!(" the siding at x-2: the rest (x-2,{m},{}) a powered rail ascending south (braked unpowered), the curve (x-2,{m},{mz}) south_east, the flat (x-1,{m},{mz}) east_west, the feed (x-2,{},{}) from the split's napper route, all on glass.\n", mz + 1, m + 1, mz + 2));
     out.push_str(&format!(
         "# Switched cells (left air here; the bench's emulation: a redstone block set and cleared with flags ALL): R_1's side power (x+1,17,1) (the R line: on 30 gt when the trapdoors shut); the siding's side power (x-1,{m},{}) (the siding pulse: on 30 gt at the napper's release, K = 4 gt after its predecessor's pass string edge, while the detector guard (x,{m},{}) is off). The holds' trapdoors (x,16,0) are the station's (the trapdoor line: open 20 gt).\n",
         mz + 1,
-        mz + 2
+        mz + 1
     ));
-    out.push_str("# Bars as benched (8 a lane, ±2, v_in 0.26..0.40): arrivals <= 0.459 at q 0..1, <= 0.392 at q >= 2; every failure count 0; the 10 load orders at every phase 0 failing. The split must deliver 0.26..0.40 b/t (0.22 rests on the merge's glass).\n");
+    out.push_str("# Bars as benched (the bench's v_in is the STORED speed, the cart's Motion; a ridden cart moves 0.75 of it a tick): see the commit for the rows; every failure count 0; the 10 load orders at every phase 0 failing.\n");
     out.push_str("name: f1q2-lanes\ncircuit: mob-farm iron_ingot\n");
     out.push_str(&format!("origin: {x0} 0 {z0}\npalette:\n"));
     for s in &states {
@@ -836,10 +853,21 @@ pub fn lanes_design(ns: i32) -> String {
         out.push_str(&format!("layer {y}:\n"));
         for z in z0..=z1 {
             let row: String = (x0..=x1).map(|x| cells.get(&(x, y, z)).map_or('.', |s| ch(s))).collect();
-            out.push_str(&format!("  {}\n", row.trim_end_matches('.')));
+            // (an empty row is written as one '.': the parser skips whitespace-only lines, which
+            // would move every later row of the layer north)
+            let row = row.trim_end_matches('.');
+            out.push_str(&format!("  {}\n", if row.is_empty() { "." } else { row }));
         }
     }
-    out
+    // (the self-check: the file parsed back with the design parser must hold exactly these cells)
+    let d = mctas::design::Design::parse(&out).map_err(|e| format!("lanes_design: the written file does not parse: {e:#}"))?;
+    let want: std::collections::BTreeMap<[i32; 3], String> = cells.iter().map(|(k, v)| ([k.0, k.1, k.2], v.to_string())).collect();
+    if d.blocks != want {
+        let missing: Vec<String> = want.iter().filter(|(k, v)| d.blocks.get(*k) != Some(*v)).take(4).map(|(k, v)| format!("{k:?} {v}")).collect();
+        let extra: Vec<String> = d.blocks.iter().filter(|(k, v)| want.get(*k) != Some(*v)).take(4).map(|(k, v)| format!("{k:?} {v}")).collect();
+        return Err(format!("lanes_design: the parsed file differs from the bench's cells: wanted {missing:?}, found {extra:?}"));
+    }
+    Ok(out)
 }
 
 /// Run `f` over `0..n` on `jobs` threads, results in order.
@@ -869,6 +897,8 @@ pub struct SidingRow {
     pub late_naps: usize,
     pub nap_contacts: Vec<f64>,
     pub nap_q: Vec<i64>,
+    /// The napper's curve-rule margins at the merge (its entry minus its predecessor's clear, gt).
+    pub nap_cr: Vec<i64>,
     pub wrong: usize,
     pub knocked: usize,
     pub touching: usize,
@@ -879,6 +909,7 @@ pub struct SidingRow {
     pub landing_meets: usize,
     pub landing_over: usize,
     pub occupied_q: String,
+    pub top_cell: String,
     pub off_rail: usize,
     pub eyes: usize,
     pub min_health: f32,
@@ -914,6 +945,9 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
         } else if l.starts_with("nappers through the siding: ") {
             for seg in l.split(" | ") {
                 if let Some(v) = num_after(seg, "its contact ") {
+                    if let Some(cr) = num_after(seg, "minus the predecessor's clear) ") {
+                        r.nap_cr.push(cr as i64);
+                    }
                     r.nap_contacts.push(v);
                     r.nap_q.push(num_after(seg, " at q ").map_or(-1, |q| q as i64));
                 }
@@ -945,6 +979,8 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
             r.landing_meets = req(l, "against 0.46): ")? as usize;
             r.landing_over = l.split("against 0.46): ").nth(1).and_then(|s| s.split(", ").nth(1)).and_then(|s| s.split(' ').next()).and_then(|s| s.parse().ok()).ok_or(format!("siding_row: no landings-over count in: {l}"))?;
             r.occupied_q = l.split("held a queued cart at q: ").nth(1).unwrap_or("-").to_string();
+        } else if l.starts_with("the top slope's cell") {
+            r.top_cell = l.split("by q when it came in: ").nth(1).and_then(|s| s.split(" [the bench's start").next()).unwrap_or("-").to_string();
         } else if l.starts_with("carts at rest off the rails") {
             r.off_rail = req(l, "the bar: 0): ")? as usize;
         } else if l.starts_with("riders' eyes inside") {
