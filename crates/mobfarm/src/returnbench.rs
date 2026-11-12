@@ -84,6 +84,13 @@ pub struct ReturnOpts {
     pub climb2: bool,
     /// `climb2`: the first climbing slope a powered rail (the booster) instead of the exit's cell.
     pub boost_slope: bool,
+    /// (c)'s napper lift re-laid for the z 7 hold (`napper_delay`): the napper from R (4,-19,4)
+    /// through its own bubble lift, the staircase and the hold (9,0,8), released D gt after the
+    /// arming detector by powering the hold's block.
+    pub napper_lift: bool,
+    /// `napper_lift`: arm the release on the station's exit detector (7,0,2) (before the boosters)
+    /// instead of the main line's (5,0,7) (after them, the speed pinned).
+    pub arm_station: bool,
     /// The station's real departure: three boosters (powered rails, on) on each lane's last three
     /// cells before the merge row (dfb89499); the arming detector at the station's exit detector
     /// (x,0,2).
@@ -113,7 +120,7 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
             // station's own exit detector (x,0,2) (dfb89499: plain z 1, the exit detector z 2, plain
             // z 3, three boosters z 4..6 into the z 7 merge row))
             let arm_lane = if o.reverse { 7 } else { -1 };
-            let arm_z = if o.boosters { -100 } else { mz - 2 };
+            let arm_z = if o.napper_lift && o.arm_station { 2 } else if o.boosters { -100 } else { mz - 2 };
             let boost = o.boosters && z >= mz - 3;
             let r = if o.napper_delay.is_some() && x == arm_lane && z == arm_z {
                 det("north_south")?
@@ -128,10 +135,66 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
     }
     put(7, 0, mz, &rail("north_west")?);
     // ((c)'s y 0 hold (8,0,mz): its line joins lane 7's curve from the curve's unconnected east side)
-    if o.napper_delay.is_some() {
+    if o.napper_delay.is_some() && !o.napper_lift {
         put(8, 0, mz, &rail("east_west")?);
         put(8, -1, mz, &glass);
         put(9, 0, mz, &glass);
+    }
+    // (`napper_lift` ((c) re-laid for the z 7 hold, ironspec 03:30): R (4,-19,4) heading +x (58f770cc's
+    // detector; a plain rail here) into the entry (5,-19,4) and the napper-only bubble lift (6,y,4)
+    // (soul sand (6,-20,4), water to -4, glass walls), its top (6,-3,4) pushed east by the source
+    // (5,-3,4) onto the exit (7,-3,4); a powered slope (8,-3,4) up east, the curve (9,-2,4) south,
+    // powered slopes (9,-2,5) and (9,-1,6) up south to the T (9,0,7) (arms N, S, W; south_west, its
+    // unpowered settle: a cart from the north goes on south, one from the south turns west); the hold
+    // (9,0,8), a powered rail stopping the napper against stone (9,0,9) (glass over it), released when
+    // its block (9,-1,8) is powered (the kick sends it north, west at the T, (8,0,7), lane 7's curve))
+    if o.napper_delay.is_some() && o.napper_lift {
+        let rb = Block::parse("minecraft:redstone_block")?;
+        let pr = |s: &str, on: bool| Block::parse(&format!("minecraft:powered_rail[powered={on},shape={s},waterlogged=false]"));
+        put(4, -19, 4, &rail("east_west")?);
+        put(4, -20, 4, &glass);
+        put(5, -19, 4, &rail("east_west")?);
+        put(5, -20, 4, &glass);
+        put(6, -20, 4, &Block::parse("minecraft:soul_sand")?);
+        for y in -19..=-4 {
+            put(6, y, 4, &water);
+            put(7, y, 4, &glass);
+            put(6, y, 3, &glass);
+            put(6, y, 5, &glass);
+            if y > -19 {
+                put(5, y, 4, &glass);
+            }
+        }
+        put(7, -20, 4, &glass);
+        put(6, -20, 3, &glass);
+        put(6, -20, 5, &glass);
+        put(6, -3, 3, &glass);
+        put(6, -3, 5, &glass);
+        put(6, -2, 4, &glass);
+        put(5, -3, 4, &water);
+        put(4, -3, 4, &glass);
+        put(5, -3, 3, &glass);
+        put(5, -3, 5, &glass);
+        put(5, -2, 4, &glass);
+        put(7, -3, 4, &rail("east_west")?);
+        put(8, -3, 4, &pr("ascending_east", true)?);
+        put(8, -4, 4, &rb);
+        put(9, -2, 4, &rail("south_west")?);
+        put(9, -3, 4, &glass);
+        put(9, -2, 5, &pr("ascending_south", true)?);
+        put(9, -3, 5, &rb);
+        put(9, -1, 6, &pr("ascending_south", true)?);
+        put(9, -2, 6, &rb);
+        put(9, 0, 7, &rail("south_west")?);
+        put(9, -1, 7, &glass);
+        // (the hold's line a booster (on a redstone block): the napper joins at the batches' speed;
+        // the block touches no face of lane 7's curve T)
+        put(8, 0, mz, &pr("east_west", true)?);
+        put(8, -1, mz, &rb);
+        put(9, 0, 8, &pr("north_south", false)?);
+        put(9, -1, 8, &glass);
+        put(9, 0, 9, &Block::parse("minecraft:stone")?);
+        put(9, 1, 9, &glass);
     }
     // (the merge's Ts keep their shapes by placement order (ironspec 02:47): each placed after its two
     // intended arms (NW: the lane and the downstream row), with no signal source able to update it;
@@ -141,7 +204,7 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
         // (with `boosters` (the reverse order) the arming detector on the main line (5,0,mz), past the
         // boosters (the speed pinned), two cells off lane 7's curve and lane 3's T: only lane 7's carts
         // reach it before the napper)
-        let r = if x == 3 || x == -1 { rail("north_west")? } else if o.boosters && o.napper_delay.is_some() && x == 5 { det("east_west")? } else { rail("east_west")? };
+        let r = if x == 3 || x == -1 { rail("north_west")? } else if o.boosters && o.napper_delay.is_some() && !(o.napper_lift && o.arm_station) && x == 5 { det("east_west")? } else { rail("east_west")? };
         put(x, 0, mz, &r);
         put(x, -1, mz, &glass);
     }
@@ -252,7 +315,7 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
             blocks: b,
             entities: Vec::new(),
             output: BlockPos::new(10, 0, 0),
-            lo: BlockPos::new(-20, -3, -2),
+            lo: BlockPos::new(-20, if o.napper_lift { -22 } else { -3 }, -2),
             hi: BlockPos::new(11, 28, 11),
             block_entities: Vec::new(),
             rock: false,
@@ -619,10 +682,11 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
     let mut d = mctas::design::Design { name: "f1q2-lift-split".into(), ..Default::default() };
     d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     for (p, blk) in &spec.blocks {
-        let station = p.y <= 0 && p.z < mz && LANES.contains(&p.x);
+        let station = (p.y == 0 || p.y == -1) && p.z < mz && LANES.contains(&p.x);
+        let r_stand = p.x == 4 && p.z == 4 && (p.y == -19 || p.y == -20);
         let branch = LANES.contains(&p.x) && (23..=24).contains(&p.y) && ((o.row10 && (7..=9).contains(&p.z)) || (o.row9 && p.z == 7));
-        let stop = p.x == 9 && p.y == 0 && p.z == mz;
-        if station || branch || stop {
+        let stop = !o.napper_lift && p.x == 9 && p.y == 0 && p.z == mz;
+        if station || branch || stop || r_stand {
             continue;
         }
         d.blocks.insert([p.x, p.y, p.z], w.get(*p).to_string());
@@ -690,18 +754,68 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
             }
         }
     }
-    let rows = if o.row9 {
-        "# - split (in the chunk): the exit at y 25 north to the curve (-5,25,9); a powered rail on a redstone block (the exit cell (-5,25,8) with --boost-exit, else (-4,25,9)); the row along z 9 at y 25: J(-1) (-1,25,9), J(3) (3,25,9), J(7) (7,25,9), the row's detectors (1,25,9) and (5,25,9), the 4th route (8,25,9), (9,25,9); each lane's branch the detector slope (x,24,8) ascending south (the guard and the latch, diagonal to its junction), into ironfarm's merge cell (x,24,7) (not here); (x,24,9) the junction's glass support."
+    // (the header from the bench's own cells and flags (G1, CHANGES 1 on ea7e196b9): every
+    // coordinate below is the one `build` lays for these options)
+    let top = if o.row9 && o.climb2 { 22 } else if o.row10 || o.row9 { 24 } else if o.flat || o.dip { 21 } else { 22 };
+    let ex = top + 1;
+    let offs: Vec<String> = (if o.offsets.len() == 3 { o.offsets.clone() } else { vec![0, o.spacing, 2 * o.spacing] }).iter().map(|v| v.to_string()).collect();
+    let run_line = format!(
+        "mctas mobfarm return-bench{}{}{}{}{}{}{} --boosters{} --offsets {}{}{}",
+        if o.z7 { " --z7" } else { "" },
+        if o.row9 { " --row9" } else if o.row10 { " --row10" } else { "" },
+        if o.boost_exit { " --boost-exit" } else { "" },
+        if o.climb2 { " --climb2" } else { "" },
+        if o.boost_slope { " --boost-slope" } else { "" },
+        if o.row_boost { " --row-boost" } else { "" },
+        if o.reverse { " --reverse" } else { "" },
+        if o.game_ticks { " --game-ticks" } else { "" },
+        offs.join(","),
+        o.napper_delay.map_or(String::new(), |d| format!(" --napper-delay {d}")),
+        if o.napper_lift && o.arm_station { " --napper-lift --arm-station" } else if o.napper_lift { " --napper-lift" } else { "" }
+    );
+    let lift = format!(
+        "# - shared lift: soul sand (-5,-1,7) on glass (-5,-2,7), the bubble column (-5,0..{top},7), glass walls (-6,y,7), (-5,y,6), (-5,y,8) for y 0..{top} and (-4,y,7) for y 1..{top} (panes to come; (-4,0,7) is the wall entry); the top cell (-5,{ex},7) with glass over it (-5,{},7) and beside it (-6,{ex},7), (-4,{ex},7); the current's source (-5,{ex},6) boxed by glass (-5,{ex},5), (-6,{ex},6), (-4,{ex},6), (-5,{},6).",
+        ex + 1,
+        ex + 1
+    );
+    let exit = if o.row9 {
+        let boost = if o.climb2 && o.boost_slope {
+            format!("the exit cell (-5,{ex},8) plain; the curve (-5,{ex},9) north_east; the first climbing slope (-4,{ex},9) a powered rail ascending_east on the redstone block (-4,{top},9), then (-3,{},9) ascending_east", ex + 1)
+        } else if o.boost_exit && o.climb2 {
+            format!("the exit cell (-5,{ex},8) a powered rail (north_south, on) on the redstone block (-5,{top},8) (the shaft's south wall there); the curve (-5,{ex},9) north_east; two climbing slopes (-4,{ex},9) and (-3,{},9), both ascending_east, to the row", ex + 1)
+        } else if o.boost_exit {
+            format!("the exit cell (-5,{ex},8) a powered rail (north_south, on) on the redstone block (-5,{top},8); the curve (-5,{ex},9) north_east; (-4,{ex},9) plain")
+        } else {
+            format!("the exit cell (-5,{ex},8) plain; the curve (-5,{ex},9) north_east; (-4,{ex},9) a powered rail on the redstone block (-4,{top},9)")
+        };
+        format!(
+            "# - exit and split (in the chunk): {boost}; the row along z 9 at y 25 from x {} (glass under it at y 24): J(-1) (-1,25,9), J(3) (3,25,9), J(7) (7,25,9), the row's detectors (1,25,9) and (5,25,9){}; each lane's branch the detector slope (x,24,8) ascending_south on glass (x,23,8), into ironfarm's merge cell (x,24,7) (not here); the junctions' levers (x,26,9) with glass (x,27,9).",
+            if o.climb2 { -2 } else { -3 },
+            if o.napper_delay.is_some() { ", the 4th route (8,25,9), (9,25,9)" } else { "" }
+        )
     } else {
-        "# - split: the row along z 10 at y 24 (OUTSIDE the chunk), the slope (-3,24,10), a powered rail (-2,24,10) with --row-boost; J(-1) (-1,24,10), J(3) (3,24,10), J(7) (7,24,10); the row's detectors (1,24,10), (5,24,10); the 4th route (8,24,10), (9,24,10); the lanes' branches (x,24,9) -> the detector (x,24,8) -> (x,24,7) are ironfarm's (not here)."
+        "# - exit and split: the row along z 10 at y 24 (OUTSIDE the chunk), the slope (-3,24,10), a powered rail (-2,24,10) with --row-boost; J(-1) (-1,24,10), J(3) (3,24,10), J(7) (7,24,10); the row's detectors (1,24,10), (5,24,10); the 4th route (8,24,10), (9,24,10); the lanes' branches (x,24,9) -> the detector (x,24,8) -> (x,24,7) are ironfarm's (not here).".to_string()
+    };
+    let napper = if o.napper_lift {
+        format!(
+            "{} the arming detector {}.",
+            "# - napper (c), re-laid for the z 7 hold: from R (4,-19,4) (58f770cc's, not here) the entry (5,-19,4) east_west on glass; soul sand (6,-20,4), the bubble column (6,-19..-4,4), glass walls (7,y,4), (6,y,3), (6,y,5) for y -20..-4 and (5,y,4) for y -18..-4; the top cell (6,-3,4) (glass beside it (6,-3,3), (6,-3,5), over it (6,-2,4)), the source (5,-3,4) boxed by glass (4,-3,4), (5,-3,3), (5,-3,5), (5,-2,4); the exit (7,-3,4) east_west; a powered slope (8,-3,4) ascending_east on the redstone block (8,-4,4); the curve (9,-2,4) south_west on glass; powered slopes (9,-2,5) and (9,-1,6) ascending_south on the redstone blocks (9,-3,5), (9,-2,6); the T (9,0,7) south_west on glass (arms N, S, W: from the north on south, from the south west); the hold (9,0,8), a powered rail north_south, off, on the block (9,-1,8) (glass here; the release circuit powers it: EMULATED, the bench puts a redstone block there D gt after the arming rise), the napper stopped against stone (9,0,9) with glass over it (9,1,9); the hold's line (8,0,7) a powered rail (on) on the redstone block (8,-1,7) into lane 7's curve (7,0,7);",
+            if o.arm_station { "the station's own exit detector on lane 7 (7,0,2) (dfb89499's)" } else { "(5,0,7) east_west on the main line (past the boosters, two cells off lane 7's curve and lane 3's T)" }
+        )
+    } else if o.napper_delay.is_some() {
+        "# - napper (c): the hold's line (8,0,7) only (the bench spawns the napper there, EMULATED); the napper lift not in this file.".to_string()
+    } else {
+        "# - napper: none in this run.".to_string()
     };
     let mut head: Vec<String> = vec![
-        "# The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own world.".into(),
-        "# - merge row along z 7: lane 7's curve (7,0,7) (a T once the hold's line joins from (8,0,7)), Ts (3,0,7) and (-1,0,7) NW, the main line to the wall entry (-4,0,7), the arming detector (5,0,7) with the napper; the station's tracks and boosters (z 1..6) are dfb89499's, not here.".into(),
-        "# - shared lift: shaft (-5,y,7), soul sand (-5,-1,7), water to y 24, glass walls (panes to come), the exit current's source (-5,25,6) boxed, the exit at y 25.".into(),
-        rows.into(),
-        "# - switches EMULATED: a lever over each junction (face ceiling, glass over it) is the latch's output; the napper's hold gate (8,0,7) EMULATED (the bench releases the napper D gt after (5,0,7)'s rise). The napper lift (c) is not in this file yet.".into(),
-        "# - latches (merge order x -1, 3, 7): J(-1) on at idle; lane -1's branch rise turns it off and J(3) on; lane 3's turns J(3) off; the third cart's rise at the row's second detector turns J(-1) on, or opens the napper window (J(7) off on lane 7's branch rise; J(-1) on at the napper's own first rise at the row's first detector).".into(),
+        "# The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own world; every coordinate in this header is generated from the same options.".into(),
+        format!("# run line: {run_line}"),
+        "# - merge row along z 7: lane 7's curve (7,0,7) north_west (a T once the hold's line joins from (8,0,7)), Ts (3,0,7) and (-1,0,7) north_west, the main line (x,0,7) x -4..6 on glass, glass over the wall entry (-4,1,7); the station's tracks and boosters (z 1..6) are dfb89499's, not here.".into(),
+        lift,
+        exit,
+        napper,
+        "# - switches EMULATED: a lever over each junction (face ceiling, glass over it) is the latch's output (`drive_j` only toggles the lever, flags ALL; redsim settles the junction); the latches: J(-1) on at idle; lane -1's branch rise turns it off and J(3) on; lane 3's turns J(3) off; the third cart's rise at the row's second detector turns J(-1) on, or opens the napper window (J(7) off on lane 7's branch rise; J(-1) on at the napper's own first rise at the row's first detector).".into(),
+        "# - OPEN: ironfarm's siding feeds (x-2,25,9) sit on this row: (1,25,9) and (5,25,9) are the row's detectors, (-3,25,9) is over the climb slope (-3,24,9) (where the rest's glass support goes); the K re-lay (power-forced junctions at (x-2,25,9)) is approved in direction, pending the rest's contact fix (ironfarm), the siding sensor (x-1,24,7) and day-1's K driver.".into(),
     ];
     head.extend(ts.iter().map(|t| format!("# {t}")));
     head.push(format!("# placement-order cells (not Ts): {}", if place_order.is_empty() { "none".to_string() } else { place_order.join("; ") }));
@@ -781,6 +895,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mut trace: Vec<String> = Vec::new();
     let mut shaft_gap = f64::INFINITY;
     let mut restarted = 0usize;
+    let (mut hold_released, mut hold_wait): (bool, Option<(f64, f64, f64)>) = (false, None);
     let (mut t_offset, mut t_cross, mut t_det) = (0.0f64, 0usize, Vec::<String>::new());
     for t in 0..o.ticks {
         let frozen = o.login.is_some_and(|(f, l)| t >= f && t < f + l);
@@ -808,7 +923,10 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             if k >= n {
                 continue;
             }
-            let at = (k as i64 / 3) * 100 + offsets[k % 3] + o.jitter.get(k).copied().unwrap_or(0);
+            // (`napper_lift`: the batches start 100 gt in, so the napper (from R at the start, ~75 gt
+            // to the hold) waits on the hold before its release)
+            let prelude = if o.napper_lift { 100 } else { 0 };
+            let at = prelude + (k as i64 / 3) * 100 + offsets[k % 3] + o.jitter.get(k).copied().unwrap_or(0);
             if c.id.is_none() && (o.game_ticks || !frozen) && (if o.game_ticks { t } else { live }) >= at {
                 let x = order[k % 3];
                 let nbt = format!("{{Motion:[0.0d,0.0d,{:.4}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", o.speed);
@@ -822,7 +940,14 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         // release D gt after it (a repeater chain: game ticks in L1, live in L2), the napper
         // leaving (8,0,8) west at 0.4)
         if let Some(d) = o.napper_delay {
-            let a = if o.boosters { on(&run.world, 5, 0, mz) } else { on(&run.world, arm_lane, 0, mz - 2) };
+            let a = if o.napper_lift && o.arm_station {
+                // (`arm_station`: the station's own exit detector on lane 7 (7,0,2), before the boosters)
+                on(&run.world, 7, 0, 2)
+            } else if o.boosters {
+                on(&run.world, 5, 0, mz)
+            } else {
+                on(&run.world, arm_lane, 0, mz - 2)
+            };
             if a && !arm_was && arm_at.is_none() {
                 arm_at = Some(if o.game_ticks { t } else { live });
             }
@@ -830,6 +955,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             let clock = if o.game_ticks { t } else { live };
             if let Some(a0) = arm_at
                 && carts[n].id.is_none()
+                && !o.napper_lift
                 && (o.game_ticks || !frozen)
                 && clock >= a0 + d
             {
@@ -838,6 +964,28 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 carts[n].id = Some(id);
                 carts[n].launch_live = live;
                 carts[n].rider = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied());
+            }
+            // (`napper_lift`: the napper leaves R at the start, climbs its lift and the staircase and
+            // waits on the hold (9,0,8); the release powers the hold's block D gt after the arming rise)
+            if o.napper_lift && carts[n].id.is_none() {
+                let nbt = "{Motion:[0.2d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+                let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [4.5, -18.9375, 4.5], Some(nbt))?;
+                carts[n].id = Some(id);
+                carts[n].launch_live = live;
+                carts[n].rider = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied());
+            }
+            if o.napper_lift
+                && !hold_released
+                && let Some(a0) = arm_at
+                && clock >= a0 + d
+            {
+                run.world.set_block(BlockPos::new(9, -1, 8), Block::parse("minecraft:redstone_block")?, redsim::world::flags::ALL);
+                hold_released = true;
+                carts[n].launch_live = live;
+                hold_wait = carts[n].id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| {
+                    let e = &run.world.entities.list[i];
+                    (e.pos.x, e.pos.y, e.pos.z)
+                });
             }
         }
         // (the split's latches on the detectors' rises; the junctions set to them; detectors: [0]
@@ -1158,6 +1306,12 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         String::new()
     };
     out.push(format!("shaft entry gaps (live gt): {}{napper_gaps}", gaps.join(", ")));
+    if o.napper_lift {
+        out.push(format!(
+            "(c)'s napper lift: the napper from R at t 0, on the hold when released: {}",
+            hold_wait.map_or("NOT on the hold (not arrived, or never released)".into(), |(x, y, z)| format!("at {x:.3},{y:.3},{z:.3}{}", if (x.floor() as i32, y.floor() as i32, z.floor() as i32) == (9, 0, 8) { " (on the hold)" } else { " (NOT on the hold)" }))
+        ));
+    }
     if o.resync > 0 || o.seed_miss.is_some() || o.restart.is_some() {
         out.push(format!(
             "re-sync after {} gt idle: at {}; seeded misroute {}; restart {}",
