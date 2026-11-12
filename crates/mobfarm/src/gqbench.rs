@@ -104,6 +104,11 @@ pub struct GqOpts {
     pub esc_at: Vec<i64>,
     /// The hold alone (`hold_release`): 3 carts at rest in its pockets, one release.
     pub hold_only: bool,
+    /// With `hold_only`: the evidence-keyed stagger (ironspec Nov 11 20:00, (A)): only the front
+    /// gate opens at the release; the middle and rear gates open on cart 0's rising edge at Ds
+    /// (the detector's own state, real detector physics) after `stagger_lat` gt (the wiring).
+    pub stagger_ds: bool,
+    pub stagger_lat: i64,
 }
 
 /// A track line from tokens (9fc3155f's v3/v4 hold and tail chain, the corners laid flat): `r.` a
@@ -449,6 +454,19 @@ pub fn hold_release(o: &GqOpts) -> Result<String, String> {
             }
         }
     };
+    // (one gate and its powered cells: the stagger's)
+    let set_one = |run: &mut Run, gi: usize, open: bool| {
+        let (_, gx, gy, gcell) = g.gates[gi];
+        run.world.set_block(BlockPos::new(gx, gy, 0), if open { open_b.clone() } else { shut_b.clone() }, redsim::world::flags::ALL);
+        for c in [gcell, g.gate_rest.get(&gi).copied()].into_iter().flatten() {
+            run.world.set_block(BlockPos::new(c.0, c.1 - 1, 0), if open { rsrc.clone() } else { glass_b.clone() }, redsim::world::flags::ALL);
+        }
+    };
+    let front = holds.iter().copied().find(|gi| g.gates[*gi].0 == Role::Hold(2));
+    let powered = |run: &Run, c: (i32, i32)| run.world.get(BlockPos::new(c.0, c.1, 0)).to_string().contains("powered=true");
+    let (mut ds_was, mut pb_was) = (false, false);
+    let (mut ds_rise, mut pb_rise, mut stagger_open, mut c_clear): (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = (None, None, None, None);
+    let front_far = front.map_or(f64::MAX, |gi| g.gates[gi].1 as f64 + 0.625);
     let t0 = 40i64;
     let mut exits: Vec<(usize, i64)> = Vec::new();
     let mut exit_v: Vec<(f64, f64)> = Vec::new();
@@ -458,12 +476,27 @@ pub fn hold_release(o: &GqOpts) -> Result<String, String> {
     let mut prev: Vec<Option<(f64, f64, f64)>> = vec![None; ids.len()];
     for t in 0..t0 + 160 {
         if t == t0 {
-            set(&mut run, true);
+            if o.stagger_ds {
+                if let Some(f) = front {
+                    set_one(&mut run, f, true);
+                }
+            } else {
+                set(&mut run, true);
+            }
             for id in &ids {
                 if let Some((_, y, _)) = cart_state(&run.world, *id) {
                     rest.push(y);
                 }
             }
+        }
+        // (the stagger: the middle and rear gates open --stagger-lat gt after Ds's first rise; the
+        // earliest is the tick after the rise, as the game's same-tick wiring acts before the
+        // carts' next move: --stagger-lat 0 and 1 are both that)
+        if o.stagger_ds && t > t0 && ds_rise.is_some_and(|r| t - t0 >= r + o.stagger_lat) && stagger_open.is_none() {
+            for gi in holds.iter().copied().filter(|gi| Some(*gi) != front) {
+                set_one(&mut run, gi, true);
+            }
+            stagger_open = Some(t - t0);
         }
         if t == t0 + o.hold_pulse {
             set(&mut run, false);
@@ -481,6 +514,26 @@ pub fn hold_release(o: &GqOpts) -> Result<String, String> {
         run.tick();
         let now: Vec<Option<(f64, f64, f64)>> = ids.iter().map(|id| cart_state(&run.world, *id)).collect();
         if t >= t0 {
+            // (Ds's rising edge, the rear cart's P_b rise (the middle pocket's sensor: only the rear
+            // cart crosses it in a release), the rear cart clearing the front gate's box)
+            let ds_now = powered(&run, g.ds);
+            if ds_now && !ds_was && ds_rise.is_none() {
+                ds_rise = Some(t - t0);
+            }
+            ds_was = ds_now;
+            if let Some(pb) = g.hold_p.get(1).copied() {
+                let pb_now = powered(&run, pb);
+                if pb_now && !pb_was && pb_rise.is_none() {
+                    pb_rise = Some(t - t0);
+                }
+                pb_was = pb_now;
+            }
+            if let Some(Some((x, _, _))) = now.get(2)
+                && x - 0.49 > front_far
+                && c_clear.is_none()
+            {
+                c_clear = Some(t - t0);
+            }
             for k in 0..ids.len() {
                 if let (Some((x, _, v)), Some((px, _, _))) = (now[k], prev[k])
                     && px < g.hold_exit
@@ -505,8 +558,24 @@ pub fn hold_release(o: &GqOpts) -> Result<String, String> {
     }
     let order: String = exits.iter().map(|(k, _)| ["a", "b", "c"].get(*k).copied().unwrap_or("?")).collect::<Vec<_>>().join("");
     let gaps: Vec<i64> = exits.windows(2).map(|w| w[1].1 - w[0].1).collect();
+    let stagger = if o.stagger_ds {
+        format!(
+            "; the stagger (the front gate at 0, the middle and rear on Ds's rise + {} gt): Ds rise +{}, middle/rear open +{}, the rear cart's P_b rise +{}, the rear cart clear of the front gate +{} ({} gt after its P_b rise)",
+            o.stagger_lat,
+            ds_rise.map_or("-".into(), |v| v.to_string()),
+            stagger_open.map_or("-".into(), |v| v.to_string()),
+            pb_rise.map_or("-".into(), |v| v.to_string()),
+            c_clear.map_or("-".into(), |v| v.to_string()),
+            match (pb_rise, c_clear) {
+                (Some(p), Some(c)) => (c - p).to_string(),
+                _ => "-".into(),
+            }
+        )
+    } else {
+        String::new()
+    };
     Ok(format!(
-        "hold alone ({}; riders {}; the gates and their powered cells open at t 0 for {} gt): exits past the front gate's cell at {} (order {order}), gaps {}; exit speeds (stored/visible b/t) {}; closest centres while leaving {:.2}; rest heights {}; shut onto a cart at the window's end: {}",
+        "hold alone ({}; riders {}; the gates and their powered cells open at t 0 for {} gt): exits past the front gate's cell at {} (order {order}), gaps {}{stagger}; exit speeds (stored/visible b/t) {}; closest centres while leaving {:.2}; rest heights {}; shut onto a cart at the window's end: {}",
         o.hold_line.as_deref().unwrap_or(if o.hold_bb { HOLD_BB } else if o.hold_v { HOLD_V } else { "the stand's pocket" }),
         (0..ids.len()).map(|n| if o.riders.get(n % o.riders.len().max(1)).copied().unwrap_or(true) { 'R' } else { 'E' }).collect::<String>(),
         o.hold_pulse,
