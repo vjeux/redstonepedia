@@ -30,16 +30,22 @@ pub struct Consts {
 pub const C: Consts = Consts { sight_side: 18.84, sight_above: 20.54, sight_below: 19.79, mark_side: 10.6, mark_vert: 11.95, bed_r: 17.0, margin: 1.0, lift: 0.695, cart: 0.4, tier: [7, 7, 11], posts: 0 };
 
 /// The station, in v4's file frame: the summoners' feet, the golem cells' feet centres, its block
-/// box (the stand, the pad and the portal below it).
+/// box (the stand, the pad and the portal below it); with M1, the holds (waiting riders over the
+/// pockets) and the station's transit riders (the falls, the departures).
 pub struct Station {
     pub summoners: Vec<Vec3>,
     pub golems: Vec<Vec3>,
     pub lo: [i32; 3],
     pub hi: [i32; 3],
+    /// The holds' riders (feet): waiting, out of range above.
+    pub holds: Vec<Vec3>,
+    /// The station's moving riders (feet): the falls from the holds, the departures.
+    pub transit: Vec<Vec3>,
 }
 
 /// v4's station (main d9b86b133): summoners 13.885/9.885/5.885 at z 6.5, feet -1.8225/-0.8225/0.1775;
-/// the 44 golem cells x 4..13, z 0..5, feet -6; blocks x 3..15, y -11..2, z 0..8.
+/// the pad's extent x 4..13, z 0..5 at feet -6 (60 cells; v4's 44 reachable ones lie inside it, and
+/// the extremes set every bound); blocks x 3..15, y -11..2, z 0..8; no holds (v4's descent).
 pub fn station_v4() -> Station {
     let summoners = vec![Vec3::new(13.885, -1.8225, 6.5), Vec3::new(9.885, -0.8225, 6.5), Vec3::new(5.885, 0.1775, 6.5)];
     let mut golems = Vec::new();
@@ -48,7 +54,34 @@ pub fn station_v4() -> Station {
             golems.push(Vec3::new(x as f64 + 0.5, -6.0, z as f64 + 0.5));
         }
     }
-    Station { summoners, golems, lo: [3, -11, 0], hi: [15, 2, 8] }
+    Station { summoners, golems, lo: [3, -11, 0], hi: [15, 2, 8], holds: Vec::new(), transit: Vec::new() }
+}
+
+/// The M1 station (dfb89499, explore/farmopt-m1 a07e7a1b3; ironspec's family-agnostic primitive):
+/// level pockets at x 5.5 / 9.5 / 13.5, z 6.5, the riders' feet 0.0625; the holds straight above at
+/// 16.1875; the falls between (2..15); the departures +z along the pockets' exits (z 7.5..14.5);
+/// the pad's extent x 4..14, z 0..5 at golem feet -6 (its 44 reachable cells inside: summon-chance
+/// 40 / 44 / 40); blocks x 3..15, y -11..19, z 0..8.
+pub fn station_m1() -> Station {
+    let xs = [5.5, 9.5, 13.5];
+    let summoners: Vec<Vec3> = xs.iter().map(|&x| Vec3::new(x, 0.0625, 6.5)).collect();
+    let mut golems = Vec::new();
+    for x in 4..=14 {
+        for z in 0..=5 {
+            golems.push(Vec3::new(x as f64 + 0.5, -6.0, z as f64 + 0.5));
+        }
+    }
+    let holds: Vec<Vec3> = xs.iter().map(|&x| Vec3::new(x, 16.1875, 6.5)).collect();
+    let mut transit = Vec::new();
+    for &x in &xs {
+        for y in 2..=15 {
+            transit.push(Vec3::new(x, y as f64, 6.5));
+        }
+        for z in 7..=14 {
+            transit.push(Vec3::new(x, 0.0625, z as f64 + 0.5));
+        }
+    }
+    Station { summoners, golems, lo: [3, -11, 0], hi: [15, 19, 8], holds, transit }
 }
 
 /// The queue option.
@@ -60,10 +93,14 @@ pub enum Queue {
     Q2(usize, usize),
 }
 
-/// One family's layout: the waiting riders' feet, the boxes (with their names) and notes.
+/// One family's layout: the waiting riders' feet, the moving (transit) riders' feet, the boxes
+/// (with their names) and notes.
 pub struct Layout {
     pub family: &'static str,
     pub riders: Vec<Vec3>,
+    /// Every other non-napper rider position (G1's review: the bed and the strict pitch check them
+    /// too): the merge, the lifts, the drops, the split, the returns.
+    pub transit: Vec<Vec3>,
     pub boxes: Vec<([i32; 3], [i32; 3], String)>,
     pub notes: Vec<String>,
 }
@@ -150,11 +187,12 @@ pub fn vol(lo: [i32; 3], hi: [i32; 3]) -> i64 {
     (0..3).map(|k| (hi[k] - lo[k] + 1) as i64).product()
 }
 
-/// The bed placed where its tier grows the envelope least, every rider (the station's summoners
-/// and the waiting ones) >= 17 from the bed head's centre; the tier box (`tier`) centred on the
-/// head; a tier inside the module's chunk columns (x 0..15, z 0..15) first, else anywhere.
+/// The bed placed where its tier grows the envelope least, every non-napper rider position (the
+/// station's summoners, holds and transit, the layout's waiting and transit riders: G1's review)
+/// >= 17 from the bed head's centre; the tier box (`tier`) around the head; a tier inside the
+/// module's chunk columns (x 0..15, z 0..15) first, else anywhere.
 pub fn place_bed(lay: &mut Layout, st: &Station, tlo: [i32; 3], thi: [i32; 3], name: &str) {
-    let all: Vec<Vec3> = st.summoners.iter().chain(lay.riders.iter()).copied().collect();
+    let all: Vec<Vec3> = st.summoners.iter().chain(st.holds.iter()).chain(st.transit.iter()).chain(lay.riders.iter()).chain(lay.transit.iter()).copied().collect();
     let (lo, hi) = bound(&lay.boxes);
     let search = |inside: bool| -> Option<(i64, [i32; 3])> {
         let mut best: Option<(i64, [i32; 3])> = None;
@@ -164,6 +202,11 @@ pub fn place_bed(lay: &mut Layout, st: &Station, tlo: [i32; 3], thi: [i32; 3], n
                     let t0 = [x + tlo[0], y + tlo[1], z + tlo[2]];
                     let t1 = [x + thi[0], y + thi[1], z + thi[2]];
                     if inside && (t0[0] < 0 || t1[0] > 15 || t0[2] < 0 || t1[2] > 15) {
+                        continue;
+                    }
+                    // (the tier keeps out of the other parts' boxes: the station, the queue, the
+                    // transit)
+                    if lay.boxes.iter().any(|(a, b, _)| (0..3).all(|k| t0[k] <= b[k] && a[k] <= t1[k])) {
                         continue;
                     }
                     let c = Vec3::new(x as f64 + 0.5, y as f64 + 0.5, z as f64 + 0.5);
@@ -206,10 +249,137 @@ pub fn blocks(n_wait: usize, transport: i64, ctrl: i64, loader: i64) -> i64 {
 }
 
 
-/// One family's layout around `st` with queue `q`.
+/// One family's layout around the M1 station `st` with queue `q` (G1's review: every rider position
+/// goes into the bed and the strict pitch checks): F1 the lanes above the holds (the shared lift from
+/// the merge to the lanes' top, the split over them); F2 the lanes beside, past the sight box (the
+/// lift to their top, a return along the holds' level); F3 the lanes below the sight box (per-lane
+/// drops from the departures to their top, the shared lift from their bottom up to the holds); F5
+/// the lanes beside with no clearance. Q2: lane k behind pocket k's hold, `per` cells (a cell along
+/// and a level up or down each, the first R_1); Q1: one lane of `n` cells behind a three-stop hold
+/// line, folded along the west edge (x 0..2).
 pub fn layout(family: &str, q: Queue, st: &Station, z4: bool) -> Result<Layout, String> {
+    if st.holds.is_empty() {
+        return layout_v4(family, q, st, z4);
+    }
     let cb = clear_bounds(st);
-    let mut lay = Layout { family: "", riders: Vec::new(), boxes: vec![(st.lo, st.hi, "station (stand, pad, portal)".into())], notes: Vec::new() };
+    let mut lay = Layout { family: "", riders: Vec::new(), transit: Vec::new(), boxes: vec![(st.lo, st.hi, "station (stand, pad, portal, M1 drops and holds)".into())], notes: Vec::new() };
+    let xs: Vec<f64> = st.summoners.iter().map(|s| s.x).collect();
+    let n_wait = match q {
+        Queue::Q1(n) => n,
+        Queue::Q2(l, p) => l * p,
+    };
+    // (the lanes: Q2 lane k at pocket k's x, cell j at level y0 + up * j and z z0 + dz * j; Q1 the
+    // west-edge ring from y0)
+    let lanes = |y0: f64, z0: f64, up: f64, dz: f64| -> Vec<Vec3> {
+        match q {
+            Queue::Q2(l, per) => {
+                let mut v = Vec::new();
+                for x in xs.iter().take(l) {
+                    for j in 0..per {
+                        v.push(Vec3::new(*x, y0 + up * j as f64, z0 + dz * j as f64));
+                    }
+                }
+                v
+            }
+            Queue::Q1(n) => queue_riders(Queue::Q1(n), 0, 2, 0, 15, y0, up < 0.0),
+        }
+    };
+    let col = |x: f64, z: f64, y0: f64, y1: f64| -> Vec<Vec3> { (y0.floor() as i32..=y1.ceil() as i32).map(|y| Vec3::new(x, y as f64 + 0.0625, z)).collect() };
+    let row_x = |y: f64, z: f64, x0: i32, x1: i32| -> Vec<Vec3> { (x0..=x1).map(|x| Vec3::new(x as f64 + 0.5, y, z)).collect() };
+    match family {
+        "F1" => {
+            lay.family = "F1 stack";
+            lay.riders = lanes(17.5, 7.5, 1.0, 1.0);
+            let top = lay.riders.iter().map(|r| r.y).fold(f64::MIN, f64::max);
+            let ztop = lay.riders.iter().map(|r| r.z).fold(f64::MIN, f64::max);
+            // the merge west along z 14 to the shared lift at x 1, the lift to the lanes' top, the
+            // split over the intakes and its branches down to them
+            lay.transit.extend(row_x(0.0625, 14.5, 2, 14));
+            lay.transit.extend(col(1.5, 14.5, 0.0, top + 2.0));
+            lay.transit.extend(row_x(top + 1.0625, 14.5, 1, 14));
+            for x in &xs {
+                for z in (ztop.ceil() as i32)..=14 {
+                    lay.transit.push(Vec3::new(*x, top + 1.0625, z as f64 + 0.5));
+                }
+            }
+            lay.notes.push(format!("waiting riders' feet >= {:.2} (the holds at 16.19 and the lanes above; the pad's golem feet + 20.54): rule 4b above", cb[4]));
+            lay.notes.push("normal-running bar (>= 5 gt): the departing batch's last cart out of range ~T+71 by the shared lift (7b90c3f1): margin ~29 gt".into());
+        }
+        "F2" => {
+            lay.family = "F2 side";
+            let zq = (cb[3] + C.margin).ceil();
+            lay.riders = lanes(17.5, zq + 0.5, 1.0, 1.0);
+            let top = lay.riders.iter().map(|r| r.y).fold(f64::MIN, f64::max);
+            // the merge to x 1, a track south along x 1 to the lanes, the lift there to their top,
+            // the split over them; the return from each lane's front back to its hold at 17
+            lay.transit.extend(row_x(0.0625, 14.5, 2, 14));
+            for z in 14..(zq as i32) {
+                lay.transit.push(Vec3::new(1.5, 0.0625, z as f64 + 0.5));
+            }
+            lay.transit.extend(col(1.5, zq - 0.5, 0.0, top + 2.0));
+            lay.transit.extend(row_x(top + 1.0625, zq - 0.5, 1, 14));
+            for x in &xs {
+                for z in 7..(zq as i32) {
+                    lay.transit.push(Vec3::new(*x, 17.0625, z as f64 + 0.5));
+                }
+            }
+            lay.notes.push(format!("waiting riders' centres z >= {:.2} (the pad's last golem row + 18.84, +{} margin): rule 4b sideways; the holds out of range above", cb[3], C.margin));
+            lay.notes.push(format!("normal-running bar (>= 5 gt): the departing batch reaches feet 14.54 in the lift ~{:.0} gt after the turn: margin ~{:.0} gt", 1.0 + (zq - 14.0) / C.cart + cb[4] / C.lift, 99.0 - (zq - 14.0) / C.cart - cb[4] / C.lift));
+        }
+        "F3" => {
+            lay.family = "F3 inverted stack";
+            let base = (cb[5] - C.margin).floor() + 0.5;
+            // (the lanes run north from under the drops at z 14, a level down each)
+            lay.riders = lanes(base, 14.5, -1.0, -1.0);
+            let bottom = lay.riders.iter().map(|r| r.y).fold(f64::MAX, f64::min);
+            let zfront = lay.riders.iter().map(|r| r.z).fold(f64::MAX, f64::min);
+            for x in &xs {
+                lay.transit.extend(col(*x, 14.5, base + 1.0, -1.0));
+            }
+            // the fronts merge west to the shared lift at x 1, up to the holds' level, the split
+            // north over the pockets' R_1 cells
+            lay.transit.extend(row_x(bottom - 0.4375, zfront - 1.0, 2, 14));
+            lay.transit.extend(col(1.5, zfront - 1.0, bottom - 1.0, 18.0));
+            lay.transit.extend(row_x(18.0625, 7.5, 1, 14));
+            // (a cart's free fall off the rail: 0.04 b/t^2 down, its motion x 0.95 a tick (G1's
+            // review: 0.98 was a rail cart's drag))
+            let (mut y, mut v, mut t) = (0.0f64, 0.0f64, 0);
+            while y > cb[5] && t < 400 {
+                v = (v - 0.04) * 0.95;
+                y += v;
+                t += 1;
+            }
+            lay.notes.push(format!("waiting riders' feet <= {:.2} (the pad's golem feet - 19.79, -{} margin): rule 4b below", cb[5], C.margin));
+            lay.notes.push(format!("normal-running bar (>= 5 gt): out of range at about T+{} (release +1, the fall to {:.2}, drag 0.95): margin {} gt", 1 + t, cb[5], 100 - 1 - t));
+        }
+        "F5" => {
+            lay.family = "F5 close";
+            lay.riders = lanes(17.5, 9.5, 0.0, 1.0);
+            lay.notes.push("no clearance: every waiting rider inside a golem's sight box (golems live ~1 tick): ~1/200 lock per rider per golem; 51b2aacd: no count meets a golem every 100 gt".into());
+        }
+        _ => return Err(format!("unknown family {family} (F1, F2, F3, F5)")),
+    }
+    let (a, b) = rider_box(&lay.riders, C.posts);
+    lay.boxes.push((a, b, format!("queue ({n_wait} waiting{}, S1 posts {} beside)", match q { Queue::Q1(_) => ", Q1".to_string(), Queue::Q2(l, p) => format!(", Q2 {l} x {p}") }, C.posts)));
+    if !lay.transit.is_empty() {
+        let (a, b) = rider_box(&lay.transit, 0);
+        lay.boxes.push((a, b, "transit (merge, lifts, drops, split, returns)".into()));
+    }
+    if z4 {
+        // (Z4 stacked down from the top bed's head (58f770cc: 11 x 21 x 14, beds 7 apart): every
+        // rider >= 17 from the top bed is farther from the two below; per own bed, tick-exact)
+        place_bed(&mut lay, st, [-3, -16, -9], [7, 4, 4], "bed tier Z4 (3 beds stacked)");
+    } else {
+        // (58f770cc's bed stop, explore/farmopt-station 47bbde753: 11 x 7 x 14 around the head)
+        place_bed(&mut lay, st, [-3, -2, -9], [7, 4, 4], "bed tier (1 bed)");
+    }
+    Ok(lay)
+}
+
+/// One family's layout around v4's station `st` (no holds) with queue `q` (the first version).
+pub fn layout_v4(family: &str, q: Queue, st: &Station, z4: bool) -> Result<Layout, String> {
+    let cb = clear_bounds(st);
+    let mut lay = Layout { family: "", riders: Vec::new(), transit: Vec::new(), boxes: vec![(st.lo, st.hi, "station (stand, pad, portal)".into())], notes: Vec::new() };
     let n_wait = match q {
         Queue::Q1(n) => n,
         Queue::Q2(l, p) => l * p,
@@ -246,10 +416,11 @@ pub fn layout(family: &str, q: Queue, st: &Station, z4: bool) -> Result<Layout, 
             let bottom = lay.riders.iter().map(|r| r.y).fold(f64::MAX, f64::min);
             lay.notes.push(format!("waiting riders' feet <= {:.2} (the pad's golem feet - 19.79, -{} margin): rule 4b below", cb[5], C.margin));
             lay.notes.push(format!("exit: M1 drop to the queue's top ({:.1} blocks); entry: M2 lift {:.1} blocks in {:.0} gt", -base, -bottom, -bottom / C.lift));
-            // (a cart's free fall: 0.04 b/t^2 down, its motion x 0.98 a tick in the air)
+            // (a cart's free fall off the rail: 0.04 b/t^2 down, its motion x 0.95 a tick (G1's
+            // review: 0.98 is a rail cart's drag))
             let (mut y, mut v, mut t) = (0.0f64, 0.0f64, 0);
             while y > cb[5] && t < 400 {
-                v = (v - 0.04) * 0.98;
+                v = (v - 0.04) * 0.95;
                 y += v;
                 t += 1;
             }
@@ -319,9 +490,13 @@ pub fn binding(lay: &Layout) -> [String; 3] {
 
 /// The least pitch of a pair mirrored in z (the copy's z' = d - z, its box beyond this one's) at
 /// which both clear each other (out of phase); the pair's z period is then the least `d` for a
-/// third module the same way round as this one, returned too.
-pub fn pitch_mirror_z(lay: &Layout, st: &Station) -> (i32, i32) {
-    let ours: Vec<Vec3> = st.summoners.iter().chain(lay.riders.iter()).copied().collect();
+/// third module the same way round as this one, returned too. `strict`: every rider position (the
+/// transit riders too, G1's review), else the waiting ones (the departing batch lingers by rule).
+pub fn pitch_mirror_z(lay: &Layout, st: &Station, strict: bool) -> (i32, i32) {
+    let mut ours: Vec<Vec3> = st.summoners.iter().chain(st.holds.iter()).chain(lay.riders.iter()).copied().collect();
+    if strict {
+        ours.extend(st.transit.iter().chain(lay.transit.iter()).copied());
+    }
     let (lo, hi) = bound(&lay.boxes);
     let ok = |gs: &[Vec3], ss: &[Vec3], rs: &[Vec3]| rs.iter().all(|r| gs.iter().all(|g| crate::tile::sight_margin(*g, *r) >= 0.0) && ss.iter().all(|s| crate::tile::mark_margin(*s, *r) >= 0.0));
     let mut pair = -1;
@@ -351,11 +526,14 @@ pub fn pitch_mirror_z(lay: &Layout, st: &Station) -> (i32, i32) {
     (pair, period)
 }
 
-/// The least pitch along one axis (`axis` 0: x, 2: z) at which a copy's waiting riders and
-/// summoners clear this station's golems and summoners both ways (out of phase), scanning up from
-/// 1 block.
-pub fn pitch(lay: &Layout, st: &Station, axis: usize) -> i32 {
-    let ours: Vec<Vec3> = st.summoners.iter().chain(lay.riders.iter()).copied().collect();
+/// The least pitch along one axis (`axis` 0: x, 2: z) at which a copy's riders and summoners clear
+/// this station's golems and summoners both ways (out of phase), scanning up from 1 block;
+/// `strict`: every rider position (the transit riders too), else the waiting ones.
+pub fn pitch(lay: &Layout, st: &Station, axis: usize, strict: bool) -> i32 {
+    let mut ours: Vec<Vec3> = st.summoners.iter().chain(st.holds.iter()).chain(lay.riders.iter()).copied().collect();
+    if strict {
+        ours.extend(st.transit.iter().chain(lay.transit.iter()).copied());
+    }
     for d in 1..200 {
         let sh = |p: Vec3| if axis == 0 { Vec3::new(p.x + d as f64, p.y, p.z) } else { Vec3::new(p.x, p.y, p.z + d as f64) };
         let theirs: Vec<Vec3> = ours.iter().map(|p| sh(*p)).collect();
