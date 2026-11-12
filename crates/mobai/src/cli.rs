@@ -315,6 +315,13 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-12, ironspec: a cell-diff of a design's revision) Two design files'
+    /// cells compared, overworld and Nether parts: every cell added, removed or changed, and
+    /// whether each added cell was air (absent) before
+    DesignDiff {
+        old: std::path::PathBuf,
+        new: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
     /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
     /// T2 (face-adjacent to the detector) the positive control that re-settles
@@ -570,6 +577,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
         MobaiCmd::GolemLock { version } => crate::golemlock::golem_lock(&version),
+        MobaiCmd::DesignDiff { old, new } => crate::designdiff::design_diff(&old, &new),
         MobaiCmd::RailT { version } => crate::railt::rail_t(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
         MobaiCmd::Daylight { version, latency, levels, weather_row } => {
