@@ -112,7 +112,7 @@ fn trial(spec: &FarmSpec, stages: i32, freeze: Option<(i64, i64)>, ticks: i64) -
 /// stage 1's off-tick inserted before that tick (the rise's tick from A's run of the same freezes,
 /// which P's clearing cannot move: it is upstream). Each schedule: broken (not every stage rises and
 /// falls once) and every tap's width.
-pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64, release_stage: i32) -> Result<Vec<String>, String> {
+pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64, release_stage: i32, terminator: bool) -> Result<Vec<String>, String> {
     use redsim::ticks::Priority;
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
@@ -243,7 +243,12 @@ pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64,
                 out.push(format!(
                     "N {n} ({}-gt wave{}){}, bus {}, P-clear {}: one freeze ({} phases): broken {}{}; the least width per tap {}; two freezes ({} pairs): broken {}{}; the least width per tap {}",
                     2 * if release_stage > 0 { n.min(release_stage) } else { n },
-                    match n { 1 => ": the control that must break under one freeze", 2 => ": the control that must break under two", _ => "" },
+                    match (n, terminator) {
+                        (1 | 2, true) => ": holds with the terminator (no control here)",
+                        (1, false) => ": the control that must break under one freeze",
+                        (2, false) => ": the control that must break under two",
+                        _ => "",
+                    },
                     if release_stage > 0 { format!(", the release (SETTLED's drop) at stage {release_stage}{}", if release_stage < n { ": the control that must break" } else { "" }) } else { String::new() },
                     if mid { "mid-gt (repeaters)" } else { "between gts" },
                     if order == 0 { "A" } else { "B" },

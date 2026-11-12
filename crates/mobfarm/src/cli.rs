@@ -48,6 +48,22 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 0)]
         release_stage: i32,
     },
+    /// The controller's units digit (`ctlring.rs`, day-1 Nov 12): one 10-dropper ring, four tokens
+    /// (the u = 0 one unstackable), one tap; writes the design to `--out` and pulses its clock
+    /// `--cycles` times every `--period` gt (`--width` gt pulses, `--jitter` gt offsets cycling),
+    /// checking the tap's level before each pulse (2 at u 0, 1 at u 3/6/7, 0 otherwise).
+    CtlRingBench {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value_t = 30)]
+        cycles: i64,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 4)]
+        width: i64,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        jitter: Vec<i64>,
+    },
     /// The fast liveness ring (`ringbench.rs`): writes its design (24 rail cells, 8 detectors, 2
     /// carts) to `--out`, runs it `--ticks` gt and prints the gaps between the detectors' rising
     /// edges, the false drops of a `--stretch` gt stretcher, each detector's own spacing, the carts'
@@ -6447,13 +6463,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if !ns.contains(&pb_stage) {
                     ns.push(pb_stage);
                 }
-                crate::chainbench::bench_pb(&spec, stages, freeze_len, &ns, pair_stride, release_stage)
+                crate::chainbench::bench_pb(&spec, stages, freeze_len, &ns, pair_stride, release_stage, terminator)
             } else if pulses > 0 {
                 crate::chainbench::bench_train(&spec, stages, freeze_len, every, width, pulses, pb, pb_stage)
             } else {
                 crate::chainbench::bench(&spec, stages, freeze_len)
             };
             for l in lines.map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::CtlRingBench { out, cycles, period, width, jitter } => {
+            let d = crate::ctlring::design();
+            std::fs::write(&out, format!("# The controller's units digit: a 10-dropper ring, 4 tokens (the u = 0 one unstackable), one tap on D8 (mctas mobfarm ctl-ring-bench).\n{}", d.to_text()))?;
+            let (_c, spec) = load(version, &out)?;
+            let jitter = if jitter.is_empty() { vec![0] } else { jitter };
+            for l in crate::ctlring::bench(&spec, cycles, period, width, &jitter).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
         }
