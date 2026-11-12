@@ -937,6 +937,791 @@ pub fn design_gravity_v4r(with_riders: [bool; 3]) -> String {
     b.text(&["The gravity descent re-laid by onechunk (13 cells): G_a, a slope south, a curve, eight slopes west, a flat, a curve, a flat into the committed crest (3,6,10), the approach, today's 3 pockets (gates bench-driven)."])
 }
 
+/// One-chunk's stand cycle (farmopt 18:52: the departure side's gate shuts): the departing batch at
+/// rest in today's pockets (gates shut) leaves at REL up the S3 departure and v4's climb back (the
+/// top at 32 + `east`, `past` flats after it, the bench's sink at their end), while the arriving
+/// batch, parked, is handed off at G_a down onechunk's re-laid descent (`design_gravity_v4r`'s cells)
+/// into the same pockets. Loop frame + (6,0,6).
+pub fn design_stand_cycle(dep: [bool; 3], arr: [bool; 3], east: i32, past: i32, dd: Option<char>, d2: bool) -> String {
+    let mut b = Builder::new("stand-cycle-bench");
+    for (x, y, s) in STRIP {
+        b.set(x, y, SZ, s);
+        b.set(x, y - 1, SZ, "glass");
+    }
+    if d2 {
+        // (7b90c3f1's D2: P2's flat a detector)
+        b.set(8, 0, SZ, "detector_rail[powered=false,shape=east_west,waterlogged=false]");
+    }
+    for (x, y) in GATES {
+        b.set(x, y, SZ, GATE_SHUT);
+    }
+    for (x, y, z) in [(6, -2, 6), (10, -3, 6), (14, -3, 7)] {
+        b.set(x, y, z, "stone");
+    }
+    b.set(AX - 1, 2, SZ, "glass");
+    b.set(AX - 1, 3, SZ, "glass");
+    let boost = |b: &mut Builder, x: i32, y: i32, z: i32, shape: &str| {
+        b.set(x, y, z, &format!("powered_rail[powered=true,shape={shape},waterlogged=false]"));
+        b.set(x, y - 1, z, "redstone_block");
+    };
+    let flat = |b: &mut Builder, x: i32, y: i32, z: i32, shape: &str| {
+        b.set(x, y, z, &format!("rail[shape={shape},waterlogged=false]"));
+        b.set(x, y - 1, z, "glass");
+    };
+    // the departure: G0's corner and the five committed boosters (`dd` B: the first a sloped
+    // detector on glass, loop (9,-3,1)); then v4's re-laid crest (`dd` given): (15,2,12) a slope (`dd`
+    // A: a sloped detector on glass, loop (9,2,6)), (15,3,13) a slope, (15,4,14) a flat; or the
+    // bench's legacy crest (no `dd`): a flat (15,2,12), slopes (15,2,13), (15,3,14); the curve (15,4,15)
+    flat(&mut b, 15, -3, SZ, "south_west");
+    for i in 0..5 {
+        if i == 0 && dd == Some('B') {
+            b.set(15, -3, 7, "detector_rail[powered=false,shape=ascending_south,waterlogged=false]");
+            b.set(15, -4, 7, "glass");
+        } else {
+            boost(&mut b, 15, -3 + i, 7 + i, "ascending_south");
+        }
+    }
+    if dd.is_some() {
+        if dd == Some('A') {
+            b.set(15, 2, 12, "detector_rail[powered=false,shape=ascending_south,waterlogged=false]");
+            b.set(15, 1, 12, "glass");
+        } else {
+            boost(&mut b, 15, 2, 12, "ascending_south");
+        }
+        boost(&mut b, 15, 3, 13, "ascending_south");
+        boost(&mut b, 15, 4, 14, "north_south");
+    } else {
+        flat(&mut b, 15, 2, 12, "north_south");
+        boost(&mut b, 15, 2, 13, "ascending_south");
+        boost(&mut b, 15, 3, 14, "ascending_south");
+    }
+    flat(&mut b, 15, 4, 15, "north_west");
+    for i in 1..=14 {
+        boost(&mut b, 15 - i, 3 + i, 15, "ascending_west");
+    }
+    flat(&mut b, 0, 18, 15, "north_east");
+    for i in 1..=14 {
+        boost(&mut b, 0, 17 + i, 15 - i, "ascending_north");
+    }
+    flat(&mut b, 0, 32, 0, "south_east");
+    for i in 1..=east {
+        boost(&mut b, i, 31 + i, 0, "ascending_east");
+    }
+    let top = 32 + east;
+    for x in east + 1..=14 {
+        boost(&mut b, x, top, 0, "east_west");
+    }
+    flat(&mut b, 15, top, 0, "south_west");
+    for z in 1..=past {
+        flat(&mut b, 15, top, z, "north_south");
+    }
+    b.set(15, top, past + 1, "stone");
+    // the approach from the committed crest down to the snap turn, and the re-laid descent
+    b.set(AX, 6, 10, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, 5, 10, "glass");
+    for (y, z) in [(5, 9), (4, 8), (3, 7)] {
+        b.set(AX, y, z, "rail[shape=ascending_south,waterlogged=false]");
+        b.set(AX, y - 1, z, "glass");
+    }
+    boost(&mut b, AX, 6, 11, "north_south");
+    b.set(AX, 6, 12, "rail[shape=north_east,waterlogged=false]");
+    b.set(AX, 5, 12, "glass");
+    boost(&mut b, 4, 6, 12, "east_west");
+    for (i, x) in (5..=12).enumerate() {
+        boost(&mut b, x, 6 + i as i32, 12, "ascending_east");
+    }
+    b.set(13, 14, 12, "rail[shape=north_west,waterlogged=false]");
+    b.set(13, 13, 12, "glass");
+    b.set(13, 14, 11, "detector_rail[powered=false,shape=ascending_north,waterlogged=false]");
+    b.set(13, 13, 11, "glass");
+    b.set(13, 15, 10, "rail[shape=ascending_north,waterlogged=false]");
+    b.set(13, 14, 10, "glass");
+    b.set(13, 16, 9, "stone");
+    // the departing batch at rest in its pockets, front first; then the arriving batch, parked
+    for (k, (x, y)) in [(13.885, -1.8225), (9.885, -0.8225), (5.885, 0.1775)].iter().enumerate() {
+        let nbt = if dep[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        b.entity("minecart", [*x, *y, SZ as f64 + 0.5], Some(nbt));
+    }
+    for k in 0..3usize {
+        let nbt = if arr[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        let ki = k as i32;
+        b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+        b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+        b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
+    }
+    b.set(-8, 0, SZ, "glass");
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [-6, 1, SZ]);
+    b.text(&["One-chunk's stand cycle: the departing batch leaves today's pockets at REL up the S3 departure and v4's climb back while the arriving batch comes down onechunk's re-laid descent into the same pockets (gates bench-driven on explicit times)."])
+}
+
+/// How G0 shuts after REL in a stand-cycle run.
+#[derive(Clone, Copy, Debug)]
+pub enum G0Key {
+    /// At REL + this (live), or never.
+    Fixed(Option<i64>),
+    /// 7b90c3f1's rule: on D1's (12,-1,6) first falling edge after REL (it rose after REL), + this;
+    /// the backstop at REL + `backstop` if D1 never rose after REL.
+    D1(i64),
+    /// On the departure detector's first falling edge after REL (it rose after REL), + this.
+    Dd(i64),
+    /// (a) On the departure detector's rising edges after REL counted up to the departing batch's
+    /// count (the carts present at REL), + this after the last; the backstop if they never reach it.
+    DdCount(i64),
+    /// (b) A lockable delay restarted by every departure-detector rise: armed at each fall after
+    /// REL, G0 shuts when it runs this long with no new rise; the backstop if Dd never rose.
+    DdRetrig(i64),
+    /// (d) 7b90c3f1's zero-delay key: on D2's (8,0,6) first rising edge after REL + this (a
+    /// lockable arming): the arriving cart 0's pass at P2's flat.
+    D2Arm(i64),
+}
+
+/// One stand-cycle run's options.
+#[derive(Clone, Debug)]
+pub struct CycleOpts {
+    /// REL, gt after T (live): G0 opens (its slope powered at once), G1 `g1_delay` later and G2
+    /// `g2_delay` later (their slopes `slope_delay` after they open).
+    pub rel: i64,
+    pub g1_delay: i64,
+    pub g2_delay: i64,
+    pub slope_delay: i64,
+    /// The hold's release, gt after T (live): the arriving carts handed off at G_a at `speed` b/t,
+    /// cart 1 `every` gt after cart 0, cart 2 `every2` after cart 1.
+    pub hold: i64,
+    pub every: i64,
+    pub every2: i64,
+    pub speed: f64,
+    /// Per-cart hand-off speeds (the measured hold: leader 0.33..0.40, followers 0.4).
+    pub hand_speeds: Option<[f64; 3]>,
+    pub g0_key: G0Key,
+    pub backstop: i64,
+    /// G1's and G2's shuts: (A, B) gt after D1's first rising edge after G0 shut (the arriving
+    /// cart 0), or None: `shut_fixed` [1] and [2] gt after the hold's release (live).
+    pub fill_key: Option<(i64, i64)>,
+    pub shut_fixed: [Option<i64>; 3],
+    /// The edge-keyed delays as redstone runs them (world ticks, through a freeze), or qualified
+    /// (ironspec 19:04): a falling edge counts only if the 20 gt before it were all live, and every
+    /// delay and the backstop count live ticks only.
+    pub qualified: bool,
+    /// The departure detector's cell (design frame), if the design has one.
+    pub dd: Option<BlockPos>,
+    /// D2 (8,0,6) a detector in the design; the fill's G2 keyed on D2's second rise after REL +
+    /// `d2_arm` (+ `fill_key`'s B) instead of D1's first rise after G0 shut.
+    pub d2: bool,
+    pub d2_arm: i64,
+    pub fill_d2: bool,
+    /// The departing riders' feet height to cross by T+100.
+    pub above: f64,
+    /// Carts absent from the run (departing 0..2, arriving 3..5): a batch of 1 or 2.
+    pub absent: [bool; 6],
+    pub ticks: i64,
+    pub seed: i64,
+    pub freeze: Option<(i64, i64)>,
+    pub top_y: i32,
+    pub past: i32,
+    pub trace: bool,
+}
+
+/// One stand-cycle run's figures for the grid's summary: per gate (G0, G1, G2) the actual shut's
+/// margin after the last passing cart's clear and before its stopping cart's face (None: no shut,
+/// or no such cart), gate edges, wrong pockets, contacts and the fastest, the departing riders'
+/// margin over the height (None: no riders; i64::MIN: not all crossed), the arriving batch's rest
+/// margin (i64::MIN: not at rest), the least curve margin, riders hurt or unseated.
+#[derive(Clone, Debug, Default)]
+pub struct CycleStats {
+    pub left: [Option<i64>; 3],
+    pub right: [Option<i64>; 3],
+    pub edges: usize,
+    pub wrong: usize,
+    pub contacts: usize,
+    pub contact_max: f64,
+    pub climb: Option<i64>,
+    pub rest: i64,
+    pub curve: Option<i64>,
+    pub hurt: usize,
+    pub unseated: usize,
+    /// (d) The REL + arm arming's lead over the last departing cart's D2 rise.
+    pub d2_arm_margin: Option<i64>,
+}
+
+/// One stand-cycle run's report lines: per gate the shut window (no earlier than the last passing
+/// cart's box leaving the gate's cell, departing or arriving; no later than the arriving cart it
+/// stops reaching it), the gate edges on any cart at the explicit shuts, each arriving cart in its
+/// own pocket and its rest tick against T+100, the departing carts' crest ticks, contacts, riders.
+pub fn stand_cycle_bench(spec: &FarmSpec, o: &CycleOpts) -> Result<(Vec<String>, CycleStats), String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(o.seed, (o.ticks + 600) as u32, WalkMode::Random) };
+    let mut run = Run::start(spec, &ro)?;
+    while run.settle_tick() {}
+    let first = run.world.entities.next_id;
+    for (ty, pos, nbt) in &spec.entities {
+        redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
+    }
+    run.own = (first..run.world.entities.next_id).collect();
+    let carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Minecart(_))).map(|e| e.id).collect();
+    if carts.len() != 6 {
+        return Err(format!("{} carts", carts.len()));
+    }
+    let riders: Vec<Option<u32>> = carts.iter().map(|id| run.world.entities.list.iter().find(|e| e.id == *id).and_then(|e| e.passengers.first().copied())).collect();
+    // (absent carts: removed with their riders before the warm-up)
+    for n in 0..6 {
+        if o.absent[n] {
+            for e in run.world.entities.list.iter_mut() {
+                if e.id == carts[n] || Some(e.id) == riders[n] {
+                    e.removed = true;
+                }
+            }
+        }
+    }
+    let parse = |s: &str| Block::parse(&format!("minecraft:{s}")).map_err(|e| e.to_string());
+    let (g_open, g_shut, rs, stone) = (parse(GATE_OPEN)?, parse(GATE_SHUT)?, parse("redstone_block")?, parse("stone")?);
+    for t in 0..400 {
+        run.tick();
+        if t >= 60 && run.world.time % 100 == 0 {
+            break;
+        }
+    }
+    let pos = |w: &redsim::world::World, id: u32| w.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (e.pos, e.delta_movement));
+    let place_at = |w: &mut redsim::world::World, id: u32, p: Vec3, v: Vec3| {
+        let Some(i) = w.entities.list.iter().position(|e| e.id == id) else { return };
+        w.entities.set_pos(i, p);
+        w.entities.list[i].delta_movement = v;
+        let ps = w.entities.list[i].passengers.clone();
+        for r in ps {
+            if let Some(j) = w.entities.list.iter().position(|e| e.id == r) {
+                redsim::entity::position_rider(w, i, j);
+            }
+        }
+    };
+    // (G0, G1, G2: the gate cells, their slopes' sources)
+    let gx = [14, 10, 6];
+    let gy = [-2, -1, 0];
+    let gcell = [BlockPos::new(14, -2, SZ), BlockPos::new(10, -1, SZ), BlockPos::new(6, 0, SZ)];
+    let gsrc = [BlockPos::new(14, -3, SZ + 1), BlockPos::new(10, -3, SZ), BlockPos::new(6, -2, SZ)];
+    let open_at = [o.rel, o.rel + o.g1_delay, o.rel + o.g2_delay];
+    let power_at = [open_at[0], open_at[1] + o.slope_delay, open_at[2] + o.slope_delay];
+    let hand = [o.hold, o.hold + o.every, o.hold + o.every + o.every2];
+    let ga = Vec3::new(13.5, 15.5625, 10.5);
+    let in_cell = |p: Vec3, g: usize| p.x + 0.49 > gx[g] as f64 && p.x - 0.49 < gx[g] as f64 + 1.0 && p.y + 0.7 > gy[g] as f64 && p.y < gy[g] as f64 + 1.5 && (p.z - (SZ as f64 + 0.5)).abs() < 0.99;
+    let d1_cell = BlockPos::new(12, -1, SZ);
+    let powered_at = |w: &redsim::world::World, p: BlockPos| w.get(p).to_string().contains("powered=true");
+    // (a shut time: on the world clock (redstone through a freeze) or the live clock)
+    #[derive(Clone, Copy)]
+    enum Due {
+        World(i64),
+        Live(i64),
+    }
+    let reached = |d: Option<Due>, dt: i64, live: i64| match d {
+        Some(Due::World(t)) => dt >= t,
+        Some(Due::Live(t)) => live >= t,
+        None => false,
+    };
+    let mut due: [Option<Due>; 3] = [None; 3];
+    if let G0Key::Fixed(Some(s)) = o.g0_key {
+        due[0] = Some(Due::Live(o.rel + s));
+    }
+    if o.fill_key.is_none() {
+        for g in 1..3 {
+            due[g] = o.shut_fixed[g].map(|s| Due::Live(o.hold + s));
+        }
+    }
+    let mut handed = [false; 3];
+    let mut opened = [false; 3];
+    let mut is_shut = [false; 3];
+    let mut shut_tick: [Option<i64>; 3] = [None; 3];
+    let mut shut_how: [String; 3] = [String::new(), String::new(), String::new()];
+    let mut edges: Vec<String> = Vec::new();
+    let mut dep_last_in: [[Option<i64>; 3]; 3] = [[None; 3]; 3];
+    let mut arr_first_in: [[Option<i64>; 3]; 3] = [[None; 3]; 3];
+    let mut arr_last_in: [[Option<i64>; 3]; 3] = [[None; 3]; 3];
+    let mut rest_since: [Option<i64>; 3] = [None; 3];
+    let mut dep_crest: [Option<i64>; 3] = [None; 3];
+    let mut dep_above: [Option<i64>; 3] = [None; 3];
+    let mut sunk: [Option<i64>; 3] = [None; 3];
+    let mut prev_v = [0.0f64; 6];
+    let mut touching = [[false; 6]; 6];
+    let mut contacts: Vec<String> = Vec::new();
+    let mut contact_max = 0.0f64;
+    let mut hurt = 0usize;
+    let mut health: [Option<f32>; 6] = [None; 6];
+    let mut unseated = 0usize;
+    let mut frozen_ticks = 0i64;
+    let mut frozen_hist: Vec<bool> = Vec::new();
+    let mut curves = CurveSpacing::default();
+    curves.init(&run.world);
+    let mut rel_dt: Option<i64> = None;
+    let (mut d1_was, mut dd_was) = (false, false);
+    let (mut d1_rose_after_rel, mut dd_rose_after_rel) = (false, false);
+    let mut dd_rises = 0usize;
+    let d2_cell = BlockPos::new(8, 0, SZ);
+    let mut d2_was = false;
+    let mut d2_armed_rises = 0usize;
+    let mut d2_pulses: Vec<(i64, Option<i64>)> = Vec::new();
+    let mut last_dep_d2: Option<i64> = None;
+    let mut arm_dt: Option<i64> = None;
+    let mut retrig_cancels = 0usize;
+    let n_dep = (0..3).filter(|n| !o.absent[*n]).count();
+    let mut d1_pulses: Vec<(i64, Option<i64>)> = Vec::new();
+    let mut dd_pulses: Vec<(i64, Option<i64>)> = Vec::new();
+    let mut ignored_falls: Vec<String> = Vec::new();
+    let mut out: Vec<String> = Vec::new();
+    let name = |n: usize| format!("{} cart {}{}", if n < 3 { "departing" } else { "arriving" }, n % 3, if riders[n].is_some() { "" } else { " (EMPTY)" });
+    for dt in 0..o.ticks {
+        let frozen_now = o.freeze.is_some_and(|(f, l)| dt >= f && dt < f + l);
+        let live = dt - frozen_ticks;
+        if rel_dt.is_none() && live >= o.rel {
+            rel_dt = Some(dt);
+        }
+        for k in 0..3 {
+            if !frozen_now && !handed[k] && live >= hand[k] && !o.absent[3 + k] {
+                handed[k] = true;
+                place_at(&mut run.world, carts[3 + k], ga, Vec3::new(0.0, 0.0, o.hand_speeds.map_or(o.speed, |s| s[k])));
+            }
+        }
+        // (the backstop: D1 never rose after REL (D1), Dd never rose (the restartable delay), no
+        // departing cart at all (the count))
+        let backstop_applies = match o.g0_key {
+            G0Key::D1(_) => !d1_rose_after_rel,
+            G0Key::DdRetrig(_) => !dd_rose_after_rel,
+            G0Key::DdCount(_) => n_dep == 0,
+            _ => false,
+        };
+        if backstop_applies
+            && due[0].is_none()
+            && !is_shut[0]
+            && let Some(r) = rel_dt
+        {
+            let at = if o.qualified { Due::Live(o.rel + o.backstop) } else { Due::World(r + o.backstop) };
+            if reached(Some(at), dt, live) {
+                due[0] = Some(at);
+                shut_how[0] = "the backstop".into();
+            }
+        }
+        for g in 0..3 {
+            if !opened[g] && live >= open_at[g] {
+                opened[g] = true;
+            }
+            if opened[g] && !is_shut[g] && reached(due[g], dt, live) {
+                is_shut[g] = true;
+                shut_tick[g] = Some(dt);
+                // (a gate edge: a cart's box in the gate's cell as it shuts, at the last tick's
+                // positions)
+                for (n, id) in carts.iter().enumerate() {
+                    if let Some((p, _)) = pos(&run.world, *id)
+                        && in_cell(p, g)
+                    {
+                        edges.push(format!("T+{dt}: G{g} shut on the {} at {:.2},{:.2},{:.2}", name(n), p.x, p.y, p.z));
+                    }
+                }
+            }
+            let open = opened[g] && !is_shut[g];
+            let want = if open { g_open.clone() } else { g_shut.clone() };
+            if run.world.get(gcell[g]) != want {
+                run.world.set_block(gcell[g], want, redsim::world::flags::ALL);
+            }
+            let want_src = if open && live >= power_at[g] { rs.clone() } else { stone.clone() };
+            if run.world.get(gsrc[g]) != want_src {
+                run.world.set_block(gsrc[g], want_src, redsim::world::flags::ALL);
+            }
+        }
+        if let Some((from, len)) = o.freeze {
+            if frozen_now {
+                frozen_ticks += 1;
+            }
+            if dt == from {
+                if run.world.entity_chunks.is_none() {
+                    let (mn, sz) = (run.world.min, run.world.size);
+                    run.world.entity_chunks = Some([mn.x.div_euclid(16), mn.z.div_euclid(16), (mn.x + sz[0] - 1).div_euclid(16), (mn.z + sz[2] - 1).div_euclid(16)]);
+                }
+                redsim::reload::unload_some(&mut run.world, [0, 0, 0, 0]);
+            }
+            if dt == from + len {
+                redsim::reload::load_some(&mut run.world, [0, 0, 0, 0]);
+            }
+        }
+        frozen_hist.push(frozen_now);
+        run.tick();
+        curves.observe(&run.world, dt);
+        // the detectors' edges and the keyed shuts
+        {
+            let after_rel = rel_dt.is_some_and(|r| dt >= r);
+            let quiet20 = frozen_hist.iter().rev().take(21).all(|f| !*f);
+            let d1 = powered_at(&run.world, d1_cell);
+            if d1 && !d1_was {
+                d1_pulses.push((dt, None));
+                if after_rel {
+                    d1_rose_after_rel = true;
+                }
+                // (the fill: G1 (and G2 unless keyed on D2) on D1's first rise after G0 shut)
+                if let Some((a, b)) = o.fill_key
+                    && is_shut[0]
+                    && shut_tick[0].is_some_and(|s| dt >= s)
+                    && due[1].is_none()
+                {
+                    due[1] = Some(if o.qualified { Due::Live(live + a) } else { Due::World(dt + a) });
+                    shut_how[1] = format!("D1's rise at T+{dt} + {a}");
+                    if !o.fill_d2 {
+                        due[2] = Some(if o.qualified { Due::Live(live + b) } else { Due::World(dt + b) });
+                        shut_how[2] = format!("D1's rise at T+{dt} + {b}");
+                    }
+                }
+            }
+            if !d1 && d1_was {
+                if let Some(p) = d1_pulses.last_mut() {
+                    p.1 = Some(dt);
+                }
+                if let G0Key::D1(k) = o.g0_key
+                    && due[0].is_none()
+                    && d1_rose_after_rel
+                {
+                    if o.qualified && !quiet20 {
+                        ignored_falls.push(format!("D1 fall T+{dt} (a freeze in the 20 gt before)"));
+                    } else {
+                        due[0] = Some(if o.qualified { Due::Live(live + k) } else { Due::World(dt + k) });
+                        shut_how[0] = format!("D1's fall at T+{dt} + {k}");
+                    }
+                }
+            }
+            d1_was = d1;
+            // (D2: G0 on its first rise after the arming (d); the fill's G2 on its second)
+            if o.d2 {
+                if arm_dt.is_none()
+                    && let Some(r) = rel_dt
+                    && (if o.qualified { live >= o.rel + o.d2_arm } else { dt >= r + o.d2_arm })
+                {
+                    arm_dt = Some(dt);
+                }
+                let d2 = powered_at(&run.world, d2_cell);
+                if d2 && !d2_was {
+                    d2_pulses.push((dt, None));
+                    // (whose rise: the cart nearest D2's cell; a departing cart's rise is the
+                    // departure's, before the arming)
+                    let near = (0..6)
+                        .filter_map(|n| pos(&run.world, carts[n]).map(|(p, _)| (n, (p.x - 8.5).powi(2) + (p.y - 0.06).powi(2) + (p.z - 6.5).powi(2))))
+                        .min_by(|a, b| a.1.total_cmp(&b.1));
+                    if let Some((n, _)) = near
+                        && n < 3
+                    {
+                        last_dep_d2 = Some(dt);
+                    }
+                    let armed = match rel_dt {
+                        Some(r) => if o.qualified { live >= o.rel + o.d2_arm } else { dt >= r + o.d2_arm },
+                        None => false,
+                    };
+                    if armed {
+                        d2_armed_rises += 1;
+                        if let G0Key::D2Arm(_) = o.g0_key
+                            && d2_armed_rises == 1
+                            && !is_shut[0]
+                            && due[0].is_none()
+                        {
+                            due[0] = Some(if o.qualified { Due::Live(live) } else { Due::World(dt) });
+                            shut_how[0] = format!("D2's first rise after the arming, T+{dt}");
+                        }
+                        // (7b90c3f1's chain (0ab47d8a75): G2 on a D2 rise while G1 is shut)
+                        if o.fill_d2
+                            && is_shut[1]
+                            && shut_tick[1].is_some_and(|s| dt >= s)
+                            && due[2].is_none()
+                            && let Some((_, b)) = o.fill_key
+                        {
+                            due[2] = Some(if o.qualified { Due::Live(live + b) } else { Due::World(dt + b) });
+                            shut_how[2] = format!("D2's rise at T+{dt} (G1 shut) + {b}");
+                        }
+                    }
+                }
+                if !d2 && d2_was
+                    && let Some(p) = d2_pulses.last_mut()
+                {
+                    p.1 = Some(dt);
+                }
+                d2_was = d2;
+            }
+            if let Some(ddp) = o.dd {
+                let dd = powered_at(&run.world, ddp);
+                if dd && !dd_was {
+                    dd_pulses.push((dt, None));
+                    if after_rel {
+                        dd_rose_after_rel = true;
+                        dd_rises += 1;
+                        match o.g0_key {
+                            // (a) the count: the last departing cart's rise
+                            G0Key::DdCount(k) if !is_shut[0] && due[0].is_none() && dd_rises == n_dep => {
+                                due[0] = Some(if o.qualified { Due::Live(live + k) } else { Due::World(dt + k) });
+                                shut_how[0] = format!("Dd's rise {dd_rises} of {n_dep} at T+{dt} + {k}");
+                            }
+                            // (b) a rise restarts the delay
+                            G0Key::DdRetrig(_) if !is_shut[0] && due[0].is_some() => {
+                                due[0] = None;
+                                retrig_cancels += 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                if !dd && dd_was {
+                    if let Some(p) = dd_pulses.last_mut() {
+                        p.1 = Some(dt);
+                    }
+                    if let G0Key::Dd(k) | G0Key::DdRetrig(k) = o.g0_key
+                        && !is_shut[0]
+                        && (due[0].is_none() || matches!(o.g0_key, G0Key::DdRetrig(_)))
+                        && dd_rose_after_rel
+                    {
+                        if o.qualified && !quiet20 {
+                            ignored_falls.push(format!("Dd fall T+{dt} (a freeze in the 20 gt before)"));
+                        } else {
+                            due[0] = Some(if o.qualified { Due::Live(live + k) } else { Due::World(dt + k) });
+                            shut_how[0] = format!("Dd's fall at T+{dt} + {k}{}", if matches!(o.g0_key, G0Key::DdRetrig(_)) { format!(" (restartable; {retrig_cancels} restarts)") } else { String::new() });
+                        }
+                    }
+                }
+                dd_was = dd;
+            }
+        }
+        let w = &run.world;
+        let st: Vec<Option<(Vec3, Vec3)>> = carts.iter().map(|id| pos(w, *id)).collect();
+        let mut sink_now: Vec<usize> = Vec::new();
+        for n in 0..6 {
+            let Some((p, v)) = st[n] else { continue };
+            for g in 0..3 {
+                if !in_cell(p, g) {
+                    continue;
+                }
+                if n < 3 {
+                    if live >= o.rel {
+                        dep_last_in[n][g] = Some(dt);
+                    }
+                } else if handed[n - 3] {
+                    arr_first_in[n - 3][g].get_or_insert(dt);
+                    arr_last_in[n - 3][g] = Some(dt);
+                }
+            }
+            let s = (v.x * v.x + v.z * v.z).sqrt();
+            if n < 3 {
+                if dep_crest[n].is_none() && p.x > 15.0 && p.z > 12.0 && p.z < 13.0 && p.y > 1.9 {
+                    dep_crest[n] = Some(dt);
+                }
+                if dep_above[n].is_none()
+                    && let Some(r) = riders[n]
+                    && let Some(e) = w.entities.list.iter().find(|e| e.id == r && !e.removed)
+                    && e.pos.y >= o.above
+                {
+                    dep_above[n] = Some(dt);
+                }
+                if p.y > o.top_y as f64 - 0.1 && p.x > 14.5 && p.z >= o.past as f64 - 0.4 {
+                    sunk[n] = Some(dt);
+                    sink_now.push(n);
+                }
+            } else if handed[n - 3] {
+                if s < 1e-3 && (p.z - (SZ as f64 + 0.5)).abs() < 0.6 && p.y < 3.0 {
+                    rest_since[n - 3].get_or_insert(dt);
+                } else {
+                    rest_since[n - 3] = None;
+                }
+            }
+        }
+        for a in 0..6 {
+            for c in 0..6 {
+                if a == c || (a >= 3 && !handed[a - 3]) || (c >= 3 && !handed[c - 3]) {
+                    continue;
+                }
+                let (Some((pa, va)), Some((pc, vc))) = (st[a], st[c]) else { continue };
+                let d = ((pa.x - pc.x).powi(2) + (pa.y - pc.y).powi(2) + (pa.z - pc.z).powi(2)).sqrt();
+                let sc = (vc.x * vc.x + vc.z * vc.z).sqrt();
+                let now = d < 1.25;
+                if now && !touching[a][c] && sc < 0.05 && dt > 0 {
+                    let sa = prev_v[a].max((va.x * va.x + va.z * va.z).sqrt());
+                    contact_max = contact_max.max(sa);
+                    contacts.push(format!("T+{dt}: the {} into the {} at {sa:.3}", name(a), name(c)));
+                }
+                touching[a][c] = now;
+            }
+        }
+        for n in 0..6 {
+            prev_v[n] = st[n].map_or(0.0, |(_, v)| (v.x * v.x + v.z * v.z).sqrt());
+            let Some(r) = riders[n] else { continue };
+            let Some(e) = w.entities.list.iter().find(|e| e.id == r && !e.removed) else { continue };
+            let hp = if let EntityKind::Mob(m) = &e.kind { m.health } else { 0.0 };
+            if health[n].is_some_and(|h0| hp < h0) {
+                hurt += 1;
+            }
+            health[n] = Some(hp);
+            if e.vehicle.is_none() {
+                unseated += 1;
+            }
+        }
+        if o.trace {
+            out.push(format!("T+{dt}: {}", st.iter().map(|s| s.map_or("-".to_string(), |(p, v)| format!("{:.2},{:.2},{:.2} v{:.3}", p.x, p.y, p.z, (v.x * v.x + v.z * v.z).sqrt()))).collect::<Vec<_>>().join(" | ")));
+        }
+        for n in sink_now {
+            let ps: Vec<u32> = run.world.entities.list.iter().find(|e| e.id == carts[n]).map(|e| e.passengers.clone()).unwrap_or_default();
+            for e in run.world.entities.list.iter_mut() {
+                if e.id == carts[n] || ps.contains(&e.id) {
+                    e.removed = true;
+                }
+            }
+        }
+    }
+    // the shut windows: gate g stops the g-th present arriving cart (G0 the first, G1 the second,
+    // G2 the third: a missing cart shifts the rest forward); the present arriving carts ahead of it
+    // and every departing cart pass it
+    let present: Vec<usize> = (0..3).filter(|k| !o.absent[3 + *k]).collect();
+    let mut stats = CycleStats::default();
+    let mut wins: Vec<String> = Vec::new();
+    for g in 0..3 {
+        let mut early: Option<(i64, String)> = None;
+        for n in 0..3 {
+            if let Some(t) = dep_last_in[n][g]
+                && early.as_ref().is_none_or(|e| t + 1 > e.0)
+            {
+                early = Some((t + 1, format!("departing cart {n}")));
+            }
+        }
+        for &k in present.iter().take(g) {
+            if let Some(t) = arr_last_in[k][g]
+                && early.as_ref().is_none_or(|e| t + 1 > e.0)
+            {
+                early = Some((t + 1, format!("arriving cart {k}")));
+            }
+        }
+        let late = present.get(g).and_then(|&k| arr_first_in[k][g]);
+        let rel_h = |t: i64| format!("T+{t} (REL+{}, H+{})", t - o.rel, t - o.hold);
+        if let Some(s) = shut_tick[g] {
+            stats.left[g] = early.as_ref().map(|e| s - e.0);
+            stats.right[g] = late.map(|l| l - s);
+        }
+        // (the margins of the actual shut: after the last passer's clear, before the stopper)
+        let margins = match shut_tick[g] {
+            Some(s) => format!(
+                ", shut at T+{s}{} (after the leader by {}, before the follower by {})",
+                if shut_how[g].is_empty() { String::new() } else { format!(" on {}", shut_how[g]) },
+                early.as_ref().map_or("-".to_string(), |e| format!("{}", s - e.0)),
+                late.map_or("-".to_string(), |l| format!("{}", l - s))
+            ),
+            None => ", shut never".to_string(),
+        };
+        wins.push(format!(
+            "G{g}: from {} ({}) to {} (the arriving cart it stops at its face){}{margins}",
+            early.as_ref().map_or("-".to_string(), |e| rel_h(e.0)),
+            early.as_ref().map_or("-".to_string(), |e| e.1.clone()),
+            late.map_or("-".to_string(), rel_h),
+            match (&early, late) { (Some(e), Some(l)) => format!(", window {} gt", l - e.0 + 1), _ => String::new() },
+        ));
+    }
+    out.push(format!(
+        "stand cycle (REL T+{}, G1 +{}, G2 +{}, slopes +{}; the hold T+{}, hand-offs {}:{} at {}; G0 {:?}, fill {:?}{}): shut windows {}",
+        o.rel,
+        o.g1_delay,
+        o.g2_delay,
+        o.slope_delay,
+        o.hold,
+        o.every,
+        o.every2,
+        o.speed,
+        o.g0_key,
+        o.fill_key,
+        if o.qualified { ", qualified edges" } else { "" },
+        wins.join("; ")
+    ));
+    let cr = curves.report();
+    out.push(format!("curve rule (follower entry minus leader clear, bar >= 0; no touching): {}", if cr.is_empty() { "no curve passed by two carts".to_string() } else { cr.join("; ") }));
+    let pulses = |v: &[(i64, Option<i64>)]| v.iter().map(|(a, b)| format!("T+{a}..{}", b.map_or("-".to_string(), |b| format!("T+{b}")))).collect::<Vec<_>>().join(", ");
+    out.push(format!(
+        "D1 pulses {}{}{}{}",
+        if d1_pulses.is_empty() { "none".to_string() } else { pulses(&d1_pulses) },
+        if o.dd.is_some() { format!("; Dd pulses {}", if dd_pulses.is_empty() { "none".to_string() } else { pulses(&dd_pulses) }) } else { String::new() },
+        if o.d2 { format!("; D2 pulses {}{}", if d2_pulses.is_empty() { "none".to_string() } else { pulses(&d2_pulses) }, match (arm_dt, last_dep_d2) { (Some(a), Some(l)) => format!(" (the arming at T+{a}, {} gt after the last departing D2 rise)", a - l), (Some(a), None) => format!(" (the arming at T+{a}, no departing D2 rise)"), _ => String::new() }) } else { String::new() },
+        if ignored_falls.is_empty() { String::new() } else { format!("; not counted: {}", ignored_falls.join(", ")) }
+    ));
+    // (the j-th present arriving cart in pocket P(j+1))
+    let wrong: Vec<String> = present
+        .iter()
+        .enumerate()
+        .filter_map(|(j, &k)| {
+            let want = [13.885, 9.885, 5.885][j];
+            match st_final(&run.world, carts[3 + k]) {
+                Some(p) if (p.x - want).abs() < 0.3 && (p.z - (SZ as f64 + 0.5)).abs() < 0.3 => None,
+                Some(p) => Some(format!("arriving cart {k} at {:.2},{:.2},{:.2} (P{} expected)", p.x, p.y, p.z, j + 1)),
+                None => Some(format!("arriving cart {k} gone")),
+            }
+        })
+        .collect();
+    let last = (0..3).filter(|k| !o.absent[3 + *k]).map(|k| rest_since[k].unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
+    let fmt = |a: &[Option<i64>; 3]| (0..3).map(|k| a[k].map_or("never".to_string(), |t| format!("T+{t}"))).collect::<Vec<_>>().join(", ");
+    let last_above = (0..3).filter(|k| riders[*k].is_some() && !o.absent[*k]).map(|k| dep_above[k].unwrap_or(i64::MAX)).max();
+    out.push(format!(
+        "departing: riders above feet {} at {} ({}); crest {}, top {}",
+        o.above,
+        fmt(&dep_above),
+        match last_above {
+            None => "no riders".to_string(),
+            Some(i64::MAX) => "NOT ALL by the run's end".to_string(),
+            Some(t) => format!("all by T+{t}, margin {} gt before T+100", 100 - t),
+        },
+        fmt(&dep_crest),
+        fmt(&sunk)
+    ));
+    out.push(format!(
+        "arriving: {}; batch at rest {}; gate edges {}{}; contacts {} (the fastest {:.3}){}; riders hurt {hurt}, unseated ticks {unseated}",
+        if wrong.is_empty() { "every cart in its own pocket".to_string() } else { format!("WRONG POCKET: {}", wrong.join("; ")) },
+        if last == i64::MAX { "NO".to_string() } else { format!("T+{last}, margin {} gt before T+100", 100 - last) },
+        edges.len(),
+        if edges.is_empty() { String::new() } else { format!(" ({})", edges.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
+        contacts.len(),
+        contact_max,
+        if contacts.is_empty() { String::new() } else { format!(" ({})", contacts.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) }
+    ));
+    stats.edges = edges.len();
+    stats.wrong = wrong.len();
+    stats.contacts = contacts.len();
+    stats.contact_max = contact_max;
+    stats.climb = last_above.map(|t| if t == i64::MAX { i64::MIN } else { 100 - t });
+    stats.rest = if last == i64::MAX { i64::MIN } else { 100 - last };
+    let (cl, touch) = curves.least();
+    stats.curve = if touch > 0 { Some(i64::MIN) } else { cl };
+    stats.hurt = hurt;
+    stats.unseated = unseated;
+    stats.d2_arm_margin = match (arm_dt, last_dep_d2) {
+        (Some(a), Some(l)) => Some(a - l),
+        _ => None,
+    };
+    Ok((out, stats))
+}
+
+/// The grid's summary over many stand-cycle runs: per gate the least margins, the totals.
+pub fn cycle_summary(label: &str, runs: &[CycleStats]) -> String {
+    let mn = |f: &dyn Fn(&CycleStats) -> Option<i64>| runs.iter().filter_map(f).min();
+    let show = |v: Option<i64>| match v {
+        None => "-".to_string(),
+        Some(i64::MIN) => "FAIL".to_string(),
+        Some(x) => x.to_string(),
+    };
+    format!(
+        "{label}: {} runs; least margins G0 after the leader {} / before the follower {}; G1 {} / {}; G2 {} / {}; gate edges {}, wrong pockets {}, contacts {} (the fastest {:.3}); departing riders over the height by T+100: least {}; arriving at rest: least {}; curve rule least {}; riders hurt {}, unseated ticks {}; D2 arming after the last departing D2 rise: least {}",
+        runs.len(),
+        show(mn(&|s| s.left[0])),
+        show(mn(&|s| s.right[0])),
+        show(mn(&|s| s.left[1])),
+        show(mn(&|s| s.right[1])),
+        show(mn(&|s| s.left[2])),
+        show(mn(&|s| s.right[2])),
+        runs.iter().map(|s| s.edges).sum::<usize>(),
+        runs.iter().map(|s| s.wrong).sum::<usize>(),
+        runs.iter().map(|s| s.contacts).sum::<usize>(),
+        runs.iter().map(|s| s.contact_max).fold(0.0, f64::max),
+        show(mn(&|s| s.climb)),
+        show(mn(&|s| Some(s.rest))),
+        show(mn(&|s| s.curve)),
+        runs.iter().map(|s| s.hurt).sum::<usize>(),
+        runs.iter().map(|s| s.unseated).sum::<usize>(),
+        show(mn(&|s| s.d2_arm_margin))
+    )
+}
+
+fn st_final(w: &redsim::world::World, id: u32) -> Option<Vec3> {
+    w.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| e.pos)
+}
+
 /// The bench's design: H's queue (3 slopes down north), H's slope and gate, the climb, T, the
 /// approach's two slopes down, the snap turn, the strip and its gates; a marker block in the chunk
 /// west of the bench (the forced box's spare chunk, so a freeze leaves the bench at level 32).
@@ -1043,6 +1828,8 @@ pub struct ClimbOpts {
     pub hand_off: Option<(Vec3, Vec3, i64, [i32; 4])>,
     /// Cart 2's hand-off this many gt after cart 1's (default: the same spacing as cart 1's).
     pub hand_off_2: Option<i64>,
+    /// Per-cart hand-off speeds (b/t), overriding the hand-off velocity's magnitude.
+    pub hand_speeds: Option<[f64; 3]>,
     /// The stand's gates on timers from the hold's release (T + h_open) instead of position
     /// triggers: G2 shuts at release + .0, G1 at release + .1 (live time: paused while frozen).
     pub gate_shut: Option<(i64, i64)>,
@@ -1151,7 +1938,15 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                     handed[k] = true;
                     place_at(&mut run.world, carts[k], p);
                     if let Some(i) = run.world.entities.list.iter().position(|e| e.id == carts[k]) {
-                        run.world.entities.list[i].delta_movement = v;
+                        // (the per-cart hand-off speeds: the velocity's direction at cart k's speed)
+                        let vk = match o.hand_speeds {
+                            Some(sp) => {
+                                let n = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
+                                if n > 0.0 { Vec3::new(v.x * sp[k] / n, v.y * sp[k] / n, v.z * sp[k] / n) } else { v }
+                            }
+                            None => v,
+                        };
+                        run.world.entities.list[i].delta_movement = vk;
                     }
                 }
             }
@@ -1754,6 +2549,19 @@ impl CurveSpacing {
                 }
             }
         }
+    }
+    /// The least margin over every curve passed by two or more carts, and the touching ticks.
+    fn least(&self) -> (Option<i64>, usize) {
+        let mut least: Option<i64> = None;
+        for i in 0..self.cells.len() {
+            let mut ps = self.passes[i].clone();
+            ps.sort_by_key(|x| x.0);
+            for w in ps.windows(2) {
+                let m = w[1].0 - w[0].1;
+                least = Some(least.map_or(m, |l| l.min(m)));
+            }
+        }
+        (least, self.touches.len())
     }
     /// One line per curve passed by two or more carts (loop cells: the design frame less
     /// (6,0,6)), the least margin first; then the touch count.

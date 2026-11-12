@@ -1295,6 +1295,10 @@ pub enum MobfarmCmd {
         /// The hand-off speed (b/t) for --gravity.
         #[arg(long, default_value_t = 0.4)]
         speed: f64,
+        /// Per-cart hand-off speeds "A,B,C" (b/t), overriding --speed (the measured hold: leader
+        /// 0.33..0.40, followers 0.4).
+        #[arg(long, value_delimiter = ',')]
+        speeds: Vec<f64>,
         /// The stand's gates on timers from the hold's release (live time, paused while frozen):
         /// G2 shuts at release + A, G1 at release + B (instead of position triggers).
         #[arg(long, value_delimiter = ',')]
@@ -1369,6 +1373,98 @@ pub enum MobfarmCmd {
         riders: String,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         freeze: Vec<i64>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        trace: bool,
+    },
+    /// One-chunk's stand cycle (farmopt 18:52): the departing batch leaves today's pockets at REL
+    /// (the meter's slope power) up the S3 departure and v4's climb back while the arriving batch
+    /// comes down onechunk's re-laid descent from the hold's release into the same pockets; the
+    /// stand's gates on explicit shut times. Per gate the shut window (the last passing cart's
+    /// clear, departing or arriving, to the arriving cart it stops reaching it), gate edges on any
+    /// cart, the arriving carts' pockets and rest against T+100, contacts; per REL and hold corner,
+    /// order and seed.
+    StandCycle {
+        /// REL, gt after T, each corner.
+        #[arg(long, default_value = "3,5,7")]
+        rel: String,
+        /// The hold's release, gt after T, each corner.
+        #[arg(long, default_value = "1,3,5")]
+        hold: String,
+        #[arg(long, default_value_t = 0)]
+        g1_delay: i64,
+        /// G2's stagger after REL, each value ("0,1,2").
+        #[arg(long, default_value = "2")]
+        g2_delay: String,
+        #[arg(long, default_value_t = 6)]
+        slope_delay: i64,
+        /// The hand-offs: cart 1 A gt after cart 0, cart 2 B after cart 1, each entry ("14:13").
+        #[arg(long, default_value = "14:13")]
+        h_every: String,
+        #[arg(long, default_value_t = 0.4)]
+        speed: f64,
+        /// Per-cart hand-off speeds, each set ";"-separated ("0.33,0.4,0.4;0.4,0.4,0.4"),
+        /// overriding --speed.
+        #[arg(long, default_value = "")]
+        speeds: String,
+        /// G0's shut: `d1:K` (D1's first fall after REL + K; the backstop), `dd:K` (the departure
+        /// detector's first fall after REL + K), `ddcount:K` (its rises counted to the departing
+        /// count, + K), `ddretrig:K` (a delay restarted by every rise), `d2:ARM` (D2's first rise
+        /// after REL + ARM), `rel:S` (REL + S), `-` (never); each entry one run set ("d1:10,dd:2").
+        #[arg(long, default_value = "d1:10")]
+        g0: String,
+        /// G1's and G2's shuts keyed on D1's first rise after G0 shut: "A,B" (G1 + A, G2 + B), or
+        /// `-`: `--shut`'s G1 and G2 entries after the hold's release.
+        #[arg(long, default_value = "2,7")]
+        fill: String,
+        /// Fixed shuts (with `--g0 -`/`--fill -`): G0 after REL, G1 and G2 after the hold's release;
+        /// "-" never.
+        #[arg(long, default_value = "-,65,69")]
+        shut: String,
+        #[arg(long, default_value_t = 45)]
+        backstop: i64,
+        /// The qualified edges (ironspec 19:04): a fall counts only after 20 live gt, every keyed
+        /// delay and the backstop on the live clock.
+        #[arg(long)]
+        qualified: bool,
+        /// The departure leg, each a design: `N` (v4's re-laid crest, no detector), `A` (a sloped
+        /// detector at the crest, loop (9,2,6)), `B` (a sloped detector for booster #1, loop
+        /// (9,-3,1)), `legacy` (the bench's old flat crest); "N,A,B".
+        #[arg(long, default_value = "N")]
+        dd: String,
+        /// The departing riders' feet height to cross by T+100.
+        #[arg(long, default_value_t = 15.54)]
+        above: f64,
+        /// Freezes, each one run: "FROM:LEN,FROM:LEN" (gt after T; `-` an unfrozen run).
+        #[arg(long, default_value = "-")]
+        freezes: String,
+        /// Only the grid's summary line per G0 key and freeze (no per-run lines).
+        #[arg(long)]
+        summary: bool,
+        /// Only the overall line per G0 key (every freeze together), with --summary.
+        #[arg(long)]
+        overall_only: bool,
+        /// A freeze sweep instead of --freezes: "FROM,TO,STEP,LEN[,LEN...]" (each start and length one
+        /// run set).
+        #[arg(long, value_delimiter = ',')]
+        freeze_sweep: Vec<i64>,
+        /// The departing batch, each order ";"-separated: per cart 1 ridden, 0 empty, x absent
+        /// ("1,1,1;0,1,1;1,1,x").
+        #[arg(long, default_value = "1,1,1")]
+        dep_riders: String,
+        /// The arriving batch, each order ";"-separated.
+        #[arg(long, default_value = "1,1,1")]
+        arr_riders: String,
+        /// The climb back's east slopes (C′'s top at 38: 6).
+        #[arg(long, default_value_t = 6)]
+        east: i32,
+        #[arg(long, default_value_t = 200)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 2)]
+        seeds: i64,
         #[arg(long)]
         out: Option<PathBuf>,
         #[arg(long)]
@@ -4462,7 +4558,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, speeds, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
+            anyhow::ensure!(speeds.is_empty() || speeds.len() == 3, "--speeds A,B,C");
+            let hand_speeds_v: Option<[f64; 3]> = (speeds.len() == 3).then(|| [speeds[0], speeds[1], speeds[2]]);
             anyhow::ensure!(crest >= 3, "--crest: 3 or more (today's snap turn's high end is at 3)");
             anyhow::ensure!(gate_shut.is_empty() || gate_shut.len() == 2, "--gate-shut A,B");
             // (7b90c3f1's meter timer fill, MCTAS_TIMER_FILL=T1,T2: G1 stays open T1 and G2 T2
@@ -4562,6 +4660,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])),
                             hand_off: route_geo.map(|(p, v, c)| (p, v, if *e > 0 { *e } else if gravity { 3 } else if folded { 13 } else { 10 }, c)),
                             hand_off_2: *e2,
+                            hand_speeds: hand_speeds_v,
                             gate_shut: (gate_shut.len() == 2).then(|| (gate_shut[0], gate_shut[1])),
                             n_carts: carts,
                             trace,
@@ -4599,6 +4698,199 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             println!("== REL T+{r}, G1 +{g1}, G2 +{g2}, seed {s}");
                             for l in lines {
                                 println!("{l}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        MobfarmCmd::StandCycle { rel, hold, g1_delay, g2_delay, slope_delay, h_every, speed, speeds, g0, fill, shut, backstop, qualified, dd, above, freezes, summary, overall_only, freeze_sweep, dep_riders, arr_riders, east, ticks, seed, seeds, out, trace } => {
+            // (per-cart hand-off speed sets; none: --speed for every cart)
+            let speed_sets: Vec<Option<[f64; 3]>> = if speeds.trim().is_empty() {
+                vec![None]
+            } else {
+                speeds
+                    .split(';')
+                    .map(|s| -> anyhow::Result<Option<[f64; 3]>> {
+                        let v: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "--speeds A,B,C;...");
+                        Ok(Some([v[0], v[1], v[2]]))
+                    })
+                    .collect::<anyhow::Result<_>>()?
+            };
+            // (each cart: 1 ridden, 0 empty, x absent)
+            let r3 = |s: &str| -> anyhow::Result<([bool; 3], [bool; 3])> {
+                let v: Vec<&str> = s.split(',').map(|x| x.trim()).collect();
+                anyhow::ensure!(v.len() == 3, "riders take three of 1, 0 or x");
+                Ok(([v[0] == "1", v[1] == "1", v[2] == "1"], [v[0] == "x", v[1] == "x", v[2] == "x"]))
+            };
+            let deps: Vec<&str> = dep_riders.split(';').map(|s| s.trim()).collect();
+            let arrs: Vec<&str> = arr_riders.split(';').map(|s| s.trim()).collect();
+            let list = |s: &str| s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
+            let (rels, holds, g2s) = (list(&rel)?, list(&hold)?, list(&g2_delay)?);
+            let pairs: Vec<(i64, i64)> = h_every
+                .split(',')
+                .map(|s| -> anyhow::Result<(i64, i64)> {
+                    let mut it = s.trim().split(':');
+                    let a = it.next().unwrap_or("0").parse::<i64>()?;
+                    let b = it.next().map(|x| x.parse::<i64>()).transpose()?.unwrap_or(a);
+                    Ok((a, b))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let sh: Vec<Option<i64>> = shut.split(',').map(|x| if x.trim() == "-" { Ok(None) } else { x.trim().parse::<i64>().map(Some) }).collect::<Result<_, _>>()?;
+            anyhow::ensure!(sh.len() == 3, "--shut G0,G1,G2");
+            let keys: Vec<crate::climb::G0Key> = g0
+                .split(',')
+                .map(|s| -> anyhow::Result<crate::climb::G0Key> {
+                    let s = s.trim();
+                    if s == "-" {
+                        return Ok(crate::climb::G0Key::Fixed(sh[0]));
+                    }
+                    let (k, v) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--g0 d1:K, dd:K, rel:S or -"))?;
+                    let v = v.parse::<i64>()?;
+                    Ok(match k {
+                        "d1" => crate::climb::G0Key::D1(v),
+                        "dd" => crate::climb::G0Key::Dd(v),
+                        "ddcount" => crate::climb::G0Key::DdCount(v),
+                        "ddretrig" => crate::climb::G0Key::DdRetrig(v),
+                        "d2" => crate::climb::G0Key::D2Arm(v),
+                        "rel" => crate::climb::G0Key::Fixed(Some(v)),
+                        _ => anyhow::bail!("--g0 d1:K, dd:K, ddcount:K, ddretrig:K, d2:ARM, rel:S or -"),
+                    })
+                })
+                .collect::<anyhow::Result<_>>()?;
+            // (the fill: "A,B" both on D1's first rise after G0 shut; "d2:A,B" G1 on that D1 rise
+            // + A, G2 on D2's second rise after the D2 arming + B; `-` fixed)
+            let (fill_key, fill_d2): (Option<(i64, i64)>, bool) = if fill.trim() == "-" {
+                (None, false)
+            } else {
+                let (d2f, rest) = match fill.trim().strip_prefix("d2:") {
+                    Some(r) => (true, r),
+                    None => (false, fill.trim()),
+                };
+                let v = list(rest)?;
+                anyhow::ensure!(v.len() == 2, "--fill A,B, d2:A,B or -");
+                (Some((v[0], v[1])), d2f)
+            };
+            let mut frz: Vec<Option<(i64, i64)>> = freezes
+                .split(',')
+                .map(|s| -> anyhow::Result<Option<(i64, i64)>> {
+                    let s = s.trim();
+                    if s == "-" {
+                        return Ok(None);
+                    }
+                    let (a, b) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--freezes FROM:LEN,..."))?;
+                    Ok(Some((a.parse()?, b.parse()?)))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            if !freeze_sweep.is_empty() {
+                anyhow::ensure!(freeze_sweep.len() >= 4 && freeze_sweep[2] > 0, "--freeze-sweep FROM,TO,STEP,LEN[,LEN...]");
+                frz.clear();
+                for len in &freeze_sweep[3..] {
+                    let mut a = freeze_sweep[0];
+                    while a <= freeze_sweep[1] {
+                        frz.push(Some((a, *len)));
+                        a += freeze_sweep[2];
+                    }
+                }
+            }
+            anyhow::ensure!((1..=14).contains(&east), "--east 1..14");
+            let past = 13;
+            for leg in dd.split(',').map(|s| s.trim()) {
+                let (dd_design, dd_pos) = match leg {
+                    "N" => (Some('N'), None),
+                    "A" => (Some('A'), Some(redsim::pos::BlockPos::new(15, 2, 12))),
+                    "B" => (Some('B'), Some(redsim::pos::BlockPos::new(15, -3, 7))),
+                    "legacy" => (None, None),
+                    _ => anyhow::bail!("--dd N, A, B or legacy"),
+                };
+                for dep_s in &deps {
+                    for arr_s in &arrs {
+                        let ((dep, dep_x), (arr, arr_x)) = (r3(dep_s)?, r3(arr_s)?);
+                        let absent = [dep_x[0], dep_x[1], dep_x[2], arr_x[0], arr_x[1], arr_x[2]];
+                        let d2_design = fill_d2 || keys.iter().any(|k| matches!(k, crate::climb::G0Key::D2Arm(_)));
+                        let text = crate::climb::design_stand_cycle(dep, arr, east, past, dd_design, d2_design);
+                        let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("stand-cycle-{}.txt", std::process::id())));
+                        std::fs::write(&path, &text)?;
+                        let (_c, fspec) = load(version, &path)?;
+                        if !summary {
+                            println!("stand cycle: the design {} (departure leg {leg})", path.display());
+                        }
+                        for g2 in &g2s {
+                            for key in &keys {
+                                // (a detector key needs a design with that detector)
+                                if matches!(key, crate::climb::G0Key::Dd(_) | crate::climb::G0Key::DdCount(_) | crate::climb::G0Key::DdRetrig(_)) && dd_pos.is_none() {
+                                    continue;
+                                }
+                                let mut all_runs: Vec<crate::climb::CycleStats> = Vec::new();
+                                for f in &frz {
+                                    let mut runs: Vec<crate::climb::CycleStats> = Vec::new();
+                                    for sp3 in &speed_sets {
+                                    for (e, e2) in &pairs {
+                                        for r in &rels {
+                                            for h in &holds {
+                                                for s in seed..seed + seeds {
+                                                    let o = crate::climb::CycleOpts {
+                                                        hand_speeds: *sp3,
+                                                        rel: *r,
+                                                        g1_delay,
+                                                        g2_delay: *g2,
+                                                        slope_delay,
+                                                        hold: *h,
+                                                        every: *e,
+                                                        every2: *e2,
+                                                        speed,
+                                                        g0_key: *key,
+                                                        backstop,
+                                                        fill_key,
+                                                        shut_fixed: [sh[0], sh[1], sh[2]],
+                                                        qualified,
+                                                        dd: dd_pos,
+                                                        d2: d2_design,
+                                                        d2_arm: if let crate::climb::G0Key::D2Arm(a) = key { *a } else { 40 },
+                                                        fill_d2,
+                                                        above,
+                                                        absent,
+                                                        ticks,
+                                                        seed: s,
+                                                        freeze: *f,
+                                                        top_y: 32 + east,
+                                                        past,
+                                                        trace,
+                                                    };
+                                                    let (lines, stats) = crate::climb::stand_cycle_bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                                                    runs.push(stats);
+                                                    if !summary {
+                                                        println!("== G0 {key:?}, freeze {}, G2 +{g2}, REL T+{r}, hold T+{h}, hand-offs {e}:{e2}{}, departing {dep_s}, arriving {arr_s}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)), sp3.map_or(String::new(), |v| format!(" at {:.2},{:.2},{:.2}", v[0], v[1], v[2])));
+                                                        for l in lines {
+                                                            println!("{l}");
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    }
+                                    if !overall_only {
+                                        println!(
+                                            "{}",
+                                            crate::climb::cycle_summary(
+                                                &format!("SUMMARY leg {leg}, G0 {key:?}, fill {fill_key:?}{}{}, G2 +{g2}, departing {dep_s}, arriving {arr_s}, freeze {}", if fill_d2 { " (G2 on D2)" } else { "" }, if qualified { ", qualified" } else { "" }, f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b))),
+                                                &runs
+                                            )
+                                        );
+                                    }
+                                    all_runs.extend(runs);
+                                }
+                                // (every freeze of this key together)
+                                println!(
+                                    "{}",
+                                    crate::climb::cycle_summary(
+                                        &format!("OVERALL leg {leg}, G0 {key:?}, fill {fill_key:?}{}{}, G2 +{g2}, departing {dep_s}, arriving {arr_s}, {} freezes", if fill_d2 { " (G2 on D2)" } else { "" }, if qualified { ", qualified" } else { "" }, frz.len()),
+                                        &all_runs
+                                    )
+                                );
+                                all_runs.clear();
                             }
                         }
                     }
