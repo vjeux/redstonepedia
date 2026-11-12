@@ -519,7 +519,12 @@ fn server_ai_step(w: &mut World, i: usize) {
 /// (RangedCrossbowAttackGoal: `distanceToSqr <= 8 x 8` and `hasLineOfSight`, eye to eye; it targets
 /// both, NearestAttackableTargetGoal) is a model error: it would charge and shoot. A target farther
 /// out only turns its head and its navigation (a boat's passenger: it can't move), both unmodeled
-/// and changing nothing.
+/// and changing nothing. Exempt (ironspec Nov 12 05:31, on G1's proposal): an iron golem whose box
+/// overlaps a nether portal block while its portal cooldown is 0 (a pad golem: it crosses at the
+/// start of its second tick, before a charge can start; tick-exact's official bridge 6c559d25b, 136
+/// of 136 golems crossed, 0 shots, the charged-crossbow worst case included:
+/// https://artifacts.internalmeta.com/a/1458513646450982). A golem off the portal or with its
+/// cooldown above 0 (a lingering one, what the official control shot) stays an error.
 fn pillager_check(w: &mut World, i: usize) {
     // (G1 on ff000679f: a pillager off its vehicle, added unseated or dismounted from a broken
     // boat, has no goals: an error whenever it rides nothing)
@@ -544,6 +549,9 @@ fn pillager_check(w: &mut World, i: usize) {
         if d2 > 64.0 {
             continue;
         }
+        if m.ty == MobType::IronGolem && e.portal_cooldown == 0 && overlaps_portal(w, e.pos, m.ty.def().width as f64, m.ty.def().height as f64) {
+            continue;
+        }
         let te = Vec3::new(e.pos.x, e.pos.y + m.eye() as f64, e.pos.z);
         if super::los::has_line_of_sight(w, eye, te) {
             seen = Some(format!("{} #{} at {:.2},{:.2},{:.2}, {:.2} away", m.ty.def().id, e.id, e.pos.x, e.pos.y, e.pos.z, d2.sqrt()));
@@ -556,6 +564,27 @@ fn pillager_check(w: &mut World, i: usize) {
             w.errors.push(why);
         }
     }
+}
+
+/// Whether a box `width` wide and `height` tall standing at `pos` overlaps a nether portal block's
+/// cell (the box deflated by 1e-5, as `Entity.checkInsideBlocks` takes it).
+fn overlaps_portal(w: &World, pos: Vec3, width: f64, height: f64) -> bool {
+    let e = 1e-5;
+    let (x0, x1) = (mth::floor(pos.x - width / 2.0 + e), mth::floor(pos.x + width / 2.0 - e));
+    let (y0, y1) = (mth::floor(pos.y + e), mth::floor(pos.y + height - e));
+    let (z0, z1) = (mth::floor(pos.z - width / 2.0 + e), mth::floor(pos.z + width / 2.0 - e));
+    for x in x0..=x1 {
+        for y in y0..=y1 {
+            for z in z0..=z1 {
+                if let Block::Terrain(id) = w.get(BlockPos::new(x, y, z))
+                    && crate::terrain::blocks::props(id).block_id() == "minecraft:nether_portal"
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn jump(w: &mut World, i: usize) {

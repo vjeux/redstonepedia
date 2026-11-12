@@ -18,7 +18,9 @@ pub enum MobType {
     /// its targets) is not modeled: one standing on its own is refused at its spawn and is an error
     /// whenever it rides nothing, and a villager or an iron golem it sees within its crossbow's 8
     /// (RangedCrossbowAttackGoal's attack radius) is a model error (it would charge and shoot; no
-    /// player in a run). Villagers sense it as a hostile (VillagerHostilesSensor: 15) and golems
+    /// player in a run), but a golem overlapping a nether portal block with its portal cooldown 0
+    /// (a pad golem crossing at the start of its second tick: tick-exact's official bridge
+    /// 6c559d25b). Villagers sense it as a hostile (VillagerHostilesSensor: 15) and golems
     /// as an Enemy (its monster row: `is_enemy`).
     Pillager,
     /// A natural mob of the terrain mode (NaturalSpawner's): its row in

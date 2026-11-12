@@ -542,3 +542,39 @@ fn golem_targets_seated_pillager() {
         }
     }
 }
+
+/// (9fc3155f, ironspec Nov 12 05:31) The seated pillager's portal exemption: a fresh golem 5 off
+/// whose box overlaps a nether portal block, its portal cooldown 0, is no error at the pillager's
+/// tick (a pad golem crosses at the start of its second tick: tick-exact's official bridge
+/// 6c559d25b, 136 of 136, 0 shots); the same golem with its portal row blocked (no portal in its
+/// box), or on the portal with its cooldown above 0 (a lingering golem), is the loud error.
+#[test]
+fn seated_pillager_golem_on_portal() {
+    for case in 0..3 {
+        let mut w = world(5);
+        for x in -3..=10 {
+            for z in -3..=3 {
+                put(&mut w, x, -1, z, "minecraft:stone");
+            }
+        }
+        if case != 1 {
+            let portal = crate::terrain::land::block_of("minecraft:nether_portal[axis=z]").expect("the portal block");
+            for y in 0..=2 {
+                for z in -1..=1 {
+                    w.set_block(BlockPos::new(6, y, z), portal, flags::RAW);
+                }
+            }
+        }
+        let boat = crate::entity::spawn(&mut w, "minecraft:oak_boat", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b}]}"));
+        assert!(boat.is_ok(), "{boat:?}");
+        let g = add(&mut w, MobType::IronGolem, Vec3::new(5.5, 0.0, 0.5), true);
+        if case == 2 {
+            let gi = crate::entity::index_of(&w, g).expect("the golem");
+            w.entities.list[gi].portal_cooldown = 300;
+        }
+        w.tick();
+        let err = w.errors.iter().any(|e| e.contains("seated pillager"));
+        let what = ["on the portal, cooldown 0", "its portal row blocked", "on the portal, cooldown 300"][case];
+        assert_eq!(err, case != 0, "{what}: {:?}", w.errors);
+    }
+}
