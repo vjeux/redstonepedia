@@ -5948,13 +5948,18 @@ pub enum MobfarmCmd {
         out: PathBuf,
         #[arg(long)]
         bench: bool,
+        /// The approach flats covered by top-half trapdoors (the contact mode's positive control).
+        #[arg(long)]
+        trapdoor_caps: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
-    /// --after-sleep live gt after the lie-down, the release --release-after live gt after F. One
-    /// row with --reload/--freeze START,LEN and --hour DAYTIME; a sweep over --reload-phases (each
-    /// a restart of --sweep-len gt: 1 is a save, stop and start), --freeze-phases and --hours.
-    /// Prints each visit (one row) or each row's clean count, and the totals: seated, not out,
-    /// HOME losses, the pickup speeds, each exit's delay against the same seed and speed's night.
+    /// --after-sleep gt after the lie-down, the release --release-after gt after F (the controller
+    /// on game ticks). One row with --restart T,ORDER (a save, stop and start between ticks T - 1
+    /// and T, `liveness::restart`) and --hour DAYTIME; a sweep over --restart-phases (each at every
+    /// order of --orders: `all` is the helper's 10, or a list of save, reverse, seed:K) and
+    /// --hours. Prints each visit (one row) or each row's clean count, and the totals: seated, not
+    /// out, HOME losses, the pickup speeds, each exit's delay against the same seed and speed's
+    /// night.
     BedtierBench {
         design: PathBuf,
         #[arg(long, default_value_t = 1)]
@@ -5977,26 +5982,23 @@ pub enum MobfarmCmd {
         #[arg(long)]
         hide_after_wake: bool,
         #[arg(long)]
-        freeze: Option<String>,
-        #[arg(long)]
-        reload: Option<String>,
+        restart: Option<String>,
         #[arg(long)]
         hour: Option<i64>,
         #[arg(long)]
-        reload_phases: Option<String>,
-        #[arg(long)]
-        freeze_phases: Option<String>,
+        restart_phases: Option<String>,
+        #[arg(long, default_value = "all")]
+        orders: String,
         #[arg(long)]
         hours: Option<String>,
-        #[arg(long, default_value_t = 1)]
-        sweep_len: i64,
     },
     /// (G1's point 1, ironspec 00:52) The two-visit row on the lead's geometry: A's visit, the next
     /// napper C waiting awake in its cart at the queue cell, the queue released on A's R (C at the
     /// entry --transit gt later), A up its lift (emulated, from --lift-delay gt after R at
-    /// --lift-speed b/t); a restart (one tick) at each --restart-phases gt after A's entry (and a
-    /// row without); prints A's distance to the bed's head at C's lie-down (bar > 17) and both
-    /// HOMEs.
+    /// --lift-speed b/t); a row without a restart and one per --restart-phases x --orders. The
+    /// daylight rows (--day-hold, ironspec 02:33): A reaches the queue at each day time of
+    /// --day-hold, the NOT DAY gate holds it until --day-off, C reaches the queue --gap gt after
+    /// A drops. Prints A's distance to the bed's head at C's lie-down (bar > 17) and both HOMEs.
     BedtierTwo {
         design: PathBuf,
         #[arg(long, default_value_t = 1)]
@@ -6007,12 +6009,25 @@ pub enum MobfarmCmd {
         speeds: String,
         #[arg(long)]
         restart_phases: Option<String>,
+        #[arg(long, default_value = "all")]
+        orders: String,
         #[arg(long, default_value_t = 37)]
         transit: i64,
         #[arg(long, default_value_t = 5)]
         lift_delay: i64,
         #[arg(long, default_value_t = 0.7)]
         lift_speed: f64,
+        #[arg(long)]
+        day_hold: Option<String>,
+        /// The NOT DAY gate's opening day times (each a row set; tick-exact's L 6 table: clear
+        /// 12,230, rain 12,002, thunder 11,556).
+        #[arg(long, default_value = "12230,12002,11556")]
+        day_off: String,
+        #[arg(long, default_value_t = 20)]
+        gap: i64,
+        /// Also a row with C reaching the queue at this day time (its real first-napper time).
+        #[arg(long)]
+        c_at: Option<i64>,
     },
 }
 
@@ -13190,18 +13205,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
-        MobfarmCmd::Bedtier { out, bench } => {
-            std::fs::write(&out, crate::bedtier::design(bench)?)?;
+        MobfarmCmd::Bedtier { out, bench, trapdoor_caps } => {
+            std::fs::write(&out, crate::bedtier::design(bench, trapdoor_caps)?)?;
             println!("wrote {}", out.display());
+            // (the placement-order cells: what the guide's build order leaves unlike the file)
+            let (_c, spec) = load(version, &out)?;
+            let cells = crate::bedtier::placement_order_cells(&spec).map_err(|e| anyhow::anyhow!(e))?;
+            println!("placement-order cells (built in order, 20 gt apart, unlike the file): {}", cells.len());
+            for c in &cells {
+                println!("  {c}");
+            }
+            for l in crate::bedtier::rail_rule_lines(&spec) {
+                println!("{l}");
+            }
+            for l in crate::bedtier::zombie_post_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
+                println!("zombie post: {l}");
+            }
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, freeze, reload, hour, reload_phases, freeze_phases, hours, sweep_len } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours } => {
             let (_c, spec) = load(version, &design)?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, freeze: crate::bedtier::start_len(freeze.as_deref())?, reload: crate::bedtier::start_len(reload.as_deref())?, hour };
-            crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [reload_phases.as_deref(), freeze_phases.as_deref(), hours.as_deref()], sweep_len)?;
+            let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour };
+            crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref()], &crate::bedtier::orders(&orders)?)?;
         }
-        MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, transit, lift_delay, lift_speed } => {
+        MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at } => {
             let (_c, spec) = load(version, &design)?;
-            crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), transit, lift_delay, lift_speed)?;
+            crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), &crate::bedtier::orders(&orders)?, transit, lift_delay, lift_speed, day_hold.as_deref(), &day_off, gap, c_at)?;
         }
     }
     Ok(())
