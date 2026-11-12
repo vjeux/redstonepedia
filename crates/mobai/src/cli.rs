@@ -427,6 +427,19 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec: the queue post's sky) The post's zombie in the composition:
+    /// the light and the sky at its eye at noon, its Fire and Health over a clear day
+    PostSky {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, default_value = "")]
+        parts: String,
+        /// The zombie's boat, "kind x y z {nbt}" (y in the design's frame)
+        #[arg(long, allow_hyphen_values = true)]
+        summon: String,
+    },
     /// (tickexact 2026-11-12, ironspec: H = 15 and DAY's thresholds) The controller's daylight
     /// detector at its cell in the composition (fluids flowed): the column over it, then its output
     /// every N gt over a clear, a rain and a thunder day
@@ -702,7 +715,8 @@ pub enum MobaiCmd {
         /// modules' pads kept, everything at `--pocket`
         #[arg(long)]
         group: Option<std::path::PathBuf>,
-        /// Rev 3 at N = 4: the mirrored module file (the southern copies)
+        /// Rev 3 at N = 4: the mirrored module file (the southern copies); `self`: the module
+        /// itself mirrored in z there (z' = 3 - z, as onechunk's mirrored file)
         #[arg(long)]
         mirrored: Option<std::path::PathBuf>,
         /// Rev 3: the pocket's y (the modules' frame + y; the loader 3 lower)
@@ -1076,6 +1090,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
+        }
+        MobaiCmd::PostSky { version, module, parts, summon } => {
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            crate::postsky::post_sky(&version, &module, &parts, &summon)
         }
         MobaiCmd::DetectorInPlace { version, module, parts, at, every } => {
             let v: Vec<i32> = at.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;

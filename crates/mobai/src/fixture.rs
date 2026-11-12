@@ -5754,8 +5754,11 @@ fn scenes_raw() -> Vec<Scene> {
     // rider (day time 1000) in a cart on a rail at (4,64,4), a second villager free on the walled
     // stone floor (x 2..11, z 2..11) at (6.5,64,4.5), a zombie in a boat at (10.5,64,8.5) closed in
     // a stone box; at t200 the box's west wall (9,64..65,8) goes: the zombie comes into the rider's
-    // sight 7.2 away (the game: VillagerPanicTrigger.start erases PATH, WALK_TARGET, LOOK_TARGET and
-    // INTERACTION_TARGET at PANIC's first tick and nothing sets an entity walk during PANIC)
+    // sight 7.2 away. The game: VillagerPanicTrigger.start erases PATH, WALK_TARGET, LOOK_TARGET and
+    // INTERACTION_TARGET at PANIC's first tick (t208), then villager #2, ticking after the rider and
+    // still in IDLE, writes the rider's entity walk again (BehaviorUtils.setWalkAndLookTargetMemories
+    // writes both brains): the rider holds `walk entity #2` in PANIC to t212, its panic stroll's
+    // block target at t213
     {
         let mut b = Vec::new();
         floor(&mut b, 0, 32, 0, 16, 62, stone);

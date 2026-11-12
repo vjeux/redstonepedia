@@ -101,13 +101,20 @@ fn copies(n: u32) -> Vec<Copy> {
 }
 
 /// onechunk's rev 3 recipe: the module at frame + (6, y0, 6) (and (38, y0, 6) at N = 4), the
-/// mirrored module file at frame + (6, y0, 38) and (38, y0, 38).
-fn copies_rev3(n: u32, y0: i32) -> Vec<Copy> {
+/// mirrored module file at frame + (6, y0, 38) and (38, y0, 38); `self_mirror` (no mirrored file:
+/// a part laid on the module, b8949c96's east re-lay): the module itself mirrored there instead,
+/// z' = 3 - z as onechunk's mirrored file (frame + 38: world z 41 - z), every state mirrored.
+fn copies_rev3(n: u32, y0: i32, self_mirror: bool) -> Vec<Copy> {
     let mut v = vec![Copy { dx: 6, dy: y0, dz: 6, mirror: None, alt: false }];
     if n == 4 {
         v.push(Copy { dx: 38, dy: y0, dz: 6, mirror: None, alt: false });
-        v.push(Copy { dx: 6, dy: y0, dz: 38, mirror: None, alt: true });
-        v.push(Copy { dx: 38, dy: y0, dz: 38, mirror: None, alt: true });
+        if self_mirror {
+            v.push(Copy { dx: 6, dy: y0, dz: 0, mirror: Some(41), alt: false });
+            v.push(Copy { dx: 38, dy: y0, dz: 0, mirror: Some(41), alt: false });
+        } else {
+            v.push(Copy { dx: 6, dy: y0, dz: 38, mirror: None, alt: true });
+            v.push(Copy { dx: 38, dy: y0, dz: 38, mirror: None, alt: true });
+        }
     }
     v
 }
@@ -391,11 +398,12 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
         }
     }
     let alt_design = match mirrored {
-        Some(m) => Some(mctas::design::Design::load(m)?),
-        None => None,
+        Some(m) if m.as_os_str() != "self" => Some(mctas::design::Design::load(m)?),
+        _ => None,
     };
+    let self_mirror = mirrored.is_some_and(|m| m.as_os_str() == "self");
     let mut farm: std::collections::BTreeSet<(i32, i32)> = std::collections::BTreeSet::new();
-    let list = if rev3 { copies_rev3(n, y0) } else { copies(n) };
+    let list = if rev3 { copies_rev3(n, y0, self_mirror) } else { copies(n) };
     for c in list {
         let d = if c.alt { alt_design.as_ref().ok_or_else(|| anyhow::anyhow!("N = 4 on rev 3 needs --mirrored"))? } else { &md };
         farm.extend(place_module(&mut srv, d, c, !rev3)?);

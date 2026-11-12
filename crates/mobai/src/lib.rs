@@ -29,6 +29,7 @@ pub mod mirrorbench;
 pub mod tripwirerider;
 pub mod panicstart;
 pub mod detectorinplace;
+pub mod postsky;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

@@ -838,6 +838,18 @@ impl GameFarm {
             eprintln!("entity ticking: {:?}", g.entity_ticking);
             eprintln!("ticking: {:?}", g.ticking);
         }
+        // (tickexact 2026-11-12, the carousel-gate's first difference) the level random back to the
+        // seed's start once the farm is built: the build's own draws (a trapdoor its placement
+        // toggles plays its sound with a pitch from the level random: 4 in carousel-gate) never
+        // reach the run, and redsim's mirror, seeded from the same seed, starts equal
+        let rv = g.w.call(json!({"op": "reseed_level_random", "sandbox": sb}))?;
+        if let Some(setup) = rv["setup_draws"].as_array().filter(|a| !a.is_empty()) {
+            let n: u64 = setup.iter().filter_map(|d| d[2].as_u64()).sum();
+            eprintln!("the build drew {n} times from the traced randoms (the level random set back to the seed's start after it):");
+            for d in setup {
+                eprintln!("  {} {} x{}", d[0].as_str().unwrap_or(""), d[1].as_str().unwrap_or(""), d[2].as_u64().unwrap_or(0));
+            }
+        }
         Ok(g)
     }
 
@@ -869,9 +881,19 @@ impl GameFarm {
         self.w.call(v)
     }
 
-    /// `ticks` traced ticks (with the draw log when `draws`).
+    /// `ticks` traced ticks (with the draw log when `draws`). (tickexact 2026-11-12) A first frame
+    /// carrying `setup_draws` (the traced randoms' draws after the level random's reseed and before
+    /// the first tick: draws redsim's mirror never makes) has them printed to stderr, by stream and
+    /// call site.
     pub fn trace(&mut self, ticks: u32, draws: bool) -> Result<Vec<Frame>> {
         let v = self.w.call(json!({"op": "trace", "sandbox": self.sb, "ticks": ticks, "draws": draws, "box": {"from": self.lo, "to": self.hi}}))?;
+        if let Some(setup) = v["frames"].get(0).and_then(|f| f["setup_draws"].as_array()) {
+            let n: u64 = setup.iter().filter_map(|d| d[2].as_u64()).sum();
+            eprintln!("the game's traced randoms drew {n} times after the reseed, before the first tick (a mirror misses them):");
+            for d in setup {
+                eprintln!("  {} {} x{}", d[0].as_str().unwrap_or(""), d[1].as_str().unwrap_or(""), d[2].as_u64().unwrap_or(0));
+            }
+        }
         v["frames"].as_array().ok_or_else(|| anyhow!("trace: no frames"))?.iter().map(parse_frame).collect()
     }
 

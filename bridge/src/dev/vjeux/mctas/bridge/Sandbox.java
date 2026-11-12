@@ -399,6 +399,12 @@ final class Sandbox {
     private final java.util.Set<Entity> preSeeded = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     /** Swap every entity's random (and the level's) for a tracing one as it enters (Exact.TracingRandom). */
     boolean traceRandoms;
+    /**
+     * (tickexact 2026-11-12) The traced randoms' draws made after tracing began and before the
+     * first traced tick (the build: placements, summons, block entities), reported with the first
+     * frame ({@code setup_draws}): a draw there is one the mirror cannot see.
+     */
+    Exact.DrawLog setupDraws;
     /** Raids whose own random this sandbox seeded (by identity). */
     private final java.util.Set<Object> seededRaids = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 

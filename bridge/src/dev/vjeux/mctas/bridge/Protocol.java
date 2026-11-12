@@ -173,6 +173,7 @@ public final class Protocol {
             case "summon" -> summon(r);
             case "world" -> world(r);
             case "chunk_lists" -> chunkLists(r);
+            case "reseed_level_random" -> reseedLevelRandom(r);
             case "heights" -> heights(r);
             case "identity_hashes" -> identityHashes();
             case "memory" -> memory(r);
@@ -931,6 +932,11 @@ public final class Protocol {
         }
         if (r.has("trace_randoms")) {
             sb.setTraceRandoms(r.get("trace_randoms").getAsBoolean());
+            // (tickexact 2026-11-12) the setup's draws, from here to the first traced tick
+            if (r.get("trace_randoms").getAsBoolean() && sb.setupDraws == null) {
+                sb.setupDraws = new Exact.DrawLog();
+                Exact.drawLog = sb.setupDraws;
+            }
         }
         if (r.has("player")) {
             // {pos, mode ("creative"...), simulation, view, flying}
@@ -1057,6 +1063,25 @@ public final class Protocol {
         JsonObject out = new JsonObject();
         out.add("poi_types", o);
         return out;
+    }
+
+    /**
+     * (tickexact 2026-11-12, the carousel-gate's first difference) The level random set back to the
+     * sandbox seed's start, as the sandbox's creation set it: the build's own draws (a trapdoor a
+     * placement toggles plays its sound with a pitch from the level random) leave the run's start
+     * unmoved, so a mirror seeded from the seed starts equal. Returns the draws the build made since
+     * tracing began ({@code setup_draws}, when traced) and starts a fresh setup log.
+     */
+    private JsonObject reseedLevelRandom(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        sb.level.getRandom().setSeed(sb.seed);
+        JsonObject o = new JsonObject();
+        if (sb.setupDraws != null) {
+            o.add("setup_draws", sb.setupDraws.toJson());
+            sb.setupDraws = new Exact.DrawLog();
+            Exact.drawLog = sb.setupDraws;
+        }
+        return o;
     }
 
     private JsonObject chunkLists(JsonObject r) {
@@ -1327,6 +1352,12 @@ public final class Protocol {
         // sandbox's watched cells)
         Exact.Watch netherWatch = sb.nether != null && r.has("nether_box") ? sb.nether.watch(r.getAsJsonObject("nether_box")) : null;
         JsonArray frames = new JsonArray();
+        // (tickexact 2026-11-12) the setup's draws, reported once with the first traced frame
+        Exact.DrawLog setup = sb.setupDraws;
+        if (setup != null) {
+            sb.setupDraws = new Exact.DrawLog();
+            Exact.drawLog = null;
+        }
         for (int i = 0; i < ticks; i++) {
             Exact.DrawLog log = draws ? new Exact.DrawLog() : null;
             // a probed tick: the spawning chunks before the shuffle (as tickChunks collects them)
@@ -1338,6 +1369,9 @@ public final class Protocol {
                 Exact.drawLog = null;
             }
             JsonObject f = watch.frame(sb, log);
+            if (setup != null && i == 0 && !setup.sites.isEmpty()) {
+                f.add("setup_draws", setup.toJson());
+            }
             if (netherWatch != null) {
                 f.add("nether", netherWatch.frame(sb.nether, null));
             }

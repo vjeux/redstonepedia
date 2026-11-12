@@ -62,6 +62,10 @@ pub fn detector_in_place(version: &str, module: &std::path::Path, parts: &[std::
         srv.step(200)?;
         srv.cmd_ok("time set 0")?;
         srv.cmd_ok("gamerule advance_time true")?;
+        // the detector updates when the game time is a multiple of 20 (its block entity's tick):
+        // the phase of the day times it updates on
+        let g0 = srv.game_time()?;
+        println!("  {weather} day: the game time at day time 0 is {g0} (mod 20: {}); the detector updates at day times = {} mod 20", g0.rem_euclid(20), (20 - g0.rem_euclid(20)) % 20);
         let (mut last, mut best, mut changes, mut n) = (None::<u8>, 0u8, Vec::new(), 0u32);
         let mut t = 0u32;
         while t < 24000 {
