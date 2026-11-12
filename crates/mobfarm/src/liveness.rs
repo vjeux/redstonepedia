@@ -173,6 +173,17 @@ impl Liveness {
         self.seqs.insert(name.to_string(), Seq { t0: t, offsets: Some(offsets.to_vec()), ..Default::default() });
     }
 
+    /// Whether the named sequence was dropped (ALIVE fell, or a pulse was refused, before its
+    /// last pulse rose): its owner restarts it at the next golem event.
+    pub fn dropped(&self, name: &str) -> bool {
+        self.seqs.get(name).is_some_and(|s| s.dropped)
+    }
+
+    /// Whether the named sequence is running: started, not dropped, a declared pulse still to rise.
+    pub fn pending(&self, name: &str) -> bool {
+        self.seqs.get(name).is_some_and(|s| !s.dropped && s.offsets.as_ref().is_none_or(|o| o.iter().any(|x| !s.risen.contains(x))))
+    }
+
     /// True on the tick the sequence's pulse at `offset` gt rises: the sequence started and not
     /// dropped, `t` its start + `offset`, ALIVE (a refusal drops the sequence's remainder too).
     pub fn rise(&mut self, w: &World, name: &str, offset: i64, t: i64) -> bool {
