@@ -99,14 +99,13 @@ fn walk(rails: &HashMap<[i32; 3], Rail>, s: [i32; 3], other: [i32; 3], depth: us
     out
 }
 
-/// Every crossing of a chunk line by the design's rails (world = design + `offset`), with both
-/// sides' cells and the distances along the track; the rule's verdict per crossing.
-pub fn report(blocks: &std::collections::BTreeMap<[i32; 3], String>, offset: [i32; 2], depth: usize) -> String {
+/// Every crossing of a chunk line by the design's rails (world = design + `offset`): its line,
+/// both sides' cells and the distances along the track, and whether the rule holds there.
+pub fn crossings(blocks: &std::collections::BTreeMap<[i32; 3], String>, offset: [i32; 2], depth: usize) -> Vec<(String, bool)> {
     let rails: HashMap<[i32; 3], Rail> = blocks.iter().filter_map(|(c, s)| rail_of(s).map(|r| (*c, r))).collect();
     let chunk = |c: [i32; 3]| ((c[0] + offset[0]).div_euclid(16), (c[2] + offset[1]).div_euclid(16));
     let mut seen: BTreeSet<([i32; 3], [i32; 3])> = BTreeSet::new();
     let mut lines = Vec::new();
-    let mut bad = 0usize;
     let mut cells: Vec<[i32; 3]> = rails.keys().copied().collect();
     cells.sort_by_key(|c| (c[2], c[0], c[1]));
     for c in cells {
@@ -140,11 +139,63 @@ pub fn report(blocks: &std::collections::BTreeMap<[i32; 3], String>, offset: [i3
             let (sa, oka) = side(a, b);
             let (sb, okb) = side(b, a);
             let ok = oka && okb;
-            if !ok {
-                bad += 1;
-            }
-            lines.push(format!("border {line}: {sa} | {sb}: {}", if ok { "plain flat both sides, no climb within 2 (the rule holds)" } else { "the rule fails" }));
+            lines.push((format!("border {line}: {sa} | {sb}: {}", if ok { "plain flat both sides, no climb within 2 (the rule holds)" } else { "the rule fails" }), ok));
         }
     }
-    format!("chunk-line crossings by the design's rails (world = design + {},{}; the rule: plain unpowered flat cells on both sides, no climb within 2 cells, no peak or powered cell at the line): {} crossings, {} failing\n{}", offset[0], offset[1], lines.len(), bad, lines.join("\n"))
+    lines
+}
+
+const RULE: &str = "the rule: plain unpowered flat cells on both sides, no climb within 2 cells, no peak or powered cell at the line";
+
+/// Every crossing, one line each, after a count.
+pub fn report(blocks: &std::collections::BTreeMap<[i32; 3], String>, offset: [i32; 2], depth: usize) -> String {
+    let v = crossings(blocks, offset, depth);
+    let bad = v.iter().filter(|(_, ok)| !ok).count();
+    format!("chunk-line crossings by the design's rails (world = design + {},{}; {RULE}): {} crossings, {bad} failing\n{}", offset[0], offset[1], v.len(), v.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n"))
+}
+
+/// The runner's default report: the count, and the failing crossings, indented.
+pub fn summary(blocks: &std::collections::BTreeMap<[i32; 3], String>, offset: [i32; 2], depth: usize) -> String {
+    let v = crossings(blocks, offset, depth);
+    let bad: Vec<&str> = v.iter().filter(|(_, ok)| !ok).map(|(l, _)| l.as_str()).collect();
+    format!("borders (chunk-line crossings of the rails, `mctas mobfarm borders`; {RULE}): {} crossings, {} failing{}", v.len(), bad.len(), bad.iter().map(|l| format!("\n  {l}")).collect::<String>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(cells: &[([i32; 3], &str)]) -> std::collections::BTreeMap<[i32; 3], String> {
+        cells.iter().map(|(c, s)| (*c, format!("minecraft:{s}"))).collect()
+    }
+
+    #[test]
+    fn a_flat_plain_crossing_holds_and_a_slope_or_booster_at_the_line_fails() {
+        // (a north-south line of plain flat rails across z 15|16: the rule holds)
+        let flat: Vec<([i32; 3], &str)> = (10..22).map(|z| ([3, 1, z], "rail[shape=north_south]")).collect();
+        let v = crossings(&line(&flat), [0, 0], 12);
+        assert_eq!(v.len(), 1);
+        assert!(v[0].1, "{}", v[0].0);
+        // (the same line with a booster at z 16: fails)
+        let mut boosted = flat.clone();
+        boosted.retain(|(c, _)| c[2] != 16);
+        boosted.push(([3, 1, 16], "powered_rail[shape=north_south,powered=true]"));
+        let v = crossings(&line(&boosted), [0, 0], 12);
+        assert_eq!(v.len(), 1);
+        assert!(!v[0].1, "{}", v[0].0);
+        // (a climb starting 1 cell past the line, z 14 rising south-to-north away from it: fails;
+        // starting 2 cells past, z 13: holds)
+        let mut climb1: Vec<([i32; 3], &str)> = (15..22).map(|z| ([3, 1, z], "rail[shape=north_south]")).collect();
+        climb1.push(([3, 1, 14], "rail[shape=ascending_north]"));
+        climb1.push(([3, 2, 13], "rail[shape=north_south]"));
+        let v = crossings(&line(&climb1), [0, 0], 12);
+        assert_eq!(v.len(), 1);
+        assert!(!v[0].1, "{}", v[0].0);
+        let mut climb2: Vec<([i32; 3], &str)> = (14..22).map(|z| ([3, 1, z], "rail[shape=north_south]")).collect();
+        climb2.push(([3, 1, 13], "rail[shape=ascending_north]"));
+        climb2.push(([3, 2, 12], "rail[shape=north_south]"));
+        let v = crossings(&line(&climb2), [0, 0], 12);
+        assert_eq!(v.len(), 1);
+        assert!(v[0].1, "{}", v[0].0);
+    }
 }
