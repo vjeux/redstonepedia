@@ -571,6 +571,19 @@ pub enum MobfarmCmd {
         /// the exact least over the cart's whole path through the cell).
         #[arg(long)]
         sampled: bool,
+        /// A POI ticket taken before the check (`x,y,z`, repeatable: the shared bed taken, a
+        /// sentinel's bed): the strolls' village bias for that bed state (9fc3155f, ironspec Nov 11
+        /// 19:18).
+        #[arg(long, allow_hyphen_values = true)]
+        claim: Vec<String>,
+        /// Print every place's stamp-arming class (arms and clears / arms, never clears / never
+        /// arms), not only the "arms, never clears" places.
+        #[arg(long)]
+        classes: bool,
+        /// The golem-proof clearing cells for a place (`x,y,z`, repeatable): every glass floor
+        /// within 2 sideways and 2 up or down that turns its class from "arms, never clears".
+        #[arg(long, allow_hyphen_values = true)]
+        fix_search: Vec<String>,
     },
     /// One judge run of a design on redsim: its table.
     Run {
@@ -6774,7 +6787,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search } => {
             let (_c, spec) = load(version, &design)?;
             // (the bed: --home, else the design's `port home:` line)
             let text = std::fs::read_to_string(&design)?;
@@ -6787,7 +6800,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(s) => crate::declared::parse_boxes(s).map_err(|e| anyhow::anyhow!("panic: {e}"))?,
                 None => Vec::new(),
             };
-            let places = crate::fleecheck::check_with(&spec, bed, &foot, &panic_boxes, !sampled).map_err(|e| anyhow::anyhow!(e))?;
+            let claims: Vec<redsim::pos::BlockPos> = claim
+                .iter()
+                .map(|s| {
+                    let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    if v.len() == 3 { Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2])) } else { Err(anyhow::anyhow!("--claim x,y,z")) }
+                })
+                .collect::<Result<_, _>>()?;
+            let places = crate::fleecheck::check_claims(&spec, bed, &foot, &panic_boxes, !sampled, &claims).map_err(|e| anyhow::anyhow!(e))?;
+            if !claims.is_empty() {
+                println!("POI tickets taken first: {}", claims.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" "));
+            }
+            for l in crate::fleecheck::stamp_classes(&places, classes) {
+                println!("{l}");
+            }
+            for s in &fix_search {
+                let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                anyhow::ensure!(v.len() == 3, "--fix-search x,y,z");
+                let at = redsim::pos::BlockPos::new(v[0], v[1], v[2]);
+                let fixes = crate::fleecheck::clearing_fixes(&spec, bed, &panic_boxes, &claims, at).map_err(|e| anyhow::anyhow!(e))?;
+                println!(
+                    "clearing cells for {},{},{} (a glass floor within 2 sideways and 2 up or down; the class it gives): {}",
+                    at.x,
+                    at.y,
+                    at.z,
+                    if fixes.is_empty() { "none".to_string() } else { fixes.iter().map(|(f, k)| format!("glass {},{},{} -> {k}", f.x, f.y, f.z)).collect::<Vec<_>>().join("; ") }
+                );
+            }
             let jobs = crate::fleecheck::job_and_bell_blocks(&spec);
             for l in crate::fleecheck::report_with(&places, &jobs, show, clearing) {
                 println!("{l}");

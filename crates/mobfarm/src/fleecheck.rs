@@ -477,18 +477,40 @@ pub fn check(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_b
 /// [`check`]; `continuous`: each rider place's least zombie distance also over the cart's whole
 /// path through the cell (the default), else only at the sampled points.
 pub fn check_with(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])], continuous: bool) -> Result<Vec<Place>, String> {
+    check_claims(spec, home, foot, panic_boxes, continuous, &[])
+}
+
+/// [`check_with`] with POI tickets taken first (9fc3155f, ironspec Nov 11 19:18's bed states): one
+/// ticket on each `claims` POI (the shared bed taken, a sentinel's bed), the village centres noted,
+/// so the village bias of the strolls is the one that bed state gives (`poi::take`,
+/// `poi::note_village_centres`: world state, the brain model unchanged).
+pub fn check_claims(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])], continuous: bool, claims: &[BlockPos]) -> Result<Vec<Place>, String> {
+    check_inner(spec, home, foot, panic_boxes, continuous, claims, None)
+}
+
+/// [`check_claims`], only the rider place at `only` (the others skipped: the fix search's runs).
+fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])], continuous: bool, claims: &[BlockPos], only: Option<BlockPos>) -> Result<Vec<Place>, String> {
     let continuous_off = !continuous;
     use redsim::entity::mob::ai::goal::stroll;
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     while run.settle_tick() {}
     let w = &mut run.world;
+    for c in claims {
+        redsim::entity::mob::ai::poi::take(w, *c);
+    }
+    if !claims.is_empty() {
+        redsim::entity::mob::ai::poi::note_village_centres(w);
+    }
     let foes = zombies_seated(w, spec);
     let rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     let rider_at = |c: BlockPos| Vec3::new(c.x as f64 + 0.5, c.y as f64 + 0.0625, c.z as f64 + 0.5);
     // the places: (cell, on foot, the points tried)
     let mut places: Vec<(BlockPos, bool, Vec<Vec3>)> = Vec::new();
     for (c, state) in &rails {
+        if only.is_some_and(|o| o != *c) {
+            continue;
+        }
         let along = |t: f64| along_rail(*c, state, t);
         places.push((*c, false, vec![along(0.1), along(0.5), along(0.9)]));
     }
@@ -673,6 +695,109 @@ pub fn report(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec
 pub fn report_with(places: &[Place], jobs: &[(BlockPos, String)], show: usize, clearing: bool) -> Vec<String> {
     let mut lines = clearing_lines(places, clearing);
     lines.extend(report_body(places, jobs, show));
+    lines
+}
+
+/// The stamp-arming class of each place (9fc3155f, ironspec Nov 11 19:18; a prediction for the
+/// bills, not a bar): the sources its activity runs (panicking, a zombie seen within 8: PANIC's
+/// flee while one is within 6 and its stroll 2/2; calm: IDLE's stroll 10/7 and its walks to riders
+/// within 8), a live draw with no complete path ARMS the CANT_REACH stamp, a live draw with one
+/// CLEARS it: "arms and clears", "arms, never clears" or "never arms". One line a place, then the
+/// counts.
+/// A place's stamp sources by its activity (panicking: PANIC's stroll 2/2 and its flee while a
+/// hostile is within 6; calm: IDLE's stroll 10/7 and its walks to riders within 8).
+fn stamp_sources(p: &Place) -> Vec<(&'static str, &Source)> {
+    if p.seen > 0 {
+        let mut v = vec![("panic stroll", &p.panic_stroll)];
+        if p.flee_from > 0 {
+            v.push(("flee", &p.flee));
+        }
+        v
+    } else {
+        vec![("calm stroll", &p.stroll), ("walks to riders", &p.others)]
+    }
+}
+
+/// A place's stamp-arming class: a live draw with no complete path arms the CANT_REACH stamp, a
+/// live draw with one clears it.
+pub fn stamp_class(p: &Place) -> &'static str {
+    let srcs = stamp_sources(p);
+    let arm: f64 = srcs.iter().map(|(_, s)| s.risk()).sum();
+    let clear: f64 = srcs.iter().map(|(_, s)| s.reached_share).sum();
+    match (arm > 1e-9, clear > 1e-9) {
+        (true, true) => "arms and clears",
+        (true, false) => "arms, never clears",
+        (false, _) => "never arms",
+    }
+}
+
+/// The golem-proof clearing cells for a place (9fc3155f, ironspec Nov 11 19:18's fix price): each
+/// standing cell within 2 sideways and 2 up or down of the rider's rail cell that is air with air
+/// above and below, the cell below set to glass (no golem spawns on glass) and the place re-checked
+/// alone in that world; the cells whose glass turns the place's class from "arms, never clears".
+/// A glass cell in a cart's or rider's space (a rail cell or the two cells over one) is skipped.
+pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos) -> Result<Vec<(BlockPos, &'static str)>, String> {
+    let glass = redsim::block::Block::parse("minecraft:glass")?;
+    let solid: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.to_string().ends_with(":air")).map(|(p, _)| *p).collect();
+    let rails: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
+    let cart_space = |p: BlockPos| rails.contains(&p) || rails.contains(&BlockPos::new(p.x, p.y - 1, p.z)) || rails.contains(&BlockPos::new(p.x, p.y - 2, p.z));
+    let mut out = Vec::new();
+    for dy in -2..=2 {
+        for dz in -2..=2 {
+            for dx in -2..=2 {
+                let c = BlockPos::new(place.x + dx, place.y + dy, place.z + dz);
+                let up = BlockPos::new(c.x, c.y + 1, c.z);
+                let f = BlockPos::new(c.x, c.y - 1, c.z);
+                if solid.contains(&c) || solid.contains(&up) || solid.contains(&f) || cart_space(f) || cart_space(c) {
+                    continue;
+                }
+                let mut s2 = spec.clone();
+                s2.blocks.push((f, glass.clone()));
+                let ps = check_inner(&s2, home, &[], panic_boxes, true, claims, Some(place))?;
+                if let Some(p) = ps.iter().find(|p| p.cell == place && !p.on_foot) {
+                    let k = stamp_class(p);
+                    if k != "arms, never clears" {
+                        out.push((f, k));
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
+    let mut rows = Vec::new();
+    let (mut ac, mut an, mut na) = (0usize, 0usize, 0usize);
+    for p in places {
+        let panicking = p.seen > 0;
+        let srcs = stamp_sources(p);
+        let class = stamp_class(p);
+        match class {
+            "arms and clears" => ac += 1,
+            "arms, never clears" => an += 1,
+            _ => na += 1,
+        }
+        if each || class == "arms, never clears" {
+            let detail: Vec<String> = srcs
+                .iter()
+                .map(|(n, s)| {
+                    if *n == "walks to riders" {
+                        // (each rider within 8 is its own target: counts, not a draw's chance)
+                        format!("{n}: {} riders within 8, {} unreached", s.cells, s.live())
+                    } else {
+                        format!("{n}: {} cells, {} unreached (an event picks one {:.1}%), a reached one {:.1}%", s.cells, s.live(), 100.0 * s.risk(), 100.0 * s.reached_share)
+                    }
+                })
+                .collect();
+            rows.push(format!("  STAMP {},{},{}{}: {class}; {} ({}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, if panicking { "panicking" } else { "calm" }, detail.join("; "), if p.village { "; in a village" } else { "" }));
+        }
+    }
+    let mut lines = vec![format!(
+        "stamp-arming classes ({} places; a prediction for the bills, not a bar): arms and clears {ac}, arms, never clears {an}, never arms {na}",
+        places.len()
+    )];
+    lines.extend(rows);
     lines
 }
 
