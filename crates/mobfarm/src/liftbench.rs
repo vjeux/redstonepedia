@@ -37,6 +37,8 @@ pub struct LiftOpts {
     /// Q2's split: J1/J2 on the exit line after the slope, armed and disarmed by rise-keyed
     /// detector latches, routing carts A/B/C back to lanes z 0 / 2 / -2 in merge order.
     pub split3: bool,
+    /// The shaft's four wall cells as unconnected fence posts (sight-passing walls).
+    pub pane_walls: bool,
     /// The bench frozen (its chunks at level 32: blocks tick, entities don't) from tick FROM for LEN
     /// gt; the carts' launches wait it out.
     pub freeze: Option<(i64, i64)>,
@@ -53,16 +55,22 @@ fn build(o: &LiftOpts) -> Result<FarmSpec, String> {
         blocks.push((BlockPos::new(0, y, 0), water.clone()));
     }
     let exit_rail = o.exit == "rail" || o.exit == "current" || o.exit == "piston";
+    // (`pane_walls`: the shaft's four wall cells unconnected oak fence posts (redsim models no glass pane; a post: sight passes
+    // either side of it; waterloggable, so flowing water can't enter), the corners left open)
+    let wall = if o.pane_walls { Block::parse("minecraft:oak_fence[east=false,north=false,south=false,west=false,waterlogged=false]")? } else { glass.clone() };
     for y in -1..=h + 1 {
         for (x, z) in [(0, -1), (0, 1)] {
-            blocks.push((BlockPos::new(x, y, z), glass.clone()));
+            blocks.push((BlockPos::new(x, y, z), if y >= 0 && y < h { wall.clone() } else { glass.clone() }));
         }
         // (the west wall stops under the exit rail's cell)
         if !(exit_rail && y >= h) {
-            blocks.push((BlockPos::new(-1, y, 0), glass.clone()));
+            // (the far wall stays solid at the entry's two cells: an entering cart stops against
+            // its face, centred in the shaft (against a thin post it would roll past the cell's
+            // edge and catch the glass at the top))
+            blocks.push((BlockPos::new(-1, y, 0), if y >= 2 && y < h - 1 { wall.clone() } else { glass.clone() }));
         }
         if y >= o.entry_h || y < 0 {
-            blocks.push((BlockPos::new(1, y, 0), glass.clone()));
+            blocks.push((BlockPos::new(1, y, 0), if y >= 0 && y < h - 1 { wall.clone() } else { glass.clone() }));
         }
     }
     for x in 1..=o.entry_len {
