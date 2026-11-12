@@ -345,10 +345,86 @@ at 18,000, 7 riders entering lane x 3 at (3.6, 24.0, 6.49) one per 30 gt, every 
 H out and a fresh rider in at the top, R_1 powered 12 gt without updates), with the landed panic
 draws per rider block; `--compare-official LOG` prints tick-exact's per-draw log's tally per block
 beside it (null / complete / PARTIAL / never).
-`mctas mobfarm column ... --verify FILE` is the assembly check: the committed FILE re-composed from
-the same parts and overrides must match it cell for cell and entity for entity (a cell or an entity
-no part declares, a leftover of a superseded part, is printed), with the census of its entities
-(each passenger counted); exit 1 on any difference.
+`mctas mobfarm column ... --verify FILE [--keep-clear NAME=x0,y0,z0,x1,y1,z1]...` is the assembly
+check: the committed FILE re-composed from the same parts and overrides must match it cell for cell
+and entity for entity (a cell or an entity no part declares, a leftover of a superseded part, is
+printed), with the census of its entities (each passenger counted); each keep-clear box must hold no
+block (the bed stop's column over the bed; a NAME ending in "+glass" allows glass: the daylight
+detector's roof skylight); and the 6.05 flee bar's sight classes (ironspec Nov 12 10:24): every
+rider position every 0.1 along every rail and both bubble-column lifts, the eye at the cart + 1.62,
+against every boated zombie (feet at the boat's y + 0.1875 - 0.7, eye + 1.74): within 6.05 (feet to
+feet) IN SIGHT (a failure) unless a full-collider block sits on the eye-to-eye ray (HIDDEN, listed
+with the blocking cell), beyond it clear; the cells of the file's `waker-places: x,y,z+...=REASON`
+line (the stop's waker, ironspec 11:01's ruling (a)) in sight are their own declared class, not
+failures; `--sight-path NAME=x,z,y0,y1` adds a vertical rider path (a fall shaft; napper A's lift
+follows the stop's y). It also prints the golem detection across the tiling (ironspec 12:14, G1's
+per-axis rule: detected iff every box gap < 16), the pad's spawn cells moved to each neighbour (east,
+west, and the southern copies mirrored in z), per rider class (the lanes, the split row and sidings,
+the station and merge row, the stop and the napper's way, the lifts, the extra paths): the worst
+pair's per-axis gaps and the result. Exit 1 on any failure.
+`mctas mobfarm hold-check DESIGN --hold NAME=x,y,z:PULSE[@a1,a2,...]... [--max 40] [--n-pulse
+6,7,8,...]` (ironspec's criterion, Nov 12 10:05): a cart with a villager settled at each rest
+position along the hold's rail (none given: the cell's centre), the rail powered; the threshold is
+the largest departure tick (the first tick off the hold's cell) over the rests + 1, against the
+controller's pulse. `--n-pulse` (ironfarm's convention-free test): the rail powered exactly N gt then
+unpowered, each rest's speed at its first tick off the cell, and the least N at which every rest
+leaves within 1% of its N = 30 speed.
+f1q2-run's `--napper` (phase 3a; day-1's events, 58f770cc's stop, EMULATED) seeds one napper a night
+at the stop's entry (3,-16,-5), west at 0.2, HOME the bed, its lane rotating -1 / 3 / 7 from the
+seed's (seeds 1 / 2 / 3 start at 3 / 7 / -1), and drives the stop (F 10 gt after the lie-down: the
+hatch's controls to stone; the release 30 gt after F: the park's supports to redstone blocks; R's
+detector re-arms it), and the hold's release (c') as built (ironspec 11:49): the lift exit (7,-3,4)
+as a detector rail sets the waiting RS, its Q delayed 38 gt; E samples live Q AND delayed Q at its
+edge (ARM3 + 2, ARM3 the main line's detector (5,0,7) risen at or after REL + 24); locked, the 12-gt
+pulse fires (the input (7,-1,8) at ARM3 + 10) and resets the RS (the departing napper's second
+ARM3 rise fires nothing), and keys K(n) on at ARM3 + 93 / 108 / 124 and off at ARM3 + 125 / 140 / 156
+(PRESENT_l at the reset) and J(-1)'s block ARM3 + 72..127 for an eastbound napper (7b90c3f1's
+numbers), and the siding's release (D's rise + 4 while PRESENT_l: the input (x-2,23,9) on 30 gt);
+each napper's delayed bit at the sampler is logged against its rest on the hold, its departure
+against E's rise, and every pulse fired with the hold empty (bar 0); every other rise of (5,0,7) in
+a cycle is logged with the J/K levers, the hold's input and the
+cycle's state. The napper is one of its lane's carts (its first lane starts one slope cart short).
+It prints each napper's milestones and the drives; `--cart-trace ID,FROM,TO` prints a cart's cells
+and every lane's H..V occupancy at each release with the ticks V (x,22,6) held a cart. With the
+station's built R_1 drive (a repeater at
+(x+1,17,1)) the R line is a redstone block at the repeater's input (x+2,17,1) for 10 gt. Every night
+also prints the villagers within 16 of the bed head with the calm REST ticks there while the bed is
+occupied (bar 0), any cart resting on another cart's top (a failure), the staleness bar (ironspec
+11:02: every entry into a position within 6.05 of a zombie hidden from it at least 40 gt after the
+rider's last position within 8 of a zombie in its sight, `hasLineOfSight` eye to eye; the stop's
+waker places left out), and the panic draws by the target's kind (a point or a block: the flee, the
+strolls, HOME; an entity walk: one draw however far its mob moves), each entity walk's row naming
+the followed mob's INTERACTION_TARGET, WALK_TARGET, activity and running behaviours (both pointing
+at each other: the neighbour's `setWalkAndLookTargetMemories`) and the rider's own.
+`--seat NAME=x,y,z:cx,cy,cz+...` counts an S-bend seat's stamp resets (a complete draw to one of its
+clearing candidates from the seat: per candidate, per 1,000 rider-ticks, the longest stretch on it
+without one); `--nap-trace FROM,TO` prints the napper's cart per tick (position, velocity, its
+lane's R powered or not, every cart within 1.5); each napper's route from its K is checked against
+the designed K (x-2,25,9), F (x-2,25,8), R (x-2,24,7), c1 (x-2,24,6), c2 (x-1,24,6), c3 (x-1,24,7),
+C (x,24,7) (bar: identical); and the departing napper's exit from the bed's 16-ball after reaching
+R (bar <= 152 gt). `--neighbour-golems dx,dy,dz` (ironspec 11:29) emulates a neighbour copy's pad
+golems (ours moved by the offset, the same phase) setting GOLEM_DETECTED_RECENTLY on riders whose
+16-block box they meet; every night prints each stand arrival (a cart entering a pocket cell
+(x,0,0)) with the memory still set (blocked from a summon; bar 0) or expiring within 20 gt of it,
+and with the offset the least time from a rider's last tick in the neighbour pad's detection box to
+its next stand arrival (bar >= 619). The summons from the pockets (ironspec 12:13: the stand is the
+pocket): before each tick a VillagerPanicTrigger calls the summon (game time % 100 = 0), every
+scared, slept villager in a pocket cell (x,0,0) calls; a caller with GOLEM_DETECTED_RECENTLY present
+(a ttl of 1 or more: the brain forgets a 0 before its behaviours run) is blocked, listed with the
+memory's last setter; the villagers in a free caller's box inflated by 10 are counted or rejected,
+and a summon those rejections take under 3 is blocked (participations blocked: bar 0); with each
+lane's least rotation at a summon tick (the riders whose last lane is it, a napper out while away;
+bar >= 7) and the least free caller's margin. Every setting of the memory is attributed: a summon's
+10-box stamp (a golem born that tick; on a summoner that summon counted, or on a bystander, whose
+expiry is printed against its next summon), the GolemSensor reading the living list (its source
+golem and birth tick, or none alive: a departed golem in a stale list; how many within 600 gt after
+the rider's own stamp), or the emulated neighbour. The stop's drives, the napper's seeding and its
+milestones follow the stop's y (the `home` port's y against rev 3's -18).
+redsim's `Run::start` (every run built from a design without a site world) refuses a design with a
+non-air cell outside the world's box, a cell the placement popped, or a cell where `can_survive`
+fails (dust or a repeater over air, a hook without its anchor): the run fails, listing the cells,
+instead of building without them; `World::place_raw` (and `place_like_judge`) panics on a non-air
+cell outside a box world's bounds, listing them (a land world places anywhere).
 `mctas mobfarm ticket-check --module M --loader L [--tiling 1|2|4] [--no-mirror] [--piglins DAYS
 [--difficulty 2]]` (onechunk, ironspec's freeze ruling) places the module copies by the budget's
 tiling around the loader's gap chunk (the loader at its frame + (17, 0, 17), chunk (1,1); modules at
@@ -361,7 +437,11 @@ tick 3/4096 a tick, a spawn on difficulty/2000 of them, a player within 128) and
 over the season by the player's position. `--nether-group G [--twin-y Y]` adds every chunk of the
 Nether group (the kill room, storage, shield and twin) against the twin's portal ticket alone (level
 30 at the chunk of the twin's exit block, its portal blocks at or above Y; the kill room's own ticket
-comes and goes with golem arrivals), each <= 31 to pass.
+comes and goes with golem arrivals), each <= 31 to pass. It also prints the tiling's cells (ironspec
+Nov 12 10:50, a re-lay into a gap chunk): every copy's and the loader's cells at the pitch, any cell
+two of them claim, any cell inside another copy's `--keep-out x0,y0,z0,x1,y1,z1` box (the module's
+frame, carried with each copy), the chunks each uses (and those used by more than one), and the least
+distance from a copy's cells outside its own chunk to any other copy's cells.
 The loader's bench (`mobfarm l1-item-bench`) also prints, per side, the longest time an arrival spent
 inside the portal's cells (against the crossing copy's 300-gt portal cooldown) and the code-derived
 bound on where a dispensed item crosses (`DefaultDispenseItemBehavior.spawnItem`'s x velocity
