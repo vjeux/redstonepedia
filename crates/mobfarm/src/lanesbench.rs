@@ -82,7 +82,9 @@ pub fn lanes_bench(o: &LanesOpts) -> Result<String, String> {
     let gx = o.run;
     let g_face = gx as f64 + 0.375;
     let g_plane = gx as f64 + 0.5;
-    let sink_x = (o.run + 6) as f64;
+    // (the sink on the first flat after the gate's slope: a released cart is taken before friction on
+    // the flats can stop it there)
+    let sink_x = (o.run + 2) as f64 + 0.3;
     // (the lanes filled pressed: the front cart at the gate's face, then 0.790 apart up the run)
     let slope_y = |x: f64| {
         let cx = x.floor() as i32;
@@ -173,7 +175,7 @@ pub fn lanes_bench(o: &LanesOpts) -> Result<String, String> {
         for k in due {
             let l = carts[k].0;
             let z = zs[l] as f64 + 0.5;
-            let x = 0.6;
+            let x = 1.5;
             let clear = carts.iter().filter(|(ll, _)| *ll == l).all(|(_, id)| id.and_then(|id| cart_state(&run.world, id)).is_none_or(|(cx, _, _, _)| cx > x + 1.2));
             if clear && !frz && !real_frozen {
                 let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x, slope_y(x), z], Some(&nbt))?;
@@ -183,6 +185,13 @@ pub fn lanes_bench(o: &LanesOpts) -> Result<String, String> {
         }
         run.tick();
         let now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|(_, id)| id.and_then(|id| cart_state(&run.world, id))).collect();
+        if let Ok(tr) = std::env::var("MCTAS_LANES_TRACE") {
+            let p: Vec<i64> = tr.split(',').filter_map(|x| x.parse().ok()).collect();
+            if p.len() == 3 && t >= p[1] && t < p[2] {
+                let xs: Vec<String> = (0..n).filter(|&k| carts[k].0 == p[0] as usize).filter_map(|k| now[k].map(|c| format!("{k}:{:.2},{:.2}/{:.2}", c.0, c.1, c.3))).collect();
+                eprintln!("t {t} gate {} : {}", if gate_open { "open" } else { "shut" }, xs.join(" "));
+            }
+        }
         for k in 0..n {
             let l = carts[k].0;
             if let (Some((x, _, _, v)), Some((px, _, _, pv))) = (now[k], prev[k]) {
@@ -200,6 +209,11 @@ pub fn lanes_bench(o: &LanesOpts) -> Result<String, String> {
                 if x >= sink_x
                     && let Some(id) = carts[k].1.take()
                 {
+                    // (the rider first: a villager left behind on the track would stop the next cart)
+                    let riders: Vec<u32> = redsim::entity::index_of(&run.world, id).map(|i| run.world.entities.list[i].passengers.clone()).unwrap_or_default();
+                    for r in riders {
+                        let _ = redsim::entity::kill(&mut run.world, r);
+                    }
                     let _ = redsim::entity::kill(&mut run.world, id);
                     pending.push((t + o.ret, k));
                 }
